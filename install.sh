@@ -8,7 +8,8 @@ BIN_DIR="$HOME/.local/bin"
 CONFIG_LINK="$HOME/.config/agent-mesh"
 SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
-SKILLS=(delegate-claude-agy delegate-claude delegate-agy)
+SKILLS=(delegate-claude delegate-agy)
+RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 BEGIN="<!-- agent-mesh:begin (managed by agent-mesh/install.sh) -->"
 END="<!-- agent-mesh:end -->"
 
@@ -60,7 +61,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   unlink_if_ours "$BIN_DIR/mesh"
   unlink_if_ours "$CONFIG_LINK"
   for root in "${SKILL_ROOTS[@]}"; do
-    for skill in "${SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
+    for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
   for file in "${RULE_FILES[@]}"; do set_block "$file" 0; done
   echo "agent-mesh uninstalled (run state in ~/.local/state/agent-mesh is kept)"
@@ -72,6 +73,7 @@ chmod +x "$REPO/bin/mesh"
 link "$REPO/bin/mesh" "$BIN_DIR/mesh"
 link "$REPO/protocol" "$CONFIG_LINK"
 for root in "${SKILL_ROOTS[@]}"; do
+  for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   for skill in "${SKILLS[@]}"; do link "$REPO/skills/$skill" "$root/$skill"; done
 done
 for file in "${RULE_FILES[@]}"; do set_block "$file" 1; done

@@ -1,12 +1,12 @@
 # Plan: <short title>
 
-Repo: <path> · Branch: mesh/<run>/<slug> · Executor: <kind> <model>/<effort>
+Repo: <path> · Branch: mesh/<run>/<slug> · Agent: <your name> (<model>/<effort>)
 
 ## Goal
 One or two sentences: the outcome, not the steps.
 
-## Setup
-Commands to run first in the fresh worktree (e.g. `pnpm install --frozen-lockfile`, `uv sync`).
+## Findings
+What your research found, with file paths and function names: where the behaviour lives today, the root cause of a bug, how you reproduced it, what the existing tests cover. The reviewer hasn't read the code, so this is what they judge the plan by.
 
 ## Files
 The files to create or change, with one line each on what changes. Name existing functions and utilities to reuse, with their paths.
@@ -21,10 +21,9 @@ Rules that must still hold afterwards: conventions from the repo's CLAUDE.md/AGE
 ## Done when
 The exact command(s) that must pass, e.g. `pnpm test && pnpm build`, plus any manual check.
 
-## Stop and ask if
-- The plan is wrong about the code (a file or function isn't where it says).
-- A step would touch files outside **Files**.
-- <task-specific doubts the planner foresees>
+## Open questions / risks
+- Decisions you'd like the reviewer to make, each with the options and your recommendation.
+- What could go wrong, and how you'll notice.
 
 ## Out of scope
-What not to do, even if it looks related.
+What you won't do, even if it looks related.

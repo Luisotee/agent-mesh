@@ -1,52 +1,62 @@
 # agent-mesh
 
-**Expensive models plan, cheap models type, and you can watch all of it.**
+**Working in one repo and need a change in another? Let your agent hand it to an agent that lives in that repo.**
 
-agent-mesh lets one coding agent hand a request to a team of agents spread across your repos:
+You're building a feature in `shop-web` and hit a rock: the API in `shop-api` doesn't return the field you need. Normally you'd stop, switch repos, start a new session that doesn't know what you were doing, and explain everything again. Or you'd let your current agent edit `shop-api` without that repo's `CLAUDE.md`, hooks and conventions loaded.
 
-- **a planner inside each affected repo**, so it works with that repo's own `CLAUDE.md` / `AGENTS.md`, skills and hooks
-- **executors in their own git worktrees**, which carry out the plans
-- **two-way messages** between them: executors ask questions, planners answer, and everyone reports back up
-
-Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session running in a [herdr](https://herdr.dev) pane. Nothing is headless, so you can watch any agent in herdr's agents tab and type into it at any moment.
+With agent-mesh you stay where you are and type:
 
 ```
-you ─▶ /delegate-claude-agy fix the reaction bug in curupira-bot and port it to castanha-bot
-
-root (the session you typed into)
- ├── curupira-bot planner  (Claude Opus, high)  ──▶  executor e1 (agy, Gemini Flash)  [worktree]
- │                                               └─▶  executor e2 (agy, Gemini Flash)  [worktree]
- └── castanha-bot planner  (Claude Opus, high)  ──▶  executor e1 (agy, Gemini Flash)  [worktree]
-
-questions flow up to the lowest agent that can answer them;
-reports flow up as short summaries; each repo ends with a PR.
+/delegate-agy shop-api should return `restockedAt` on GET /products/:id; shop-web needs it for the "back in stock" badge
 ```
+
+What happens next:
+
+1. **A worker starts inside `shop-api`**, in its own git worktree and in a herdr pane you can watch. It loads that repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. By default it runs on Gemini Flash at high effort.
+2. **It researches and sends you a plan.** Your current session (the *root*) reviews the plan: right files, right contract, real tests. It approves the plan or asks for changes. Nothing is edited before approval.
+3. **The same worker makes the change.** The agent that did the research also writes the code, so no context is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
+4. **Meanwhile, your session keeps working on `shop-web`**, building against the `restockedAt` contract it gave the worker.
+5. **You get one report:** the `shop-api` PR link, what changed, and the checks that passed.
+
+```
+your session in shop-web (root)            keeps building the badge
+ └── shop-api-restocked-at  (agy, Gemini Flash, high)  [worktree]
+       research ─▶ plan ─▶ root reviews ─▶ edit ─▶ test ─▶ PR ─▶ done
+```
+
+Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session running in a [herdr](https://herdr.dev) pane. Nothing is headless, so you can watch any agent and type into it at any moment.
 
 ## Why
 
-- **Cost:** most of the tokens in a coding task go to reading files, typing code and running tests, not to deciding what to do. agent-mesh gives that work to a cheap, fast model and keeps the expensive one for planning, answering questions and reviewing.
-- **Per-repo context:** a planner sitting *inside* each repo loads that repo's rules, unlike one central agent juggling every repo's conventions. Each executor also loads the repo's `AGENTS.md`.
+- **The right context in each repo:** a worker running *inside* `shop-api` follows that repo's rules and hooks, so it's faster and more precise than an agent editing a repo whose conventions it never loaded.
+- **You don't lose your place:** the session you're working in keeps its context and keeps going on its own repo.
+- **No lost research:** the agent that wrote the plan is the one that carries it out.
+- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so workers default to Gemini Flash. Your root session spends its tokens on reviewing plans and answering questions.
 - **Oversight without babysitting:**
-  - every result is checked by its planner (tests, lint, build, diff review) before it moves up
-  - you're only asked about genuine product decisions
-  - but you can step in anywhere, because every agent is a visible terminal you can type into
-- **No new runtime:** it's a single stdlib-Python CLI, three skills and a protocol written in Markdown. The agents themselves do the orchestration, following written procedures.
+  - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
+  - you're asked only about real product decisions
+  - every agent is a visible terminal you can step into
+- **No new runtime:** it's a single stdlib-Python CLI, two skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
 
-## Modes
+## Commands
 
-Each mode is a command, available in both Claude Code and agy:
+Both commands work from Claude Code and from agy:
 
-| Command | Planner | Executor |
-|---|---|---|
-| `/delegate-claude-agy` | Claude, Opus, high effort | agy, newest Gemini Flash |
-| `/delegate-claude` | Claude, Opus, high effort | Claude, Opus, high effort |
-| `/delegate-agy` | agy, Gemini Argon, high effort | agy, newest Gemini Flash |
+| Command | Worker (one per other repo) |
+|---|---|
+| `/delegate-agy` | agy, newest Gemini Flash, high effort |
+| `/delegate-claude` | Claude, Opus, high effort |
 
-- **Flash effort per task:** `low` for mechanical edits, `medium` by default, `high` for multi-step work.
-- **Escalation:** when an executor fails twice, it moves up a level: Flash high → Argon → the planner does the work itself.
-- **Overrides:** naming a model in the request overrides the defaults.
+- **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
+- **Overrides:** naming a model or effort in the request ("use Argon", "with Claude") overrides the default. Nothing switches models on its own: if a worker fails, the root tells you and suggests one.
 
-The command decides who does the work. The pane you type it into decides who coordinates and gets the final report.
+More examples:
+
+```
+/delegate-agy     add rate limiting to the webhook route in notifications-service
+/delegate-agy     add tests for the date parser in shop-web and admin-web, use Argon
+/delegate-claude  add the `marketingOptOut` field to shared-schemas and update shop-api's user route to match
+```
 
 ## How it works
 
@@ -55,7 +65,7 @@ The command decides who does the work. The pane you type it into decides who coo
 Typing into a terminal is not reliable delivery: the agent might be busy, stopped at a dialog, or you might be typing in that pane. So every message is **written to the recipient's mailbox first**, and only then is a one-line **doorbell** typed into its pane:
 
 ```
-📬 [mesh] question from curupira-bot-fix-reactions: Should the reaction be removed when the reply fails? (run `mesh inbox`)
+📬 [mesh] question from shop-api-restocked-at: Should restockedAt be null for products that were never out of stock? (run `mesh inbox`)
 ```
 
 - **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
@@ -64,8 +74,8 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Names and workspaces
 
-- **Readable names:** agents are named for what they do, such as `ai-boilerplate-lead`, `curupira-bot-planner` and `curupira-bot-fix-reactions`.
-- **One workspace per project:** agents open in the project's existing herdr workspace, in one tab per run (`mesh: fix the reaction bug`). A workspace is created only for a project that has none.
+- **Readable names:** agents are named for what they do, such as `shop-web-lead` (the root) and `shop-api-restocked-at` (a worker).
+- **One workspace per project:** workers open in the project's existing herdr workspace, in one tab per run (`mesh: add restockedAt to shop-api`). A workspace is created only for a project that has none.
 
 ### Identity
 
@@ -73,24 +83,26 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Watchdog
 
-Supervisors run `mesh watch <child>` in the background. It exits 0 when the child reports `done`/`failed`, and with an alert status otherwise:
+The root runs `mesh watch <worker>` in the background. It exits 0 when the worker reports `done`/`failed`, and with an alert status otherwise:
 
 | Status | Meaning |
 |---|---|
-| 3 | the child stopped without reporting |
-| 4 | the child is blocked on a dialog |
-| 5 | the child's pane is gone |
+| 3 | the worker stopped without reporting |
+| 4 | the worker is blocked on a dialog |
+| 5 | the worker's pane is gone |
 | 6 | timeout |
 
-A Claude supervisor gets notified the moment the watch exits.
+A Claude root gets notified the moment the watch exits.
 
 ### Safety rails
 
-- **Branches:** executors work only in their worktree, on `mesh/<run>/<slug>`, and never push.
-- **Publishing:** planners push only their run's branches and open PRs. Nobody merges or deploys.
+- **Branches:** workers change code only in their own worktree, on `mesh/<run>/<slug>`, and never touch the main checkout.
+- **Plans first:** a worker changes nothing until the root approves its plan.
+- **Publishing:** workers push only their own run branch and open a PR. Nobody merges or deploys.
+- **No sub-delegation:** workers never spawn agents.
 - **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
 - **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself, and refuses any other startup prompt.
-- **Cleanup:** `mesh stop` removes only *clean* worktrees and always keeps the branches.
+- **Cleanup:** `mesh stop` removes only *clean* worktrees, always keeps the branches, and never touches your own checkout.
 
 ## Install
 
@@ -116,16 +128,6 @@ git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
 
 It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Re-running it is safe.
 
-## Use
-
-From any Claude Code or agy session inside herdr:
-
-```
-/delegate-claude-agy add rate limiting to the webhook route in whatsapp-cloud
-/delegate-claude     add the opt-out field to fleetview's schemas and update ai-boilerplate's admin route to match
-/delegate-agy        add tests for the whitelist parser in all three TS clients
-```
-
 Useful commands while a run is going:
 
 ```bash
@@ -137,12 +139,13 @@ mesh stop <run>            # close panes, remove clean worktrees, archive the ru
 ## The protocol in one screen
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
+- **Plan first:** a worker sends `mesh send parent --type plan --file …` and changes nothing until it's `approved`.
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
 - **Repo rules still apply:** the repo's own `CLAUDE.md` / `AGENTS.md` always apply. The mesh never names a tracker or a repo-specific process.
 
-Full text: [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md). The procedure for roots and planners is in [`protocol/ORCHESTRATE.md`](protocol/ORCHESTRATE.md), and plans follow [`protocol/PLAN_TEMPLATE.md`](protocol/PLAN_TEMPLATE.md).
+Full text: [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md). The procedure for roots and workers is in [`protocol/ORCHESTRATE.md`](protocol/ORCHESTRATE.md), and plans follow [`protocol/PLAN_TEMPLATE.md`](protocol/PLAN_TEMPLATE.md).
 
 ## Design notes
 

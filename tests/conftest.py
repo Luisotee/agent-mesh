@@ -62,14 +62,14 @@ def fake(mesh, monkeypatch):
 
 @pytest.fixture
 def run(mesh, fake, monkeypatch):
-    """An initialised run whose root is pane w1:p1, plus one executor."""
+    """An initialised run whose root is pane w1:p1, plus one worker."""
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
     fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "tab_id": "w1:t1",
                                                   "workspace_id": "w1", "cwd": "/repo"}]})
-    assert mesh.main(["init", "--mode", "claude-agy", "--run-id", "mtest"]) == 0
+    assert mesh.main(["init", "--mode", "agy", "--run-id", "mtest"]) == 0
     with mesh.editing_run("mtest") as data:
-        data["agents"]["repo-fix-typo"] = {"role": "executor", "kind": "agy", "pane": "w2:p5", "parent": "repo-lead",
+        data["agents"]["repo-fix-typo"] = {"role": "worker", "kind": "agy", "pane": "w2:p5", "parent": "repo-lead",
                                            "status": "running", "tab": "w2:t3"}
     return "mtest"
 

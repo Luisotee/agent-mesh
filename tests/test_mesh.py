@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 
-def as_executor(monkeypatch, run):
+def as_worker(monkeypatch, run):
     monkeypatch.setenv("MESH_RUN", run)
     monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
 
@@ -73,7 +73,7 @@ def test_doorbell_falls_back_to_pane_id(mesh, fake, run):
 
 
 def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsys):
-    as_executor(monkeypatch, run)
+    as_worker(monkeypatch, run)
     assert mesh.main(["send", "parent", "--type", "question", "--body", "Include _db.py?"]) == 0
     doorbell = fake.called("agent", "prompt")[-1]
     assert doorbell[2] == "repo-lead"
@@ -102,7 +102,7 @@ def test_send_rejects_unknown_agent_and_empty_body(mesh, fake, run, capsys):
 def test_first_message_introduces_the_agent(mesh, fake, run):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do X.", first=True)
     text = fake.called("agent", "prompt")[-1][3]
-    assert "You are repo-fix-typo (executor)" in text
+    assert "You are repo-fix-typo (worker)" in text
     assert "your parent is repo-lead" in text
     assert "PROTOCOL.md" in text
 
@@ -138,7 +138,7 @@ def test_claude_argv_keeps_alias(mesh):
 
 def test_watch_returns_when_child_reports_done(mesh, fake, run, monkeypatch):
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
-    as_executor(monkeypatch, run)
+    as_worker(monkeypatch, run)
 
     def sleep(_):
         if not mesh.sends_from(run, "repo-fix-typo", ("done",)):
@@ -166,6 +166,20 @@ def test_watch_question_then_idle_is_not_an_alert(mesh, fake, run, monkeypatch):
 
     monkeypatch.setattr(mesh, "agent_status", status)
     # the question keeps the watch going; it ends only when the agent disappears
+    assert mesh.main(["watch", "repo-fix-typo"]) == 5
+
+
+def test_watch_plan_then_idle_waits_for_review(mesh, fake, run, monkeypatch):
+    states = iter(["working", "idle", "idle", "gone"])
+
+    def status(name):
+        state = next(states)
+        if state == "idle" and not mesh.sends_from(run, name):
+            mesh.deliver(run, name, "repo-lead", "plan", "1. Patch reactions.py")
+        return state
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    # a plan awaiting review is neither a stall nor a final report
     assert mesh.main(["watch", "repo-fix-typo"]) == 5
 
 
@@ -216,7 +230,7 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     fake.on("agent", "start", errors=["cli_error"], result={"agent": {}})  # shell not ready on the first try
     monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
 
-    assert mesh.main(["spawn", "--kind", "agy", "--role", "executor", "--repo", str(repo), "--model", "flash",
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
                       "--worktree", "Fix Reactions", "--task", "Do the thing."]) == 0
     first = json.loads(capsys.readouterr().out)
     assert first["name"] == "proj-fix-reactions"
@@ -228,12 +242,25 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert start[-3:] == ("--model", "gemini-3.8-flash-medium", "--dangerously-skip-permissions")
     assert first["delivery"]["rung"] is True
 
-    assert mesh.main(["spawn", "--kind", "claude", "--role", "planner", "--repo", str(repo), "--model", "opus",
-                      "--effort", "high"]) == 0
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "port"]) == 0
     second = json.loads(capsys.readouterr().out)
     assert second["pane"] == "w9:p11"
+    assert second["model"] == "opus"
     assert fake.called("pane", "split", "w9:p10", "--direction", "right")
-    assert mesh.load_run(run)["agents"]["proj-planner"]["status"] == "running"
+    assert mesh.load_run(run)["agents"]["proj-port"]["status"] == "running"
+    assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+
+
+def test_spawn_defaults_to_an_agy_flash_high_worker(mesh, fake, run, repo, monkeypatch, capsys):
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "fix-reactions"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["model"] == "gemini-3.8-flash-high"
+    entry = mesh.load_run(run)["agents"]["proj-fix-reactions"]
+    assert (entry["role"], entry["kind"], entry["effort"]) == ("worker", "agy", "high")
+    assert "MESH_ROLE=worker" in fake.called("tab", "create")[0]
 
 
 # ── trust dialogs ────────────────────────────────────────────────────────
@@ -305,8 +332,8 @@ def test_agy_listing_failure_without_cache_is_a_clean_error(mesh, monkeypatch, c
 
 
 def test_agent_names_are_readable_valid_and_unique(mesh):
-    assert mesh.agent_name("curupira-bot", "planner", set()) == "curupira-bot-planner"
-    assert mesh.agent_name("curupira-bot", "planner", {"curupira-bot-planner"}) == "curupira-bot-planner-2"
+    assert mesh.agent_name("shop-api", "restocked-at", set()) == "shop-api-restocked-at"
+    assert mesh.agent_name("shop-api", "restocked-at", {"shop-api-restocked-at"}) == "shop-api-restocked-at-2"
     long = mesh.agent_name("a-really-long-repository-name", "Fix the reaction handler bug", set())
     assert mesh.NAME_RE.match(long) and long.endswith("fix-the-reaction-han")
     assert mesh.NAME_RE.match(mesh.agent_name("3d-viewer", "lead", set()))
@@ -321,28 +348,28 @@ def test_init_keeps_a_root_name_you_chose(mesh, fake, monkeypatch, capsys):
     assert not fake.called("agent", "rename")
 
 
-def test_escalation_executor_reuses_the_worktree_slug(mesh, run):
+def test_restart_in_a_worktree_reuses_its_slug(mesh, run):
     import argparse
     with mesh.editing_run(run) as data:
         data["worktrees"] = [{"path": "/wt/proj-fix-reactions", "repo": "/proj", "branch": "mesh/mtest/fix-reactions"}]
-    args = argparse.Namespace(name=None, role="executor", worktree=None, cwd="/wt/proj-fix-reactions")
+    args = argparse.Namespace(name=None, role="worker", worktree=None, cwd="/wt/proj-fix-reactions")
     suffix = mesh.spawn_suffix(args, mesh.load_run(run))
     assert mesh.agent_name("proj", suffix, {"proj-fix-reactions"}) == "proj-fix-reactions-2"
 
 
 def test_tab_label_comes_from_the_request(mesh):
-    assert mesh.tab_label({"id": "m1", "request": "fix the reaction bug in curupira and port it"}) == "mesh: fix the reaction bug in"
+    assert mesh.tab_label({"id": "m1", "request": "add restockedAt to shop-api and use it in shop-web"}) == "mesh: add restockedAt to shop-api"
     assert mesh.tab_label({"id": "m1", "request": ""}) == "mesh: m1"
 
 
 def test_workspace_found_by_label_then_by_pane_inside_repo(mesh, fake, tmp_path):
-    repo = tmp_path / "city-tour-app"
+    repo = tmp_path / "shop-api"
     (repo / "src").mkdir(parents=True)
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w1", "label": "other"},
-                                                        {"workspace_id": "w2", "label": "walklore"}]})
+                                                        {"workspace_id": "w2", "label": "shop"}]})
     fake.on("pane", "list", "--workspace", "w2", result={"panes": [{"cwd": str(repo / "src")}]})
     assert mesh.find_or_create_workspace(repo) == ("w2", False)
-    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w3", "label": "City-Tour-App"}]})
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w3", "label": "Shop-API"}]})
     assert mesh.find_or_create_workspace(repo) == ("w3", False)
     assert not fake.called("workspace", "create")
 

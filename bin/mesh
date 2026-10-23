@@ -26,11 +26,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.2.0"
-MODES = ("claude-agy", "claude", "agy")
+VERSION = "0.3.0"
+MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
-ROLES = ("planner", "executor")
-TYPES = ("task", "question", "answer", "done", "failed", "info")
+DEFAULT_MODELS = {"agy": "flash", "claude": "opus"}
+DEFAULT_EFFORT = "high"
+ROLES = ("worker",)
+TYPES = ("task", "plan", "question", "answer", "done", "failed", "info")
 FINAL_TYPES = ("done", "failed")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 AGY_MODEL_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$", re.MULTILINE)
@@ -196,7 +198,7 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
 
 
 def agent_name(repo: str, suffix: str, taken: set[str]) -> str:
-    """A readable herdr name such as `curupira-bot-planner`, made unique with -2, -3…"""
+    """A readable herdr name such as `shop-api-restocked-at`, made unique with -2, -3…"""
     suffix = slugify(suffix, 20)
     base = re.sub(r"^[^a-z]+", "", f"{slugify(repo, 32 - len(suffix) - 4)}-{suffix}") or "agent"
     name, n = base, 2
@@ -238,7 +240,7 @@ def inside(path: str | None, top: Path) -> bool:
 
 def find_or_create_workspace(repo_top: Path) -> tuple[str, bool]:
     """The project's one herdr workspace: by label, then by a pane inside the repo, else a new one."""
-    # Locked across runs, so two planners spawning at once can't both create one.
+    # Locked across runs, so two workers spawning at once can't both create one.
     with file_lock(mesh_home() / ".workspace.lock"):
         workspaces = herdr("workspace", "list").get("workspaces", [])
         for ws in workspaces:
@@ -265,7 +267,7 @@ def split_direction(rect: dict) -> str:
 
 
 def tab_label(run: dict) -> str:
-    """The run's tab: `mesh: fix reaction bug`, from the request's first words."""
+    """The run's tab: `mesh: add restockedAt to shop-api`, from the request's first words."""
     words, label = (run.get("request") or "").split(), ""
     for word in words:
         if len(label) + len(word) + 1 > 28:
@@ -573,19 +575,17 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def spawn_suffix(args: argparse.Namespace, run: dict) -> str:
-    """planner → `planner`; executor → its worktree slug, so the name says what it works on."""
+    """A worker is named for its worktree slug, so the name says what it works on."""
     if args.name:
         return args.name
-    if args.role == "planner":
-        return "planner"
     if args.worktree:
         return args.worktree
-    if args.cwd:  # an escalation in an earlier executor's worktree: reuse its slug (agent_name adds -2)
+    if args.cwd:  # a restart in an earlier worker's worktree: reuse its slug (agent_name adds -2)
         cwd = Path(args.cwd).expanduser().resolve()
         for wt in run.get("worktrees", []):
             if Path(wt["path"]).resolve() == cwd:
                 return wt["branch"].rsplit("/", 1)[-1]
-    return f"exec{sum(a['role'] == 'executor' for a in run['agents'].values()) + 1}"
+    return f"worker{sum(a['role'] == 'worker' for a in run['agents'].values()) + 1}"
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
@@ -595,6 +595,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     name = agent_name(repo_top.name, spawn_suffix(args, run), set(run["agents"]) | live_agent_names())
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
+    args.model = args.model or DEFAULT_MODELS[args.kind]
     argv, model = agent_argv(args.kind, args.model, args.effort)
     branch = None
     if args.worktree:
@@ -860,7 +861,7 @@ def cmd_dir(args: argparse.Namespace) -> int:
 
 
 def cmd_model(args: argparse.Namespace) -> int:
-    print(agent_argv(args.kind, args.model, args.effort)[1])
+    print(agent_argv(args.kind, args.model or DEFAULT_MODELS[args.kind], args.effort)[1])
     return 0
 
 
@@ -883,16 +884,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_init)
 
-    p = ident(sub.add_parser("spawn", help="start a planner or executor agent in a herdr pane"))
-    p.add_argument("--kind", choices=KINDS, required=True)
-    p.add_argument("--role", choices=ROLES, required=True)
+    p = ident(sub.add_parser("spawn", help="start a worker agent in a herdr pane"))
+    p.add_argument("--kind", choices=KINDS, default="agy", help="default: agy")
+    p.add_argument("--role", choices=ROLES, default="worker")
     p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
-    p.add_argument("--model", required=True, help="claude: alias (opus); agy: family (flash, argon) or exact id")
-    p.add_argument("--effort", default="medium", choices=("low", "medium", "high", "xhigh", "max"))
-    p.add_argument("--name", help="what goes after the repo in the agent's name (default: planner / the worktree slug)")
+    p.add_argument("--model", help="claude: alias (default opus); agy: family (default flash, or argon) or exact id")
+    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--name", help="what goes after the repo in the agent's name (default: the worktree slug)")
     where = p.add_mutually_exclusive_group()
     where.add_argument("--worktree", metavar="SLUG", help="create a worktree on branch mesh/<run>/<SLUG>")
-    where.add_argument("--cwd", help="start in an existing directory, e.g. an earlier executor's worktree")
+    where.add_argument("--cwd", help="start in an existing directory, e.g. an earlier worker's worktree")
     p.add_argument("--base", help="base ref for --worktree (default: origin/HEAD)")
     p.add_argument("--parent", help="parent agent (default: you)")
     p.add_argument("--task", help="first task message")
@@ -949,9 +950,9 @@ def build_parser() -> argparse.ArgumentParser:
     ident(sub.add_parser("dir", help="print the run directory")).set_defaults(func=cmd_dir)
 
     p = sub.add_parser("model", help="resolve the model a spawn would use")
-    p.add_argument("--kind", choices=KINDS, required=True)
-    p.add_argument("--model", required=True)
-    p.add_argument("--effort", default="medium")
+    p.add_argument("--kind", choices=KINDS, default="agy")
+    p.add_argument("--model")
+    p.add_argument("--effort", default=DEFAULT_EFFORT)
     p.set_defaults(func=cmd_model)
     return parser
 

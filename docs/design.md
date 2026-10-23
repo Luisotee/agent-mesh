@@ -12,11 +12,11 @@ Both CLIs have a print mode (`claude -p`, `agy -p`): run one prompt, print the a
 
 herdr runs every agent as a normal interactive session, and its CLI can start an agent in a pane (`agent start`), type into it (`agent prompt`), read it and wait for state changes (`agent wait`: `working` / `idle` / `done` / `blocked`). That covers visibility and delivery. The rest of agent-mesh is the conventions on top.
 
-## 2. Planners live inside the repo
+## 2. Agents live inside the repo
 
-The first design had one central Claude writing plans for every repo. It was rejected: a planner outside the repo doesn't load that repo's `CLAUDE.md`, skills or hooks, and it would have to absorb every repo's conventions into one context window. In the final design the root spawns a **fresh** planner in each affected repo. It's fresh so that your existing sessions keep their own context and never receive mesh traffic.
+The first design had one central Claude writing plans for every repo. It was rejected: a planner outside the repo doesn't load that repo's `CLAUDE.md`, skills or hooks, and it would have to absorb every repo's conventions into one context window. Instead the root spawns a **fresh** agent in each affected repo. It's fresh so that your existing sessions keep their own context and never receive mesh traffic.
 
-The hierarchy also keeps the root's context small. Executors report to their planner, and the planner checks their work and sends the root only a short summary.
+It also keeps the root's context small: each repo agent sends up a plan and a short report, not its research.
 
 ## 3. Mailbox plus doorbell, not raw typing
 
@@ -43,14 +43,13 @@ Names are meant to be read in herdr's agents tab, so they say what the agent is,
 
 | Agent | Name |
 |---|---|
-| root | `<repo>-lead` (`ai-boilerplate-lead`), unless you already named that session, in which case it keeps your name |
-| planner | `<repo>-planner` (`curupira-bot-planner`) |
-| executor | `<repo>-<worktree slug>` (`curupira-bot-fix-reactions`) |
-| escalation in the same worktree | the same name plus `-2` (`curupira-bot-fix-reactions-2`) |
+| root | `<repo>-lead` (`shop-web-lead`), unless you already named that session, in which case it keeps your name |
+| worker | `<repo>-<worktree slug>` (`shop-api-restocked-at`) |
+| restart in the same worktree (e.g. on a stronger model) | the same name plus `-2` (`shop-api-restocked-at-2`) |
 
 herdr requires names to match `[a-z][a-z0-9_-]{0,31}` and to be unique among live agents, so long parts are cut and a clash with another run gets `-2`, `-3`. The run id lives in the environment and in branch names (`mesh/<run>/<slug>`), not in agent names. `mesh stop` clears the name the root was given.
 
-**One workspace per project.** Agents open in the project's existing herdr workspace, found by label (case-insensitive) or by a pane whose directory is inside the repo, so `walklore` is found for `city-tour-app`. Each run gets one tab per workspace, labelled from the request (`mesh: fix the reaction bug`). A workspace is created only when no workspace matches, and a lock stops two planners spawning at once from creating two.
+**One workspace per project.** Agents open in the project's existing herdr workspace, found by label (case-insensitive) or by a pane whose directory is inside the repo, so a workspace labelled `shop` is found for `shop-api`. Each run gets one tab per workspace, labelled from the request (`mesh: add restockedAt to shop-api`). A workspace is created only when no workspace matches, and a lock stops two workers spawning at once from creating two.
 
 ## 5. Models are preferences, not code
 
@@ -58,17 +57,27 @@ Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **familie
 - `flash`/`argon` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` in `agy models`
 - `opus` for Claude, which the CLI resolves itself
 
-The modes are three commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh.
+The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh.
 
 ## 6. The mesh is process-agnostic
 
-Task trackers, branch conventions and PR checklists differ between repos. The mesh files never name any of them. A planner follows whatever its repo's `CLAUDE.md` / `AGENTS.md` says, because it runs inside that repo.
+Task trackers, branch conventions and PR checklists differ between repos. The mesh files never name any of them. A worker follows whatever its repo's `CLAUDE.md` / `AGENTS.md` says, because it runs inside that repo.
+
+## 7. From 1:N:N to 1:N
+
+Up to 0.2 a run was three levels deep: root → a planner per repo → executors in worktrees. In practice the planner did the expensive part, reading the repo until it understood the change, and then handed a written plan to an executor that started cold and had to rediscover the same code. Plans can't carry everything research learns, so executors asked questions the planner already knew the answers to, and the hand-off cost a second round of reading.
+
+Since 0.3 a run is the root plus **one worker per other repo**. The worker researches, writes the plan, and sends it to the root as a `plan` message. It changes nothing until the root answers `approved`; then **the same agent** executes, verifies and opens the PR. Review moved up a level, from planner-reviews-executor to root-reviews-plan, and it now happens *before* any code is written.
+
+The typical run is two repos: you're working with an agent in repo A and find that the change also needs repo B. The root therefore keeps its own repo, working in your checkout as before, and spawns a worker only for each *other* repo. A worker for the root's own repo is started only when you ask for one.
+
+The default worker is the newest Gemini Flash at **high** effort, and `mesh spawn` uses it when no model is given. Stronger models are opt-in: the user names them, or agrees when the root suggests one after a failure. Nothing escalates on its own.
 
 ## Alternatives considered
 
 | Option | Why not |
 |---|---|
-| [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) (lead, teammates, shared task list, mailbox, tmux panes) | One team per session and **no nested teams**, so it can't express root → planner → executors. Claude only, so agy can't join |
+| [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) (lead, teammates, shared task list, mailbox, tmux panes) | One team per session and **no nested teams**, and Claude only, so agy can't join |
 | MCP bridges that start other CLIs as tools ([agent-link-mcp](https://socket.dev/npm/package/agent-link-mcp), [weft](https://github.com/cipher982/weft)) | Workers run as headless subprocesses, so you can't watch them or type into them |
 | [Tmux-Orchestrator](https://www.sourcepulse.org/projects/11036576), [codex-orchestrator](https://www.sourcepulse.org/projects/26815350) | The same idea (an orchestrator → manager → engineer tree; Claude planning while Codex executes). They validate the shape, but they're built on raw tmux with no agent-state detection and no mailbox |
 | A message broker or daemon | One more process to run. The filesystem plus herdr is enough at this scale |
@@ -82,7 +91,7 @@ Task trackers, branch conventions and PR checklists differ between repos. The me
 - **`agy models` hits the network and can hang**, and it ignores SIGTERM. One failed TLS handshake to Google stalled a spawn. The list is now cached for 6 hours, a stale cache is used when a refresh fails, and an exact model id skips the lookup.
 - **Side effects come last.** A spawn that failed while resolving the model had already created its worktree. Everything that can fail without side effects now runs first.
 
-### Live test results (2026-10-23)
+### Live test results (2026-10-23, the 0.2 planner → executor design)
 
 | Test | Result |
 |---|---|
