@@ -1,0 +1,969 @@
+#!/usr/bin/env python3
+"""mesh: messaging and lifecycle for Claude Code / agy agents running in herdr.
+
+Every message is written to the recipient's mailbox first, then a one-line
+"doorbell" is typed into the recipient's herdr pane. A lost doorbell never
+loses the message: it waits in the mailbox until `mesh inbox` reads it.
+
+State:      $MESH_HOME      (default ~/.local/state/agent-mesh)
+Worktrees:  $MESH_WORKTREES (default ~/.local/share/agent-mesh/worktrees)
+Identity:   $MESH_RUN / $MESH_SELF / $MESH_PARENT / $MESH_ROLE, injected by
+            `mesh spawn`; the run's root is found through $HERDR_PANE_ID.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+VERSION = "0.2.0"
+MODES = ("claude-agy", "claude", "agy")
+KINDS = ("claude", "agy")
+ROLES = ("planner", "executor")
+TYPES = ("task", "question", "answer", "done", "failed", "info")
+FINAL_TYPES = ("done", "failed")
+NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+AGY_MODEL_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$", re.MULTILINE)
+AGY_MODELS_TTL = 6 * 3600
+# Doorbell retry delays in seconds (about one minute in total).
+RING_DELAYS = (1, 2, 4, 8, 15, 30)
+RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
+PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
+# Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
+TRUST_PROMPT_RE = re.compile(
+    r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
+)
+TRUST_OPTION_RE = re.compile(r"^\s*[❯>]?\s*(Yes|No)\b")
+
+
+class MeshError(Exception):
+    """A user-facing failure: printed without a traceback, exit status 1."""
+
+
+class HerdrError(MeshError):
+    def __init__(self, code: str, message: str):
+        super().__init__(f"herdr {code}: {message}")
+        self.code = code
+        self.message = message
+
+
+# ── paths ────────────────────────────────────────────────────────────────
+
+
+def mesh_home() -> Path:
+    return Path(os.environ.get("MESH_HOME") or Path.home() / ".local/state/agent-mesh")
+
+
+def worktree_root() -> Path:
+    return Path(os.environ.get("MESH_WORKTREES") or Path.home() / ".local/share/agent-mesh/worktrees")
+
+
+def run_dir(run_id: str) -> Path:
+    return mesh_home() / run_id
+
+
+def inbox_dir(run_id: str, name: str) -> Path:
+    return run_dir(run_id) / "inbox" / name
+
+
+def pane_key(pane_id: str) -> str:
+    return pane_id.replace(":", "_")
+
+
+# ── subprocess helpers ───────────────────────────────────────────────────
+
+
+def herdr(*args: str, timeout: float | None = None) -> dict:
+    """Run a herdr CLI command and return its JSON `result`."""
+    binary = os.environ.get("MESH_HERDR", "herdr")
+    try:
+        proc = subprocess.run([binary, *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise HerdrError("timeout", f"{' '.join(args[:2])} timed out") from exc
+    except FileNotFoundError as exc:
+        raise MeshError(f"herdr not found ({binary}); mesh must run inside herdr") from exc
+    if proc.returncode != 0:
+        raw = (proc.stderr or proc.stdout).strip()
+        try:
+            err = json.loads(raw)["error"]
+            raise HerdrError(err.get("code", "error"), err.get("message", ""))
+        except (ValueError, KeyError, TypeError):
+            raise HerdrError("cli_error", raw) from None
+    out = proc.stdout.strip()
+    return json.loads(out).get("result", {}) if out else {}
+
+
+def git(*args: str, cwd: str | Path) -> str:
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise MeshError(f"git {' '.join(args)}: {proc.stderr.strip()}")
+    return proc.stdout.strip()
+
+
+# ── run state ────────────────────────────────────────────────────────────
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+@contextmanager
+def file_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def run_lock(run_id: str):
+    return file_lock(run_dir(run_id) / ".lock")
+
+
+def load_run(run_id: str) -> dict:
+    path = run_dir(run_id) / "run.json"
+    if not path.exists():
+        raise MeshError(f"unknown run {run_id} (no {path})")
+    return json.loads(path.read_text())
+
+
+def save_run(run_id: str, data: dict) -> None:
+    write_atomic(run_dir(run_id) / "run.json", json.dumps(data, indent=2) + "\n")
+
+
+@contextmanager
+def editing_run(run_id: str):
+    """Load run.json under the run lock, yield it for changes, save it."""
+    with run_lock(run_id):
+        data = load_run(run_id)
+        yield data
+        save_run(run_id, data)
+
+
+def log_event(run_id: str, event: str, **fields) -> None:
+    line = json.dumps({"time": now_iso(), "event": event, **fields})
+    with open(run_dir(run_id) / "log.jsonl", "a") as fh:
+        fh.write(line + "\n")
+
+
+def read_log(run_id: str) -> list[dict]:
+    path = run_dir(run_id) / "log.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+# ── identity ─────────────────────────────────────────────────────────────
+
+
+def identity(args: argparse.Namespace) -> tuple[str, str]:
+    """Return (run_id, own agent name) from flags, the environment or the pane map."""
+    run_id = getattr(args, "run", None) or os.environ.get("MESH_RUN")
+    name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
+    if not (run_id and name):
+        pane = os.environ.get("HERDR_PANE_ID")
+        mapping = mesh_home() / "by-pane" / f"{pane_key(pane)}.json" if pane else None
+        if mapping and mapping.exists():
+            entry = json.loads(mapping.read_text())
+            run_id = run_id or entry["run"]
+            name = name or entry["name"]
+    if not (run_id and name):
+        raise MeshError("not in a mesh run: run `mesh init` first, or pass --run and --as")
+    return run_id, name
+
+
+def agent_name(repo: str, suffix: str, taken: set[str]) -> str:
+    """A readable herdr name such as `curupira-bot-planner`, made unique with -2, -3…"""
+    suffix = slugify(suffix, 20)
+    base = re.sub(r"^[^a-z]+", "", f"{slugify(repo, 32 - len(suffix) - 4)}-{suffix}") or "agent"
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}-{n}", n + 1
+    return name
+
+
+def live_agent_names() -> set[str]:
+    """herdr names must be unique among live agents, including other runs' and your own."""
+    return {a["name"] for a in herdr("agent", "list").get("agents", []) if a.get("name")}
+
+
+def repo_name(path: str | None) -> str:
+    if not path:
+        return "agent"
+    try:
+        return Path(git("rev-parse", "--show-toplevel", cwd=path)).name
+    except (MeshError, OSError):
+        return Path(path).name or "agent"
+
+
+def agent_entry(run: dict, name: str) -> dict:
+    try:
+        return run["agents"][name]
+    except KeyError:
+        raise MeshError(f"no agent {name} in run {run['id']}") from None
+
+
+# ── herdr topology ───────────────────────────────────────────────────────
+
+
+def inside(path: str | None, top: Path) -> bool:
+    if not path:
+        return False
+    resolved = Path(path).resolve()
+    return resolved == top or top in resolved.parents
+
+
+def find_or_create_workspace(repo_top: Path) -> tuple[str, bool]:
+    """The project's one herdr workspace: by label, then by a pane inside the repo, else a new one."""
+    # Locked across runs, so two planners spawning at once can't both create one.
+    with file_lock(mesh_home() / ".workspace.lock"):
+        workspaces = herdr("workspace", "list").get("workspaces", [])
+        for ws in workspaces:
+            if (ws.get("label") or "").lower() == repo_top.name.lower():
+                return ws["workspace_id"], False
+        for ws in workspaces:
+            panes = herdr("pane", "list", "--workspace", ws["workspace_id"]).get("panes", [])
+            if any(inside(p.get("cwd"), repo_top) or inside(p.get("foreground_cwd"), repo_top) for p in panes):
+                return ws["workspace_id"], False
+        created = herdr("workspace", "create", "--cwd", str(repo_top), "--label", repo_top.name, "--no-focus")
+        return created["workspace"]["workspace_id"], True
+
+
+def env_flags(env: dict[str, str]) -> list[str]:
+    flags: list[str] = []
+    for key, value in env.items():
+        flags += ["--env", f"{key}={value}"]
+    return flags
+
+
+def split_direction(rect: dict) -> str:
+    # Terminal cells are roughly twice as tall as wide: split wide panes sideways.
+    return "right" if rect["width"] >= 2.2 * rect["height"] else "down"
+
+
+def tab_label(run: dict) -> str:
+    """The run's tab: `mesh: fix reaction bug`, from the request's first words."""
+    words, label = (run.get("request") or "").split(), ""
+    for word in words:
+        if len(label) + len(word) + 1 > 28:
+            break
+        label = f"{label} {word}".strip()
+    return f"mesh: {label or (words[0][:28] if words else run['id'])}"
+
+
+def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
+    """A fresh shell pane for an agent, in this run's tab of the workspace."""
+    run = load_run(run_id)
+    tab_id = run.get("tabs", {}).get(workspace_id)
+    if tab_id:
+        anchor = next(
+            (a["pane"] for a in run["agents"].values() if a.get("tab") == tab_id and a.get("status") != "retired"),
+            None,
+        )
+        if anchor:
+            try:
+                layout = herdr("pane", "layout", "--pane", anchor)["layout"]
+                biggest = max(layout["panes"], key=lambda p: p["rect"]["width"] * p["rect"]["height"])
+                split = herdr(
+                    "pane", "split", biggest["pane_id"], "--direction", split_direction(biggest["rect"]),
+                    "--cwd", str(cwd), *env_flags(env), "--no-focus",
+                )
+                return split["pane"]["pane_id"], tab_id
+            except HerdrError:
+                pass  # the tab is gone or unusable: open a new one below
+    created = herdr(
+        "tab", "create", "--workspace", workspace_id, "--cwd", str(cwd),
+        "--label", tab_label(run), *env_flags(env), "--no-focus",
+    )
+    tab_id = created["tab"]["tab_id"]
+    with editing_run(run_id) as run:
+        run.setdefault("tabs", {})[workspace_id] = tab_id
+    return created["root_pane"]["pane_id"], tab_id
+
+
+def herdr_text(*args: str) -> str:
+    """A herdr command whose output is plain text (e.g. `agent read`)."""
+    proc = subprocess.run([os.environ.get("MESH_HERDR", "herdr"), *args], capture_output=True, text=True)
+    return proc.stdout
+
+
+def trust_keys(screen: str) -> list[str] | None:
+    """Keys that select "Yes, … trust" in a folder-trust dialog, or None if it isn't one.
+
+    The CLIs differ: agy highlights "Yes" by default, Claude Code highlights "No, exit".
+    """
+    if not TRUST_PROMPT_RE.search(screen):
+        return None
+    options = [line.strip() for line in screen.splitlines() if TRUST_OPTION_RE.match(line)]
+    yes = next((i for i, line in enumerate(options) if line.lstrip("❯> ").startswith("Yes")), None)
+    cursor = next((i for i, line in enumerate(options) if line[0] in "❯>"), None)
+    if yes is None or cursor is None:
+        return None
+    step = "down" if yes > cursor else "up"
+    return [step] * abs(yes - cursor) + ["enter"]
+
+
+def accept_trust_prompt(name: str) -> bool:
+    """Accept a folder-trust dialog (a directory mesh chose); refuse any other startup prompt."""
+    screen = herdr_text("agent", "read", name, "--source", "detection", "--lines", "40")
+    keys = trust_keys(screen)
+    if keys is None:
+        return False
+    for key in keys:
+        herdr("agent", "send-keys", name, key)
+        time.sleep(0.3)
+    herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", "60000")
+    time.sleep(3)  # the CLI redraws its welcome screen after the dialog; typing during it is lost
+    return True
+
+
+def start_agent(name: str, kind: str, pane: str, argv: list[str], attempts: int = 10) -> dict:
+    """`herdr agent start`, retried while the new shell is still starting."""
+    last: HerdrError | None = None
+    for _ in range(attempts):
+        try:
+            return herdr("agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--", *argv)
+        except HerdrError as exc:
+            if exc.code == "agent_not_ready":
+                if accept_trust_prompt(name):
+                    return {"trust_accepted": True}
+                raise MeshError(
+                    f"{name} started but is waiting at a startup prompt; "
+                    f"inspect it with `herdr agent read {name}`"
+                ) from exc
+            last = exc
+            time.sleep(1)
+    raise MeshError(f"could not start {name}: {last}")
+
+
+# ── models ───────────────────────────────────────────────────────────────
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split(".") if part.isdigit())
+
+
+def pick_agy_model(listing: str, family: str, effort: str) -> str:
+    """The newest `gemini-<version>-<family>-<effort>` id in `agy models` output."""
+    ids = [line.split("\t")[0].strip() for line in listing.splitlines()]
+    if family in ids:
+        return family
+    candidates = []
+    for model_id in ids:
+        match = AGY_MODEL_RE.match(model_id)
+        if match and match.group(2) == family and match.group(3) == effort:
+            candidates.append((version_key(match.group(1)), model_id))
+    if not candidates:
+        raise MeshError(f"no agy model matches family={family} effort={effort}; see `agy models`")
+    return max(candidates)[1]
+
+
+def agy_model_listing() -> str:
+    """`agy models` output, cached: the command fetches over the network and can hang."""
+    cache = mesh_home() / "agy-models.txt"
+    if cache.exists() and time.time() - cache.stat().st_mtime < AGY_MODELS_TTL:
+        return cache.read_text()
+    try:
+        proc = subprocess.run(["agy", "models"], capture_output=True, text=True, timeout=45)
+        if proc.returncode == 0 and AGY_MODEL_RE.search(proc.stdout.replace("\t", "\n").replace(" ", "\n")):
+            write_atomic(cache, proc.stdout)
+            return proc.stdout
+        problem = proc.stderr.strip() or "no models listed"
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        problem = type(exc).__name__
+    if cache.exists():
+        return cache.read_text()  # stale, but far better than failing the spawn
+    raise MeshError(f"`agy models` failed ({problem}) and there is no cached list; pass an exact --model id")
+
+
+def resolve_agy_model(family: str, effort: str) -> str:
+    if AGY_MODEL_RE.match(family):
+        return family  # an exact id needs no listing
+    return pick_agy_model(agy_model_listing(), family, effort)
+
+
+def agent_argv(kind: str, model: str, effort: str) -> tuple[list[str], str]:
+    """Native CLI arguments and the resolved model for a new agent."""
+    if kind == "agy":
+        resolved = resolve_agy_model(model, effort)
+        return ["--model", resolved, "--dangerously-skip-permissions"], resolved
+    return ["--model", model, "--effort", effort, "--dangerously-skip-permissions"], model
+
+
+# ── worktrees ────────────────────────────────────────────────────────────
+
+
+def slugify(text: str, limit: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:limit].strip("-") or "x"
+
+
+def default_base(repo_top: Path) -> str:
+    try:
+        return git("rev-parse", "--abbrev-ref", "origin/HEAD", cwd=repo_top)
+    except MeshError:
+        return "HEAD"
+
+
+def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tuple[Path, str]:
+    branch = f"mesh/{run_id}/{slug}"
+    path = worktree_root() / run_id / f"{slugify(repo_top.name, 20)}-{slug}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git("worktree", "add", "-b", branch, str(path), base or default_base(repo_top), cwd=repo_top)
+    with editing_run(run_id) as run:
+        run.setdefault("worktrees", []).append({"path": str(path), "repo": str(repo_top), "branch": branch})
+    log_event(run_id, "worktree", path=str(path), branch=branch)
+    return path, branch
+
+
+# ── messaging ────────────────────────────────────────────────────────────
+
+
+def preview(body: str, limit: int = 100) -> str:
+    line = " ".join(body.split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def store_message(run_id: str, sender: str, to: str, mtype: str, body: str) -> Path:
+    path = inbox_dir(run_id, to) / f"{stamp()}-{sender}-{mtype}.md"
+    header = f"---\nrun: {run_id}\nfrom: {sender}\nto: {to}\ntype: {mtype}\ntime: {now_iso()}\n---\n"
+    write_atomic(path, header + body.rstrip() + "\n")
+    return path
+
+
+def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -> tuple[bool, str | None]:
+    """Type the doorbell into the first reachable target, retrying while it is busy."""
+    last_error = None
+    for delay in (0, *delays):
+        if delay:
+            time.sleep(delay)
+        for target in targets:
+            try:
+                # --until working confirms delivery: an idle agent that doesn't start working
+                # within 5s never got the text (agent_prompt_stalled), so it is retried. A busy
+                # agent matches at once; it queues the doorbell for after its current turn.
+                herdr("agent", "prompt", target, text, "--wait", "--until", "working", "--timeout", "15000",
+                      timeout=30)
+                return True, None
+            except HerdrError as exc:
+                last_error = exc.code
+                if exc.code == "agent_not_found":
+                    continue  # try the next target (the pane id)
+                if exc.code not in RETRYABLE_RING_ERRORS:
+                    return False, exc.code
+                break
+    return False, last_error
+
+
+def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first: bool) -> str:
+    if first:
+        entry = run["agents"][to]
+        return (
+            f"📬 [mesh] You are {to} ({entry['role']}) in agent-mesh run {run['id']}; your parent is "
+            f"{entry['parent']}. Read {PROTOCOL_PATH}, then run `mesh inbox` for your {mtype}."
+        )
+    return f"📬 [mesh] {mtype} from {sender}: {preview(body)} (run `mesh inbox`)"
+
+
+def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False) -> dict:
+    run = load_run(run_id)
+    entry = agent_entry(run, to)
+    path = store_message(run_id, sender, to, mtype, body)
+    log_event(run_id, "send", sender=sender, to=to, type=mtype, file=path.name)
+    targets = [to] + ([entry["pane"]] if entry.get("pane") else [])
+    rung, error = ring(targets, doorbell_text(run, sender, to, mtype, body, first))
+    if not rung:
+        log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
+    return {"stored": str(path), "rung": rung, "error": error}
+
+
+def unread(run_id: str, name: str) -> list[Path]:
+    folder = inbox_dir(run_id, name)
+    return sorted(p for p in folder.glob("*.md")) if folder.exists() else []
+
+
+def parse_message(path: Path) -> tuple[dict, str]:
+    text = path.read_text()
+    meta: dict[str, str] = {}
+    body = text
+    if text.startswith("---\n"):
+        head, _, body = text[4:].partition("\n---\n")
+        for line in head.splitlines():
+            key, _, value = line.partition(": ")
+            meta[key] = value
+    return meta, body
+
+
+# ── commands ─────────────────────────────────────────────────────────────
+
+
+def emit(data, as_json: bool = True) -> None:
+    print(json.dumps(data, indent=2) if as_json else data)
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    pane = os.environ.get("HERDR_PANE_ID")
+    if os.environ.get("HERDR_ENV") != "1" or not pane:
+        raise MeshError("mesh init must run inside a herdr pane (HERDR_ENV=1)")
+    run_id = args.run_id or "m" + secrets.token_hex(2)
+    if not NAME_RE.match(run_id) or len(run_id) > 12:
+        raise MeshError("run id must be short, lowercase, start with a letter")
+    if run_dir(run_id).exists():
+        raise MeshError(f"run {run_id} already exists")
+    agents = herdr("agent", "list").get("agents", [])
+    me = next((a for a in agents if a.get("pane_id") == pane), None)
+    if me is None:
+        raise MeshError(f"herdr sees no agent in pane {pane}")
+    # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
+    name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
+    if name != me.get("name"):
+        herdr("agent", "rename", pane, name)
+    run = {
+        "id": run_id,
+        "version": VERSION,
+        "mode": args.mode,
+        "created": now_iso(),
+        "root": name,
+        "request": args.request or "",
+        "agents": {
+            name: {
+                "role": "root",
+                "kind": me.get("agent"),
+                "pane": pane,
+                "tab": me.get("tab_id"),
+                "workspace": me.get("workspace_id"),
+                "cwd": me.get("cwd"),
+                "parent": None,
+                "status": "running",
+                "renamed": name != me.get("name"),
+            }
+        },
+        "tabs": {},
+        "worktrees": [],
+    }
+    with run_lock(run_id):
+        save_run(run_id, run)
+    write_atomic(mesh_home() / "by-pane" / f"{pane_key(pane)}.json", json.dumps({"run": run_id, "name": name}))
+    log_event(run_id, "init", name=name, mode=args.mode)
+    emit({"run": run_id, "name": name, "dir": str(run_dir(run_id)), "mode": args.mode})
+    return 0
+
+
+def spawn_suffix(args: argparse.Namespace, run: dict) -> str:
+    """planner → `planner`; executor → its worktree slug, so the name says what it works on."""
+    if args.name:
+        return args.name
+    if args.role == "planner":
+        return "planner"
+    if args.worktree:
+        return args.worktree
+    if args.cwd:  # an escalation in an earlier executor's worktree: reuse its slug (agent_name adds -2)
+        cwd = Path(args.cwd).expanduser().resolve()
+        for wt in run.get("worktrees", []):
+            if Path(wt["path"]).resolve() == cwd:
+                return wt["branch"].rsplit("/", 1)[-1]
+    return f"exec{sum(a['role'] == 'executor' for a in run['agents'].values()) + 1}"
+
+
+def cmd_spawn(args: argparse.Namespace) -> int:
+    run_id, me = identity(args)
+    repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    run = load_run(run_id)
+    name = agent_name(repo_top.name, spawn_suffix(args, run), set(run["agents"]) | live_agent_names())
+
+    # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
+    argv, model = agent_argv(args.kind, args.model, args.effort)
+    branch = None
+    if args.worktree:
+        cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
+    elif args.cwd:
+        cwd = Path(args.cwd).expanduser().resolve()
+    else:
+        cwd = repo_top
+
+    parent = args.parent or me
+    env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": args.role}
+    for key in ("MESH_HOME", "MESH_WORKTREES"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+
+    workspace_id, created_ws = find_or_create_workspace(repo_top)
+    pane, tab = new_pane(run_id, workspace_id, cwd, env)
+    with editing_run(run_id) as run:
+        run["agents"][name] = {
+            "role": args.role, "kind": args.kind, "model": model, "effort": args.effort,
+            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "pane": pane, "tab": tab,
+            "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
+        }
+    log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
+
+    start_agent(name, args.kind, pane, argv)
+    with editing_run(run_id) as run:
+        run["agents"][name]["status"] = "running"
+
+    result = {"name": name, "pane": pane, "workspace": workspace_id, "workspace_created": created_ws,
+              "cwd": str(cwd), "branch": branch, "model": model}
+    task = read_body(args.task, args.task_file)
+    if task:
+        result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
+    emit(result)
+    return 0
+
+
+def read_body(body: str | None, file: str | None) -> str | None:
+    if file == "-":
+        return sys.stdin.read()
+    if file:
+        return Path(file).expanduser().read_text()
+    return body
+
+
+def cmd_send(args: argparse.Namespace) -> int:
+    run_id, me = identity(args)
+    body = read_body(args.body, args.file)
+    if not body or not body.strip():
+        raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
+    to = me_parent(run_id, me) if args.to == "parent" else args.to
+    result = deliver(run_id, me, to, args.type, body)
+    emit(result)
+    if not result["rung"]:
+        print(f"warning: stored, but the doorbell did not ring ({result['error']}); "
+              f"{to} will see it on its next `mesh inbox`", file=sys.stderr)
+        return 2
+    return 0
+
+
+def me_parent(run_id: str, me: str) -> str:
+    parent = agent_entry(load_run(run_id), me).get("parent")
+    if not parent:
+        raise MeshError(f"{me} has no parent (it is the run's root)")
+    return parent
+
+
+def cmd_inbox(args: argparse.Namespace) -> int:
+    run_id, me = identity(args)
+    folder = inbox_dir(run_id, me)
+    paths = unread(run_id, me)
+    if args.all and (folder / "read").exists():
+        paths = sorted((folder / "read").glob("*.md")) + paths
+    messages = []
+    for path in paths:
+        meta, body = parse_message(path)
+        messages.append({"file": str(path), **meta, "body": body.strip()})
+        if not args.peek and path.parent == folder:
+            (folder / "read").mkdir(parents=True, exist_ok=True)
+            os.replace(path, folder / "read" / path.name)
+    if args.json:
+        emit(messages)
+    elif not messages:
+        print("No unread messages.")
+    else:
+        for msg in messages:
+            print(f"── {msg.get('type')} from {msg.get('from')} at {msg.get('time')} ──")
+            print(msg["body"], end="\n\n")
+    return 0
+
+
+def cmd_ring(args: argparse.Namespace) -> int:
+    run_id, _ = identity(args)
+    run = load_run(run_id)
+    entry = agent_entry(run, args.agent)
+    count = len(unread(run_id, args.agent))
+    if not count:
+        print(f"{args.agent} has no unread messages.")
+        return 0
+    targets = [args.agent] + ([entry["pane"]] if entry.get("pane") else [])
+    rung, error = ring(targets, f"📬 [mesh] you have {count} unread message(s) (run `mesh inbox`)")
+    emit({"rung": rung, "error": error, "unread": count})
+    return 0 if rung else 2
+
+
+def agent_status(name: str) -> str:
+    try:
+        return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
+    except HerdrError as exc:
+        if exc.code == "agent_not_found":
+            return "gone"
+        raise
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    run_id = args.run_id or identity(args)[0]
+    run = load_run(run_id)
+    rows = []
+    for name, entry in run["agents"].items():
+        live = "retired" if entry.get("status") == "retired" else agent_status(name)
+        rows.append({
+            "name": name, "role": entry["role"], "kind": entry.get("kind"), "model": entry.get("model") or "",
+            "state": live, "unread": len(unread(run_id, name)), "parent": entry.get("parent") or "",
+            "branch": entry.get("branch") or "",
+        })
+    if args.json:
+        emit({"run": run_id, "mode": run["mode"], "agents": rows})
+        return 0
+    print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}")
+    cols = ("name", "role", "kind", "model", "state", "unread", "parent", "branch")
+    widths = {c: max(len(c), *(len(str(r[c])) for r in rows)) for c in cols}
+    print("  ".join(c.upper().ljust(widths[c]) for c in cols))
+    for row in rows:
+        print("  ".join(str(row[c]).ljust(widths[c]) for c in cols))
+    return 0
+
+
+def sends_from(run_id: str, name: str, types: tuple[str, ...] = TYPES) -> int:
+    return sum(1 for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name and e.get("type") in types)
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Block until a child reports done/failed (exit 0) or something looks wrong (non-zero)."""
+    run_id = args.run_id or identity(args)[0]
+    name = args.agent
+    agent_entry(load_run(run_id), name)
+    finals_at_start = sends_from(run_id, name, FINAL_TYPES)
+    deadline = time.monotonic() + args.timeout if args.timeout else None
+    prev = None
+    work_start_sends = sends_from(run_id, name)
+    blocked_polls = 0
+    while True:
+        if sends_from(run_id, name, FINAL_TYPES) > finals_at_start:
+            last = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name][-1]
+            print(f"{name} reported {last['type']}: read it with `mesh inbox`")
+            return 0
+        state = agent_status(name)
+        if state == "gone":
+            print(f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed")
+            return 5
+        blocked_polls = blocked_polls + 1 if state == "blocked" else 0
+        if blocked_polls >= 2:
+            print(f"ALERT {name} is blocked on a UI prompt; inspect it with `herdr agent read {name}`")
+            return 4
+        if state == "working" and prev != "working":
+            work_start_sends = sends_from(run_id, name)
+        if prev == "working" and state in ("idle", "done"):
+            time.sleep(args.grace)  # let a send that raced the state change land in the log
+            if sends_from(run_id, name) == work_start_sends and sends_from(run_id, name, FINAL_TYPES) == finals_at_start:
+                print(f"ALERT {name} stopped working without sending a message; "
+                      f"inspect it with `herdr agent read {name} --source recent-unwrapped --lines 80`")
+                return 3
+        if deadline and time.monotonic() > deadline:
+            print(f"ALERT {name} has not reported within {args.timeout}s (state: {state})")
+            return 6
+        prev = state
+        time.sleep(args.interval)
+
+
+def cmd_retire(args: argparse.Namespace) -> int:
+    run_id, _ = identity(args)
+    entry = agent_entry(load_run(run_id), args.agent)
+    if entry["role"] == "root":
+        raise MeshError("the root is not retired; use `mesh stop`")
+    try:
+        herdr("pane", "close", entry["pane"])
+    except HerdrError as exc:
+        if exc.code not in ("pane_not_found", "agent_not_found"):
+            raise
+    with editing_run(run_id) as run:
+        run["agents"][args.agent]["status"] = "retired"
+    log_event(run_id, "retire", name=args.agent)
+    emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
+    return 0
+
+
+def cmd_worktree(args: argparse.Namespace) -> int:
+    run_id, _ = identity(args)
+    repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    path, branch = add_worktree(run_id, repo_top, slugify(args.slug, 24), args.base)
+    emit({"path": str(path), "branch": branch})
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    run_id = args.run_id or identity(args)[0]
+    run = load_run(run_id)
+    closed, kept, removed = [], [], []
+    for name, entry in run["agents"].items():
+        if entry["role"] == "root" or entry.get("status") == "retired":
+            continue
+        try:
+            herdr("pane", "close", entry["pane"])
+            closed.append(name)
+        except HerdrError:
+            pass
+    for tab in run.get("tabs", {}).values():
+        try:
+            herdr("tab", "close", tab)
+        except HerdrError:
+            pass
+    for wt in run.get("worktrees", []):
+        path = Path(wt["path"])
+        if not path.exists():
+            continue
+        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True).stdout.strip()
+        if dirty or args.keep_worktrees:
+            kept.append({"path": str(path), "branch": wt["branch"], "dirty": bool(dirty)})
+            continue
+        git("worktree", "remove", str(path), cwd=wt["repo"])
+        removed.append({"path": str(path), "branch": wt["branch"]})
+    run_worktrees = worktree_root() / run_id
+    if run_worktrees.is_dir() and not any(run_worktrees.iterdir()):
+        run_worktrees.rmdir()
+    root = run["agents"][run["root"]]
+    if root.get("renamed", True):
+        try:
+            herdr("agent", "rename", root["pane"], "--clear")
+        except HerdrError:
+            pass
+    (mesh_home() / "by-pane" / f"{pane_key(root['pane'])}.json").unlink(missing_ok=True)
+    log_event(run_id, "stop", closed=closed, kept=[k["path"] for k in kept])
+    archive = mesh_home() / "archive" / run_id
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(run_dir(run_id), archive)
+    emit({"run": run_id, "closed": closed, "worktrees_removed": removed, "worktrees_kept": kept,
+          "archive": str(archive), "branches_kept": [w["branch"] for w in run.get("worktrees", [])]})
+    return 0
+
+
+def cmd_whoami(args: argparse.Namespace) -> int:
+    run_id, me = identity(args)
+    entry = agent_entry(load_run(run_id), me)
+    emit({"run": run_id, "name": me, "role": entry["role"], "parent": entry.get("parent"),
+          "dir": str(run_dir(run_id)), "unread": len(unread(run_id, me))})
+    return 0
+
+
+def cmd_dir(args: argparse.Namespace) -> int:
+    print(run_dir(identity(args)[0]))
+    return 0
+
+
+def cmd_model(args: argparse.Namespace) -> int:
+    print(agent_argv(args.kind, args.model, args.effort)[1])
+    return 0
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="mesh", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--version", action="version", version=f"mesh {VERSION}")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def ident(p):
+        p.add_argument("--run", help="run id (default: $MESH_RUN or this pane's run)")
+        p.add_argument("--as", dest="as_", help="act as this agent (default: $MESH_SELF)")
+        return p
+
+    p = sub.add_parser("init", help="start a run with this pane's agent as its root")
+    p.add_argument("--mode", choices=MODES, required=True)
+    p.add_argument("--request", help="the user's request, kept in run.json")
+    p.add_argument("--run-id", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_init)
+
+    p = ident(sub.add_parser("spawn", help="start a planner or executor agent in a herdr pane"))
+    p.add_argument("--kind", choices=KINDS, required=True)
+    p.add_argument("--role", choices=ROLES, required=True)
+    p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
+    p.add_argument("--model", required=True, help="claude: alias (opus); agy: family (flash, argon) or exact id")
+    p.add_argument("--effort", default="medium", choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--name", help="what goes after the repo in the agent's name (default: planner / the worktree slug)")
+    where = p.add_mutually_exclusive_group()
+    where.add_argument("--worktree", metavar="SLUG", help="create a worktree on branch mesh/<run>/<SLUG>")
+    where.add_argument("--cwd", help="start in an existing directory, e.g. an earlier executor's worktree")
+    p.add_argument("--base", help="base ref for --worktree (default: origin/HEAD)")
+    p.add_argument("--parent", help="parent agent (default: you)")
+    p.add_argument("--task", help="first task message")
+    p.add_argument("--task-file", help="first task message from a file (- for stdin)")
+    p.set_defaults(func=cmd_spawn)
+
+    p = ident(sub.add_parser("send", help="send a message (mailbox first, then the doorbell)"))
+    p.add_argument("to", help="agent name, or `parent`")
+    p.add_argument("--type", choices=TYPES, required=True)
+    p.add_argument("--body")
+    p.add_argument("--file", help="message body from a file (- for stdin)")
+    p.set_defaults(func=cmd_send)
+
+    p = ident(sub.add_parser("inbox", help="print unread messages and mark them read"))
+    p.add_argument("--peek", action="store_true", help="do not mark as read")
+    p.add_argument("--all", action="store_true", help="include already-read messages")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_inbox)
+
+    p = ident(sub.add_parser("ring", help="re-ring an agent that has unread messages"))
+    p.add_argument("agent")
+    p.set_defaults(func=cmd_ring)
+
+    p = ident(sub.add_parser("status", help="agents of a run with live herdr state"))
+    p.add_argument("run_id", nargs="?")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_status)
+
+    p = ident(sub.add_parser("watch", help="watchdog: exits when a child reports or stalls"))
+    p.add_argument("agent")
+    p.add_argument("--run-id")
+    p.add_argument("--timeout", type=int, default=0, help="seconds (0 = none)")
+    p.add_argument("--interval", type=float, default=5.0)
+    p.add_argument("--grace", type=float, default=5.0)
+    p.set_defaults(func=cmd_watch)
+
+    p = ident(sub.add_parser("retire", help="close a child's pane (its worktree stays)"))
+    p.add_argument("agent")
+    p.set_defaults(func=cmd_retire)
+
+    p = ident(sub.add_parser("worktree", help="create a run worktree, e.g. for integration"))
+    p.add_argument("--repo", default=".")
+    p.add_argument("--slug", required=True)
+    p.add_argument("--base")
+    p.set_defaults(func=cmd_worktree)
+
+    p = ident(sub.add_parser("stop", help="close the run's panes, remove clean worktrees, archive"))
+    p.add_argument("run_id", nargs="?")
+    p.add_argument("--keep-worktrees", action="store_true")
+    p.set_defaults(func=cmd_stop)
+
+    sub.add_parser("whoami", help="this agent's run, name, role and parent").set_defaults(func=cmd_whoami)
+    ident(sub.choices["whoami"])
+    ident(sub.add_parser("dir", help="print the run directory")).set_defaults(func=cmd_dir)
+
+    p = sub.add_parser("model", help="resolve the model a spawn would use")
+    p.add_argument("--kind", choices=KINDS, required=True)
+    p.add_argument("--model", required=True)
+    p.add_argument("--effort", default="medium")
+    p.set_defaults(func=cmd_model)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except MeshError as exc:
+        print(f"mesh: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
