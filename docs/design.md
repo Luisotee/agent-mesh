@@ -73,6 +73,21 @@ The typical run is two repos: you're working with an agent in repo A and find th
 
 The default worker is the newest Gemini Flash at **high** effort, and `mesh spawn` uses it when no model is given. Stronger models are opt-in: the user names them, or agrees when the root suggests one after a failure. Nothing escalates on its own.
 
+## 8. Resuming workers
+
+Since 0.4 a worker's conversation outlives its run. The usual follow-ups (a PR review to address, "make it Y instead of X") are about work a worker already researched, and briefing a fresh worker repeats the cold hand-off that 0.3 removed. So `mesh resume` reopens **the same conversation** as a worker of the current run, and `mesh open` reopens it in the user's own terminal.
+
+- **Finding the conversation:**
+  - **Claude Code** takes `--session-id`, so `mesh spawn` picks a UUID, passes it, and records it in `run.json`. `--resume <id>` reopens it.
+  - **agy** can't be given an id, but its `history.jsonl` logs every submitted prompt with its `conversationId` and directory. Mesh's first doorbell names the agent and the run (`You are <name> (worker) in agent-mesh run <run>`), so it pins the conversation even when a restart shares the worktree. `--conversation <id>` reopens it.
+  - **Older runs:** Claude workers spawned before 0.4 are found the same way, through the doorbell in their session file.
+  - **Main checkouts:** for a worker that ran in a main checkout, only the doorbell counts. A "last prompt in this directory" fallback there could pick up the user's own session.
+- **Same path:** Claude stores sessions per working directory, so a worktree that `mesh stop` removed is recreated **at its old path**, on its kept branch. It joins the new run's worktree list, so that run's `mesh stop` cleans it up again.
+- **Finding the worker:** the root and the user think in PRs, not agent names. `mesh agents`, `resume` and `open` accept a name, a branch or a PR link, and PR links are read from the worker's own messages (its `done` report). When several runs match, the newest wins.
+- **One process per conversation:** both commands refuse while a live agent sits in the worker's worktree. Two CLIs on one conversation would fork it.
+- **`mesh open` is the user's session:** it strips the `MESH_*` environment, and it doesn't add `--dangerously-skip-permissions`, because the user is at the keyboard and their normal settings apply. The protocol tells an agent that finds itself outside a run to work with the user directly.
+- **The CLI is fixed:** a conversation can't move between Claude and agy, so changing agent means a fresh worker in the same worktree, as after a `failed`. The model can change within the same CLI.
+
 ## Alternatives considered
 
 | Option | Why not |

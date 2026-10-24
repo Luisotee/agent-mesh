@@ -127,10 +127,11 @@ def test_pick_agy_model_newest_family_and_effort(mesh):
         mesh.pick_agy_model(AGY_MODELS, "flash", "low")
 
 
-def test_claude_argv_keeps_alias(mesh):
-    argv, model = mesh.agent_argv("claude", "opus", "high")
+def test_claude_argv_keeps_alias_and_picks_the_session_id(mesh):
+    argv, model, session = mesh.agent_argv("claude", "opus", "high")
     assert model == "opus"
-    assert argv == ["--model", "opus", "--effort", "high", "--dangerously-skip-permissions"]
+    assert argv == ["--session-id", session, "--model", "opus", "--effort", "high", "--dangerously-skip-permissions"]
+    assert mesh.agent_argv("claude", "opus", "high")[2] != session
 
 
 # ── watch ────────────────────────────────────────────────────────────────
@@ -382,3 +383,160 @@ def test_workspace_created_only_when_the_project_has_none(mesh, fake, tmp_path):
     fake.on("workspace", "create", result={"workspace": {"workspace_id": "w7"}})
     assert mesh.find_or_create_workspace(repo) == ("w7", True)
     assert fake.called("workspace", "create", "--cwd", str(repo), "--label", "newproj")
+
+
+# ── past workers: sessions, agents, resume, open ─────────────────────────
+
+
+def archived_worker(mesh, repo, kind="agy", session=None, run_id="mold"):
+    """An archived run whose worker opened PR 7; `mesh stop` removed its worktree but kept the branch."""
+    path = mesh.worktree_root() / run_id / "proj-fix"
+    branch = f"mesh/{run_id}/fix"
+    subprocess.run(["git", "branch", branch], cwd=repo, check=True)
+    entry = {"role": "worker", "kind": kind, "model": "gemini-3.8-flash-high" if kind == "agy" else "opus",
+             "effort": "high", "repo": str(repo), "cwd": str(path), "branch": branch, "pane": "w7:p1",
+             "parent": "old-lead", "status": "running"}
+    if session:
+        entry["session"] = session
+    folder = mesh.mesh_home() / "archive" / run_id
+    (folder / "inbox" / "old-lead" / "read").mkdir(parents=True)
+    (folder / "run.json").write_text(json.dumps({
+        "id": run_id, "created": "2026-01-01T00:00:00+00:00", "mode": "agy", "root": "old-lead",
+        "agents": {"old-lead": {"role": "root", "pane": "w7:p0"}, "proj-fix": entry},
+        "worktrees": [{"path": str(path), "repo": str(repo), "branch": branch}],
+    }))
+    (folder / "inbox/old-lead/read/20260101T000000Z-proj-fix-done.md").write_text(
+        f"---\nrun: {run_id}\nfrom: proj-fix\nto: old-lead\ntype: done\n---\n"
+        "Opened https://github.com/acme/proj/pull/7, tests pass.\n"
+    )
+    return path, branch
+
+
+def test_agy_conversation_comes_from_the_first_doorbell(mesh, tmp_path, monkeypatch):
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("MESH_AGY_HISTORY", str(history))
+    wt = "/wt/proj-fix"
+    lines = [
+        {"display": "📬 [mesh] plan from proj-fix: You are proj-fix (…", "workspace": "/repo", "conversationId": "root"},
+        {"display": "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold; …", "workspace": wt, "conversationId": "c1"},
+        {"display": "📬 [mesh] You are proj-other (worker) in agent-mesh run mold; …", "workspace": "/wt/o", "conversationId": "c2"},
+        {"display": "📬 [mesh] You are proj-fix-2 (worker) in agent-mesh run mold; …", "workspace": wt, "conversationId": "c3"},
+    ]
+    history.write_text("\n".join(json.dumps(line) for line in lines) + "\nnot json\n")
+    assert mesh.agy_conversation("proj-fix", "mold", wt) == "c1"
+    assert mesh.agy_conversation("proj-fix-2", "mold", wt) == "c3"
+    assert mesh.agy_conversation("proj-fix", "mol", wt) == "c3"  # wrong run: only the cwd fallback is left
+    assert mesh.agy_conversation("ghost", "mold", None) is None
+
+
+def test_agy_worker_in_a_main_checkout_never_borrows_the_users_session(mesh, tmp_path, monkeypatch):
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("MESH_AGY_HISTORY", str(history))
+    history.write_text(json.dumps({"display": "fix the login bug", "workspace": "/repo", "conversationId": "mine"}))
+    entry = {"kind": "agy", "repo": "/repo", "cwd": "/repo"}
+    assert mesh.find_session("mold", "repo-planner", entry) is None
+    assert mesh.find_session("mold", "repo-planner", {**entry, "cwd": "/wt/x", "session": "s"}) == "s"
+
+
+def test_claude_session_found_for_workers_spawned_before_session_ids(mesh, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    cwd = "/home/u/.local/share/agent-mesh/worktrees/mold/proj-fix"
+    folder = tmp_path / "claude" / "projects" / "-home-u--local-share-agent-mesh-worktrees-mold-proj-fix"
+    folder.mkdir(parents=True)
+    (folder / "aaa.jsonl").write_text('{"message": "unrelated"}\n')
+    (folder / "bbb.jsonl").write_text('{"message": "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold"}\n')
+    assert mesh.claude_session("proj-fix", cwd) == "bbb"
+    assert mesh.find_session("mold", "proj-fix", {"kind": "claude", "cwd": cwd}) == "bbb"
+    assert mesh.claude_session("proj-other", cwd) is None
+
+
+def test_find_worker_by_name_branch_or_pr_newest_first(mesh, fake, run, repo):
+    archived_worker(mesh, repo)
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-fix"] = {"role": "worker", "kind": "agy", "cwd": "/elsewhere", "pane": "w2:p9"}
+    assert mesh.find_worker("proj-fix")[0]["id"] == run  # the live run is newer
+    assert mesh.find_worker("proj-fix", "mold")[0]["id"] == "mold"
+    assert mesh.find_worker("mesh/mold/fix")[0]["id"] == "mold"
+    assert mesh.find_worker("https://github.com/acme/proj/pull/7/files#r1")[2] == "proj-fix"
+    with pytest.raises(mesh.MeshError, match="mesh agents"):
+        mesh.find_worker("repo-lead")  # roots are never resumed
+
+
+def test_agents_lists_archived_workers_with_their_prs(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    capsys.readouterr()
+    assert mesh.main(["agents", "pull/7", "--json"]) == 0
+    [row] = json.loads(capsys.readouterr().out)
+    assert (row["name"], row["run"], row["archived"]) == ("proj-fix", "mold", True)
+    assert row["prs"] == "https://github.com/acme/proj/pull/7"
+    assert (row["worktree"], row["state"], row["session"]) == ("removed", "gone", "found")
+    assert mesh.main(["agents", "nothing-like-this"]) == 0
+    assert "No workers match" in capsys.readouterr().out
+
+
+def stub_new_pane(fake):
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+
+
+def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, repo, capsys):
+    path, branch = archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["name"], out["worktree_recreated"], out["resumed_from"]) == ("proj-fix", True, {"run": "mold", "name": "proj-fix"})
+    # the worktree is back at the same path (Claude finds sessions by path) on the same branch
+    head = subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip()
+    assert head == branch
+    start = fake.called("agent", "start")[-1]
+    assert start[-5:] == ("--conversation", "c1", "--model", "gemini-3.8-flash-high", "--dangerously-skip-permissions")
+    data = mesh.load_run(run)
+    entry = data["agents"]["proj-fix"]
+    assert (entry["parent"], entry["session"], entry["status"]) == ("repo-lead", "c1", "running")
+    assert {"path": str(path), "repo": str(repo), "branch": branch} in data["worktrees"]  # this run's stop cleans it
+    assert "MESH_SELF=proj-fix" in fake.called("tab", "create")[0]
+    doorbell = fake.called("agent", "prompt")[-1][3]
+    assert doorbell.startswith("📬 [mesh] You are proj-fix (worker) again, resumed into agent-mesh run mtest")
+    assert mesh.unread(run, "proj-fix")
+
+
+def test_resume_of_a_claude_worker_whose_name_is_taken(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-fix"] = {"role": "worker", "kind": "agy", "cwd": "/elsewhere", "pane": "w2:p9"}
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "mesh/mold/fix"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "proj-fix-2"
+    assert fake.called("agent", "start")[-1][-7:] == (
+        "--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+
+
+def test_resume_refuses_a_worker_that_is_still_running(mesh, fake, run, repo, capsys):
+    path, _ = archived_worker(mesh, repo, session="c1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w5:p2", "cwd": str(path / "src")}]})
+    assert mesh.main(["resume", "proj-fix", "--from-run", "mold"]) == 1
+    assert "still running in pane w5:p2" in capsys.readouterr().err
+    assert not fake.called("agent", "start") and not path.exists()
+
+
+def test_resume_without_a_conversation_suggests_a_fresh_worker(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setenv("MESH_AGY_HISTORY", str(repo / "none.jsonl"))
+    archived_worker(mesh, repo)
+    assert mesh.main(["resume", "proj-fix"]) == 1
+    assert "mesh spawn --cwd" in capsys.readouterr().err
+
+
+def test_open_reopens_the_conversation_here_outside_the_mesh(mesh, fake, repo, monkeypatch, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    monkeypatch.setenv("MESH_RUN", "mtest")
+    calls = {}
+    monkeypatch.setattr(mesh.os, "chdir", lambda p: calls.setdefault("cwd", p))
+    monkeypatch.setattr(mesh.os, "execvpe", lambda f, argv, env: calls.update(argv=argv, env=env))
+    assert mesh.main(["open", "proj-fix", "--", "--dangerously-skip-permissions"]) == 0
+    assert calls["argv"] == ["claude", "--resume", "s-1", "--model", "opus", "--effort", "high",
+                             "--dangerously-skip-permissions"]
+    assert calls["cwd"] == str(path) and path.exists()
+    assert not any(key.startswith("MESH_") for key in calls["env"])
+    assert "git worktree remove" in capsys.readouterr().err

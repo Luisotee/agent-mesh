@@ -18,6 +18,7 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
 2. **Find the scope:** which repos the request touches (usually under `~/projects/`). Ask the user only if that's genuinely ambiguous.
    - **Your own repo** (the one you're running in) stays **yours**: you do its part yourself, in your current checkout and branch, exactly as you would without a mesh. Its rules are already loaded in your session. Spawn a worker for it only when the user explicitly asks to delegate it too.
    - **Every other repo** gets a worker.
+   - **Work an earlier worker did** (its PR got review comments, "make it Y instead of X"): resume that worker instead of spawning a fresh one. See "Follow-ups" below.
 3. **Spawn one worker per other repo.** Write a task file per repo in `$(mesh dir)/tasks/` and start the worker in a fresh worktree:
    ```bash
    mesh spawn --kind <kind> --repo <path> --model <m> --effort <e> --worktree <slug> \
@@ -45,11 +46,28 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
 7. **Check every `done`** before passing it on; a worker's word is not proof. Look at the PR diff (`gh pr diff <url>` or `git -C <worktree> diff <base>...HEAD`) against the approved plan. If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"` and watch it again.
 8. **On `failed`:** don't restart the worker on another model by yourself. Tell the user what blocked it and suggest a next step (a hint, or a stronger model such as `argon` or Claude). If the user agrees, retire the worker (`mesh retire <worker>`) and start the new one **in the same worktree** with `--cwd <worktree>`, giving it the plan and what failed; it gets the old name plus `-2`.
 9. **Finish:** when every worker has reported and your own part is done, tell the user:
-   - one line per repo with the PR link, plus what you changed in your own repo (it follows that repo's usual flow, not the mesh's)
+   - one line per repo with the PR link and the worker's name (so it can be resumed later), plus what you changed in your own repo (it follows that repo's usual flow, not the mesh's)
    - what's left for them to do (review, test, deploy)
    - anything that failed or was restarted
 
-   Then run `mesh stop`. It closes the panes, removes clean worktrees (branches are kept) and archives the run log. It never touches your own checkout.
+   Then run `mesh stop`. It closes the panes, removes clean worktrees (branches are kept) and archives the run log. It never touches your own checkout. Workers can still be resumed after it.
+
+## Follow-ups
+
+When the request is about something a worker already built, in this run or an earlier one, resume **that worker**: it still has its research, plan and reasoning, so a fresh one would only rediscover them.
+
+1. **Find it:** `mesh agents <PR link | repo | branch>` lists past workers with their run, branch, PRs and whether their conversation was found. With several matches, the newest is usually the one that last touched the PR.
+2. **If it's still running in this run**, just `mesh send <worker> --type task --file …`.
+3. **Otherwise resume it:** `mesh init` first if you have no run, then
+   ```bash
+   mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"
+   ```
+   It reopens the worker's own conversation, on the model it ran on, in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. The task file contains:
+   - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead
+   - "plan first; push to the same branch so the PR updates; report `done`"
+4. Supervise and review it exactly like a new worker: watch it, review its plan, check its `done`.
+
+A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI.
 
 ## Worker
 
@@ -66,6 +84,7 @@ You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the 
 7. **Execute** the approved plan yourself, in your worktree. Commit on your branch with clear messages. If the code turns out different from the plan in a way that changes its scope, stop, send a `question` and end your turn. Small corrections you can just note in the report.
 8. **Verify:** run the plan's done-when command and the repo's lint, test and build. Fix what fails. After two honest attempts at the same failure, send a `question` instead of guessing.
 9. **Publish:** push your branch and open the PR with `gh pr create`, following the repo's own PR rules (title, body, attribution, base branch). The PR body includes what changed, the commands that passed, and anything the reviewer should look at. Then do whatever the repo's rules require after a PR.
+   - **A follow-up** to work you already published goes on the **same branch**, so the existing PR updates. Open a new PR only if the task asks for one.
 10. **Report:** run `mesh inbox` once more, then send **one** `done` to your parent (`--file` under `$(mesh dir)/reports/`) with the PR link, a summary, the checks that passed, and any deviations from the plan. If you can't finish, send `failed` with what blocked you and what you tried. Don't run `mesh stop`: the root does that.
 
 ## Rules for everyone

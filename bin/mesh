@@ -22,11 +22,13 @@ import secrets
 import subprocess
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
 DEFAULT_MODELS = {"agy": "flash", "claude": "opus"}
@@ -41,6 +43,7 @@ AGY_MODELS_TTL = 6 * 3600
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
 PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
+PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -407,12 +410,99 @@ def resolve_agy_model(family: str, effort: str) -> str:
     return pick_agy_model(agy_model_listing(), family, effort)
 
 
-def agent_argv(kind: str, model: str, effort: str) -> tuple[list[str], str]:
-    """Native CLI arguments and the resolved model for a new agent."""
+def agent_argv(kind: str, model: str, effort: str) -> tuple[list[str], str, str | None]:
+    """Native CLI arguments, the resolved model and the session id (Claude only) for a new agent."""
     if kind == "agy":
         resolved = resolve_agy_model(model, effort)
-        return ["--model", resolved, "--dangerously-skip-permissions"], resolved
-    return ["--model", model, "--effort", effort, "--dangerously-skip-permissions"], model
+        return ["--model", resolved, "--dangerously-skip-permissions"], resolved, None
+    # Choosing the session id up front is what lets `mesh resume` find the conversation later.
+    session = str(uuid.uuid4())
+    argv = ["--session-id", session, "--model", model, "--effort", effort, "--dangerously-skip-permissions"]
+    return argv, model, session
+
+
+def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
+    """CLI arguments that reopen an agent's conversation (no permission flags)."""
+    if kind == "agy":
+        return ["--conversation", session, "--model", model]
+    return ["--resume", session, "--model", model, "--effort", effort]
+
+
+def resumed_model(entry: dict, model: str | None, effort: str | None) -> tuple[str, str]:
+    """The model and effort a resumed agent runs on: what it had, unless overridden."""
+    effort = effort or entry.get("effort") or DEFAULT_EFFORT
+    if entry.get("kind") != "agy":
+        return model or entry.get("model") or DEFAULT_MODELS["claude"], effort
+    if not model:
+        match = AGY_MODEL_RE.match(entry.get("model") or "")
+        if match and match.group(3) == effort:
+            return entry["model"], effort  # the exact id it ran on; no listing needed
+        model = match.group(2) if match else DEFAULT_MODELS["agy"]
+    return resolve_agy_model(model, effort), effort
+
+
+# ── sessions ─────────────────────────────────────────────────────────────
+
+
+def first_doorbell(name: str) -> str:
+    """How every first doorbell to an agent starts (see doorbell_text), without the emoji."""
+    return f"You are {name} ("
+
+
+@lru_cache(maxsize=4)
+def agy_history(path: str, mtime: float) -> list[dict]:
+    entries = []
+    for line in Path(path).read_text(errors="replace").splitlines():
+        try:
+            entries.append(json.loads(line))
+        except ValueError:
+            continue
+    return entries
+
+
+def agy_conversation(name: str, run_id: str, cwd: str | None) -> str | None:
+    """agy's conversation id for an agent, from the prompt history agy keeps for every session.
+
+    The first doorbell names the agent and its run, so it pins the conversation even when
+    a restart (`-2`) shares the worktree; the last prompt typed in that directory is the fallback.
+    """
+    path = Path(os.environ.get("MESH_AGY_HISTORY") or Path.home() / ".gemini/antigravity-cli/history.jsonl")
+    if not path.exists():
+        return None
+    run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
+    by_doorbell = by_cwd = None
+    for entry in agy_history(str(path), path.stat().st_mtime):
+        conversation, display = entry.get("conversationId"), entry.get("display") or ""
+        if not conversation:
+            continue
+        if display.startswith(f"📬 [mesh] {first_doorbell(name)}") and run_re.search(display):
+            by_doorbell = conversation
+        elif cwd and entry.get("workspace") == cwd:
+            by_cwd = conversation
+    return by_doorbell or by_cwd
+
+
+def claude_session(name: str, cwd: str) -> str | None:
+    """A Claude session id for agents spawned before mesh chose ids: Claude keeps sessions per cwd."""
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    folder = base / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd)
+    if not folder.is_dir():
+        return None
+    for path in sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if first_doorbell(name) in path.read_text(errors="replace"):
+            return path.stem
+    return None
+
+
+def find_session(run_id: str, name: str, entry: dict) -> str | None:
+    if entry.get("session"):
+        return entry["session"]
+    cwd = entry.get("cwd")
+    if entry.get("kind") == "agy":
+        # A main checkout is shared with the user's own sessions: there only the doorbell counts.
+        shared = bool(cwd and entry.get("repo")) and Path(cwd).resolve() == Path(entry["repo"]).resolve()
+        return agy_conversation(name, run_id, None if shared else cwd)
+    return claude_session(name, cwd) if cwd else None
 
 
 # ── worktrees ────────────────────────────────────────────────────────────
@@ -439,6 +529,31 @@ def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tu
         run.setdefault("worktrees", []).append({"path": str(path), "repo": str(repo_top), "branch": branch})
     log_event(run_id, "worktree", path=str(path), branch=branch)
     return path, branch
+
+
+def entry_branch(run: dict, entry: dict) -> str | None:
+    """An agent's branch; a restart with --cwd records none, so look its worktree up."""
+    if entry.get("branch"):
+        return entry["branch"]
+    cwd = entry.get("cwd")
+    return next((wt["branch"] for wt in run.get("worktrees", []) if cwd and Path(wt["path"]) == Path(cwd)), None)
+
+
+def ensure_worktree(entry: dict, branch: str | None) -> bool:
+    """Bring a removed worktree back at its old path, where Claude looks for the session. True if recreated."""
+    path = Path(entry["cwd"])
+    if path.exists():
+        return False
+    if not branch or not entry.get("repo"):
+        raise MeshError(f"{path} is gone and no branch is recorded for it")
+    try:
+        git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=entry["repo"])
+    except MeshError:
+        raise MeshError(f"branch {branch} no longer exists in {entry['repo']}") from None
+    git("worktree", "prune", cwd=entry["repo"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git("worktree", "add", str(path), branch, cwd=entry["repo"])
+    return True
 
 
 # ── messaging ────────────────────────────────────────────────────────────
@@ -483,6 +598,12 @@ def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -
 def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first: bool) -> str:
     if first:
         entry = run["agents"][to]
+        if entry.get("resumed_from"):
+            return (
+                f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}; your "
+                f"parent is {entry['parent']}. The run id, parent and paths changed: re-read {PROTOCOL_PATH}, "
+                f"then run `mesh inbox` for your {mtype}."
+            )
         return (
             f"📬 [mesh] You are {to} ({entry['role']}) in agent-mesh run {run['id']}; your parent is "
             f"{entry['parent']}. Read {PROTOCOL_PATH}, then run `mesh inbox` for your {mtype}."
@@ -588,6 +709,14 @@ def spawn_suffix(args: argparse.Namespace, run: dict) -> str:
     return f"worker{sum(a['role'] == 'worker' for a in run['agents'].values()) + 1}"
 
 
+def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
+    env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": role}
+    for key in ("MESH_HOME", "MESH_WORKTREES"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
 def cmd_spawn(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
@@ -596,7 +725,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
     args.model = args.model or DEFAULT_MODELS[args.kind]
-    argv, model = agent_argv(args.kind, args.model, args.effort)
+    argv, model, session = agent_argv(args.kind, args.model, args.effort)
     branch = None
     if args.worktree:
         cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -606,17 +735,12 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         cwd = repo_top
 
     parent = args.parent or me
-    env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": args.role}
-    for key in ("MESH_HOME", "MESH_WORKTREES"):
-        if os.environ.get(key):
-            env[key] = os.environ[key]
-
     workspace_id, created_ws = find_or_create_workspace(repo_top)
-    pane, tab = new_pane(run_id, workspace_id, cwd, env)
+    pane, tab = new_pane(run_id, workspace_id, cwd, mesh_env(run_id, name, parent, args.role))
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": args.role, "kind": args.kind, "model": model, "effort": args.effort,
-            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "pane": pane, "tab": tab,
+            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
         }
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -726,11 +850,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         emit({"run": run_id, "mode": run["mode"], "agents": rows})
         return 0
     print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}")
-    cols = ("name", "role", "kind", "model", "state", "unread", "parent", "branch")
-    widths = {c: max(len(c), *(len(str(r[c])) for r in rows)) for c in cols}
-    print("  ".join(c.upper().ljust(widths[c]) for c in cols))
-    for row in rows:
-        print("  ".join(str(row[c]).ljust(widths[c]) for c in cols))
+    print_table(rows, ("name", "role", "kind", "model", "state", "unread", "parent", "branch"))
     return 0
 
 
@@ -791,6 +911,196 @@ def cmd_retire(args: argparse.Namespace) -> int:
     log_event(run_id, "retire", name=args.agent)
     emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
     return 0
+
+
+# ── past workers: agents, resume, open ───────────────────────────────────
+
+
+def all_runs() -> list[tuple[dict, Path]]:
+    """Every run, live and archived, newest first, with its directory."""
+    home = mesh_home()
+    runs = []
+    for path in (*home.glob("*/run.json"), *home.glob("archive/*/run.json")):
+        try:
+            runs.append((json.loads(path.read_text()), path.parent))
+        except (OSError, ValueError):
+            continue
+    return sorted(runs, key=lambda r: r[0].get("created", ""), reverse=True)
+
+
+def worker_prs(folder: Path, name: str) -> list[str]:
+    """PR links in the messages a worker sent; its `done` reports carry them."""
+    prs: list[str] = []
+    for path in sorted((folder / "inbox").glob("**/*.md")):
+        meta, body = parse_message(path)
+        if meta.get("from") == name:
+            prs += [url for url in PR_RE.findall(body) if url not in prs]
+    return prs
+
+
+def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str, dict]:
+    """The newest worker whose name, branch or PR link is `ref`."""
+    pr = PR_RE.search(ref)
+    for run, folder in all_runs():
+        if from_run and run["id"] != from_run:
+            continue
+        for name, entry in reversed(run["agents"].items()):  # a restart beats the agent it replaced
+            if entry.get("role") == "root":
+                continue
+            if ref in (name, entry_branch(run, entry)) or (pr and pr.group(0) in worker_prs(folder, name)):
+                return run, folder, name, entry
+    raise MeshError(f"no worker matches {ref}" + (f" in run {from_run}" if from_run else "") + "; see `mesh agents`")
+
+
+def live_holder(name: str, entry: dict, agents: list[dict] | None = None) -> dict | None:
+    """A live herdr agent that may hold this worker's conversation already.
+
+    In its own worktree that's any agent there (the user may have reopened it with `mesh open`);
+    in a main checkout, which other sessions share, only an agent still carrying its name.
+    """
+    cwd = entry.get("cwd")
+    if agents is None:
+        agents = herdr("agent", "list").get("agents", [])
+    if not cwd or (entry.get("repo") and Path(cwd).resolve() == Path(entry["repo"]).resolve()):
+        return next((a for a in agents if a.get("name") == name), None)
+    top = Path(cwd).resolve()
+    return next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
+
+
+def print_table(rows: list[dict], cols: tuple[str, ...]) -> None:
+    widths = {c: max(len(c), *(len(str(r[c])) for r in rows)) for c in cols}
+    print("  ".join(c.upper().ljust(widths[c]) for c in cols))
+    for row in rows:
+        print("  ".join(str(row[c]).ljust(widths[c]) for c in cols))
+
+
+def cmd_agents(args: argparse.Namespace) -> int:
+    try:
+        live = herdr("agent", "list").get("agents", [])
+    except MeshError:
+        live = []  # outside herdr: every agent shows as gone
+    query = (args.query or "").lower()
+    rows = []
+    for run, folder in all_runs():
+        for name, entry in run["agents"].items():
+            if entry.get("role") == "root":
+                continue
+            cwd, branch, prs = entry.get("cwd") or "", entry_branch(run, entry) or "", worker_prs(folder, name)
+            if query and not any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs)):
+                continue
+            rows.append({
+                "name": name, "run": run["id"], "archived": folder.parent.name == "archive",
+                "kind": entry.get("kind"), "model": entry.get("model") or "",
+                "repo": Path(entry["repo"]).name if entry.get("repo") else "", "branch": branch,
+                "worktree": "present" if cwd and Path(cwd).exists() else "removed",
+                "state": "live" if live_holder(name, entry, live) else "gone",
+                "session": "found" if find_session(run["id"], name, entry) else "missing",
+                "prs": " ".join(prs), "cwd": cwd,
+            })
+    if args.json:
+        emit(rows)
+    elif not rows:
+        print("No workers found." if not query else f"No workers match {args.query}.")
+    else:
+        print_table(rows, ("name", "run", "kind", "model", "repo", "branch", "worktree", "state", "session", "prs"))
+    return 0
+
+
+def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dict, str]:
+    """Find a past worker and its conversation, refusing one that is still running."""
+    run, _, name, entry = find_worker(ref, from_run)
+    session = find_session(run["id"], name, entry)
+    if not session:
+        raise MeshError(
+            f"can't find {name}'s {entry.get('kind')} conversation; start a fresh worker with "
+            f"`mesh spawn --cwd {entry.get('cwd')}` and give it the old plan and report"
+        )
+    holder = live_hint(name, entry)
+    if holder:
+        raise MeshError(f"{name} is still running in pane {holder.get('pane_id')}; {holder['hint']}")
+    return run, name, entry, session
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    """Bring a past worker back, conversation and all, as a worker of this run."""
+    run_id, me = identity(args)
+    current = load_run(run_id)
+
+    def live_hint(name, entry):
+        holder = live_holder(name, entry)
+        if holder:
+            held = holder.get("name")
+            holder["hint"] = (f"send it the task: `mesh send {held} --type task`" if held in current["agents"]
+                              else f"go there with `herdr agent focus {held or holder.get('pane_id')}`")
+        return holder
+
+    old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
+    model, effort = resumed_model(old, args.model, args.effort)
+    branch = entry_branch(old_run, old)
+    taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
+    name, n = old_name, 2
+    while name in taken:
+        name, n = f"{old_name[:29]}-{n}", n + 1
+
+    cwd, repo_top = old["cwd"], Path(old["repo"])
+    recreated = ensure_worktree(old, branch)
+    with editing_run(run_id) as run:
+        worktrees = run.setdefault("worktrees", [])
+        if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
+            worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch})  # so this run's stop cleans it
+
+    workspace_id, _ = find_or_create_workspace(repo_top)
+    pane, tab = new_pane(run_id, workspace_id, Path(cwd), mesh_env(run_id, name, me, "worker"))
+    with editing_run(run_id) as run:
+        run["agents"][name] = {
+            "role": "worker", "kind": old["kind"], "model": model, "effort": effort,
+            "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": pane, "tab": tab,
+            "workspace": workspace_id, "parent": me, "status": "starting", "spawned": now_iso(),
+            "resumed_from": {"run": old_run["id"], "name": old_name},
+        }
+    log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
+              from_run=old_run["id"], from_name=old_name, session=session)
+
+    start_agent(name, old["kind"], pane, [*resume_argv(old["kind"], session, model, effort),
+                                          "--dangerously-skip-permissions"])
+    with editing_run(run_id) as run:
+        run["agents"][name]["status"] = "running"
+
+    result = {"name": name, "pane": pane, "workspace": workspace_id, "cwd": cwd, "branch": branch, "model": model,
+              "session": session, "resumed_from": {"run": old_run["id"], "name": old_name},
+              "worktree_recreated": recreated}
+    task = read_body(args.task, args.task_file)
+    if task:
+        result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
+    emit(result)
+    return 0
+
+
+def cmd_open(args: argparse.Namespace) -> int:
+    """Reopen a past worker's conversation in this terminal, outside any run, for the user."""
+
+    def live_hint(name, entry):
+        try:
+            holder = live_holder(name, entry)
+        except MeshError:
+            return None  # outside herdr: nothing to check against
+        if holder:
+            holder["hint"] = f"go there with `herdr agent focus {holder.get('name') or holder.get('pane_id')}`"
+        return holder
+
+    run, name, entry, session = resumable(args.ref, args.from_run, live_hint)
+    model, effort = resumed_model(entry, args.model, args.effort)
+    branch = entry_branch(run, entry)
+    recreated = ensure_worktree(entry, branch)
+    extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
+    argv = [entry["kind"], *resume_argv(entry["kind"], session, model, effort), *extra]
+    note = f"; the worktree was recreated, remove it with `git worktree remove {entry['cwd']}` when done" if recreated else ""
+    print(f"mesh: opening {name} from run {run['id']} ({entry['kind']} {model}) in {entry['cwd']}"
+          f" on {branch or 'its checkout'}{note}", file=sys.stderr)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MESH_")}
+    os.chdir(entry["cwd"])
+    os.execvpe(argv[0], argv, env)
+    return 0  # not reached
 
 
 def cmd_worktree(args: argparse.Namespace) -> int:
@@ -933,6 +1243,28 @@ def build_parser() -> argparse.ArgumentParser:
     p = ident(sub.add_parser("retire", help="close a child's pane (its worktree stays)"))
     p.add_argument("agent")
     p.set_defaults(func=cmd_retire)
+
+    p = sub.add_parser("agents", help="past and present workers of every run, with branches and PRs")
+    p.add_argument("query", nargs="?", help="filter on name, repo, branch or PR link")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_agents)
+
+    p = ident(sub.add_parser("resume", help="bring a past worker back, with its conversation, into this run"))
+    p.add_argument("ref", help="the worker's name, branch or PR link (see `mesh agents`)")
+    p.add_argument("--from-run", help="look only in this run (default: the newest match)")
+    p.add_argument("--model", help="override the model it ran on (same CLI)")
+    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--task", help="the follow-up task")
+    p.add_argument("--task-file", help="the follow-up task from a file (- for stdin)")
+    p.set_defaults(func=cmd_resume)
+
+    p = sub.add_parser("open", help="reopen a past worker's conversation in this terminal, outside the mesh")
+    p.add_argument("ref", help="the worker's name, branch or PR link (see `mesh agents`)")
+    p.add_argument("--from-run", help="look only in this run (default: the newest match)")
+    p.add_argument("--model", help="override the model it ran on")
+    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("extra", nargs=argparse.REMAINDER, help="after --: more arguments for the CLI")
+    p.set_defaults(func=cmd_open)
 
     p = ident(sub.add_parser("worktree", help="create a run worktree, e.g. for integration"))
     p.add_argument("--repo", default=".")

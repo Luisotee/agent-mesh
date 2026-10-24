@@ -58,6 +58,27 @@ More examples:
 /delegate-claude  add the `marketingOptOut` field to shared-schemas and update shop-api's user route to match
 ```
 
+## Follow-ups: resuming a worker
+
+A worker's conversation outlives its run. When the PR gets review comments, or you change your mind about the feature, send the work back to **the agent that did it**, with all its research still in context, instead of briefing a fresh one:
+
+```
+/delegate-agy send the review on shop-api#88 and your opinion on it to the agent that made that PR
+/delegate-agy ask the shop-api worker to return restockedAt as a unix timestamp instead of ISO
+```
+
+The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change, gets it approved, and pushes to the **same** branch, so the existing PR updates.
+
+To carry on with a worker yourself, open its conversation in your own terminal:
+
+```bash
+mesh agents shop-api                  # past workers: run, branch, PRs, whether the conversation was found
+mesh open shop-api-restocked-at       # cd into its worktree and resume its conversation here
+mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flags go to the CLI
+```
+
+`mesh open` runs outside the mesh, with your usual permission settings. Both commands take the worker's name, its branch (`mesh/<run>/<slug>`) or a PR link, and both refuse a worker that's still running. To get to a running one, use `herdr agent focus <name>`.
+
 ## How it works
 
 ### Mailbox plus doorbell
@@ -103,6 +124,7 @@ A Claude root gets notified the moment the watch exits.
 - **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
 - **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself, and refuses any other startup prompt.
 - **Cleanup:** `mesh stop` removes only *clean* worktrees, always keeps the branches, and never touches your own checkout.
+- **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice.
 
 ## Install
 
@@ -134,6 +156,8 @@ Useful commands while a run is going:
 mesh status <run>          # every agent: role, model, live state, unread mail, branch
 mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees, archive the run
+mesh agents [query]        # every past worker, live or archived, with branch and PRs
+mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 ```
 
 ## The protocol in one screen
