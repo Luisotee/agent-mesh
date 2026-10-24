@@ -42,15 +42,50 @@ class FakeHerdr:
         return [c for c in self.calls if c[: len(prefix)] == prefix]
 
 
+class FakeCli:
+    """Stands in for `run_cli`, so tests never start a real `claude` or `agy`.
+
+    Answers by argv prefix after the binary (`fake_cli.on("agents", stdout=...)`); records every call.
+    """
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.handlers = {}
+
+    def on(self, *prefix, returncode=0, stdout="", stderr="", effect=None):
+        self.handlers[prefix] = (returncode, stdout, stderr, effect)
+
+    def __call__(self, argv, cwd=None, env=None, timeout=120):
+        import subprocess
+        self.calls.append({"argv": list(argv), "cwd": cwd, "env": env})
+        for prefix, (code, out, err, effect) in sorted(self.handlers.items(), key=lambda kv: -len(kv[0])):
+            if tuple(argv[1: 1 + len(prefix)]) == prefix:
+                if effect:
+                    effect(argv)
+                return subprocess.CompletedProcess(argv, code, out() if callable(out) else out, err)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def called(self, *prefix):
+        return [c for c in self.calls if tuple(c["argv"][1: 1 + len(prefix)]) == prefix]
+
+
 @pytest.fixture
 def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("MESH_WORKTREES", str(tmp_path / "worktrees"))
-    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE"):
+    # No real Claude socket: a test that wants a Claude root creates one here (see claude_root).
+    monkeypatch.setenv("MESH_CC_SOCKS", str(tmp_path / "socks"))
+    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT"):
         monkeypatch.delenv(key, raising=False)
     module = load_mesh()
     monkeypatch.setattr(module.time, "sleep", lambda s: None)
+    monkeypatch.setattr(module, "run_cli", FakeCli())
     return module
+
+
+@pytest.fixture
+def cli(mesh):
+    return mesh.run_cli
 
 
 @pytest.fixture
