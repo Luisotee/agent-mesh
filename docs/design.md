@@ -54,8 +54,8 @@ herdr requires names to match `[a-z][a-z0-9_-]{0,31}` and to be unique among liv
 ## 5. Models are preferences, not code
 
 Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **families**:
-- `flash`/`argon` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` in `agy models`
-- `opus` for Claude, which the CLI resolves itself
+- `argon` / `flash` / `opus` / `sonnet` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` or `claude-<family>-<version>-<effort>` in `agy models`
+- `opus` / `sonnet` for Claude, which the CLI resolves itself
 
 The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it.
 
@@ -71,7 +71,7 @@ Since 0.3 a run is the root plus **one worker per other repo**. The worker resea
 
 The typical run is two repos: you're working with an agent in repo A and find that the change also needs repo B. The root therefore keeps its own repo, working in your checkout as before, and spawns a worker only for each *other* repo. A worker for the root's own repo is started only when you ask for one.
 
-The default worker is the newest Gemini Flash at **high** effort, and `mesh spawn` uses it when no model is given. Stronger models are opt-in: the user names them, or agrees when the root suggests one after a failure. Nothing escalates on its own.
+Until 0.4 the default worker was the newest Gemini Flash at **high** effort, for the whole task. Since 0.5 a worker plans on a stronger model and executes on Flash (§9). A model named by the user still runs the whole task, and after a `failed` the root only suggests a stronger model.
 
 ## 8. Resuming workers
 
@@ -87,6 +87,19 @@ Since 0.4 a worker's conversation outlives its run. The usual follow-ups (a PR r
 - **One process per conversation:** both commands refuse while a live agent sits in the worker's worktree. Two CLIs on one conversation would fork it.
 - **`mesh open` is the user's session:** it strips the `MESH_*` environment, and it doesn't add `--dangerously-skip-permissions`, because the user is at the keyboard and their normal settings apply. The protocol tells an agent that finds itself outside a run to work with the user directly.
 - **The CLI is fixed:** a conversation can't move between Claude and agy, so changing agent means a fresh worker in the same worktree, as after a `failed`. The model can change within the same CLI.
+
+## 9. Models per phase
+
+Flash is cheap and good at typing code and running tests, but weak at the research and planning that decide whether the change is right. Since 0.5 a worker on `--model auto` (the default) plans on a strong model and executes on a cheap one, in **one conversation**:
+
+- **The switch happens at approval:** the plan is the boundary between deciding and doing, and the root is already there to approve it. `mesh approve` waits for the worker to finish its turn, opens a pane next to it, closes the old one, and reopens the conversation with `agy --conversation <id> --model <flash>` / `claude --resume <id> --model sonnet`. It reuses the session lookup from §8, so the executor keeps the research. This is not the 0.2 cold hand-off.
+- **Quotas, not a fixed model:** the user's strongest model (Argon) runs out for days at a time. For agy, the planning model is the first of Argon → Claude Opus (through agy's Claude pool) → Flash with at least `MESH_MIN_QUOTA`% (default 10) left in every limit that covers it.
+  - The limits come from `agy -p /usage`, whose rows are a group, a label, the percent left and the reset time. A group ending in "models" covers ids by vendor prefix ("Claude and GPT models" → `claude-`, `gpt-`); any other group covers the model of that name ("Gemini 4 Argon").
+  - Unreadable quotas never block a spawn: the chain's first model is used.
+- **Detecting a quota hit:** agy keeps the session alive and logs `RESOURCE_EXHAUSTED … Resets in 138h17m29s`. Each agy worker gets its own `--log-file`, so `mesh watch` can scan only that worker's new log lines and exit 7. The root then runs `mesh switch` without asking: a quota hit says nothing about the task, so moving on can't hide a real failure. `switch` re-reads the quotas, skips every model that already hit its quota, and tells the worker to continue.
+- **No fallback for execution:** the user chose Flash only for execution. A Flash quota hit stops the worker and the root reports the reset time, rather than spending the Claude pool on typing code.
+- **Claude workers** plan on Opus and execute on Sonnet. Claude Code's usage isn't visible to mesh, so there is no quota choice or detection for them; `mesh switch --model` still works by hand.
+- **The root's model is the user's:** mesh never changes the root session's model.
 
 ## Alternatives considered
 

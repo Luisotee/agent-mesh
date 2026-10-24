@@ -115,7 +115,21 @@ gemini-3.8-flash-high\tGemini 3.8 Flash (High)
 gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)
 gemini-3.10-flash-medium\tGemini 3.10 Flash (Medium)
 claude-opus-5-5-high\tClaude Opus 5.5 (High)
+claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
 """
+
+USAGE = """Gemini Models\tWeekly Limit Remaining\t74%\t2026-10-29T17:21:38Z
+Gemini Models\tFive Hour Limit Remaining\t52%\t2026-10-24T05:50:54Z
+Claude and GPT models\tWeekly Limit Remaining\t49%\t2026-10-30T19:57:12Z
+Claude and GPT models\tFive Hour Limit Remaining\t100%\t2026-10-24T10:11:57Z
+Gemini 4 Argon\tGemini 4 Argon Weekly Limit\t0%\t2026-10-29T17:26:00Z
+"""
+
+
+def with_quotas(mesh, monkeypatch, usage=USAGE):
+    """A fresh `agy models` cache and fixed quotas, so nothing runs agy."""
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
+    monkeypatch.setattr(mesh, "agy_usage", lambda force=False: mesh.parse_usage(usage))
 
 
 def test_pick_agy_model_newest_family_and_effort(mesh):
@@ -125,6 +139,54 @@ def test_pick_agy_model_newest_family_and_effort(mesh):
     assert mesh.pick_agy_model(AGY_MODELS, "gemini-3.8-flash-high", "low") == "gemini-3.8-flash-high"
     with pytest.raises(mesh.MeshError):
         mesh.pick_agy_model(AGY_MODELS, "flash", "low")
+
+
+def test_pick_agy_model_resolves_claude_families(mesh):
+    assert mesh.pick_agy_model(AGY_MODELS, "opus", "high") == "claude-opus-5-5-high"
+    assert mesh.pick_agy_model(AGY_MODELS, "sonnet", "high") == "claude-sonnet-5-5-high"
+    assert mesh.resolve_agy_model("claude-sonnet-5-5-low", "high") == "claude-sonnet-5-5-low"  # exact id
+
+
+def test_usage_rows_give_each_model_its_tightest_limit(mesh):
+    rows = mesh.parse_usage("Fetching...\n" + USAGE)
+    assert len(rows) == 5 and rows[0]["left"] == 74
+    assert mesh.model_quota("gemini-4-argon-high", "Gemini 4 Argon (High)", rows) == (0, "2026-10-29T17:26:00Z")
+    assert mesh.model_quota("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)", rows)[0] == 52
+    assert mesh.model_quota("claude-opus-5-5-high", "Claude Opus 5.5 (High)", rows)[0] == 49
+    assert mesh.model_quota("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)", rows)[0] == 49
+    assert mesh.model_quota("other-model", "Other", rows) is None
+
+
+def test_auto_plans_on_the_first_model_with_quota(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch)
+    chain = mesh.PLAN_CHAIN["agy"]
+    assert mesh.choose_agy_model(chain, "high")[0] == "claude-opus-5-5-high"
+    assert mesh.choose_agy_model(chain, "high", skip=("claude-opus-5-5-high",))[0] == "gemini-3.8-flash-high"
+    with_quotas(mesh, monkeypatch, USAGE.replace("74%", "5%").replace("49%", "3%"))
+    model, notes = mesh.choose_agy_model(chain, "high")
+    assert model == "gemini-3.8-flash-high" and "every model is under 10%" in notes[-1]
+    with pytest.raises(mesh.MeshError, match="resets 2026-10-29"):
+        mesh.choose_agy_model(chain, "high", fallback=False)
+    monkeypatch.setenv("MESH_MIN_QUOTA", "4")
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-3.8-flash-high"
+    monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: never block
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-argon-high"
+
+
+def test_usage_is_cached_and_force_reads_it_again(mesh, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout=USAGE, stderr="")
+
+    monkeypatch.setattr(mesh.subprocess, "run", fake_run)
+    assert mesh.agy_usage()[4]["left"] == 0
+    assert mesh.agy_usage()[0]["left"] == 74 and len(calls) == 1  # from the cache
+    mesh.agy_usage(force=True)
+    assert len(calls) == 2 and calls[0][:3] == ["agy", "-p", "/usage"]
+    monkeypatch.setattr(mesh.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 1, "", "offline"))
+    assert mesh.agy_usage(force=True) is None
 
 
 def test_claude_argv_keeps_alias_and_picks_the_session_id(mesh):
@@ -252,16 +314,27 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
 
 
-def test_spawn_defaults_to_an_agy_flash_high_worker(mesh, fake, run, repo, monkeypatch, capsys):
+def test_spawn_defaults_to_auto_planning_then_flash(mesh, fake, run, repo, monkeypatch, capsys):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
-    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    with_quotas(mesh, monkeypatch)
     assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "fix-reactions"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["model"] == "gemini-3.8-flash-high"
+    assert out["model"] == "claude-opus-5-5-high"  # Argon is at 0%
+    assert out["notes"] == ["gemini-4-argon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
     entry = mesh.load_run(run)["agents"]["proj-fix-reactions"]
     assert (entry["role"], entry["kind"], entry["effort"]) == ("worker", "agy", "high")
+    assert (entry["phase"], entry["exec_model"]) == ("plan", "flash")
+    assert entry["log"].endswith("/mtest/logs/proj-fix-reactions.log")
+    assert fake.called("agent", "start")[-1][-5:] == (
+        "--log-file", entry["log"], "--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
     assert "MESH_ROLE=worker" in fake.called("tab", "create")[0]
+
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "one", "--model", "flash"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-one"]
+    assert (entry["model"], entry["exec_model"], entry["phase"]) == ("gemini-3.8-flash-high", None, None)
 
 
 # ── trust dialogs ────────────────────────────────────────────────────────
@@ -540,3 +613,128 @@ def test_open_reopens_the_conversation_here_outside_the_mesh(mesh, fake, repo, m
     assert calls["cwd"] == str(path) and path.exists()
     assert not any(key.startswith("MESH_") for key in calls["env"])
     assert "git worktree remove" in capsys.readouterr().err
+
+
+# ── models per phase: approve, quota hits, switch ────────────────────────
+
+
+def planning_worker(mesh, run, kind="agy", model="claude-opus-5-5-high", session="c1", phase="plan"):
+    log = mesh.run_dir(run) / "logs" / "repo-fix-typo.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("I1024 started\n")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(
+            kind=kind, model=model, effort="high", repo="/repo", cwd="/wt/fix", session=session,
+            workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "sonnet",
+            log=str(log) if kind == "agy" else None,
+            models=[{"model": model, "at": "t", "why": "spawn"}])
+    return log
+
+
+def test_approve_moves_the_worker_to_flash_in_the_same_conversation(mesh, fake, run, monkeypatch, capsys):
+    log = planning_worker(mesh, run)
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo", "--body", "Mind the migration."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["model"] == "gemini-3.8-flash-high"
+    assert fake.called("pane", "close", "w2:p5")  # the planning pane goes
+    assert fake.called("agent", "start")[-1][-7:] == (
+        "--log-file", str(log), "--conversation", "c1", "--model", "gemini-3.8-flash-high",
+        "--dangerously-skip-permissions")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["phase"], entry["pane"], entry["status"]) == ("exec", "w9:p10", "running")
+    assert "swapped" not in entry and entry["models"][-1]["why"] == "plan approved"
+    doorbell = fake.called("agent", "prompt")[-1][3]
+    assert doorbell.startswith("📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, "
+                               "now on gemini-3.8-flash-high")
+    [msg] = mesh.unread(run, "repo-fix-typo")
+    assert msg.name.endswith("-answer.md") and "approved\n\nMind the migration." in msg.read_text()
+
+    # a later approval (after a revision) doesn't switch again
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert len(fake.called("agent", "start")) == 1
+
+
+def test_approve_a_claude_worker_resumes_it_on_sonnet(mesh, fake, run, capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert fake.called("agent", "start")[-1][-7:] == (
+        "--resume", "s-1", "--model", "sonnet", "--effort", "high", "--dangerously-skip-permissions")
+
+
+def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert not fake.called("agent", "start") and not fake.called("pane", "close")
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+
+
+def test_watch_alerts_on_a_new_quota_hit(mesh, fake, run, monkeypatch, capsys):
+    log = planning_worker(mesh, run)
+    log.write_text(log.read_text() + "E1023 RESOURCE_EXHAUSTED (code 429): an old hit. Resets in 1h.\n")
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    polls = iter(range(10))
+
+    def sleep(_):
+        if next(polls) == 1:
+            with open(log, "a") as fh:
+                fh.write("E1024 errorreport.go:224] generating and executing: RESOURCE_EXHAUSTED (code 429): "
+                         "Individual quota reached. Please upgrade your subscription. Resets in 138h17m29s.\n")
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 7
+    out = capsys.readouterr().out
+    assert "hit its quota on claude-opus-5-5-high (resets in 138h17m29s)" in out
+    assert "mesh switch repo-fix-typo" in out
+
+
+def test_switch_moves_a_planning_worker_down_the_chain(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["previous"], out["model"]) == ("gemini-4-argon-high", "claude-opus-5-5-high")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["phase"] == "plan" and entry["models"][-1]["why"] == "quota"
+    assert "Continue exactly where you stopped" in mesh.unread(run, "repo-fix-typo")[0].read_text()
+
+
+def test_switch_with_flash_exhausted_while_executing_changes_nothing(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-3.8-flash-high", phase="exec")
+    with_quotas(mesh, monkeypatch, USAGE.replace("52%", "0%"))
+    assert mesh.main(["switch", "repo-fix-typo"]) == 1
+    assert "no model with quota left" in capsys.readouterr().err
+    assert not fake.called("agent", "start") and not fake.called("pane", "close")
+
+
+def test_switch_a_claude_worker_needs_a_model(mesh, fake, run, capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    assert mesh.main(["switch", "repo-fix-typo"]) == 1
+    assert "pass --model" in capsys.readouterr().err
+
+
+def test_watch_carries_on_while_the_worker_is_reopened(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run)
+    states = iter(["working", "gone", "working"])
+
+    def get(*args, timeout=None):
+        fake.calls.append(args)
+        if args[:2] == ("agent", "get"):
+            state = next(states, None)
+            if state == "gone":
+                with mesh.editing_run(run) as data:
+                    data["agents"]["repo-fix-typo"]["status"] = "starting"
+                raise mesh.HerdrError("agent_not_found", "stubbed")
+            if state is None:
+                mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+                state = "idle"
+            return {"agent": {"agent_status": state}}
+        return {}
+
+    monkeypatch.setattr(mesh, "herdr", get)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 0
+    assert "reported done" in capsys.readouterr().out

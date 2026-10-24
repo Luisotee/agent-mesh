@@ -28,17 +28,25 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
-DEFAULT_MODELS = {"agy": "flash", "claude": "opus"}
+# `--model auto`: plan on the first model of the chain with quota left, execute on EXEC_MODEL.
+PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
+EXEC_MODEL = {"agy": "flash", "claude": "sonnet"}
 DEFAULT_EFFORT = "high"
 ROLES = ("worker",)
 TYPES = ("task", "plan", "question", "answer", "done", "failed", "info")
 FINAL_TYPES = ("done", "failed")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-AGY_MODEL_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$", re.MULTILINE)
+# agy model ids: gemini-<version>-<family>-<effort> and claude-<family>-<version>-<effort>.
+GEMINI_ID_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$")
+CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high)$")
 AGY_MODELS_TTL = 6 * 3600
+AGY_USAGE_TTL = 300
+# What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
+QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*")
+RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
@@ -367,20 +375,39 @@ def start_agent(name: str, kind: str, pane: str, argv: list[str], attempts: int 
 # ── models ───────────────────────────────────────────────────────────────
 
 
-def version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in version.split(".") if part.isdigit())
+def parse_agy_id(model_id: str) -> tuple[str, tuple[int, ...], str] | None:
+    """(family, version, effort) of an agy model id, e.g. ("opus", (5, 5), "high")."""
+    match = GEMINI_ID_RE.match(model_id)
+    if match:
+        version, family, effort = match.groups()
+    else:
+        match = CLAUDE_ID_RE.match(model_id)
+        if not match:
+            return None
+        family, version, effort = match.groups()
+    return family, tuple(int(part) for part in re.findall(r"\d+", version)), effort
+
+
+def listing_names(listing: str) -> dict[str, str]:
+    """Model id -> display name, from `agy models` output."""
+    names = {}
+    for line in listing.splitlines():
+        model_id, _, display = line.partition("\t")
+        if model_id.strip():
+            names[model_id.strip()] = display.strip()
+    return names
 
 
 def pick_agy_model(listing: str, family: str, effort: str) -> str:
-    """The newest `gemini-<version>-<family>-<effort>` id in `agy models` output."""
-    ids = [line.split("\t")[0].strip() for line in listing.splitlines()]
+    """The newest `<family>` id with that effort in `agy models` output (argon, flash, opus, sonnet, ...)."""
+    ids = list(listing_names(listing))
     if family in ids:
         return family
     candidates = []
     for model_id in ids:
-        match = AGY_MODEL_RE.match(model_id)
-        if match and match.group(2) == family and match.group(3) == effort:
-            candidates.append((version_key(match.group(1)), model_id))
+        parsed = parse_agy_id(model_id)
+        if parsed and parsed[0] == family and parsed[2] == effort:
+            candidates.append((parsed[1], model_id))
     if not candidates:
         raise MeshError(f"no agy model matches family={family} effort={effort}; see `agy models`")
     return max(candidates)[1]
@@ -393,7 +420,7 @@ def agy_model_listing() -> str:
         return cache.read_text()
     try:
         proc = subprocess.run(["agy", "models"], capture_output=True, text=True, timeout=45)
-        if proc.returncode == 0 and AGY_MODEL_RE.search(proc.stdout.replace("\t", "\n").replace(" ", "\n")):
+        if proc.returncode == 0 and any(parse_agy_id(model_id) for model_id in listing_names(proc.stdout)):
             write_atomic(cache, proc.stdout)
             return proc.stdout
         problem = proc.stderr.strip() or "no models listed"
@@ -405,20 +432,98 @@ def agy_model_listing() -> str:
 
 
 def resolve_agy_model(family: str, effort: str) -> str:
-    if AGY_MODEL_RE.match(family):
+    if parse_agy_id(family):
         return family  # an exact id needs no listing
     return pick_agy_model(agy_model_listing(), family, effort)
 
 
-def agent_argv(kind: str, model: str, effort: str) -> tuple[list[str], str, str | None]:
+def parse_usage(text: str) -> list[dict]:
+    """Rows of `agy -p /usage`: group, label, percent left and reset time, tab-separated."""
+    rows = []
+    for line in text.splitlines():
+        fields = [f.strip() for f in line.split("\t")]
+        if len(fields) >= 4 and re.fullmatch(r"\d+%", fields[2]):
+            rows.append({"group": fields[0], "label": fields[1], "left": int(fields[2][:-1]), "resets": fields[3]})
+    return rows
+
+
+def agy_usage(force: bool = False) -> list[dict] | None:
+    """agy's quota rows, cached for a few minutes; None when they can't be read."""
+    cache = mesh_home() / "agy-usage.txt"
+    if not force and cache.exists() and time.time() - cache.stat().st_mtime < AGY_USAGE_TTL:
+        return parse_usage(cache.read_text()) or None
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            ["agy", "-p", "/usage", "--print-timeout", "40s", "--dangerously-skip-permissions"],
+            capture_output=True, text=True, timeout=45, cwd=cache.parent,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    rows = parse_usage(proc.stdout)
+    if rows:
+        write_atomic(cache, proc.stdout)
+    return rows or None
+
+
+def quota_applies(group: str, model_id: str, display: str) -> bool:
+    """"Claude and GPT models" covers ids by vendor prefix; "Gemini 4 Argon" covers that model by name."""
+    if group.lower().endswith(" models"):
+        vendors = group[: -len(" models")].lower().split(" and ")
+        return any(model_id.startswith(f"{vendor.strip()}-") for vendor in vendors)
+    return display.lower().startswith(group.lower())
+
+
+def model_quota(model_id: str, display: str, rows: list[dict]) -> tuple[int, str] | None:
+    """The tightest limit on a model: (percent left, reset time), or None if no row covers it."""
+    limits = [(r["left"], r["resets"]) for r in rows if quota_applies(r["group"], model_id, display)]
+    return min(limits) if limits else None
+
+
+def min_quota() -> int:
+    return int(os.environ.get("MESH_MIN_QUOTA") or 10)
+
+
+def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] = (), force: bool = False,
+                     fallback: bool = True) -> tuple[str, list[str]]:
+    """The first model of the chain with at least MESH_MIN_QUOTA% left, and notes on the ones passed over.
+
+    Unreadable quotas count as available. With nothing above the threshold, `fallback` takes the
+    model with the most left; without it the notes (with reset times) become the error.
+    """
+    rows = agy_usage(force)
+    names = listing_names(agy_model_listing()) if rows else {}
+    notes: list[str] = []
+    best: tuple[int, str] | None = None
+    for family in chain:
+        model_id = resolve_agy_model(family, effort)
+        if model_id in skip:
+            continue
+        quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None
+        if quota is None or quota[0] >= min_quota():
+            return model_id, notes
+        notes.append(f"{model_id} has {quota[0]}% left (resets {quota[1]})")
+        if best is None or quota[0] > best[0]:
+            best = (quota[0], model_id)
+    if fallback and best:
+        return best[1], notes + [f"every model is under {min_quota()}%; using {best[1]}"]
+    raise MeshError("no model with quota left: " + ("; ".join(notes) or "every candidate was already tried"))
+
+
+def agent_argv(kind: str, model: str, effort: str, log: str | None = None) -> tuple[list[str], str, str | None]:
     """Native CLI arguments, the resolved model and the session id (Claude only) for a new agent."""
     if kind == "agy":
         resolved = resolve_agy_model(model, effort)
-        return ["--model", resolved, "--dangerously-skip-permissions"], resolved, None
+        return [*log_argv(log), "--model", resolved, "--dangerously-skip-permissions"], resolved, None
     # Choosing the session id up front is what lets `mesh resume` find the conversation later.
     session = str(uuid.uuid4())
     argv = ["--session-id", session, "--model", model, "--effort", effort, "--dangerously-skip-permissions"]
     return argv, model, session
+
+
+def log_argv(log: str | None) -> list[str]:
+    """agy writes its own log; one per worker is how `mesh watch` sees a quota hit."""
+    return ["--log-file", log] if log else []
 
 
 def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
@@ -432,12 +537,12 @@ def resumed_model(entry: dict, model: str | None, effort: str | None) -> tuple[s
     """The model and effort a resumed agent runs on: what it had, unless overridden."""
     effort = effort or entry.get("effort") or DEFAULT_EFFORT
     if entry.get("kind") != "agy":
-        return model or entry.get("model") or DEFAULT_MODELS["claude"], effort
+        return model or entry.get("model") or PLAN_CHAIN["claude"][0], effort
     if not model:
-        match = AGY_MODEL_RE.match(entry.get("model") or "")
-        if match and match.group(3) == effort:
+        parsed = parse_agy_id(entry.get("model") or "")
+        if parsed and parsed[2] == effort:
             return entry["model"], effort  # the exact id it ran on; no listing needed
-        model = match.group(2) if match else DEFAULT_MODELS["agy"]
+        model = parsed[0] if parsed else EXEC_MODEL["agy"]
     return resolve_agy_model(model, effort), effort
 
 
@@ -598,6 +703,11 @@ def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -
 def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first: bool) -> str:
     if first:
         entry = run["agents"][to]
+        if entry.get("swapped"):
+            return (
+                f"📬 [mesh] You are {to} ({entry['role']}) again in agent-mesh run {run['id']}, now on "
+                f"{entry.get('model')}; same parent and worktree. Run `mesh inbox` for your {mtype}."
+            )
         if entry.get("resumed_from"):
             return (
                 f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}; your "
@@ -618,6 +728,9 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     log_event(run_id, "send", sender=sender, to=to, type=mtype, file=path.name)
     targets = [to] + ([entry["pane"]] if entry.get("pane") else [])
     rung, error = ring(targets, doorbell_text(run, sender, to, mtype, body, first))
+    if first and entry.get("swapped"):
+        with editing_run(run_id) as run:
+            run["agents"][to].pop("swapped", None)
     if not rung:
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
     return {"stored": str(path), "rung": rung, "error": error}
@@ -724,8 +837,14 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     name = agent_name(repo_top.name, spawn_suffix(args, run), set(run["agents"]) | live_agent_names())
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
-    args.model = args.model or DEFAULT_MODELS[args.kind]
-    argv, model, session = agent_argv(args.kind, args.model, args.effort)
+    # `auto` plans on the best model with quota and switches to the exec model at `mesh approve`.
+    auto = (args.model or "auto") == "auto"
+    model, notes = plan_model(args.kind, args.effort) if auto else (args.model, [])
+    log = str(run_dir(run_id) / "logs" / f"{name}.log") if args.kind == "agy" else None
+    argv, model, session = agent_argv(args.kind, model, args.effort, log)
+    exec_model = args.exec_model or (EXEC_MODEL[args.kind] if auto else None)
+    if log:
+        Path(log).parent.mkdir(parents=True, exist_ok=True)
     branch = None
     if args.worktree:
         cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -742,6 +861,8 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             "role": args.role, "kind": args.kind, "model": model, "effort": args.effort,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
+            "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model,
+            "models": [{"model": model, "at": now_iso(), "why": "spawn"}],
         }
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
 
@@ -750,12 +871,109 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         run["agents"][name]["status"] = "running"
 
     result = {"name": name, "pane": pane, "workspace": workspace_id, "workspace_created": created_ws,
-              "cwd": str(cwd), "branch": branch, "model": model}
+              "cwd": str(cwd), "branch": branch, "model": model, "exec_model": exec_model, "notes": notes}
     task = read_body(args.task, args.task_file)
     if task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
     emit(result)
     return 0
+
+
+def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
+    if kind == "agy":
+        return choose_agy_model(PLAN_CHAIN["agy"], effort)
+    return PLAN_CHAIN["claude"][0], []
+
+
+def swap_model(run_id: str, name: str, model: str, why: str) -> dict:
+    """Restart a worker on another model in the same conversation, pane by pane, keeping its name."""
+    entry = agent_entry(load_run(run_id), name)
+    session = find_session(run_id, name, entry)
+    if not session:
+        raise MeshError(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
+                        f"message it as it is, or start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}`")
+    try:  # never cut a turn short: the conversation is only safe to reopen between turns
+        herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", "600000", timeout=610)
+    except HerdrError as exc:
+        if exc.code != "agent_not_found":
+            raise
+    # The new pane opens beside the old one before that closes, so the run's tab survives.
+    workspace_id = entry.get("workspace") or find_or_create_workspace(Path(entry["repo"]))[0]
+    pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]),
+                         mesh_env(run_id, name, entry["parent"], entry["role"]))
+    with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
+        e = run["agents"][name]
+        e.update(model=model, pane=pane, tab=tab, workspace=workspace_id, session=session, status="starting",
+                 swapped=True)
+        e.setdefault("models", []).append({"model": model, "at": now_iso(), "why": why})
+    try:
+        herdr("pane", "close", entry["pane"])
+    except HerdrError as exc:
+        if exc.code not in ("pane_not_found", "agent_not_found"):
+            raise
+    log_event(run_id, "swap", name=name, model=model, why=why, pane=pane, session=session)
+    effort = entry.get("effort") or DEFAULT_EFFORT
+    argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
+            "--dangerously-skip-permissions"]
+    start_agent(name, entry["kind"], pane, argv)
+    with editing_run(run_id) as run:
+        run["agents"][name]["status"] = "running"
+    return {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    """Approve a worker's plan; a worker on `auto` moves to its exec model first, keeping its conversation."""
+    run_id, me = identity(args)
+    entry = agent_entry(load_run(run_id), args.agent)
+    result: dict = {"name": args.agent, "model": entry.get("model")}
+    if entry.get("phase") == "plan" and entry.get("exec_model"):
+        effort = entry.get("effort") or DEFAULT_EFFORT
+        model = resolve_agy_model(entry["exec_model"], effort) if entry["kind"] == "agy" else entry["exec_model"]
+        if model != entry.get("model"):
+            result["swap"] = swap_model(run_id, args.agent, model, "plan approved")
+            result["model"] = model
+        with editing_run(run_id) as run:
+            run["agents"][args.agent]["phase"] = "exec"
+    extra = read_body(args.body, args.file)
+    body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
+    result["delivery"] = deliver(run_id, me, args.agent, "answer", body, first="swap" in result)
+    emit(result)
+    return 0 if result["delivery"]["rung"] else 2
+
+
+def cmd_switch(args: argparse.Namespace) -> int:
+    """Move a worker that hit a quota to the next model with quota left, and tell it to carry on."""
+    run_id, me = identity(args)
+    entry = agent_entry(load_run(run_id), args.agent)
+    effort = entry.get("effort") or DEFAULT_EFFORT
+    notes: list[str] = []
+    if args.model:
+        model = resolve_agy_model(args.model, effort) if entry["kind"] == "agy" else args.model
+    elif entry["kind"] != "agy":
+        raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
+    else:
+        tried = tuple({entry.get("model"), *(m["model"] for m in entry.get("models", []) if m["why"] == "quota")})
+        chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
+        model, notes = choose_agy_model(chain, effort, skip=tried, force=True, fallback=False)
+    swap = swap_model(run_id, args.agent, model, "quota")
+    body = (f"Your previous model ({swap['previous']}) hit its quota; you are now on {model}, in the same "
+            "conversation. Continue exactly where you stopped.")
+    delivery = deliver(run_id, me, args.agent, "task", body, first=True)
+    emit({**swap, "notes": notes, "delivery": delivery})
+    return 0 if delivery["rung"] else 2
+
+
+def quota_hit(log: str | None, offset: int) -> str | None:
+    """The reset time ("" if unknown) of a quota error agy logged after `offset`, else None."""
+    if not log or not Path(log).exists():
+        return None
+    with open(log, "rb") as fh:
+        fh.seek(offset)
+        hit = QUOTA_RE.search(fh.read().decode(errors="replace"))
+    if not hit:
+        return None
+    reset = RESET_RE.search(hit.group(0))
+    return reset.group(1) if reset else ""
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
@@ -864,6 +1082,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     name = args.agent
     agent_entry(load_run(run_id), name)
     finals_at_start = sends_from(run_id, name, FINAL_TYPES)
+    log = agent_entry(load_run(run_id), name).get("log")
+    log_offset = Path(log).stat().st_size if log and Path(log).exists() else 0
     deadline = time.monotonic() + args.timeout if args.timeout else None
     prev = None
     work_start_sends = sends_from(run_id, name)
@@ -873,7 +1093,15 @@ def cmd_watch(args: argparse.Namespace) -> int:
             last = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name][-1]
             print(f"{name} reported {last['type']}: read it with `mesh inbox`")
             return 0
+        reset = quota_hit(log, log_offset)
+        if reset is not None:
+            model = agent_entry(load_run(run_id), name).get("model")
+            print(f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
+                  + f"; move it to the next model with `mesh switch {name}`")
+            return 7
         state = agent_status(name)
+        if state == "gone" and agent_entry(load_run(run_id), name).get("status") == "starting":
+            state = prev  # `mesh approve` / `mesh switch` is reopening it on another model
         if state == "gone":
             print(f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed")
             return 5
@@ -1049,6 +1277,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
         if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
             worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch})  # so this run's stop cleans it
 
+    log = str(run_dir(run_id) / "logs" / f"{name}.log") if old["kind"] == "agy" else None
+    if log:
+        Path(log).parent.mkdir(parents=True, exist_ok=True)
     workspace_id, _ = find_or_create_workspace(repo_top)
     pane, tab = new_pane(run_id, workspace_id, Path(cwd), mesh_env(run_id, name, me, "worker"))
     with editing_run(run_id) as run:
@@ -1056,12 +1287,13 @@ def cmd_resume(args: argparse.Namespace) -> int:
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort,
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": me, "status": "starting", "spawned": now_iso(),
-            "resumed_from": {"run": old_run["id"], "name": old_name},
+            "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
+            "models": [{"model": model, "at": now_iso(), "why": "resume"}],
         }
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
 
-    start_agent(name, old["kind"], pane, [*resume_argv(old["kind"], session, model, effort),
+    start_agent(name, old["kind"], pane, [*log_argv(log), *resume_argv(old["kind"], session, model, effort),
                                           "--dangerously-skip-permissions"])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
@@ -1171,7 +1403,33 @@ def cmd_dir(args: argparse.Namespace) -> int:
 
 
 def cmd_model(args: argparse.Namespace) -> int:
-    print(agent_argv(args.kind, args.model or DEFAULT_MODELS[args.kind], args.effort)[1])
+    if (args.model or "auto") == "auto":
+        model, notes = plan_model(args.kind, args.effort)
+        for note in notes:
+            print(f"mesh: {note}", file=sys.stderr)
+    else:
+        model = args.model
+    print(agent_argv(args.kind, model, args.effort)[1])
+    return 0
+
+
+def cmd_usage(args: argparse.Namespace) -> int:
+    rows = agy_usage(force=args.refresh)
+    if rows is None:
+        raise MeshError("`agy -p /usage` gave no quota rows")
+    plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort)
+    execute = resolve_agy_model(EXEC_MODEL["agy"], args.effort)
+    names = listing_names(agy_model_listing())
+    exec_quota = model_quota(execute, names.get(execute, ""), rows)
+    if args.json:
+        emit({"rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
+              "notes": notes, "min_quota": min_quota()})
+        return 0
+    print_table(rows, ("group", "label", "left", "resets"))
+    print(f"\nplan on {plan}, execute on {execute}"
+          + (f" ({exec_quota[0]}% left)" if exec_quota else "") + f"; threshold {min_quota()}%")
+    for note in notes:
+        print(f"  {note}")
     return 0
 
 
@@ -1198,7 +1456,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", choices=KINDS, default="agy", help="default: agy")
     p.add_argument("--role", choices=ROLES, default="worker")
     p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
-    p.add_argument("--model", help="claude: alias (default opus); agy: family (default flash, or argon) or exact id")
+    p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
+                                    "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
+    p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude sonnet)")
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=("low", "medium", "high", "xhigh", "max"))
     p.add_argument("--name", help="what goes after the repo in the agent's name (default: the worktree slug)")
     where = p.add_mutually_exclusive_group()
@@ -1239,6 +1499,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.add_argument("--grace", type=float, default=5.0)
     p.set_defaults(func=cmd_watch)
+
+    p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))
+    p.add_argument("agent")
+    p.add_argument("--body", help="notes to go with the approval")
+    p.add_argument("--file", help="notes from a file (- for stdin)")
+    p.set_defaults(func=cmd_approve)
+
+    p = ident(sub.add_parser("switch", help="move a worker that hit a quota to the next model with quota left"))
+    p.add_argument("agent")
+    p.add_argument("--model", help="this model instead of the next in the chain")
+    p.set_defaults(func=cmd_switch)
 
     p = ident(sub.add_parser("retire", help="close a child's pane (its worktree stays)"))
     p.add_argument("agent")
@@ -1283,9 +1554,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("model", help="resolve the model a spawn would use")
     p.add_argument("--kind", choices=KINDS, default="agy")
-    p.add_argument("--model")
+    p.add_argument("--model", help="default: auto")
     p.add_argument("--effort", default=DEFAULT_EFFORT)
     p.set_defaults(func=cmd_model)
+
+    p = sub.add_parser("usage", help="agy quotas, and the models `auto` would plan and execute on")
+    p.add_argument("--effort", default=DEFAULT_EFFORT)
+    p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_usage)
     return parser
 
 
