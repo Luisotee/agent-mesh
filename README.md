@@ -49,7 +49,7 @@ Both commands work from Claude Code and from agy:
 | `/delegate-claude` | Claude: plans on Opus at high effort, executes on Sonnet at medium |
 
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
-- **Overrides:** naming a model or effort in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
+- **Overrides:** naming a model in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
 
 ## Models
 

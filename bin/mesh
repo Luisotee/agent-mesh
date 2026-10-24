@@ -35,6 +35,7 @@ KINDS = ("claude", "agy")
 # then execute on EXEC_MODEL at EXEC_EFFORT.
 PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
 EXEC_MODEL = {"agy": "flash", "claude": "sonnet"}
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
 ROLES = ("worker",)
@@ -721,7 +722,7 @@ def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first:
         if entry.get("swapped"):
             return (
                 f"📬 [mesh] You are {to} ({entry['role']}) again in agent-mesh run {run['id']}, now on "
-                f"{entry.get('model')}; same parent and worktree. Run `mesh inbox` for your {mtype}."
+                f"{entry.get('model')} at {entry.get('effort')} effort; same parent and worktree. Run `mesh inbox` for your {mtype}."
             )
         if entry.get("resumed_from"):
             return (
@@ -862,11 +863,17 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
     # `auto` plans on the best model with quota and switches to the exec model at `mesh approve`.
     auto = (args.model or "auto") == "auto"
-    model, notes = plan_model(args.kind, args.effort) if auto else (args.model, [])
-    log = worker_log(run_id, name) if args.kind == "agy" else None
-    argv, model, session = agent_argv(args.kind, model, args.effort, log)
     exec_model = args.exec_model or (EXEC_MODEL[args.kind] if auto else None)
-    exec_effort = (args.exec_effort or EXEC_EFFORT) if exec_model else None
+    if args.exec_effort and not exec_model:
+        raise MeshError("--exec-effort needs an execution phase: drop --model, or add --exec-model")
+    # A named --effort covers the whole task; --exec-effort alone overrides the execution phase.
+    effort = args.effort or DEFAULT_EFFORT
+    exec_effort = (args.exec_effort or args.effort or EXEC_EFFORT) if exec_model else None
+    if exec_model:
+        resolve_model(args.kind, exec_model, exec_effort)  # fail now, not after a whole planning phase
+    model, notes = plan_model(args.kind, effort) if auto else (args.model, [])
+    log = worker_log(run_id, name) if args.kind == "agy" else None
+    argv, model, session = agent_argv(args.kind, model, effort, log)
     branch = None
     if args.worktree:
         cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -880,11 +887,11 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     pane, tab = new_pane(run_id, workspace_id, cwd, mesh_env(run_id, name, parent, args.role))
     with editing_run(run_id) as run:
         run["agents"][name] = {
-            "role": args.role, "kind": args.kind, "model": model, "effort": args.effort,
+            "role": args.role, "kind": args.kind, "model": model, "effort": effort,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
             "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
-            "models": [{"model": model, "at": now_iso(), "why": "spawn"}],
+            "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
         }
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
 
@@ -933,7 +940,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
                  status="starting", swapped=True)
-        e.setdefault("models", []).append({"model": model, "at": now_iso(), "why": why})
+        e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
     argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
             "--dangerously-skip-permissions"]
     try:
@@ -942,7 +949,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         except HerdrError as exc:
             if exc.code not in ("pane_not_found", "agent_not_found"):
                 raise
-        log_event(run_id, "swap", name=name, model=model, why=why, pane=pane, session=session)
+        log_event(run_id, "swap", name=name, model=model, effort=effort, why=why, pane=pane, session=session)
         start_agent(name, entry["kind"], pane, argv)
     except MeshError as exc:
         with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
@@ -950,7 +957,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed")
             e.pop("swapped", None)
             e["models"].pop()
-        log_event(run_id, "swap_failed", name=name, model=model, error=str(exc))
+        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
         raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
@@ -995,6 +1002,8 @@ def cmd_switch(args: argparse.Namespace) -> int:
     notes: list[str] = []
     if args.model:
         model = resolve_model(entry["kind"], args.model, effort)
+        parsed = parse_agy_id(model) if entry["kind"] == "agy" else None
+        effort = parsed[2] if parsed else effort  # an exact id carries its own effort
     elif entry["kind"] != "agy":
         raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
     else:
@@ -1340,7 +1349,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
-            "models": [{"model": model, "at": now_iso(), "why": "resume"}],
+            "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "resume"}],
         }
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
@@ -1511,10 +1520,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
                                     "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
     p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude sonnet)")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=("low", "medium", "high", "xhigh", "max"),
-                   help=f"planning effort, or the whole task's with one model (default: {DEFAULT_EFFORT})")
-    p.add_argument("--exec-effort", choices=("low", "medium", "high", "xhigh", "max"),
-                   help=f"effort after `mesh approve` (default: {EXEC_EFFORT})")
+    p.add_argument("--effort", choices=EFFORTS,
+                   help=f"effort for the whole task, planning and execution (default: {DEFAULT_EFFORT} planning, "
+                        f"{EXEC_EFFORT} executing)")
+    p.add_argument("--exec-effort", choices=EFFORTS,
+                   help=f"effort after `mesh approve` (default: --effort, else {EXEC_EFFORT})")
     p.add_argument("--name", help="what goes after the repo in the agent's name (default: the worktree slug)")
     where = p.add_mutually_exclusive_group()
     where.add_argument("--worktree", metavar="SLUG", help="create a worktree on branch mesh/<run>/<SLUG>")
@@ -1579,7 +1589,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("ref", help="the worker's name, branch or PR link (see `mesh agents`)")
     p.add_argument("--from-run", help="look only in this run (default: the newest match)")
     p.add_argument("--model", help="override the model it ran on (same CLI)")
-    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("--task", help="the follow-up task")
     p.add_argument("--task-file", help="the follow-up task from a file (- for stdin)")
     p.set_defaults(func=cmd_resume)
@@ -1588,7 +1598,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("ref", help="the worker's name, branch or PR link (see `mesh agents`)")
     p.add_argument("--from-run", help="look only in this run (default: the newest match)")
     p.add_argument("--model", help="override the model it ran on")
-    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("extra", nargs=argparse.REMAINDER, help="after --: more arguments for the CLI")
     p.set_defaults(func=cmd_open)
 
@@ -1610,12 +1620,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("model", help="resolve the model a spawn would use")
     p.add_argument("--kind", choices=KINDS, default="agy")
     p.add_argument("--model", help="default: auto")
-    p.add_argument("--effort", default=DEFAULT_EFFORT)
+    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS)
     p.set_defaults(func=cmd_model)
 
     p = sub.add_parser("usage", help="agy quotas, and the models `auto` would plan and execute on")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, help="planning effort")
-    p.add_argument("--exec-effort", default=EXEC_EFFORT)
+    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS, help="planning effort")
+    p.add_argument("--exec-effort", default=EXEC_EFFORT, choices=EFFORTS)
     p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
