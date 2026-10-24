@@ -4,6 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), as a visible herdr pane with two-way messaging. `README.md` is the user-facing overview; `docs/design.md` records why each decision was made and the alternatives that lost. Read the relevant section there before changing behaviour.
 
+## Task tracking
+
+Open work is tracked in `TODO.md`. Tasks are deliberately short summaries; the agent doing a task is expected to think it through and work out the details itself.
+
+Keep it current as part of the same change: remove a task (or tick it) when the work lands, reword it when scope changes, and add a line for any follow-up you discover but don't do now. Check it before starting something that might already be tracked.
+
 ## Commands
 
 ```bash
