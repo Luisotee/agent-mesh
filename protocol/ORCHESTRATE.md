@@ -75,7 +75,7 @@ mesh ask <name | branch | PR link> --review <PR link>   # it reviews a PR withou
 - **No run needed:** without one, `ask` starts it (mode `--kind`, default agy).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
 - **A fresh agent** follows the mode table, like a spawn: pass `--kind` for the mode (`claude` under `/delegate-claude`), and `--model` / `--effort` only if the user named them. It plans on the strong model, which suits research.
-- **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way. A PR link names the worker that opened the PR; a reviewer is found by its name. A worker busy on another task answers once that's done.
+- **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way. A PR link names the worker that opened the PR; a reviewer is found by its name. A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes as a doorbell.
 - **The question:** give it what you know, as you would in a task file (use `--file` for anything long): what you're working on, what you need back, and in what form.
 - **Waiting:** a Claude root runs `mesh ask` with `run_in_background`, and the answer arrives as the notification. An agy root runs it in the foreground, or passes `--no-wait` and waits for the doorbell. Exit codes are those of `mesh watch`; on 7, `mesh switch` the worker and `mesh watch` it.
 

@@ -1462,14 +1462,19 @@ def pr_ref(review: str, repo: Path) -> tuple[str, int]:
 
 
 def pr_head(repo: Path, pr: str, number: int) -> str:
-    """Fetch a PR's head commit into the repo, refusing a PR of another repo."""
-    try:
-        github = GITHUB_REMOTE_RE.search(git("remote", "get-url", "origin", cwd=repo))
-    except MeshError:
-        github = None
-    if github and f"github.com/{github.group(1)}/{github.group(2)}/pull/".lower() not in pr.lower():
-        raise MeshError(f"{pr} is not a PR of {repo.name} ({github.group(1)}/{github.group(2)}); pass that PR's repo")
-    git("fetch", "-q", "origin", f"pull/{number}/head", cwd=repo)
+    """Fetch a PR's head commit from the remote it belongs to (`upstream` in a fork), refusing another repo's PR."""
+    github_remotes = {}
+    for remote in git("remote", cwd=repo).split():
+        github = GITHUB_REMOTE_RE.search(git("remote", "get-url", remote, cwd=repo))
+        if github:
+            github_remotes[remote] = f"github.com/{github.group(1)}/{github.group(2)}/pull/".lower()
+    remote = next((r for r, prefix in github_remotes.items() if prefix in pr.lower()), None)
+    if not remote:
+        if github_remotes:
+            raise MeshError(f"{pr} is not a PR of {repo.name} (remotes: {', '.join(github_remotes)}); "
+                            f"pass that PR's repo")
+        remote = "origin"  # not on GitHub (a mirror, say): trust that it serves pull/<n>/head
+    git("fetch", "-q", remote, f"pull/{number}/head", cwd=repo)
     return git("rev-parse", "FETCH_HEAD", cwd=repo)
 
 
@@ -1499,13 +1504,20 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool) -> str:
 
 
 def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:
-    """The newest done/failed from `sender` in my inbox, marked read."""
-    for path in reversed(unread(run_id, me)):
-        meta, body = parse_message(path)
-        if meta.get("from") == sender and meta.get("type") in FINAL_TYPES:
-            mark_read(path)
-            return meta, body.strip()
-    return None
+    """The last done/failed `sender` sent me, marked read. Found through the log, since the doorbell
+    it rang may already have had me read it with `mesh inbox`."""
+    sends = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == sender
+             and e.get("to") == me and e.get("type") in FINAL_TYPES]
+    if not sends:
+        return None
+    folder = inbox_dir(run_id, me)
+    path = next((p for p in (folder / sends[-1]["file"], folder / "read" / sends[-1]["file"]) if p.exists()), None)
+    if not path:
+        return None
+    meta, body = parse_message(path)
+    if path.parent == folder:
+        mark_read(path)
+    return meta, body.strip()
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -1537,6 +1549,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
         started = init_run(args.kind or "agy", (body.splitlines() or [f"review {pr}"])[0][:200])
         run_id, me = started["run"], started["name"]
         print(f"mesh: started run {run_id}", file=sys.stderr)
+    if agent_entry(load_run(run_id), me)["role"] != "root":
+        raise MeshError("only the root asks: a worker sends its parent a `question` instead")
 
     if args.repo:
         slug = args.name or (f"review-{number}" if pr else ask_slug(body))
@@ -1547,8 +1561,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
         how = "started"
     else:
         old_run, _, name, entry = target
-        if old_run["id"] == run_id and entry.get("status") != "retired" and agent_status(name) != "gone":
+        state = agent_status(name) if old_run["id"] == run_id and entry.get("status") != "retired" else "gone"
+        if state != "gone":
             result, how = {"name": name}, "asked"
+            if state == "working" and not args.no_wait:
+                # Its next `done` would be for the task it's on, not this question.
+                print(f"mesh: {name} is busy, so its answer will come as a doorbell after its current task",
+                      file=sys.stderr)
+                args.no_wait = True
         else:
             result = resume_worker(argparse.Namespace(ref=name, from_run=old_run["id"], model=args.model,
                                                       effort=args.effort, task=None, task_file=None), run_id, me)

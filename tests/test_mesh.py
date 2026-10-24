@@ -1097,3 +1097,49 @@ def test_pr_numbers_resolve_against_the_github_remote(mesh, repo):
     assert mesh.pr_ref("https://github.com/acme/proj/pull/7/files", repo) == ("https://github.com/acme/proj/pull/7", 7)
     with pytest.raises(mesh.MeshError, match="not a PR of proj"):
         mesh.pr_head(repo, "https://github.com/acme/other/pull/3", 3)
+
+
+def test_ask_a_busy_worker_does_not_take_its_other_report_for_the_answer(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 0
+    captured = capsys.readouterr()
+    assert "is busy" in captured.err and json.loads(captured.out)["delivery"]["rung"] is True
+
+
+def test_ask_prints_the_answer_even_if_the_root_already_read_it(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+
+    def sleep(_):  # the worker answers, and its doorbell has the root run `mesh inbox` first
+        if not mesh.sends_from(run, "repo-fix-typo", mesh.FINAL_TYPES):
+            mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Because of the spec.")
+            for path in mesh.unread(run, "repo-lead"):
+                mesh.mark_read(path)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    monkeypatch.setattr(mesh, "watch_agent", lambda *a, **k: (sleep(0), (0, "reported"))[1])
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 0
+    assert "── done from repo-fix-typo ──\nBecause of the spec." in capsys.readouterr().out
+
+
+def test_only_the_root_asks(mesh, fake, run, repo, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    assert mesh.main(["ask", "--repo", str(repo), "--body", "x"]) == 1
+    assert "only the root asks" in capsys.readouterr().err
+    assert not fake.called("agent", "start")
+
+
+def test_a_fork_review_fetches_from_the_remote_that_owns_the_pr(mesh, repo, tmp_path, monkeypatch):
+    head = pr_origin(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    assert mesh.pr_head(repo, "https://github.com/acme/proj/pull/7", 7) == head
+    with pytest.raises(mesh.MeshError, match="remotes: "):
+        mesh.pr_head(repo, "https://github.com/other/thing/pull/7", 7)
