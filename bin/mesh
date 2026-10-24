@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
@@ -58,6 +58,16 @@ RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
 PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
 PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
+GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?$")
+# `mesh ask` tasks: read-only, answered with one `done` (PROTOCOL.md rule 7, ORCHESTRATE.md "Read-only tasks").
+ASK_PREFIX = ("Question (read-only): answer it from the code. Change no files, make no commits, push nothing "
+              "and send no plan; reply with one `done` that holds the answer, or `failed`.")
+REVIEW_PREFIX = ("Review (read-only) of {pr}: review this pull request. Change no files, make no commits, push "
+                 "nothing, send no plan and post nothing on GitHub. {where} Reply with one `done` that lists your "
+                 "findings, most severe first, each with file:line, why it matters and a suggested fix, or `failed`.")
+REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `gh pr diff {pr}` shows the change."
+REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
+              "and `git show FETCH_HEAD:<path>`.")
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -642,15 +652,17 @@ def default_base(repo_top: Path) -> str:
         return "HEAD"
 
 
-def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tuple[Path, str]:
+def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tuple[Path, str, str]:
+    """A worktree on a new run branch; the base commit is kept so `mesh stop` can tell an untouched branch."""
     branch = f"mesh/{run_id}/{slug}"
     path = worktree_root() / run_id / f"{slugify(repo_top.name, 20)}-{slug}"
+    sha = git("rev-parse", "--verify", f"{base or default_base(repo_top)}^{{commit}}", cwd=repo_top)
     path.parent.mkdir(parents=True, exist_ok=True)
-    git("worktree", "add", "-b", branch, str(path), base or default_base(repo_top), cwd=repo_top)
+    git("worktree", "add", "-b", branch, str(path), sha, cwd=repo_top)
     with editing_run(run_id) as run:
-        run.setdefault("worktrees", []).append({"path": str(path), "repo": str(repo_top), "branch": branch})
+        run.setdefault("worktrees", []).append({"path": str(path), "repo": str(repo_top), "branch": branch, "base": sha})
     log_event(run_id, "worktree", path=str(path), branch=branch)
-    return path, branch
+    return path, branch, sha
 
 
 def entry_branch(run: dict, entry: dict) -> str | None:
@@ -670,11 +682,14 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
         raise MeshError(f"{path} is gone and no branch is recorded for it")
     try:
         git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=entry["repo"])
+        new_branch = []
     except MeshError:
-        raise MeshError(f"branch {branch} no longer exists in {entry['repo']}") from None
+        if not entry.get("base"):
+            raise MeshError(f"branch {branch} no longer exists in {entry['repo']}") from None
+        new_branch = ["-b", branch]  # `mesh stop` deleted it because it had no commits: start it again at its base
     git("worktree", "prune", cwd=entry["repo"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    git("worktree", "add", str(path), branch, cwd=entry["repo"])
+    git("worktree", "add", *new_branch, str(path), *([entry["base"]] if new_branch else [branch]), cwd=entry["repo"])
     return True
 
 
@@ -759,6 +774,12 @@ def unread(run_id: str, name: str) -> list[Path]:
     return sorted(p for p in folder.glob("*.md")) if folder.exists() else []
 
 
+def mark_read(path: Path) -> None:
+    read = path.parent / "read"
+    read.mkdir(parents=True, exist_ok=True)
+    os.replace(path, read / path.name)
+
+
 def parse_message(path: Path) -> tuple[dict, str]:
     text = path.read_text()
     meta: dict[str, str] = {}
@@ -778,11 +799,12 @@ def emit(data, as_json: bool = True) -> None:
     print(json.dumps(data, indent=2) if as_json else data)
 
 
-def cmd_init(args: argparse.Namespace) -> int:
+def init_run(mode: str, request: str | None, run_id: str | None = None) -> dict:
+    """Start a run with this pane's agent as its root."""
     pane = os.environ.get("HERDR_PANE_ID")
     if os.environ.get("HERDR_ENV") != "1" or not pane:
         raise MeshError("mesh init must run inside a herdr pane (HERDR_ENV=1)")
-    run_id = args.run_id or "m" + secrets.token_hex(2)
+    run_id = run_id or "m" + secrets.token_hex(2)
     if not NAME_RE.match(run_id) or len(run_id) > 12:
         raise MeshError("run id must be short, lowercase, start with a letter")
     if run_dir(run_id).exists():
@@ -798,10 +820,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     run = {
         "id": run_id,
         "version": VERSION,
-        "mode": args.mode,
+        "mode": mode,
         "created": now_iso(),
         "root": name,
-        "request": args.request or "",
+        "request": request or "",
         "agents": {
             name: {
                 "role": "root",
@@ -821,8 +843,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     with run_lock(run_id):
         save_run(run_id, run)
     write_atomic(mesh_home() / "by-pane" / f"{pane_key(pane)}.json", json.dumps({"run": run_id, "name": name}))
-    log_event(run_id, "init", name=name, mode=args.mode)
-    emit({"run": run_id, "name": name, "dir": str(run_dir(run_id)), "mode": args.mode})
+    log_event(run_id, "init", name=name, mode=mode)
+    return {"run": run_id, "name": name, "dir": str(run_dir(run_id)), "mode": mode}
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    emit(init_run(args.mode, args.request, args.run_id))
     return 0
 
 
@@ -856,7 +882,11 @@ def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
-    run_id, me = identity(args)
+    emit(spawn_worker(args, *identity(args)))
+    return 0
+
+
+def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
     run = load_run(run_id)
     name = agent_name(repo_top.name, spawn_suffix(args, run), set(run["agents"]) | live_agent_names())
@@ -875,9 +905,9 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     model, notes = plan_model(args.kind, effort) if auto else (args.model, [])
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, effort, log)
-    branch = None
+    branch = base = None
     if args.worktree:
-        cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
+        cwd, branch, base = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
     elif args.cwd:
         cwd = Path(args.cwd).expanduser().resolve()
     else:
@@ -889,8 +919,8 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": args.role, "kind": args.kind, "model": model, "effort": effort,
-            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "session": session, "pane": pane, "tab": tab,
-            "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
+            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": pane,
+            "tab": tab, "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
             "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
             "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
         }
@@ -905,8 +935,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     task = read_body(args.task, args.task_file)
     if task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
-    emit(result)
-    return 0
+    return result
 
 
 def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
@@ -1077,8 +1106,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         meta, body = parse_message(path)
         messages.append({"file": str(path), **meta, "body": body.strip()})
         if not args.peek and path.parent == folder:
-            (folder / "read").mkdir(parents=True, exist_ok=True)
-            os.replace(path, folder / "read" / path.name)
+            mark_read(path)
     if args.json:
         emit(messages)
     elif not messages:
@@ -1139,12 +1167,24 @@ def sends_from(run_id: str, name: str, types: tuple[str, ...] = TYPES) -> int:
 def cmd_watch(args: argparse.Namespace) -> int:
     """Block until a child reports done/failed (exit 0) or something looks wrong (non-zero)."""
     run_id = args.run_id or identity(args)[0]
-    name = args.agent
+    status, line = watch_agent(run_id, args.agent, args.timeout, args.interval, args.grace)
+    print(line)
+    return status
+
+
+def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = 5.0,
+                finals_at_start: int | None = None) -> tuple[int, str]:
+    """Wait for a child's done/failed (0) or an alert (3-7), with the line that says which.
+
+    `finals_at_start` is the child's count of final sends before its task was delivered, so a
+    report that lands before the watch starts still counts.
+    """
     agent_entry(load_run(run_id), name)
-    finals_at_start = sends_from(run_id, name, FINAL_TYPES)
+    if finals_at_start is None:
+        finals_at_start = sends_from(run_id, name, FINAL_TYPES)
     log = agent_entry(load_run(run_id), name).get("log")
     log_offset = Path(log).stat().st_size if log and Path(log).exists() else 0
-    deadline = time.monotonic() + args.timeout if args.timeout else None
+    deadline = time.monotonic() + timeout if timeout else None
     prev = None
     work_start_sends = sends_from(run_id, name)
     blocked_polls = 0
@@ -1152,40 +1192,34 @@ def cmd_watch(args: argparse.Namespace) -> int:
     while True:
         if sends_from(run_id, name, FINAL_TYPES) > finals_at_start:
             last = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name][-1]
-            print(f"{name} reported {last['type']}: read it with `mesh inbox`")
-            return 0
+            return 0, f"{name} reported {last['type']}: read it with `mesh inbox`"
         reset, log_offset = quota_hit(log, log_offset)
         if reset is not None:
             model = agent_entry(load_run(run_id), name).get("model")
-            print(f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
-                  + f"; move it to the next model with `mesh switch {name}`")
-            return 7
+            return 7, (f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
+                       + f"; move it to the next model with `mesh switch {name}`")
         state = agent_status(name)
         if state == "gone" and reopening < SWAP_GRACE and agent_entry(load_run(run_id), name).get("status") == "starting":
             state = prev  # `mesh approve` / `mesh switch` is reopening it on another model
-            reopening += args.interval
+            reopening += interval
         elif state != "gone":
             reopening = 0.0
         if state == "gone":
-            print(f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed")
-            return 5
+            return 5, f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
         blocked_polls = blocked_polls + 1 if state == "blocked" else 0
         if blocked_polls >= 2:
-            print(f"ALERT {name} is blocked on a UI prompt; inspect it with `herdr agent read {name}`")
-            return 4
+            return 4, f"ALERT {name} is blocked on a UI prompt; inspect it with `herdr agent read {name}`"
         if state == "working" and prev != "working":
             work_start_sends = sends_from(run_id, name)
         if prev == "working" and state in ("idle", "done"):
-            time.sleep(args.grace)  # let a send that raced the state change land in the log
+            time.sleep(grace)  # let a send that raced the state change land in the log
             if sends_from(run_id, name) == work_start_sends and sends_from(run_id, name, FINAL_TYPES) == finals_at_start:
-                print(f"ALERT {name} stopped working without sending a message; "
-                      f"inspect it with `herdr agent read {name} --source recent-unwrapped --lines 80`")
-                return 3
+                return 3, (f"ALERT {name} stopped working without sending a message; "
+                           f"inspect it with `herdr agent read {name} --source recent-unwrapped --lines 80`")
         if deadline and time.monotonic() > deadline:
-            print(f"ALERT {name} has not reported within {args.timeout}s (state: {state})")
-            return 6
+            return 6, f"ALERT {name} has not reported within {timeout}s (state: {state})"
         prev = state
-        time.sleep(args.interval)
+        time.sleep(interval)
 
 
 def cmd_retire(args: argparse.Namespace) -> int:
@@ -1220,13 +1254,14 @@ def all_runs() -> list[tuple[dict, Path]]:
     return sorted(runs, key=lambda r: r[0].get("created", ""), reverse=True)
 
 
-def worker_prs(folder: Path, name: str) -> list[str]:
-    """PR links in the messages a worker sent; its `done` reports carry them."""
+def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
+    """PR links in the messages a worker sent; its `done` reports carry them. PRs it only reviewed don't count."""
+    reviewed = set((entry or {}).get("reviews") or ())
     prs: list[str] = []
     for path in sorted((folder / "inbox").glob("**/*.md")):
         meta, body = parse_message(path)
         if meta.get("from") == name:
-            prs += [url for url in PR_RE.findall(body) if url not in prs]
+            prs += [url for url in PR_RE.findall(body) if url not in prs and url not in reviewed]
     return prs
 
 
@@ -1239,7 +1274,7 @@ def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str,
         for name, entry in reversed(run["agents"].items()):  # a restart beats the agent it replaced
             if entry.get("role") == "root":
                 continue
-            if ref in (name, entry_branch(run, entry)) or (pr and pr.group(0) in worker_prs(folder, name)):
+            if ref in (name, entry_branch(run, entry)) or (pr and pr.group(0) in worker_prs(folder, name, entry)):
                 return run, folder, name, entry
     raise MeshError(f"no worker matches {ref}" + (f" in run {from_run}" if from_run else "") + "; see `mesh agents`")
 
@@ -1277,8 +1312,9 @@ def cmd_agents(args: argparse.Namespace) -> int:
         for name, entry in run["agents"].items():
             if entry.get("role") == "root":
                 continue
-            cwd, branch, prs = entry.get("cwd") or "", entry_branch(run, entry) or "", worker_prs(folder, name)
-            if query and not any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs)):
+            cwd, branch, prs = entry.get("cwd") or "", entry_branch(run, entry) or "", worker_prs(folder, name, entry)
+            reviews = entry.get("reviews") or []
+            if query and not any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs, *reviews)):
                 continue
             rows.append({
                 "name": name, "run": run["id"], "archived": folder.parent.name == "archive",
@@ -1287,14 +1323,15 @@ def cmd_agents(args: argparse.Namespace) -> int:
                 "worktree": "present" if cwd and Path(cwd).exists() else "removed",
                 "state": "live" if live_holder(name, entry, live) else "gone",
                 "session": "found" if find_session(run["id"], name, entry) else "missing",
-                "prs": " ".join(prs), "cwd": cwd,
+                "prs": " ".join(prs), "reviews": " ".join(reviews), "cwd": cwd,
             })
     if args.json:
         emit(rows)
     elif not rows:
         print("No workers found." if not query else f"No workers match {args.query}.")
     else:
-        print_table(rows, ("name", "run", "kind", "model", "repo", "branch", "worktree", "state", "session", "prs"))
+        print_table(rows, ("name", "run", "kind", "model", "repo", "branch", "worktree", "state", "session", "prs",
+                           "reviews"))
     return 0
 
 
@@ -1315,7 +1352,11 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
 
 def cmd_resume(args: argparse.Namespace) -> int:
     """Bring a past worker back, conversation and all, as a worker of this run."""
-    run_id, me = identity(args)
+    emit(resume_worker(args, *identity(args)))
+    return 0
+
+
+def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     current = load_run(run_id)
 
     def live_hint(name, entry):
@@ -1339,14 +1380,17 @@ def cmd_resume(args: argparse.Namespace) -> int:
     with editing_run(run_id) as run:
         worktrees = run.setdefault("worktrees", [])
         if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
-            worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch})  # so this run's stop cleans it
+            # so this run's stop cleans it up (and drops the branch if it still has no commits)
+            base = {"base": old["base"]} if old.get("base") else {}
+            worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch, **base})
 
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     workspace_id, _ = find_or_create_workspace(repo_top)
     pane, tab = new_pane(run_id, workspace_id, Path(cwd), mesh_env(run_id, name, me, "worker"))
     with editing_run(run_id) as run:
         run["agents"][name] = {
-            "role": "worker", "kind": old["kind"], "model": model, "effort": effort,
+            "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": old.get("base"),
+            "reviews": list(old.get("reviews") or []),
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
@@ -1366,8 +1410,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
     task = read_body(args.task, args.task_file)
     if task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
-    emit(result)
-    return 0
+    return result
 
 
 def cmd_open(args: argparse.Namespace) -> int:
@@ -1397,18 +1440,197 @@ def cmd_open(args: argparse.Namespace) -> int:
     return 0  # not reached
 
 
+# ── questions and reviews ────────────────────────────────────────────────
+
+
+def pr_ref(review: str, repo: Path) -> tuple[str, int]:
+    """A PR's link and number, from a link or from a number and the repo's GitHub remote."""
+    match = PR_RE.search(review)
+    if match:
+        return match.group(0), int(match.group(0).rsplit("/", 1)[1])
+    if not review.lstrip("#").isdigit():
+        raise MeshError(f"--review takes a PR link or number, not {review}")
+    try:
+        remote = git("remote", "get-url", "origin", cwd=repo)
+    except MeshError:
+        remote = "none"
+    github = GITHUB_REMOTE_RE.search(remote)
+    if not github:
+        raise MeshError(f"{repo}'s origin ({remote}) is not on GitHub; pass the PR link")
+    number = int(review.lstrip("#"))
+    return f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}", number
+
+
+def pr_head(repo: Path, pr: str, number: int) -> str:
+    """Fetch a PR's head commit from the remote it belongs to (`upstream` in a fork), refusing another repo's PR."""
+    github_remotes = {}
+    for remote in git("remote", cwd=repo).split():
+        github = GITHUB_REMOTE_RE.search(git("remote", "get-url", remote, cwd=repo))
+        if github:
+            github_remotes[remote] = f"github.com/{github.group(1)}/{github.group(2)}/pull/".lower()
+    remote = next((r for r, prefix in github_remotes.items() if prefix in pr.lower()), None)
+    if not remote:
+        if github_remotes:
+            raise MeshError(f"{pr} is not a PR of {repo.name} (remotes: {', '.join(github_remotes)}); "
+                            f"pass that PR's repo")
+        remote = "origin"  # not on GitHub (a mirror, say): trust that it serves pull/<n>/head
+    git("fetch", "-q", remote, f"pull/{number}/head", cwd=repo)
+    return git("rev-parse", "FETCH_HEAD", cwd=repo)
+
+
+ASK_SLUG_SKIP = {"a", "an", "and", "are", "can", "do", "does", "for", "how", "in", "is", "it", "of", "on", "the",
+                 "to", "we", "what", "when", "where", "which", "who", "why", "with"}
+
+
+def ask_slug(body: str) -> str:
+    """`ask-` plus the question's first telling words, within an agent name's 20-character suffix."""
+    slug = "ask"
+    for word in re.findall(r"[a-z0-9]+", body.lower()):
+        if word in ASK_SLUG_SKIP:
+            continue
+        if len(slug) + 1 + len(word) > 20:
+            break
+        slug += f"-{word}"
+    return slug
+
+
+def ask_task(body: str, pr: str | None, number: int | None, fresh: bool) -> str:
+    if pr:
+        where = (REVIEW_FRESH if fresh else REVIEW_OWN).format(pr=pr, n=number)
+        task = REVIEW_PREFIX.format(pr=pr, where=where)
+    else:
+        task = ASK_PREFIX
+    return task + (f"\n\n{body}" if body else "")
+
+
+def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:
+    """The last done/failed `sender` sent me, marked read. Found through the log, since the doorbell
+    it rang may already have had me read it with `mesh inbox`."""
+    sends = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == sender
+             and e.get("to") == me and e.get("type") in FINAL_TYPES]
+    if not sends:
+        return None
+    folder = inbox_dir(run_id, me)
+    path = next((p for p in (folder / sends[-1]["file"], folder / "read" / sends[-1]["file"]) if p.exists()), None)
+    if not path:
+        return None
+    meta, body = parse_message(path)
+    if path.parent == folder:
+        mark_read(path)
+    return meta, body.strip()
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    """Ask a worker, or a fresh agent in a repo, a question or for a PR review, and wait for the answer."""
+    if bool(args.ref) == bool(args.repo):
+        raise MeshError("ask whom? pass a worker (name, branch or PR link, see `mesh agents`) or --repo for a fresh agent")
+    if args.kind and args.ref:
+        raise MeshError("--kind is for a fresh agent (--repo); a worker keeps its own CLI")
+    body = (read_body(args.body, args.file) or "").strip()
+    if not body and not args.review:
+        raise MeshError("empty question: pass --body TEXT or --file PATH (- for stdin), or --review PR")
+
+    # Resolve everything that can fail before anything is started.
+    target = None
+    if args.repo:
+        repo = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    else:
+        target = find_worker(args.ref)
+        repo = Path(target[3]["repo"]) if target[3].get("repo") else Path.cwd()
+    pr, number = pr_ref(args.review, repo) if args.review else (None, None)
+    task = ask_task(body, pr, number, fresh=bool(args.repo))
+    base = pr_head(repo, pr, number) if pr and args.repo else None
+
+    try:
+        run_id, me = identity(args)
+    except MeshError:
+        if getattr(args, "run", None):
+            raise
+        started = init_run(args.kind or "agy", (body.splitlines() or [f"review {pr}"])[0][:200])
+        run_id, me = started["run"], started["name"]
+        print(f"mesh: started run {run_id}", file=sys.stderr)
+    if agent_entry(load_run(run_id), me)["role"] != "root":
+        raise MeshError("only the root asks: a worker sends its parent a `question` instead")
+
+    if args.repo:
+        slug = args.name or (f"review-{number}" if pr else ask_slug(body))
+        result = spawn_worker(argparse.Namespace(
+            kind=args.kind or load_run(run_id)["mode"], role="worker", repo=str(repo), model=args.model,
+            exec_model=None, effort=args.effort, exec_effort=None, name=args.name, worktree=slugify(slug, 24),
+            cwd=None, base=base, parent=None, task=None, task_file=None), run_id, me)
+        how = "started"
+    else:
+        old_run, _, name, entry = target
+        state = agent_status(name) if old_run["id"] == run_id and entry.get("status") != "retired" else "gone"
+        if state != "gone":
+            result, how = {"name": name}, "asked"
+            if state == "working" and not args.no_wait:
+                # Its next `done` would be for the task it's on, not this question.
+                print(f"mesh: {name} is busy, so its answer will come as a doorbell after its current task",
+                      file=sys.stderr)
+                args.no_wait = True
+        else:
+            result = resume_worker(argparse.Namespace(ref=name, from_run=old_run["id"], model=args.model,
+                                                      effort=args.effort, task=None, task_file=None), run_id, me)
+            how = "resumed"
+    name = result["name"]
+    if pr:
+        with editing_run(run_id) as run:
+            reviews = run["agents"][name].setdefault("reviews", [])
+            if pr not in reviews:
+                reviews.append(pr)  # so `mesh resume <pr>` still finds the author, not the reviewer
+
+    finals = sends_from(run_id, name, FINAL_TYPES)  # before the task goes out, so a quick answer still counts
+    result["delivery"] = deliver(run_id, me, name, "task", task, first=how != "asked")
+    if not result["delivery"]["rung"]:
+        emit(result)
+        print(f"warning: stored, but the doorbell did not ring ({result['delivery']['error']}); "
+              f"retry with `mesh ring {name}`, then `mesh watch {name}`", file=sys.stderr)
+        return 2
+    if args.no_wait:
+        emit(result)
+        return 0
+    print(f"mesh: {how} {name}; waiting for its answer", file=sys.stderr)
+    status, line = watch_agent(run_id, name, args.timeout, finals_at_start=finals)
+    reply = take_reply(run_id, me, name) if status == 0 else None
+    if not reply:
+        print(line)
+        return status
+    meta, text = reply
+    print(f"── {meta.get('type')} from {name} ──\n{text}\n")
+    print(f"(ask again: `mesh ask {name} --body …`; give it a change to make: `mesh send {name} --type task`)")
+    return 0
+
+
 def cmd_worktree(args: argparse.Namespace) -> int:
     run_id, _ = identity(args)
     repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
-    path, branch = add_worktree(run_id, repo_top, slugify(args.slug, 24), args.base)
+    path, branch, _ = add_worktree(run_id, repo_top, slugify(args.slug, 24), args.base)
     emit({"path": str(path), "branch": branch})
     return 0
+
+
+def untouched_branch(wt: dict) -> bool:
+    """A run branch still at the commit it started from and never pushed: deleting it loses nothing,
+    and `ensure_worktree` can start it again from that base."""
+    if not wt.get("base"):
+        return False  # runs before 0.6 recorded no base
+    try:
+        if git("rev-parse", f"refs/heads/{wt['branch']}", cwd=wt["repo"]) != wt["base"]:
+            return False
+    except MeshError:
+        return False
+    try:
+        git("rev-parse", "--abbrev-ref", f"{wt['branch']}@{{upstream}}", cwd=wt["repo"])
+        return False
+    except MeshError:
+        return True
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
     run_id = args.run_id or identity(args)[0]
     run = load_run(run_id)
-    closed, kept, removed = [], [], []
+    closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
         if entry["role"] == "root" or entry.get("status") == "retired":
             continue
@@ -1432,6 +1654,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
             continue
         git("worktree", "remove", str(path), cwd=wt["repo"])
         removed.append({"path": str(path), "branch": wt["branch"]})
+        if untouched_branch(wt):
+            git("branch", "-D", wt["branch"], cwd=wt["repo"])
+            deleted.append(wt["branch"])
     run_worktrees = worktree_root() / run_id
     if run_worktrees.is_dir() and not any(run_worktrees.iterdir()):
         run_worktrees.rmdir()
@@ -1447,7 +1672,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
     archive.parent.mkdir(parents=True, exist_ok=True)
     os.replace(run_dir(run_id), archive)
     emit({"run": run_id, "closed": closed, "worktrees_removed": removed, "worktrees_kept": kept,
-          "archive": str(archive), "branches_kept": [w["branch"] for w in run.get("worktrees", [])]})
+          "archive": str(archive), "branches_deleted": deleted,
+          "branches_kept": [w["branch"] for w in run.get("worktrees", []) if w["branch"] not in deleted]})
     return 0
 
 
@@ -1602,6 +1828,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("extra", nargs=argparse.REMAINDER, help="after --: more arguments for the CLI")
     p.set_defaults(func=cmd_open)
+
+    p = ident(sub.add_parser("ask", help="ask a worker, or a fresh agent in a repo, a question or for a PR review, "
+                                         "and wait for the answer"))
+    p.add_argument("ref", nargs="?", help="an existing worker: name, branch or PR link (see `mesh agents`)")
+    p.add_argument("--repo", help="start a fresh agent in this repo instead")
+    p.add_argument("--review", metavar="PR", help="ask for a review of this PR (link, or number in --repo)")
+    p.add_argument("--body", help="the question, or notes for the review")
+    p.add_argument("--file", help="the question from a file (- for stdin)")
+    p.add_argument("--kind", choices=KINDS, help="a fresh agent's CLI (default: the run's mode, or agy)")
+    p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
+    p.add_argument("--effort", choices=EFFORTS)
+    p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
+    p.add_argument("--no-wait", action="store_true", help="return once the task is delivered")
+    p.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the answer (0 = none)")
+    p.set_defaults(func=cmd_ask)
 
     p = ident(sub.add_parser("worktree", help="create a run worktree, e.g. for integration"))
     p.add_argument("--repo", default=".")

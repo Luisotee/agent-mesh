@@ -266,8 +266,9 @@ def repo(tmp_path):
 
 
 def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, capsys):
-    clean, _ = mesh.add_worktree(run, repo, "clean", None)
-    dirty, branch = mesh.add_worktree(run, repo, "dirty", None)
+    clean, _, _ = mesh.add_worktree(run, repo, "clean", None)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "work"], cwd=clean, check=True)
+    dirty, branch, _ = mesh.add_worktree(run, repo, "dirty", None)
     (dirty / "wip.txt").write_text("unfinished")
     assert branch == "mesh/mtest/dirty"
 
@@ -282,8 +283,9 @@ def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, cap
     assert fake.called("agent", "rename", "w1:p1", "--clear")
     assert (mesh.mesh_home() / "archive" / "mtest" / "run.json").exists()
     assert not (mesh.mesh_home() / "by-pane" / "w1_p1.json").exists()
-    # branches survive the worktree removal
+    # a branch with commits survives the worktree removal
     assert "mesh/mtest/clean" in subprocess.run(["git", "branch"], cwd=repo, capture_output=True, text=True).stdout
+    assert out["branches_deleted"] == []
 
 
 def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsys):
@@ -921,3 +923,223 @@ def test_switch_to_an_exact_id_records_its_own_effort(mesh, fake, run, monkeypat
 def test_effort_flags_reject_unknown_values(mesh, capsys):
     with pytest.raises(SystemExit):
         mesh.main(["usage", "--exec-effort", "med"])
+
+
+# ── ask: questions and reviews ───────────────────────────────────────────
+
+
+def answer_on_sleep(mesh, monkeypatch, run, worker, body="restockedAt is set in stock.py.", mtype="done"):
+    """The worker answers the first time anything waits."""
+    def sleep(_):
+        if worker in mesh.load_run(run)["agents"] and not mesh.sends_from(run, worker, mesh.FINAL_TYPES):
+            mesh.deliver(run, worker, "repo-lead", mtype, body)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+
+
+def test_ask_slug_keeps_the_telling_words(mesh):
+    assert mesh.ask_slug("How is restockedAt computed?") == "ask-restockedat"
+    assert mesh.ask_slug("What does the webhook route return on 404") == "ask-webhook-route"
+    assert mesh.ask_slug("???") == "ask"
+
+
+def test_ask_starts_a_fresh_worker_and_prints_its_answer(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    with_quotas(mesh, monkeypatch)
+    answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
+    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    captured = capsys.readouterr()
+    assert "── done from proj-ask-restockedat ──\nrestockedAt is set in stock.py." in captured.out
+    assert "mesh ask proj-ask-restockedat" in captured.out
+    assert "started proj-ask-restockedat" in captured.err
+    entry = mesh.load_run(run)["agents"]["proj-ask-restockedat"]
+    # an ordinary worker on auto: a later change task plans, and approve moves it to Flash
+    assert (entry["role"], entry["branch"], entry["phase"], entry["exec_model"]) == (
+        "worker", "mesh/mtest/ask-restockedat", "plan", "flash")
+    [task] = (mesh.inbox_dir(run, "proj-ask-restockedat")).glob("*-task.md")
+    assert mesh.parse_message(task)[1].startswith(mesh.ASK_PREFIX + "\n\nHow is restockedAt computed?")
+    doorbell = fake.called("agent", "prompt")[0][3]
+    assert doorbell.startswith("📬 [mesh] You are proj-ask-restockedat (worker) in agent-mesh run mtest")
+    assert not mesh.unread(run, "repo-lead")  # the answer was printed and marked read
+
+
+def test_ask_a_live_worker_sends_it_the_question(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why ISO dates?", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+    assert not fake.called("tab", "create") and not fake.called("agent", "start")
+    [task] = mesh.unread(run, "repo-fix-typo")
+    assert mesh.parse_message(task)[1].startswith("Question (read-only)")
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] task from repo-lead: Question (read-only)")
+
+
+def test_ask_a_past_worker_resumes_its_conversation(mesh, fake, run, repo, monkeypatch, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    answer_on_sleep(mesh, monkeypatch, run, "proj-fix", body="Because the API spec says so.")
+    assert mesh.main(["ask", "https://github.com/acme/proj/pull/7", "--body", "Why ISO dates?"]) == 0
+    assert "Because the API spec says so." in capsys.readouterr().out
+    assert fake.called("agent", "start")[-1][-5:-2] == ("--conversation", "c1", "--model")
+    assert mesh.load_run(run)["agents"]["proj-fix"]["resumed_from"] == {"run": "mold", "name": "proj-fix"}
+
+
+def test_ask_without_a_run_starts_one(mesh, fake, repo, monkeypatch, capsys):
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--body", "Where is auth?", "--no-wait"]) == 0
+    captured = capsys.readouterr()
+    run_id = json.loads(captured.out)["delivery"]["stored"].split("/state/")[1].split("/")[0]
+    assert f"started run {run_id}" in captured.err
+    data = mesh.load_run(run_id)
+    assert (data["mode"], data["request"]) == ("claude", "Where is auth?")
+    assert data["agents"]["proj-ask-auth"]["kind"] == "claude"
+
+
+def test_ask_needs_one_target_and_a_question(mesh, fake, run, repo, capsys):
+    assert mesh.main(["ask", "--body", "x"]) == 1
+    assert mesh.main(["ask", "repo-fix-typo", "--repo", str(repo), "--body", "x"]) == 1
+    assert mesh.main(["ask", "repo-fix-typo"]) == 1
+    assert mesh.main(["ask", "repo-fix-typo", "--kind", "claude", "--body", "x"]) == 1
+    assert "empty question" in capsys.readouterr().err
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "7"]) == 1  # no GitHub remote to read a number against
+    assert "not on GitHub" in capsys.readouterr().err
+    assert not fake.called("agent", "start")
+
+
+def pr_origin(tmp_path, repo):
+    """An origin for `repo` with a pull request head at refs/pull/7/head, as GitHub serves it."""
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "clone", "-q", str(repo), str(origin)], check=True)
+    for cmd in (["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                ["commit", "-q", "--allow-empty", "-m", "the change under review"]):
+        subprocess.run(["git", *cmd], cwd=origin, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/pull/7/head", head], cwd=origin, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo, check=True)
+    return head
+
+
+def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    head = pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["name"] == "proj-review-7"
+    wt_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=out["cwd"], capture_output=True, text=True).stdout
+    assert wt_head.strip() == head
+    entry = mesh.load_run(run)["agents"]["proj-review-7"]
+    assert (entry["reviews"], entry["base"]) == ([pr], head)
+    [task] = mesh.unread(run, "proj-review-7")
+    body = mesh.parse_message(task)[1]
+    assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
+
+
+def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/other/pull/3"
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--body", "Focus on auth.", "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert "Don't switch your branch" in body and "pull/3/head" in body and body.rstrip().endswith("Focus on auth.")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["reviews"] == [pr]
+
+
+def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    pr = "https://github.com/acme/proj/pull/7"
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7"] = {"role": "worker", "kind": "agy", "repo": str(repo), "cwd": "/wt",
+                                           "pane": "w2:p9", "reviews": [pr]}
+    mesh.store_message(run, "proj-review-7", "repo-lead", "done", f"Reviewed {pr}: two findings.")
+    assert mesh.find_worker(pr)[2] == "proj-fix"
+    capsys.readouterr()
+    assert mesh.main(["agents", "pull/7", "--json"]) == 0
+    rows = {r["name"]: r for r in json.loads(capsys.readouterr().out)}
+    assert (rows["proj-review-7"]["prs"], rows["proj-review-7"]["reviews"]) == ("", pr)
+    assert rows["proj-fix"]["prs"] == pr
+
+
+def test_ask_reports_a_worker_that_stops_without_answering(mesh, fake, run, monkeypatch, capsys):
+    states = iter(["idle", "working", "idle"])
+    monkeypatch.setattr(mesh, "agent_status", lambda name: next(states))
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 3
+    assert "without sending a message" in capsys.readouterr().out
+
+
+def test_stop_drops_untouched_branches_and_resume_brings_them_back(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    path, branch, base = mesh.add_worktree(run, repo, "ask-x", None)
+    pushed, pushed_branch, _ = mesh.add_worktree(run, repo, "pushed", None)
+    subprocess.run(["git", "push", "-q", "-u", "origin", pushed_branch], cwd=pushed, check=True)
+    capsys.readouterr()
+    assert mesh.main(["stop"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["branches_deleted"] == [branch]
+    assert out["branches_kept"] == [pushed_branch]
+    branches = subprocess.run(["git", "branch"], cwd=repo, capture_output=True, text=True).stdout
+    assert branch not in branches and pushed_branch in branches
+    # resuming the asker later starts its branch again at the same commit
+    assert mesh.ensure_worktree({"cwd": str(path), "repo": str(repo), "base": base}, branch) is True
+    assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip() == base
+    assert subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip() == branch
+
+
+def test_pr_numbers_resolve_against_the_github_remote(mesh, repo):
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:acme/proj.git"], cwd=repo, check=True)
+    assert mesh.pr_ref("7", repo) == ("https://github.com/acme/proj/pull/7", 7)
+    assert mesh.pr_ref("#7", repo) == ("https://github.com/acme/proj/pull/7", 7)
+    assert mesh.pr_ref("https://github.com/acme/proj/pull/7/files", repo) == ("https://github.com/acme/proj/pull/7", 7)
+    with pytest.raises(mesh.MeshError, match="not a PR of proj"):
+        mesh.pr_head(repo, "https://github.com/acme/other/pull/3", 3)
+
+
+def test_ask_a_busy_worker_does_not_take_its_other_report_for_the_answer(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 0
+    captured = capsys.readouterr()
+    assert "is busy" in captured.err and json.loads(captured.out)["delivery"]["rung"] is True
+
+
+def test_ask_prints_the_answer_even_if_the_root_already_read_it(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+
+    def sleep(_):  # the worker answers, and its doorbell has the root run `mesh inbox` first
+        if not mesh.sends_from(run, "repo-fix-typo", mesh.FINAL_TYPES):
+            mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Because of the spec.")
+            for path in mesh.unread(run, "repo-lead"):
+                mesh.mark_read(path)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    monkeypatch.setattr(mesh, "watch_agent", lambda *a, **k: (sleep(0), (0, "reported"))[1])
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 0
+    assert "── done from repo-fix-typo ──\nBecause of the spec." in capsys.readouterr().out
+
+
+def test_only_the_root_asks(mesh, fake, run, repo, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    assert mesh.main(["ask", "--repo", str(repo), "--body", "x"]) == 1
+    assert "only the root asks" in capsys.readouterr().err
+    assert not fake.called("agent", "start")
+
+
+def test_a_fork_review_fetches_from_the_remote_that_owns_the_pr(mesh, repo, tmp_path, monkeypatch):
+    head = pr_origin(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    assert mesh.pr_head(repo, "https://github.com/acme/proj/pull/7", 7) == head
+    with pytest.raises(mesh.MeshError, match="remotes: "):
+        mesh.pr_head(repo, "https://github.com/other/thing/pull/7", 7)

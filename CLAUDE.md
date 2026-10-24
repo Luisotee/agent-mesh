@@ -37,6 +37,7 @@ Core mechanics that span several files:
 - **Identity** comes from `MESH_RUN` / `MESH_SELF` / `MESH_PARENT` / `MESH_ROLE`, injected into each pane at spawn. Agents are addressed by herdr name (`<repo>-lead`, `<repo>-<slug>`), with pane id as fallback.
 - **Topology:** a root keeps its own repo; one worker per other repo, in its own git worktree under `$MESH_WORKTREES` on branch `mesh/<run>/<slug>`. Workers never spawn agents (1:N, not 1:N:N; see design §7).
 - **Models per phase** (design §9): `--model auto` plans on the first model in `PLAN_CHAIN` with quota (agy quotas parsed from `agy -p /usage`, threshold `MESH_MIN_QUOTA`) at `DEFAULT_EFFORT`, then `mesh approve` calls `swap_model`, which closes the pane and reopens **the same conversation** (`agy --conversation <id>` / `claude --resume <id>`) on `EXEC_MODEL` at `EXEC_EFFORT`. agy encodes effort in the model id (`gemini-<ver>-<family>-<effort>`). `mesh watch` exits 7 on a `RESOURCE_EXHAUSTED` quota line in the worker's own `--log-file`; the root then runs `mesh switch`.
+- **Questions and reviews** (`mesh ask`, design §10): an asker is an ordinary worker that got a read-only task (`ASK_PREFIX` / `REVIEW_PREFIX`), so follow-ups, `resume` and turning it into a change need no special case. `ask` composes `init_run`, `spawn_worker` / `resume_worker`, `deliver` and `watch_agent`. A reviewer records the PR in `reviews`, which `worker_prs` skips so a PR link still finds its author.
 - **Conversation lookup** (`find_session`): Claude workers get a `--session-id` UUID recorded at spawn; agy conversations are found in agy's `history.jsonl` by the first doorbell text (`You are <name> (worker) in agent-mesh run <run>`). Changing that doorbell wording breaks resume.
 
 ## Conventions the design depends on
@@ -44,7 +45,7 @@ Core mechanics that span several files:
 - Model changes happen only by reopening the same conversation (approve / switch / resume), never by briefing a fresh worker: the point is to keep the worker's research context. Reject designs that add delegation tiers or cold hand-offs.
 - The mesh is process-agnostic: protocol files never name a tracker, branch convention or repo-specific process; workers follow their repo's own rules.
 - Skills name model **families** (`argon`, `flash`, `opus`, `sonnet`), resolved to the newest id from `agy models`; don't hard-code model ids.
-- `mesh resume` / `mesh open` refuse a worker that is still running (one process per conversation). `mesh stop` removes only clean worktrees and always keeps branches.
+- `mesh resume` / `mesh open` refuse a worker that is still running (one process per conversation). `mesh stop` removes only clean worktrees and keeps every branch that has a commit or an upstream (an untouched one is deleted and recreated from its recorded `base` on resume).
 - Keep README, `ORCHESTRATE.md`, the skill descriptions and `docs/design.md` in sync when defaults (models, efforts, exit codes) change.
 
 ## Tests

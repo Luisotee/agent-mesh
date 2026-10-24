@@ -57,7 +57,7 @@ Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **familie
 - `argon` / `flash` / `opus` / `sonnet` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` or `claude-<family>-<version>-<effort>` in `agy models`
 - `opus` / `sonnet` for Claude, which the CLI resolves itself
 
-The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it.
+The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it. A question you'll want to follow up on goes through the commands instead, as a worker (§10).
 
 ## 6. The mesh is process-agnostic
 
@@ -86,6 +86,7 @@ Since 0.4 a worker's conversation outlives its run. The usual follow-ups (a PR r
 - **Finding the worker:** the root and the user think in PRs, not agent names. `mesh agents`, `resume` and `open` accept a name, a branch or a PR link, and PR links are read from the worker's own messages (its `done` report). When several runs match, the newest wins.
 - **One process per conversation:** both commands refuse while a live agent sits in the worker's worktree. Two CLIs on one conversation would fork it.
 - **`mesh open` is the user's session:** it strips the `MESH_*` environment, and it doesn't add `--dangerously-skip-permissions`, because the user is at the keyboard and their normal settings apply. The protocol tells an agent that finds itself outside a run to work with the user directly.
+- **Untouched branches:** since 0.6 a worktree records the commit it started from. `mesh stop` deletes a branch only if it still points at that commit and has no upstream, which is what an asker (§10) leaves behind. Deleting it loses nothing, and resume starts it again at the same commit, at the same path.
 - **The CLI is fixed:** a conversation can't move between Claude and agy, so changing agent means a fresh worker in the same worktree, as after a `failed`. The model can change within the same CLI.
 
 ## 9. Models per phase
@@ -101,6 +102,24 @@ Flash is cheap and good at typing code and running tests, but weak at the resear
 - **Effort follows the phase too:** high while planning, where thinking pays, and medium (agy's own default) while executing an approved plan. agy bakes the effort into the model id (`gemini-3.8-flash-medium`); Claude takes `--effort medium` on the resume.
 - **Claude workers** plan and execute on Opus; only the effort changes. Prompt caches belong to one model, so a switch to Sonnet would re-read the whole planning context on the first execution turn, and cache reads cost the same on both ($0.20/M), leaving Sonnet only cheaper output. A resume that changes only `--effort` keeps the cache: measured on 2026-10-24, the medium-effort resume read the full previous prompt from cache and wrote 65 tokens. Claude Code's usage isn't visible to mesh, so there is no quota choice or detection for them; `mesh switch --model` still works by hand.
 - **The root's model is the user's:** mesh never changes the root session's model.
+
+## 10. Questions and reviews are workers
+
+Not every cross-repo need is a change. Often the root needs to *know* something about another repo ("how is restockedAt computed?"), or wants a second pair of eyes on a PR it just opened. The global rule already allowed a headless `agy -p` for that (§5), but a headless answer is a dead end. You can't watch it, it can't ask back, and its context is lost for the next question or for the change the answer leads to. Picking that conversation up later would need a second lookup path next to §8's.
+
+Since 0.6 `mesh ask` gives the question to an **ordinary worker** instead. It's spawned exactly like one (same role, same first doorbell, same `auto` plan phase), and its first task starts with `Question (read-only)` or `Review (read-only)`. The protocol says that such a task gets no plan and no edits, only one `done` with the answer. Everything else comes for free:
+
+- **Follow-ups** are more `mesh ask` calls to the same agent, which still has everything it read. After `mesh stop`, `ask` resumes it (§8).
+- **Turning it into a change** is a plain task. The asker is still in its plan phase, so it plans, `mesh approve` moves it to its execution model, and it opens a PR from the branch it already has. That's the same "no cold hand-off" argument as §7.
+- **Existing workers answer too:** the agent that wrote a PR is the best one to ask why. An existing worker reviewing a PR mustn't leave its branch, so it reads the PR from `gh pr diff` / `FETCH_HEAD`. A fresh reviewer gets a worktree at the PR head, so it can run the tests.
+- **One command:** the cost of a question was the ceremony (init, task file, spawn, watch, inbox), not the model time. `ask` starts a run if there's none, delivers, waits like `mesh watch` (same exit codes) and prints the answer. A Claude root runs it in the background and gets the answer as the notification.
+
+Two details keep this from leaving a mess:
+
+- **Reviewer vs author:** a reviewer's `done` quotes the PR link, which used to make `mesh resume <PR>` pick the newest match, the reviewer. Workers now record the PRs they reviewed, and PR matching skips those.
+- **Empty branches:** every question creates a branch with no commits. `mesh stop` deletes those (§8).
+
+Reviews post nothing on GitHub. That's outward-facing, so it needs the user's own word (PROTOCOL.md, "Authority").
 
 ## Alternatives considered
 

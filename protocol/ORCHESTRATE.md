@@ -1,6 +1,6 @@
 # agent-mesh orchestration
 
-The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* is the agent the user typed the command into, usually in the middle of its own work in its own repo. It keeps doing its own repo's part itself, and spawns one *worker* per **other** affected repo, so each one loads that repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Each worker researches its repo, writes a plan, sends it to the root for review and, once it's approved, carries the plan out **itself**, with all the context its research built up. Workers never spawn agents of their own. Read `PROTOCOL.md` as well: it applies to you too.
+The shared procedure behind `/delegate-agy` and `/delegate-claude`, for changes, questions and PR reviews. The *root* is the agent the user typed the command into, usually in the middle of its own work in its own repo. It keeps doing its own repo's part itself, and spawns one *worker* per **other** affected repo, so each one loads that repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Each worker researches its repo, writes a plan, sends it to the root for review and, once it's approved, carries the plan out **itself**, with all the context its research built up. Workers never spawn agents of their own. Read `PROTOCOL.md` as well: it applies to you too.
 
 ## Modes
 
@@ -20,6 +20,7 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
    - **Your own repo** (the one you're running in) stays **yours**: you do its part yourself, in your current checkout and branch, exactly as you would without a mesh. Its rules are already loaded in your session. Spawn a worker for it only when the user explicitly asks to delegate it too.
    - **Every other repo** gets a worker.
    - **Work an earlier worker did** (its PR got review comments, "make it Y instead of X"): resume that worker instead of spawning a fresh one. See "Follow-ups" below.
+   - **A question or a PR review** ("how does shop-api do X?", "review the PR we just made") changes nothing: use `mesh ask` instead of steps 3 to 9. See "Questions and reviews" below.
 3. **Spawn one worker per other repo.** Write a task file per repo in `$(mesh dir)/tasks/` and start the worker in a fresh worktree:
    ```bash
    mesh spawn --kind <kind> --repo <path> --worktree <slug> \
@@ -60,6 +61,33 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
 
    Then run `mesh stop`. It closes the panes, removes clean worktrees (branches are kept) and archives the run log. It never touches your own checkout. Workers can still be resumed after it.
 
+## Questions and reviews
+
+A question about another repo, or a review of a PR, goes to a worker as well, so it can be asked again later and can take the change on itself. `mesh ask` does the whole round trip: it starts or reaches the worker, gives it a read-only task, waits for its `done` and prints the answer.
+
+```bash
+mesh ask --repo <path> --body "<question>"              # a fresh agent in that repo
+mesh ask --repo <path> --review <PR link | number>      # a fresh reviewer, with the PR head checked out
+mesh ask <name | branch | PR link> --body "<question>"  # a worker you already have, live or past
+mesh ask <name | branch | PR link> --review <PR link>   # it reviews a PR without leaving its branch
+```
+
+- **No run needed:** without one, `ask` starts it (mode `--kind`, default agy).
+- **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
+- **A fresh agent** follows the mode table, like a spawn: pass `--kind` for the mode (`claude` under `/delegate-claude`), and `--model` / `--effort` only if the user named them. It plans on the strong model, which suits research.
+- **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way. A PR link names the worker that opened the PR; a reviewer is found by its name. A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes as a doorbell.
+- **The question:** give it what you know, as you would in a task file (use `--file` for anything long): what you're working on, what you need back, and in what form.
+- **Waiting:** a Claude root runs `mesh ask` with `run_in_background`, and the answer arrives as the notification. An agy root runs it in the foreground, or passes `--no-wait` and waits for the doorbell. Exit codes are those of `mesh watch`; on 7, `mesh switch` the worker and `mesh watch` it.
+
+Then:
+
+1. **Relay the answer** to the user with the worker's name, so they can ask it again. Spot-check claims that matter against the code, as you would a `done`.
+2. **A review:** decide on each finding (agree, or disagree and why). Fix your own repo's PR yourself. Send findings on another worker's PR, with your opinion on each, to the worker that made it (see "Follow-ups"), not to the reviewer.
+3. **More questions:** `mesh ask <name> --body "…"` again. The worker still has everything it read.
+4. **Turning the answer into a change** in that repo: send the same worker a normal task (`mesh send <name> --type task --file …`, or `mesh resume <name> --task-file …` once its pane is gone). From there it's an ordinary worker: it plans, you `mesh approve`, it executes on its branch `mesh/<run>/<slug>` and opens a PR. Supervise it as in steps 4 to 9.
+
+`mesh stop` deletes a branch that never got a commit or a push, such as an asker's. Resuming that worker starts the branch again at the same commit.
+
 ## Follow-ups
 
 When the request is about something a worker already built, in this run or an earlier one, resume **that worker**: it still has its research, plan and reasoning, so a fresh one would only rediscover them.
@@ -79,7 +107,13 @@ A conversation can't move to another CLI. If the user wants a different agent (a
 
 ## Worker
 
-You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the same code as the main checkout, so research there.
+You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the same code as the main checkout (for a reviewer, the PR's head), so research there.
+
+**Read-only tasks.** A task that starts with `Question (read-only)` or `Review (read-only)` comes from `mesh ask`. Skip the plan (steps 4 to 9): research, then answer. Change no files, commit nothing, push nothing, switch no branches, and post nothing on GitHub. Install dependencies only if you need them to answer (to run a test, for example). Report one `done`:
+- **A question:** the answer, with the file paths and functions that back it, and what you're unsure of.
+- **A review:** findings ranked by severity, each with file:line, why it matters and a suggested fix, then what you checked (the tests you ran, say).
+
+Then end your turn. A later task may ask more, or ask you to make a change, which follows the steps below as usual.
 
 1. **Follow the repo's rules.** The repo's `CLAUDE.md` / `AGENTS.md` apply to everything repo-specific: task tracking, branch and commit conventions, contract checks, the PR process. **Never edit files or switch branches in the main checkout**, and never touch another agent's worktree.
 2. **Set up:** a fresh worktree has no installed dependencies and no untracked files such as `.env`. Install what the repo needs. Don't copy secrets in unless the task says to.
