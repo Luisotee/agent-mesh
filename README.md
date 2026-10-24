@@ -75,6 +75,31 @@ More examples:
 /delegate-claude  add the `marketingOptOut` field to shared-schemas and update shop-api's user route to match
 ```
 
+## Questions and reviews
+
+Not every cross-repo need is a change. To ask another repo something, or to get a PR reviewed, use the same commands:
+
+```
+/delegate-agy    how does shop-api compute restockedAt, and is it ever null?
+/delegate-claude review the PR we just made
+/delegate-agy    ask the agent that made shop-api#88 why it returns ISO dates
+```
+
+The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it. The agent changes nothing and posts nothing on GitHub.
+
+The agent is an ordinary worker, so it stays useful after it answers:
+
+- **Ask it again:** a follow-up question goes to the same agent, with everything it already read.
+- **Hand it the change:** when the answer leads to a fix, send it a task. It plans, the root approves, it executes and opens a PR, like any worker.
+- **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
+
+```bash
+mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
+mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
+mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
+mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
+```
+
 ## Follow-ups: resuming a worker
 
 A worker's conversation outlives its run. When the PR gets review comments, or you change your mind about the feature, send the work back to **the agent that did it**, with all its research still in context, instead of briefing a fresh one:
@@ -141,7 +166,7 @@ A Claude root gets notified the moment the watch exits.
 - **No sub-delegation:** workers never spawn agents.
 - **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
 - **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself, and refuses any other startup prompt.
-- **Cleanup:** `mesh stop` removes only *clean* worktrees, always keeps the branches, and never touches your own checkout.
+- **Cleanup:** `mesh stop` removes only *clean* worktrees and never touches your own checkout. It keeps every branch that has a commit or was pushed; an asker's branch that got neither is deleted, and resuming that worker starts it again.
 - **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice.
 
 ## Install
@@ -173,8 +198,9 @@ Useful commands while a run is going:
 ```bash
 mesh status <run>          # every agent: role, model, live state, unread mail, branch
 mesh inbox                 # (as an agent) read your messages
-mesh stop <run>            # close panes, remove clean worktrees, archive the run
-mesh agents [query]        # every past worker, live or archived, with branch and PRs
+mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
+mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
+mesh agents [query]        # every past worker, live or archived, with branch, PRs and reviews
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
@@ -185,6 +211,7 @@ mesh usage                 # agy quotas and the models auto would pick
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
 - **Plan first:** a worker sends `mesh send parent --type plan --file …` and changes nothing until it's `approved`.
+- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer.
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
