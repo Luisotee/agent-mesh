@@ -113,7 +113,8 @@ AGY_MODELS = """gemini-4-argon-medium\tGemini 4 Argon (Medium)
 gemini-4-argon-high\tGemini 4 Argon (High)
 gemini-3.8-flash-high\tGemini 3.8 Flash (High)
 gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)
-gemini-3.10-flash-medium\tGemini 3.10 Flash (Medium)
+gemini-3.8-flash-low\tGemini 3.8 Flash (Low)
+gemini-3.10-flash-low\tGemini 3.10 Flash (Low)
 claude-opus-5-5-high\tClaude Opus 5.5 (High)
 claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
 """
@@ -133,12 +134,12 @@ def with_quotas(mesh, monkeypatch, usage=USAGE):
 
 
 def test_pick_agy_model_newest_family_and_effort(mesh):
-    assert mesh.pick_agy_model(AGY_MODELS, "flash", "medium") == "gemini-3.10-flash-medium"
+    assert mesh.pick_agy_model(AGY_MODELS, "flash", "low") == "gemini-3.10-flash-low"  # 3.10 is newer than 3.8
     assert mesh.pick_agy_model(AGY_MODELS, "flash", "high") == "gemini-3.8-flash-high"
     assert mesh.pick_agy_model(AGY_MODELS, "argon", "high") == "gemini-4-argon-high"
     assert mesh.pick_agy_model(AGY_MODELS, "gemini-3.8-flash-high", "low") == "gemini-3.8-flash-high"
     with pytest.raises(mesh.MeshError):
-        mesh.pick_agy_model(AGY_MODELS, "flash", "low")
+        mesh.pick_agy_model(AGY_MODELS, "flash", "max")
 
 
 def test_pick_agy_model_resolves_claude_families(mesh):
@@ -324,7 +325,7 @@ def test_spawn_defaults_to_auto_planning_then_flash(mesh, fake, run, repo, monke
     assert out["notes"] == ["gemini-4-argon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
     entry = mesh.load_run(run)["agents"]["proj-fix-reactions"]
     assert (entry["role"], entry["kind"], entry["effort"]) == ("worker", "agy", "high")
-    assert (entry["phase"], entry["exec_model"]) == ("plan", "flash")
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "flash", "medium")
     assert entry["log"].endswith("/mtest/logs/proj-fix-reactions.log")
     assert fake.called("agent", "start")[-1][-5:] == (
         "--log-file", entry["log"], "--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
@@ -335,6 +336,7 @@ def test_spawn_defaults_to_auto_planning_then_flash(mesh, fake, run, repo, monke
     assert mesh.main(["spawn", "--repo", str(repo), "--name", "one", "--model", "flash"]) == 0
     entry = mesh.load_run(run)["agents"]["proj-one"]
     assert (entry["model"], entry["exec_model"], entry["phase"]) == ("gemini-3.8-flash-high", None, None)
+    assert (entry["effort"], entry["exec_effort"]) == ("high", None)
 
 
 # ── trust dialogs ────────────────────────────────────────────────────────
@@ -638,17 +640,18 @@ def test_approve_moves_the_worker_to_flash_in_the_same_conversation(mesh, fake, 
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo", "--body", "Mind the migration."]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["model"] == "gemini-3.8-flash-high"
+    assert out["model"] == "gemini-3.8-flash-medium"
     assert fake.called("pane", "close", "w2:p5")  # the planning pane goes
     assert fake.called("agent", "start")[-1][-7:] == (
-        "--log-file", str(log), "--conversation", "c1", "--model", "gemini-3.8-flash-high",
+        "--log-file", str(log), "--conversation", "c1", "--model", "gemini-3.8-flash-medium",
         "--dangerously-skip-permissions")
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     assert (entry["phase"], entry["pane"], entry["status"]) == ("exec", "w9:p10", "running")
+    assert entry["effort"] == "medium" and entry["models"][-1]["effort"] == "medium"
     assert "swapped" not in entry and entry["models"][-1]["why"] == "plan approved"
     doorbell = fake.called("agent", "prompt")[-1][3]
     assert doorbell.startswith("📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, "
-                               "now on gemini-3.8-flash-high")
+                               "now on gemini-3.8-flash-medium at medium effort")
     [msg] = mesh.unread(run, "repo-fix-typo")
     assert msg.name.endswith("-answer.md") and "approved\n\nMind the migration." in msg.read_text()
 
@@ -662,7 +665,7 @@ def test_approve_a_claude_worker_resumes_it_on_sonnet(mesh, fake, run, capsys):
     stub_new_pane(fake)
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert fake.called("agent", "start")[-1][-7:] == (
-        "--resume", "s-1", "--model", "sonnet", "--effort", "high", "--dangerously-skip-permissions")
+        "--resume", "s-1", "--model", "sonnet", "--effort", "medium", "--dangerously-skip-permissions")
 
 
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
@@ -756,10 +759,11 @@ def test_failed_swap_marks_the_worker_and_the_watch_alerts(mesh, fake, run, monk
     fake.on("agent", "start", errors=["cli_error"] * 10)
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo"]) == 1
-    assert "was not reopened on gemini-3.8-flash-high" in capsys.readouterr().err
+    assert "was not reopened on gemini-3.8-flash-medium" in capsys.readouterr().err
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     # the recorded model is still the planning one, so approving again retries the swap
-    assert (entry["status"], entry["model"], entry["phase"]) == ("swap_failed", "claude-opus-5-5-high", "plan")
+    assert (entry["status"], entry["model"], entry["effort"], entry["phase"]) == (
+        "swap_failed", "claude-opus-5-5-high", "high", "plan")
     assert "swapped" not in entry and len(entry["models"]) == 1
 
     fake.on("agent", "get", errors=["agent_not_found"] * 5)
@@ -848,7 +852,7 @@ def test_the_new_model_doorbell_survives_a_failed_ring(mesh, fake, run, monkeypa
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["swapped"] is True
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "ping"]) == 0
     assert fake.called("agent", "prompt")[-1][3].startswith(
-        "📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, now on gemini-3.8-flash-high")
+        "📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, now on gemini-3.8-flash-medium at medium effort")
     assert "swapped" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
 
@@ -863,3 +867,47 @@ def test_a_failed_usage_read_is_not_retried_for_a_minute(mesh, monkeypatch):
     assert mesh.agy_usage() is None and mesh.agy_usage() is None
     assert len(calls) == 1
     assert mesh.agy_usage(force=True) is None and len(calls) == 2
+
+
+# ── review fixes: effort overrides, exec model checked at spawn ──────────
+
+
+def test_a_named_effort_covers_both_phases(mesh, fake, run, repo, monkeypatch, capsys):
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    with_quotas(mesh, monkeypatch)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "a", "--effort", "max"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-a"]
+    assert (entry["effort"], entry["exec_effort"]) == ("max", "max")
+    stub_split(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "b",
+                      "--effort", "max", "--exec-effort", "low"]) == 0
+    assert mesh.load_run(run)["agents"]["proj-b"]["exec_effort"] == "low"
+
+
+def test_spawn_checks_the_exec_model_before_any_side_effect(mesh, fake, run, repo, monkeypatch, capsys):
+    with_quotas(mesh, monkeypatch)
+    agents = set(mesh.load_run(run)["agents"])
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "w", "--exec-effort", "max"]) == 1
+    assert "effort=max" in capsys.readouterr().err
+    assert not fake.called("tab", "create") and set(mesh.load_run(run)["agents"]) == agents
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "argon", "--exec-effort", "low"]) == 1
+    assert "needs an execution phase" in capsys.readouterr().err
+    assert not fake.called("tab", "create")
+
+
+def test_switch_to_an_exact_id_records_its_own_effort(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-3.8-flash-medium", phase="exec")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["effort"] = "medium"
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    assert mesh.main(["switch", "repo-fix-typo", "--model", "gemini-3.8-flash-high"]) == 0
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["model"], entry["effort"]) == ("gemini-3.8-flash-high", "high")
+
+
+def test_effort_flags_reject_unknown_values(mesh, capsys):
+    with pytest.raises(SystemExit):
+        mesh.main(["usage", "--exec-effort", "med"])

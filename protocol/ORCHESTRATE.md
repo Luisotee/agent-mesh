@@ -6,11 +6,11 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
 
 | Mode | Worker | Plans on | Executes on |
 |---|---|---|---|
-| `agy` | `--kind agy --effort high` (also what `mesh spawn` does with no flags) | the first of Argon → Claude Opus → Flash with quota left | Flash |
-| `claude` | `--kind claude --effort high` | Opus | Sonnet |
+| `agy` | `--kind agy` (also what `mesh spawn` does with no flags) | the first of Argon → Claude Opus → Flash with quota left, high effort | Flash, medium effort |
+| `claude` | `--kind claude` | Opus, high effort | Sonnet, medium effort |
 
-- **Models per phase:** with no `--model` (that is, `--model auto`), a worker plans on a strong model and moves to the cheaper one when you approve its plan with `mesh approve`. It stays in the **same conversation**, so it keeps its research. For agy, `mesh` reads `agy -p /usage` and skips any model with under 10% left (`MESH_MIN_QUOTA`). `mesh usage` shows the quotas and what `auto` would pick.
-- **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), pass it as `--model`. That one model then runs the whole task, with no switch. Otherwise don't pass `--model`, and don't pick a model on your own.
+- **Models per phase:** with no `--model` (that is, `--model auto`), a worker plans on a strong model and moves to the cheaper one when you approve its plan with `mesh approve`. It stays in the **same conversation**, so it keeps its research. Effort follows the phase: high while planning, medium while executing (`--effort` / `--exec-effort`). For agy, `mesh` reads `agy -p /usage` and skips any model with under 10% left (`MESH_MIN_QUOTA`). `mesh usage` shows the quotas and what `auto` would pick.
+- **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), pass it as `--model`; that one model then runs the whole task, with no switch (default effort high). A named effort goes in `--effort` and covers planning and execution alike, with or without `--model`. Otherwise don't pass `--model`, and don't pick a model on your own.
 - **Resolution:** `mesh` resolves the agy families `argon` / `flash` / `opus` / `sonnet` to the newest matching model. `mesh model --kind agy` shows what a spawn would use, and why.
 
 ## Root

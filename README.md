@@ -45,18 +45,18 @@ Both commands work from Claude Code and from agy:
 
 | Command | Worker (one per other repo) |
 |---|---|
-| `/delegate-agy` | agy, high effort: plans on Argon → Claude Opus → Flash (the first with quota left), executes on Flash |
-| `/delegate-claude` | Claude, high effort: plans on Opus, executes on Sonnet |
+| `/delegate-agy` | agy: plans on Argon → Claude Opus → Flash (the first with quota left) at high effort, executes on Flash at medium |
+| `/delegate-claude` | Claude: plans on Opus at high effort, executes on Sonnet at medium |
 
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
-- **Overrides:** naming a model or effort in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
+- **Overrides:** naming a model in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
 
 ## Models
 
 A worker on the default (`--model auto`) has two phases in one conversation:
 
 - **Planning** runs on the first model in the chain with at least 10% quota left. For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash or Sonnet in a new pane, and delivers the approval.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash or Sonnet in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either.
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
 
 ```bash

@@ -98,6 +98,7 @@ Flash is cheap and good at typing code and running tests, but weak at the resear
   - Unreadable quotas never block a spawn: the chain's first model is used.
 - **Detecting a quota hit:** agy keeps the session alive and logs `RESOURCE_EXHAUSTED … Resets in 138h17m29s`. Each agy worker gets its own `--log-file`, so `mesh watch` can scan only that worker's new log lines and exit 7. The root then runs `mesh switch` without asking: a quota hit says nothing about the task, so moving on can't hide a real failure. `switch` re-reads the quotas, skips every model that already hit its quota, and tells the worker to continue.
 - **No fallback for execution:** the user chose Flash only for execution. A Flash quota hit stops the worker and the root reports the reset time, rather than spending the Claude pool on typing code.
+- **Effort follows the phase too:** high while planning, where thinking pays, and medium (agy's own default) while executing an approved plan. agy bakes the effort into the model id (`gemini-3.8-flash-medium`); Claude takes `--effort medium` on the resume.
 - **Claude workers** plan on Opus and execute on Sonnet. Claude Code's usage isn't visible to mesh, so there is no quota choice or detection for them; `mesh switch --model` still works by hand.
 - **The root's model is the user's:** mesh never changes the root session's model.
 
