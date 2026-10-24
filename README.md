@@ -32,7 +32,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
 - **The right context in each repo:** a worker running *inside* `shop-api` follows that repo's rules and hooks, so it's faster and more precise than an agent editing a repo whose conventions it never loaded.
 - **You don't lose your place:** the session you're working in keeps its context and keeps going on its own repo.
 - **No lost research:** the agent that wrote the plan is the one that carries it out.
-- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so workers execute on Gemini Flash. Planning, where a weak model hurts most, gets the strongest model with quota left. Your root session spends its tokens on reviewing plans and answering questions.
+- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so agy workers execute on Gemini Flash and Claude workers drop to medium effort. Planning, where a weak model hurts most, gets the strongest model with quota left. Your root session spends its tokens on reviewing plans and answering questions.
 - **Oversight without babysitting:**
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
   - you're asked only about real product decisions
@@ -46,7 +46,7 @@ Both commands work from Claude Code and from agy:
 | Command | Worker (one per other repo) |
 |---|---|
 | `/delegate-agy` | agy: plans on Argon → Claude Opus → Flash (the first with quota left) at high effort, executes on Flash at medium |
-| `/delegate-claude` | Claude: plans on Opus at high effort, executes on Sonnet at medium |
+| `/delegate-claude` | Claude: plans on Opus at high effort, executes on Opus at medium |
 
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
 - **Overrides:** naming a model in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
@@ -56,7 +56,7 @@ Both commands work from Claude Code and from agy:
 A worker on the default (`--model auto`) has two phases in one conversation:
 
 - **Planning** runs on the first model in the chain with at least 10% quota left. For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash or Sonnet in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either.
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
 
 ```bash
