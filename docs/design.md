@@ -57,7 +57,7 @@ Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **familie
 - `flash`/`argon` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` in `agy models`
 - `opus` for Claude, which the CLI resolves itself
 
-The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh.
+The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it.
 
 ## 6. The mesh is process-agnostic
 
