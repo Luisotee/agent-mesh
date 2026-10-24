@@ -738,3 +738,128 @@ def test_watch_carries_on_while_the_worker_is_reopened(mesh, fake, run, monkeypa
     monkeypatch.setattr(mesh, "herdr", get)
     assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 0
     assert "reported done" in capsys.readouterr().out
+
+
+# ── review fixes: failed swaps, log offsets, switch chain, kept doorbell ──
+
+
+def stub_split(fake):
+    """A second worker pane beside the first, for tests that swap a worker twice."""
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+
+
+def test_failed_swap_marks_the_worker_and_the_watch_alerts(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run)
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["cli_error"] * 10)
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "was not reopened on gemini-3.8-flash-high" in capsys.readouterr().err
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    # the recorded model is still the planning one, so approving again retries the swap
+    assert (entry["status"], entry["model"], entry["phase"]) == ("swap_failed", "claude-opus-5-5-high", "plan")
+    assert "swapped" not in entry and len(entry["models"]) == 1
+
+    fake.on("agent", "get", errors=["agent_not_found"] * 5)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 5
+    assert "is gone" in capsys.readouterr().out
+
+
+def test_watch_stops_excusing_a_worker_that_never_comes_back(mesh, fake, run, capsys):
+    planning_worker(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "starting"
+    fake.on("agent", "get", errors=["agent_not_found"] * 10)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run, "--interval", "100"]) == 5
+    assert len(fake.called("agent", "get")) == 4  # 3 polls excused (300s), the 4th alerts
+
+
+def test_quota_hit_reads_only_new_bytes_and_ignores_plain_rate_limits(mesh, tmp_path):
+    log = tmp_path / "w.log"
+    log.write_text("E1 RESOURCE_EXHAUSTED (code 429): too many requests, retry in 5s\n")
+    reset, offset = mesh.quota_hit(str(log), 0)
+    assert reset is None and offset == log.stat().st_size
+    with open(log, "a") as fh:
+        fh.write("E2 RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h.\n")
+    assert mesh.quota_hit(str(log), offset)[0] == "2h"
+    assert mesh.quota_hit(str(log), log.stat().st_size)[0] is None  # already seen
+    assert mesh.quota_hit(None, 7) == (None, 7)
+
+
+def test_watch_follows_a_log_that_restarts_shorter(mesh, fake, run, monkeypatch, capsys):
+    log = planning_worker(mesh, run)
+    log.write_text("x" * 500 + "\n")
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    polls = iter(range(10))
+
+    def sleep(_):
+        n = next(polls)
+        if n == 0:
+            log.write_text("fresh log\n")  # a reopened agy truncated it
+        elif n == 1:
+            with open(log, "a") as fh:
+                fh.write("E1 RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 3h.\n")
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 7
+    assert "resets in 3h" in capsys.readouterr().out
+
+
+def test_switch_never_returns_to_a_model_that_already_ran_out(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: everything looks free
+    stub_new_pane(fake)
+    stub_split(fake)
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "claude-opus-5-5-high"
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0  # Opus ran out too: not back to Argon
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-high"
+
+
+def test_switch_goes_ahead_when_the_stalled_worker_never_goes_idle(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "wait", error="timeout")
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    assert fake.called("agent", "wait")[0][-2:] == ("--timeout", "60000")
+    assert fake.called("agent", "start")
+
+
+def test_approve_does_not_cut_a_busy_worker_short(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run)
+    with_quotas(mesh, monkeypatch)
+    fake.on("agent", "wait", error="timeout")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert not fake.called("pane", "close") and not fake.called("agent", "start")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "plan"
+
+
+def test_the_new_model_doorbell_survives_a_failed_ring(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run)
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "prompt", errors=["agent_blocked"] * 7)  # every attempt of the first ring
+    assert mesh.main(["approve", "repo-fix-typo"]) == 2
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["swapped"] is True
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "ping"]) == 0
+    assert fake.called("agent", "prompt")[-1][3].startswith(
+        "📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, now on gemini-3.8-flash-high")
+    assert "swapped" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_a_failed_usage_read_is_not_retried_for_a_minute(mesh, monkeypatch):
+    calls = []
+
+    def fail(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="offline")
+
+    monkeypatch.setattr(mesh.subprocess, "run", fail)
+    assert mesh.agy_usage() is None and mesh.agy_usage() is None
+    assert len(calls) == 1
+    assert mesh.agy_usage(force=True) is None and len(calls) == 2

@@ -127,7 +127,7 @@ The root runs `mesh watch <worker>` in the background. It exits 0 when the worke
 |---|---|
 | 3 | the worker stopped without reporting |
 | 4 | the worker is blocked on a dialog |
-| 5 | the worker's pane is gone |
+| 5 | the worker's pane is gone (or a model switch failed to reopen it) |
 | 6 | timeout |
 | 7 | the worker hit a quota (`mesh switch` moves it on) |
 

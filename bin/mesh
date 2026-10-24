@@ -44,8 +44,10 @@ GEMINI_ID_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$")
 CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high)$")
 AGY_MODELS_TTL = 6 * 3600
 AGY_USAGE_TTL = 300
+AGY_USAGE_RETRY = 60  # seconds before a failed `agy -p /usage` is tried again
+SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopened on another model
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
-QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*")
+QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
 RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
@@ -450,19 +452,25 @@ def parse_usage(text: str) -> list[dict]:
 def agy_usage(force: bool = False) -> list[dict] | None:
     """agy's quota rows, cached for a few minutes; None when they can't be read."""
     cache = mesh_home() / "agy-usage.txt"
+    failed = mesh_home() / "agy-usage.failed"
     if not force and cache.exists() and time.time() - cache.stat().st_mtime < AGY_USAGE_TTL:
         return parse_usage(cache.read_text()) or None
+    if not force and failed.exists() and time.time() - failed.stat().st_mtime < AGY_USAGE_RETRY:
+        return None  # a spawn must not wait on a command that just failed
     cache.parent.mkdir(parents=True, exist_ok=True)
     try:
         proc = subprocess.run(
             ["agy", "-p", "/usage", "--print-timeout", "40s", "--dangerously-skip-permissions"],
             capture_output=True, text=True, timeout=45, cwd=cache.parent,
         )
+        rows = parse_usage(proc.stdout)
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    rows = parse_usage(proc.stdout)
+        rows = []
     if rows:
         write_atomic(cache, proc.stdout)
+        failed.unlink(missing_ok=True)
+    else:
+        failed.touch()
     return rows or None
 
 
@@ -524,6 +532,11 @@ def agent_argv(kind: str, model: str, effort: str, log: str | None = None) -> tu
 def log_argv(log: str | None) -> list[str]:
     """agy writes its own log; one per worker is how `mesh watch` sees a quota hit."""
     return ["--log-file", log] if log else []
+
+
+def resolve_model(kind: str, model: str, effort: str) -> str:
+    """The id to start an agent of this kind with: agy families are resolved, Claude aliases pass through."""
+    return resolve_agy_model(model, effort) if kind == "agy" else model
 
 
 def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
@@ -727,8 +740,9 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     path = store_message(run_id, sender, to, mtype, body)
     log_event(run_id, "send", sender=sender, to=to, type=mtype, file=path.name)
     targets = [to] + ([entry["pane"]] if entry.get("pane") else [])
+    first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
     rung, error = ring(targets, doorbell_text(run, sender, to, mtype, body, first))
-    if first and entry.get("swapped"):
+    if rung and entry.get("swapped"):
         with editing_run(run_id) as run:
             run["agents"][to].pop("swapped", None)
     if not rung:
@@ -822,6 +836,13 @@ def spawn_suffix(args: argparse.Namespace, run: dict) -> str:
     return f"worker{sum(a['role'] == 'worker' for a in run['agents'].values()) + 1}"
 
 
+def worker_log(run_id: str, name: str) -> str:
+    """Where an agy worker's log goes (`mesh watch` reads quota errors from it)."""
+    path = run_dir(run_id) / "logs" / f"{name}.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
 def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
     env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": role}
     for key in ("MESH_HOME", "MESH_WORKTREES"):
@@ -840,11 +861,9 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     # `auto` plans on the best model with quota and switches to the exec model at `mesh approve`.
     auto = (args.model or "auto") == "auto"
     model, notes = plan_model(args.kind, args.effort) if auto else (args.model, [])
-    log = str(run_dir(run_id) / "logs" / f"{name}.log") if args.kind == "agy" else None
+    log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, args.effort, log)
     exec_model = args.exec_model or (EXEC_MODEL[args.kind] if auto else None)
-    if log:
-        Path(log).parent.mkdir(parents=True, exist_ok=True)
     branch = None
     if args.worktree:
         cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -885,17 +904,22 @@ def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
     return PLAN_CHAIN["claude"][0], []
 
 
-def swap_model(run_id: str, name: str, model: str, why: str) -> dict:
-    """Restart a worker on another model in the same conversation, pane by pane, keeping its name."""
+def swap_model(run_id: str, name: str, model: str, why: str, wait_ms: int = 600_000, strict: bool = True) -> dict:
+    """Restart a worker on another model in the same conversation, pane by pane, keeping its name.
+
+    Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
+    hit a quota is not strict, since its turn is already dead whatever herdr shows.
+    """
     entry = agent_entry(load_run(run_id), name)
     session = find_session(run_id, name, entry)
     if not session:
         raise MeshError(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
                         f"message it as it is, or start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}`")
     try:  # never cut a turn short: the conversation is only safe to reopen between turns
-        herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", "600000", timeout=610)
+        herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
+              timeout=wait_ms / 1000 + 10)
     except HerdrError as exc:
-        if exc.code != "agent_not_found":
+        if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
             raise
     # The new pane opens beside the old one before that closes, so the run's tab survives.
     workspace_id = entry.get("workspace") or find_or_create_workspace(Path(entry["repo"]))[0]
@@ -906,16 +930,26 @@ def swap_model(run_id: str, name: str, model: str, why: str) -> dict:
         e.update(model=model, pane=pane, tab=tab, workspace=workspace_id, session=session, status="starting",
                  swapped=True)
         e.setdefault("models", []).append({"model": model, "at": now_iso(), "why": why})
-    try:
-        herdr("pane", "close", entry["pane"])
-    except HerdrError as exc:
-        if exc.code not in ("pane_not_found", "agent_not_found"):
-            raise
-    log_event(run_id, "swap", name=name, model=model, why=why, pane=pane, session=session)
     effort = entry.get("effort") or DEFAULT_EFFORT
     argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
             "--dangerously-skip-permissions"]
-    start_agent(name, entry["kind"], pane, argv)
+    try:
+        try:
+            herdr("pane", "close", entry["pane"])
+        except HerdrError as exc:
+            if exc.code not in ("pane_not_found", "agent_not_found"):
+                raise
+        log_event(run_id, "swap", name=name, model=model, why=why, pane=pane, session=session)
+        start_agent(name, entry["kind"], pane, argv)
+    except MeshError as exc:
+        with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
+            e = run["agents"][name]
+            e.update(model=entry.get("model"), status="swap_failed")
+            e.pop("swapped", None)
+            e["models"].pop()
+        log_event(run_id, "swap_failed", name=name, model=model, error=str(exc))
+        raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
+                        f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
     return {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
@@ -928,7 +962,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     result: dict = {"name": args.agent, "model": entry.get("model")}
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         effort = entry.get("effort") or DEFAULT_EFFORT
-        model = resolve_agy_model(entry["exec_model"], effort) if entry["kind"] == "agy" else entry["exec_model"]
+        model = resolve_model(entry["kind"], entry["exec_model"], effort)
         if model != entry.get("model"):
             result["swap"] = swap_model(run_id, args.agent, model, "plan approved")
             result["model"] = model
@@ -941,6 +975,15 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return 0 if result["delivery"]["rung"] else 2
 
 
+def models_tried(entry: dict) -> tuple[str, ...]:
+    """Every model the worker has run on in its current phase: `switch` never goes back to one."""
+    models = entry.get("models", [])
+    start = 0
+    if entry.get("phase") == "exec":
+        start = next((i for i in range(len(models) - 1, -1, -1) if models[i].get("why") == "plan approved"), 0)
+    return tuple({entry.get("model"), *(m["model"] for m in models[start:])})
+
+
 def cmd_switch(args: argparse.Namespace) -> int:
     """Move a worker that hit a quota to the next model with quota left, and tell it to carry on."""
     run_id, me = identity(args)
@@ -948,14 +991,13 @@ def cmd_switch(args: argparse.Namespace) -> int:
     effort = entry.get("effort") or DEFAULT_EFFORT
     notes: list[str] = []
     if args.model:
-        model = resolve_agy_model(args.model, effort) if entry["kind"] == "agy" else args.model
+        model = resolve_model(entry["kind"], args.model, effort)
     elif entry["kind"] != "agy":
         raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
     else:
-        tried = tuple({entry.get("model"), *(m["model"] for m in entry.get("models", []) if m["why"] == "quota")})
         chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
-        model, notes = choose_agy_model(chain, effort, skip=tried, force=True, fallback=False)
-    swap = swap_model(run_id, args.agent, model, "quota")
+        model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
+    swap = swap_model(run_id, args.agent, model, "quota", wait_ms=60_000, strict=False)
     body = (f"Your previous model ({swap['previous']}) hit its quota; you are now on {model}, in the same "
             "conversation. Continue exactly where you stopped.")
     delivery = deliver(run_id, me, args.agent, "task", body, first=True)
@@ -963,17 +1005,22 @@ def cmd_switch(args: argparse.Namespace) -> int:
     return 0 if delivery["rung"] else 2
 
 
-def quota_hit(log: str | None, offset: int) -> str | None:
-    """The reset time ("" if unknown) of a quota error agy logged after `offset`, else None."""
+def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
+    """(reset time or None, new offset): the reset time ("" if unknown) of a quota error agy logged after `offset`.
+
+    Reads only the new bytes. A log that is shorter than `offset` was truncated by a restarted agy: read it afresh.
+    """
     if not log or not Path(log).exists():
-        return None
+        return None, offset
     with open(log, "rb") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        offset = 0 if size < offset else offset
         fh.seek(offset)
         hit = QUOTA_RE.search(fh.read().decode(errors="replace"))
     if not hit:
-        return None
+        return None, size
     reset = RESET_RE.search(hit.group(0))
-    return reset.group(1) if reset else ""
+    return (reset.group(1) if reset else ""), size
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
@@ -1088,20 +1135,24 @@ def cmd_watch(args: argparse.Namespace) -> int:
     prev = None
     work_start_sends = sends_from(run_id, name)
     blocked_polls = 0
+    reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
     while True:
         if sends_from(run_id, name, FINAL_TYPES) > finals_at_start:
             last = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name][-1]
             print(f"{name} reported {last['type']}: read it with `mesh inbox`")
             return 0
-        reset = quota_hit(log, log_offset)
+        reset, log_offset = quota_hit(log, log_offset)
         if reset is not None:
             model = agent_entry(load_run(run_id), name).get("model")
             print(f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
                   + f"; move it to the next model with `mesh switch {name}`")
             return 7
         state = agent_status(name)
-        if state == "gone" and agent_entry(load_run(run_id), name).get("status") == "starting":
+        if state == "gone" and reopening < SWAP_GRACE and agent_entry(load_run(run_id), name).get("status") == "starting":
             state = prev  # `mesh approve` / `mesh switch` is reopening it on another model
+            reopening += args.interval
+        elif state != "gone":
+            reopening = 0.0
         if state == "gone":
             print(f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed")
             return 5
@@ -1277,9 +1328,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
             worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch})  # so this run's stop cleans it
 
-    log = str(run_dir(run_id) / "logs" / f"{name}.log") if old["kind"] == "agy" else None
-    if log:
-        Path(log).parent.mkdir(parents=True, exist_ok=True)
+    log = worker_log(run_id, name) if old["kind"] == "agy" else None
     workspace_id, _ = find_or_create_workspace(repo_top)
     pane, tab = new_pane(run_id, workspace_id, Path(cwd), mesh_env(run_id, name, me, "worker"))
     with editing_run(run_id) as run:
