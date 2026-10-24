@@ -668,6 +668,16 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
         "--resume", "s-1", "--model", "opus", "--effort", "medium", "--dangerously-skip-permissions")
 
 
+def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    with mesh.editing_run(run) as data:  # `spawn --kind claude --effort high`: both phases match
+        data["agents"]["repo-fix-typo"]["exec_effort"] = "high"
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert not fake.called("agent", "start") and not fake.called("pane", "close")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+
+
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not fake.called("agent", "start") and not fake.called("pane", "close")

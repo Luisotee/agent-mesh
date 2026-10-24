@@ -32,7 +32,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
 - **The right context in each repo:** a worker running *inside* `shop-api` follows that repo's rules and hooks, so it's faster and more precise than an agent editing a repo whose conventions it never loaded.
 - **You don't lose your place:** the session you're working in keeps its context and keeps going on its own repo.
 - **No lost research:** the agent that wrote the plan is the one that carries it out.
-- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so workers execute on Gemini Flash. Planning, where a weak model hurts most, gets the strongest model with quota left. Your root session spends its tokens on reviewing plans and answering questions.
+- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so agy workers execute on Gemini Flash and Claude workers drop to medium effort. Planning, where a weak model hurts most, gets the strongest model with quota left. Your root session spends its tokens on reviewing plans and answering questions.
 - **Oversight without babysitting:**
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
   - you're asked only about real product decisions
