@@ -32,9 +32,10 @@ VERSION = "0.5.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
-# then execute on EXEC_MODEL at EXEC_EFFORT.
+# then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
+# the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
 PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
-EXEC_MODEL = {"agy": "flash", "claude": "sonnet"}
+EXEC_MODEL = {"agy": "flash", "claude": "opus"}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
@@ -1519,7 +1520,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
     p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
                                     "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
-    p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude sonnet)")
+    p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude opus)")
     p.add_argument("--effort", choices=EFFORTS,
                    help=f"effort for the whole task, planning and execution (default: {DEFAULT_EFFORT} planning, "
                         f"{EXEC_EFFORT} executing)")

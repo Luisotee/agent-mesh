@@ -627,7 +627,7 @@ def planning_worker(mesh, run, kind="agy", model="claude-opus-5-5-high", session
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(
             kind=kind, model=model, effort="high", repo="/repo", cwd="/wt/fix", session=session,
-            workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "sonnet",
+            workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "opus",
             log=str(log) if kind == "agy" else None,
             models=[{"model": model, "at": "t", "why": "spawn"}])
     return log
@@ -660,12 +660,12 @@ def test_approve_moves_the_worker_to_flash_in_the_same_conversation(mesh, fake, 
     assert len(fake.called("agent", "start")) == 1
 
 
-def test_approve_a_claude_worker_resumes_it_on_sonnet(mesh, fake, run, capsys):
+def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, capsys):
     planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
     stub_new_pane(fake)
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert fake.called("agent", "start")[-1][-7:] == (
-        "--resume", "s-1", "--model", "sonnet", "--effort", "medium", "--dangerously-skip-permissions")
+        "--resume", "s-1", "--model", "opus", "--effort", "medium", "--dangerously-skip-permissions")
 
 
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
