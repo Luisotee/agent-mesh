@@ -12,16 +12,17 @@ With agent-mesh you stay where you are and type:
 
 What happens next:
 
-1. **A worker starts inside `shop-api`**, in its own git worktree and in a herdr pane you can watch. It loads that repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. By default it runs on Gemini Flash at high effort.
+1. **A worker starts inside `shop-api`**, in its own git worktree and in a herdr pane you can watch. It loads that repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. It plans on the strongest model that still has quota (Argon, then Claude Opus, then Flash) and executes on Gemini Flash.
 2. **It researches and sends you a plan.** Your current session (the *root*) reviews the plan: right files, right contract, real tests. It approves the plan or asks for changes. Nothing is edited before approval.
-3. **The same worker makes the change.** The agent that did the research also writes the code, so no context is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
+3. **The same worker makes the change.** On approval its conversation reopens on Flash, so the agent that did the research also writes the code and no context is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
 4. **Meanwhile, your session keeps working on `shop-web`**, building against the `restockedAt` contract it gave the worker.
 5. **You get one report:** the `shop-api` PR link, what changed, and the checks that passed.
 
 ```
 your session in shop-web (root)            keeps building the badge
- └── shop-api-restocked-at  (agy, Gemini Flash, high)  [worktree]
+ └── shop-api-restocked-at  (agy)  [worktree]
        research ─▶ plan ─▶ root reviews ─▶ edit ─▶ test ─▶ PR ─▶ done
+       └──── Argon / Opus ────┘            └──────── Flash ────────┘
 ```
 
 Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session running in a [herdr](https://herdr.dev) pane. Nothing is headless, so you can watch any agent and type into it at any moment.
@@ -31,7 +32,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
 - **The right context in each repo:** a worker running *inside* `shop-api` follows that repo's rules and hooks, so it's faster and more precise than an agent editing a repo whose conventions it never loaded.
 - **You don't lose your place:** the session you're working in keeps its context and keeps going on its own repo.
 - **No lost research:** the agent that wrote the plan is the one that carries it out.
-- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so workers default to Gemini Flash. Your root session spends its tokens on reviewing plans and answering questions.
+- **Cheap where it can be:** most tokens go to reading files, typing code and running tests, so workers execute on Gemini Flash. Planning, where a weak model hurts most, gets the strongest model with quota left. Your root session spends its tokens on reviewing plans and answering questions.
 - **Oversight without babysitting:**
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
   - you're asked only about real product decisions
@@ -44,11 +45,27 @@ Both commands work from Claude Code and from agy:
 
 | Command | Worker (one per other repo) |
 |---|---|
-| `/delegate-agy` | agy, newest Gemini Flash, high effort |
-| `/delegate-claude` | Claude, Opus, high effort |
+| `/delegate-agy` | agy, high effort: plans on Argon → Claude Opus → Flash (the first with quota left), executes on Flash |
+| `/delegate-claude` | Claude, high effort: plans on Opus, executes on Sonnet |
 
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
-- **Overrides:** naming a model or effort in the request ("use Argon", "with Claude") overrides the default. Nothing switches models on its own: if a worker fails, the root tells you and suggests one.
+- **Overrides:** naming a model or effort in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
+
+## Models
+
+A worker on the default (`--model auto`) has two phases in one conversation:
+
+- **Planning** runs on the first model in the chain with at least 10% quota left. For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash or Sonnet in a new pane, and delivers the approval.
+- **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
+
+```bash
+mesh usage                 # agy quotas, and what auto would plan and execute on
+mesh model --kind agy      # the model a spawn would plan on, and why
+MESH_MIN_QUOTA=20 ...      # skip models under 20% instead of 10%
+```
+
+Your root session's model is yours: mesh never changes it.
 
 More examples:
 
@@ -110,8 +127,9 @@ The root runs `mesh watch <worker>` in the background. It exits 0 when the worke
 |---|---|
 | 3 | the worker stopped without reporting |
 | 4 | the worker is blocked on a dialog |
-| 5 | the worker's pane is gone |
+| 5 | the worker's pane is gone (or a model switch failed to reopen it) |
 | 6 | timeout |
+| 7 | the worker hit a quota (`mesh switch` moves it on) |
 
 A Claude root gets notified the moment the watch exits.
 
@@ -158,6 +176,9 @@ mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees, archive the run
 mesh agents [query]        # every past worker, live or archived, with branch and PRs
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
+mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
+mesh switch <worker>       # (root) move a worker off a model that hit its quota
+mesh usage                 # agy quotas and the models auto would pick
 ```
 
 ## The protocol in one screen

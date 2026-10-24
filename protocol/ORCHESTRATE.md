@@ -4,13 +4,14 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
 
 ## Modes
 
-| Mode | Worker |
-|---|---|
-| `agy` | `--kind agy --model flash --effort high` (newest Gemini Flash; this is also what `mesh spawn` does with no flags) |
-| `claude` | `--kind claude --model opus --effort high` |
+| Mode | Worker | Plans on | Executes on |
+|---|---|---|---|
+| `agy` | `--kind agy --effort high` (also what `mesh spawn` does with no flags) | the first of Argon → Claude Opus → Flash with quota left | Flash |
+| `claude` | `--kind claude --effort high` | Opus | Sonnet |
 
-- **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), that wins. Otherwise always use the mode's row: don't pick a stronger model on your own.
-- **Resolution:** `mesh` resolves the agy families `flash` / `argon` to the newest matching model. `mesh model --kind agy --model flash --effort high` shows the result.
+- **Models per phase:** with no `--model` (that is, `--model auto`), a worker plans on a strong model and moves to the cheaper one when you approve its plan with `mesh approve`. It stays in the **same conversation**, so it keeps its research. For agy, `mesh` reads `agy -p /usage` and skips any model with under 10% left (`MESH_MIN_QUOTA`). `mesh usage` shows the quotas and what `auto` would pick.
+- **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), pass it as `--model`. That one model then runs the whole task, with no switch. Otherwise don't pass `--model`, and don't pick a model on your own.
+- **Resolution:** `mesh` resolves the agy families `argon` / `flash` / `opus` / `sonnet` to the newest matching model. `mesh model --kind agy` shows what a spawn would use, and why.
 
 ## Root
 
@@ -21,16 +22,19 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
    - **Work an earlier worker did** (its PR got review comments, "make it Y instead of X"): resume that worker instead of spawning a fresh one. See "Follow-ups" below.
 3. **Spawn one worker per other repo.** Write a task file per repo in `$(mesh dir)/tasks/` and start the worker in a fresh worktree:
    ```bash
-   mesh spawn --kind <kind> --repo <path> --model <m> --effort <e> --worktree <slug> \
-     --task-file "$(mesh dir)/tasks/<repo>.md"
+   mesh spawn --kind <kind> --repo <path> --worktree <slug> \
+     --task-file "$(mesh dir)/tasks/<repo>.md"      # plus --model/--effort only if the user named them
    ```
    The slug names both the branch (`mesh/<run>/<slug>`) and the agent (`<repo>-<slug>` in herdr), so make it short and descriptive: `fix-reactions`, not `task1`. The task file contains:
    - that repo's slice of the request
    - what you know from your own work that it needs: the contract your repo expects (field names, API shapes, error cases), with file paths in your repo it can read for reference
    - dependencies on other repos (what to wait for, and what the other workers will need from this one)
    - "send your plan for review before changing anything; report `done` with the PR link"
+
+   Tell the user which model each worker plans on. When the spawn output has `notes` (for example "gemini-4-argon-high has 0% left"), add that in a few words.
 4. **Supervise:**
-   - **Claude root:** start `mesh watch <worker> --timeout 7200` with `run_in_background` for each worker. A watch exiting with status 0 means the worker reported `done`/`failed`; any other status is an alert, so investigate (`mesh status`, `herdr agent read <name>`). A `plan` or `question` arrives as a doorbell and doesn't end the watch.
+   - **Claude root:** start `mesh watch <worker> --timeout 7200` with `run_in_background` for each worker. A watch exiting with status 0 means the worker reported `done`/`failed`; any other status is an alert, so investigate (`mesh status`, `herdr agent read <name>`). A `plan` or `question` arrives as a doorbell and doesn't end the watch. A watch carries on through `mesh approve` reopening the worker on its execution model.
+   - **Quota hit** (watch exit 7, `ALERT <worker> hit its quota on <model>`): run `mesh switch <worker>` right away, without asking. It reopens the worker's conversation on the next model with quota left, and tells it to continue. Then start its watch again, and tell the user in one line, for example "Argon ran out; <worker> continues on Opus". If switch says no model is left (a Flash executor with Flash exhausted), tell the user the reset time and wait. A quota hit is not a `failed`. If `mesh approve` or `mesh switch` itself fails to reopen the worker, the worker is marked `swap_failed`, the watch alerts (exit 5), and the same command can be run again.
    - **agy root:** rely on the doorbell, and check `mesh status` each time you wake.
    - **Keep working** on your own repo while workers run; their doorbells queue until your current turn ends. If your work depends on a worker's change, build against the contract you gave it, or wait for its `done` (its branch is `mesh/<run>/<slug>`) when you can't.
 5. **Review every plan** (`plan` messages). Read the plan file and check it against the request, the repo and the other workers' plans:
@@ -38,7 +42,11 @@ The shared procedure behind `/delegate-agy` and `/delegate-claude`. The *root* i
    - Is the *done when* a real check (tests, lint, build), not "looks right"?
    - Do cross-repo contracts match (field names, API shapes)?
 
-   Then reply with **one** `answer`: `approved`, or `changes: <specific list>`. The worker revises and sends the plan again. Ask the user only when a plan raises a real product decision; otherwise decide yourself.
+   Then reply **once**:
+   - **approved:** `mesh approve <worker>`, with `--body "<notes>"` if you have any. This also moves a worker on `auto` to its execution model.
+   - **changes:** `mesh send <worker> --type answer --body "changes: <specific list>"`. The worker revises and sends the plan again, still on its planning model.
+
+   Ask the user only when a plan raises a real product decision; otherwise decide yourself.
 6. **Answer questions:**
    - pass cross-repo facts between workers (a field name, an API shape)
    - make the call yourself whenever the request or the code settles it
@@ -67,7 +75,7 @@ When the request is about something a worker already built, in this run or an ea
    - "plan first; push to the same branch so the PR updates; report `done`"
 4. Supervise and review it exactly like a new worker: watch it, review its plan, check its `done`.
 
-A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI.
+A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker keeps one model throughout: approving its plan doesn't switch it. On a quota hit, `mesh switch` still works.
 
 ## Worker
 
