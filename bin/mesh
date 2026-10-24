@@ -31,10 +31,12 @@ from pathlib import Path
 VERSION = "0.5.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
-# `--model auto`: plan on the first model of the chain with quota left, execute on EXEC_MODEL.
+# `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
+# then execute on EXEC_MODEL at EXEC_EFFORT.
 PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
 EXEC_MODEL = {"agy": "flash", "claude": "sonnet"}
 DEFAULT_EFFORT = "high"
+EXEC_EFFORT = "medium"
 ROLES = ("worker",)
 TYPES = ("task", "plan", "question", "answer", "done", "failed", "info")
 FINAL_TYPES = ("done", "failed")
@@ -864,6 +866,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, args.effort, log)
     exec_model = args.exec_model or (EXEC_MODEL[args.kind] if auto else None)
+    exec_effort = (args.exec_effort or EXEC_EFFORT) if exec_model else None
     branch = None
     if args.worktree:
         cwd, branch = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -880,7 +883,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             "role": args.role, "kind": args.kind, "model": model, "effort": args.effort,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "session": session, "pane": pane, "tab": tab,
             "workspace": workspace_id, "parent": parent, "status": "starting", "spawned": now_iso(),
-            "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model,
+            "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
             "models": [{"model": model, "at": now_iso(), "why": "spawn"}],
         }
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -904,8 +907,9 @@ def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
     return PLAN_CHAIN["claude"][0], []
 
 
-def swap_model(run_id: str, name: str, model: str, why: str, wait_ms: int = 600_000, strict: bool = True) -> dict:
-    """Restart a worker on another model in the same conversation, pane by pane, keeping its name.
+def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
+               strict: bool = True) -> dict:
+    """Restart a worker on another model or effort in the same conversation, pane by pane, keeping its name.
 
     Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
     hit a quota is not strict, since its turn is already dead whatever herdr shows.
@@ -927,10 +931,9 @@ def swap_model(run_id: str, name: str, model: str, why: str, wait_ms: int = 600_
                          mesh_env(run_id, name, entry["parent"], entry["role"]))
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
-        e.update(model=model, pane=pane, tab=tab, workspace=workspace_id, session=session, status="starting",
-                 swapped=True)
+        e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
+                 status="starting", swapped=True)
         e.setdefault("models", []).append({"model": model, "at": now_iso(), "why": why})
-    effort = entry.get("effort") or DEFAULT_EFFORT
     argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
             "--dangerously-skip-permissions"]
     try:
@@ -944,7 +947,7 @@ def swap_model(run_id: str, name: str, model: str, why: str, wait_ms: int = 600_
     except MeshError as exc:
         with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
             e = run["agents"][name]
-            e.update(model=entry.get("model"), status="swap_failed")
+            e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed")
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, error=str(exc))
@@ -961,10 +964,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
     entry = agent_entry(load_run(run_id), args.agent)
     result: dict = {"name": args.agent, "model": entry.get("model")}
     if entry.get("phase") == "plan" and entry.get("exec_model"):
-        effort = entry.get("effort") or DEFAULT_EFFORT
+        effort = entry.get("exec_effort") or EXEC_EFFORT
         model = resolve_model(entry["kind"], entry["exec_model"], effort)
-        if model != entry.get("model"):
-            result["swap"] = swap_model(run_id, args.agent, model, "plan approved")
+        if (model, effort) != (entry.get("model"), entry.get("effort")):
+            result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved")
             result["model"] = model
         with editing_run(run_id) as run:
             run["agents"][args.agent]["phase"] = "exec"
@@ -997,7 +1000,7 @@ def cmd_switch(args: argparse.Namespace) -> int:
     else:
         chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
         model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
-    swap = swap_model(run_id, args.agent, model, "quota", wait_ms=60_000, strict=False)
+    swap = swap_model(run_id, args.agent, model, effort, "quota", wait_ms=60_000, strict=False)
     body = (f"Your previous model ({swap['previous']}) hit its quota; you are now on {model}, in the same "
             "conversation. Continue exactly where you stopped.")
     delivery = deliver(run_id, me, args.agent, "task", body, first=True)
@@ -1467,7 +1470,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
     if rows is None:
         raise MeshError("`agy -p /usage` gave no quota rows")
     plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort)
-    execute = resolve_agy_model(EXEC_MODEL["agy"], args.effort)
+    execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
     names = listing_names(agy_model_listing())
     exec_quota = model_quota(execute, names.get(execute, ""), rows)
     if args.json:
@@ -1508,7 +1511,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
                                     "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
     p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude sonnet)")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=("low", "medium", "high", "xhigh", "max"))
+    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=("low", "medium", "high", "xhigh", "max"),
+                   help=f"planning effort, or the whole task's with one model (default: {DEFAULT_EFFORT})")
+    p.add_argument("--exec-effort", choices=("low", "medium", "high", "xhigh", "max"),
+                   help=f"effort after `mesh approve` (default: {EXEC_EFFORT})")
     p.add_argument("--name", help="what goes after the repo in the agent's name (default: the worktree slug)")
     where = p.add_mutually_exclusive_group()
     where.add_argument("--worktree", metavar="SLUG", help="create a worktree on branch mesh/<run>/<SLUG>")
@@ -1608,7 +1614,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_model)
 
     p = sub.add_parser("usage", help="agy quotas, and the models `auto` would plan and execute on")
-    p.add_argument("--effort", default=DEFAULT_EFFORT)
+    p.add_argument("--effort", default=DEFAULT_EFFORT, help="planning effort")
+    p.add_argument("--exec-effort", default=EXEC_EFFORT)
     p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
