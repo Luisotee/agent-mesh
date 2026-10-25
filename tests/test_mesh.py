@@ -20,9 +20,10 @@ def as_worker(monkeypatch, run):
 
 
 def sent_plan(mesh, run, name="repo-fix-typo"):
-    """The plan `mesh approve` needs to find waiting: the worker's newest report since its last task."""
+    """The plan `mesh approve` needs to find waiting: the worker's newest report since its last task, already
+    read by the root (an unread report ends a watch at once)."""
     parent = mesh.load_run(run)["agents"][name]["parent"]
-    mesh.record(run, name, parent, "plan", "The plan.")
+    mesh.mark_read(mesh.record(run, name, parent, "plan", "The plan."))
 
 
 # ── init / identity ──────────────────────────────────────────────────────
