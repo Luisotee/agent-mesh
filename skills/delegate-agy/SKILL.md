@@ -6,7 +6,7 @@ description: >-
   get their plan reviewed, then execute on Flash and open a PR, and each PR gets a review. Also answers questions about another repo, with agents you can ask again,
   resume (compacted on the way back) or hand the change to; can route large tasks to Claude.
   Use it, whether the user types /delegate-agy or not, when the user wants another repo's part of a change, a question about another repo,
-  or a task list handed to agents that work inside those repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), and they don't name the other CLI (Claude, Opus, Sonnet); with neither named, use this one when you are agy.
+  or a task list handed to agents that work inside those repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), and they don't name the other CLI (Claude, Opus, Sonnet, Fable); with neither named, use this one when you are agy.
   Not for a PR review the user asks for (that's /delegate-review), not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>
 ---

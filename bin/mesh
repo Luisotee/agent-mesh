@@ -21,6 +21,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import time
@@ -39,18 +40,22 @@ ASK_KINDS = (*KINDS, "copilot")
 COPILOT_MODEL = "auto"  # the only model some plans (Copilot Student) may pick; MESH_COPILOT_MODEL overrides it
 COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
 COPILOT_EFFORT = {"trivial": "low", "small": "medium", "large": "high"}
-# `--size`: trivial and small tasks run on one cheap model with no plan phase; large is `auto` (below).
+# `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
+# Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
 SIZE_DEFAULTS = {
-    ("claude", "trivial"): {"model": "sonnet", "effort": "low", "view": "bg"},
-    ("claude", "small"): {"model": "sonnet", "effort": "medium", "view": "bg"},
+    ("claude", "trivial"): {"model": "opus", "effort": "medium", "view": "bg"},
+    ("claude", "small"): {"model": "opus", "effort": "medium", "view": "bg"},
     ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
 }
-# A Claude worker whose plan the user approves in its own pane: Opus plans, Sonnet executes.
-USER_REVIEW_MODEL = "opusplan"
+# A Claude worker whose plan the user approves in its own pane: Opus plans and executes, in plan mode first.
+USER_REVIEW_MODEL = "opus"
+# A review is verification, which is where effort pays: a trivial or small reviewer gets high effort
+# instead of its size's (a large one plans at DEFAULT_EFFORT, high, anyway).
+REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
-COMPACT_AT = 100_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
+COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
 # then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
 # the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
@@ -445,12 +450,27 @@ def split_at(pane: dict, cwd: Path, env: dict[str, str]) -> str:
     return split["pane"]["pane_id"]
 
 
-def beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None = None) -> tuple[str, str, str] | None:
-    """A pane in the root's own tab, so the user sees the workers next to it; None when that tab is full.
+def beside_root(run_id: str, name: str, cwd: Path, env: dict[str, str],
+                replacing: str | None = None) -> tuple[str, str, str] | None:
+    """A pane in the root's own tab for agent `name`, so the user sees it next to the root; None when that tab is full.
 
     The first worker splits the root pane, later ones split the biggest worker pane, so the root keeps its half.
     A swap (`replacing` its old pane) splits that pane, so the worker reopens where it was whatever the count.
+    Parallel `mesh` calls (reviewers started in one turn, a Copilot peek pane) would all count the same panes and
+    split the same one, so counting, splitting and recording the new pane on `name` happen under one lock.
     """
+    with file_lock(run_dir(run_id) / ".panes.lock"):
+        beside = _beside_root(run_id, cwd, env, replacing)
+        if beside:
+            with editing_run(run_id) as run:
+                entry = run["agents"][name]
+                entry.update(pane=beside[0], tab=beside[1], workspace=beside[2])
+                if entry.get("view") == "bg":  # a background launch that fell back to a pane
+                    entry["view"] = "pane"
+        return beside
+
+
+def _beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None) -> tuple[str, str, str] | None:
     run = load_run(run_id)
     root = run["agents"][run["root"]]
     tab = root.get("tab")
@@ -478,9 +498,10 @@ def beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | No
         return None
 
 
-def place_pane(run_id: str, repo_top: Path, cwd: Path, env: dict[str, str]) -> tuple[str, str, str, bool]:
+def place_pane(run_id: str, name: str, repo_top: Path, cwd: Path,
+               env: dict[str, str]) -> tuple[str, str, str, bool]:
     """(pane, tab, workspace, workspace created) for a new worker pane: beside the root, else the run's tab."""
-    if beside := beside_root(run_id, cwd, env):
+    if beside := beside_root(run_id, name, cwd, env):
         return *beside, False
     workspace_id, created_ws = find_or_create_workspace(repo_top)
     return *new_pane(run_id, workspace_id, cwd, env), workspace_id, created_ws
@@ -1286,12 +1307,12 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         raise MeshError(f"a {'user-reviewed' if user_review else size} task has no execution phase: "
                         "drop --exec-model / --exec-effort")
     if user_review and (args.kind != "claude" or sized):
-        raise MeshError("--plan-review user is for a large Claude task (opusplan in plan mode, in a pane)")
+        raise MeshError("--plan-review user is for a large Claude task (Opus in plan mode, in a pane)")
     named = args.model if args.model != "auto" else None  # `auto` names the plan chain, which these tasks skip
-    if sized:  # one cheap model for the whole task, and no plan phase
+    if sized:  # one model for the whole task, and no plan phase
         auto, exec_model, exec_effort = False, None, None
         model, effort, notes = named or sized["model"], args.effort or sized["effort"], []
-    elif user_review:  # Claude Code switches opusplan from Opus to Sonnet when the user approves the plan
+    elif user_review:  # Claude Code leaves plan mode when the user approves the plan, on the same model
         auto, exec_model, exec_effort = False, None, None
         model, effort, notes = named or USER_REVIEW_MODEL, args.effort or DEFAULT_EFFORT, []
     else:
@@ -1365,7 +1386,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                 result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
             return result
 
-    pane, tab, workspace_id, created_ws = place_pane(run_id, repo_top, cwd, env)
+    pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -1453,7 +1474,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
     run = load_run(run_id)
     side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
-    beside = side and beside_root(run_id, Path(entry["cwd"]), env, replacing=entry.get("pane"))
+    beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
     if beside:
         pane, tab, workspace_id = beside
     else:  # a side worker's recorded workspace is the root's, so it goes to its project's
@@ -2106,7 +2127,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         path = None
 
-    pane, tab, workspace_id, _ = place_pane(run_id, repo_top, Path(cwd), env)
+    pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     result["view"] = "pane"
@@ -2321,6 +2342,41 @@ def claim_copilot(entry: dict) -> None:
     entry.update(status="running", pid=os.getpid())
 
 
+def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
+    """A pane beside the root that follows a Copilot asker (`mesh peek --follow`), so the user sees it work.
+
+    Only beside the root, where the user is looking; None when that tab is full or gone, or herdr refuses.
+    """
+    if stale := agent_entry(load_run(run_id), name).get("pane"):  # left by a `mesh ask` that was killed
+        close_peek(run_id, name, stale)
+    env = {key: os.environ[key] for key in ("MESH_HOME", "COPILOT_HOME") if os.environ.get(key)}
+    try:
+        beside = beside_root(run_id, name, cwd, env)
+    except MeshError:
+        return None
+    if not beside:
+        return None
+    pane, tab, workspace = beside
+    try:
+        herdr("pane", "rename", pane, f"{name} (Copilot)")
+        herdr("pane", "run", pane, shlex.join(["mesh", "peek", name, "--from-run", run_id, "--follow"]))
+    except MeshError:
+        close_peek(run_id, name, pane)
+        return None
+    with editing_run(run_id) as run:
+        run["agents"][name].update(pane=pane, tab=tab, workspace=workspace)
+    return pane
+
+
+def close_peek(run_id: str, name: str, pane: str) -> None:
+    try:
+        herdr("pane", "close", pane)
+    except MeshError:
+        pass  # the user closed it already
+    with editing_run(run_id) as run:
+        run["agents"][name].update(pane=None, tab=None, workspace=None)
+
+
 def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
                 pr: str | None, number: int | None, base: str | None, body: str) -> int:
     """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot` prints (copilot_ask)."""
@@ -2378,9 +2434,14 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
             reviews = run["agents"][name].setdefault("reviews", [])
             if pr not in reviews:
                 reviews.append(pr)
-    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it with "
-          f"`mesh peek {name} --follow`)", file=sys.stderr)
-    copilot_ask(run_id, me, name, task, args.timeout)
+    peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
+    follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
+    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
+    try:
+        copilot_ask(run_id, me, name, task, args.timeout)
+    finally:
+        if peek:
+            close_peek(run_id, name, peek)
     meta, text = take_reply(run_id, me, name)
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
     print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
@@ -2418,6 +2479,9 @@ def cmd_peek(args: argparse.Namespace) -> int:
         look = f"`claude attach {entry['bg_id']}`" if entry.get("bg_id") else f"`herdr agent read {name}`"
         raise MeshError(f"{name} is a {entry.get('kind')} worker; look at it with {look}")
     path = copilot_events(entry)
+    while args.follow and not path.exists() and agent_status(name, entry) == "working":
+        time.sleep(1)  # Copilot writes the file once the session starts
+        entry = json.loads((folder / "run.json").read_text())["agents"][name]
     if not path.exists():
         raise MeshError(f"{name} has no Copilot session yet ({path})")
     with path.open() as f:
@@ -2483,11 +2547,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     if args.repo:
         slug = args.name or (f"review-{number}" if pr else ask_slug(body))
+        kind = args.kind or load_run(run_id)["mode"]
+        # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
+        # effort and carry into the execution phase of a fix it is later given.
+        sized = (kind, args.size or "large") in SIZE_DEFAULTS
         spawn = argparse.Namespace(
-            kind=args.kind or load_run(run_id)["mode"], role="worker", repo=str(repo), model=args.model,
-            exec_model=None, effort=args.effort, exec_effort=None, name=args.name, worktree=slugify(slug, 24),
-            cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size, view=args.view,
-            plan_review=None)
+            kind=kind, role="worker", repo=str(repo), model=args.model,
+            exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
+            name=args.name, worktree=slugify(slug, 24),
+            cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
+            view=args.view or ("pane" if pr else None), plan_review=None)  # the user watches a review
         finals, how = 0, "started"
     else:
         old_run, _, name, entry = target
@@ -2641,6 +2710,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
                                 f"`mesh ask` to finish (or kill it), then stop the run")
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
+        if entry.get("view") == "headless" and entry.get("pane"):  # a peek pane a killed `mesh ask` left open
+            close_peek(run_id, name, entry["pane"])
         if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == "headless":
             continue
         if entry.get("view") == "bg":
@@ -2783,11 +2854,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", help="parent agent (default: you)")
     p.add_argument("--task", help="first task message")
     p.add_argument("--task-file", help="first task message from a file (- for stdin)")
-    p.add_argument("--size", choices=SIZES, help="trivial / small: one cheap model, no plan phase (claude: sonnet, "
+    p.add_argument("--size", choices=SIZES, help="trivial / small: one model, no plan phase (claude: opus, "
                                                   "in the background); large (default): plan, review, execute")
     p.add_argument("--view", choices=VIEWS, help="pane (herdr) or bg (`claude --bg`, Claude only; default by size)")
     p.add_argument("--plan-review", choices=("user",),
-                   help="user: the user approves the plan in the worker's pane (claude, opusplan in plan mode)")
+                   help="user: the user approves the plan in the worker's pane (claude, opus in plan mode)")
     p.set_defaults(func=cmd_spawn)
 
     p = ident(sub.add_parser("send", help="send a message (mailbox first, then the doorbell)"))
@@ -2879,7 +2950,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", choices=ASK_KINDS,
                    help="a fresh agent's CLI (default: the run's mode, or agy); copilot runs headless, read-only")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
-    p.add_argument("--effort", choices=EFFORTS)
+    p.add_argument("--effort", choices=EFFORTS,
+                   help=f"default: the size's, or {REVIEW_EFFORT} for a fresh reviewer (not Copilot)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")

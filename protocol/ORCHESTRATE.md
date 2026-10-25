@@ -21,23 +21,28 @@ The mode sets the CLI for new workers, and the table is what a **large** task ge
   - Effort follows the phase: high while planning, medium while executing (`--effort` / `--exec-effort`).
   - For agy, `mesh` reads `agy -p /usage` and skips any model with under 10% left (`MESH_MIN_QUOTA`). `mesh usage` shows the quotas and what `auto` would pick.
 - **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), pass it as `--model`. That one model then runs the whole task, with no switch (default effort high). A named effort goes in `--effort` and covers planning and execution alike, with or without `--model`. Otherwise don't pass `--model`.
+  - **Fable** (`--model fable`, Claude only) runs the whole task on Claude Fable 5.1, Anthropic's strongest model, which pays off on ambiguous root-cause hunts and architecture decisions. Use it only when the user names it: it draws on a capped share of the user's Claude limits.
 - **Resolution:** `mesh` resolves the agy families `argon` / `flash` / `opus` / `sonnet` to the newest matching model. `mesh model --kind agy` shows what a spawn would use, and why.
 
 ### Sizes
 
-Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Most tokens go to reading files and typing code, so small work runs on a cheap model, and only large work pays for a plan.
+Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Only large work pays for a plan; the rest goes out as a direct task. Claude workers run Opus at every size, and agy saves its quota by running small work on Flash.
 
 | Size | For | Claude worker | agy worker | Plan? |
 |---|---|---|---|---|
-| `trivial` | translations, copy, config, a version bump | Sonnet, low effort, in the background | Flash, low | no |
-| `small` | a bug fix, a UI tweak, a test, a contained refactor | Sonnet, medium effort, in the background | Flash, high | no |
+| `trivial` | translations, copy, config, a version bump | Opus, medium effort, in the background | Flash, low | no |
+| `small` | a bug fix, a UI tweak, a test, a contained refactor | Opus, medium effort, in the background | Flash, high | no |
 | `large` (the default) | a feature, a cross-repo contract, anything you'd want to review before it's built | the mode table, in a pane | the mode table, in a pane | yes |
 
 - **No plan** means the task goes out as a `Direct task (no plan)`: the worker makes the change, verifies it and opens the PR. If the task turns out bigger or less clear than described, it sends a `question` before changing anything.
 - **When unsure, go up a size.** A wrong small task costs a redo, and a wrong large one only costs a plan review.
 - **Questions:** `small`, unless answering needs research across the whole repo (then `large`, which plans on the strong model).
-- **Reviews:** sized by the PR: `small` for a PR of up to a few hundred lines in a few files, `large` for anything bigger or riskier (auth, money, data migrations).
-- **Plan reviewed by the user:** for a large Claude task whose plan the user wants to approve themselves, pass `--plan-review user`. The worker plans in plan mode on Opus (`opusplan`), in a pane, and the user approves it in that pane; Claude Code then executes it on Sonnet. You don't review that plan, and you don't run `mesh approve`.
+- **Reviews:** sized by the PR: `small` for a PR of up to a few hundred lines in a few files, `large` for anything bigger or riskier (auth, money, data migrations). A fresh reviewer runs at high effort whatever its size: checking is its whole job.
+- **Escalate, don't start high:** when a review finding turns out real, or a worker reports `failed`, give the fix more effort rather than starting every task high: resume the worker for the fix with more effort. A live worker keeps the effort it has (`mesh send` changes neither model nor effort), so close it first with `mesh retire <name>` (not `mesh stop`, which ends the whole run), then resume it:
+  - **Claude:** `mesh resume <name> --effort high …`, which runs the whole fix on Opus at high.
+  - **agy:** `mesh resume <name> --model argon …` (or `opus` when Argon is out of quota). A named `--effort` alone keeps it on the family it last ran, which after execution is Flash.
+  - A bug whose cause is still unknown is `large`.
+- **Plan reviewed by the user:** for a large Claude task whose plan the user wants to approve themselves, pass `--plan-review user`. The worker plans in plan mode on Opus, in a pane, and the user approves it in that pane; Claude Code then executes it on Opus, in the same conversation. This task has no execution phase, so it runs at high effort throughout, unlike the medium a root-approved plan executes at. You don't review that plan, and you don't run `mesh approve`.
 
 ### Where workers run
 
@@ -46,13 +51,13 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Most to
   - `mesh status` shows them, and so does Claude Code's own `claude agents` view.
   - `mesh open <name>` attaches to one from any pane.
   - `--view pane|bg` overrides the default.
+  - A fresh reviewer (`mesh ask --review`) gets a pane at any size, so the user sees the review.
 - **When background falls back to a pane:** it needs a Claude root (it reports to you by `SendMessage`) and a repo Claude Code already trusts. When either is missing, the worker opens in a pane instead, and the spawn output says why in `notes`.
 
 ### Routing
 
 The command sets the CLI. You may *propose* routing a task to the other CLI, in the triage table (see "Task lists") or in your one-line summary, when it saves the user something:
 
-- **Under `/delegate-claude`:** a trivial or small task can go to agy Flash (`--kind agy`) when `mesh usage` shows Flash quota, keeping the user's Claude limits for the large tasks.
 - **Under `/delegate-agy`:** a large task can go to Claude when `mesh usage` shows Argon and Claude Opus both under the threshold.
 - **Reviews:** they go to the other vendor by default (`mesh ask --review --kind <the other one>`), since a second model catches what the first one missed. Copilot reviews only when the user names it.
 
@@ -169,8 +174,8 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
 
 - **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot`, your own CLI).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
-- **A fresh agent** follows the mode table and `--size`, like a spawn. Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
-- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no pane: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; `mesh peek <name>` shows what it's doing meanwhile, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
+- **A fresh agent** follows the mode table and `--size`, like a spawn, except that a fresh reviewer opens in a pane at any size and runs at high effort when it is trivial or small ("Sizes"). Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
+- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no agent pane of its own: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; while it works, a pane beside yours follows it (`mesh peek <name> --follow`) and closes once it has answered, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
   - A PR link names the worker that opened the PR; a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.
@@ -207,7 +212,7 @@ When the request is about something a worker already built, in this run or an ea
    - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead. Ask it to check each finding itself before fixing it (`PROTOCOL.md` rule 9) and to say in its plan which it fixes, how, and which it declines and why
    - "plan first; push to the same branch so the PR updates; report `done`" (for a small follow-up: start it with `Direct task (no plan)`)
 4. **Compaction:** an old conversation has lost its prompt cache, so every turn of the follow-up would pay for all of its context again. `resume` (and `ask`) compact it first, headless, keeping what the new task needs:
-   - with `--compact auto` (the default): a Claude conversation over 100k tokens (200k for a read-only question; `MESH_COMPACT_AT`), or an agy one coming back from an earlier run;
+   - with `--compact auto` (the default): a Claude conversation over 300k tokens (600k for a read-only question; `MESH_COMPACT_AT`), or an agy one coming back from an earlier run;
    - `--compact yes|no` forces it either way;
    - `--focus "<what matters>"` replaces the default focus when you know better ("the restockedAt contract and why we chose ISO dates");
    - the output's `compaction` shows the context size before and after.

@@ -1171,6 +1171,56 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
 
 
+def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "high"
+    assert fake.called("agent", "start")[-1][-5:-1] == ("--model", "opus", "--effort", "high")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--effort", "medium", "--name", "review-again", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a named effort wins
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--body", "Where is auth?",
+                      "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a question keeps its size's effort
+
+
+def test_a_trivial_reviewer_gets_high_effort_on_either_cli(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "agy", "--size", "trivial", "--review", pr,
+                      "--name", "review-agy", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-high"  # not its size's low
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "trivial", "--review", pr,
+                      "--name", "review-claude", "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["model"], out["effort"]) == ("opus", "high")
+
+
+def test_a_large_reviewer_plans_high_and_still_executes_a_later_fix_at_medium(mesh, fake, run, repo, tmp_path,
+                                                                              monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    for kind in ("claude", "agy"):
+        if kind == "agy":
+            fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+            fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+        assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--review", pr, "--name", f"review-{kind}",
+                          "--no-wait"]) == 0
+        entry = mesh.load_run(run)["agents"][json.loads(capsys.readouterr().out)["name"]]
+        assert (entry["effort"], entry["phase"], entry["exec_effort"]) == ("high", "plan", "medium"), kind
+
+
 def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"
@@ -1336,10 +1386,10 @@ def test_small_claude_task_runs_in_the_background_with_no_plan(mesh, fake, cli, 
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix the typo in the footer."]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "sonnet", "medium", None)
+    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "opus", "medium", None)
     launch = cli.called("--bg")[0]
     argv = launch["argv"]
-    assert argv[:9] == ["claude", "--bg", "-n", "proj-copy", "--model", "sonnet", "--effort", "medium",
+    assert argv[:9] == ["claude", "--bg", "-n", "proj-copy", "--model", "opus", "--effort", "medium",
                         "--dangerously-skip-permissions"]
     assert argv[9].startswith("📬 [mesh] You are proj-copy (worker) in agent-mesh run mtest")
     assert launch["cwd"] == mesh.worktree_root() / "mtest" / "proj-copy"
@@ -1357,7 +1407,7 @@ def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, 
     assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "starting a pane" in out["notes"][0]
-    assert fake.called("agent", "start")[-1][-5:] == ("--model", "sonnet", "--effort", "low",
+    assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "medium",
                                                       "--dangerously-skip-permissions")
     assert not cli.called("--bg")
 
@@ -1394,12 +1444,12 @@ def test_a_size_has_no_execution_phase_to_override(mesh, fake, run, repo, capsys
     assert "no execution phase" in capsys.readouterr().err
 
 
-def test_user_reviewed_plan_runs_opusplan_in_plan_mode(mesh, fake, run, repo, capsys):
+def test_user_reviewed_plan_runs_opus_in_plan_mode(mesh, fake, run, repo, capsys):
     stub_new_pane(fake)
     assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Build it."]) == 0
     start = fake.called("agent", "start")[-1]
-    assert "opusplan" in start and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
+    assert start[start.index("--model") + 1] == "opus" and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
     assert "--dangerously-skip-permissions" not in start
     entry = mesh.load_run(run)["agents"]["proj-feat"]
     assert (entry["plan_review"], entry["phase"], entry["view"]) == ("user", None, "pane")
@@ -1558,9 +1608,10 @@ def test_context_tokens_counts_the_last_prompt_since_compaction(mesh, monkeypatc
 
 def test_when_auto_compaction_compacts(mesh, monkeypatch):
     claude, agy = {"kind": "claude"}, {"kind": "agy"}
-    assert mesh.should_compact("auto", claude, 150_000, False, True)
-    assert not mesh.should_compact("auto", claude, 150_000, True, True)  # a question doesn't repay it
-    assert mesh.should_compact("auto", claude, 250_000, True, False)
+    assert mesh.should_compact("auto", claude, 450_000, False, True)
+    assert not mesh.should_compact("auto", claude, 250_000, False, True)
+    assert not mesh.should_compact("auto", claude, 450_000, True, True)  # a question doesn't repay it
+    assert mesh.should_compact("auto", claude, 650_000, True, False)
     assert not mesh.should_compact("auto", claude, None, False, True)
     assert mesh.should_compact("yes", claude, 10, False, False) and not mesh.should_compact("no", claude, 10**6, False, True)
     assert mesh.should_compact("auto", agy, None, False, True)
@@ -1572,7 +1623,7 @@ def test_when_auto_compaction_compacts(mesh, monkeypatch):
 def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cli, run, repo, monkeypatch,
                                                                   tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     started = []
     cli.on("-p", effect=lambda argv: started.append(bool(fake.called("agent", "start"))))
@@ -1584,12 +1635,12 @@ def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cl
     assert argv[7].startswith("/compact Keep what the next task needs: Apply the review.")
     assert started == [False]  # compacted before the pane opens
     assert "MESH_SELF" not in cli.called("-p")[0]["env"]
-    assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 150_012
+    assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 450_012
 
 
 def test_a_failed_compaction_still_resumes(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     cli.on("-p", returncode=1, stderr="boom")
     capsys.readouterr()
@@ -1656,6 +1707,21 @@ def test_a_small_fresh_asker_gets_the_question_not_a_direct_task(mesh, fake, cli
     assert out["view"] == "bg"
     task = mesh.parse_message(mesh.unread(run, out["name"])[0])[1]
     assert task.startswith("Question (read-only)") and "Direct task" not in task
+
+
+def test_a_fresh_reviewer_opens_in_a_pane_where_a_question_would_not(mesh, fake, cli, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    claude_root(mesh, run)
+    bg_cli(cli)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and fake.called("agent", "start") and not cli.called("--bg")
+    # A named view still wins.
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--view", "bg", "--name", "review-bg"]) == 0
+    assert json.loads(capsys.readouterr().out)["view"] == "bg"
 
 
 def test_watch_any_returns_the_first_event_and_alerts_only_keeps_going(mesh, fake, run, monkeypatch, capsys):
@@ -1803,7 +1869,7 @@ def test_the_compaction_focus_skips_the_prefixes(mesh):
 
 def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")  # the root's pane, which by-pane maps to the root
     capsys.readouterr()
@@ -1819,8 +1885,8 @@ def test_model_auto_on_a_small_task_means_its_default(mesh, fake, cli, run, repo
     bg_cli(cli)
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--repo", str(repo),
                       "--worktree", "copy"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "sonnet"
-    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "sonnet"]
+    assert json.loads(capsys.readouterr().out)["model"] == "opus"
+    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "opus"]
 
 
 def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsys):
@@ -1992,9 +2058,10 @@ def test_stop_waits_for_a_copilot_asker_that_is_answering(mesh, fake, cli, run, 
     assert mesh.main(["stop"]) == 1
     assert "still answering in mesh process" in capsys.readouterr().err
     assert mesh.run_dir(run).exists() and Path(cwd).exists()
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"]["pid"] = 2 ** 22 + 7  # its `mesh ask` was killed: stale
+    with mesh.editing_run(run) as data:  # its `mesh ask` was killed: stale, and its peek pane left open
+        data["agents"]["proj-ask-auth"].update(pid=2 ** 22 + 7, pane="w1:p7")
     assert mesh.main(["stop"]) == 0 and not Path(cwd).exists()
+    assert fake.called("pane", "close", "w1:p7")
 
 
 def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
@@ -2021,3 +2088,114 @@ def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tm
     assert "is not answering now" in capsys.readouterr().out
     assert mesh.main(["peek", "repo-fix-typo"]) == 1
     assert "herdr agent read repo-fix-typo" in capsys.readouterr().err
+
+
+def test_a_copilot_asker_gets_a_peek_pane_beside_the_root_while_it_answers(mesh, fake, cli, run, repo, monkeypatch,
+                                                                         capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    seen = []
+
+    def during(argv):
+        seen.append((mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"], bool(fake.called("pane", "close"))))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=during)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert "follow it in pane w1:p2" in capsys.readouterr().err
+    assert seen == [("w1:p2", False)]  # open while it answers
+    [ran] = fake.called("pane", "run")
+    assert ran == ("pane", "run", "w1:p2", "mesh peek proj-ask-auth --from-run mtest --follow")
+    assert fake.called("pane", "split")[-1][2] == "w1:p1" and fake.called("pane", "rename", "w1:p2")
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert fake.called("pane", "close", "w1:p2") and (entry["pane"], entry["tab"]) == (None, None)
+
+    # herdr refuses the command: the split is closed again and the hint is the way to follow it
+    fake.on("pane", "run", error="pane_not_found")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
+    assert "follow it with `mesh peek proj-ask-auth --follow`" in capsys.readouterr().err
+    assert fake.called("pane", "close", "w1:p3")
+
+    # no room beside the root: no pane anywhere else
+    monkeypatch.setenv("MESH_SIDE_PANES", "0")
+    splits = len(fake.called("pane", "split"))
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
+    assert len(fake.called("pane", "split")) == splits and not fake.called("tab", "create")
+
+
+def test_a_peek_pane_is_closed_when_copilot_fails_and_a_stale_one_when_it_is_asked_again(mesh, fake, cli, run, repo,
+                                                                                         monkeypatch, capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "3")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+
+    def boom(*args, **kwargs):
+        raise mesh.MeshError("copilot vanished")
+    real = mesh.copilot_ask
+    monkeypatch.setattr(mesh, "copilot_ask", boom)
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
+    assert fake.called("pane", "close", "w1:p3")  # the finally path
+    monkeypatch.setattr(mesh, "copilot_ask", real)
+
+    with mesh.editing_run(run) as data:  # a `mesh ask` killed mid-answer left its pane and a dead pid
+        data["agents"]["proj-ask-auth"].update(status="running", pid=2 ** 22 + 7, pane="w1:p7", tab="w1:t1",
+                                               workspace="w1")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p8"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
+    closed = [c[2] for c in fake.called("pane", "close")]
+    assert closed[-2:] == ["w1:p7", "w1:p8"]  # the stale one before the new one opened, the new one after
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"] is None
+    capsys.readouterr()
+
+
+def test_panes_beside_the_root_are_counted_split_and_recorded_under_one_lock(mesh, fake, run, monkeypatch):
+    import fcntl
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    held = []
+
+    def split_at(target, cwd, env):
+        with open(mesh.run_dir(run) / ".panes.lock", "w") as fh:  # what a parallel `mesh` call would try
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w2:p5"  # not recorded yet
+        return "w1:p2"
+    monkeypatch.setattr(mesh, "split_at", split_at)
+    assert mesh.beside_root(run, "repo-fix-typo", Path("/x"), {}) == ("w1:p2", "w1:t1", "w1")
+    assert held == [True]
+    # recorded before the lock is let go, so the next placement counts it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w1:p2"
+
+
+def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
+    session = mesh.load_run(run)["agents"]["proj-ask-auth"]["session"]
+    events = tmp_path / "copilot" / "session-state" / session / "events.jsonl"
+    sleeps = []
+
+    def sleep(_):
+        sleeps.append(events.exists())
+        if not events.exists():  # Copilot starts the session
+            events.parent.mkdir(parents=True)
+            events.write_text(json.dumps({"type": "assistant.message", "timestamp": "2026-10-25T06:35:49.000Z",
+                                          "data": {"content": "Looking."}}) + "\n")
+        else:  # and answers
+            with mesh.editing_run(run) as data:
+                data["agents"]["proj-ask-auth"]["status"] = "retired"
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    capsys.readouterr()
+    assert mesh.main(["peek", "proj-ask-auth", "--follow"]) == 0
+    assert sleeps == [False, True]
+    assert capsys.readouterr().out.splitlines() == ["06:35:49 says: Looking.",
+                                                    "(proj-ask-auth is not answering now: its answer is what "
+                                                    "`mesh ask` printed, or `mesh inbox`)"]
