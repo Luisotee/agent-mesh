@@ -92,7 +92,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - Claude workers under a Claude root report with `SendMessage`. Their message arrives as a cross-session message from the worker and wakes you if you're idle.
      - agy workers ring a doorbell in your pane.
      - Either way, the full text is in your mailbox: run `mesh inbox`.
-   - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended (nothing to do), or on an alert:
+   - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended or been retired (nothing to do), or on an alert:
      - 3: a worker stopped without reporting (a `plan`, `question`, `done` or `failed`), and stayed silent after the one nudge the watch gave it ("its nudge was not delivered" if that doorbell didn't ring, "its task is still unread" or "its answer is still unread" if it never picked it up; a worker that was never seen working is judged 4 × `--grace` after its last task or answer) (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
      - 4: it's blocked on a dialog (the alert ends with the pane's last lines: a stray menu, or a real question to answer);
      - 5: it's gone;
@@ -123,14 +123,14 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - make the call yourself whenever the request or the code settles it
    - ask the user only for real product decisions, missing credentials, or a destructive choice
 8. **Check every `done`** before passing it on; a worker's word is not proof.
-   - Compare the PR diff (`gh pr diff <url> --name-only` first, then the risky files) against the approved plan or the task.
-   - For trivial and small tasks, a reviewer (see "Questions and reviews") checks the diff instead of you.
+   - **A large task:** compare the PR diff (`gh pr diff <url> --name-only` first, then the risky files) against the plan you approved. A trivial or small task had no plan to check it against, so its reviewers do that instead of you.
+   - **Then start its two reviewers**, so every PR the run makes is reviewed without the user asking: side by side, picked by the review's size (see "Routing"), one `mesh ask --repo <repo> --review <PR> --kind <kind> --size <by PR size> --name review-<n>-<kind>` each. Handle their findings as "Questions and reviews" step 2 says. A PR is done when its reviews have nothing left that you agree with.
    - If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"` (start a small fix with `Direct task (no plan)`).
 9. **Close what you're done with:** once a worker's `done` checks out and you have nothing more for it, `mesh retire <worker>`. Its pane closes, and its conversation stays resumable (`mesh resume <worker>` brings it back with everything it knew), so an idle agent never sits open just in case.
 10. **On `failed`:** unless what blocked it is something only the user can give (credentials, access, a product decision), retry it once yourself, as "Escalate" in "Sizes" says: the same worker, resumed with more effort (Claude) or a stronger model (agy), with a hint from what blocked it.
    - If it fails again, or the next step is a different CLI, tell the user what blocked it and suggest one (a hint, a larger size, Claude instead of agy).
    - If the user agrees to a different CLI, retire the worker (`mesh retire <worker>`) and start the new one **in the same worktree** with `--cwd <worktree>`, giving it the plan and what failed. It gets the old name plus `-2`.
-11. **Finish:** when every worker has reported and your own part is done, tell the user:
+11. **Finish:** when every worker has reported, its PR's reviews are settled and your own part is done, tell the user:
     - one line per repo with the PR link and the worker's name (so it can be resumed later), plus what you changed in your own repo (it follows that repo's usual flow, not the mesh's)
     - what's left for them to do (review, test, deploy)
     - anything that failed or was restarted
@@ -153,10 +153,8 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
    - **Or** start it after the earlier one's `done`.
    - A dependency between repos follows step 4's contract rules.
 3. **Cap:** keep at most **4** workers working at once. Start the next one when one reports.
-4. **Supervise** as in the Root steps. After each `done`:
-   - start its two reviewers side by side, picked by the review's size (see "Routing"), one `mesh ask --repo <repo> --review <PR> --kind <kind> --size <by PR size> --name review-<n>-<kind>` each;
-   - run `mesh conflicts`.
-5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its review has nothing left that you agree with.
+4. **Supervise** as in the Root steps, which start each `done`'s two reviewers (Root step 8). After each `done`, also run `mesh conflicts`.
+5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its reviews have nothing left that you agree with.
 6. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.

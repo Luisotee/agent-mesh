@@ -20,7 +20,7 @@ Run an **agent-mesh** in mode **`claude`** for the user's request: `$ARGUMENTS` 
    - **Size every task** ("Sizes") and pass `--size` to every `mesh spawn` and `mesh ask`. `--kind claude` is the default CLI; propose agy only as "Routing" describes.
    - Pass `--model` / `--effort` only if the request names them. Pass `--plan-review user` only if the user wants to approve a large plan themselves.
    - **Your own repo:** keep doing its part yourself; spawn workers only for the other repos (and for yours only if the user asks).
-   - **A question about another repo** that changes nothing: use `mesh ask --kind claude` ("Questions and reviews"). A PR review the user asks for on its own goes through `/delegate-review`; the reviews of your own workers' PRs stay here ("Task lists").
+   - **A question about another repo** that changes nothing: use `mesh ask --kind claude` ("Questions and reviews"). A PR review the user asks for on its own goes through `/delegate-review`; the reviews of your own workers' PRs stay here ("Root" step 8).
    - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model (a change it must plan first plans on Opus), and it's compacted first if its conversation is large.
    - **Decide small things yourself** and ask the user only where their input adds value; put follow-ups you find on the repo's list of open work, or do them in the run ("Rules for everyone").
    - **A list of tasks:** follow "Task lists". Triage it into the board, get the user's one confirmation, then supervise without writing code yourself.

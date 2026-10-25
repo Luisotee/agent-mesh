@@ -464,8 +464,13 @@ def foreign_to_pane(run_id: str, name: str, pane: str) -> str | None:
                 f"Claude session {current}")
     if pane_runs_this_claude(pane) is False:
         return (f"pane {pane} is {name} of run {run_id}, and Claude session {current} isn't the process running "
-                f"there (pass --run {run_id} --as {name} if it should act as that agent)")
+                f"there (pass --run {run_id} --as {name} if it should act as that agent; {NOT_LEADER_HINT})")
     return None
+
+
+# Why a root's own Claude can fail `pane_runs_this_claude`: it doesn't lead the pane's foreground group.
+NOT_LEADER_HINT = ("a launcher script that runs claude without `exec`, or tmux/zellij inside the pane, "
+                   "puts another process there; use `exec claude` in the script")
 
 
 def pane_runs_this_claude(pane: str) -> bool | None:
@@ -1519,7 +1524,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
         raise MeshError(f"herdr sees no agent in pane {pane}")
     if os.environ.get("CLAUDE_CODE_SESSION_ID") and pane_runs_this_claude(pane) is False:
         raise MeshError(f"Claude session {os.environ['CLAUDE_CODE_SESSION_ID']} isn't the process running in pane "
-                        f"{pane}, so it can't be its root")
+                        f"{pane}, so it can't be its root ({NOT_LEADER_HINT})")
     mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
@@ -2184,7 +2189,8 @@ class Watch:
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
-        self.finished = False  # it reported, then its pane closed or its session ended
+        self.retired = False  # the root is retiring it, or has: whatever it does next is no news
+        self.finished = False  # it reported, then its pane closed or its session ended; or it was retired
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -2204,6 +2210,11 @@ class Watch:
                        + f"; move it to the next model with `mesh switch {name}`")
         entry = agent_entry(load_run(run_id), name)
         state = agent_status(name, entry, bg_rows)
+        if agent_entry(load_run(run_id), name).get("status") in ("retiring", "retired"):  # read after the state
+            self.retired = self.finished = True  # the root is closing it on purpose, report or not
+            return None
+        if self.retired:  # its retire failed, or it was resumed: watch it again
+            self.retired = self.finished = False
         if (state == "gone" and self.reopening < SWAP_GRACE
                 and agent_entry(load_run(run_id), name).get("status") == "starting"):  # read after the state
             self.reopening += interval  # `mesh approve` / `mesh switch` is reopening it on another model
@@ -2301,12 +2312,17 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
             event = watch.tick(interval, alerts_only, bg_rows, events)
             if event:
                 return event
-        if alerts_only and all(w.finished for w in watches):
-            return 0, "every watched worker reported and has ended; nothing left to watch"
+        if all(w.finished for w in watches):  # without --alerts only a retired worker finishes without returning
+            retired = [w.name for w in watches if w.retired and not w.reported]
+            if not retired:
+                return 0, "every watched worker reported and has ended; nothing left to watch"
+            rest = "" if len(retired) == len(watches) else "; the rest reported and have ended"
+            return 0, f"retired {', '.join(retired)}{rest}; nothing left to watch"
         if deadline and time.monotonic() > deadline:
-            waiting = [w for w in watches if not w.reported]
+            waiting = [w for w in watches if not w.reported and not w.retired]
             if not waiting:
-                return 0, f"every watched worker reported within {timeout}s"
+                return 0, (f"every watched worker reported{' or was retired' if any(w.retired for w in watches) else ''} "
+                           f"within {timeout}s")
             states = ", ".join(f"{w.name}: {w.prev}" for w in waiting)
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
@@ -2330,19 +2346,27 @@ def cmd_retire(args: argparse.Namespace) -> int:
 
 def retire_worker(run_id: str, name: str, entry: dict) -> None:
     """Close a worker's pane (or stop its background session); its conversation stays resumable."""
-    if entry.get("view") == "bg":
-        stop_bg(entry)
-    elif entry.get("pane"):  # none if its pane never opened
-        try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
-            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
-                  timeout=RETIRE_WAIT_MS / 1000 + 10)
-        except HerdrError:
-            pass  # gone already, or still busy: close it anyway
-        try:
-            herdr("pane", "close", entry["pane"])
-        except HerdrError as exc:
-            if exc.code not in ("pane_not_found", "agent_not_found"):
-                raise
+    with editing_run(run_id) as run:  # first, so a watch never takes the closing pane for a crash
+        agent = run["agents"][name]
+        before, agent["status"] = agent.get("status"), "retiring"
+    try:
+        if entry.get("view") == "bg":
+            stop_bg(entry)
+        elif entry.get("pane"):  # none if its pane never opened
+            try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
+                herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
+                      timeout=RETIRE_WAIT_MS / 1000 + 10)
+            except HerdrError:
+                pass  # gone already, or still busy: close it anyway
+            try:
+                herdr("pane", "close", entry["pane"])
+            except HerdrError as exc:
+                if exc.code not in ("pane_not_found", "agent_not_found"):
+                    raise
+    except BaseException:
+        with editing_run(run_id) as run:  # still open: it isn't retired
+            run["agents"][name]["status"] = before
+        raise
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "retired"
     log_event(run_id, "retire", name=name)
@@ -2736,21 +2760,28 @@ ASK_SLUG_SKIP = {"a", "an", "and", "are", "can", "do", "does", "for", "how", "in
 
 
 def free_slug(run_id: str, repo_top: Path, slug: str) -> str:
-    """`slug`, or `slug-2`, `-3`… when its run branch already exists: a retired asker keeps its branch.
+    """`slug`, or `slug-2`, `-3`… when its run branch already exists (a retired asker keeps its branch), or
+    another ask of this run has claimed it but not yet made the branch.
 
-    A named one (`--name`) too, since `/delegate-review` always passes one. Not locked: two asks of one kind
-    for one PR started at the same moment can still pick the same slug.
+    A named one (`--name`) too, since `/delegate-review` always passes one. Picked and claimed under the run
+    lock, so two asks of one kind for one PR started at the same moment get different slugs, and with them
+    different agent names.
     """
-    def taken(candidate: str) -> bool:
+    def taken(candidate: str, claimed: list[str]) -> bool:
+        if candidate in claimed:
+            return True
         try:
             git("rev-parse", "--verify", "--quiet", f"refs/heads/mesh/{run_id}/{candidate}", cwd=repo_top)
             return True
         except MeshError:
             return False
     slug = slugify(slug, 24)
-    found, n = slug, 2
-    while taken(found):
-        found, n = f"{slug[:21].rstrip('-')}-{n}", n + 1
+    with editing_run(run_id) as run:
+        claimed = run.setdefault("slugs", {}).setdefault(str(repo_top), [])
+        found, n = slug, 2
+        while taken(found, claimed):  # cut to fit `-N` in an agent name's suffix, so the name differs too
+            found, n = f"{slug[:19 - len(str(n))].rstrip('-')}-{n}", n + 1
+        claimed.append(found)
     return found
 
 

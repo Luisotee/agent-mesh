@@ -255,7 +255,8 @@ def test_init_refuses_a_claude_that_isnt_the_panes_process(mesh, fake, monkeypat
     in_pane(fake, "w1:p1", 4000)
     capsys.readouterr()
     assert mesh.main(["init", "--mode", "claude"]) == 1
-    assert "isn't the process running in pane w1:p1" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "isn't the process running in pane w1:p1" in err and "`exec claude`" in err  # how a wrapper gets there
     assert not (mesh.mesh_home() / "by-pane" / "w1_p1.json").exists()
 
 
@@ -2103,6 +2104,36 @@ def test_a_named_reviewer_whose_branch_is_taken_gets_the_next_one(mesh, fake, ru
     assert (out["branch"], out["name"]) == ("mesh/mtest/review-7-claude-2", "proj-review-7-claude-2")
 
 
+def test_reviewers_started_at_the_same_moment_get_different_slugs(mesh, fake, run, repo, monkeypatch):
+    import threading
+    real, started = mesh.git, threading.Barrier(2)
+
+    def git(*args, **kw):  # both look before either has made its branch
+        if args[:2] == ("rev-parse", "--verify") and started.n_waiting < 2 and not started.broken:
+            try:
+                started.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+        return real(*args, **kw)
+
+    monkeypatch.setattr(mesh, "git", git)
+    slugs = []
+    threads = [threading.Thread(target=lambda: slugs.append(mesh.free_slug(run, repo, "review-7-claude")))
+               for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(slugs) == ["review-7-claude", "review-7-claude-2"]
+    assert mesh.load_run(run)["slugs"] == {str(repo): ["review-7-claude", "review-7-claude-2"]}
+
+
+def test_a_long_slugs_suffix_survives_into_the_agent_name(mesh, fake, run, repo):
+    first, second = (mesh.free_slug(run, repo, "review-12345-copilot") for _ in range(2))
+    assert second == "review-12345-copil-2"
+    assert mesh.agent_name("agent-mesh", first, set()) != mesh.agent_name("agent-mesh", second, set())
+
+
 def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
@@ -2810,6 +2841,70 @@ def test_an_alerts_watch_ends_once_every_worker_reported_and_ended(mesh, fake, r
     monkeypatch.setattr(mesh, "agent_status", status)
     assert mesh.main(["watch", "--any", "--alerts"]) == 0
     assert "nothing left to watch" in capsys.readouterr().out
+
+
+def test_a_watch_lets_a_worker_go_that_the_root_retired(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                      "status": "running"}
+    closed = set()
+
+    def status(name, *_):
+        if name == "repo-fix-typo" and not closed:  # retired mid-watch, without a report
+            mesh.retire_worker(run, name, mesh.agent_entry(mesh.load_run(run), name))
+            closed.add(name)
+        return "gone" if name in closed else "working"
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    clock = iter(range(0, 10**6, 100))
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: next(clock))
+    assert mesh.main(["watch", "--any", "--alerts", "--timeout", "150"]) == 6
+    out = capsys.readouterr().out
+    assert out.startswith("ALERT repo-two has not reported") and "repo-fix-typo" not in out
+
+    closed.clear()
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "running"
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0  # without --alerts too, rather than waiting forever
+    assert "retired repo-fix-typo; nothing left to watch" in capsys.readouterr().out
+
+
+def test_retire_marks_the_worker_before_closing_it_and_undoes_that_on_failure(mesh, fake, run, monkeypatch):
+    seen = []
+    fake.on("pane", "close", error="cli_error")
+
+    def herdr(*args, **kw):
+        if args[:2] == ("pane", "close"):
+            seen.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["status"])
+        return fake(*args, **kw)
+
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    with pytest.raises(mesh.HerdrError):
+        mesh.retire_worker(run, "repo-fix-typo", mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"))
+    assert seen == ["retiring"]  # until its pane is closed: status and pane counts still see it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+
+
+def test_a_watch_takes_back_a_worker_whose_retire_failed(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    watch = mesh.Watch(run, "repo-fix-typo", grace=30)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retiring"
+    assert watch.tick(5) is None and watch.finished
+    with mesh.editing_run(run) as data:  # the close failed: retire_worker put the status back
+        data["agents"]["repo-fix-typo"]["status"] = "running"
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
+    assert watch.tick(5)[0] == 5 and not watch.finished
+
+
+def test_a_watch_says_reported_for_a_worker_retired_after_its_report(mesh, fake, run, monkeypatch):
+    # a Copilot asker files its done, then its entry is retired
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
+    status, line = mesh.watch_agents(run, ["repo-fix-typo"], finals_at_start=0, alerts_only=True)
+    assert status == 0 and line.startswith("every watched worker reported")
 
 
 def test_an_alerts_watch_timeout_names_only_the_workers_that_have_not_reported(mesh, fake, run, monkeypatch):
