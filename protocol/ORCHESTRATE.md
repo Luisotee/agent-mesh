@@ -51,6 +51,7 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Only la
   - `mesh status` shows them, and so does Claude Code's own `claude agents` view.
   - `mesh open <name>` attaches to one from any pane.
   - `--view pane|bg` overrides the default.
+  - A fresh reviewer (`mesh ask --review`) gets a pane at any size, so the user sees the review.
 - **When background falls back to a pane:** it needs a Claude root (it reports to you by `SendMessage`) and a repo Claude Code already trusts. When either is missing, the worker opens in a pane instead, and the spawn output says why in `notes`.
 
 ### Routing
@@ -174,7 +175,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
 - **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot`, your own CLI).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
 - **A fresh agent** follows the mode table and `--size`, like a spawn. Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
-- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no pane: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; `mesh peek <name>` shows what it's doing meanwhile, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
+- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no pane: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; while it works, a pane beside yours follows it (`mesh peek <name> --follow`) and closes once it has answered, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
   - A PR link names the worker that opened the PR; a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.

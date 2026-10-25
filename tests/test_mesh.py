@@ -1693,6 +1693,21 @@ def test_a_small_fresh_asker_gets_the_question_not_a_direct_task(mesh, fake, cli
     assert task.startswith("Question (read-only)") and "Direct task" not in task
 
 
+def test_a_fresh_reviewer_opens_in_a_pane_where_a_question_would_not(mesh, fake, cli, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    claude_root(mesh, run)
+    bg_cli(cli)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and fake.called("agent", "start") and not cli.called("--bg")
+    # A named view still wins.
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--view", "bg", "--name", "review-bg"]) == 0
+    assert json.loads(capsys.readouterr().out)["view"] == "bg"
+
+
 def test_watch_any_returns_the_first_event_and_alerts_only_keeps_going(mesh, fake, run, monkeypatch, capsys):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-two"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
@@ -2027,9 +2042,10 @@ def test_stop_waits_for_a_copilot_asker_that_is_answering(mesh, fake, cli, run, 
     assert mesh.main(["stop"]) == 1
     assert "still answering in mesh process" in capsys.readouterr().err
     assert mesh.run_dir(run).exists() and Path(cwd).exists()
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"]["pid"] = 2 ** 22 + 7  # its `mesh ask` was killed: stale
+    with mesh.editing_run(run) as data:  # its `mesh ask` was killed: stale, and its peek pane left open
+        data["agents"]["proj-ask-auth"].update(pid=2 ** 22 + 7, pane="w1:p7")
     assert mesh.main(["stop"]) == 0 and not Path(cwd).exists()
+    assert fake.called("pane", "close", "w1:p7")
 
 
 def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
@@ -2056,3 +2072,64 @@ def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tm
     assert "is not answering now" in capsys.readouterr().out
     assert mesh.main(["peek", "repo-fix-typo"]) == 1
     assert "herdr agent read repo-fix-typo" in capsys.readouterr().err
+
+
+def test_a_copilot_asker_gets_a_peek_pane_beside_the_root_while_it_answers(mesh, fake, cli, run, repo, monkeypatch,
+                                                                         capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    seen = []
+
+    def during(argv):
+        seen.append((mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"], bool(fake.called("pane", "close"))))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=during)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert "follow it in pane w1:p2" in capsys.readouterr().err
+    assert seen == [("w1:p2", False)]  # open while it answers
+    [ran] = fake.called("pane", "run")
+    assert ran == ("pane", "run", "w1:p2", "mesh peek proj-ask-auth --from-run mtest --follow")
+    assert fake.called("pane", "split")[-1][2] == "w1:p1" and fake.called("pane", "rename", "w1:p2")
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert fake.called("pane", "close", "w1:p2") and (entry["pane"], entry["tab"]) == (None, None)
+
+    # herdr refuses the command: the split is closed again and the hint is the way to follow it
+    fake.on("pane", "run", error="pane_not_found")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
+    assert "follow it with `mesh peek proj-ask-auth --follow`" in capsys.readouterr().err
+    assert fake.called("pane", "close", "w1:p3")
+
+    # no room beside the root: no pane anywhere else
+    monkeypatch.setenv("MESH_SIDE_PANES", "0")
+    splits = len(fake.called("pane", "split"))
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
+    assert len(fake.called("pane", "split")) == splits and not fake.called("tab", "create")
+
+
+def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
+    session = mesh.load_run(run)["agents"]["proj-ask-auth"]["session"]
+    events = tmp_path / "copilot" / "session-state" / session / "events.jsonl"
+    sleeps = []
+
+    def sleep(_):
+        sleeps.append(events.exists())
+        if not events.exists():  # Copilot starts the session
+            events.parent.mkdir(parents=True)
+            events.write_text(json.dumps({"type": "assistant.message", "timestamp": "2026-10-25T06:35:49.000Z",
+                                          "data": {"content": "Looking."}}) + "\n")
+        else:  # and answers
+            with mesh.editing_run(run) as data:
+                data["agents"]["proj-ask-auth"]["status"] = "retired"
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    capsys.readouterr()
+    assert mesh.main(["peek", "proj-ask-auth", "--follow"]) == 0
+    assert sleeps == [False, True]
+    assert capsys.readouterr().out.splitlines() == ["06:35:49 says: Looking.",
+                                                    "(proj-ask-auth is not answering now: its answer is what "
+                                                    "`mesh ask` printed, or `mesh inbox`)"]

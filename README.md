@@ -25,7 +25,7 @@ your session in shop-web (root)            keeps building the badge
        └──── Argon / Opus ────┘            └──────── Flash ────────┘
 ```
 
-Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session. Large tasks run in [herdr](https://herdr.dev) panes, so you can watch them and type into them at any moment. Small Claude tasks run as Claude Code background sessions, which you can attach to with `mesh open`.
+Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session. Large tasks run in [herdr](https://herdr.dev) panes, so you can watch them and type into them at any moment. Small Claude tasks run as Claude Code background sessions, which you can attach to with `mesh open`. Reviewers get a pane at any size, so you see the review happen.
 
 ## Why
 
@@ -80,7 +80,7 @@ mesh open <worker>         # attach to a running background worker from any pane
 claude agents              # Claude Code's own view of background sessions
 ```
 
-Background workers report to a Claude root with `SendMessage`, so the root has to run in Claude Code; under an agy root they open in panes. A repo Claude Code has never been trusted in also gets a pane.
+Background workers report to a Claude root with `SendMessage`, so the root has to run in Claude Code; under an agy root they open in panes. A repo Claude Code has never been trusted in also gets a pane, and so does a fresh reviewer (`mesh ask --review`), whatever its size.
 
 ## Models
 
@@ -129,7 +129,7 @@ The agent is an ordinary worker, so it stays useful after it answers:
 - **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
-A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call, with no pane, and only answers. `mesh peek <name> --follow` shows what it's doing. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
+A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call and only answers. While it works, a pane beside yours follows it (`mesh peek <name> --follow`, which you can also run yourself) and closes once it has answered; past `MESH_SIDE_PANES` panes there's no room, and no peek pane. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
 
 ```bash
 mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
