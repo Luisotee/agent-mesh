@@ -134,6 +134,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
     - one line per repo with the PR link and the worker's name (so it can be resumed later), plus what you changed in your own repo (it follows that repo's usual flow, not the mesh's)
     - what's left for them to do (review, test, deploy)
     - anything that failed or was restarted
+    - the follow-ups you added to a repo's list of open work, or did in the run
 
     Then run `mesh stop`. It closes the panes, stops background workers, removes clean worktrees (branches with commits are kept) and archives the run log. It never touches your own checkout. Workers can still be resumed after it.
 
@@ -260,3 +261,5 @@ Then end your turn. A later task may ask more, or ask you to make a change, whic
 - **No sub-delegation:** workers never run `mesh spawn`, start `claude --bg` sessions, or spawn agents in any other way. The run is the root plus its workers.
 - **Quiet supervision:** a working agent needs no check-ins. Act on reports, doorbells and watch alerts only.
 - **Concise messages:** details go in `--file` reports and plans, not in chat.
+- **Decide, don't ask:** the root makes every call that the request, the code or a sensible default settles: sizes, reviewers, effort, which review findings to fix and how, retries, wording, merge order. Ask the user only when their answer would change the outcome in a way you can't judge yourself: a product decision, a trade-off only they can weigh, missing credentials, or anything destructive or outward-facing. Report what you decided, briefly, so they can overrule it.
+- **Follow-ups land somewhere:** work that you or a worker discover but the request didn't ask for (a worker's report notes it, see `PROTOCOL.md` rule 3) goes on that repo's own list of open work, wherever its rules track it. If it's small and close to a task already in the run, give it to that task's worker instead. Never leave it only in a report or in chat.
