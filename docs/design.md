@@ -129,6 +129,15 @@ Two details keep this from leaving a mess:
 
 Reviews post nothing on GitHub. That's outward-facing, so it needs the user's own word (PROTOCOL.md, "Authority").
 
+**One command for reviews.** A review the user asks for used to go through `/delegate-claude` or `/delegate-agy`. That named the wrong thing ("delegate to Claude" when Claude only reviews), and it loaded the whole orchestration procedure for one `mesh ask`. Worse, three skill descriptions all claimed "review a PR", so which one fired was a toss-up. Now `/delegate-review` is the only skill whose description covers a review the user asks for. It takes the reviewers as arguments (any of `claude`, `agy`, `copilot`, or `all`), so there's one skill and not one per CLI, and it reads only "Questions and reviews". Several reviewers run at once, one `mesh ask` each, in one run the skill makes sure exists first, and each gets its own `--name` (`review-<n>-<cli>`): two `ask`s for the same PR would otherwise race for the same name and worktree. The skill then merges what they found; a finding several reviewers agree on is likelier, but still checked. The delegate skills keep the reviews their runs give their own workers' PRs, since those are part of supervising, not something the user asks for.
+
+**Copilot reviewers are headless.** Copilot is a third reviewer, used when the user names it (on a student plan it's a fallback once Claude and agy limits are spent, so mesh puts no credit cap on it). It breaks two rules above on purpose, and only for read-only tasks:
+
+- **No pane (§1):** herdr has no Copilot agent kind to start, and a review needs neither watching nor asking back. `mesh ask` runs `copilot -p` in the reviewer's worktree, with `--output-format json`, and files the last thing it said as its `done` (`failed` on a non-zero exit). The reviewer still gets the PR head checked out, the diff in its task and the repo's `AGENTS.md` / `CLAUDE.md`, which Copilot loads on its own.
+- **Not a dead end anyway (§10's objection):** the session id is set at the first ask (`--session-id`), and every later `mesh ask <name>` resumes it (`--resume`), so follow-ups keep what it read. `mesh open` reopens it interactively. What it can't do is take the change: `mesh resume` refuses it, and the change goes to the PR's author or a fresh worker.
+- **Read-only** is the review prompt plus `--deny-tool write`. Shell stays allowed so it can run tests, which is the same trust the other reviewers get.
+- **Models:** Copilot Student offers only `--model auto`, which refuses an effort but takes a routing profile (`--auto-tier intelligence`). A named model (`--model`, `MESH_COPILOT_MODEL`) gets `--reasoning-effort` from `--size`. mesh records the model Copilot reports it used.
+
 ## 11. Native transport, sizes and task lists
 
 By 0.6 mesh had its own copies of things Claude Code now does natively: typing doorbells into panes, polling `mesh watch`, and one fixed model per mode. 0.7 uses the native pieces where they're better, and keeps mesh where they don't reach (agy, mixed runs, quotas, resume across runs).

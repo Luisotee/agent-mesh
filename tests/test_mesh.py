@@ -1834,3 +1834,75 @@ def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsy
     assert mesh.main(["watch", "--any"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out
     assert len(cli.called("agents")) == 3  # one to list the live workers, then one per poll
+
+
+def copilot_jsonl(text, model="gpt-5.6-luna"):
+    """What `copilot -p --output-format json` prints: a tool turn with no text, then the answer."""
+    events = [{"type": "session.auto_mode_resolved", "data": {"chosenModel": model}},
+              {"type": "assistant.message", "data": {"model": model, "content": "", "toolRequests": [{"name": "bash"}]}},
+              {"type": "assistant.message", "data": {"model": model, "content": text}},
+              {"type": "result", "sessionId": "s", "exitCode": 0}]
+    return "".join(json.dumps(e) + "\n" for e in events)
+
+
+def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cli, run, repo, tmp_path, capsys):
+    head = pr_origin(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("-p", stdout=copilot_jsonl("1. x.py:3 crashes on empty input."))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--kind", "copilot"]) == 0
+    captured = capsys.readouterr()
+    assert "── done from proj-review-7 ──\n1. x.py:3 crashes" in captured.out and "apply" not in captured.err
+    entry = mesh.load_run(run)["agents"]["proj-review-7"]
+    assert (entry["kind"], entry["view"], entry["status"], entry["model"], entry["reviews"], entry["base"]) == (
+        "copilot", "headless", "retired", "gpt-5.6-luna", [pr], head)
+    [call] = cli.called("-p")
+    argv = call["argv"]
+    assert argv[2].startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in argv[2]
+    assert call["cwd"] == entry["cwd"] and "MESH_RUN" not in call["env"]
+    assert argv[argv.index("--session-id") + 1] == entry["session"]
+    assert argv[argv.index("--model") + 1] == "auto" and "--auto-tier" in argv and "--reasoning-effort" not in argv
+    assert not fake.called("agent", "start") and not mesh.unread(run, "proj-review-7")
+
+    cli.on("-p", stdout=copilot_jsonl("Because the list can be empty."))
+    assert mesh.main(["ask", "proj-review-7", "--body", "Why?"]) == 0
+    assert "Because the list can be empty." in capsys.readouterr().out
+    follow = cli.called("-p")[-1]
+    assert follow["argv"][follow["argv"].index("--resume") + 1] == entry["session"]
+    assert "--session-id" not in follow["argv"] and follow["cwd"] == entry["cwd"]
+
+
+def test_ask_copilot_reports_a_failed_run(mesh, fake, cli, run, repo, capsys):
+    cli.on("-p", returncode=1, stderr='Error: Model "gpt-x" from --model flag is not available.\n')
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--model", "gpt-x", "--size", "large",
+                      "--body", "Where is auth?"]) == 1
+    out = capsys.readouterr().out
+    assert "── failed from proj-ask-auth ──" in out and "not available" in out
+    argv = cli.called("-p")[0]["argv"]
+    assert argv[argv.index("--reasoning-effort") + 1] == "high" and "--auto-tier" not in argv
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"].get("asked", 0) == 0  # so the next ask starts the session
+
+
+def test_a_copilot_ask_starts_its_run_in_the_roots_own_mode(mesh, fake, cli, repo, monkeypatch, capsys):
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
+    cli.on("-p", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    run_id = capsys.readouterr().err.split("started run ")[1].split()[0]
+    assert mesh.load_run(run_id)["mode"] == "claude"
+
+
+def test_copilot_askers_only_answer_and_stop_leaves_them_be(mesh, fake, cli, run, repo, capsys):
+    cli.on("-p", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    cwd = mesh.load_run(run)["agents"]["proj-ask-auth"]["cwd"]
+    with pytest.raises(SystemExit):
+        mesh.main(["spawn", "--kind", "copilot", "--repo", str(repo)])
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-ask-auth", "--task", "Fix it."]) == 1
+    assert "only answers" in capsys.readouterr().err
+    assert mesh.resume_argv("copilot", "s1", "auto", "medium") == ["--resume", "s1", "--model", "auto",
+                                                                   "--auto-tier", "intelligence"]
+    assert mesh.main(["stop"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "proj-ask-auth" not in out["closed"] and cwd in [w["path"] for w in out["worktrees_removed"]]

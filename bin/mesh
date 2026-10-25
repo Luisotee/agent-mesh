@@ -33,6 +33,12 @@ from pathlib import Path
 VERSION = "0.7.0"
 MODES = ("agy", "claude")
 KINDS = ("claude", "agy")
+# `mesh ask` also takes Copilot, as a headless read-only agent: it answers questions and reviews, and is
+# asked again by resuming its session, but never makes a change (design §10).
+ASK_KINDS = (*KINDS, "copilot")
+COPILOT_MODEL = "auto"  # the only model some plans (Copilot Student) may pick; MESH_COPILOT_MODEL overrides it
+COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
+COPILOT_EFFORT = {"trivial": "low", "small": "medium", "large": "high"}
 # `--size`: trivial and small tasks run on one cheap model with no plan phase; large is `auto` (below).
 SIZES = ("trivial", "small", "large")
 SIZE_DEFAULTS = {
@@ -809,12 +815,16 @@ def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
     """CLI arguments that reopen an agent's conversation (no permission flags)."""
     if kind == "agy":
         return ["--conversation", session, "--model", model]
+    if kind == "copilot":
+        return ["--resume", session, *copilot_model_argv(model, effort)]
     return ["--resume", session, "--model", model, "--effort", effort]
 
 
 def resumed_model(entry: dict, model: str | None, effort: str | None) -> tuple[str, str]:
     """The model and effort a resumed agent runs on: what it had, unless overridden."""
     effort = effort or entry.get("effort") or DEFAULT_EFFORT
+    if entry.get("kind") == "copilot":
+        return model or entry.get("requested_model") or COPILOT_MODEL, effort
     if entry.get("kind") != "agy":
         return model or entry.get("model") or PLAN_CHAIN["claude"][0], effort
     if not model:
@@ -1154,8 +1164,8 @@ def emit(data, as_json: bool = True) -> None:
     print(json.dumps(data, indent=2) if as_json else data)
 
 
-def init_run(mode: str, request: str | None, run_id: str | None = None) -> dict:
-    """Start a run with this pane's agent as its root."""
+def init_run(mode: str | None, request: str | None, run_id: str | None = None) -> dict:
+    """Start a run with this pane's agent as its root (mode None: the root's own CLI)."""
     pane = os.environ.get("HERDR_PANE_ID")
     if os.environ.get("HERDR_ENV") != "1" or not pane:
         raise MeshError("mesh init must run inside a herdr pane (HERDR_ENV=1)")
@@ -1168,6 +1178,7 @@ def init_run(mode: str, request: str | None, run_id: str | None = None) -> dict:
     me = next((a for a in agents if a.get("pane_id") == pane), None)
     if me is None:
         raise MeshError(f"herdr sees no agent in pane {pane}")
+    mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
     if name != me.get("name"):
@@ -1611,6 +1622,8 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
     """herdr's state for an agent's pane (working / idle / done / blocked / gone); a background worker's from Claude."""
     if entry and entry.get("view") == "bg":
         return bg_status(entry, bg_rows)
+    if entry and entry.get("view") == "headless":
+        return "gone"  # a Copilot asker runs only inside the `mesh ask` that asks it
     try:
         return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
     except HerdrError as exc:
@@ -1843,6 +1856,8 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
         row = bg_row(entry, bg_rows)
         if row and row.get("status"):
             return {"name": name, "pane_id": None, "bg_id": row.get("id")}
+    if entry.get("view") == "headless":
+        return None
     cwd = entry.get("cwd")
     if agents is None:
         agents = herdr("agent", "list").get("agents", [])
@@ -1974,6 +1989,9 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         return holder
 
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
+    if old["kind"] == "copilot":
+        raise MeshError(f"{old_name} is a Copilot asker, which only answers: ask it again with `mesh ask {old_name}`, "
+                        "or give the change to the PR's author or a fresh worker")
     task = read_body(args.task, args.task_file)
     # A task it plans first plans where a spawn on `auto` would, whatever it last ran on, and gets the
     # execution phase, so `mesh approve` moves it on; a named model or effort covers the whole task, as in spawn.
@@ -2198,12 +2216,122 @@ def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:
     return meta, body.strip()
 
 
+def copilot_model_argv(model: str, effort: str) -> list[str]:
+    # Auto picks the model per prompt and refuses an effort; it takes a routing profile instead.
+    return ["--model", model, *(["--auto-tier", COPILOT_TIER] if model == "auto" else ["--reasoning-effort", effort])]
+
+
+def copilot_answer(stdout: str) -> tuple[str, str | None]:
+    """The last thing Copilot said and the model it said it on, from its `--output-format json` lines."""
+    text, model = "", None
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        data = event.get("data") if isinstance(event, dict) else None
+        if event.get("type") == "assistant.message" and isinstance(data, dict) and (data.get("content") or "").strip():
+            text, model = data["content"].strip(), data.get("model") or model
+    return text, model
+
+
+def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> None:
+    """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
+
+    The first task starts the session under the id recorded at spawn; later ones resume it, so the asker
+    keeps what it read.
+    """
+    entry = agent_entry(load_run(run_id), name)
+    resume = entry.get("asked", 0) > 0
+    mark_read(record(run_id, me, name, "task", task))  # kept as the record; it reaches Copilot as the prompt
+    argv = ["copilot", "-p", task, "--output-format", "json", "--allow-all-tools", "--deny-tool", "write",
+            "--no-ask-user", *(["--resume"] if resume else ["--session-id"]), entry["session"],
+            *copilot_model_argv(entry["requested_model"], entry["effort"])]
+    with editing_run(run_id) as run:
+        run["agents"][name]["status"] = "running"
+    log_event(run_id, "copilot", name=name, resume=resume)
+    # No mesh identity: it answers through its output, never with `mesh send`.
+    result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=timeout or None)
+    text, model = copilot_answer(result.stdout)
+    with editing_run(run_id) as run:
+        agent = run["agents"][name]
+        agent["status"] = "retired"
+        if text and result.returncode == 0:
+            agent["asked"] = agent.get("asked", 0) + 1
+            agent["model"] = model or agent["model"]
+    if text and result.returncode == 0:
+        record(run_id, name, me, "done", text)
+    else:
+        error = (result.stderr or result.stdout).strip().splitlines()[-1:] or [f"exit {result.returncode}"]
+        record(run_id, name, me, "failed", f"copilot exited {result.returncode}: {error[0]}")
+
+
+def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
+                pr: str | None, number: int | None, base: str | None, body: str) -> int:
+    """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot -p` prints."""
+    ignored = [flag for flag, on in (("--keep", args.keep), ("--no-wait", args.no_wait), ("--wait", args.wait),
+                                     ("--view", args.view), ("--compact", args.compact != "auto"),
+                                     ("--focus", args.focus)) if on]
+    if ignored:
+        print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
+    if target:
+        old_run, _, old_name, old = target
+        branch = entry_branch(old_run, old)
+        ensure_worktree(old, branch)
+        name = old_name
+        with editing_run(run_id) as run:
+            if old_run["id"] != run_id:
+                # A Copilot asker from an earlier run comes back as this run's, as `mesh resume` brings a worker.
+                taken, n = set(run["agents"]) | live_agent_names(), 2
+                while name in taken:
+                    name, n = f"{old_name[:29]}-{n}", n + 1
+                run["agents"][name] = {**old, "parent": me, "resumed_from": {"run": old_run["id"], "name": old_name}}
+                worktrees = run.setdefault("worktrees", [])
+                if branch and not any(Path(w["path"]) == Path(old["cwd"]) for w in worktrees):
+                    base_sha = {"base": old["base"]} if old.get("base") else {}
+                    worktrees.append({"path": old["cwd"], "repo": old["repo"], "branch": branch, **base_sha})
+            if args.model or args.effort:
+                run["agents"][name].update(requested_model=args.model or old["requested_model"],
+                                           effort=args.effort or old["effort"])
+        how = "asked"
+    else:
+        taken = set(load_run(run_id)["agents"]) | live_agent_names()
+        slug = args.name or (f"review-{number}" if pr else ask_slug(body))
+        name = agent_name(repo.name, slug, taken)
+        cwd, branch, base = add_worktree(run_id, repo, slugify(slug, 24), base)
+        model = args.model or os.environ.get("MESH_COPILOT_MODEL") or COPILOT_MODEL
+        size = args.size or "small"
+        effort = args.effort or COPILOT_EFFORT[size]
+        with editing_run(run_id) as run:
+            run["agents"][name] = {
+                "role": "worker", "kind": "copilot", "model": model, "requested_model": model, "effort": effort,
+                "size": size, "view": "headless", "repo": str(repo), "cwd": str(cwd), "branch": branch,
+                "base": base, "session": str(uuid.uuid4()), "pane": None, "tab": None, "workspace": None,
+                "parent": me, "status": "starting", "spawned": now_iso(), "log": None, "phase": None,
+                "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
+            }
+        log_event(run_id, "spawn", name=name, kind="copilot", role="worker", model=model, view="headless", parent=me)
+        how = "started"
+    if pr:
+        with editing_run(run_id) as run:
+            reviews = run["agents"][name].setdefault("reviews", [])
+            if pr not in reviews:
+                reviews.append(pr)
+    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer", file=sys.stderr)
+    copilot_ask(run_id, me, name, task, args.timeout)
+    meta, text = take_reply(run_id, me, name)
+    print(f"── {meta.get('type')} from {name} ──\n{text}\n")
+    print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
+    return 0 if meta.get("type") == "done" else 1
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     """Ask a worker, or a fresh agent in a repo, a question or for a PR review, and wait for the answer."""
     if bool(args.ref) == bool(args.repo):
         raise MeshError("ask whom? pass a worker (name, branch or PR link, see `mesh agents`) or --repo for a fresh agent")
     if args.kind and args.ref:
         raise MeshError("--kind is for a fresh agent (--repo); a worker keeps its own CLI")
+    copilot = args.kind == "copilot"
     body = (read_body(args.body, args.file) or "").strip()
     if not body and not args.review:
         raise MeshError("empty question: pass --body TEXT or --file PATH (- for stdin), or --review PR")
@@ -2215,6 +2343,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     else:
         target = find_worker(args.ref)
         repo = Path(target[3]["repo"]) if target[3].get("repo") else Path.cwd()
+        copilot = target[3].get("kind") == "copilot"
     pr, number = pr_ref(args.review, repo) if args.review else (None, None)
     task = ask_task(body, pr, number, fresh=bool(args.repo))
     base = pr_head(repo, pr, number) if pr and args.repo else None
@@ -2224,11 +2353,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
     except MeshError:
         if getattr(args, "run", None):
             raise
-        started = init_run(args.kind or "agy", (body.splitlines() or [f"review {pr}"])[0][:200])
+        mode = None if copilot else args.kind or "agy"  # a Copilot asker's run is in the root's own mode
+        started = init_run(mode, (body.splitlines() or [f"review {pr}"])[0][:200])
         run_id, me = started["run"], started["name"]
         print(f"mesh: started run {run_id}", file=sys.stderr)
     if agent_entry(load_run(run_id), me)["role"] != "root":
         raise MeshError("only the root asks: a worker sends its parent a `question` instead")
+    if copilot:
+        return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body)
 
     if args.repo:
         slug = args.name or (f"review-{number}" if pr else ask_slug(body))
@@ -2383,7 +2515,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
     run = load_run(run_id)
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
-        if entry["role"] == "root" or entry.get("status") == "retired":
+        if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == "headless":
             continue
         if entry.get("view") == "bg":
             if stop_bg(entry):  # the conversation is kept, so it can be resumed
@@ -2611,7 +2743,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--review", metavar="PR", help="ask for a review of this PR (link, or number in --repo)")
     p.add_argument("--body", help="the question, or notes for the review")
     p.add_argument("--file", help="the question from a file (- for stdin)")
-    p.add_argument("--kind", choices=KINDS, help="a fresh agent's CLI (default: the run's mode, or agy)")
+    p.add_argument("--kind", choices=ASK_KINDS,
+                   help="a fresh agent's CLI (default: the run's mode, or agy); copilot runs headless, read-only")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
     p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")

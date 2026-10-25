@@ -1,6 +1,6 @@
 # agent-mesh orchestration
 
-The shared procedure behind `/delegate-agy` and `/delegate-claude`, for changes, questions, PR reviews and whole task lists.
+The shared procedure behind `/delegate-agy` and `/delegate-claude`, for changes, questions, PR reviews and whole task lists. `/delegate-review` uses only its "Questions and reviews" section.
 
 - **The root** is the agent running the command (typed by the user, or picked by the agent for the user's request), usually in the middle of its own work in its own repo. It keeps doing its own repo's part itself, and spawns one *worker* per **other** affected repo.
 - **Each worker** loads its repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Depending on the task's size, it either does the task directly, or researches it, sends the root a plan to review and, once the plan is approved, carries it out **itself**, with all the context its research built up.
@@ -54,7 +54,7 @@ The command sets the CLI. You may *propose* routing a task to the other CLI, in 
 
 - **Under `/delegate-claude`:** a trivial or small task can go to agy Flash (`--kind agy`) when `mesh usage` shows Flash quota, keeping the user's Claude limits for the large tasks.
 - **Under `/delegate-agy`:** a large task can go to Claude when `mesh usage` shows Argon and Claude Opus both under the threshold.
-- **Reviews:** they go to the other vendor by default (`mesh ask --review --kind <the other one>`), since a second model catches what the first one missed.
+- **Reviews:** they go to the other vendor by default (`mesh ask --review --kind <the other one>`), since a second model catches what the first one missed. Copilot reviews only when the user names it.
 
 A routing proposal is only a proposal: the user confirms the table, or you mention it in your one-line summary for a single task. A request that names an agent or model is never re-routed.
 
@@ -167,9 +167,10 @@ mesh ask <name | branch | PR link> --body "<question>"        # a worker you alr
 mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR without leaving its branch
 ```
 
-- **No run needed:** without one, `ask` starts it (mode `--kind`, default agy).
+- **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot`, your own CLI).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
 - **A fresh agent** follows the mode table and `--size`, like a spawn. Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
+- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no pane: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
   - A PR link names the worker that opened the PR; a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.
