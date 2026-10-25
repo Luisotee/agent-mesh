@@ -4604,9 +4604,55 @@ def test_run_cli_starts_a_recorded_cli_in_its_own_session_and_kills_its_group():
     assert result.stdout == "hi" and sessions[0][0] == sessions[0][1]
     started = []
     result = module.run_cli(["sh", "-c", "sleep 30 & wait"], timeout=0.5, started=started.append)
-    assert result.returncode == 124
-    with pytest.raises(ProcessLookupError):
-        os.killpg(started[0], 0)  # its `sleep` went with it
+    assert result.returncode == 124 and group_gone(started[0])  # its `sleep` went with it
+
+
+def group_gone(pgid, within=3.0):
+    """Whether process group `pgid` empties within a few seconds; zombies (not reaped yet) don't count."""
+    import time
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        live = []
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = stat.read_text().rsplit(")", 1)[1].split()
+            except (OSError, IndexError):
+                continue
+            if fields[2] == str(pgid) and fields[0] != "Z":
+                live.append(stat)
+        if Path("/proc/self").exists() and not live:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_run_cli_timeout_does_not_wait_for_a_grandchild_holding_its_pipes():
+    import time
+    module = load_mesh()
+    for started in (None, lambda pid: None):  # `setsid`: out of the group a recorded CLI's kill reaches
+        begun = time.monotonic()
+        result = module.run_cli(["sh", "-c", "setsid sleep 5 & sleep 5"], timeout=1, started=started)
+        assert result.returncode == 124 and time.monotonic() - begun < 3
+
+
+def test_a_sigterm_to_mesh_ask_takes_its_copilot_group_with_it():
+    import signal
+    module = load_mesh()
+    before = signal.getsignal(signal.SIGTERM)
+    started = []
+
+    def record_and_get_killed(pid):
+        started.append(pid)
+        os.kill(os.getpid(), signal.SIGTERM)  # someone kills `mesh ask` while copilot answers
+    with pytest.raises(SystemExit) as exc:
+        with module.signals_raise(signal.SIGTERM, signal.SIGHUP):
+            module.run_cli(["sh", "-c", "sleep 30 & wait"], started=record_and_get_killed)
+    assert exc.value.code == 128 + signal.SIGTERM and group_gone(started[0])
+    assert signal.getsignal(signal.SIGTERM) == before
 
 
 def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):

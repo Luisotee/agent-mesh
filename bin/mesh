@@ -259,8 +259,9 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
     """Run an agent CLI (`claude`, `agy`, `copilot`) to completion; one that can't start or times out is a failed run.
 
     With `started`, the CLI runs in a session of its own and `started` gets its pid once it runs, for the
-    caller to record: a killed caller leaves it running, and then the record is what shows it busy. A
-    timeout or an exception here (Ctrl-C) kills its whole process group, tools it started included.
+    caller to record: a caller killed outright leaves it running, and then the record is what shows it busy.
+    A timeout or an exception here (Ctrl-C, or a signal signals_raise turned into one) kills its whole
+    process group, tools it started included.
     """
     try:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -276,7 +277,15 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
             os.killpg(proc.pid, signal.SIGKILL) if started else proc.kill()
         except OSError:
             pass  # gone already
-        proc.communicate()
+        # Not communicate(): a grandchild outside the group (or any, without `started`) may still hold
+        # the pipes, and reading them to EOF would wait for it (as subprocess.run does).
+        proc.wait()
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe:
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
 
     try:
         if started:
@@ -4342,6 +4351,23 @@ def copilot_answer(stdout: str) -> tuple[str, str | None]:
     return text, model
 
 
+@contextmanager
+def signals_raise(*signums: int):
+    """Turn these signals into SystemExit while inside, so `finally` and `except` clauses (run_cli's
+    kill) run as they do on Ctrl-C; the previous handlers come back after. Outside the main thread, a no-op."""
+    def interrupted(signum, frame):
+        raise SystemExit(128 + signum)
+    try:
+        previous = {signum: signal.signal(signum, interrupted) for signum in signums}
+    except ValueError:  # not the main thread
+        previous = {}
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> None:
     """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
 
@@ -4363,8 +4389,9 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
             run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
 
     # No mesh identity: it answers through its output, never with `mesh send`.
-    result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=timeout or None,
-                     input=f"{task}\n\n{COPILOT_NOTE}", started=started)
+    with signals_raise(signal.SIGTERM, signal.SIGHUP):  # so a killed or hung-up `mesh ask` takes copilot with it
+        result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False),
+                         timeout=timeout or None, input=f"{task}\n\n{COPILOT_NOTE}", started=started)
     text, model = copilot_answer(result.stdout)
     answered = bool(text) and result.returncode == 0
     # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
