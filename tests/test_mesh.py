@@ -2089,6 +2089,20 @@ def test_a_second_fresh_reviewer_of_a_pr_gets_its_own_branch(mesh, fake, run, re
     assert second["name"] != first["name"]
 
 
+def test_a_named_reviewer_whose_branch_is_taken_gets_the_next_one(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    named = ["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--name", "review-7-claude", "--no-wait"]
+    assert mesh.main(named) == 0  # /delegate-review always passes --name
+    capsys.readouterr()
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(named) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["branch"], out["name"]) == ("mesh/mtest/review-7-claude-2", "proj-review-7-claude-2")
+
+
 def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
