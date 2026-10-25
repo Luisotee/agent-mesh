@@ -3898,13 +3898,14 @@ def gh_json(argv: list[str], cwd: str | Path | None = None) -> tuple[object, str
 
 
 def github_repos(repo: str | Path) -> set[str] | None:
-    """`owner/name` of each GitHub remote of `repo` (lowercase); None when git can't read them (the repo is gone)."""
+    """`owner/name` of each GitHub remote of `repo` (lowercase): empty when its remotes are elsewhere, None when
+    it has none or git can't read them (the repo is gone)."""
     try:
         remotes = git("remote", cwd=repo).split()
         urls = [git("remote", "get-url", remote, cwd=repo) for remote in remotes]
     except MeshError:
         return None
-    return {f"{m.group(1)}/{m.group(2)}".lower() for m in map(GITHUB_REMOTE_RE.search, urls) if m}
+    return {f"{m.group(1)}/{m.group(2)}".lower() for m in map(GITHUB_REMOTE_RE.search, urls) if m} if urls else None
 
 
 def pr_head_branch(pr: str) -> str | None:
@@ -3925,15 +3926,15 @@ def worktree_branch(entry: dict) -> str | None:
 
 
 def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
-    """Whether this worker's branch is the PR's head, in the PR's repo (when the worker's repo has GitHub remotes)."""
-    if pr in (entry.get("reviews") or ()):
-        return False  # a reviewer that checked the PR's branch out isn't its author
+    """Whether this worker's branch is the PR's head, in the PR's repo (unless the worker's repo has no remotes)."""
+    if live_branch and pr in (entry.get("reviews") or ()):
+        return False  # a reviewer that checked the PR's branch out isn't its author (one reviewing its own PR is)
     branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
     if not branch or branch != head:
         return False
     repos = github_repos(entry["repo"]) if entry.get("repo") else None
     owner_repo = pr.split("github.com/", 1)[1].rsplit("/pull/", 1)[0].lower()
-    return not repos or owner_repo in repos
+    return repos is None or owner_repo in repos
 
 
 def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str, dict]:
@@ -4181,16 +4182,24 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     return report
 
 
-def finished_pr(repo: str | Path, branch: str) -> tuple[dict | None, str | None]:
+def finished_pr(repo: str | Path, branch: str, base: str | None = None) -> tuple[dict | None, str | None]:
     """The newest PR from `branch` once none from it is open (merged or closed), and why gh couldn't say.
 
-    A PR counts only when its head commit is in the branch, so an old PR from a reused branch name doesn't;
-    one whose head commit isn't here (never fetched) still counts.
+    A PR counts only when its head commit is in the branch and not in `base`, the commit the worker started
+    from, so an old PR from a reused branch name doesn't, merged into the default branch or not. One whose head
+    commit isn't here (squash-merged and never fetched) still counts: telling would take a fetch.
     """
     data, error = gh_json(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid"],
                           cwd=repo)
     if error or not isinstance(data, list):
         return None, error or "gh printed no list"
+
+    def is_ancestor(oid: str, ref: str) -> bool:
+        try:
+            git("merge-base", "--is-ancestor", oid, ref, cwd=repo)
+            return True
+        except MeshError:
+            return False
 
     def on_branch(pr: dict) -> bool:
         oid = pr.get("headRefOid")
@@ -4198,11 +4207,7 @@ def finished_pr(repo: str | Path, branch: str) -> tuple[dict | None, str | None]
             git("cat-file", "-e", f"{oid}^{{commit}}", cwd=repo)
         except MeshError:
             return True  # not here to compare
-        try:
-            git("merge-base", "--is-ancestor", oid, f"refs/heads/{branch}", cwd=repo)
-            return True
-        except MeshError:
-            return False
+        return is_ancestor(oid, f"refs/heads/{branch}") and not (base and is_ancestor(oid, base))
     data = [pr for pr in data if pr.get("state") == "OPEN" or on_branch(pr)]
     if not data or any(pr.get("state") == "OPEN" for pr in data):
         return None, None
@@ -4231,11 +4236,11 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
     `branch` / `base` when the worktree moved. gh missing or failing never blocks a resume: it goes on as before,
     with a note.
     """
-    read_only = getattr(args, "read_only", False) or bool(task and task.startswith(READ_ONLY_STARTS))
+    read_only = getattr(args, "read_only", False) or bool(task and task.lstrip().startswith(READ_ONLY_STARTS))
     current = worktree_branch(entry) or branch
     if not task or read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
         return {}  # a question or review stays put; a repo off GitHub has no PR to check
-    pr, error = finished_pr(entry["repo"], current)
+    pr, error = finished_pr(entry["repo"], current, entry.get("base"))
     if error:
         return {"note": f"couldn't check whether {current} has a merged or closed PR (gh: {error}); "
                         f"resuming on it as before"}
@@ -4269,7 +4274,8 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
             return True
         except MeshError:
             return False
-    slug, n = slugify(current.rsplit("/", 1)[-1], 24), 2
+    slug = slugify(current.rsplit("/", 1)[-1], 24)
+    slug, n = re.sub(r"-\d+$", "", slug) or slug, 2  # `fix-2` again makes `fix-3`, not `fix-2-2`
     new = f"mesh/{run_id}/{slug}"
     while new == current or taken(new):
         new, n = f"mesh/{run_id}/{slug}-{n}", n + 1

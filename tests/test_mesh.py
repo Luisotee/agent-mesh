@@ -2573,10 +2573,34 @@ def test_a_finished_pr_counts_only_from_this_branch_and_only_with_a_task(mesh, f
     assert mesh.finished_pr(repo, branch) == (None, None)  # a reused branch name: that PR's head isn't in it
     cli.on("pr", "list", stdout=json.dumps([{"number": 3, "url": "u3", "state": "MERGED", "headRefOid": "f" * 40}]))
     assert mesh.finished_pr(repo, branch)[0]["number"] == 3  # never fetched: it still counts
+    # a PR whose head is in the commit the worker started from isn't its own, even once merged into main
+    subprocess.run(["git", "branch", "-f", branch, old_head], cwd=repo, check=True)
+    cli.on("pr", "list", stdout=json.dumps([{"number": 3, "url": "u3", "state": "MERGED", "headRefOid": old_head}]))
+    assert mesh.finished_pr(repo, branch)[0]["number"] == 3
+    assert mesh.finished_pr(repo, branch, base=old_head) == (None, None)
     cli.calls.clear()
     entry = {"repo": str(repo), "cwd": str(repo), "branch": branch}
-    assert mesh.leave_finished_pr(mesh.argparse.Namespace(), run, entry, branch, None) == {}
+    ns = mesh.argparse.Namespace()
+    assert mesh.leave_finished_pr(ns, run, entry, branch, None) == {}
+    assert mesh.leave_finished_pr(ns, run, entry, branch, "\n  Question (read-only)\n\nWhy?") == {}
     assert not cli.called("pr", "list")  # without a task the worker would never hear of a new branch
+    # a resumed branch's suffix is renumbered, not stacked
+    path, again, _ = mesh.add_worktree(run, repo, "fix-2", None)
+    cli.on("pr", "list", stdout=json.dumps([{"number": 9, "url": "u9", "state": "CLOSED"}]))
+    moved = mesh.leave_finished_pr(ns, run, {"repo": str(repo), "cwd": str(path)}, again, "Fix it.")
+    assert (again, moved["branch"]) == ("mesh/mtest/fix-2", "mesh/mtest/fix")
+
+
+def test_a_head_branch_match_needs_the_prs_repo_and_skips_only_live_reviewers(mesh, run, repo):
+    pr = "https://github.com/acme/proj/pull/9"
+    entry = {"repo": str(repo), "branch": "feat/x", "reviews": [pr]}
+    assert mesh.github_repos(repo) is None
+    assert mesh.opened_pr(pr, "feat/x", {}, entry)  # no remotes to tell by; it reviewed its own PR
+    subprocess.run(["git", "remote", "add", "origin", "https://gitlab.com/acme/proj.git"], cwd=repo, check=True)
+    assert mesh.github_repos(repo) == set()
+    assert not mesh.opened_pr(pr, "feat/x", {}, entry)  # a GitLab repo opened no GitHub PR
+    subprocess.run(["git", "remote", "add", "github", "git@github.com:Acme/Proj.git"], cwd=repo, check=True)
+    assert mesh.opened_pr(pr, "feat/x", {}, entry)
 
 
 def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_moves_on(mesh, fake, run, repo,
