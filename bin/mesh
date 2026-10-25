@@ -87,6 +87,11 @@ REVIEW_PREFIX = ("Review (read-only) of {pr}: review this pull request. Change n
                  "findings, most severe first, each with file:line, the concrete failure (input or state, and what "
                  "goes wrong), why it matters and a suggested fix; report only what you confirmed in the code and "
                  "mark the rest unverified. Or reply `failed`.")
+# What a Copilot asker may not run, on top of its read-only prompt: file edits, and what would publish
+# or merge (its shell stays open so it can run tests). A shell rule needs `:*` to match the command with
+# any arguments; Copilot ignores a bare three-word `shell(gh pr comment)`.
+COPILOT_DENY = ("write", *(f"shell({cmd}:*)" for cmd in (
+    "git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close", "gh issue comment")))
 # Appended to a Copilot asker's prompt, which never reads PROTOCOL.md (see copilot_ask).
 COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` to run. Your final message is your "
                 "answer (your `done`).")
@@ -1640,7 +1645,8 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
     if entry and entry.get("view") == "bg":
         return bg_status(entry, bg_rows)
     if entry and entry.get("view") == "headless":
-        return "gone"  # a Copilot asker runs only inside the `mesh ask` that asks it
+        # A Copilot asker runs only inside the `mesh ask` that asks it, and works while that process lives.
+        return "working" if entry.get("status") == "running" and pid_alive(entry.get("pid")) else "gone"
     try:
         return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
     except HerdrError as exc:
@@ -2273,29 +2279,22 @@ def copilot_answer(stdout: str) -> tuple[str, str | None]:
 def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> None:
     """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
 
-    Every task goes under the session id recorded at spawn, which starts the session the first time and
+    The caller has marked the entry `running` with this process's pid (`claim_copilot`). Every task goes
+    under the session id recorded at spawn, which starts the session the first time and
     resumes it after, so the asker keeps what it read. The prompt goes on stdin: a review's diff can be
     larger than one command-line argument may be.
     """
     entry = agent_entry(load_run(run_id), name)
     mark_read(record(run_id, me, name, "task", task))  # kept as the record; it reaches Copilot as the prompt
-    argv = ["copilot", "--output-format", "json", "--allow-all-tools", "--deny-tool", "write", "--no-ask-user",
+    argv = ["copilot", "--output-format", "json", "--allow-all-tools", "--deny-tool", *COPILOT_DENY, "--no-ask-user",
             "--session-id", entry["session"], *copilot_model_argv(entry["requested_model"], entry["effort"])]
-    with editing_run(run_id) as run:
-        # The pid tells a later `ask` or `open` that this conversation is busy (live_holder).
-        run["agents"][name].update(status="running", pid=os.getpid())
     log_event(run_id, "copilot", name=name)
     # No mesh identity: it answers through its output, never with `mesh send`.
     result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=timeout or None,
                      input=f"{task}\n\n{COPILOT_NOTE}")
     text, model = copilot_answer(result.stdout)
     answered = bool(text) and result.returncode == 0
-    with editing_run(run_id) as run:
-        agent = run["agents"][name]
-        agent["status"] = "retired"
-        agent.pop("pid", None)
-        if answered:
-            agent["model"] = model or agent["model"]
+    # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
     if answered:
         record(run_id, name, me, "done", text)
     elif result.returncode == 0:
@@ -2303,11 +2302,28 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     else:
         error = result.stderr.strip().splitlines()[-1:] or [f"exit {result.returncode}"]
         record(run_id, name, me, "failed", f"copilot exited {result.returncode}: {error[0]}")
+    with editing_run(run_id) as run:
+        agent = run["agents"][name]
+        agent["status"] = "retired"
+        agent.pop("pid", None)
+        if answered:
+            agent["model"] = model or agent["model"]
+
+
+def refuse_busy(name: str, entry: dict) -> None:
+    holder = live_holder(name, entry)
+    if holder and holder.get("pid"):
+        raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; ask it again once that finishes")
+
+
+def claim_copilot(entry: dict) -> None:
+    """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it."""
+    entry.update(status="running", pid=os.getpid())
 
 
 def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
                 pr: str | None, number: int | None, base: str | None, body: str) -> int:
-    """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot -p` prints."""
+    """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot` prints (copilot_ask)."""
     ignored = [flag for flag, on in (("--keep", args.keep), ("--no-wait", args.no_wait), ("--wait", args.wait),
                                      ("--view", args.view), ("--compact", args.compact != "auto"),
                                      ("--focus", args.focus)) if on]
@@ -2315,10 +2331,8 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
     if target:
         old_run, _, old_name, old = target
-        holder = live_holder(old_name, old)
-        if holder:
-            raise MeshError(f"{old_name} is still answering in mesh process {holder['pid']}; "
-                            f"ask it again once that finishes")
+        if old_run["id"] != run_id:
+            refuse_busy(old_name, old)
         branch = entry_branch(old_run, old)
         ensure_worktree(old, branch)
         name = old_name
@@ -2333,9 +2347,12 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
                 if branch and not any(Path(w["path"]) == Path(old["cwd"]) for w in worktrees):
                     base_sha = {"base": old["base"]} if old.get("base") else {}
                     worktrees.append({"path": old["cwd"], "repo": old["repo"], "branch": branch, **base_sha})
+            else:
+                refuse_busy(name, run["agents"][name])  # checked and claimed under one lock (below)
             if args.model or args.effort:
                 run["agents"][name].update(requested_model=args.model or old["requested_model"],
                                            effort=args.effort or old["effort"])
+            claim_copilot(run["agents"][name])
         how = "asked"
     else:
         taken = set(load_run(run_id)["agents"]) | live_agent_names()
@@ -2353,6 +2370,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
                 "parent": me, "status": "starting", "spawned": now_iso(), "log": None, "phase": None,
                 "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
             }
+            claim_copilot(run["agents"][name])
         log_event(run_id, "spawn", name=name, kind="copilot", role="worker", model=model, view="headless", parent=me)
         how = "started"
     if pr:
@@ -2360,12 +2378,70 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
             reviews = run["agents"][name].setdefault("reviews", [])
             if pr not in reviews:
                 reviews.append(pr)
-    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer", file=sys.stderr)
+    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it with "
+          f"`mesh peek {name} --follow`)", file=sys.stderr)
     copilot_ask(run_id, me, name, task, args.timeout)
     meta, text = take_reply(run_id, me, name)
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
     print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
     return 0 if meta.get("type") == "done" else 1
+
+
+def copilot_events(entry: dict) -> Path:
+    """The file Copilot writes every event of an asker's session to."""
+    home = Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot")
+    return home / "session-state" / entry["session"] / "events.jsonl"
+
+
+def peek_line(line: str) -> str | None:
+    """One Copilot event as a line of `mesh peek`: a tool it started, or something it said."""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict) or not isinstance(event.get("data"), dict):
+        return None
+    data, at = event["data"], str(event.get("timestamp") or "")[11:19]
+    if event.get("type") == "tool.execution_start":
+        args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+        what = next((args[k] for k in ("description", "command", "path", "pattern") if args.get(k)), "")
+        return f"{at} {data.get('toolName')}: {first_line(str(what), 140)}"
+    if event.get("type") == "assistant.message" and (data.get("content") or "").strip():
+        return f"{at} says: {first_line(data['content'], 140)}"
+    return None
+
+
+def cmd_peek(args: argparse.Namespace) -> int:
+    """Show what a Copilot asker is doing, from its session's events, since it has no pane to look at."""
+    _, folder, name, entry = find_worker(args.ref, args.from_run)
+    if entry.get("kind") != "copilot":
+        look = f"`claude attach {entry['bg_id']}`" if entry.get("bg_id") else f"`herdr agent read {name}`"
+        raise MeshError(f"{name} is a {entry.get('kind')} worker; look at it with {look}")
+    path = copilot_events(entry)
+    if not path.exists():
+        raise MeshError(f"{name} has no Copilot session yet ({path})")
+    with path.open() as f:
+        lines = [shown for shown in map(peek_line, f) if shown]
+        offset = f.tell()
+    for shown in lines[-args.lines:]:
+        print(shown)
+    if not args.follow:
+        return 0
+    pending = ""  # a line Copilot is still writing
+    while True:
+        with path.open() as f:
+            f.seek(offset)
+            pending += f.read()
+            offset = f.tell()
+        *complete, pending = pending.split("\n")
+        for shown in map(peek_line, complete):
+            if shown:
+                print(shown, flush=True)
+        entry = json.loads((folder / "run.json").read_text())["agents"][name]
+        if agent_status(name, entry) != "working":
+            print(f"({name} is not answering now: its answer is what `mesh ask` printed, or `mesh inbox`)")
+            return 0
+        time.sleep(1)
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -2556,6 +2632,13 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
 def cmd_stop(args: argparse.Namespace) -> int:
     run_id = args.run_id or identity(args)[0]
     run = load_run(run_id)
+    for name, entry in run["agents"].items():
+        if entry.get("view") == "headless":
+            # Removing its worktree and archiving the run under it would lose the answer.
+            holder = live_holder(name, entry)
+            if holder:
+                raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; wait for that "
+                                f"`mesh ask` to finish (or kill it), then stop the run")
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
         if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == "headless":
@@ -2778,6 +2861,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", choices=EFFORTS)
     p.add_argument("extra", nargs=argparse.REMAINDER, help="after --: more arguments for the CLI")
     p.set_defaults(func=cmd_open)
+
+    p = sub.add_parser("peek", help="show what a Copilot asker is doing: its latest tool calls and messages")
+    p.add_argument("ref", help="the asker's name or branch (see `mesh agents`)")
+    p.add_argument("--from-run", help="look only in this run (default: the newest match)")
+    p.add_argument("--lines", type=int, default=15, help="how many past events to show (default: 15)")
+    p.add_argument("--follow", action="store_true", help="keep printing new events until it stops answering")
+    p.set_defaults(func=cmd_peek)
 
     p = ident(sub.add_parser("ask", help="ask a worker, or a fresh agent in a repo, a question or for a PR review, "
                                          "and wait for the answer"))

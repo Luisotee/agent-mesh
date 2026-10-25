@@ -128,7 +128,7 @@ The agent is an ordinary worker, so it stays useful after it answers:
 - **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
-A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call, with no pane, and only answers. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
+A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call, with no pane, and only answers. `mesh peek <name> --follow` shows what it's doing. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
 
 ```bash
 mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
@@ -265,6 +265,7 @@ mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
 mesh agents [query]        # every past worker, live or archived, with branch, PRs and reviews
+mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
 mesh switch <worker>       # (root) move a worker off a model that hit its quota

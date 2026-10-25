@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 from conftest import load_mesh
@@ -1863,6 +1864,8 @@ def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cl
     assert call["input"].startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in call["input"]
     assert call["input"].endswith(mesh.COPILOT_NOTE)
     assert call["cwd"] == entry["cwd"] and "MESH_RUN" not in call["env"] and "pid" not in entry
+    denied = argv[argv.index("--deny-tool") + 1: argv.index("--no-ask-user")]
+    assert denied[0] == "write" and "shell(git push:*)" in denied and "shell(gh pr comment:*)" in denied
     assert argv[argv.index("--session-id") + 1] == entry["session"]
     assert argv[argv.index("--model") + 1] == "auto" and "--auto-tier" in argv and "--reasoning-effort" not in argv
     assert not fake.called("agent", "start") and not mesh.unread(run, "proj-review-7")
@@ -1961,3 +1964,60 @@ def test_only_mesh_ask_reaches_a_copilot_asker(mesh, fake, cli, run, repo, capsy
         assert "headless Copilot asker" in capsys.readouterr().err
     assert len(list(mesh.inbox_dir(run, "proj-ask-auth").rglob("*.md"))) == before
     assert not fake.called("pane", "close")
+
+
+def test_a_copilot_asker_counts_as_working_until_its_answer_is_filed(mesh, fake, cli, run, repo, capsys):
+    seen = []
+
+    def during(argv):
+        entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+        seen.append((mesh.agent_status("proj-ask-auth", entry), entry["pid"]))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=during)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert seen == [("working", os.getpid())]
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert mesh.agent_status("proj-ask-auth", entry) == "gone"
+    # The `done` was filed before the entry stopped counting as working, so a watch on it ends with the report.
+    events = [e["event"] for e in mesh.read_log(run) if e.get("name") == "proj-ask-auth" or e.get("sender") == "proj-ask-auth"]
+    assert events[-1] == "send"
+
+
+def test_stop_waits_for_a_copilot_asker_that_is_answering(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    cwd = mesh.load_run(run)["agents"]["proj-ask-auth"]["cwd"]
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
+    capsys.readouterr()
+    assert mesh.main(["stop"]) == 1
+    assert "still answering in mesh process" in capsys.readouterr().err
+    assert mesh.run_dir(run).exists() and Path(cwd).exists()
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"]["pid"] = 2 ** 22 + 7  # its `mesh ask` was killed: stale
+    assert mesh.main(["stop"]) == 0 and not Path(cwd).exists()
+
+
+def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    session = mesh.load_run(run)["agents"]["proj-ask-auth"]["session"]
+    capsys.readouterr()
+    assert mesh.main(["peek", "proj-ask-auth"]) == 1
+    assert "no Copilot session yet" in capsys.readouterr().err
+    events = tmp_path / "copilot" / "session-state" / session / "events.jsonl"
+    events.parent.mkdir(parents=True)
+    events.write_text("".join(json.dumps(e) + "\n" for e in [
+        {"type": "tool.execution_start", "timestamp": "2026-10-25T06:35:16.000Z",
+         "data": {"toolName": "bash", "arguments": {"command": "uvx pytest -q", "description": "Run the tests"}}},
+        {"type": "tool.execution_start", "timestamp": "2026-10-25T06:35:20.000Z",
+         "data": {"toolName": "view", "arguments": {"path": "/wt/bin/mesh"}}},
+        {"type": "assistant.message", "timestamp": "2026-10-25T06:35:49.000Z", "data": {"content": "done\n\n1. x"}},
+        [1, 2],
+    ]) + '{"type": "assistant.mess')  # a line Copilot is still writing
+    assert mesh.main(["peek", "proj-ask-auth", "--lines", "2"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["06:35:20 view: /wt/bin/mesh", "06:35:49 says: done"]
+    assert mesh.main(["peek", "proj-ask-auth", "--follow"]) == 0  # it isn't answering, so --follow ends at once
+    assert "is not answering now" in capsys.readouterr().out
+    assert mesh.main(["peek", "repo-fix-typo"]) == 1
+    assert "herdr agent read repo-fix-typo" in capsys.readouterr().err
