@@ -126,13 +126,25 @@ def test_a_session_that_isnt_the_one_in_the_pane_is_not_its_worker(mesh, fake, r
     assert "ignored MESH_SELF=repo-fix-typo" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("case", ["same session", "starting", "agy", "named"])
+@pytest.mark.parametrize("kind", ["agy", "copilot"])
+def test_a_claude_session_is_never_an_agy_or_copilot_agent(mesh, fake, run, monkeypatch, capsys, kind):
+    inherited(mesh, run, monkeypatch, kind=kind, view="pane", pane="w2:p5")
+    monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")  # even in that agent's pane
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert f"that agent is {kind}, and this is Claude session other-s" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("case", ["same session", "starting", "agy outside Claude", "named"])
 def test_an_identity_is_kept_when_nothing_shows_it_inherited(mesh, fake, run, monkeypatch, capsys, case):
-    extra = {"starting": {"status": "starting", "spawned": mesh.now_iso()}, "agy": {"kind": "agy"}}.get(case, {})
+    extra = {"starting": {"status": "starting", "spawned": mesh.now_iso()},
+             "agy outside Claude": {"kind": "agy"}}.get(case, {})
     inherited(mesh, run, monkeypatch, view="bg", pane=None, **extra)
     monkeypatch.delenv("HERDR_PANE_ID")
     if case == "same session":
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "rec-s")
+    if case == "agy outside Claude":
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     capsys.readouterr()
     assert mesh.main(["whoami", *(["--as", "repo-fix-typo"] if case == "named" else [])]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"

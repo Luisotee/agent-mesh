@@ -380,8 +380,11 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
             return None  # unreadable right now: not evidence either way
         return f"ignored MESH_RUN={run_id}: no such run (stopped?)"
     entry = run["agents"].get(name) or {}
+    if entry.get("kind") and entry["kind"] != "claude":  # a Claude session is never an agy or Copilot agent
+        return (f"ignored MESH_SELF={name} of run {run_id}: that agent is {entry['kind']}, and this is "
+                f"Claude session {current}")
     recorded = entry.get("session")
-    if entry.get("kind") != "claude" or not recorded or recorded == current:
+    if not recorded or recorded == current:
         return None
     if entry.get("status") == "starting" and seconds_since(last_launch(entry)) < STARTING_GRACE:
         return None
