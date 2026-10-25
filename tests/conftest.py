@@ -27,12 +27,12 @@ class FakeHerdr:
         self.screens: dict[str, list[str]] = {}
 
     def screen(self, target, *texts):
-        """What `herdr agent read <target>` prints: one text per read, the last one repeated."""
+        """What `herdr agent read <target>` (or `pane read`) prints: one text per read, the last one repeated."""
         self.screens[target] = list(texts)
 
     def text(self, *args):
         self.calls.append(args)
-        if args[:2] == ("agent", "read") and args[2] in self.screens:
+        if args[:2] in (("agent", "read"), ("pane", "read")) and args[2] in self.screens:
             texts = self.screens[args[2]]
             return texts.pop(0) if len(texts) > 1 else texts[0]
         return ""
