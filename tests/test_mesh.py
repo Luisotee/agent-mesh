@@ -1378,6 +1378,8 @@ def test_small_and_trivial_agy_tasks_are_flash_at_high_and_low_in_a_pane(mesh, f
     assert mesh.main(["spawn", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-3.8-flash-high", None)
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
     assert mesh.main(["spawn", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
     assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-low"
     assert mesh.main(["spawn", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
