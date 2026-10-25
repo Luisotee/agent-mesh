@@ -5285,7 +5285,12 @@ def changed_files(repo: str, wt: dict, target: str) -> set[str]:
         own = git("merge-base", wt["base"], branch, cwd=repo)
         if not contains(repo, own, start):
             start = own
-    files = set(git("diff", "--name-only", start, branch, cwd=repo).splitlines())
+    # Raw NUL-separated paths, as `status -z` gives them, and both sides of a rename.
+    diff = subprocess.run(["git", "diff", "--name-only", "-z", "--no-renames", start, branch],
+                          cwd=repo, capture_output=True, text=True)
+    if diff.returncode != 0:
+        raise MeshError(f"git diff {start} {branch}: {diff.stderr.strip()}")
+    files = set(diff.stdout.split("\0"))
     if Path(wt["path"]).is_dir():
         out = subprocess.run(["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
                              cwd=wt["path"], capture_output=True, text=True).stdout

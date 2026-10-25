@@ -4942,6 +4942,18 @@ def test_conflicts_reads_a_rename_in_the_worktree(mesh, fake, run, repo, capsys)
     assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["r.txt", "s.txt"]}
 
 
+def test_conflicts_matches_committed_renames_and_non_ascii_paths(mesh, fake, run, repo, capsys):
+    commit_file(repo, "r.txt", "".join(f"line {i}\n" for i in range(20)), "base")
+    commit_file(repo, "café.txt", "1\n", "base")
+    b1, _, _ = mesh.add_worktree(run, repo, "b1", None)
+    subprocess.run(["git", "mv", "r.txt", "s.txt"], cwd=b1, check=True)
+    commit_file(b1, "café.txt", "b1\n", "rename r.txt, edit café.txt")
+    b2, _, _ = mesh.add_worktree(run, repo, "b2", None)
+    (b2 / "r.txt").write_text("changed\n")
+    (b2 / "café.txt").write_text("b2\n")
+    assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["café.txt", "r.txt"]}
+
+
 def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
