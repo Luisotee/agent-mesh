@@ -5274,34 +5274,111 @@ def contains(repo: str, ancestor: str, ref: str) -> bool:
     return subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, ref], cwd=repo).returncode == 0
 
 
+def changed_files(repo: str, wt: dict, target: str) -> set[str]:
+    """Paths a worker has touched: its own commits, plus, while its worktree exists, what is staged,
+    unstaged or untracked there. Its commits start at its recorded base, so a stacked worker doesn't
+    claim its parent's files, or the commits of a base it shares with others; a branch since rebased
+    onto a newer `target` starts there instead."""
+    branch = wt["branch"]
+    start = git("merge-base", target, branch, cwd=repo)
+    if wt.get("base"):
+        own = git("merge-base", wt["base"], branch, cwd=repo)
+        if not contains(repo, own, start):
+            start = own
+    # Raw NUL-separated paths, as `status -z` gives them, and both sides of a rename.
+    diff = subprocess.run(["git", "diff", "--name-only", "-z", "--no-renames", start, branch],
+                          cwd=repo, capture_output=True, text=True)
+    if diff.returncode != 0:
+        raise MeshError(f"git diff {start} {branch}: {diff.stderr.strip()}")
+    files = set(diff.stdout.split("\0"))
+    if Path(wt["path"]).is_dir():
+        out = subprocess.run(["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
+                             cwd=wt["path"], capture_output=True, text=True).stdout
+        fields = iter(out.split("\0"))
+        for field in fields:
+            kind = field[:1]
+            if kind == "1":  # changed: 8 fields, then the path
+                files.add(field.split(" ", 8)[-1])
+            elif kind == "2":  # renamed or copied: 9 fields and the path, then the path it came from
+                files.add(field.split(" ", 9)[-1])
+                files.add(next(fields, ""))
+            elif kind == "u":  # unmerged: 10 fields, then the path
+                files.add(field.split(" ", 10)[-1])
+            elif kind == "?":
+                files.add(field[2:])
+    return {f for f in files if f}
+
+
+def stacked(repo: str, parent: dict, child: dict, target: str) -> bool:
+    """Whether `child` is built on `parent`'s commits: it contains them, or it started from a commit
+    on `parent`'s branch past `parent`'s own start (which still holds once `parent` commits again).
+    What it builds on must lie past `target`: a worker started from `target` after `parent` was rebased
+    onto it, or after `parent` fast-forwarded to it, isn't stacked."""
+    if (parent["committed"] and not contains(repo, parent["branch"], target)
+            and contains(repo, parent["branch"], child["branch"])):
+        return True
+    base, own = child.get("base"), parent.get("base")
+    return bool(base and own and base != own and contains(repo, own, base)
+                and not contains(repo, base, target) and contains(repo, base, parent["branch"]))
+
+
 def cmd_conflicts(args: argparse.Namespace) -> int:
-    """Which run branches with commits conflict with their repo's default branch, or with each other."""
+    """Which run branches with commits conflict with their repo's default branch, or with each other,
+    and which workers' changes, committed or not, touch the same files."""
     run_id = args.run_id or identity(args)[0]
-    by_repo: dict[str, list[str]] = {}
+    by_repo: dict[str, dict[str, dict]] = {}  # repo -> branch -> its worktree record
     for wt in load_run(run_id).get("worktrees", []):
         try:
             tip = git("rev-parse", f"refs/heads/{wt['branch']}", cwd=wt["repo"])
         except MeshError:
             continue  # deleted
-        if tip != wt.get("base") and wt["branch"] not in by_repo.get(wt["repo"], []):
-            by_repo.setdefault(wt["repo"], []).append(wt["branch"])
-    rows = []
-    for repo, branches in by_repo.items():
+        seen = by_repo.setdefault(wt["repo"], {})
+        if wt["branch"] not in seen or Path(wt["path"]).is_dir():  # a resumed worker's live worktree wins
+            seen[wt["branch"]] = {**wt, "committed": tip != wt.get("base")}
+    rows, overlaps = [], []
+    for repo, wts in by_repo.items():
         target = default_base(Path(repo))
-        pairs = [(b, target) for b in branches]
-        # Stacked branches (one built on the other) are meant to overlap: skip those pairs.
-        pairs += [(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]
+        branches = list(wts)
+        committed = [b for b in branches if wts[b]["committed"]]
+        # Stacked branches (one built on the other's commits) are meant to overlap: skip those pairs.
+        # Two branches still at the same commit contain each other, but aren't stacked.
+        apart = [(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]
+                 if not stacked(repo, wts[a], wts[b], target) and not stacked(repo, wts[b], wts[a], target)]
+        pairs = [(b, target) for b in committed]
+        pairs += [(a, b) for i, a in enumerate(committed) for b in committed[i + 1:]
                   if not contains(repo, a, b) and not contains(repo, b, a)]
+        conflicting: dict[tuple[str, str], list[str]] = {}
         for branch, against in pairs:
             files = merge_conflicts(repo, against, branch)
             if files is not None:
                 rows.append({"repo": Path(repo).name, "branch": branch, "against": against, "files": files})
+                conflicting[(branch, against)] = files
+        # Overlap is an early warning: it also sees uncommitted work, which merge-tree can't.
+        touched: dict[str, set[str]] = {}
+        for b in branches:
+            try:
+                touched[b] = changed_files(repo, wts[b], target)
+            except MeshError as e:  # e.g. its recorded base was garbage-collected
+                print(f"mesh conflicts: no overlap check for {b}: {e}", file=sys.stderr)
+        for a, b in apart:
+            if a not in touched or b not in touched:
+                continue
+            shared = sorted((touched[a] & touched[b]) - set(conflicting.get((a, b), [])))
+            if shared:
+                overlaps.append({"repo": Path(repo).name, "branch": a, "against": b, "files": shared,
+                                 "kind": "overlap"})
     if args.json:
-        emit(rows)
-    elif not rows:
-        print(f"No conflicts among {sum(len(b) for b in by_repo.values())} branch(es) with commits.")
-    else:
+        emit([{**r, "kind": "conflict"} for r in rows] + overlaps)
+        return 0
+    if rows:
         print_table([{**r, "files": " ".join(r["files"])} for r in rows], ("repo", "branch", "against", "files"))
+    else:
+        checked = sum(wt["committed"] for wts in by_repo.values() for wt in wts.values())
+        print(f"No conflicts among {checked} branch(es) with commits.")
+    if overlaps:
+        print("\nWarning: these workers change the same files (committed or not), so their branches may "
+              "conflict once they commit or merge:")
+        print_table([{**r, "files": " ".join(r["files"])} for r in overlaps], ("repo", "branch", "against", "files"))
     return 0
 
 
@@ -5683,7 +5760,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base")
     p.set_defaults(func=cmd_worktree)
 
-    p = ident(sub.add_parser("conflicts", help="which of the run's branches conflict with their base or each other"))
+    p = ident(sub.add_parser("conflicts", help="which of the run's branches conflict with their base or each other, and which workers share files"))
     p.add_argument("run_id", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_conflicts)
