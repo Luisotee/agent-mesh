@@ -555,6 +555,25 @@ def test_until_takes_a_duration_a_clock_time_or_iso(mesh):
         mesh.parse_until("25:00", now)
 
 
+def test_until_takes_a_z_suffix_and_refuses_a_huge_duration(mesh):
+    now = mesh.datetime(2026, 10, 25, 12, 0, tzinfo=mesh.timezone.utc)
+    assert mesh.parse_until("2026-10-25T13:00:00Z", now) - now == mesh.timedelta(hours=1)  # 3.10's fromisoformat
+    with pytest.raises(mesh.MeshError, match="more than 4 h away"):
+        mesh.parse_until("99999999999999h", now)
+
+
+def test_a_clock_time_across_a_dst_change_keeps_its_wall_time(mesh, monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        now = mesh.datetime(2026, 10, 24, 23, 0, tzinfo=mesh.timezone.utc)  # 01:00 CEST; clocks go back at 03:00
+        at = mesh.parse_until("09:00", now)  # after the change: 09:00 CET is 08:00 UTC, not 07:00
+        assert at == mesh.datetime(2026, 10, 25, 8, 0, tzinfo=mesh.timezone.utc)
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
 def test_first_message_introduces_the_agent(mesh, fake, run):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do X.", first=True)
     text = fake.called("agent", "prompt")[-1][3]
@@ -1212,6 +1231,17 @@ def test_a_claude_worker_stopped_by_its_usage_limit_is_not_nudged(mesh, fake, ru
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
     assert not [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
+
+
+def test_a_usage_limit_during_a_declared_wait_is_still_exit_7(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    declare_wait(mesh, run, 30)
+    states_then(mesh, monkeypatch, "working", "idle")
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    assert "hit Claude's usage limit (resets 7pm" in capsys.readouterr().out
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
 def test_an_agy_pane_showing_limit_text_is_not_a_claude_limit(mesh, fake, run, monkeypatch):
@@ -3547,6 +3577,22 @@ def test_a_running_watch_holds_its_workers_lock_and_root_commands_warn_without_o
     assert mesh.unwatched(run, skip=("repo-fix-typo",)) == []
     mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
     assert mesh.unwatched(run) == []
+
+
+def test_a_gone_worker_gets_its_own_advice_and_none_once_alerted_gone(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "gone")
+    mesh.warn_unwatched(run)
+    err = capsys.readouterr().err
+    assert "repo-fix-typo looks gone without a report: `mesh watch repo-fix-typo` (exit 5)" in err
+    assert "--any" not in err  # it would leave a gone worker out
+    assert mesh.main(["watch", "repo-fix-typo"]) == 5
+    assert [(e["kind"], e["received"]) for e in mesh.read_log(run) if e["event"] == "alert"] == [("gone", 1)]
+    capsys.readouterr()
+    mesh.warn_unwatched(run)
+    assert capsys.readouterr().err == ""  # the root was told
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Again, resumed.")  # a new task re-arms it
+    assert mesh.unwatched(run) == ["repo-fix-typo"]
 
 
 def commit_file(path, name, text, msg):

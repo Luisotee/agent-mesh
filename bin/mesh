@@ -2222,16 +2222,23 @@ def parse_until(text: str, now: datetime | None = None) -> datetime:
     spans = UNTIL_RE.match(text.lower())
     if text and spans and any(spans.groups()):
         h, m, sec = (int(g or 0) for g in spans.groups())
-        return now + timedelta(hours=h, minutes=m, seconds=sec)
+        try:
+            return now + timedelta(hours=h, minutes=m, seconds=sec)
+        except OverflowError as exc:
+            raise MeshError(f"--until {text} is more than {MAX_WAIT // 3600} h away") from exc
     if clock := re.fullmatch(r"(\d{1,2}):(\d{2})", text):
         local = now.astimezone()
         try:
-            at = local.replace(hour=int(clock.group(1)), minute=int(clock.group(2)), second=0, microsecond=0)
+            # naive local times, each given its own offset: tomorrow's may differ from today's across a DST change
+            today = datetime(local.year, local.month, local.day, int(clock.group(1)), int(clock.group(2)))
         except ValueError as exc:
             raise MeshError(f"--until {text}: not a time of day") from exc
-        return (at if at > local else at + timedelta(days=1)).astimezone(timezone.utc)
+        at = today.astimezone()
+        if at <= local:
+            at = (today + timedelta(days=1)).astimezone()
+        return at.astimezone(timezone.utc)
     try:
-        at = datetime.fromisoformat(text)
+        at = datetime.fromisoformat(text[:-1] + "+00:00" if text[-1:] in "zZ" and text else text)  # 3.10 has no Z
     except ValueError as exc:
         raise MeshError(f"--until {text}: give a duration (45m, 1h30m), a local time (14:30) or ISO 8601") from exc
     return (at if at.tzinfo else at.astimezone()).astimezone(timezone.utc)
@@ -2641,7 +2648,7 @@ def cmd_hook(args: argparse.Namespace) -> int:
 
 def alerted(events: list[dict], name: str, received: int, kind: str = "stopped") -> bool:
     """Whether a watch already raised this alert for `name`'s current task: `stopped` (exit 3, the kind of an
-    alert logged without one), `limit` (a Claude usage limit, exit 7) or `hung` (exit 8)."""
+    alert logged without one), `gone` (exit 5), `limit` (a Claude usage limit, exit 7) or `hung` (exit 8)."""
     return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received
                and e.get("kind", "stopped") == kind for e in events)
 
@@ -2777,6 +2784,7 @@ class Watch:
         self.prev: str | None = None
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
+        self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit is looked for
         self.blocked_polls = 0
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
@@ -2809,6 +2817,7 @@ class Watch:
             if self.reported:
                 self.finished = True  # nothing to alert
                 return None
+            record_alert(run_id, name, since_last_task(events, name)[0], "gone")
             return 5, (f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
                        + evidence_line(load_run(run_id), entry))
         bg = entry.get("view") == "bg"
@@ -2823,7 +2832,15 @@ class Watch:
         if waiting_until(events, name):  # a declared wait: a silent stop or a quiet transcript is expected
             self.idle_for = None
             self.worked = self.worked or state == "working"
-            return None
+            if state not in ("idle", "done") or entry.get("kind") != "claude":
+                self.wait_idle = 0.0
+                return None
+            self.wait_idle += interval  # ...but not a usage limit: look once per `grace` of idle
+            if self.wait_idle < self.grace:
+                return None
+            self.wait_idle = 0.0
+            reset = self.limited(entry, bg)
+            return self.limit_alert(entry, bg, reset, events) if reset is not None else None
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
@@ -2915,6 +2932,7 @@ class Watch:
             if self.reported:
                 self.finished = True  # as in tick's gone branch: nothing to alert
                 return None
+            record_alert(run_id, name, received, "gone")
             return 5, (f"ALERT {name} is gone: herdr still reads it {state}, but its pane runs no "
                        f"{entry.get('kind') or 'agent'} process (it exited without reporting done/failed)"
                        + evidence_line(load_run(run_id), entry))
@@ -3072,8 +3090,8 @@ def watched(run_id: str, name: str) -> bool:
 
 
 def unwatched(run_id: str, skip: tuple[str, ...] = ()) -> list[str]:
-    """The run's workers that owe a report (a task or answer with no report since) and that no watch covers.
-    A gone one counts: a watch would raise it (exit 5). No herdr or `claude` calls, so every root command can ask."""
+    """The run's workers that owe a report (a task or answer with no report since) and that no watch covers,
+    skipping one a watch already raised as gone (exit 5) on that task. No herdr or `claude` calls."""
     run = maybe_run(run_id)
     if not run:
         return []
@@ -3084,22 +3102,42 @@ def unwatched(run_id: str, skip: tuple[str, ...] = ()) -> list[str]:
                 or entry.get("status") in ("retiring", "retired")):
             continue
         received, sent, _ = since_last_task(events, name)
-        if received and not sent and not watched(run_id, name):
+        if received and not sent and not alerted(events, name, received, "gone") and not watched(run_id, name):
             owing.append(name)
     return owing
 
 
 def warn_unwatched(run_id: str, skip: tuple[str, ...] = ()) -> None:
-    """Root-side commands warn when a worker that owes a report has no watch, so a silent stop goes unseen."""
+    """Root-side commands warn when a worker that owes a report has no watch, so a silent stop goes unseen. Only
+    those are asked whether they're gone: `mesh watch --any` leaves a gone worker out, so it needs other advice."""
     try:
         names = unwatched(run_id, skip)
     except (OSError, MeshError):
         return  # a warning must never fail the command that just did its work
-    if names:
-        each = "each owes" if len(names) > 1 else "it owes"
-        print(f"warning: no `mesh watch` covers {', '.join(names)} ({each} a report): start "
+    if not names:
+        return
+
+    def looks_gone(name: str, entry: dict, bg_rows: list[dict]) -> bool:
+        try:
+            return agent_status(name, entry, bg_rows) == "gone"
+        except Exception:  # noqa: BLE001 - can't tell: warn as for a live one
+            return False
+
+    agents = load_run(run_id)["agents"]
+    try:
+        bg_rows = claude_agents() if any(agents[n].get("view") == "bg" for n in names) else []
+    except Exception:  # noqa: BLE001
+        bg_rows = []
+    gone = [n for n in names if looks_gone(n, agents[n], bg_rows)]
+    live = [n for n in names if n not in gone]
+    if live:
+        each = "each owes" if len(live) > 1 else "it owes"
+        print(f"warning: no `mesh watch` covers {', '.join(live)} ({each} a report): start "
               f"`mesh watch --any --alerts` in the background; a running --any watch doesn't pick up workers "
               "spawned after it started", file=sys.stderr)
+    for name in gone:
+        print(f"warning: {name} looks gone without a report: `mesh watch {name}` (exit 5), or `mesh resume` / "
+              f"`mesh retire` it", file=sys.stderr)
 
 
 def hang_after() -> float:
