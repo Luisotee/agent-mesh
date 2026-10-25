@@ -78,7 +78,9 @@ ASK_PREFIX = ("Question (read-only): answer it from the code. Change no files, m
               "and send no plan; reply with one `done` that holds the answer, or `failed`.")
 REVIEW_PREFIX = ("Review (read-only) of {pr}: review this pull request. Change no files, make no commits, push "
                  "nothing, send no plan and post nothing on GitHub. {where} Reply with one `done` that lists your "
-                 "findings, most severe first, each with file:line, why it matters and a suggested fix, or `failed`.")
+                 "findings, most severe first, each with file:line, the concrete failure (input or state, and what "
+                 "goes wrong), why it matters and a suggested fix; report only what you confirmed in the code and "
+                 "mark the rest unverified. Or reply `failed`.")
 REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `gh pr diff {pr}` shows the change."
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
@@ -91,6 +93,7 @@ COMPACT_FOCUS = ("Keep what the next task needs: {task}. Keep the repo facts, th
                  "the branch and the PR; drop tool output and dead ends.")
 BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
+RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -405,6 +408,67 @@ def tab_label(run: dict) -> str:
     return f"mesh: {label or (words[0][:28] if words else run['id'])}"
 
 
+SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
+
+
+def side_panes() -> int:
+    return int(os.environ.get("MESH_SIDE_PANES") or SIDE_PANES)
+
+
+def area(pane: dict) -> int:
+    return pane["rect"]["width"] * pane["rect"]["height"]
+
+
+def split_at(pane: dict, cwd: Path, env: dict[str, str]) -> str:
+    """Split a pane from `pane layout`, along its longer side, and return the new pane."""
+    split = herdr(
+        "pane", "split", pane["pane_id"], "--direction", split_direction(pane["rect"]),
+        "--cwd", str(cwd), *env_flags(env), "--no-focus",
+    )
+    return split["pane"]["pane_id"]
+
+
+def beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None = None) -> tuple[str, str, str] | None:
+    """A pane in the root's own tab, so the user sees the workers next to it; None when that tab is full.
+
+    The first worker splits the root pane, later ones split the biggest worker pane, so the root keeps its half.
+    A swap (`replacing` its old pane) splits that pane, so the worker reopens where it was whatever the count.
+    """
+    run = load_run(run_id)
+    root = run["agents"][run["root"]]
+    tab = root.get("tab")
+    if not (tab and root.get("pane") and root.get("workspace")):
+        return None
+    try:
+        live = {p["pane_id"]: p for p in herdr("pane", "layout", "--pane", root["pane"])["layout"]["panes"]}
+    except (HerdrError, KeyError):
+        return None  # the root's tab is gone or unusable: use the run's tab
+    if replacing:
+        target = live.get(replacing)
+    else:
+        # Live panes only: a pane the user closed by hand frees its place.
+        workers = [live[a["pane"]] for a in run["agents"].values()
+                   if a["role"] != "root" and a.get("pane") in live and a.get("view") != "bg"
+                   and a.get("status") != "retired"]
+        if len(workers) >= side_panes():
+            return None
+        target = max(workers, key=area) if workers else live.get(root["pane"])
+    if not target:
+        return None
+    try:
+        return split_at(target, cwd, env), tab, root["workspace"]
+    except HerdrError:
+        return None
+
+
+def place_pane(run_id: str, repo_top: Path, cwd: Path, env: dict[str, str]) -> tuple[str, str, str, bool]:
+    """(pane, tab, workspace, workspace created) for a new worker pane: beside the root, else the run's tab."""
+    if beside := beside_root(run_id, cwd, env):
+        return *beside, False
+    workspace_id, created_ws = find_or_create_workspace(repo_top)
+    return *new_pane(run_id, workspace_id, cwd, env), workspace_id, created_ws
+
+
 def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
     """A fresh shell pane for an agent, in this run's tab of the workspace."""
     run = load_run(run_id)
@@ -416,13 +480,8 @@ def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> 
         )
         if anchor:
             try:
-                layout = herdr("pane", "layout", "--pane", anchor)["layout"]
-                biggest = max(layout["panes"], key=lambda p: p["rect"]["width"] * p["rect"]["height"])
-                split = herdr(
-                    "pane", "split", biggest["pane_id"], "--direction", split_direction(biggest["rect"]),
-                    "--cwd", str(cwd), *env_flags(env), "--no-focus",
-                )
-                return split["pane"]["pane_id"], tab_id
+                return split_at(max(herdr("pane", "layout", "--pane", anchor)["layout"]["panes"], key=area),
+                                cwd, env), tab_id
             except HerdrError:
                 pass  # the tab is gone or unusable: open a new one below
     created = herdr(
@@ -1276,8 +1335,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                 result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
             return result
 
-    workspace_id, created_ws = find_or_create_workspace(repo_top)
-    pane, tab = new_pane(run_id, workspace_id, cwd, env)
+    pane, tab, workspace_id, created_ws = place_pane(run_id, repo_top, cwd, env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -1360,10 +1418,16 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     except HerdrError as exc:
         if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
             raise
-    # The new pane opens beside the old one before that closes, so the run's tab survives.
-    workspace_id = entry.get("workspace") or find_or_create_workspace(Path(entry["repo"]))[0]
-    pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]),
-                         mesh_env(run_id, name, entry["parent"], entry["role"]))
+    # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
+    env = mesh_env(run_id, name, entry["parent"], entry["role"])
+    run = load_run(run_id)
+    side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
+    beside = side and beside_root(run_id, Path(entry["cwd"]), env, replacing=entry.get("pane"))
+    if beside:
+        pane, tab, workspace_id = beside
+    else:  # a side worker's recorded workspace is the root's, so it goes to its project's
+        workspace_id = (not side and entry.get("workspace")) or find_or_create_workspace(Path(entry["repo"]))[0]
+        pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]), env)
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
@@ -1701,19 +1765,29 @@ def cmd_retire(args: argparse.Namespace) -> int:
     entry = agent_entry(load_run(run_id), args.agent)
     if entry["role"] == "root":
         raise MeshError("the root is not retired; use `mesh stop`")
+    retire_worker(run_id, args.agent, entry)
+    emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
+    return 0
+
+
+def retire_worker(run_id: str, name: str, entry: dict) -> None:
+    """Close a worker's pane (or stop its background session); its conversation stays resumable."""
     if entry.get("view") == "bg":
         stop_bg(entry)
-    else:
+    elif entry.get("pane"):  # none if its pane never opened
+        try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
+            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
+                  timeout=RETIRE_WAIT_MS / 1000 + 10)
+        except HerdrError:
+            pass  # gone already, or still busy: close it anyway
         try:
             herdr("pane", "close", entry["pane"])
         except HerdrError as exc:
             if exc.code not in ("pane_not_found", "agent_not_found"):
                 raise
     with editing_run(run_id) as run:
-        run["agents"][args.agent]["status"] = "retired"
-    log_event(run_id, "retire", name=args.agent)
-    emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
-    return 0
+        run["agents"][name]["status"] = "retired"
+    log_event(run_id, "retire", name=name)
 
 
 # ── past workers: agents, resume, open ───────────────────────────────────
@@ -1930,6 +2004,12 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     env = mesh_env(run_id, name, me, "worker")
+    # A task it plans first gets the execution phase a spawn on `auto` gets, so `mesh approve` moves it on;
+    # a named model or effort covers the whole task, as in spawn.
+    planned = bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS) \
+        and not (args.model or args.effort)
+    exec_model = (old.get("exec_model") or EXEC_MODEL[old["kind"]]) if planned else None
+    exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": old.get("base"),
@@ -1937,6 +2017,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
             "workspace": None, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
+            "phase": "plan" if planned else None, "exec_model": exec_model, "exec_effort": exec_effort,
             "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "resume"}],
         }
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
@@ -1963,8 +2044,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         path = None
 
-    workspace_id, _ = find_or_create_workspace(repo_top)
-    pane, tab = new_pane(run_id, workspace_id, Path(cwd), env)
+    pane, tab, workspace_id, _ = place_pane(run_id, repo_top, Path(cwd), env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     result["view"] = "pane"
@@ -2200,7 +2280,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return status
     meta, text = reply
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
-    print(f"(ask again: `mesh ask {name} --body …`; give it a change to make: `mesh send {name} --type task`)")
+    if how != "asked" and not args.keep:  # an asker this call opened is done; one already at work stays
+        retire_worker(run_id, name, agent_entry(load_run(run_id), name))
+        print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
+              f"give it a change with `mesh resume {name} --task-file …`)")
+    else:
+        print(f"(ask again: `mesh ask {name} --body …`; give it a change to make: `mesh send {name} --type task`)")
     return 0
 
 
@@ -2518,6 +2603,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")
     compact_args(p)
     p.add_argument("--no-wait", action="store_true", help="return once the task is delivered")
+    p.add_argument("--keep", action="store_true",
+                   help="leave the agent open after its answer (default: an agent this call opened is closed)")
     p.add_argument("--wait", action="store_true",
                    help="wait even for a Claude worker under a Claude root, whose answer comes by SendMessage")
     p.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the answer (0 = none)")

@@ -75,6 +75,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_WORKTREES", str(tmp_path / "worktrees"))
     # No real Claude socket: a test that wants a Claude root creates one here (see claude_root).
     monkeypatch.setenv("MESH_CC_SOCKS", str(tmp_path / "socks"))
+    # Most tests check the run-tab placement; the side-pane tests turn it back on.
+    monkeypatch.setenv("MESH_SIDE_PANES", "0")
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT"):
         monkeypatch.delenv(key, raising=False)
     module = load_mesh()

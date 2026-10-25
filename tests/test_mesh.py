@@ -317,6 +317,68 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
 
 
+def test_workers_open_beside_the_root_until_its_tab_is_full(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "one", "--model", "flash"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert (first["pane"], first["workspace"]) == ("w1:p2", "w1")
+    split = fake.called("pane", "split")[-1]
+    assert split[2:5] == ("w1:p1", "--direction", "right") and "MESH_SELF=proj-one" in split
+    assert mesh.load_run(run)["agents"]["proj-one"]["tab"] == "w1:t1"
+
+    # the next one splits the worker's pane, not the root's
+    fake.on("pane", "layout", result={"layout": {"panes": [
+        {"pane_id": "w1:p1", "rect": {"width": 100, "height": 50}},
+        {"pane_id": "w1:p2", "rect": {"width": 99, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "two", "--model", "flash"]) == 0
+    assert fake.called("pane", "split")[-1][2:5] == ("w1:p2", "--direction", "down")
+    assert not fake.called("tab", "create")
+
+    # the root's tab is full: the third goes to the run's tab in the project's workspace
+    fake.on("pane", "layout", result={"layout": {"panes": [
+        {"pane_id": "w1:p1", "rect": {"width": 100, "height": 50}},
+        {"pane_id": "w1:p2", "rect": {"width": 99, "height": 20}},
+        {"pane_id": "w1:p3", "rect": {"width": 99, "height": 29}}]}})
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "three", "--model", "flash"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-three"]
+    assert (entry["pane"], entry["tab"], entry["workspace"]) == ("w9:p10", "w9:t4", "w9")
+
+    # a swap splits the worker's own pane, even though the tab is full and another worker's pane is bigger
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-one"].update(phase="plan", exec_model="flash", exec_effort="medium", session="c1")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p4"}})
+    assert mesh.main(["approve", "proj-one"]) == 0
+    assert fake.called("pane", "split")[-1][2] == "w1:p2"
+    entry = mesh.load_run(run)["agents"]["proj-one"]
+    assert (entry["pane"], entry["tab"], entry["workspace"]) == ("w1:p4", "w1:t1", "w1")
+    assert fake.called("pane", "close", "w1:p2")
+
+    # a pane the user closed by hand frees its place
+    fake.on("pane", "layout", result={"layout": {"panes": [
+        {"pane_id": "w1:p1", "rect": {"width": 100, "height": 50}},
+        {"pane_id": "w1:p4", "rect": {"width": 99, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p5"}})
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "four", "--model", "flash"]) == 0
+    assert mesh.load_run(run)["agents"]["proj-four"]["pane"] == "w1:p5"
+
+    # the root's tab is gone: a side worker's swap reopens it in its project's workspace, not the root's
+    fake.on("pane", "layout", error="pane_not_found")
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-four"].update(phase="plan", exec_model="flash", exec_effort="medium", session="c2")
+        data.pop("tabs", None)
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t6"}, "root_pane": {"pane_id": "w9:p20"}})
+    assert mesh.main(["approve", "proj-four"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-four"]
+    assert (entry["pane"], entry["tab"], entry["workspace"]) == ("w9:p20", "w9:t6", "w9")
+    assert fake.called("tab", "create", "--workspace", "w9")
+
+
 def test_spawn_defaults_to_auto_planning_then_flash(mesh, fake, run, repo, monkeypatch, capsys):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
@@ -576,6 +638,28 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     doorbell = fake.called("agent", "prompt")[-1][3]
     assert doorbell.startswith("📬 [mesh] You are proj-fix (worker) again, resumed into agent-mesh run mtest")
     assert mesh.unread(run, "proj-fix")
+
+
+def test_a_resumed_worker_given_a_planned_task_moves_to_exec_effort_on_approve(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")  # it ran on gemini-3.8-flash-high
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-fix", "--task", "Fix the review findings; send a plan first."]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "flash", "medium")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    capsys.readouterr()
+    assert mesh.main(["approve", "proj-fix"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-medium"
+    assert fake.called("agent", "start")[-1][-5:] == (
+        "--conversation", "c1", "--model", "gemini-3.8-flash-medium", "--dangerously-skip-permissions")
+
+    # a direct task, a question or a named effort has no plan phase
+    for extra in (["--task", "Direct task (no plan)\n\nBump it."], ["--task", "Plan it.", "--effort", "high"]):
+        mesh.main(["retire", "proj-fix"])
+        assert mesh.main(["resume", "proj-fix", "--from-run", "mold", *extra]) == 0
+    later = [e for n, e in mesh.load_run(run)["agents"].items() if n.startswith("proj-fix-")]
+    assert len(later) == 2 and all(e["phase"] is None and e["exec_model"] is None for e in later)
 
 
 def test_resume_of_a_claude_worker_whose_name_is_taken(mesh, fake, run, repo, capsys):
@@ -962,6 +1046,44 @@ def test_ask_starts_a_fresh_worker_and_prints_its_answer(mesh, fake, run, repo, 
     doorbell = fake.called("agent", "prompt")[0][3]
     assert doorbell.startswith("📬 [mesh] You are proj-ask-restockedat (worker) in agent-mesh run mtest")
     assert not mesh.unread(run, "repo-lead")  # the answer was printed and marked read
+
+
+def test_ask_closes_the_agent_it_opened_once_it_answers(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    with_quotas(mesh, monkeypatch)
+    answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
+    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    assert "proj-ask-restockedat is closed" in capsys.readouterr().out
+    entry = mesh.load_run(run)["agents"]["proj-ask-restockedat"]
+    assert entry["status"] == "retired" and fake.called("pane", "close", entry["pane"])
+
+    # asking again reopens the same conversation in this run, under the same name
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-restockedat"]["session"] = "c9"
+    assert mesh.main(["ask", "proj-ask-restockedat", "--body", "When?", "--keep", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "proj-ask-restockedat"
+    assert fake.called("agent", "start")[-1][-5:-2] == ("--conversation", "c9", "--model")
+
+
+def test_retire_lets_the_turn_end_and_copes_with_a_pane_that_never_opened(mesh, fake, run, capsys):
+    assert mesh.main(["retire", "repo-fix-typo"]) == 0
+    wait = fake.called("agent", "wait", "repo-fix-typo")
+    assert wait and fake.calls.index(wait[0]) < fake.calls.index(fake.called("pane", "close", "w2:p5")[0])
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-broken"] = {"role": "worker", "kind": "agy", "pane": None, "parent": "repo-lead",
+                                         "status": "starting"}
+    assert mesh.main(["retire", "proj-broken"]) == 0
+    assert mesh.load_run(run)["agents"]["proj-broken"]["status"] == "retired"
+
+
+def test_ask_leaves_a_worker_that_was_already_open(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    answer_on_sleep(mesh, monkeypatch, run, "repo-fix-typo", body="Because.")
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why ISO dates?"]) == 0
+    assert "Because." in capsys.readouterr().out
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] != "retired"
+    assert not fake.called("pane", "close")
 
 
 def test_ask_a_live_worker_sends_it_the_question(mesh, fake, run, monkeypatch, capsys):
