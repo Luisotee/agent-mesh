@@ -280,9 +280,10 @@ mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) 
 mesh agents [query] [--run <id>]  # every past worker, live or archived, with branch, PRs and reviews
 mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
-mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
+mesh approve <worker>      # (root) approve the plan it sent; an auto worker moves to its exec model
                            #   --keep-model: execute on the current model when that move can't start
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
+                           #   approve, switch, retire and stop refuse a worker (the user: --run <id> --as <root>)
 mesh usage                 # agy quotas and the models auto would pick
 mesh conflicts             # which run branches conflict with the default branch or each other
 mesh watch --any [--alerts]  # one watchdog for every worker of the run
@@ -295,7 +296,7 @@ mesh watch --any [--alerts]  # one watchdog for every worker of the run
 - **`send_message`:** when `mesh send` prints one, pass it on with `SendMessage`, exactly as printed.
 - **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a change; agy has no deny list, so its askers are held by the prompt.
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
-- **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting.
+- **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
 - **Repo rules still apply:** the repo's own `CLAUDE.md` / `AGENTS.md` always apply. The mesh never names a tracker or a repo-specific process.
 

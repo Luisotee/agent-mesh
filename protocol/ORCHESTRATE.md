@@ -109,7 +109,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - If switch says no model is left (a Flash executor with Flash exhausted), tell the user the reset time and wait.
      - A Claude worker at its usage limit (`ALERT <worker> hit Claude's usage limit (resets …)`) has nowhere to move: the limit is the account's. Tell the user the reset time, wait for it, then send the task the line gives (`continue where you stopped`); that task re-arms the alert.
      - A quota hit is not a `failed`.
-     - If `mesh approve` or `mesh switch` itself fails to reopen the worker, the worker is marked `swap_failed`, the watch alerts (exit 5), and the same command can be run again.
+     - If `mesh approve` or `mesh switch` itself fails to reopen the worker, the worker is marked `swap_failed`, the watch alerts (exit 5), and the same command can be run again (approve's check for a waiting plan lets the retry of a failed approval through, not an approve after a failed switch).
      - If `mesh approve` can't start the move (its conversation isn't found, or it stays busy), nothing is sent, and the error suggests `mesh approve <worker> --keep-model`: it then executes on its planning model, and a later `mesh switch` moves it to the execution model. Use that rather than `mesh send … --type answer`, which leaves it recorded as planning, and tell the user it executes on its planning model.
    - **agy root:** rely on the doorbell, and check `mesh status` each time you wake. While the user has a draft typed in your pane, doorbells wait for it for about a minute, then give up (the sender's `mesh send` exits 2); those reports are still in your mailbox, and `mesh status` and the watch still show them.
    - **What's waiting on whom:** `mesh status` derives it for every worker, rows that need you first: a plan or question unanswered (and for how long), a task still unread ("doorbell failed": `mesh ring` it), a `done` with its PR's state and checks, or "no commits, no PR" (legitimate when the bug turned out not to be one, so read the report), "in review" while its reviewers work. `mesh log [--follow]` prints the run's events as a timeline.
@@ -122,7 +122,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - Do cross-repo contracts match (field names, API shapes)?
 
    Then reply **once**:
-   - **approved:** `mesh approve <worker>`, with `--body "<notes>"` if you have any. This also moves a worker on `auto` to its execution model.
+   - **approved:** `mesh approve <worker>`, with `--body "<notes>"` if you have any. This also moves a worker on `auto` to its execution model. It refuses unless the worker's newest report since its last task or answer is a `plan`: after a `question` or a `changes:` answer, the worker must send its plan again, changed or not, before you can approve it.
    - **changes:** `mesh send <worker> --type answer --body "changes: <specific list>"`. The worker revises and sends the plan again, still on its planning model.
 
    Ask the user only when a plan raises a real product decision; otherwise decide yourself.
@@ -145,6 +145,8 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
     - the follow-ups you added to a repo's list of open work, or did in the run
 
     Then run `mesh stop`. It closes the panes, stops background workers, removes clean worktrees (branches with commits are kept) and archives the run log. It never touches your own checkout. Workers can still be resumed after it.
+
+**Root-only commands:** `mesh approve`, `switch` and `retire` act only for the worker's parent (you), and `mesh stop` refuses any worker. They find you by your pane, as every command does; the user acting for you from another terminal passes `--run <run> --as <your name>`.
 
 **Messages to a worker:** always send them with `mesh send` (or `mesh approve`). If the output has a `send_message` (a background worker has no pane to ring), pass it on with the `SendMessage` tool, with `to` and `message` exactly as printed.
 
@@ -257,6 +259,7 @@ Then end your turn. A later task may ask more, or ask you to make a change, whic
 6. **On the answer:**
    - `approved` → go on.
    - `changes: …` → update the plan file, send it again as a `plan`, end your turn.
+   - Any other answer while you plan (to a `question`, say) → send the plan again as a `plan`, even unchanged, and end your turn: only a plan sent since the last answer can be approved.
 7. **Execute** the approved plan (or the direct task) yourself, in your worktree. Commit on your branch with clear messages. If the code turns out different from the plan in a way that changes its scope, stop, send a `question` and end your turn. Small corrections you can just note in the report.
 8. **Verify:** run the plan's done-when command and the repo's lint, test and build. Fix what fails. After two honest attempts at the same failure, send a `question` instead of guessing.
 9. **Publish:** push your branch and open the PR with `gh pr create`, following the repo's own PR rules (title, body, attribution, base branch). The PR body includes what changed, the commands that passed, and anything the reviewer should look at. Then do whatever the repo's rules require after a PR.

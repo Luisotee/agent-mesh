@@ -1973,6 +1973,18 @@ def parse_message(path: Path) -> tuple[dict, str]:
     return meta, body
 
 
+def unread_received(run_id: str, name: str) -> list[dict]:
+    """The tasks and answers still unread in `name`'s mailbox: what it has yet to act on."""
+    found = []
+    for path in unread(run_id, name):
+        if path.stem.rsplit("-", 1)[-1] not in RECEIVED_TYPES:
+            continue
+        meta, body = parse_message(path)
+        found.append({"type": meta.get("type"), "from": meta.get("from"), "time": meta.get("time"),
+                      "gist": first_line(body.strip(), 100)})
+    return found
+
+
 # ── commands ─────────────────────────────────────────────────────────────
 
 
@@ -2225,7 +2237,7 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
                      read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
-        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
+        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
         raise MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry") from exc
     with editing_run(run_id) as run:
         e = run["agents"][name]
@@ -2299,7 +2311,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                      read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
-        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
+        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
         raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
@@ -2307,11 +2319,59 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     return {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
 
 
+def require_parent(run: dict, me: str, name: str, command: str) -> dict:
+    """`name`'s entry, if `me` may run `mesh <command>` on it: its parent, or the run's root.
+
+    `--as` is taken as given: what this stops is the accidental call, such as a worker approving its own plan.
+    """
+    entry = agent_entry(run, name)
+    if entry.get("role") == "root":
+        raise MeshError(f"{name} is the run's root, and `mesh {command}` acts on a worker "
+                        "(`mesh stop` ends the run)")
+    if me in (entry.get("parent"), run["root"]):
+        return entry
+    log_event(run["id"], "refused", name=me, command=command, agent=name)
+    if me == name:
+        raise MeshError(f"`mesh {command}` is for your parent ({entry.get('parent')}), not for you: send it a "
+                        "`plan` or a `question` with `mesh send parent`, and wait for its answer")
+    raise MeshError(f"only {name}'s parent ({entry.get('parent')}) runs `mesh {command}` on it, and this is {me} "
+                    f"(acting for the parent from another terminal: pass --run {run['id']} --as {entry.get('parent')})")
+
+
+def refuse_no_plan(run_id: str, name: str, entry: dict) -> None:
+    """Approve only a plan that waits for its answer: the worker's newest report since its last task or answer.
+
+    A worker whose bg swap failed at approval was already sent its approval, before the launch (`swap_bg`):
+    the retry that ORCHESTRATE offers approves it again. Only that swap: a failed `mesh switch` while planning
+    leaves the same status, with nothing approved.
+    """
+    events = read_log(run_id)
+    if entry.get("status") == "swap_failed" and entry.get("phase") == "plan":
+        failed = [e for e in events if e.get("event") == "swap_failed" and e.get("name") == name]
+        if failed and failed[-1].get("why") == "plan approved":
+            return
+    report, received = last_report(events, name)
+    if report and report.get("type") == "plan":
+        return
+    if report:
+        what = (f"answer it with `mesh send {name} --type answer`, and approve the plan it then sends again"
+                if report["type"] == "question" else "there is nothing to approve")
+        raise MeshError(f"{name} has no plan waiting: its newest report, at {report.get('time')}, is a "
+                        f"{report['type']}; {what}")
+    if received:
+        hint = (f" (if that was the approval and its doorbell didn't ring, `mesh ring {name}`)"
+                if received.get("type") == "answer" else "")
+        raise MeshError(f"{name} has no plan waiting: it hasn't reported since the {received.get('type')} it got "
+                        f"from {received.get('sender')} at {received.get('time')}{hint}")
+    raise MeshError(f"{name} has no plan waiting: it hasn't sent one")
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     """Approve a worker's plan; a worker on `auto` moves to its exec model first, keeping its conversation."""
     run_id, me = identity(args)
-    entry = agent_entry(load_run(run_id), args.agent)
+    entry = require_parent(load_run(run_id), me, args.agent, "approve")
     refuse_headless(args.agent, entry, "`mesh approve`")
+    refuse_no_plan(run_id, args.agent, entry)
     result: dict = {"name": args.agent, "model": entry.get("model")}
     extra = read_body(args.body, args.file)
     body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
@@ -2354,7 +2414,7 @@ def models_tried(entry: dict) -> tuple[str, ...]:
 def cmd_switch(args: argparse.Namespace) -> int:
     """Move a worker that hit a quota to the next model with quota left, and tell it to carry on."""
     run_id, me = identity(args)
-    entry = agent_entry(load_run(run_id), args.agent)
+    entry = require_parent(load_run(run_id), me, args.agent, "switch")
     refuse_headless(args.agent, entry, "`mesh switch`")
     effort = entry.get("effort") or DEFAULT_EFFORT
     if entry.get("phase") == "exec" and not args.model:  # after `approve --keep-model` it still has the plan's
@@ -2447,6 +2507,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     to = me_parent(run_id, me) if args.to == "parent" else args.to
     if args.type == "wait" or getattr(args, "until", None):
         return send_wait(args, run_id, me, to, body)
+    if args.type in REPORT_TYPES and not args.unread_ok:
+        refuse_stale_report(run_id, me, args.type)
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -2514,7 +2576,7 @@ def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str
     if ahead > MAX_WAIT:
         raise MeshError(f"--until {args.until} is more than {MAX_WAIT // 3600} h away: wait at most that long, and "
                         "send another wait then if you still need one")
-    received = [p for p in unread(run_id, me) if p.stem.rsplit("-", 1)[-1] in RECEIVED_TYPES]
+    received = unread_received(run_id, me)
     if received:  # it would be the wait of a task it hasn't read
         raise MeshError(f"not sent: your mailbox has {len(received)} unread task/answer message(s); run "
                         "`mesh inbox` and act on them first")
@@ -2527,6 +2589,21 @@ def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str
     print(f"mesh: stored for {to}, without a doorbell. Until {until.astimezone():%H:%M} the watch won't nudge or "
           "alert you for ending your turn; report as usual when you're done", file=sys.stderr)
     return 0
+
+
+def refuse_stale_report(run_id: str, me: str, mtype: str) -> None:
+    """A report sent while a task or answer is unread would count as the reply to it (`since_last_task`), so
+    the worker's next silent stop would go unnoticed. PROTOCOL rule 2 (read your mailbox right before
+    reporting), in code."""
+    waiting = unread_received(run_id, me)
+    if not waiting:
+        return
+    lines = "\n".join(f"  - {m['type']} from {m['from']} at {m['time']}: {m['gist']}" for m in waiting)
+    raise MeshError(
+        f"not sent: your mailbox has {len(waiting)} unread task/answer message(s), and a {mtype} sent now would "
+        f"count as your reply to them:\n{lines}\nRun `mesh inbox` (not --peek) and act on them, then send one "
+        f"{mtype} that covers them too. Send anything that can't wait as `--type info`; pass --unread-ok to send "
+        "this as it is anyway")
 
 
 def pinned(entry: dict) -> bool:
@@ -3555,8 +3632,8 @@ class Watch:
 
     def unread_note(self, before: str = ", ", after: str = "") -> str:
         """Says so when a task or answer is still in its mailbox: it never picked it up."""
-        names = [p.name for p in unread(self.run_id, self.name)]
-        kinds = [t for t in RECEIVED_TYPES if any(n.endswith(f"-{t}.md") for n in names)]
+        types = {m["type"] for m in unread_received(self.run_id, self.name)}
+        kinds = [t for t in RECEIVED_TYPES if t in types]
         if not kinds:
             return ""
         return f"{before}its {' and '.join(kinds)} {'are' if len(kinds) > 1 else 'is'} still unread{after}"
@@ -3710,10 +3787,8 @@ def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.
 
 
 def cmd_retire(args: argparse.Namespace) -> int:
-    run_id, _ = identity(args)
-    entry = agent_entry(load_run(run_id), args.agent)
-    if entry["role"] == "root":
-        raise MeshError("the root is not retired; use `mesh stop`")
+    run_id, me = identity(args)
+    entry = require_parent(load_run(run_id), me, args.agent, "retire")
     retire_worker(run_id, args.agent, entry)
     emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
     return 0
@@ -4698,8 +4773,37 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_worker(run_id: str | None, name: str | None) -> bool:
+    return bool(run_id and name) and (((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}).get(
+        "role") == "worker"
+
+
+def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
+    """(run to stop, caller's run, caller's name): a worker never stops a run (its root does).
+
+    With a run id to stop, the caller only has to be told apart from a worker, so it's read from the flags and
+    the environment, without `identity`'s side effects: the pane map names only roots, so a caller found
+    there is never a worker. It is refused as a worker of any run it names (`--run`, `MESH_RUN`) or of the
+    target. With neither a name nor a run, it's the user in a plain shell. Without a run id, the caller's
+    identity is the run.
+    """
+    if not args.run_id:
+        run_id, me = identity(args)
+        return run_id, run_id, me
+    flag_run = getattr(args, "run", None)
+    if flag_run and flag_run != args.run_id:
+        raise MeshError(f"--run {flag_run} names another run than the one to stop ({args.run_id})")
+    name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
+    runs = dict.fromkeys(r for r in (flag_run, os.environ.get("MESH_RUN"), args.run_id) if r)
+    return args.run_id, next((r for r in runs if is_worker(r, name)), ""), name or ""
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
-    run_id = args.run_id or identity(args)[0]
+    run_id, caller_run, caller = stopping_worker(args)
+    if is_worker(caller_run, caller):
+        log_event(caller_run, "refused", name=caller, command="stop", run=run_id)
+        raise MeshError(f"{caller} is a worker of run {caller_run}, and only a root stops a run: report "
+                        "`done` to your parent, which stops it (the root, if this isn't a worker: pass --as <root>)")
     run = load_run(run_id)
     for name, entry in run["agents"].items():
         if entry.get("view") == "headless":
@@ -4924,6 +5028,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("to", help="agent name, or `parent`")
     p.add_argument("--type", choices=TYPES, required=True)
     p.add_argument("--until", help="a `wait`'s end: a duration (45m, 1h30m), a local time (14:30) or ISO 8601")
+    p.add_argument("--unread-ok", action="store_true",
+                   help="send a plan/question/done/failed even though a task or answer is still unread")
     p.add_argument("--body")
     p.add_argument("--file", help="message body from a file (- for stdin)")
     p.set_defaults(func=cmd_send)
