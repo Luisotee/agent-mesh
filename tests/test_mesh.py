@@ -436,7 +436,9 @@ def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, m
     assert "Phase: your plan is waiting for its answer" in out and "again" not in out
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", f"{mesh.USER_REVIEW_PREFIX}\n\nBuild it.")
     mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
-    assert "Phase: a plan the user reviews: plan in plan mode, change nothing" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Phase: a plan the user reviews: if the user hasn't approved your plan in your pane yet" in out
+    assert "once it's approved, make the change" in out
     mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Built.")
     mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
     out = capsys.readouterr().out
@@ -467,6 +469,12 @@ def test_inbox_shows_the_current_task_again_once_after_a_reset(mesh, fake, run, 
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next one.")
     mesh.main(["inbox", "--json"])
     assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == [("Next one.", None)]
+    # an answer it never read, after a reset: shown as new, not "again"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Unread one.")
+    mesh.log_event(run, "rebind", name="repo-fix-typo", session="newer-s")
+    mesh.main(["inbox", "--json"])
+    assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == \
+        [("Next one.", True), ("Unread one.", None)]
 
 
 def test_inbox_does_not_show_a_reported_task_again_and_all_counts_as_shown(mesh, fake, run, monkeypatch, capsys):
@@ -721,6 +729,30 @@ def test_the_stop_hook_blocks_a_silent_turn_end_once_per_task(mesh, fake, run, m
     mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
     assert "without a `mesh send`" in stop_hook(mesh, monkeypatch, capsys, run)  # read, then silent
     assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1, 2]
+
+
+def test_the_nudge_a_mail_block_kept_still_comes_in_its_continuation(mesh, fake, run, monkeypatch, capsys):
+    # task read, a question sent, the answer lands as the turn winds down: the hook blocks for the mail alone;
+    # the worker reads it and works on in that continuation, then ends silently: that stop gets the nudge
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "question", "Which file?")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "README.md.")
+    assert "without a `mesh send`" not in stop_hook(mesh, monkeypatch, capsys, run)
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert "without a `mesh send`" in stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True)
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [2]
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # never twice
+
+
+def test_a_continuation_gets_no_mail_block_without_new_mail(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    assert "2 unread mesh messages" in stop_hook(mesh, monkeypatch, capsys, run)
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[-1])  # reads one, the task still waits
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "One more.")
+    assert "2 unread mesh messages" in stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True)
 
 
 def test_mail_that_arrives_after_the_current_task_was_read_comes_with_the_nudge(mesh, fake, run, monkeypatch,

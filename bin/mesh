@@ -2318,7 +2318,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     for path in paths:
         meta, body = parse_message(path)
         messages.append({"file": str(path), **meta, "body": body.strip(),
-                         **({"again": True} if path in again else {})})
+                         **({"again": True} if path in again and path.parent.name == "read" else {})})
         if not args.peek and path.parent == folder:
             mark_read(path)
     if args.json:
@@ -2483,11 +2483,13 @@ HOOK_NUDGE = ("agent-mesh: you're ending your turn without a `mesh send` since y
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     """The reason a Claude worker's Stop hook keeps its turn going, or None to let it end.
 
-    Once per task (the task's nudge, shared with the watch), never while the turn already continues because
-    of a hook (`stop_hook_active`) or in plan mode (a plan the user approves in the pane, or a talk with the
-    user), and only for a worker that got a task and has unread mail or hasn't reported since its last one.
+    Once per task (the task's nudge, shared with the watch) or per new unread mail, never in plan mode (a plan
+    the user approves in the pane, or a talk with the user), and only for a worker that got a task and has
+    unread mail or hasn't reported since its last one. A turn that already continues because of a hook
+    (`stop_hook_active`) can still get the nudge a mail block kept, but no mail block without new mail.
     """
-    if payload.get("stop_hook_active") or payload.get("permission_mode") == "plan":
+    active = bool(payload.get("stop_hook_active"))
+    if payload.get("permission_mode") == "plan":
         return None
     entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name)
     if not entry or entry.get("role") != "worker" or entry.get("status") in ("retiring", "retired"):
@@ -2507,8 +2509,8 @@ def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
         with run_lock(run_id):
             last = next((e for e in reversed(read_log(run_id))
                          if e.get("event") == "hook_mail" and e.get("name") == name), None)
-            if last and last.get("files") == files:
-                return None
+            if last and (set(files) <= set(last.get("files") or ()) if active else last.get("files") == files):
+                return None  # nothing new since the last mail block (in this continuation: no new file)
             log_event(run_id, "hook_mail", name=name, files=files)
         return mail_reason(mail)
     if not claim_nudge(run_id, name, received, via="stop-hook"):
@@ -3902,8 +3904,9 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
     if (task or "").startswith(READ_ONLY_STARTS):
         return "a read-only task: change nothing, and report one `done` with the answer"
     if (task or "").startswith(DIRECT_STARTS[1]):  # before the direct task: it plans first
-        return ("a plan the user reviews: plan in plan mode, change nothing until the user approves it in your "
-                "pane, then make the change, verify it, open the PR and report `done`")
+        return ("a plan the user reviews: if the user hasn't approved your plan in your pane yet, plan in plan "
+                "mode and change nothing; once it's approved, make the change, verify it, open the PR and report "
+                "`done`")
     if (task or "").startswith(DIRECT_STARTS):
         return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
     if entry.get("phase") == "plan":
