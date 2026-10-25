@@ -2227,12 +2227,22 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
     entry = agent_entry(load_run(run_id), to)
     if entry.get("role") != "worker" or not claude_deny(entry):
         return None
+    if entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way
+        raise MeshError(f"{to} is a retired read-only asker. Nothing was sent: give it the change with "
+                        f"`mesh resume {to} --task-file …`, which compacts it if it's large and reopens it "
+                        "without its deny list")
     try:
         swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted",
                           message=(me, "task", body), read_only=False)
     except SwapNotStarted as exc:
         raise MeshError(f"{exc}. Nothing was sent: {to} is a read-only asker, which a change task reopens "
                         f"without its deny list once its turn has ended; send it again then") from exc
+    except MeshError as exc:
+        if entry.get("view") != "bg":
+            raise  # a pane is given its task only once it's back, so nothing was stored
+        # A background worker's task went into its mailbox first, as the copy's opening prompt.
+        raise MeshError(f"{exc}. The task is stored, so don't send it again: `mesh resume {to}` (no task) "
+                        "reopens it without its deny list to read it") from exc
     log_event(run_id, "read_only_lifted", name=to)
     print(f"mesh: {to} was a read-only asker; reopened it in the same conversation without its deny list, "
           "so it can now edit and push", file=sys.stderr)

@@ -2154,9 +2154,9 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
 
 def read_only_asker(mesh, run, **extra):
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"].update(kind="claude", model="opus", effort="high", repo="/repo",
-                                               cwd="/wt/fix", session="s-1", workspace="w9", read_only=True,
-                                               models=[{"model": "opus", "at": "t", "why": "spawn"}], **extra)
+        data["agents"]["repo-fix-typo"].update({
+            "kind": "claude", "model": "opus", "effort": "high", "repo": "/repo", "cwd": "/wt/fix", "session": "s-1",
+            "workspace": "w9", "read_only": True, "models": [{"model": "opus", "at": "t", "why": "spawn"}], **extra})
 
 
 def test_a_change_task_reopens_a_read_only_asker_without_its_deny_list(mesh, fake, run, capsys):
@@ -2205,6 +2205,37 @@ def test_a_background_asker_is_lifted_by_a_copy_launched_without_the_deny_list(m
     launch = cli.called("--bg")[-1]
     assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
+
+
+def test_a_retired_asker_is_given_a_change_by_resume_not_send(mesh, fake, run, repo, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
+    assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
+    # `mesh resume` with the change reopens it without its deny list.
+    fake.on("agent", "get", error="agent_not_found")
+    assert mesh.main(["resume", "repo-fix-typo", "--task", "Direct task (no plan)\n\nFix it."]) == 0
+    argv = fake.called("agent", "start")[-1]
+    assert "--resume" in argv and not deny_rules(argv)
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
+
+
+def test_a_failed_background_lift_keeps_one_task_and_points_to_resume(mesh, fake, cli, run, tmp_path, capsys):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
+    cli.on("--bg", returncode=1, stdout="boom")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    err = capsys.readouterr().err
+    assert "don't send it again" in err and "`mesh resume repo-fix-typo` (no task)" in err
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+    # The resume it points to reopens it without its deny list, and adds no second task.
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["resume", "repo-fix-typo"]) == 0
+    launch = cli.called("--bg")[-1]
+    assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
 
 
 def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys):
