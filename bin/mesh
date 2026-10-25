@@ -98,11 +98,18 @@ RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cl
 # Errors after which the text was typed: a busy agent may have queued it although herdr saw no change, so
 # the pane is read before retyping (design §3).
 TYPED_RING_ERRORS = ("agent_prompt_stalled", "timeout")
-DOORBELL_NEEDLE = 25  # characters of a doorbell looked for in the pane, matched with whitespace normalised
+UNTYPED_RING_ERRORS = ("agent_not_found", "agent_blocked")  # refused before any input was sent
+# Seconds a ring waits for another ring into the same pane, then types anyway: herdr merges concurrent prompts
+# into one, but a merged doorbell is a nuisance and a dropped one is a lie (design §3).
+RING_LOCK_WAIT = 60
+RING_LOCK_POLL = 0.2
 PANE_READ_LINES = 60
 HERDR_READ_TIMEOUT = 10
 RULE_RE = re.compile(r"^\s*─{10,}\s*$")  # the rules both CLIs draw above and below their input box
 INPUT_RE = re.compile(r"^[>❯]")  # the input line starts at column 0 in both; agy's task panel rows are indented
+SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")  # colours and attributes: all `herdr agent read --ansi` was seen to write
+OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")  # e.g. an OSC 8 hyperlink: draws nothing itself
+DOORBELL_PREFIX = "📬 [mesh]"
 ALERT_TAIL_LINES = 8
 # `mesh watch`: a worker counts as stopped once it has stayed idle this long (`--grace`); agy reads idle for
 # a few seconds between steps of a turn (design, "Lessons").
@@ -758,43 +765,115 @@ def herdr_text(*args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def pane_lines(target: str, lines: int = PANE_READ_LINES) -> list[str] | None:
+def pane_lines(target: str, lines: int = PANE_READ_LINES, ansi: bool = False) -> list[str] | None:
     """The pane's recent lines, trailing blanks dropped; None if herdr can't read it (not the same as no lines)."""
-    text = herdr_text("agent", "read", target, "--source", "recent", "--lines", str(lines))
+    text = herdr_text("agent", "read", target, "--source", "recent", "--lines", str(lines), *(["--ansi"] if ansi else []))
     if text is None:
         return None
     rows = text.splitlines()
-    while rows and not rows[-1].strip():
+    while rows and not SGR_RE.sub("", rows[-1]).strip():
         rows.pop()
     return rows
 
 
-def above_input_box(lines: list[str]) -> list[str]:
-    """The lines above the agent's input box (a rule line with the prompt under it), so not what is typed in it.
+def strip_sgr(line: str) -> str:
+    return SGR_RE.sub("", OSC_RE.sub("", line))
+
+
+def input_box_at(lines: list[str]) -> int | None:
+    """The index of the agent's input line (the prompt at column 0 under a rule line), searched from the bottom.
 
     A panel can follow the box (agy's background tasks), so the box is found from the bottom, not by counting rules.
-    No box found, no lines: what can't be told apart from the input box never confirms a doorbell.
     """
     for i in range(len(lines) - 2, -1, -1):
         if RULE_RE.match(lines[i]) and INPUT_RE.match(lines[i + 1]):
-            return lines[:i]
-    return []
+            return i + 1
+    return None
+
+
+def above_input_box(lines: list[str]) -> list[str]:
+    """The lines above the agent's input box, so not what is typed in it.
+
+    No box found, no lines: what can't be told apart from the input box never confirms a doorbell.
+    """
+    at = input_box_at(lines)
+    return lines[:at - 1] if at is not None else []
+
+
+def visible_chars(row: str) -> list[tuple[str, bool]]:
+    """Each visible character of an ANSI row, with whether it is drawn dim (SGR 2), as ghost text is."""
+    chars, dim, pos = [], False, 0
+    for match in [*SGR_RE.finditer(row), None]:
+        end = match.start() if match else len(row)
+        chars.extend((c, dim) for c in row[pos:end])
+        if not match:
+            break
+        pos = match.end()
+        params = [int(p) if p.isdigit() else 0 for p in match.group(1).split(";")]
+        i = 0
+        while i < len(params):
+            p = params[i]
+            if p in (38, 48, 58):  # an extended colour: its index or RGB values aren't attributes
+                i += 3 if params[i + 1:i + 2] == [5] else 5 if params[i + 1:i + 2] == [2] else 1
+                continue
+            if p in (0, 22):
+                dim = False
+            elif p == 2:
+                dim = True
+            i += 1
+    return chars
+
+
+def typed_text(lines: list[str]) -> str | None:
+    """What is typed in the agent's input box, from an ANSI read: "" when it's empty, None when it can't be told.
+
+    The input line is the prompt glyph, a space (an NBSP in Claude Code) and the text; a long text wraps onto rows
+    with a gutter, down to the box's closing rule. Dim text is ghost text (Claude's "Try …" placeholder), not
+    typed; any other styling counts as typed (Claude colours a slash command). No box, no closing rule (what
+    follows may be a footer) or an escape other than SGR and OSC in the box: None.
+    """
+    plain = [strip_sgr(line) for line in lines]
+    at = input_box_at(plain)
+    if at is None:
+        return None
+    typed = []
+    for n, row in enumerate(lines[at:]):
+        if n and RULE_RE.match(plain[at + n]):
+            return squeeze(" ".join(typed))
+        row = OSC_RE.sub("", row)
+        if "\x1b" in SGR_RE.sub("", row):
+            return None
+        chars = visible_chars(row)
+        if not n:
+            chars = chars[1:]  # the glyph
+        typed.append("".join(c if not dim else " " for c, dim in chars))
+    return None
+
+
+def human_draft(lines: list[str] | None) -> bool:
+    """Whether a pane positively shows a human's draft in its input box; anything unclear isn't one (design §3).
+
+    A doorbell left in the box by an earlier try is ours: typing after it fuses two doorbells, which one
+    `mesh inbox` answers.
+    """
+    text = typed_text(lines) if lines is not None else None
+    return bool(text) and not text.startswith(DOORBELL_PREFIX)
 
 
 def squeeze(text: str) -> str:
     return " ".join(text.split())
 
 
-def doorbell_needle(text: str) -> str:
-    return squeeze(text)[:DOORBELL_NEEDLE]
+def ring_needle(token: str) -> str:
+    """What marks one doorbell in a pane, compared with all whitespace removed, so no wrap can split it."""
+    return f"ref{token}"
 
 
-def doorbells_shown(target: str, needle: str) -> int | None:
-    """Copies of the doorbell above the target's input box (wrapped lines joined), or None if it can't be read."""
-    lines = pane_lines(target)
+def doorbells_shown(lines: list[str] | None, needle: str) -> int | None:
+    """Copies of the doorbell above the input box in a plain read, or None if the pane couldn't be read."""
     if lines is None:
         return None
-    return squeeze(" ".join(above_input_box(lines))).count(needle)
+    return "".join("".join(above_input_box(lines)).split()).count(needle)
 
 
 def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
@@ -1603,8 +1682,12 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
 # ── messaging ────────────────────────────────────────────────────────────
 
 
+PREVIEW_DROP = str.maketrans({"`": None, "$": None, '"': None, "'": "’"})  # an apostrophe stays readable
+
+
 def preview(body: str, limit: int = 100) -> str:
-    line = " ".join(body.split())
+    """The body on one line, short, and with nothing a receiving agent could read as shell (backticks, `$`, quotes)."""
+    line = " ".join(body.translate(PREVIEW_DROP).split())
     return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
@@ -1615,63 +1698,134 @@ def store_message(run_id: str, sender: str, to: str, mtype: str, body: str) -> P
     return path
 
 
-def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -> tuple[bool, str | None]:
-    """Type the doorbell into the first reachable target, retrying while it is busy.
+def was_read(path: Path) -> bool:
+    return not path.exists() and (path.parent / "read" / path.name).exists()
 
-    herdr can miss that a busy agent queued the text (it returns stalled or timeout), so after those errors the
-    pane is read, and a doorbell that showed up above the input box since the first try counts as delivered.
-    A pane that couldn't be read before the first try is never checked: a later read would count old doorbells.
+
+@contextmanager
+def ring_lock(key: str):
+    """One ring at a time into a pane (herdr merges concurrent prompts), for at most RING_LOCK_WAIT, then unlocked.
+
+    Yields whether it got the lock. flock releases it when its process dies, so a killed ring holds nothing.
     """
-    needle = doorbell_needle(text)
-    before: dict[str, int | None] = {}  # doorbells already in each target's pane before it was first typed into
-    last_error = None
+    path = mesh_home() / "locks" / f"ring-{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as fh:
+        locked = False
+        for _ in range(max(1, int(RING_LOCK_WAIT / RING_LOCK_POLL))):
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except BlockingIOError:
+                time.sleep(RING_LOCK_POLL)
+        try:
+            yield locked
+        finally:
+            if locked:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
+         delays: tuple[int, ...] = RING_DELAYS) -> dict:
+    """Type the doorbell into the first reachable target, retrying while it is busy, and say how it got through.
+
+    `via` is "working" (herdr saw the agent start), "pane" (the doorbell's token showed up above the input box),
+    or "read" (the messages in `read` were read meanwhile, so nothing more is typed). herdr can miss that a busy
+    agent queued the text (it returns stalled or timeout), hence the pane check, after such an error and before
+    each retry; a pane that couldn't be read before the first try is never checked, since a later read can't
+    tell what was there before. A human's draft in the input box holds the try (herdr would submit the doorbell
+    fused to it); an unclear box doesn't. `tries` counts the prompts herdr took (not those it refused before
+    typing: `agent_not_found`, `agent_blocked`). One attempt holds the pane's ring lock, keyed by the last
+    target (the pane id), never the backoff sleeps.
+    """
+    needle = ring_needle(token)
+    before: dict[str, int | None] = {}  # copies of the token above each target's input box before it was typed
+    last_error, tries = None, 0
     for delay in (0, *delays):
         if delay:
             time.sleep(delay)
-        for target in targets:
-            if target not in before:
-                before[target] = doorbells_shown(target, needle)
-            try:
-                # --until working confirms delivery: an idle agent that doesn't start working
-                # within 5s never got the text (agent_prompt_stalled), so it is retried. A busy
-                # agent queues the doorbell for after its current turn, but herdr may not see it
-                # as working (agy between steps, Claude running a command): hence the pane check.
-                herdr("agent", "prompt", target, text, "--wait", "--until", "working", "--timeout", "15000",
-                      timeout=30)
-                return True, None
-            except HerdrError as exc:
-                last_error = exc.code
-                if exc.code == "agent_not_found":
-                    continue  # try the next target (the pane id)
-                if exc.code in TYPED_RING_ERRORS and before[target] is not None:
-                    shown = doorbells_shown(target, needle)
-                    if shown is not None and shown > before[target]:
-                        return True, None
-                if exc.code not in RETRYABLE_RING_ERRORS:
-                    return False, exc.code
-                break
-    return False, last_error
+        if read and all(was_read(path) for path in read):
+            return {"rung": True, "error": None, "via": "read", "tries": tries}
+        with ring_lock(targets[-1]):
+            for target in targets:
+                lines = pane_lines(target, ansi=True)
+                plain = None if lines is None else [strip_sgr(line) for line in lines]
+                if target not in before:
+                    before[target] = doorbells_shown(plain, needle)
+                elif before[target] is not None and (doorbells_shown(plain, needle) or 0) > before[target]:
+                    return {"rung": True, "error": None, "via": "pane", "tries": tries}  # queued after the last try
+                if human_draft(lines):
+                    last_error = "human_draft"
+                    break
+                try:
+                    # --until working confirms delivery: an idle agent that doesn't start working
+                    # within 5s never got the text (agent_prompt_stalled), so it is retried. A busy
+                    # agent queues the doorbell for after its current turn, but herdr may not see it
+                    # as working (agy between steps, Claude running a command): hence the pane check.
+                    herdr("agent", "prompt", target, text, "--wait", "--until", "working", "--timeout", "15000",
+                          timeout=30)
+                    return {"rung": True, "error": None, "via": "working", "tries": tries + 1}
+                except HerdrError as exc:
+                    last_error = exc.code
+                    if exc.code not in UNTYPED_RING_ERRORS:
+                        tries += 1
+                    if exc.code == "agent_not_found":
+                        continue  # try the next target (the pane id)
+                    if exc.code in TYPED_RING_ERRORS and before[target] is not None:
+                        shown = doorbells_shown(pane_lines(target), needle)
+                        if shown is not None and shown > before[target]:
+                            return {"rung": True, "error": None, "via": "pane", "tries": tries}
+                    if exc.code not in RETRYABLE_RING_ERRORS:
+                        return {"rung": False, "error": exc.code, "via": None, "tries": tries}
+                    break
+    return {"rung": False, "error": last_error, "via": None, "tries": tries}
 
 
-def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first: bool) -> str:
+def ring_stored(run_id: str, sender: str, to: str, targets: list[str], text: str, token: str, path: Path,
+                delays: tuple[int, ...] = RING_DELAYS, read: tuple[Path, ...] = ()) -> dict:
+    """Ring for a stored message (or the unread ones in `read`), and log how it went.
+
+    The event has no `type` field: a ring is never counted as a send.
+    """
+    result = ring(targets, text, token, read=read or (path,), delays=delays)
+    if result["rung"]:
+        log_event(run_id, "rung", sender=sender, to=to, file=path.name, via=result["via"], tries=result["tries"])
+    else:
+        log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=result["error"],
+                  tries=result["tries"])
+    return result
+
+
+def ring_token() -> str:
+    return secrets.token_hex(3)
+
+
+def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first: bool, token: str | None = None) -> str:
+    """The one-line doorbell; a rung one carries its `token`, which ring() looks for in the pane.
+
+    The token goes early, where a CLI that shortens a long queued prompt keeps it. The start of a first doorbell,
+    up to `run <id>`, is how resume finds an agent's conversation (first_doorbell, agy_conversation): keep it.
+    """
+    ref = f" (ref {token})" if token else ""
     if first:
         entry = run["agents"][to]
         if entry.get("swapped"):
             return (
-                f"📬 [mesh] You are {to} ({entry['role']}) again in agent-mesh run {run['id']}, now on "
+                f"📬 [mesh] You are {to} ({entry['role']}) again in agent-mesh run {run['id']}{ref}, now on "
                 f"{entry.get('model')} at {entry.get('effort')} effort; same parent and worktree. Run `mesh inbox` for your {mtype}."
             )
         if entry.get("resumed_from"):
             return (
-                f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}; your "
+                f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}{ref}; your "
                 f"parent is {entry['parent']}. The run id, parent and paths changed, and background tasks from "
                 f"before (`task-…` ids) are gone: re-read {PROTOCOL_PATH}, then run `mesh inbox` for your {mtype}."
             )
         return (
-            f"📬 [mesh] You are {to} ({entry['role']}) in agent-mesh run {run['id']}; your parent is "
+            f"📬 [mesh] You are {to} ({entry['role']}) in agent-mesh run {run['id']}{ref}; your parent is "
             f"{entry['parent']}. Read {PROTOCOL_PATH}, then run `mesh inbox` for your {mtype}."
         )
-    return f"📬 [mesh] {mtype} from {sender}: {preview(body)} (run `mesh inbox`)"
+    return f"📬 [mesh] {mtype} from {sender}{ref}: {preview(body)} (run `mesh inbox`)"
 
 
 def record(run_id: str, sender: str, to: str, mtype: str, body: str) -> Path:
@@ -1725,23 +1879,23 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
         stored()
         run = load_run(run_id)
     first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
-    text = doorbell_text(run, sender, to, mtype, body, first)
     route = native_route(run, sender, to)
-    if route:
+    if route:  # no token: nothing reads a pane for it
         log_event(run_id, "native", sender=sender, to=to, address=route, file=path.name)
-        return {"stored": str(path), "rung": False, "error": None, "send_message": {"to": route, "message": text}}
+        return {"stored": str(path), "rung": False, "error": None,
+                "send_message": {"to": route, "message": doorbell_text(run, sender, to, mtype, body, first)}}
     if entry.get("view") == "bg":
         error = f"{to} is not running; `mesh resume {to}` brings it back to read it"
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
         return {"stored": str(path), "rung": False, "error": error}
+    token = ring_token()
     targets = [to] + ([entry["pane"]] if entry.get("pane") else [])
-    rung, error = ring(targets, text, delays)
-    if rung and entry.get("swapped"):
+    result = ring_stored(run_id, sender, to, targets, doorbell_text(run, sender, to, mtype, body, first, token),
+                         token, path, delays)
+    if result["rung"] and entry.get("swapped"):
         with editing_run(run_id) as run:
             run["agents"][to].pop("swapped", None)
-    if not rung:
-        log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
-    return {"stored": str(path), "rung": rung, "error": error}
+    return {"stored": str(path), "rung": result["rung"], "error": result["error"], "via": result["via"]}
 
 
 def unread(run_id: str, name: str) -> list[Path]:
@@ -1976,8 +2130,10 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     result.update(view="pane", pane=pane, workspace=workspace_id, workspace_created=created_ws)
     if task_path:  # stored before a background launch that fell back to this pane
-        rung, error = ring([name, pane], doorbell_text(load_run(run_id), me, name, "task", task, first=True))
-        result["delivery"] = {"stored": str(task_path), "rung": rung, "error": error}
+        token = ring_token()
+        rang = ring_stored(run_id, me, name, [name, pane],
+                           doorbell_text(load_run(run_id), me, name, "task", task, True, token), token, task_path)
+        result["delivery"] = {"stored": str(task_path), "rung": rang["rung"], "error": rang["error"], "via": rang["via"]}
     elif task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
     return result
@@ -2414,15 +2570,18 @@ def cmd_ring(args: argparse.Namespace) -> int:
     if not count:
         print(f"{args.agent} has no unread messages.")
         return 0
-    text = f"📬 [mesh] you have {count} unread message(s) (run `mesh inbox`)"
+    text = f"you have {count} unread message(s) (run `mesh inbox`)"
     route = native_route(run, me, args.agent)
     if route:
-        emit({"rung": False, "unread": count, "send_message": {"to": route, "message": text}})
+        emit({"rung": False, "unread": count, "send_message": {"to": route, "message": f"📬 [mesh] {text}"}})
         return 0
+    token = ring_token()
     targets = [args.agent] + ([entry["pane"]] if entry.get("pane") else [])
-    rung, error = ring(targets, text)
-    emit({"rung": rung, "error": error, "unread": count})
-    return 0 if rung else 2
+    paths = unread(run_id, args.agent)
+    result = ring_stored(run_id, me, args.agent, targets, f"📬 [mesh] (ref {token}) {text}", token, paths[-1],
+                         read=tuple(paths))
+    emit({**result, "unread": count})
+    return 0 if result["rung"] else 2
 
 
 def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | None = None) -> str:
@@ -3525,8 +3684,10 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     result.update(pane=pane, workspace=workspace_id, session=session)
     if path:  # stored before a background launch that fell back to this pane
-        rung, error = ring([name, pane], doorbell_text(load_run(run_id), me, name, "task", task, first=True))
-        result["delivery"] = {"stored": str(path), "rung": rung, "error": error}
+        token = ring_token()
+        rang = ring_stored(run_id, me, name, [name, pane],
+                           doorbell_text(load_run(run_id), me, name, "task", task, True, token), token, path)
+        result["delivery"] = {"stored": str(path), "rung": rang["rung"], "error": rang["error"], "via": rang["via"]}
     elif task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
     return result
