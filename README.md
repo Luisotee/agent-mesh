@@ -67,7 +67,7 @@ The root sizes every task before it starts a worker:
 
 - **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
 - **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans with Opus in plan mode and, once you approve, executes on Opus in the same conversation, at high effort throughout (no switch to medium, since there's no `mesh approve`).
-- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, and sends each review to two reviewers: Claude and agy, or Claude and Copilot for a large or risky PR. It proposes; you confirm.
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, It proposes; you confirm. Each review goes to two reviewers by default: Claude and agy, or Claude and Copilot for a large or risky PR.
 - **Reviews and fixes:** a fresh reviewer runs at high effort whatever the PR's size (a small one instead of its size's medium; a large one plans at high anyway). When a review finding is real, or a worker fails, the root retires the worker and resumes it with more effort for the fix (Claude at high, agy on Argon) instead of starting every task high.
 
 ### Background workers
