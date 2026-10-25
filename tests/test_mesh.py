@@ -2524,13 +2524,33 @@ def test_resume_keeps_the_branch_for_an_open_pr_a_question_or_a_failing_gh(mesh,
         assert (note in out["notes"][-1]) if note else not any("PR" in n for n in out["notes"])
 
 
-def test_resume_onto_a_closed_pr_with_uncommitted_work_tells_the_worker(mesh, fake, cli, run, repo, tmp_path,
+def test_resume_onto_a_closed_pr_starts_a_new_branch_at_the_old_tip(mesh, fake, cli, run, repo, tmp_path, capsys):
+    github_origin(tmp_path, repo)
+    path, branch = archived_worker(mesh, repo, session="c1")
+    mesh.ensure_worktree({"cwd": str(path), "repo": str(repo)}, branch)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the closed PR's work"], cwd=path, check=True)
+    tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip()
+    (path / "wip.txt").write_text("unfinished")  # a new branch at the same commit keeps it
+    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "CLOSED", "headRefOid": tip}]))
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["branch"] == "mesh/mtest/fix" and "its commits come along" in out["notes"][-1]
+    git_out = lambda *a: subprocess.run(["git", *a], cwd=path, capture_output=True, text=True).stdout.strip()
+    assert (git_out("branch", "--show-current"), git_out("rev-parse", "HEAD")) == ("mesh/mtest/fix", tip)
+    assert (path / "wip.txt").exists()
+    task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
+    assert "started from the tip of `mesh/mold/fix`, so its commits come along" in task
+
+
+def test_resume_onto_a_merged_pr_with_uncommitted_work_tells_the_worker(mesh, fake, cli, run, repo, tmp_path,
                                                                          capsys):
     github_origin(tmp_path, repo)
     path, branch = archived_worker(mesh, repo, session="c1")
     mesh.ensure_worktree({"cwd": str(path), "repo": str(repo)}, branch)
     (path / "wip.txt").write_text("unfinished")
-    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "CLOSED"}]))
+    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "MERGED"}]))
     stub_new_pane(fake)
     capsys.readouterr()
     assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
@@ -2539,7 +2559,24 @@ def test_resume_onto_a_closed_pr_with_uncommitted_work_tells_the_worker(mesh, fa
     head = subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip()
     assert head == branch
     task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
-    assert "is closed. Don't push to that branch: start a new one" in task
+    assert "is merged. Don't push to that branch: start a new one from the repo's default branch" in task
+
+
+def test_a_finished_pr_counts_only_from_this_branch_and_only_with_a_task(mesh, fake, cli, run, repo, tmp_path):
+    github_origin(tmp_path, repo)
+    _, branch = archived_worker(mesh, repo, session="c1")
+    subprocess.run(["git", "switch", "-q", "-c", "elsewhere"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "an older PR's head"], cwd=repo, check=True)
+    old_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "switch", "-q", "main"], cwd=repo, check=True)
+    cli.on("pr", "list", stdout=json.dumps([{"number": 3, "url": "u3", "state": "MERGED", "headRefOid": old_head}]))
+    assert mesh.finished_pr(repo, branch) == (None, None)  # a reused branch name: that PR's head isn't in it
+    cli.on("pr", "list", stdout=json.dumps([{"number": 3, "url": "u3", "state": "MERGED", "headRefOid": "f" * 40}]))
+    assert mesh.finished_pr(repo, branch)[0]["number"] == 3  # never fetched: it still counts
+    cli.calls.clear()
+    entry = {"repo": str(repo), "cwd": str(repo), "branch": branch}
+    assert mesh.leave_finished_pr(mesh.argparse.Namespace(), run, entry, branch, None) == {}
+    assert not cli.called("pr", "list")  # without a task the worker would never hear of a new branch
 
 
 def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_moves_on(mesh, fake, run, repo,
@@ -3719,6 +3756,10 @@ def test_a_pr_link_finds_its_author_by_the_prs_head_branch(mesh, fake, cli, run,
                                       "branch": "mesh/mtest/own", "pane": "w2:p9"}
     cli.on("pr", "view", stdout='{"headRefName": "feat/own"}')
     assert mesh.find_worker(pr)[2] == "proj-own"
+    with mesh.editing_run(run) as data:  # a reviewer on the PR's branch isn't its author
+        data["agents"]["proj-own"]["reviews"] = [pr]
+    with pytest.raises(mesh.MeshError, match="no worker matches"):
+        mesh.find_worker(pr)
     # another repo's branch of the same name isn't the author; the message links are the fallback
     subprocess.run(["git", "remote", "add", "origin", "git@github.com:acme/other.git"], cwd=repo, check=True)
     cli.on("pr", "view", stdout='{"headRefName": "mesh/mold/fix"}')

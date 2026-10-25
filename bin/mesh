@@ -3926,6 +3926,8 @@ def worktree_branch(entry: dict) -> str | None:
 
 def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
     """Whether this worker's branch is the PR's head, in the PR's repo (when the worker's repo has GitHub remotes)."""
+    if pr in (entry.get("reviews") or ()):
+        return False  # a reviewer that checked the PR's branch out isn't its author
     branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
     if not branch or branch != head:
         return False
@@ -4180,28 +4182,58 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
 
 
 def finished_pr(repo: str | Path, branch: str) -> tuple[dict | None, str | None]:
-    """The newest PR from `branch` once none from it is open (merged or closed), and why gh couldn't say."""
-    data, error = gh_json(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state"], cwd=repo)
+    """The newest PR from `branch` once none from it is open (merged or closed), and why gh couldn't say.
+
+    A PR counts only when its head commit is in the branch, so an old PR from a reused branch name doesn't;
+    one whose head commit isn't here (never fetched) still counts.
+    """
+    data, error = gh_json(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid"],
+                          cwd=repo)
     if error or not isinstance(data, list):
         return None, error or "gh printed no list"
+
+    def on_branch(pr: dict) -> bool:
+        oid = pr.get("headRefOid")
+        try:
+            git("cat-file", "-e", f"{oid}^{{commit}}", cwd=repo)
+        except MeshError:
+            return True  # not here to compare
+        try:
+            git("merge-base", "--is-ancestor", oid, f"refs/heads/{branch}", cwd=repo)
+            return True
+        except MeshError:
+            return False
+    data = [pr for pr in data if pr.get("state") == "OPEN" or on_branch(pr)]
     if not data or any(pr.get("state") == "OPEN" for pr in data):
         return None, None
     return max(data, key=lambda pr: pr.get("number") or 0), None
 
 
+def fetch_origin(repo: Path) -> None:
+    """`git fetch origin`, never stopping for credentials and giving up after a minute (offline: the local copy will do)."""
+    try:
+        subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, stdin=subprocess.DEVNULL,
+                       env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch: str | None,
                       task: str | None) -> dict:
-    """A change task for a worker whose PR is merged or closed goes on a new branch from the default one.
+    """A change task for a worker whose PR is merged or closed goes on a new branch.
 
     Pushing to the old branch would update a dead PR (or recreate a branch deleted on merge). The worktree
-    moves to `mesh/<run>/<slug>` at the freshly fetched default branch when it's clean and is the worker's own;
-    otherwise the task tells the worker to do it. Returns {} when there's nothing to say, else a `note` for the
-    resume output, `task_note` for the task, and `branch` / `base` when the worktree moved. gh missing or failing
-    never blocks a resume: it goes on as before, with a note.
+    moves to `mesh/<run>/<slug>`: after a merge at the freshly fetched default branch, when the worktree is
+    clean; after a close (the work never landed) at the old branch's tip, so its commits come along. In a main
+    checkout, or a dirty worktree after a merge, the task tells the worker to do it. Only a resume with a change
+    task is checked: without a task the worker would never hear of it, and the next resume with one checks again.
+    Returns {} when there's nothing to say, else a `note` for the resume output, `task_note` for the task, and
+    `branch` / `base` when the worktree moved. gh missing or failing never blocks a resume: it goes on as before,
+    with a note.
     """
     read_only = getattr(args, "read_only", False) or bool(task and task.startswith(READ_ONLY_STARTS))
     current = worktree_branch(entry) or branch
-    if read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
+    if not task or read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
         return {}  # a question or review stays put; a repo off GitHub has no PR to check
     pr, error = finished_pr(entry["repo"], current)
     if error:
@@ -4209,26 +4241,28 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
                         f"resuming on it as before"}
     if not pr:
         return {}
-    what = f"PR #{pr.get('number')} ({pr.get('url')}) from `{current}` is {str(pr.get('state')).lower()}"
+    merged = pr.get("state") == "MERGED"
+    what = f"PR #{pr.get('number')} ({pr.get('url')}) from `{current}` is {'merged' if merged else 'closed'}"
     cwd, repo = Path(entry["cwd"]), Path(entry["repo"])
+    main_checkout = cwd.resolve() == repo.resolve()
     try:
-        dirty = cwd.resolve() != repo.resolve() and bool(git("status", "--porcelain", cwd=cwd))
+        dirty = not main_checkout and bool(git("status", "--porcelain", cwd=cwd))
     except MeshError:
         dirty = True
-    if cwd.resolve() == repo.resolve() or dirty:
-        why = "the worktree has uncommitted changes" if dirty else "it runs in the main checkout"
-        return {"note": f"{what}, but {why}, so it stays on {current}"
-                        + ("; the task tells the worker to start a new branch" if task else
-                           "; tell the worker to start a new branch from the default one"),
-                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from the repo's "
-                             f"default branch (fetch it first) and open a new PR for this task"
+    start = "the repo's default branch (fetch it first)" if merged else f"the tip of `{current}`"
+    if main_checkout or (dirty and merged):
+        why = "it runs in the main checkout" if main_checkout else "the worktree has uncommitted changes"
+        return {"note": f"{what}, but {why}, so it stays on {current}; the task tells the worker to start a new branch",
+                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from {start} "
+                             f"and open a new PR for this task"
                              + (", and decide what to do with the uncommitted changes." if dirty else ".")}
-    try:
-        git("fetch", "-q", "origin", cwd=repo)
-    except MeshError:
-        pass  # offline: the local copy of the default branch will do
-    base_ref = default_base(repo)
-    sha = git("rev-parse", "--verify", f"{base_ref}^{{commit}}", cwd=repo)
+    if merged:
+        fetch_origin(repo)
+        base_ref = default_base(repo)
+    else:
+        base_ref = current  # a dirty worktree keeps its changes: the new branch starts at the same commit
+    sha = git("rev-parse", "--verify", f"{base_ref}^{{commit}}", cwd=cwd)
+
     def taken(name: str) -> bool:
         try:
             git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}", cwd=repo)
@@ -4241,11 +4275,14 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
         new, n = f"mesh/{run_id}/{slug}-{n}", n + 1
     git("switch", "-q", "-c", new, sha, cwd=cwd)
     log_event(run_id, "branch", path=str(cwd), branch=new, left=current, pr=pr.get("url"))
+    kept = "is kept" if merged else "is kept, and its commits come along"
     return {"branch": new, "base": sha, "pr": pr.get("url"),
-            "note": f"{what}: {cwd} is now on a new branch, {new}, from {base_ref}; {current} is kept",
+            "note": f"{what}: {cwd} is now on a new branch, {new}, from {base_ref}; {current} {kept}",
             "task_note": f"Note from mesh: {what}, so this worktree is now on a new branch, `{new}`, started from "
-                         f"`{base_ref}`. Push that branch and open a new PR for this task; don't push to "
-                         f"`{current}` (its commits are still there if you need them)."}
+                         + (f"`{base_ref}`. Push that branch and open a new PR for this task; don't push to "
+                            f"`{current}` (its commits are still there if you need them)." if merged else
+                            f"the tip of `{current}`, so its commits come along. Push that branch and open a new PR "
+                            f"for this task; don't push to `{current}`.")}
 
 
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
