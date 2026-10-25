@@ -2900,6 +2900,8 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
                     text, needs = f"{text}, doorbell failed", "root"
             else:
                 text, needs = f"on {mtype} {ago(age_seconds(since))}", "worker"
+                if until := waiting_until(events, name):  # a declared wait (`mesh send --type wait`)
+                    text += f", waiting until {datetime.fromtimestamp(until).astimezone():%H:%M}"
             if needs == "worker" and (row["state"] in ("gone", "blocked") or entry.get("status") == "swap_failed"):
                 needs = "root"  # it owes a report it can't send
                 text += " (swap failed)" if entry.get("status") == "swap_failed" else ""

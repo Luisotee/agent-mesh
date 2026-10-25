@@ -2178,6 +2178,17 @@ def test_status_derives_what_each_worker_owes_needing_the_root_first(mesh, fake,
     assert out.index("repo-plan") < out.index("repo-busy") < out.index("repo-idle")
 
 
+def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    until = mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=30)
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md",
+                   until=until.isoformat(timespec="seconds"))
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].endswith(f", waiting until {until.astimezone():%H:%M}") and row["needs"] == "worker"
+
+
 def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
     fake.on("agent", "get", errors=["agent_not_found"] * 4)
     mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
