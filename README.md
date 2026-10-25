@@ -67,7 +67,7 @@ The root sizes every task before it starts a worker:
 
 - **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
 - **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans with Opus in plan mode and, once you approve, executes on Opus in the same conversation, at high effort throughout (no switch to medium, since there's no `mesh approve`).
-- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, and sends reviews to the other vendor for a second opinion. It proposes; you confirm.
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low; it proposes, you confirm. Each review goes to two reviewers by default: Claude and agy, or Claude and Copilot for a large or risky PR.
 - **Reviews and fixes:** a fresh reviewer runs at high effort whatever the PR's size (a small one instead of its size's medium; a large one plans at high anyway). When a review finding is real, or a worker fails, the root retires the worker and resumes it with more effort for the fix (Claude at high, agy on Argon) instead of starting every task high.
 
 ### Background workers
@@ -113,7 +113,7 @@ Not every cross-repo need is a change. To ask another repo something, use the sa
 ```
 /delegate-agy     how does shop-api compute restockedAt, and is it ever null?
 /delegate-agy     ask the agent that made shop-api#88 why it returns ISO dates
-/delegate-review                  # the current branch's PR, reviewed by the other vendor (Claude ↔ agy)
+/delegate-review                  # the current branch's PR: Claude + agy, or Claude + Copilot if large
 /delegate-review  copilot 88      # PR #88, reviewed by Copilot
 /delegate-review  copilot agy     # the current PR, by Copilot and agy at the same time
 /delegate-review  all 88          # PR #88, by Claude, agy and Copilot
@@ -149,7 +149,7 @@ Hand the root a whole list, and it supervises instead of coding:
 
 1. **Triage:** the root sizes each task, checks which ones touch the same files, writes a board (`$(mesh dir)/board.md`), and asks you to confirm it once.
 2. **Workers:** one per task, in its own worktree, with at most four working at a time. Overlapping tasks are stacked on each other's branch, or run one after the other. The root writes no code itself, in its own repo too.
-3. **A reviewer per PR:** each PR gets a read-only review, from the other vendor by default. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
+3. **Reviewers per PR:** each PR gets two read-only reviews by default: Claude and agy, or Claude and Copilot for a large or risky PR. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
 4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
 5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
 
