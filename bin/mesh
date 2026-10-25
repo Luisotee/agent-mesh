@@ -4773,26 +4773,36 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
     return 0
 
 
-def stop_caller(args: argparse.Namespace) -> tuple[str, str] | None:
-    """(run, name) of who runs `mesh stop`, or None for the user in a plain shell.
+def is_worker(run_id: str | None, name: str | None) -> bool:
+    return bool(run_id and name) and (((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}).get(
+        "role") == "worker"
+
+
+def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
+    """(run to stop, caller's run, caller's name): a worker never stops a run (its root does).
 
     With a run id to stop, the caller only has to be told apart from a worker, so it's read from the flags and
     the environment, without `identity`'s side effects: the pane map names only roots, so a caller found
-    there is never a worker. Without one, the caller's identity is the run.
+    there is never a worker. It is refused as a worker of any run it names (`--run`, `MESH_RUN`) or of the
+    target. With neither a name nor a run, it's the user in a plain shell. Without a run id, the caller's
+    identity is the run.
     """
     if not args.run_id:
-        return identity(args)
-    run_id = getattr(args, "run", None) or os.environ.get("MESH_RUN")
+        run_id, me = identity(args)
+        return run_id, run_id, me
+    flag_run = getattr(args, "run", None)
+    if flag_run and flag_run != args.run_id:
+        raise MeshError(f"--run {flag_run} names another run than the one to stop ({args.run_id})")
     name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
-    return (run_id, name) if run_id and name else None
+    runs = dict.fromkeys(r for r in (flag_run, os.environ.get("MESH_RUN"), args.run_id) if r)
+    return args.run_id, next((r for r in runs if is_worker(r, name)), ""), name or ""
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    caller = stop_caller(args)
-    run_id = args.run_id or caller[0]
-    if caller and (((maybe_run(caller[0]) or {}).get("agents") or {}).get(caller[1]) or {}).get("role") == "worker":
-        log_event(caller[0], "refused", name=caller[1], command="stop", run=run_id)
-        raise MeshError(f"{caller[1]} is a worker of run {caller[0]}, and only a root stops a run: report "
+    run_id, caller_run, caller = stopping_worker(args)
+    if is_worker(caller_run, caller):
+        log_event(caller_run, "refused", name=caller, command="stop", run=run_id)
+        raise MeshError(f"{caller} is a worker of run {caller_run}, and only a root stops a run: report "
                         "`done` to your parent, which stops it (the root, if this isn't a worker: pass --as <root>)")
     run = load_run(run_id)
     for name, entry in run["agents"].items():

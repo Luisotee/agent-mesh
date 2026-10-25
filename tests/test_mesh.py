@@ -1540,6 +1540,13 @@ def test_only_a_root_stops_a_run(mesh, fake, run, monkeypatch, capsys):
     refused = [e for e in mesh.read_log(run) if e["event"] == "refused"]
     assert [(e["name"], e["command"], e["run"]) for e in refused] == [("repo-fix-typo", "stop", run)] * 2
     assert not fake.called("pane", "process-info")  # no identity lookup for a named run
+    # nor does a --run naming another run, or none, get a worker past it
+    assert mesh.main(["stop", run, "--run", "mnone"]) == 1
+    assert "names another run than the one to stop" in capsys.readouterr().err
+    monkeypatch.setenv("MESH_RUN", "mnone")  # its own run named by the target only
+    assert mesh.main(["stop", run]) == 1
+    assert "only a root stops a run" in capsys.readouterr().err
+    assert (mesh.run_dir(run) / "run.json").exists()
     # the user in a plain shell, with no identity at all
     for key in ("MESH_RUN", "MESH_SELF", "HERDR_PANE_ID"):
         monkeypatch.delenv(key)
