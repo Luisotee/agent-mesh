@@ -51,7 +51,9 @@ Names are meant to be read in herdr's agents tab, so they say what the agent is,
 
 herdr requires names to match `[a-z][a-z0-9_-]{0,31}` and to be unique among live agents, so long parts are cut and a clash with another run gets `-2`, `-3`. The run id lives in the environment and in branch names (`mesh/<run>/<slug>`), not in agent names. `mesh stop` clears the name the root was given.
 
-**One workspace per project.** Agents open in the project's existing herdr workspace, found by label (case-insensitive) or by a pane whose directory is inside the repo, so a workspace labelled `shop` is found for `shop-api`. Each run gets one tab per workspace, labelled from the request (`mesh: add restockedAt to shop-api`). A workspace is created only when no workspace matches, and a lock stops two workers spawning at once from creating two.
+**Beside the root first.** A pane worker opens as a split in the root's own tab: the first splits the root's pane, later ones split the biggest worker pane, so the root keeps its half and the user sees the workers from the space they're working in. The run's own tab in the project's workspace used to be the only placement, and it hid the work from the user. Past `MESH_SIDE_PANES` workers (3) the panes get too small to read, so the rest go to the run's tab below; a swap (approve, switch) reopens a side worker in the root's tab whatever the count, since it only replaces its own pane. Background workers have no pane and don't count.
+
+**Then one workspace per project.** Past that, agents open in the project's existing herdr workspace, found by label (case-insensitive) or by a pane whose directory is inside the repo, so a workspace labelled `shop` is found for `shop-api`. Each run gets one tab per workspace, labelled from the request (`mesh: add restockedAt to shop-api`). A workspace is created only when no workspace matches, and a lock stops two workers spawning at once from creating two.
 
 ## 5. Models are preferences, not code
 

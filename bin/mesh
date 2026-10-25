@@ -405,6 +405,55 @@ def tab_label(run: dict) -> str:
     return f"mesh: {label or (words[0][:28] if words else run['id'])}"
 
 
+SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
+
+
+def side_panes() -> int:
+    return int(os.environ.get("MESH_SIDE_PANES") or SIDE_PANES)
+
+
+def split_pane(anchor: str, among: set[str], cwd: Path, env: dict[str, str]) -> str:
+    """Split the biggest of `among` (else of the anchor's tab) and return the new pane."""
+    layout = herdr("pane", "layout", "--pane", anchor)["layout"]
+    panes = [p for p in layout["panes"] if p["pane_id"] in among] or layout["panes"]
+    biggest = max(panes, key=lambda p: p["rect"]["width"] * p["rect"]["height"])
+    split = herdr(
+        "pane", "split", biggest["pane_id"], "--direction", split_direction(biggest["rect"]),
+        "--cwd", str(cwd), *env_flags(env), "--no-focus",
+    )
+    return split["pane"]["pane_id"]
+
+
+def beside_root(run_id: str, cwd: Path, env: dict[str, str], swapping: bool = False) -> tuple[str, str, str] | None:
+    """A pane in the root's own tab, so the user sees the workers next to it; None when that tab is full.
+
+    The first worker splits the root pane, later ones split the biggest worker pane, so the root keeps its half.
+    A swap reopens a worker already there, so it doesn't count against `MESH_SIDE_PANES`.
+    """
+    run = load_run(run_id)
+    root = run["agents"][run["root"]]
+    tab = root.get("tab")
+    if not (tab and root.get("pane") and root.get("workspace")):
+        return None
+    workers = {a["pane"] for a in run["agents"].values()
+               if a["role"] != "root" and a.get("tab") == tab and a.get("pane")
+               and a.get("view") != "bg" and a.get("status") != "retired"}
+    if not swapping and len(workers) >= side_panes():
+        return None
+    try:
+        return split_pane(root["pane"], workers or {root["pane"]}, cwd, env), tab, root["workspace"]
+    except (HerdrError, KeyError, ValueError):
+        return None  # the root's tab is gone or unusable: use the run's tab
+
+
+def place_pane(run_id: str, repo_top: Path, cwd: Path, env: dict[str, str]) -> tuple[str, str, str, bool]:
+    """(pane, tab, workspace, workspace created) for a new worker pane: beside the root, else the run's tab."""
+    if beside := beside_root(run_id, cwd, env):
+        return *beside, False
+    workspace_id, created_ws = find_or_create_workspace(repo_top)
+    return *new_pane(run_id, workspace_id, cwd, env), workspace_id, created_ws
+
+
 def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
     """A fresh shell pane for an agent, in this run's tab of the workspace."""
     run = load_run(run_id)
@@ -416,13 +465,7 @@ def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> 
         )
         if anchor:
             try:
-                layout = herdr("pane", "layout", "--pane", anchor)["layout"]
-                biggest = max(layout["panes"], key=lambda p: p["rect"]["width"] * p["rect"]["height"])
-                split = herdr(
-                    "pane", "split", biggest["pane_id"], "--direction", split_direction(biggest["rect"]),
-                    "--cwd", str(cwd), *env_flags(env), "--no-focus",
-                )
-                return split["pane"]["pane_id"], tab_id
+                return split_pane(anchor, set(), cwd, env), tab_id
             except HerdrError:
                 pass  # the tab is gone or unusable: open a new one below
     created = herdr(
@@ -1276,8 +1319,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                 result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
             return result
 
-    workspace_id, created_ws = find_or_create_workspace(repo_top)
-    pane, tab = new_pane(run_id, workspace_id, cwd, env)
+    pane, tab, workspace_id, created_ws = place_pane(run_id, repo_top, cwd, env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -1360,10 +1402,16 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     except HerdrError as exc:
         if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
             raise
-    # The new pane opens beside the old one before that closes, so the run's tab survives.
-    workspace_id = entry.get("workspace") or find_or_create_workspace(Path(entry["repo"]))[0]
-    pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]),
-                         mesh_env(run_id, name, entry["parent"], entry["role"]))
+    # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
+    env = mesh_env(run_id, name, entry["parent"], entry["role"])
+    run = load_run(run_id)
+    beside = (entry.get("tab") and entry["tab"] == run["agents"][run["root"]].get("tab")
+              and beside_root(run_id, Path(entry["cwd"]), env, swapping=True))
+    if beside:
+        pane, tab, workspace_id = beside
+    else:
+        workspace_id = entry.get("workspace") or find_or_create_workspace(Path(entry["repo"]))[0]
+        pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]), env)
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
@@ -1963,8 +2011,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         path = None
 
-    workspace_id, _ = find_or_create_workspace(repo_top)
-    pane, tab = new_pane(run_id, workspace_id, Path(cwd), env)
+    pane, tab, workspace_id, _ = place_pane(run_id, repo_top, Path(cwd), env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     result["view"] = "pane"

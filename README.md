@@ -191,7 +191,8 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 ### Names and workspaces
 
 - **Readable names:** agents are named for what they do, such as `shop-web-lead` (the root) and `shop-api-restocked-at` (a worker).
-- **One workspace per project:** workers open in the project's existing herdr workspace, in one tab per run (`mesh: add restockedAt to shop-api`). A workspace is created only for a project that has none.
+- **Beside you first:** a pane worker opens as a split in the root's own tab, so you watch it work from where you are. The first one takes the right half and later ones split the workers' side, three at most (`MESH_SIDE_PANES`, `0` turns it off). A swap to the exec model reopens the worker in the same spot.
+- **Then one workspace per project:** workers past that open in the project's existing herdr workspace, in one tab per run (`mesh: add restockedAt to shop-api`). A workspace is created only for a project that has none.
 
 ### Identity
 

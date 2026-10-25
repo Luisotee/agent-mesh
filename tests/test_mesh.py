@@ -317,6 +317,43 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
 
 
+def test_workers_open_beside_the_root_until_its_tab_is_full(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "one", "--model", "flash"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert (first["pane"], first["workspace"]) == ("w1:p2", "w1")
+    split = fake.called("pane", "split")[-1]
+    assert split[2:5] == ("w1:p1", "--direction", "right") and "MESH_SELF=proj-one" in split
+    assert mesh.load_run(run)["agents"]["proj-one"]["tab"] == "w1:t1"
+
+    # the next one splits the worker's pane, not the root's
+    fake.on("pane", "layout", result={"layout": {"panes": [
+        {"pane_id": "w1:p1", "rect": {"width": 100, "height": 50}},
+        {"pane_id": "w1:p2", "rect": {"width": 99, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "two", "--model", "flash"]) == 0
+    assert fake.called("pane", "split")[-1][2:5] == ("w1:p2", "--direction", "down")
+    assert not fake.called("tab", "create")
+
+    # the root's tab is full: the third goes to the run's tab in the project's workspace
+    assert mesh.main(["spawn", "--repo", str(repo), "--name", "three", "--model", "flash"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-three"]
+    assert (entry["pane"], entry["tab"], entry["workspace"]) == ("w9:p10", "w9:t4", "w9")
+
+    # a swap reopens a side worker beside the root even though the tab is full
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-one"].update(phase="plan", exec_model="flash", exec_effort="medium", session="c1")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p4"}})
+    assert mesh.main(["approve", "proj-one"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-one"]
+    assert (entry["pane"], entry["tab"]) == ("w1:p4", "w1:t1")
+    assert fake.called("pane", "close", "w1:p2")
+
+
 def test_spawn_defaults_to_auto_planning_then_flash(mesh, fake, run, repo, monkeypatch, capsys):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
