@@ -4877,6 +4877,43 @@ def test_conflicts_warns_about_overlapping_work_before_it_is_committed(mesh, fak
     assert "Warning" in out and "new.txt" in out
 
 
+def overlap_pairs(mesh, capsys):
+    capsys.readouterr()
+    assert mesh.main(["conflicts", "--json"]) == 0
+    return {frozenset(r[k].rsplit("/", 1)[1] for k in ("branch", "against")): r["files"]
+            for r in json.loads(capsys.readouterr().out) if r["kind"] == "overlap"}
+
+
+def test_conflicts_counts_only_a_workers_own_commits(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    b2, _, _ = mesh.add_worktree(run, repo, "b2", None)
+    commit_file(b2, "a.txt", "2\n", "b2")
+    b5, _, _ = mesh.add_worktree(run, repo, "b5", "mesh/mtest/b2")  # stacked on b2
+    commit_file(b2, "x.txt", "x\n", "b2 again")  # b2 is no longer an ancestor of b5
+    assert overlap_pairs(mesh, capsys) == {}
+    (b5 / "a.txt").write_text("5\n")  # still stacked: overlapping b2 is the point
+    commit_file(b5, "y.txt", "y\n", "b5")
+    assert overlap_pairs(mesh, capsys) == {}
+    # Two workers on one non-default base share its files without touching them.
+    c1, _, _ = mesh.add_worktree(run, repo, "c1", "mesh/mtest/b2")
+    c2, _, _ = mesh.add_worktree(run, repo, "c2", "mesh/mtest/b2")
+    assert overlap_pairs(mesh, capsys) == {}
+    (c1 / "x.txt").write_text("c1\n")
+    (c2 / "x.txt").write_text("c2\n")
+    assert overlap_pairs(mesh, capsys) == {frozenset(("c1", "c2")): ["x.txt"]}
+
+
+def test_conflicts_reads_a_rename_in_the_worktree(mesh, fake, run, repo, capsys):
+    commit_file(repo, "r.txt", "".join(f"line {i}\n" for i in range(20)), "base")
+    b1, _, _ = mesh.add_worktree(run, repo, "b1", None)
+    (b1 / "r.txt").rename(b1 / "s.txt")
+    subprocess.run(["git", "add", "-N", "s.txt"], cwd=b1, check=True)  # status shows " R s.txt <- r.txt"
+    b2, _, _ = mesh.add_worktree(run, repo, "b2", None)
+    (b2 / "r.txt").write_text("changed\n")
+    (b2 / "s.txt").write_text("new\n")
+    assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["r.txt", "s.txt"]}
+
+
 def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
