@@ -2005,6 +2005,8 @@ def archived_worker(mesh, repo, kind="agy", session=None, run_id="mold"):
              "parent": "old-lead", "status": "running"}
     if session:
         entry["session"] = session
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)  # with_quotas: nothing runs agy
+    mesh.agy_usage = lambda force=False: mesh.parse_usage(USAGE)
     folder = mesh.mesh_home() / "archive" / run_id
     (folder / "inbox" / "old-lead" / "read").mkdir(parents=True)
     (folder / "run.json").write_text(json.dumps({
@@ -2450,7 +2452,8 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     head = subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip()
     assert head == branch
     start = fake.called("agent", "start")[-1]
-    assert start[-5:] == ("--conversation", "c1", "--model", "gemini-3.8-flash-high", "--dangerously-skip-permissions")
+    # It plans again, where a spawn on `auto` would: Argon is out (USAGE), so on Opus.
+    assert start[-5:] == ("--conversation", "c1", "--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
     data = mesh.load_run(run)
     entry = data["agents"]["proj-fix"]
     assert (entry["parent"], entry["session"], entry["status"]) == ("repo-lead", "c1", "running")
@@ -4667,7 +4670,7 @@ def test_run_cli_turns_a_launch_error_into_a_failed_run(monkeypatch):
 
     def too_long(*args, **kwargs):
         raise OSError(7, "Argument list too long")
-    monkeypatch.setattr(module.subprocess, "run", too_long)
+    monkeypatch.setattr(module.subprocess, "Popen", too_long)
     result = module.run_cli(["copilot", "x"])
     assert result.returncode == 126 and "Argument list too long" in result.stderr
 
@@ -4737,6 +4740,99 @@ def test_stop_waits_for_a_copilot_asker_that_is_answering(mesh, fake, cli, run, 
         data["agents"]["proj-ask-auth"].update(pid=2 ** 22 + 7, pane="w1:p7")
     assert mesh.main(["stop"]) == 0 and not Path(cwd).exists()
     assert fake.called("pane", "close", "w1:p7")
+
+
+def test_a_copilot_left_by_a_killed_ask_keeps_its_asker_busy(mesh, fake, cli, run, repo, capsys):
+    seen = []
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."),
+           effect=lambda argv: seen.append(dict(mesh.load_run(run)["agents"]["proj-ask-auth"])))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert (seen[0]["pid"], seen[0]["copilot_pid"]) == (os.getpid(), cli.pid)  # recorded while copilot runs
+    assert seen[0]["pid_start"] == mesh.proc_start(os.getpid())
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert not any(key in entry for key in mesh.PROCESS_KEYS)
+
+    me = os.getpid()  # stands in for the orphaned copilot: alive, though its `mesh ask` is gone
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"].update(status="running", pid=2 ** 22 + 7, copilot_pid=me,
+                                               copilot_pid_start=mesh.proc_start(me))
+    capsys.readouterr()
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
+    assert mesh.main(["stop"]) == 1
+    err = capsys.readouterr().err
+    assert err.count(f"still answering in copilot process {me}") == 2 and f"kill -- -{me}" in err
+    assert len(cli.called("--output-format")) == 1
+
+    with mesh.editing_run(run) as data:  # a later process at the same pid isn't that copilot
+        data["agents"]["proj-ask-auth"]["copilot_pid_start"] = "1"
+    assert mesh.agent_status("proj-ask-auth", mesh.load_run(run)["agents"]["proj-ask-auth"]) == "gone"
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
+
+
+def test_pid_alive_tells_a_reused_pid_from_the_process_recorded(mesh):
+    me = os.getpid()
+    start = mesh.proc_start(me)
+    assert start and mesh.proc_start(me) == start and mesh.proc_start(2 ** 22 + 7) is None
+    assert mesh.pid_alive(me) and mesh.pid_alive(me, start) and not mesh.pid_alive(me, start + "0")
+    assert not mesh.pid_alive(2 ** 22 + 7) and not mesh.pid_alive(None)
+
+
+def test_run_cli_starts_a_recorded_cli_in_its_own_session_and_kills_its_group():
+    module = load_mesh()  # the real run_cli
+    sessions = []
+    result = module.run_cli(["sh", "-c", "cat"], input="hi", started=lambda pid: sessions.append((pid, os.getsid(pid))))
+    assert result.stdout == "hi" and sessions[0][0] == sessions[0][1]
+    started = []
+    result = module.run_cli(["sh", "-c", "sleep 30 & wait"], timeout=0.5, started=started.append)
+    assert result.returncode == 124 and group_gone(started[0])  # its `sleep` went with it
+
+
+def group_gone(pgid, within=3.0):
+    """Whether process group `pgid` empties within a few seconds; zombies (not reaped yet) don't count."""
+    import time
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        live = []
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = stat.read_text().rsplit(")", 1)[1].split()
+            except (OSError, IndexError):
+                continue
+            if fields[2] == str(pgid) and fields[0] != "Z":
+                live.append(stat)
+        if Path("/proc/self").exists() and not live:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_run_cli_timeout_does_not_wait_for_a_grandchild_holding_its_pipes():
+    import time
+    module = load_mesh()
+    for started in (None, lambda pid: None):  # `setsid`: out of the group a recorded CLI's kill reaches
+        begun = time.monotonic()
+        result = module.run_cli(["sh", "-c", "setsid sleep 5 & sleep 5"], timeout=1, started=started)
+        assert result.returncode == 124 and time.monotonic() - begun < 3
+
+
+def test_a_sigterm_to_mesh_ask_takes_its_copilot_group_with_it():
+    import signal
+    module = load_mesh()
+    before = signal.getsignal(signal.SIGTERM)
+    started = []
+
+    def record_and_get_killed(pid):
+        started.append(pid)
+        os.kill(os.getpid(), signal.SIGTERM)  # someone kills `mesh ask` while copilot answers
+    with pytest.raises(SystemExit) as exc:
+        with module.signals_raise(signal.SIGTERM, signal.SIGHUP):
+            module.run_cli(["sh", "-c", "sleep 30 & wait"], started=record_and_get_killed)
+    assert exc.value.code == 128 + signal.SIGTERM and group_gone(started[0])
+    assert signal.getsignal(signal.SIGTERM) == before
 
 
 def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):

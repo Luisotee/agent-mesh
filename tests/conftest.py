@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -63,13 +64,15 @@ class FakeCli:
     def __init__(self):
         self.calls: list[dict] = []
         self.handlers = {}
+        self.pid = 2 ** 22 + 9  # what a `started` callback gets: a pid no process has
 
     def on(self, *prefix, returncode=0, stdout="", stderr="", effect=None):
         self.handlers[prefix] = (returncode, stdout, stderr, effect)
 
-    def __call__(self, argv, cwd=None, env=None, timeout=120, input=None):
-        import subprocess
+    def __call__(self, argv, cwd=None, env=None, timeout=120, input=None, started=None):
         self.calls.append({"argv": list(argv), "cwd": cwd, "env": env, "input": input})
+        if started:
+            started(self.pid)
         for prefix, (code, out, err, effect) in sorted(self.handlers.items(), key=lambda kv: -len(kv[0])):
             if tuple(argv[1: 1 + len(prefix)]) == prefix:
                 if effect:
@@ -79,6 +82,15 @@ class FakeCli:
 
     def called(self, *prefix):
         return [c for c in self.calls if tuple(c["argv"][1: 1 + len(prefix)]) == prefix]
+
+
+class RefuseAgentClis(subprocess.Popen):
+    """subprocess.Popen (under subprocess.run too) for anything but an agent CLI or herdr, which fail the test."""
+
+    def __init__(self, args, *rest, **kwargs):
+        binary = Path(args[0] if isinstance(args, (list, tuple)) else str(args).split()[0]).name
+        assert binary not in ("agy", "claude", "copilot", "herdr"), f"a test started a real {binary}: {args}"
+        super().__init__(args, *rest, **kwargs)
 
 
 @pytest.fixture
@@ -98,7 +110,10 @@ def mesh(tmp_path, monkeypatch):
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"):
         monkeypatch.delenv(key, raising=False)
+    # A path that bypasses the fakes below fails instead of reaching a real herdr pane or agent CLI.
+    monkeypatch.setenv("MESH_HERDR", str(tmp_path / "no-herdr"))
     module = load_mesh()
+    monkeypatch.setattr(module.subprocess, "Popen", RefuseAgentClis)
     monkeypatch.setattr(module.time, "sleep", lambda s: None)
     monkeypatch.setattr(module, "run_cli", FakeCli())
     # Never this machine's real claude/agy processes (live_holder): a test that wants some lists its own.
