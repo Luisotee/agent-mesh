@@ -12,6 +12,8 @@ Both CLIs have a print mode (`claude -p`, `agy -p`): run one prompt, print the a
 
 herdr runs every agent as a normal interactive session, and its CLI can start an agent in a pane (`agent start`), type into it (`agent prompt`), read it and wait for state changes (`agent wait`: `working` / `idle` / `done` / `blocked`). That covers visibility and delivery. The rest of agent-mesh is the conventions on top.
 
+Since 0.7 small Claude tasks may run as Claude Code background sessions (`claude --bg`, §11). These aren't `-p` runs: each one is a full interactive session without a terminal, which keeps its conversation, takes messages, and can be attached to (`mesh open`). So all three objections still hold for headless runs, and none of them applies to background sessions.
+
 ## 2. Agents live inside the repo
 
 The first design had one central Claude writing plans for every repo. It was rejected: a planner outside the repo doesn't load that repo's `CLAUDE.md`, skills or hooks, and it would have to absorb every repo's conventions into one context window. Instead the root spawns a **fresh** agent in each affected repo. It's fresh so that your existing sessions keep their own context and never receive mesh traffic.
@@ -57,7 +59,7 @@ Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **familie
 - `argon` / `flash` / `opus` / `sonnet` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` or `claude-<family>-<version>-<effort>` in `agy models`
 - `opus` / `sonnet` for Claude, which the CLI resolves itself
 
-The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it. A question you'll want to follow up on goes through the commands instead, as a worker (§10).
+The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it. A question you'll want to follow up on goes through the commands instead, as a worker (§10). Within a mesh, the root picks the model *size* per task (§11), but never a model family the user didn't ask for.
 
 ## 6. The mesh is process-agnostic
 
@@ -121,11 +123,53 @@ Two details keep this from leaving a mess:
 
 Reviews post nothing on GitHub. That's outward-facing, so it needs the user's own word (PROTOCOL.md, "Authority").
 
+## 11. Native transport, sizes and task lists
+
+By 0.6 mesh had its own copies of things Claude Code now does natively: typing doorbells into panes, polling `mesh watch`, and one fixed model per mode. 0.7 uses the native pieces where they're better, and keeps mesh where they don't reach (agy, mixed runs, quotas, resume across runs).
+
+- **The mailbox stays the record, `SendMessage` becomes the transport.**
+  - Between two Claude sessions, the doorbell goes by Claude Code's cross-session messaging instead of being typed into a pane. A worker's report no longer lands in the middle of what the user is typing in the root's pane, and a background worker, which has no pane, can be reached at all.
+  - Every message is still written to the mailbox first. PR lookup (§8), `ask`'s reply, the watchdog and the audit trail all keep reading the mailbox, and an agy agent, which can't use `SendMessage`, talks to a Claude one exactly as before.
+  - mesh itself can't call a tool, so `mesh send` hands the sender a `send_message` to pass on.
+- **Address by socket, not by name.** Claude Code retitles a session as its conversation moves on, and a send to the old name fails. Every session also listens on `cc-socks/<pid>.sock`, and `SendMessage` accepts that address.
+  - `mesh init` finds the root's socket by walking up from its own process to the Claude Code process.
+  - A background worker's socket comes from the pid in `claude agents --json`.
+  - A socket that's gone (the root restarted) falls back to the doorbell.
+- **Panes for large work, background for small.** The user wants to oversee the work that matters in herdr, but doesn't need a pane for a translation fix. Large tasks keep panes. Trivial and small Claude tasks run as `claude --bg` sessions: recorded workers like any other (resume, ask, PR lookup), visible in `mesh status` and `claude agents`, and `mesh open` attaches to one. agy has no background sessions, so agy workers always get panes.
+- **Background quirks** (from the smoke test below), and what mesh does about them:
+  - `--bg` picks its own session id, so mesh reads it back from `claude agents --json`.
+  - `--bg --resume <id>` with no flags continues the session with the options *and environment* it was first started with, which would bring back a worker's old `MESH_*` identity. With flags it starts a copy of the conversation under a new id. So every background relaunch passes the full flags, and mesh records the copy's id. The copy has the whole conversation, so this is not a cold hand-off.
+  - `--bg` refuses a folder Claude Code was never trusted in. A worktree of a trusted repo counts as trusted; otherwise the worker opens in a pane, where the trust dialog is handled as before.
+- **No plan gate for small tasks.** A plan review costs a round trip and a strong model's research, which is worth it for a feature and not for a typo. Trivial and small tasks are `Direct task (no plan)`. They still run on their own branch, verify, and open a PR that the root (or a reviewer) checks. The worker must ask first if the task is bigger than described, and a wrong size costs one redo.
+- **Sizes are a table, not a judgement call in code.** `SIZE_DEFAULTS` maps (CLI, size) to model, effort and view. The root picks the size; the user's named model or effort still wins.
+- **User-reviewed plans.** `--model opusplan --permission-mode plan` does natively what `mesh approve` does for Claude: Opus plans, and Claude Code switches to Sonnet after approval, in the same conversation. herdr shows the waiting dialog as `blocked`, so the watchdog excuses that one worker. It's opt-in, for when the user wants to approve a plan themselves. By default the root reviews plans and Claude stays on Opus (§9).
+- **Task lists:** a list of tasks makes the root a supervisor.
+  - It triages into a board the user confirms once, writes no code itself, runs at most four workers at a time, and gives each PR a reviewer.
+  - It checks conflicts with `git merge-tree --write-tree` (`mesh conflicts`), which needs no checkout, and skips stacked pairs.
+  - The board lives in the run directory, so a root whose context was compacted can rebuild its picture from it instead of from memory.
+- **What we don't use:**
+  - Claude Code's `-w` worktrees: mesh's worktrees record their base, name their branch after the run, and are recreated at the same path on resume, which Claude needs to find the session (§8).
+  - `/batch` and agent teams: a worker never spawns agents (§7), teams can't include agy, and neither can be resumed across runs.
+  - `notify_when_idle` for stalls: it works, but each subscription is one-shot and its notice waits until the root's turn ends, so a busy root would have to re-subscribe to every worker after every turn. `mesh watch --any --alerts` covers every worker with one background command, reads `claude agents` for background workers, and also catches agy quota hits.
+
+## 12. Compaction on resume
+
+Resuming a worker is the point of §8, but an old conversation is expensive to resume. Its prompt cache expired long ago, so the first turn re-reads everything at full price, and every later turn re-reads it from cache. A 150k-token conversation resumed for a 30-turn fix reads about 4.5M cached tokens before it does anything new.
+
+- **Compact first, headless:** before reopening, mesh runs `/compact <focus>` on the stopped conversation in print mode, in the worker's own directory, without its `MESH_*` identity so the compaction turn can't message anyone: `claude -p --resume <id>` / `agy --conversation <id> -p`. Both CLIs expand slash commands in print mode. The worker then reopens on the compacted conversation, in a pane or in the background as before.
+- **Only when it pays:**
+  - **Claude:** mesh reads the context size from the session file (the last reply's `usage` since the last compact boundary), and compacts above `MESH_COMPACT_AT` (100k). For a read-only question the threshold doubles, since a question or two doesn't repay a compaction.
+  - **agy:** it shows no context size, so a conversation is compacted when it comes back from an earlier run, and a read-only question skips it.
+  - **Within a run:** approve and switch never compact; the context is warm and the task is the same.
+- **Focused on the next task:** the default focus keeps the repo facts, the decisions and their reasons, the branch and the PR, and names the new task. The root can replace it with `--focus` when it knows what matters.
+- **Never a failure:** a compaction that fails is a note, and the worker resumes as it was.
+
 ## Alternatives considered
 
 | Option | Why not |
 |---|---|
-| [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) (lead, teammates, shared task list, mailbox, tmux panes) | One team per session and **no nested teams**, and Claude only, so agy can't join |
+| [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) (lead, teammates, shared task list, mailbox, tmux panes) | One team per session and **no nested teams**, Claude only (agy can't join), no resume, and teammates' plans are approved automatically |
+| Only Claude Code's own background agents (`claude --bg`, agent view, `SendMessage`) | Used since 0.7 for small Claude tasks (§11), but they can't include agy, pick quota-based models, or find a worker by its PR across runs |
 | MCP bridges that start other CLIs as tools ([agent-link-mcp](https://socket.dev/npm/package/agent-link-mcp), [weft](https://github.com/cipher982/weft)) | Workers run as headless subprocesses, so you can't watch them or type into them |
 | [Tmux-Orchestrator](https://www.sourcepulse.org/projects/11036576), [codex-orchestrator](https://www.sourcepulse.org/projects/26815350) | The same idea (an orchestrator → manager → engineer tree; Claude planning while Codex executes). They validate the shape, but they're built on raw tmux with no agent-state detection and no mailbox |
 | A message broker or daemon | One more process to run. The filesystem plus herdr is enough at this scale |
@@ -138,6 +182,20 @@ Reviews post nothing on GitHub. That's outward-facing, so it needs the user's ow
 - **Typing can be lost silently.** A prompt typed while Claude Code was still redrawing after its trust dialog disappeared, and herdr reported success. Every doorbell now uses `agent prompt --wait --until working`: an idle agent that doesn't start working within 5 seconds didn't receive it, so mesh retries. A busy agent counts as delivered, because it queues the doorbell.
 - **`agy models` hits the network and can hang**, and it ignores SIGTERM. One failed TLS handshake to Google stalled a spawn. The list is now cached for 6 hours, a stale cache is used when a refresh fails, and an exact model id skips the lookup.
 - **Side effects come last.** A spawn that failed while resolving the model had already created its worktree. Everything that can fail without side effects now runs first.
+
+### Smoke test of the native pieces (2026-10-24, Claude Code 2.1.310, agy 1.4.7)
+
+| Check | Result |
+|---|---|
+| `claude --bg` started from a Bash tool call, in a worktree of a trusted repo | ✅ runs in that directory and loads its `CLAUDE.md`. It ignores `--session-id`, and refuses a folder that was never trusted |
+| Environment of a background session | ✅ it inherits the launching process's env (`MESH_*` work) |
+| Background session → root with `SendMessage` | ✅ by its current name or by `uds:…/cc-socks/<pid>.sock`. ❌ by a name the root had before Claude Code retitled it |
+| Root → background session with `SendMessage` | ✅ wakes an idle session |
+| `notify_when_idle` | ✅ one notice per subscription, but delivered only once the subscriber's turn ended (messages arrive mid-turn) |
+| States in `claude agents --json` | `status` is busy / idle / waiting while the process runs and is absent once it exits; `state` is a looser label |
+| `claude stop`, then `--bg --resume <id>` | without flags it continues the same id with the saved options *and environment*; with flags it starts a copy with the full conversation, new model and new environment |
+| `/compact <focus>` in print mode | ✅ Claude writes a compact boundary; agy logs `expanded slash command "compact"` |
+| `opusplan` in plan mode in a herdr pane | ✅ herdr shows `blocked` at the plan dialog; Opus planned, Sonnet executed after approval |
 
 ### Live test results (2026-10-23, the 0.2 planner → executor design)
 

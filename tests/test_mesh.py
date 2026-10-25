@@ -214,7 +214,7 @@ def test_watch_returns_when_child_reports_done(mesh, fake, run, monkeypatch):
 
 def test_watch_alerts_on_silent_stop(mesh, fake, run, monkeypatch, capsys):
     states = iter(["working", "working", "idle"])
-    monkeypatch.setattr(mesh, "agent_status", lambda name: next(states))
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
     assert "without sending a message" in capsys.readouterr().out
 
@@ -222,7 +222,7 @@ def test_watch_alerts_on_silent_stop(mesh, fake, run, monkeypatch, capsys):
 def test_watch_question_then_idle_is_not_an_alert(mesh, fake, run, monkeypatch):
     states = iter(["working", "idle", "idle", "gone"])
 
-    def status(name):
+    def status(name, *_):
         state = next(states)
         if state == "idle" and not mesh.sends_from(run, name):
             mesh.deliver(run, name, "repo-lead", "question", "Which base?")
@@ -236,7 +236,7 @@ def test_watch_question_then_idle_is_not_an_alert(mesh, fake, run, monkeypatch):
 def test_watch_plan_then_idle_waits_for_review(mesh, fake, run, monkeypatch):
     states = iter(["working", "idle", "idle", "gone"])
 
-    def status(name):
+    def status(name, *_):
         state = next(states)
         if state == "idle" and not mesh.sends_from(run, name):
             mesh.deliver(run, name, "repo-lead", "plan", "1. Patch reactions.py")
@@ -248,7 +248,7 @@ def test_watch_plan_then_idle_waits_for_review(mesh, fake, run, monkeypatch):
 
 
 def test_watch_alerts_when_blocked(mesh, fake, run, monkeypatch):
-    monkeypatch.setattr(mesh, "agent_status", lambda name: "blocked")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
     assert mesh.main(["watch", "repo-fix-typo"]) == 4
 
 
@@ -1067,7 +1067,7 @@ def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, caps
 
 def test_ask_reports_a_worker_that_stops_without_answering(mesh, fake, run, monkeypatch, capsys):
     states = iter(["idle", "working", "idle"])
-    monkeypatch.setattr(mesh, "agent_status", lambda name: next(states))
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
     assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 3
     assert "without sending a message" in capsys.readouterr().out
 
@@ -1143,3 +1143,532 @@ def test_a_fork_review_fetches_from_the_remote_that_owns_the_pr(mesh, repo, tmp_
     assert mesh.pr_head(repo, "https://github.com/acme/proj/pull/7", 7) == head
     with pytest.raises(mesh.MeshError, match="remotes: "):
         mesh.pr_head(repo, "https://github.com/other/thing/pull/7", 7)
+
+
+# ── 0.7: sizes, background workers, native transport, compaction, conflicts ──
+
+
+def claude_root(mesh, run):
+    """Give the run's root a live Claude socket, as `mesh init` records under Claude Code."""
+    import os
+    from pathlib import Path
+    socks = Path(os.environ["MESH_CC_SOCKS"])
+    socks.mkdir(parents=True, exist_ok=True)
+    (socks / "4242.sock").write_text("")
+    address = f"uds:{socks}/4242.sock"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["address"] = address
+    return address
+
+
+def bg_cli(cli, rows=None, short="ab12cd34"):
+    """`claude --bg` prints its short id; `claude agents --json` lists the sessions in `rows`."""
+    rows = rows if rows is not None else [{"id": short, "sessionId": f"{short}-s", "status": "busy", "pid": 777}]
+    cli.on("--bg", stdout=f"Starting background service…\nbackgrounded · {short} · x\n")
+    cli.on("agents", stdout=lambda: json.dumps(rows))
+    return rows
+
+
+def bg_worker(mesh, run, session="old-s", bg_id="old1", **extra):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", view="bg", session=session, bg_id=bg_id, pane=None,
+                                                model="opus", effort="high", cwd="/wt", parent="repo-lead", **extra)
+
+
+def test_claude_address_is_the_socket_of_an_ancestor(mesh, monkeypatch):
+    import os
+    from pathlib import Path
+    assert mesh.claude_address() is None
+    socks = Path(os.environ["MESH_CC_SOCKS"])
+    socks.mkdir()
+    (socks / f"{os.getpid()}.sock").write_text("")
+    assert mesh.claude_address() == f"uds:{socks}/{os.getpid()}.sock"
+
+
+def test_small_claude_task_runs_in_the_background_with_no_plan(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+                      "--task", "Fix the typo in the footer."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "sonnet", "medium", None)
+    launch = cli.called("--bg")[0]
+    argv = launch["argv"]
+    assert argv[:9] == ["claude", "--bg", "-n", "proj-copy", "--model", "sonnet", "--effort", "medium",
+                        "--dangerously-skip-permissions"]
+    assert argv[9].startswith("📬 [mesh] You are proj-copy (worker) in agent-mesh run mtest")
+    assert launch["cwd"] == mesh.worktree_root() / "mtest" / "proj-copy"
+    assert launch["env"]["MESH_SELF"] == "proj-copy" and "HERDR_PANE_ID" not in launch["env"]
+    entry = mesh.load_run(run)["agents"]["proj-copy"]
+    assert (entry["bg_id"], entry["session"], entry["phase"], entry["status"]) == ("ab12cd34", "ab12cd34-s", None, "running")
+    assert not fake.called("agent", "start")
+    task = mesh.parse_message(mesh.unread(run, "proj-copy")[0])[1]
+    assert task.startswith("Direct task (no plan)") and task.rstrip().endswith("Fix the typo in the footer.")
+    assert out["delivery"]["launched"] is True
+
+
+def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, run, repo, capsys):
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and "starting a pane" in out["notes"][0]
+    assert fake.called("agent", "start")[-1][-5:] == ("--model", "sonnet", "--effort", "low",
+                                                      "--dangerously-skip-permissions")
+    assert not cli.called("--bg")
+
+
+def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    stub_new_pane(fake)
+    cli.on("--bg", returncode=1, stdout="Workspace not trusted. Run `claude` in /x once")
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
+                      "--task", "Tweak the button."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and "doesn't trust" in out["notes"][0]
+    assert len(mesh.unread(run, "proj-ui")) == 1  # stored once, before the launch that failed
+    assert out["delivery"]["rung"] is True
+    assert "You are proj-ui (worker) in agent-mesh run mtest" in fake.called("agent", "prompt")[-1][3]
+
+
+def test_small_agy_task_is_flash_at_high_effort_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-3.8-flash-high", None)
+    assert mesh.main(["spawn", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
+    assert "for Claude workers" in capsys.readouterr().err
+
+
+def test_a_size_has_no_execution_phase_to_override(mesh, fake, run, repo, capsys):
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--exec-model", "opus", "--repo", str(repo)]) == 1
+    assert "no execution phase" in capsys.readouterr().err
+
+
+def test_user_reviewed_plan_runs_opusplan_in_plan_mode(mesh, fake, run, repo, capsys):
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
+                      "--task", "Build it."]) == 0
+    start = fake.called("agent", "start")[-1]
+    assert "opusplan" in start and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
+    assert "--dangerously-skip-permissions" not in start
+    entry = mesh.load_run(run)["agents"]["proj-feat"]
+    assert (entry["plan_review"], entry["phase"], entry["view"]) == ("user", None, "pane")
+    assert mesh.parse_message(mesh.unread(run, "proj-feat")[0])[1].startswith("Plan review by the user")
+
+
+def test_watch_lets_a_user_reviewed_worker_wait_at_its_plan_dialog(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["plan_review"] = "user"
+    states = iter(["blocked", "blocked", "blocked"])
+
+    def status(name, *_):
+        state = next(states, None)
+        if state is None:
+            mesh.log_event(run, "send", sender=name, to="repo-lead", type="done", file="x.md")
+            return "idle"
+        return state
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+
+
+def test_a_claude_worker_reports_to_a_claude_root_by_send_message(mesh, fake, run, monkeypatch, capsys):
+    address = claude_root(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    as_worker(monkeypatch, run)
+    assert mesh.main(["send", "parent", "--type", "done", "--body", "PR: https://github.com/a/b/pull/1"]) == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert out["send_message"]["to"] == address and "done from repo-fix-typo" in out["send_message"]["message"]
+    assert "SendMessage" in captured.err
+    assert not fake.called("agent", "prompt")  # nothing typed into the user's pane
+    assert len(mesh.unread(run, "repo-lead")) == 1  # the mailbox is still the record
+    # an agy worker can't SendMessage: it rings, as before
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "agy"
+    assert mesh.main(["send", "parent", "--type", "info", "--body", "x"]) == 0
+    assert fake.called("agent", "prompt")
+
+
+def test_a_dead_root_socket_falls_back_to_the_doorbell(mesh, fake, run, monkeypatch, capsys):
+    from pathlib import Path
+    address = claude_root(mesh, run)
+    Path(address[4:]).unlink()
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    as_worker(monkeypatch, run)
+    assert mesh.main(["send", "parent", "--type", "info", "--body", "x"]) == 0
+    assert "send_message" not in json.loads(capsys.readouterr().out) and fake.called("agent", "prompt")
+
+
+def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, capsys):
+    import os
+    from pathlib import Path
+    claude_root(mesh, run)
+    bg_worker(mesh, run)
+    rows = bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
+    (Path(os.environ["MESH_CC_SOCKS"]) / "777.sock").write_text("")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
+    assert json.loads(capsys.readouterr().out)["send_message"]["to"].endswith("/777.sock")
+    rows[0].pop("status")  # it exited
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Again."]) == 2
+    assert "is not running" in json.loads(capsys.readouterr().out)["error"]
+    assert not fake.called("agent", "prompt")
+
+
+def test_bg_status_speaks_herdr(mesh):
+    entry = {"view": "bg", "session": "s"}
+    for status, state in (("busy", "working"), ("idle", "idle"), ("waiting", "blocked"), (None, "gone")):
+        assert mesh.bg_status(entry, [{"sessionId": "s", "status": status}]) == state
+    assert mesh.bg_status(entry, []) == "gone"
+    assert mesh.agent_status("x", entry, [{"sessionId": "s", "status": "busy"}]) == "working"
+
+
+def test_approve_moves_a_bg_worker_to_a_copy_on_its_exec_model(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 1},
+                      {"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
+    unread_at_launch = []
+    cli.on("--bg", stdout="backgrounded · abcdef12 · repo-fix-typo\n",
+           effect=lambda argv: unread_at_launch.append(len(mesh.unread(run, "repo-fix-typo"))))
+    assert mesh.main(["approve", "repo-fix-typo", "--body", "Mind the migration."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert cli.called("stop", "old1")
+    argv = cli.called("--bg")[0]["argv"]
+    assert argv[1:4] == ["--bg", "--resume", "old-s"] and argv[6:10] == ["--model", "opus", "--effort", "medium"]
+    assert "now on opus at medium effort" in argv[-1]
+    assert unread_at_launch == [1]  # the approval waits in the mailbox before the copy starts
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["session"], entry["bg_id"], entry["sessions"], entry["phase"]) == ("new-s", "abcdef12", ["old-s"], "exec")
+    assert "swapped" not in entry and out["delivery"]["launched"] is True
+
+
+def test_stop_and_retire_stop_background_workers(mesh, fake, cli, run, capsys):
+    bg_worker(mesh, run)
+    assert mesh.main(["retire", "repo-fix-typo"]) == 0
+    assert cli.called("stop", "old1") and not fake.called("pane", "close")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "running"
+    capsys.readouterr()
+    assert mesh.main(["stop"]) == 0
+    assert "repo-fix-typo" in json.loads(capsys.readouterr().out)["closed"]
+    assert len(cli.called("stop", "old1")) == 2
+
+
+def test_open_attaches_to_a_running_background_worker(mesh, fake, cli, run, monkeypatch, capsys):
+    bg_worker(mesh, run)
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "busy", "pid": 1}])
+    calls = {}
+    monkeypatch.setattr(mesh.os, "execvp", lambda f, argv: calls.update(argv=argv))
+    mesh.main(["open", "repo-fix-typo"])
+    assert calls["argv"] == ["claude", "attach", "old1"]
+
+
+def session_file(mesh, monkeypatch, tmp_path, cwd, session, lines):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    folder = mesh.claude_sessions_dir(cwd)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{session}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def usage(n):
+    return {"type": "assistant", "message": {"usage": {"input_tokens": 2, "cache_read_input_tokens": n,
+                                                       "cache_creation_input_tokens": 10}}}
+
+
+def test_context_tokens_counts_the_last_prompt_since_compaction(mesh, monkeypatch, tmp_path):
+    entry = {"kind": "claude", "cwd": "/wt/proj-fix"}
+    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage(1000), usage(5000)])
+    assert mesh.context_tokens(entry, "s") == 5012
+    talk = {"type": "user", "message": {"content": "what is a compact_boundary?", "usage": {}}}
+    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s",
+                 [usage(5000), {"type": "system", "subtype": "compact_boundary"}, talk])
+    assert mesh.context_tokens(entry, "s") == 0
+    assert mesh.context_tokens({"kind": "agy", "cwd": "/x"}, "s") is None
+    assert mesh.context_tokens(entry, "missing") is None
+
+
+def test_when_auto_compaction_compacts(mesh, monkeypatch):
+    claude, agy = {"kind": "claude"}, {"kind": "agy"}
+    assert mesh.should_compact("auto", claude, 150_000, False, True)
+    assert not mesh.should_compact("auto", claude, 150_000, True, True)  # a question doesn't repay it
+    assert mesh.should_compact("auto", claude, 250_000, True, False)
+    assert not mesh.should_compact("auto", claude, None, False, True)
+    assert mesh.should_compact("yes", claude, 10, False, False) and not mesh.should_compact("no", claude, 10**6, False, True)
+    assert mesh.should_compact("auto", agy, None, False, True)
+    assert not mesh.should_compact("auto", agy, None, False, False) and not mesh.should_compact("auto", agy, None, True, True)
+    monkeypatch.setenv("MESH_COMPACT_AT", "1000")
+    assert mesh.should_compact("auto", claude, 1500, False, False)
+
+
+def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cli, run, repo, monkeypatch,
+                                                                  tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    stub_new_pane(fake)
+    started = []
+    cli.on("-p", effect=lambda argv: started.append(bool(fake.called("agent", "start"))))
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review.\nDetails…"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    argv = cli.called("-p")[0]["argv"]
+    assert argv[:7] == ["claude", "-p", "--resume", "s-1", "--model", "opus", "--dangerously-skip-permissions"]
+    assert argv[7].startswith("/compact Keep what the next task needs: Apply the review.")
+    assert started == [False]  # compacted before the pane opens
+    assert "MESH_SELF" not in cli.called("-p")[0]["env"]
+    assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 150_012
+
+
+def test_a_failed_compaction_still_resumes(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    stub_new_pane(fake)
+    cli.on("-p", returncode=1, stderr="boom")
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Go.", "--focus", "the API contract"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert cli.called("-p")[0]["argv"][-1] == "/compact the API contract"
+    assert out["compaction"]["compacted"] is False and "boom" in out["notes"][0]
+    assert fake.called("agent", "start")
+
+
+def test_agy_compacts_when_it_comes_back_from_another_run(mesh, fake, cli, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    argv = cli.calls[0]["argv"]
+    assert argv[:4] == ["agy", "--conversation", "c1", "--model"] and argv[-2] == "-p"
+    assert argv[-1].startswith("/compact ")
+    capsys.readouterr()
+
+
+def test_compact_no_skips_it(mesh, fake, cli, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-fix", "--compact", "no"]) == 0
+    assert not cli.calls
+    capsys.readouterr()
+
+
+def test_resume_of_a_bg_worker_starts_a_copy_with_the_new_runs_identity(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    with open(mesh.mesh_home() / "archive" / "mold" / "run.json") as fh:
+        data = json.load(fh)
+    data["agents"]["proj-fix"].update(view="bg", bg_id="s1short")
+    (mesh.mesh_home() / "archive" / "mold" / "run.json").write_text(json.dumps(data))
+    bg_cli(cli, rows=[{"id": "c0ffee01", "sessionId": "copy-s", "status": "busy", "pid": 5}], short="c0ffee01")
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Address the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    launch = cli.called("--bg")[0]
+    assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and launch["env"]["MESH_RUN"] == "mtest"
+    assert "again, resumed into agent-mesh run mtest" in launch["argv"][-1]
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["view"], entry["session"], entry["sessions"]) == ("bg", "copy-s", ["s-1"])
+    assert out["view"] == "bg" and not fake.called("agent", "start")
+
+
+def test_ask_under_a_claude_root_returns_once_delivered(mesh, fake, run, monkeypatch, capsys):
+    claude_root(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    monkeypatch.setattr(mesh, "watch_agent", lambda *a, **k: pytest.fail("the answer comes by SendMessage"))
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why ISO dates?"]) == 0
+    assert json.loads(capsys.readouterr().out)["delivery"]["rung"] is True
+
+
+def test_a_small_fresh_asker_gets_the_question_not_a_direct_task(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small",
+                      "--body", "How is restockedAt computed?"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "bg"
+    task = mesh.parse_message(mesh.unread(run, out["name"])[0])[1]
+    assert task.startswith("Question (read-only)") and "Direct task" not in task
+
+
+def test_watch_any_returns_the_first_event_and_alerts_only_keeps_going(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                      "status": "running"}
+    polls = {"n": 0}
+
+    def status(name, *_):
+        if name == "repo-two":
+            polls["n"] += 1
+            if polls["n"] == 2:
+                mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
+        return "working"
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-two reported done" in capsys.readouterr().out
+
+    def status2(name, *_):
+        if name == "repo-two":
+            polls["n"] += 1
+            if polls["n"] == 5:
+                mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="y.md")
+            return "working"
+        return "gone" if polls["n"] > 6 else "working"
+
+    monkeypatch.setattr(mesh, "agent_status", status2)
+    assert mesh.main(["watch", "--any", "--alerts"]) == 5
+    assert "ALERT repo-fix-typo is gone" in capsys.readouterr().out
+    assert mesh.main(["watch"]) == 1
+
+
+def commit_file(path, name, text, msg):
+    (path / name).write_text(text)
+    subprocess.run(["git", "add", name], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", msg], cwd=path, check=True)
+
+
+def test_conflicts_finds_overlapping_branches_and_skips_stacked_ones(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    b1, _, _ = mesh.add_worktree(run, repo, "b1", None)
+    commit_file(b1, "a.txt", "2\n", "b1")
+    b2, _, _ = mesh.add_worktree(run, repo, "b2", None)
+    commit_file(b2, "a.txt", "3\n", "b2")
+    b3, _, _ = mesh.add_worktree(run, repo, "b3", None)
+    commit_file(b3, "c.txt", "x\n", "b3")
+    b4, _, _ = mesh.add_worktree(run, repo, "b4", "mesh/mtest/b1")  # stacked on b1
+    commit_file(b4, "a.txt", "4\n", "b4")
+    mesh.add_worktree(run, repo, "b5", None)  # no commits: not checked
+    capsys.readouterr()
+    assert mesh.main(["conflicts", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    pairs = {frozenset((r["branch"].rsplit("/", 1)[1], r["against"].rsplit("/", 1)[1])) for r in rows}
+    assert pairs == {frozenset(("b1", "b2")), frozenset(("b2", "b4"))}
+    assert all(r["files"] == ["a.txt"] for r in rows)
+    assert mesh.main(["conflicts"]) == 0
+    assert "mesh/mtest/b2" in capsys.readouterr().out
+
+
+def test_a_bg_swap_is_marked_starting_before_its_session_stops(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    bg_cli(cli, rows=[{"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
+    at_stop = []
+    cli.on("stop", effect=lambda argv: at_stop.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["status"]))
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert at_stop == ["starting"]  # a watch polling during the stop excuses the gap
+    capsys.readouterr()
+
+
+def test_a_bg_session_that_never_lists_is_stopped_and_the_spawn_takes_a_pane(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    stub_new_pane(fake)
+    bg_cli(cli, rows=[])
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
+                      "--task", "Tweak the button."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert cli.called("stop", "ab12cd34")  # no stray session left to do the task too
+    assert out["view"] == "pane" and "doesn't list it" in out["notes"][0]
+    assert mesh.load_run(run)["agents"]["proj-ui"]["status"] == "running"
+    assert len(mesh.unread(run, "proj-ui")) == 1 and out["delivery"]["rung"] is True
+
+
+def test_a_bg_resume_in_an_untrusted_folder_reopens_in_a_pane(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    with open(mesh.mesh_home() / "archive" / "mold" / "run.json") as fh:
+        data = json.load(fh)
+    data["agents"]["proj-fix"].update(view="bg", bg_id="s1short")
+    (mesh.mesh_home() / "archive" / "mold" / "run.json").write_text(json.dumps(data))
+    stub_new_pane(fake)
+    cli.on("--bg", returncode=1, stdout="Workspace not trusted. Run `claude` in /x once")
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Address the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (out["view"], entry["view"], entry["status"]) == ("pane", "pane", "running")
+    assert fake.called("agent", "start") and "doesn't trust" in out["notes"][-1]
+    assert len(mesh.unread(run, "proj-fix")) == 1 and out["delivery"]["rung"] is True
+
+
+def test_an_alerts_watch_ends_once_every_worker_reported_and_ended(mesh, fake, run, monkeypatch, capsys):
+    polls = {"n": 0}
+
+    def status(name, *_):
+        polls["n"] += 1
+        if polls["n"] == 2:
+            mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+        return "working" if polls["n"] < 4 else "gone"
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    assert mesh.main(["watch", "--any", "--alerts"]) == 0
+    assert "nothing left to watch" in capsys.readouterr().out
+
+
+def test_an_alerts_watch_timeout_names_only_the_workers_that_have_not_reported(mesh, fake, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                      "status": "running"}
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="info", file="x.md")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    clock = iter(range(0, 10**6, 100))
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: next(clock))
+    watches = []
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        if self.name == "repo-fix-typo" and not self.reported:
+            mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="y.md")
+        watches.append(self)
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    status, line = mesh.watch_agents(run, ["repo-fix-typo", "repo-two"], timeout=150, alerts_only=True)
+    assert status == 6 and line.startswith("ALERT repo-two has not reported") and "repo-fix-typo" not in line
+
+
+def test_the_compaction_focus_skips_the_prefixes(mesh):
+    assert mesh.task_gist(f"{mesh.DIRECT_PREFIX}\n\n# Fix reactions\n\nDetails") == "Fix reactions"
+    assert mesh.task_gist(f"{mesh.ASK_PREFIX}\n\nHow is restockedAt computed?") == "How is restockedAt computed?"
+    assert mesh.task_gist("Apply the review.\nDetails…") == "Apply the review."
+    assert mesh.task_gist(None) == ""
+
+
+def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    stub_new_pane(fake)
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")  # the root's pane, which by-pane maps to the root
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Go."]) == 0
+    env = cli.called("-p")[0]["env"]
+    assert "HERDR_PANE_ID" not in env and not any(k in env for k in mesh.MESH_IDS)
+    assert env["MESH_HOME"] == str(mesh.mesh_home())  # configuration stays
+    capsys.readouterr()
+
+
+def test_model_auto_on_a_small_task_means_its_default(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--repo", str(repo),
+                      "--worktree", "copy"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "sonnet"
+    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "sonnet"]
+
+
+def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsys):
+    bg_worker(mesh, run, session="s1", bg_id="b1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {**data["agents"]["repo-fix-typo"], "session": "s2", "bg_id": "b2"}
+    rows = [{"id": "b1", "sessionId": "s1", "status": "busy"}, {"id": "b2", "sessionId": "s2", "status": "busy"}]
+
+    def agents_call(argv):
+        if len(cli.called("agents")) == 3:
+            mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
+
+    cli.on("agents", stdout=lambda: json.dumps(rows), effect=agents_call)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-two reported done" in capsys.readouterr().out
+    assert len(cli.called("agents")) == 3  # one to list the live workers, then one per poll
