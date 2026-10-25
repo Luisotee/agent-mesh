@@ -94,6 +94,10 @@ ALERT_TAIL_LINES = 8
 # `mesh watch`: a worker counts as stopped once it has stayed idle this long (`--grace`); agy reads idle for
 # a few seconds between steps of a turn (design, "Lessons").
 SETTLE_GRACE = 30.0
+# A worker the watch never saw working (a turn shorter than one poll, a task it never picked up, a watch started
+# after the turn) is judged once its last task or answer is this many `--grace` old (never under SETTLE_GRACE):
+# room for a pane to boot, the doorbell's retries, and the root passing a background worker's `send_message` on.
+START_GRACE_FACTOR = 4
 RECEIVED_TYPES = ("task", "answer")  # what a worker acts on
 REPORT_TYPES = ("plan", "question", "done", "failed")  # what ends a worker's turn (an `info` doesn't)
 NUDGE_RING_DELAYS = (2, 5)  # a nudge that doesn't ring ends in the exit-3 alert, so it needn't retry long
@@ -2099,17 +2103,18 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return status
 
 
-def since_last_task(events: list[dict], name: str) -> tuple[int, int]:
-    """(tasks and answers `name` has received, reports it has sent since the last of them)."""
+def since_last_task(events: list[dict], name: str) -> tuple[int, int, str | None]:
+    """(tasks and answers `name` has received, reports it has sent since the last of them, that last one's time)."""
     received = sent = 0
+    at = None
     for event in events:
         if event.get("event") != "send":
             continue
         if event.get("to") == name and event.get("type") in RECEIVED_TYPES:
-            received, sent = received + 1, 0
+            received, sent, at = received + 1, 0, event.get("time")
         elif event.get("sender") == name and event.get("type") in REPORT_TYPES:
             sent += 1
-    return received, sent
+    return received, sent, at
 
 
 def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
@@ -2131,6 +2136,18 @@ def claim_nudge(run_id: str, name: str, received: int) -> bool:
             return False
         log_event(run_id, "nudge", name=name, received=received)
         return True
+
+
+def alerted(events: list[dict], name: str, received: int) -> bool:
+    """Whether a watch already raised the stopped alert (exit 3) for `name`'s current task."""
+    return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received for e in events)
+
+
+def record_alert(run_id: str, name: str, received: int) -> None:
+    """Log the stopped alert for this task, once (checked and logged under the run lock)."""
+    with run_lock(run_id):
+        if not alerted(read_log(run_id), name, received):
+            log_event(run_id, "alert", name=name, received=received)
 
 
 def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
@@ -2155,13 +2172,14 @@ class Watch:
     def __init__(self, run_id: str, name: str, grace: float, finals_at_start: int | None = None):
         entry = agent_entry(load_run(run_id), name)
         self.run_id, self.name, self.grace = run_id, name, grace
+        self.start_grace = max(START_GRACE_FACTOR * grace, SETTLE_GRACE)
         # Final sends before the watch started (or before its task was delivered) don't count.
         self.finals_at_start = sends_from(run_id, name, FINAL_TYPES) if finals_at_start is None else finals_at_start
         self.log = entry.get("log")
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.prev: str | None = None
         self.worked = False  # seen working since it last reported (or since it was nudged)
-        self.idle_for: float | None = None  # seconds it has read idle since it last worked
+        self.idle_for: float | None = None  # seconds it has read idle in a row
         self.blocked_polls = 0
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
@@ -2203,10 +2221,10 @@ class Watch:
             look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
             return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg, entry)
         self.prev = state
-        if state in ("idle", "done") and self.worked:
+        if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
-            if self.idle_for >= self.grace:
+            if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
                 return self.stopped(entry, bg, events)
         else:
             self.idle_for = None
@@ -2214,16 +2232,26 @@ class Watch:
                 self.worked = True
         return None
 
+    def idle_from_start(self, events: list[dict]) -> bool:
+        """Never seen working, but its last task or answer is `start_grace` old (in the log, so a watch started
+        late still judges it) with nothing reported since: its turn ended, or never began. A task some watch
+        already alerted on isn't judged again (a restarted watch would re-alert every `--grace`); a new task or
+        answer, or a `working` reading, re-arms it."""
+        received, sent, at = since_last_task(events, self.name)
+        return (bool(received) and not sent and age_seconds(at) >= self.start_grace
+                and not alerted(events, self.name, received))
+
     def stopped(self, entry: dict, bg: bool, events: list[dict]) -> tuple[int, str] | None:
         """Its turn has ended: fine if it reported since its last task or answer, else nudge it once, then alert."""
         run_id, name = self.run_id, self.name
-        received, sent = since_last_task(events, name)
+        received, sent, _ = since_last_task(events, name)
         self.worked, self.idle_for = False, None
         if sent:
             return None  # a report, or a plan or question waiting for its answer
         if bg:
-            return 3, (f"ALERT {name} stopped working without sending a message; inspect it with "
-                       f"`claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
+            record_alert(run_id, name, received)
+            return 3, (f"ALERT {name} stopped working without sending a message{self.unread_note(' (', ')')}; "
+                       f"inspect it with `claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
                        f"--body \"Report with mesh send\"` and pass its send_message on")
         if claim_nudge(run_id, name, received):
             self.nudged = received
@@ -2236,9 +2264,19 @@ class Watch:
             self.worked, self.idle_for = True, 0.0
             return None
         how = "nudged once" if done.get("rung") else "its nudge was not delivered"
+        how += self.unread_note()
         line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
                 f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
+        record_alert(run_id, name, received)
         return 3, self.with_tail(line, bg, entry)
+
+    def unread_note(self, before: str = ", ", after: str = "") -> str:
+        """Says so when a task or answer is still in its mailbox: it never picked it up."""
+        names = [p.name for p in unread(self.run_id, self.name)]
+        kinds = [t for t in RECEIVED_TYPES if any(n.endswith(f"-{t}.md") for n in names)]
+        if not kinds:
+            return ""
+        return f"{before}its {' and '.join(kinds)} {'are' if len(kinds) > 1 else 'is'} still unread{after}"
 
     def with_tail(self, line: str, bg: bool, entry: dict) -> str:
         tail = "" if bg else pane_tail(self.name) or (pane_tail(entry["pane"]) if entry.get("pane") else "")

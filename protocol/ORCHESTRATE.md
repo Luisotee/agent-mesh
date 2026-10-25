@@ -93,13 +93,13 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - agy workers ring a doorbell in your pane.
      - Either way, the full text is in your mailbox: run `mesh inbox`.
    - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended (nothing to do), or on an alert:
-     - 3: a worker stopped without reporting (a `plan`, `question`, `done` or `failed`), and stayed silent after the one nudge the watch gave it ("its nudge was not delivered" if that doorbell didn't ring) (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
+     - 3: a worker stopped without reporting (a `plan`, `question`, `done` or `failed`), and stayed silent after the one nudge the watch gave it ("its nudge was not delivered" if that doorbell didn't ring, "its task is still unread" or "its answer is still unread" if it never picked it up; a worker that was never seen working is judged 4 × `--grace` after its last task or answer) (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
      - 4: it's blocked on a dialog (the alert ends with the pane's last lines: a stray menu, or a real question to answer);
      - 5: it's gone;
      - 6: timeout;
      - 7: quota.
 
-     Investigate with `mesh status`, then `herdr agent read <name>` for a pane or `claude logs <bg id>` for a background worker. Start the watch again after handling the alert, and whenever you spawn or resume a worker.
+     Investigate with `mesh status`, then `herdr agent read <name>` for a pane or `claude logs <bg id>` for a background worker. Start the watch again after handling the alert, and whenever you spawn or resume a worker. A restarted watch doesn't raise exit 3 again for a task already alerted on: only once the worker works again, or gets a new task or answer.
    - **Quota hit** (exit 7, `ALERT <worker> hit its quota on <model>`): run `mesh switch <worker>` right away, without asking. It reopens the worker's conversation on the next model with quota left, and tells it to continue. Then tell the user in one line, for example "Argon ran out; <worker> continues on Opus".
      - If switch says no model is left (a Flash executor with Flash exhausted), tell the user the reset time and wait.
      - A quota hit is not a `failed`.

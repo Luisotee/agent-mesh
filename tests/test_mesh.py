@@ -512,7 +512,7 @@ def test_watch_nudges_a_silent_stop_once_then_alerts(mesh, fake, run, monkeypatc
     fake.screen("repo-fix-typo", "● Edited README.md\n─────────────────\n> \n─────────────────\n? for shortcuts")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
     out = capsys.readouterr().out
-    assert "without sending a message (nudged once)" in out
+    assert "without sending a message (nudged once, its task is still unread)" in out
     assert "last lines of its pane:\n    ● Edited README.md" in out
     nudges = [e for e in mesh.read_log(run) if e["event"] == "nudge"]
     assert [(e["name"], e["received"]) for e in nudges] == [("repo-fix-typo", 1)]
@@ -564,7 +564,7 @@ def test_two_watches_at_once_nudge_once_and_both_wait_for_the_answer(mesh, fake,
     monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)  # still silent once the nudge is old
     events = [w.tick(5) for w in (a, b) for _ in range(3)]
     assert [e[0] for e in events if e] == [3, 3]
-    assert "(nudged once)" in next(e for e in events if e)[1]
+    assert "(nudged once" in next(e for e in events if e)[1]
 
 
 def test_a_nudge_that_did_not_ring_says_so(mesh, fake, run, monkeypatch, capsys):
@@ -572,7 +572,7 @@ def test_a_nudge_that_did_not_ring_says_so(mesh, fake, run, monkeypatch, capsys)
     fake.on("agent", "prompt", errors=["agent_blocked"] * 10)
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
-    assert "(its nudge was not delivered)" in capsys.readouterr().out
+    assert "(its nudge was not delivered" in capsys.readouterr().out
     nudges = [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
     assert len(nudges) == 3  # the short schedule: one try and two retries
 
@@ -613,6 +613,147 @@ def test_watch_ignores_an_idle_blip_mid_turn(mesh, fake, run, monkeypatch):
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
     assert mesh.main(["watch", "repo-fix-typo"]) == 5
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def old_tasks(mesh, monkeypatch, age=3600.0):
+    """Every logged time reads `age` seconds old: a task delivered long before the watch."""
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: age)
+
+
+def test_watch_judges_a_worker_it_never_saw_working(mesh, fake, run, monkeypatch, capsys):
+    # its turn ended before the watch's first poll (or it never picked the task up), long ago
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "(nudged once, its task is still unread)" in capsys.readouterr().out
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1]
+
+
+def test_a_read_task_is_not_called_unread(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    for path in mesh.unread(run, "repo-fix-typo"):
+        mesh.mark_read(path)
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    out = capsys.readouterr().out
+    assert "(nudged once)" in out and "unread" not in out
+
+
+def test_a_fresh_task_gets_the_longer_grace_before_an_idle_worker_is_judged(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)  # judged once the task is 40 s old
+    age = {"now": 0.0}
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: age["now"])
+    for _ in range(8):  # idle well past --grace, but the task is at most 35 s old
+        assert watch.tick(5) is None
+        age["now"] += 5
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+    assert watch.tick(5) is None  # 40 s: nudged
+    assert len([e for e in mesh.read_log(run) if e["event"] == "nudge"]) == 1
+
+
+def test_a_worker_without_a_task_is_never_judged(mesh, fake, run, monkeypatch):
+    old_tasks(mesh, monkeypatch)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(50))
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+@pytest.mark.parametrize("report", ["plan", "question", "done"])
+def test_an_idle_worker_waiting_on_its_report_is_never_nudged(mesh, fake, run, monkeypatch, report):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", report, "Over to you.")
+    old_tasks(mesh, monkeypatch)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    calls = []
+    stopped = mesh.Watch.stopped
+    monkeypatch.setattr(mesh.Watch, "stopped", lambda self, *a: calls.append(1) or stopped(self, *a))
+    # a watch that saw it work, and one that never did: neither nudges however long it waits
+    worked = mesh.Watch(run, "repo-fix-typo", 10.0, finals_at_start=99)
+    worked.worked = True
+    fresh = mesh.Watch(run, "repo-fix-typo", 10.0, finals_at_start=99)
+    assert all(w.tick(5, alerts_only=True) is None for _ in range(100) for w in (worked, fresh))
+    assert calls  # judged at least once, and found the report each time
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_a_turn_shorter_than_a_poll_after_an_answer_is_judged(mesh, fake, run, monkeypatch):
+    # the plan was judged and approved; the next turn ends between two polls without a report
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    state = {"now": "working"}
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: state["now"])
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert watch.tick(5) is None
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "plan", "1. Fix it.")
+    state["now"] = "idle"
+    assert all(watch.tick(5) is None for _ in range(3))  # stopped(): a plan waiting for its answer
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "approved")
+    old_tasks(mesh, monkeypatch)
+    assert all(watch.tick(5) is None for _ in range(3))
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [2]
+
+
+def test_a_background_worker_idle_from_the_start_is_alerted_not_nudged(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    out = capsys.readouterr().out
+    assert "without sending a message (its task is still unread); inspect it with `claude logs abc123`" in out
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+@pytest.mark.parametrize("view", ["pane", "bg"])
+def test_a_restarted_watch_does_not_alert_again_for_the_same_task(mesh, fake, run, monkeypatch, capsys, view):
+    if view == "bg":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "--any", "--alerts"]) == 3  # the first watch alerts
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "alert"] == [1]
+    # the root handles the alert and starts the watch again: the same silent task is not alerted twice
+    assert mesh.main(["watch", "--any", "--alerts", "--timeout", "1", "--interval", "5"]) == 6
+    # a new answer re-arms it
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Try again.")
+    assert mesh.main(["watch", "--any", "--alerts"]) == 3
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "alert"] == [1, 2]
+
+
+def test_a_working_reading_rearms_an_alerted_task(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    states_then(mesh, monkeypatch, "working", "idle")  # it worked again, then stopped silently again
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+
+
+def test_grace_zero_still_waits_before_judging_a_fresh_task(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")  # its pane is still booting
+    watch = mesh.Watch(run, "repo-fix-typo", 0.0)
+    assert watch.start_grace == mesh.SETTLE_GRACE
+    assert all(watch.tick(5) is None for _ in range(3))
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_an_unread_answer_is_named_as_an_answer(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    for path in mesh.unread(run, "repo-fix-typo"):
+        mesh.mark_read(path)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "approved")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "(nudged once, its answer is still unread)" in capsys.readouterr().out
 
 
 def test_a_background_worker_is_not_nudged(mesh, fake, run, monkeypatch, capsys):
@@ -2019,7 +2160,7 @@ def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, caps
 def test_ask_reports_a_worker_that_stops_without_answering(mesh, fake, run, monkeypatch, capsys):
     states_then(mesh, monkeypatch, "idle", "working", "idle")
     assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 3
-    assert "without sending a message (nudged once)" in capsys.readouterr().out
+    assert "without sending a message (nudged once" in capsys.readouterr().out
 
 
 def test_stop_drops_untouched_branches_and_resume_brings_them_back(mesh, fake, run, repo, tmp_path, capsys):
