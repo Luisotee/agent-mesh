@@ -143,6 +143,10 @@ class MeshError(Exception):
     """A user-facing failure: printed without a traceback, exit status 1."""
 
 
+class PaneRefused(MeshError):
+    """This session isn't the agent its pane maps to: it gets this error, never a run of its own."""
+
+
 class SwapNotStarted(MeshError):
     """A model swap that stopped before touching the worker: it still runs, on its old model."""
 
@@ -251,12 +255,24 @@ def socket_address(pid: int | None) -> str | None:
     return f"uds:{sock}" if sock.exists() else None
 
 
+def claude_pid() -> int | None:
+    """The pid of the Claude Code process this command runs under, which Claude Code gives its tools."""
+    try:
+        return int(os.environ.get("CLAUDE_PID") or 0) or None
+    except ValueError:
+        return None
+
+
 def claude_address() -> str | None:
     """The cross-session address of the Claude Code session this command runs under.
 
     Session names change as Claude retitles a conversation, so other sessions reach it by this socket, which
-    belongs to the process. None outside Claude Code (an agy root) or where /proc can't be walked.
+    belongs to the process. That's `CLAUDE_PID`'s; without it, the first socket up the process tree, where a
+    stale one left at a reused pid could come first. None outside Claude Code (an agy root) or where /proc
+    can't be walked.
     """
+    if pid := claude_pid():
+        return socket_address(pid)
     pid = os.getpid()
     for _ in range(16):
         if pid <= 1:
@@ -345,7 +361,7 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
     flag_run, flag_name = getattr(args, "run", None), getattr(args, "as_", None)
     run_id = flag_run or os.environ.get("MESH_RUN")
     name = flag_name or os.environ.get("MESH_SELF")
-    run, ignored = None, None
+    run, ignored, refused = None, None, False
     if run_id and name and not flag_name:  # a name you pass is taken as given
         run = maybe_run(run_id)
         if ignored := inherited_identity(run_id, name, run):
@@ -355,7 +371,9 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
         mapping = mesh_home() / "by-pane" / f"{pane_key(pane)}.json" if pane else None
         if mapping and mapping.exists():
             entry = json.loads(mapping.read_text())
-            if ignored:  # this pane's identity, all of it, or none
+            if foreign := foreign_to_pane(entry["run"], entry["name"], pane):
+                ignored, refused = f"{ignored}; {foreign}" if ignored else foreign, True
+            elif ignored:  # this pane's identity, all of it, or none
                 if flag_run and flag_run != entry["run"]:
                     raise MeshError(f"{ignored}; this pane is {entry['name']} of run {entry['run']}, "
                                     f"not of run {flag_run}")
@@ -366,9 +384,10 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
                 run_id = run_id or entry["run"]
                 name = name or entry["name"]
     if not (run_id and name):
-        raise MeshError(f"not in a mesh run{f' ({ignored})' if ignored else ''}: run `mesh init` first, or pass "
-                        "--run and --as (`mesh agents` lists past and present workers, `mesh status --run <id>` "
-                        "shows a run's agents)")
+        error = PaneRefused if refused else MeshError
+        raise error(f"not in a mesh run{f' ({ignored})' if ignored else ''}: run `mesh init` first, or pass "
+                    "--run and --as (`mesh agents` lists past and present workers, `mesh status --run <id>` "
+                    "shows a run's agents)")
     refresh_root_address(run_id, name, run)
     return run_id, name
 
@@ -391,8 +410,8 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
     whatever environment started Claude Code's daemon (see `bg_settings`), and the daemon can outlive the run.
     Claude Code tells its tools which session they run in, and a Claude worker's entry records its session, so
     a mismatch gives it away, except while a launch is recording a new one (`starting`). A pane worker's
-    session can change legitimately (`/clear`, plan mode's "clear context"): herdr says which session runs in
-    the pane, and when that's this one the entry is brought up to date.
+    session can change legitimately (`/clear`, plan mode's "clear context"): when this session's process is the
+    one running in the pane (`pane_runs_this_claude`), the entry is brought up to date.
     """
     current = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not current:
@@ -411,21 +430,59 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
     if entry.get("status") == "starting" and seconds_since(last_launch(entry)) < STARTING_GRACE:
         return None
     if entry.get("pane") and entry["pane"] == os.environ.get("HERDR_PANE_ID"):
-        try:
-            in_pane = ((herdr("agent", "get", entry["pane"], timeout=10).get("agent") or {})
-                       .get("agent_session") or {}).get("value")
-        except MeshError:
-            in_pane = None
-        if not in_pane:
-            return None  # herdr can't say: trust the pane, as before herdr reported sessions
-        if in_pane == current:
+        in_pane = pane_runs_this_claude(entry["pane"])
+        if in_pane is None:
+            return None  # herdr can't say: trust the pane
+        if in_pane:
             with editing_run(run_id) as data:
                 data["agents"][name]["session"] = current
             log_event(run_id, "rebind", name=name, session=current)
             entry["session"] = current
             return None
     return (f"ignored MESH_SELF={name} of run {run_id}: that agent is Claude session {recorded}, and this is "
-            f"{current}, which inherited its environment")
+            f"{current}, which inherited its environment (pass --run {run_id} --as {name} if it should act as "
+            "that agent)")
+
+
+def foreign_to_pane(run_id: str, name: str, pane: str) -> str | None:
+    """Why this Claude session isn't the root that the pane map names for its pane, or None if it may be.
+
+    Anything started in the root's pane carries its `HERDR_PANE_ID`: a background session whose daemon the user
+    started there, or a Claude started by one of the root's tools. Only the pane's foreground process is the
+    root (`pane_runs_this_claude`); when herdr can't say, the pane is trusted.
+    """
+    current = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not current:
+        return None
+    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}
+    if entry.get("kind") and entry["kind"] != "claude":
+        return (f"pane {pane} is {name} of run {run_id}, which is {entry['kind']}, and this is "
+                f"Claude session {current}")
+    if pane_runs_this_claude(pane) is False:
+        return (f"pane {pane} is {name} of run {run_id}, and Claude session {current} isn't the process running "
+                f"there (pass --run {run_id} --as {name} if it should act as that agent)")
+    return None
+
+
+def pane_runs_this_claude(pane: str) -> bool | None:
+    """Whether this command's Claude process is the one running in the pane, or None if herdr can't say.
+
+    herdr's `agent_session` can't tell: its hook reports whatever session starts with the pane's ids, and herdr
+    takes a `resume`, `clear` or `compact` report from any of them (a nested `claude -c -p`, say). The kernel
+    can: the pane's agent leads its foreground process group, while Claude runs each tool in a session of its
+    own and background sessions run under its daemon. Members alone aren't enough, as MCP servers share it.
+    """
+    pid = claude_pid()
+    if not pid:
+        return None
+    try:
+        info = herdr("pane", "process-info", "--pane", pane, timeout=10).get("process_info") or {}
+    except MeshError:
+        return None
+    if leader := info.get("foreground_process_group_id"):
+        return leader == pid
+    members = {p.get("pid") for p in info.get("foreground_processes") or []}
+    return pid in members if members else None
 
 
 def last_launch(entry: dict) -> str | None:
@@ -1456,6 +1513,9 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
     me = next((a for a in agents if a.get("pane_id") == pane), None)
     if me is None:
         raise MeshError(f"herdr sees no agent in pane {pane}")
+    if os.environ.get("CLAUDE_CODE_SESSION_ID") and pane_runs_this_claude(pane) is False:
+        raise MeshError(f"Claude session {os.environ['CLAUDE_CODE_SESSION_ID']} isn't the process running in pane "
+                        f"{pane}, so it can't be its root")
     mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
@@ -2943,8 +3003,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     try:
         run_id, me = identity(args)
-    except MeshError:
-        if getattr(args, "run", None):
+    except MeshError as err:
+        if getattr(args, "run", None) or isinstance(err, PaneRefused):
             raise
         mode = None if copilot else args.kind or "agy"  # a Copilot asker's run is in the root's own mode
         started = init_run(mode, (body.splitlines() or [f"review {pr}"])[0][:200])
