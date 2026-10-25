@@ -2189,15 +2189,13 @@ class Watch:
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
-        self.retired = False  # the root retired it: whatever it does next is no news
+        self.retired = False  # the root is retiring it, or has: whatever it does next is no news
         self.finished = False  # it reported, then its pane closed or its session ended; or it was retired
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
         """(status, line) once there is something to say, else None. `events` is this poll's read of the log."""
         run_id, name = self.run_id, self.name
-        if self.finished:
-            return None
         events = read_log(run_id) if events is None else events
         finals = sends_from(run_id, name, FINAL_TYPES, events)
         if finals > self.finals_at_start:
@@ -2212,9 +2210,11 @@ class Watch:
                        + f"; move it to the next model with `mesh switch {name}`")
         entry = agent_entry(load_run(run_id), name)
         state = agent_status(name, entry, bg_rows)
-        if agent_entry(load_run(run_id), name).get("status") == "retired":  # read after the state, as below
-            self.retired = self.finished = True  # the root closed it on purpose, report or not
+        if agent_entry(load_run(run_id), name).get("status") in ("retiring", "retired"):  # read after the state
+            self.retired = self.finished = True  # the root is closing it on purpose, report or not
             return None
+        if self.retired:  # its retire failed, or it was resumed: watch it again
+            self.retired = self.finished = False
         if (state == "gone" and self.reopening < SWAP_GRACE
                 and agent_entry(load_run(run_id), name).get("status") == "starting"):  # read after the state
             self.reopening += interval  # `mesh approve` / `mesh switch` is reopening it on another model
@@ -2313,7 +2313,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
             if event:
                 return event
         if all(w.finished for w in watches):  # without --alerts only a retired worker finishes without returning
-            retired = [w.name for w in watches if w.retired]
+            retired = [w.name for w in watches if w.retired and not w.reported]
             if not retired:
                 return 0, "every watched worker reported and has ended; nothing left to watch"
             rest = "" if len(retired) == len(watches) else "; the rest reported and have ended"
@@ -2321,7 +2321,8 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
         if deadline and time.monotonic() > deadline:
             waiting = [w for w in watches if not w.reported and not w.retired]
             if not waiting:
-                return 0, f"every watched worker reported within {timeout}s"
+                return 0, (f"every watched worker reported{' or was retired' if any(w.retired for w in watches) else ''} "
+                           f"within {timeout}s")
             states = ", ".join(f"{w.name}: {w.prev}" for w in waiting)
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
@@ -2347,7 +2348,7 @@ def retire_worker(run_id: str, name: str, entry: dict) -> None:
     """Close a worker's pane (or stop its background session); its conversation stays resumable."""
     with editing_run(run_id) as run:  # first, so a watch never takes the closing pane for a crash
         agent = run["agents"][name]
-        before, agent["status"] = agent.get("status"), "retired"
+        before, agent["status"] = agent.get("status"), "retiring"
     try:
         if entry.get("view") == "bg":
             stop_bg(entry)
@@ -2366,6 +2367,8 @@ def retire_worker(run_id: str, name: str, entry: dict) -> None:
         with editing_run(run_id) as run:  # still open: it isn't retired
             run["agents"][name]["status"] = before
         raise
+    with editing_run(run_id) as run:
+        run["agents"][name]["status"] = "retired"
     log_event(run_id, "retire", name=name)
 
 
@@ -2776,8 +2779,8 @@ def free_slug(run_id: str, repo_top: Path, slug: str) -> str:
     with editing_run(run_id) as run:
         claimed = run.setdefault("slugs", {}).setdefault(str(repo_top), [])
         found, n = slug, 2
-        while taken(found, claimed):
-            found, n = f"{slug[:21].rstrip('-')}-{n}", n + 1
+        while taken(found, claimed):  # cut to fit `-N` in an agent name's suffix, so the name differs too
+            found, n = f"{slug[:19 - len(str(n))].rstrip('-')}-{n}", n + 1
         claimed.append(found)
     return found
 

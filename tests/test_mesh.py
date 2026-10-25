@@ -2128,6 +2128,12 @@ def test_reviewers_started_at_the_same_moment_get_different_slugs(mesh, fake, ru
     assert mesh.load_run(run)["slugs"] == {str(repo): ["review-7-claude", "review-7-claude-2"]}
 
 
+def test_a_long_slugs_suffix_survives_into_the_agent_name(mesh, fake, run, repo):
+    first, second = (mesh.free_slug(run, repo, "review-12345-copilot") for _ in range(2))
+    assert second == "review-12345-copil-2"
+    assert mesh.agent_name("agent-mesh", first, set()) != mesh.agent_name("agent-mesh", second, set())
+
+
 def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
@@ -2875,8 +2881,30 @@ def test_retire_marks_the_worker_before_closing_it_and_undoes_that_on_failure(me
     monkeypatch.setattr(mesh, "herdr", herdr)
     with pytest.raises(mesh.HerdrError):
         mesh.retire_worker(run, "repo-fix-typo", mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"))
-    assert seen == ["retired"]
-    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] != "retired"
+    assert seen == ["retiring"]  # until its pane is closed: status and pane counts still see it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+
+
+def test_a_watch_takes_back_a_worker_whose_retire_failed(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    watch = mesh.Watch(run, "repo-fix-typo", grace=30)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retiring"
+    assert watch.tick(5) is None and watch.finished
+    with mesh.editing_run(run) as data:  # the close failed: retire_worker put the status back
+        data["agents"]["repo-fix-typo"]["status"] = "running"
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
+    assert watch.tick(5)[0] == 5 and not watch.finished
+
+
+def test_a_watch_says_reported_for_a_worker_retired_after_its_report(mesh, fake, run, monkeypatch):
+    # a Copilot asker files its done, then its entry is retired
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
+    status, line = mesh.watch_agents(run, ["repo-fix-typo"], finals_at_start=0, alerts_only=True)
+    assert status == 0 and line.startswith("every watched worker reported")
 
 
 def test_an_alerts_watch_timeout_names_only_the_workers_that_have_not_reported(mesh, fake, run, monkeypatch):
