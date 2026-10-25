@@ -92,16 +92,18 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - Claude workers under a Claude root report with `SendMessage`. Their message arrives as a cross-session message from the worker and wakes you if you're idle.
      - agy workers ring a doorbell in your pane.
      - Either way, the full text is in your mailbox: run `mesh inbox`.
-   - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended or been retired (nothing to do), or on an alert:
+   - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended or been retired (nothing to do), with 0 at once when a watched worker's `plan`, `question`, `done` or `failed` is still unread in your mailbox (its doorbell was lost: read it with `mesh inbox`), or on an alert:
      - 3: a worker stopped without reporting (a `plan`, `question`, `done` or `failed`), and stayed silent after the one nudge the watch gave it ("its nudge was not delivered" if that doorbell didn't ring, "its task is still unread" or "its answer is still unread" if it never picked it up; a worker that was never seen working is judged 4 × `--grace` after its last task or answer) (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
      - 4: it's blocked on a dialog (the alert ends with the pane's last lines: a stray menu, or a real question to answer);
-     - 5: it's gone;
+     - 5: it's gone (herdr lists no agent and its pane runs no `claude`/`agy`, or herdr still reads it working over a bare shell);
      - 6: timeout;
-     - 7: quota.
+     - 7: quota, or a Claude worker at its usage limit;
+     - 8: it may be hung: it reads working, but its transcript hasn't changed for 40 minutes (`--hang`, `MESH_HANG_AFTER`; a test or a server in watch mode that never returns). Look at its pane; tell the user, and leave it running unless it is plainly stuck. The watch never stops it, and raises this once per task.
 
-     Investigate with `mesh status`, then `herdr agent read <name>` for a pane or `claude logs <bg id>` for a background worker. Start the watch again after handling the alert, and whenever you spawn or resume a worker. A restarted watch doesn't raise exit 3 again for a task already alerted on: only once the worker works again, or gets a new task or answer.
+     Investigate with `mesh status`, then `herdr agent read <name>` for a pane or `claude logs <bg id>` for a background worker. Start the watch again after handling the alert, and whenever you spawn or resume a worker. A restarted watch doesn't raise exit 3 again for a task already alerted on: only once the worker works again, or gets a new task or answer. Exits 7 (usage limit) and 8 are raised once per task too, until a new task or answer. A worker herdr has lost track of while its pane still runs its CLI (seen after a Claude Code auto-update) reads `unknown` in `mesh status`, and isn't called gone.
    - **Quota hit** (exit 7, `ALERT <worker> hit its quota on <model>`): run `mesh switch <worker>` right away, without asking. It reopens the worker's conversation on the next model with quota left, and tells it to continue. Then tell the user in one line, for example "Argon ran out; <worker> continues on Opus".
      - If switch says no model is left (a Flash executor with Flash exhausted), tell the user the reset time and wait.
+     - A Claude worker at its usage limit (`ALERT <worker> hit Claude's usage limit (resets …)`) has nowhere to move: the limit is the account's. Tell the user the reset time, wait for it, then send the task the line gives (`continue where you stopped`); that task re-arms the alert.
      - A quota hit is not a `failed`.
      - If `mesh approve` or `mesh switch` itself fails to reopen the worker, the worker is marked `swap_failed`, the watch alerts (exit 5), and the same command can be run again.
      - If `mesh approve` can't start the move (its conversation isn't found, or it stays busy), nothing is sent, and the error suggests `mesh approve <worker> --keep-model`: it then executes on its planning model, and a later `mesh switch` moves it to the execution model. Use that rather than `mesh send … --type answer`, which leaves it recorded as planning, and tell the user it executes on its planning model.
@@ -187,7 +189,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
   - **A Claude worker under a Claude root:** `ask` returns once the question is delivered (pass `--wait` to block anyway), and the answer arrives as the worker's `SendMessage`. If the output has a `send_message`, pass it on with `SendMessage` first.
   - **An agy worker, Claude root:** run `ask` with `run_in_background`, and the answer arrives as the notification.
   - **agy root:** run it in the foreground, or pass `--no-wait` and wait for the doorbell.
-  - Exit codes are those of `mesh watch`; on 7, `mesh switch` the worker and `mesh watch` it.
+  - Exit codes are those of `mesh watch`; on 7 (an agy quota), `mesh switch` the worker and `mesh watch` it; on a Claude usage limit, wait for the reset as in "Supervise".
 
 Then:
 

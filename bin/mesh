@@ -82,6 +82,12 @@ SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopen
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
 RESET_RE = re.compile(r"Resets in ([\dhms]+)")
+# Claude Code's usage-limit screens (Gas Town's patterns, from real panes), matched on the pane's last LIMIT_LINES
+# lines only, so a limit that has scrolled up doesn't count: "You've hit your limit · resets 7pm (America/…)".
+LIMIT_RE = re.compile(r"You've hit your .*limit|limit\s*·\s*resets \d+[:\d]*(am|pm)\b|Stop and wait for limit "
+                      r"to reset|Add funds to continue with extra usage|API Error: Rate limit reached", re.IGNORECASE)
+LIMIT_RESET_RE = re.compile(r"\bresets\s+(.+)", re.IGNORECASE)
+LIMIT_LINES = 20
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
@@ -101,6 +107,12 @@ SETTLE_GRACE = 30.0
 # after the turn) is judged once its last task or answer is this many `--grace` old (never under SETTLE_GRACE):
 # room for a pane to boot, the doorbell's retries, and the root passing a background worker's `send_message` on.
 START_GRACE_FACTOR = 4
+# A worker that reads `working` while its transcript stays unchanged this long gets one exit-8 alert per task
+# (`--hang`, MESH_HANG_AFTER; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
+HANG_AFTER = 2400.0
+SESSION_RETRY = 60.0  # seconds before a watch looks again for a conversation it couldn't find
+AGENT_BINARIES = ("claude", "agy")  # the processes that run a worker (argv[0], auto-updates move the binary)
+INTERPRETERS = ("node", "bun", "deno")  # a CLI installed as a script runs under one of these
 RECEIVED_TYPES = ("task", "answer")  # what a worker acts on
 REPORT_TYPES = ("plan", "question", "done", "failed")  # what ends a worker's turn (an `info` doesn't)
 NUDGE_RING_DELAYS = (2, 5)  # a nudge that doesn't ring ends in the exit-3 alert, so it needn't retry long
@@ -251,6 +263,30 @@ def parent_pid(pid: int) -> int:
         return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
     except (OSError, ValueError, IndexError):
         return 0
+
+
+def agent_processes() -> list[dict]:
+    """Every running `claude` / `agy` process this user can see ({pid, argv, cwd}), from /proc ([] without it),
+    leaving out this command's own ancestors (the agent that runs it isn't some worker's holder)."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return []
+    mine, pid = set(), os.getpid()
+    while pid > 1 and pid not in mine:
+        mine.add(pid)
+        pid = parent_pid(pid)
+    found = []
+    for folder in proc.iterdir():
+        if not folder.name.isdigit() or int(folder.name) in mine:
+            continue
+        try:
+            argv = (folder / "cmdline").read_bytes().decode(errors="replace").split("\0")
+            if not agent_binary(argv):
+                continue
+            found.append({"pid": int(folder.name), "argv": [a for a in argv if a], "cwd": os.readlink(folder / "cwd")})
+        except OSError:
+            continue  # exited as we looked, or not ours
+    return found
 
 
 def socket_address(pid: int | None) -> str | None:
@@ -760,6 +796,44 @@ def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
     return "\n".join("    " + (line if len(line) <= 160 else line[:159] + "…") for line in rows)
 
 
+def usage_limit(lines: list[str] | None) -> str | None:
+    """The reset time ("" if not shown) when the pane's last LIMIT_LINES lines show Claude's usage limit, else None."""
+    tail = (lines or [])[-LIMIT_LINES:]
+    if not any(LIMIT_RE.search(line) for line in tail):
+        return None
+    reset = next((m for m in map(LIMIT_RESET_RE.search, reversed(tail)) if m), None)
+    return reset.group(1).strip() if reset else ""
+
+
+def agent_binary(argv: list[str] | None) -> str | None:
+    """`claude` or `agy` when the command line runs one of them (directly, or as a script under node), else None."""
+    argv = [a for a in argv or [] if a]
+    if not argv:
+        return None
+    first = Path(argv[0]).name
+    if first in INTERPRETERS and len(argv) > 1:
+        first = Path(argv[1]).name
+    return first if first in AGENT_BINARIES else None
+
+
+def pane_probe(pane: str | None, kind: str | None) -> str | None:
+    """What the pane's process table says about its worker: `missing` (no such pane), `alive` (a `kind` agent runs
+    in its foreground), `dead` (only something else, such as the bare shell), or None when herdr can't say."""
+    if not pane:
+        return "missing"
+    try:
+        info = herdr("pane", "process-info", "--pane", pane, timeout=10).get("process_info") or {}
+    except HerdrError as exc:
+        return "missing" if exc.code == "pane_not_found" else None
+    except MeshError:
+        return None
+    procs = info.get("foreground_processes")
+    if not procs:
+        return None
+    want = (kind,) if kind in AGENT_BINARIES else AGENT_BINARIES
+    return "alive" if any(agent_binary(p.get("argv")) in want for p in procs) else "dead"
+
+
 def trust_keys(screen: str) -> list[str] | None:
     """Keys that select "Yes, … trust" in a folder-trust dialog, or None if it isn't one.
 
@@ -840,7 +914,7 @@ HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
                "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
-               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL")
+               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -1223,6 +1297,79 @@ def find_session(run_id: str, name: str, entry: dict) -> str | None:
     return claude_session(name, cwd) if cwd else None
 
 
+def claude_transcript(entry: dict, session: str) -> Path | None:
+    """A Claude worker's session file (JSONL, appended on every message, tool call and result), if it exists."""
+    if not entry.get("cwd"):
+        return None
+    path = claude_sessions_dir(entry["cwd"]) / f"{session}.jsonl"
+    return path if path.exists() else None
+
+
+def agy_conversation_file(session: str) -> Path:
+    base = os.environ.get("MESH_AGY_CONVERSATIONS") or Path.home() / AGY_HOME / "conversations"
+    return Path(base) / f"{session}.db"
+
+
+def progress_files(entry: dict, session: str | None) -> list[Path]:
+    """The files a worker writes as it makes progress: Claude's session file; agy's conversation db (with the
+    write-ahead log it takes new rows in first and its shared-memory index: the log vanishes at a checkpoint)
+    and its own `--log-file`."""
+    if entry.get("kind") == "agy":
+        db = agy_conversation_file(session) if session else None
+        files = [db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")] if db else []
+        return [f for f in (*files, Path(entry["log"]) if entry.get("log") else None) if f]
+    path = claude_transcript(entry, session) if session else None
+    return [path] if path else []
+
+
+def last_progress(entry: dict, session: str | None) -> float | None:
+    """When the worker last wrote any of its `progress_files` (epoch seconds), or None if none can be read."""
+    times = []
+    for path in progress_files(entry, session):
+        try:
+            times.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    return max(times, default=None)
+
+
+def transcript_limit(entry: dict, session: str | None, tail: int = 65536) -> str | None:
+    """The reset time ("" if not shown) when a Claude worker's last reply is a usage-limit error, else None.
+
+    Claude Code records an API error as a synthetic assistant entry (`isApiErrorMessage`, an `error` code such as
+    `authentication_failed` or `server_error`, the text it showed). A usage limit's code is taken to be
+    `rate_limit` (no sample seen yet), so its text is matched against LIMIT_RE as well.
+    """
+    path = claude_transcript(entry, session) if session and entry.get("kind") == "claude" else None
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, fh.seek(0, os.SEEK_END) - tail))
+            lines = fh.read().decode(errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"assistant"' not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue  # the first line of the tail is usually cut
+        if event.get("type") != "assistant":
+            continue
+        if not event.get("isApiErrorMessage"):
+            return None
+        content = (event.get("message") or {}).get("content")
+        text = " ".join(c.get("text") or "" for c in content if isinstance(c, dict)) if isinstance(content, list) \
+            else str(content or "")
+        if event.get("error") != "rate_limit" and not LIMIT_RE.search(text):
+            return None
+        reset = LIMIT_RESET_RE.search(text)
+        return reset.group(1).strip() if reset else ""
+    return None
+
+
 def context_tokens(entry: dict, session: str) -> int | None:
     """A worker's context size: the prompt of its last reply since its last compaction (0 right after one).
 
@@ -1230,10 +1377,8 @@ def context_tokens(entry: dict, session: str) -> int | None:
     """
     if entry.get("kind") == "agy":
         return agy_context_tokens(session)
-    if not entry.get("cwd"):
-        return None
-    path = claude_sessions_dir(entry["cwd"]) / f"{session}.jsonl"
-    if not path.exists():
+    path = claude_transcript(entry, session)
+    if not path:
         return None
     tokens = None
     with open(path, errors="replace") as fh:
@@ -1300,8 +1445,7 @@ def agy_context_tokens(session: str) -> int | None:
         import sqlite3  # here, so a Python built without it only loses this reading
     except ImportError:
         return None
-    base = os.environ.get("MESH_AGY_CONVERSATIONS") or Path.home() / AGY_HOME / "conversations"
-    path = Path(base) / f"{session}.db"
+    path = agy_conversation_file(session)
     if not path.exists():
         return None
     try:
@@ -2130,7 +2274,12 @@ def cmd_ring(args: argparse.Namespace) -> int:
 
 
 def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | None = None) -> str:
-    """herdr's state for an agent's pane (working / idle / done / blocked / gone); a background worker's from Claude."""
+    """herdr's state for an agent's pane (working / idle / done / blocked / gone); a background worker's from Claude.
+
+    herdr can lose a live agent's registration (seen after a Claude Code auto-update), so a pane worker herdr
+    doesn't know is `gone` only unless its pane still runs its CLI (`pane_probe`): then it is `unknown`, which
+    the watch neither nudges nor reports gone. When the pane can't be read, herdr's word stands.
+    """
     if entry and entry.get("view") == "bg":
         return bg_status(entry, bg_rows)
     if entry and entry.get("view") == "headless":
@@ -2140,7 +2289,7 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
         return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
     except HerdrError as exc:
         if exc.code == "agent_not_found":
-            return "gone"
+            return "unknown" if entry and pane_probe(entry.get("pane"), entry.get("kind")) == "alive" else "gone"
         raise
 
 
@@ -2186,7 +2335,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
             return 0
     else:
         names = [args.agent]
-    status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts)
+    status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
+                                hang=getattr(args, "hang", None))
     print(line)
     return status
 
@@ -2226,16 +2376,18 @@ def claim_nudge(run_id: str, name: str, received: int) -> bool:
         return True
 
 
-def alerted(events: list[dict], name: str, received: int) -> bool:
-    """Whether a watch already raised the stopped alert (exit 3) for `name`'s current task."""
-    return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received for e in events)
+def alerted(events: list[dict], name: str, received: int, kind: str = "stopped") -> bool:
+    """Whether a watch already raised this alert for `name`'s current task: `stopped` (exit 3, the kind of an
+    alert logged without one), `limit` (a Claude usage limit, exit 7) or `hung` (exit 8)."""
+    return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received
+               and e.get("kind", "stopped") == kind for e in events)
 
 
-def record_alert(run_id: str, name: str, received: int) -> None:
-    """Log the stopped alert for this task, once (checked and logged under the run lock)."""
+def record_alert(run_id: str, name: str, received: int, kind: str = "stopped") -> None:
+    """Log this alert for this task, once (checked and logged under the run lock)."""
     with run_lock(run_id):
-        if not alerted(read_log(run_id), name, received):
-            log_event(run_id, "alert", name=name, received=received)
+        if not alerted(read_log(run_id), name, received, kind):
+            log_event(run_id, "alert", name=name, received=received, kind=kind)
 
 
 def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
@@ -2254,17 +2406,39 @@ def age_seconds(stamp_iso: str | None) -> float:
         return float("inf")
 
 
+def unread_report(run_id: str, parent: str | None, name: str) -> str | None:
+    """The type of the oldest report (`plan`, `question`, `done`, `failed`) from `name` still unread by `parent`."""
+    for path in unread(run_id, parent) if parent else ():
+        meta, _ = parse_message(path)
+        if meta.get("from") == name and meta.get("type") in REPORT_TYPES:
+            return meta["type"]
+    return None
+
+
+def epoch(stamp_iso: str | None) -> float:
+    try:
+        return datetime.fromisoformat(stamp_iso).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
-    def __init__(self, run_id: str, name: str, grace: float, finals_at_start: int | None = None):
+    def __init__(self, run_id: str, name: str, grace: float, finals_at_start: int | None = None,
+                 hang: float = HANG_AFTER):
         entry = agent_entry(load_run(run_id), name)
-        self.run_id, self.name, self.grace = run_id, name, grace
+        self.run_id, self.name, self.grace, self.hang = run_id, name, grace, hang
         self.start_grace = max(START_GRACE_FACTOR * grace, SETTLE_GRACE)
         # Final sends before the watch started (or before its task was delivered) don't count.
         self.finals_at_start = sends_from(run_id, name, FINAL_TYPES) if finals_at_start is None else finals_at_start
+        # ...but a report its parent hasn't read yet is news, whenever it was sent (not for `mesh ask`, whose
+        # baseline is the count before its question, and which reads the reply itself).
+        self.unread_report = None if finals_at_start is not None else unread_report(run_id, entry.get("parent"), name)
         self.log = entry.get("log")
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
+        self.session: str | None = None  # its conversation, once found (see conversation)
+        self.session_tried: float | None = None
         self.prev: str | None = None
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
@@ -2280,17 +2454,9 @@ class Watch:
         """(status, line) once there is something to say, else None. `events` is this poll's read of the log."""
         run_id, name = self.run_id, self.name
         events = read_log(run_id) if events is None else events
-        finals = sends_from(run_id, name, FINAL_TYPES, events)
-        if finals > self.finals_at_start:
-            last = [e for e in events if e.get("event") == "send" and e.get("sender") == name][-1]
-            if not alerts_only:
-                return 0, f"{name} reported {last['type']}: read it with `mesh inbox`"
-            self.finals_at_start, self.reported = finals, True
-        reset, self.log_offset = quota_hit(self.log, self.log_offset)
-        if reset is not None:
-            model = agent_entry(load_run(run_id), name).get("model")
-            return 7, (f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
-                       + f"; move it to the next model with `mesh switch {name}`")
+        event = self.report_event(events, alerts_only) or self.quota_event()
+        if event:
+            return event
         entry = agent_entry(load_run(run_id), name)
         state = agent_status(name, entry, bg_rows)
         if agent_entry(load_run(run_id), name).get("status") in ("retiring", "retired"):  # read after the state
@@ -2312,6 +2478,9 @@ class Watch:
         bg = entry.get("view") == "bg"
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
+            reset = self.limited(entry, bg)
+            if reset is not None:  # Claude's usage-limit menu
+                return self.limit_alert(entry, bg, reset, events)
             look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
             return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg, entry)
         self.prev = state
@@ -2320,11 +2489,102 @@ class Watch:
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
             if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
                 return self.stopped(entry, bg, events)
-        else:
-            self.idle_for = None
-            if state == "working":
-                self.worked = True
+            return None
+        self.idle_for = None
+        if state == "working":
+            self.worked = True
+        if state in ("working", "unknown"):
+            return self.hung(entry, bg, state, events)
         return None
+
+    def report_event(self, events: list[dict], alerts_only: bool) -> tuple[int, str] | None:
+        """A report nobody has read yet (first tick only), or a `done`/`failed` sent since the watch started."""
+        run_id, name = self.run_id, self.name
+        if self.unread_report:
+            kind, self.unread_report = self.unread_report, None
+            return 0, f"{name} sent a {kind} you haven't read yet: read it with `mesh inbox`"
+        finals = sends_from(run_id, name, FINAL_TYPES, events)
+        if finals > self.finals_at_start:
+            last = [e for e in events if e.get("event") == "send" and e.get("sender") == name][-1]
+            if not alerts_only:
+                return 0, f"{name} reported {last['type']}: read it with `mesh inbox`"
+            self.finals_at_start, self.reported = finals, True
+        return None
+
+    def quota_event(self) -> tuple[int, str] | None:
+        """A quota error agy logged since the last poll."""
+        reset, self.log_offset = quota_hit(self.log, self.log_offset)
+        if reset is None:
+            return None
+        model = agent_entry(load_run(self.run_id), self.name).get("model")
+        return 7, (f"ALERT {self.name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
+                   + f"; move it to the next model with `mesh switch {self.name}`")
+
+    def conversation(self, entry: dict) -> str | None:
+        """Its session or conversation id: recorded, or looked up (at most once every SESSION_RETRY seconds)."""
+        if entry.get("session") or self.session:
+            return entry.get("session") or self.session
+        now = time.time()
+        if self.session_tried is None or now - self.session_tried >= SESSION_RETRY:
+            self.session_tried = now
+            self.session = find_session(self.run_id, self.name, entry)
+        return self.session
+
+    def limited(self, entry: dict, bg: bool) -> str | None:
+        """The reset time ("" if not shown) when a Claude worker is at its usage limit, else None: from the
+        pane's last lines, or its session file's last reply (which a background worker has too)."""
+        if entry.get("kind") != "claude":
+            return None
+        if not bg:
+            lines = pane_lines(self.name)
+            if lines is None and entry.get("pane"):
+                lines = pane_lines(entry["pane"])
+            reset = usage_limit(lines)
+            if reset is not None:
+                return reset
+        return transcript_limit(entry, self.conversation(entry))
+
+    def limit_alert(self, entry: dict, bg: bool, reset: str, events: list[dict]) -> tuple[int, str] | None:
+        """Exit 7 for a Claude usage limit, once per task; None when this task's limit was already alerted on."""
+        received = since_last_task(events, self.name)[0]
+        if alerted(events, self.name, received, "limit"):
+            return None  # the root knows, and sends a new task at the reset, which re-arms this
+        record_alert(self.run_id, self.name, received, "limit")
+        when = f" (resets {reset})" if reset else ""
+        relay = " and pass its send_message on" if bg else ""
+        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; it can't go on until then: wait for the "
+                   f"reset, then `mesh send {self.name} --type task --body \"The usage limit has reset: continue "
+                   f"where you stopped.\"`{relay}")
+
+    def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
+        """Exit 8, once per task, when it reads working (or herdr lost it, with nothing reported) and its transcript
+        hasn't changed for `hang` seconds since its last task or answer. The watch never stops it."""
+        if not self.hang:
+            return None
+        run_id, name = self.run_id, self.name
+        received, sent, at = since_last_task(events, name)
+        if (state == "unknown" and sent) or alerted(events, name, received, "hung"):
+            return None  # waiting for an answer to its report; or already alerted on
+        progress = last_progress(entry, self.conversation(entry))
+        if progress is None:
+            return None  # nothing to judge it by
+        quiet = time.time() - max(progress, epoch(at))
+        if quiet < self.hang:
+            return None
+        if not bg and pane_probe(entry.get("pane"), entry.get("kind")) in ("missing", "dead"):
+            return 5, (f"ALERT {name} is gone: herdr still reads it {state}, but its pane runs no "
+                       f"{entry.get('kind') or 'agent'} process (it exited without reporting done/failed)")
+        reset = self.limited(entry, bg)
+        if reset is not None:
+            return self.limit_alert(entry, bg, reset, events)
+        record_alert(run_id, name, received, "hung")
+        what = "herdr has lost track of it" if state == "unknown" else "it reads working"
+        look = (f"`claude logs {entry['bg_id']}`" if bg
+                else f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
+        line = (f"ALERT {name} may be hung: {what}, and its transcript hasn't changed for {int(quiet // 60)} min "
+                f"(a tool call that never returns, such as a test or a server in watch mode?); inspect it with "
+                f"{look}. The watch won't stop it, and won't raise this again for this task")
+        return 8, self.with_tail(line, bg, entry)
 
     def idle_from_start(self, events: list[dict]) -> bool:
         """Never seen working, but its last task or answer is `start_grace` old (in the log, so a watch started
@@ -2342,6 +2602,9 @@ class Watch:
         self.worked, self.idle_for = False, None
         if sent:
             return None  # a report, or a plan or question waiting for its answer
+        reset = self.limited(entry, bg)
+        if reset is not None:  # nothing to nudge: it can't go on until the reset
+            return self.limit_alert(entry, bg, reset, events)
         if bg:
             record_alert(run_id, name, received)
             return 3, (f"ALERT {name} stopped working without sending a message{self.unread_note(' (', ')')}; "
@@ -2378,13 +2641,17 @@ class Watch:
 
 
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
-                 finals_at_start: int | None = None, alerts_only: bool = False) -> tuple[int, str]:
-    """Wait for the first of `names` to report done/failed (0) or raise an alert (3-7), with the line that says which.
+                 finals_at_start: int | None = None, alerts_only: bool = False,
+                 hang: float | None = None) -> tuple[int, str]:
+    """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
-    `finals_at_start` (one name only) is the child's count of final sends before its task was delivered, so a
-    report that lands before the watch starts still counts. `alerts_only` keeps watching through reports.
+    A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
+    is the child's count of final sends before its task was delivered, so a report that lands before the watch
+    starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
+    the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
     """
-    watches = [Watch(run_id, name, grace, finals_at_start) for name in names]
+    hang = hang_after() if hang is None else hang
+    watches = [Watch(run_id, name, grace, finals_at_start, hang) for name in names]
     deadline = time.monotonic() + timeout if timeout else None
     while True:
         run = load_run(run_id)
@@ -2410,6 +2677,13 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
         time.sleep(interval)
+
+
+def hang_after() -> float:
+    try:
+        return float(os.environ.get("MESH_HANG_AFTER") or HANG_AFTER)
+    except ValueError:
+        return HANG_AFTER
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -2508,12 +2782,13 @@ def pid_alive(pid: int | None) -> bool:
 
 
 def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
-                bg_rows: list[dict] | None = None) -> dict | None:
+                bg_rows: list[dict] | None = None, procs: list[dict] | None = None) -> dict | None:
     """A live agent that may hold this worker's conversation already.
 
     A background worker's own session, while it runs. Then any herdr agent in its own worktree (the user
     may have reopened it with `mesh open`); in a main checkout, which other sessions share, only an agent
-    still carrying its name.
+    still carrying its name. herdr can lose a live agent's registration, so then any process that may hold
+    it (`process_holder`). `procs` is one `agent_processes()` read, shared by a caller checking many workers.
     """
     if entry.get("view") == "bg":
         row = bg_row(entry, bg_rows)
@@ -2527,9 +2802,28 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
     if agents is None:
         agents = herdr("agent", "list").get("agents", [])
     if not cwd or (entry.get("repo") and Path(cwd).resolve() == Path(entry["repo"]).resolve()):
-        return next((a for a in agents if a.get("name") == name), None)
+        return next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
     top = Path(cwd).resolve()
-    return next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
+    return (next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
+            or process_holder(name, entry, top, procs))
+
+
+def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] | None = None) -> dict | None:
+    """A running `claude` / `agy` process of the worker's kind that may hold its conversation, herdr or not.
+
+    In its own worktree (`top`), any one working there; in a shared checkout (`top` None), only one whose command
+    line names its session. Without /proc, the pane it last ran in, if that still runs its CLI.
+    """
+    kind, session = entry.get("kind"), entry.get("session")
+    procs = agent_processes() if procs is None else procs
+    for proc in procs:
+        if kind in AGENT_BINARIES and agent_binary(proc.get("argv")) != kind:
+            continue
+        if (inside(proc.get("cwd"), top) if top else bool(session) and session in proc.get("argv", [])):
+            return {"name": name, "pane_id": None, "process": proc["pid"], "cwd": proc.get("cwd")}
+    if top and not Path("/proc").is_dir() and pane_probe(entry.get("pane"), kind) == "alive":
+        return {"name": name, "pane_id": entry["pane"]}
+    return None
 
 
 def print_table(rows: list[dict], cols: tuple[str, ...]) -> None:
@@ -2548,6 +2842,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
     rows = []
     runs = all_runs()
     bg_rows = claude_agents() if any(e.get("view") == "bg" for r, _ in runs for e in r["agents"].values()) else []
+    procs = agent_processes()
     for run, folder in runs:
         if args.run and run["id"] != args.run:
             continue  # by run id, not branch: a worker resumed into a run keeps its old run's branch
@@ -2563,7 +2858,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
                 "kind": entry.get("kind"), "model": entry.get("model") or "", "view": entry.get("view") or "pane",
                 "repo": Path(entry["repo"]).name if entry.get("repo") else "", "branch": branch,
                 "worktree": "present" if cwd and Path(cwd).exists() else "removed",
-                "state": "live" if live_holder(name, entry, live, bg_rows) else "gone",
+                "state": "live" if live_holder(name, entry, live, bg_rows, procs) else "gone",
                 "session": "found" if find_session(run["id"], name, entry) else "missing",
                 "prs": " ".join(prs), "reviews": " ".join(reviews), "cwd": cwd,
             })
@@ -2590,6 +2885,10 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
     holder = live_hint(name, entry)
     if holder and holder.get("pid"):
         raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; ask it again once that finishes")
+    if holder and holder.get("process"):
+        raise MeshError(f"{name}'s conversation may still be open in process {holder['process']} (a {entry.get('kind')} "
+                        f"running in {holder.get('cwd')}, which herdr doesn't list); see it with "
+                        f"`ps -o pid,args -p {holder['process']}`, and resume once it has ended")
     if holder:
         where = (f"background session {holder['bg_id']}" if holder.get("bg_id")
                  else f"pane {holder.get('pane_id')}")
@@ -3536,6 +3835,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.add_argument("--grace", type=float, default=SETTLE_GRACE,
                    help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
+    p.add_argument("--hang", type=float, default=None,
+                   help="seconds a worker may read working with its transcript unchanged before exit 8 "
+                        f"(default MESH_HANG_AFTER or {int(HANG_AFTER)}; 0 = never)")
     p.set_defaults(func=cmd_watch)
 
     p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))

@@ -101,6 +101,8 @@ def mesh(tmp_path, monkeypatch):
     module = load_mesh()
     monkeypatch.setattr(module.time, "sleep", lambda s: None)
     monkeypatch.setattr(module, "run_cli", FakeCli())
+    # Never this machine's real claude/agy processes (live_holder): a test that wants some lists its own.
+    monkeypatch.setattr(module, "agent_processes", lambda: [])
     return module
 
 
