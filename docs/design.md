@@ -173,7 +173,7 @@ By 0.6 mesh had its own copies of things Claude Code now does natively: typing d
 - **Sizes are a table, not a judgement call in code.** `SIZE_DEFAULTS` maps (CLI, size) to model, effort and view. The root picks the size; the user's named model or effort still wins.
 - **User-reviewed plans.** `--model opus --permission-mode plan` does natively what `mesh approve` does for Claude: Opus plans, and Claude Code leaves plan mode after approval and executes on Opus, in the same conversation. It used `opusplan` (Sonnet executes) until quality outranked tokens (§9). With no `mesh approve` there's no execution phase, so the task runs at high effort throughout: the exception to "execute at medium", accepted because the user chose to supervise this one. herdr shows the waiting dialog as `blocked`, so the watchdog excuses that one worker. It's opt-in, for when the user wants to approve a plan themselves. By default the root reviews plans and Claude stays on Opus (§9).
 - **Task lists:** a list of tasks makes the root a supervisor.
-  - It triages into a board the user confirms once, writes no code itself, runs at most four workers at a time, and gives each PR a reviewer.
+  - It triages into a board the user confirms once, writes no code itself, runs at most four workers at a time, and gives each PR two reviewers, picked by its size (§10).
   - It checks conflicts with `git merge-tree --write-tree` (`mesh conflicts`), which needs no checkout, and skips stacked pairs.
   - The board lives in the run directory, so a root whose context was compacted can rebuild its picture from it instead of from memory.
 - **What we don't use:**
