@@ -77,6 +77,9 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_CC_SOCKS", str(tmp_path / "socks"))
     # Most tests check the run-tab placement; the side-pane tests turn it back on.
     monkeypatch.setenv("MESH_SIDE_PANES", "0")
+    # Never agy's real conversation index or prompt history: a test that wants one writes its own.
+    monkeypatch.setenv("MESH_AGY_SUMMARIES", str(tmp_path / "agy" / "conversation_summaries.db"))
+    monkeypatch.setenv("MESH_AGY_HISTORY", str(tmp_path / "agy" / "history.jsonl"))
     # CLAUDE_CODE_SESSION_ID: the suite may run inside Claude Code, whose session would meet `inherited_identity`.
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "CLAUDE_CODE_SESSION_ID"):
         monkeypatch.delenv(key, raising=False)

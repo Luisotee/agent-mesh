@@ -104,6 +104,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - If switch says no model is left (a Flash executor with Flash exhausted), tell the user the reset time and wait.
      - A quota hit is not a `failed`.
      - If `mesh approve` or `mesh switch` itself fails to reopen the worker, the worker is marked `swap_failed`, the watch alerts (exit 5), and the same command can be run again.
+     - If `mesh approve` can't start the move (its conversation isn't found, or it stays busy), nothing is sent, and the error suggests `mesh approve <worker> --keep-model`: it then executes on its planning model, and a later `mesh switch` moves it to the execution model. Use that rather than `mesh send … --type answer`, which leaves it recorded as planning, and tell the user it executes on its planning model.
    - **agy root:** rely on the doorbell, and check `mesh status` each time you wake.
    - **Keep working** on your own repo while workers run; their reports queue until your current turn ends. If your work depends on a worker's change, build against the contract you gave it, or wait for its `done` (its branch is `mesh/<run>/<slug>`) when you can't.
    - **Keep your own context lean:** you live longest, so your context costs the most. Read plans and reports, not workers' transcripts. Look at diffs only where the plan says the risk is.
@@ -124,7 +125,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
 8. **Check every `done`** before passing it on; a worker's word is not proof.
    - Compare the PR diff (`gh pr diff <url> --name-only` first, then the risky files) against the approved plan or the task.
    - For trivial and small tasks, a reviewer (see "Questions and reviews") checks the diff instead of you.
-   - If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"`.
+   - If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"` (start a small fix with `Direct task (no plan)`).
 9. **Close what you're done with:** once a worker's `done` checks out and you have nothing more for it, `mesh retire <worker>`. Its pane closes, and its conversation stays resumable (`mesh resume <worker>` brings it back with everything it knew), so an idle agent never sits open just in case.
 10. **On `failed`:** don't restart the worker on another model by yourself.
    - Tell the user what blocked it and suggest a next step (a hint, a larger size, or a stronger model such as `argon` or Claude).
@@ -205,7 +206,7 @@ Then:
 When the request is about something a worker already built, in this run or an earlier one, resume **that worker**: it still has its research, plan and reasoning, so a fresh one would only rediscover them.
 
 1. **Find it:** `mesh agents <PR link | repo | branch>` lists past workers with their run, branch, PRs and whether their conversation was found. With several matches, the newest is usually the one that last touched the PR.
-2. **If it's still running in this run**, just `mesh send <worker> --type task --file …`.
+2. **If it's still running in this run**, just `mesh send <worker> --type task --file …`. If it sends a plan, it plans on the model it's on, and `mesh approve` moves it to the execution model (a worker spawned with a named `--model` / `--effort` stays on it); to plan on the strong model instead, `mesh retire` it and resume it (step 3).
 3. **Otherwise resume it:** `mesh init` first if you have no run, then
    ```bash
    mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"
