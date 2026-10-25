@@ -1,6 +1,6 @@
-# CLAUDE.md
+# CLAUDE.md / AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
 agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), as a visible herdr pane with two-way messaging. `README.md` is the user-facing overview; `docs/design.md` records why each decision was made and the alternatives that lost. Read the relevant section there before changing behaviour.
 
