@@ -2370,8 +2370,8 @@ def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
     for path in sorted((folder / "inbox").glob("**/*.md")):
         meta, body = parse_message(path)
         if meta.get("from") == name:
-            prs += [url for url in PR_RE.findall(body) if url not in prs and url not in reviewed]
-    return prs
+            prs += PR_RE.findall(body)
+    return [url for url in dict.fromkeys(prs) if url not in reviewed]
 
 
 def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str, dict]:
@@ -2735,6 +2735,25 @@ ASK_SLUG_SKIP = {"a", "an", "and", "are", "can", "do", "does", "for", "how", "in
                  "to", "we", "what", "when", "where", "which", "who", "why", "with"}
 
 
+def free_slug(run_id: str, repo_top: Path, slug: str) -> str:
+    """`slug`, or `slug-2`, `-3`… when its run branch already exists: a retired asker keeps its branch.
+
+    A named one (`--name`) too, since `/delegate-review` always passes one. Not locked: two asks of one kind
+    for one PR started at the same moment can still pick the same slug.
+    """
+    def taken(candidate: str) -> bool:
+        try:
+            git("rev-parse", "--verify", "--quiet", f"refs/heads/mesh/{run_id}/{candidate}", cwd=repo_top)
+            return True
+        except MeshError:
+            return False
+    slug = slugify(slug, 24)
+    found, n = slug, 2
+    while taken(found):
+        found, n = f"{slug[:21].rstrip('-')}-{n}", n + 1
+    return found
+
+
 def ask_slug(body: str) -> str:
     """`ask-` plus the question's first telling words, within an agent name's 20-character suffix."""
     slug = "ask"
@@ -2920,7 +2939,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         how = "asked"
     else:
         taken = set(load_run(run_id)["agents"]) | live_agent_names()
-        slug = args.name or (f"review-{number}" if pr else ask_slug(body))
+        slug = free_slug(run_id, repo, args.name or (f"review-{number}-copilot" if pr else ask_slug(body)))
         name = agent_name(repo.name, slug, taken)
         cwd, branch, base = add_worktree(run_id, repo, slugify(slug, 24), base)
         model = args.model or os.environ.get("MESH_COPILOT_MODEL") or COPILOT_MODEL
@@ -3054,15 +3073,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body)
 
     if args.repo:
-        slug = args.name or (f"review-{number}" if pr else ask_slug(body))
         kind = args.kind or load_run(run_id)["mode"]
+        slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
         # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
         # effort and carry into the execution phase of a fix it is later given.
         sized = (kind, args.size or "large") in SIZE_DEFAULTS
         spawn = argparse.Namespace(
             kind=kind, role="worker", repo=str(repo), model=args.model,
             exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
-            name=args.name, worktree=slugify(slug, 24),
+            name=args.name and slug, worktree=slug,  # a taken --name gets the same -2 as its branch
             cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
             view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
             pinned=bool((args.model and args.model != "auto") or args.effort))
