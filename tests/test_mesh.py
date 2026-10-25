@@ -640,11 +640,15 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     assert mesh.unread(run, "proj-fix")
 
 
-def test_a_resumed_worker_given_a_planned_task_moves_to_exec_effort_on_approve(mesh, fake, run, repo, capsys):
+def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_moves_on(mesh, fake, run, repo,
+                                                                                     monkeypatch, capsys):
+    with_quotas(mesh, monkeypatch)
     archived_worker(mesh, repo, session="c1")  # it ran on gemini-3.8-flash-high
     stub_new_pane(fake)
     assert mesh.main(["resume", "proj-fix", "--task", "Fix the review findings; send a plan first."]) == 0
     entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["model"], entry["effort"]) == ("claude-opus-5-5-high", "high")  # Argon is out of quota; not Flash
+    assert fake.called("agent", "start")[-1][-3:] == ("--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
     assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "flash", "medium")
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
@@ -660,6 +664,7 @@ def test_a_resumed_worker_given_a_planned_task_moves_to_exec_effort_on_approve(m
         assert mesh.main(["resume", "proj-fix", "--from-run", "mold", *extra]) == 0
     later = [e for n, e in mesh.load_run(run)["agents"].items() if n.startswith("proj-fix-")]
     assert len(later) == 2 and all(e["phase"] is None and e["exec_model"] is None for e in later)
+    assert [e["model"] for e in later] == ["gemini-3.8-flash-high"] * 2  # they keep the model they had
 
 
 def test_resume_of_a_claude_worker_whose_name_is_taken(mesh, fake, run, repo, capsys):
@@ -1163,6 +1168,21 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
 
 
+def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/other/pull/3"
+    mesh.run_cli.on("pr", "diff", stdout="--- a/x\n+++ b/x\n+fixed\n")
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--body", "Focus on auth.", "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[-1])[1]
+    assert mesh.run_cli.called("pr", "diff", pr)
+    assert "Focus on auth.\n\nThe change (`gh pr diff" in body and body.rstrip().endswith("+fixed\n````")
+
+    mesh.run_cli.on("pr", "diff", stdout="+x\n" * mesh.REVIEW_DIFF_MAX)
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[-1])[1]
+    assert "too long to include" in body and "+x" not in body
+
+
 def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, monkeypatch, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"
@@ -1352,12 +1372,16 @@ def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake,
     assert "You are proj-ui (worker) in agent-mesh run mtest" in fake.called("agent", "prompt")[-1][3]
 
 
-def test_small_agy_task_is_flash_at_high_effort_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
+def test_small_and_trivial_agy_tasks_are_flash_at_high_and_low_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
     stub_new_pane(fake)
     monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
     assert mesh.main(["spawn", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-3.8-flash-high", None)
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["spawn", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-low"
     assert mesh.main(["spawn", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
     assert "for Claude workers" in capsys.readouterr().err
 

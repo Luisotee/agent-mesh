@@ -21,7 +21,7 @@ Run an **agent-mesh** in mode **`agy`** for the user's request: `$ARGUMENTS` whe
    - Pass `--model` / `--effort` only if the request names them. A large task plans on the best model with quota and moves to Flash when you `mesh approve` its plan. On a quota alert, `mesh switch` the worker.
    - **Your own repo:** keep doing its part yourself; spawn workers only for the other repos (and for yours only if the user asks).
    - **A question about another repo, or a PR review,** that changes nothing: use `mesh ask` ("Questions and reviews"). Run it with `run_in_background` if you're a Claude root.
-   - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model, and it's compacted first when it comes back from an earlier run.
+   - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model (a change it must plan first plans on the best model with quota), and it's compacted first when it comes back from an earlier run.
    - **A list of tasks:** follow "Task lists". Triage it into the board, get the user's one confirmation, then supervise without writing code yourself.
    - If you're a Claude root and `mesh` prints a `send_message` (for a Claude worker you routed there), pass it on with the `SendMessage` tool, exactly as printed.
 3. Tell the user in one line what you started: run id, and each worker's repo, size and model. Then supervise until every worker reports back. For a question or a review, give the user the answer and the name of the worker that gave it, so they can ask it again.

@@ -29,7 +29,7 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Most to
 
 | Size | For | Claude worker | agy worker | Plan? |
 |---|---|---|---|---|
-| `trivial` | translations, copy, config, a version bump | Sonnet, low effort, in the background | Flash, medium | no |
+| `trivial` | translations, copy, config, a version bump | Sonnet, low effort, in the background | Flash, low | no |
 | `small` | a bug fix, a UI tweak, a test, a contained refactor | Sonnet, medium effort, in the background | Flash, high | no |
 | `large` (the default) | a feature, a cross-repo contract, anything you'd want to review before it's built | the mode table, in a pane | the mode table, in a pane | yes |
 
@@ -202,7 +202,7 @@ When the request is about something a worker already built, in this run or an ea
    ```bash
    mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"
    ```
-   It reopens the worker's own conversation, on the model it ran on, in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. A background worker comes back in the background. The task file contains:
+   It reopens the worker's own conversation (on the planning model when the task has a plan phase, see below), in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. A background worker comes back in the background. The task file contains:
    - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead. Ask it to check each finding itself before fixing it (`PROTOCOL.md` rule 9) and to say in its plan which it fixes, how, and which it declines and why
    - "plan first; push to the same branch so the PR updates; report `done`" (for a small follow-up: start it with `Direct task (no plan)`)
 4. **Compaction:** an old conversation has lost its prompt cache, so every turn of the follow-up would pay for all of its context again. `resume` (and `ask`) compact it first, headless, keeping what the new task needs:
@@ -212,7 +212,7 @@ When the request is about something a worker already built, in this run or an ea
    - the output's `compaction` shows the context size before and after.
 5. Supervise and review it exactly like a new worker.
 
-A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker plans on the model it ran on. With a task that has a plan phase (not a `Direct task (no plan)` or a question, and no `--model` / `--effort`), `mesh approve` then moves it to the execution model and effort, as for a spawn: agy to Flash at medium, Claude to medium effort. On a quota hit, `mesh switch` still works.
+A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker keeps the model it ran on, except for a task that has a plan phase (not a `Direct task (no plan)` or a question, and no `--model` / `--effort`): that one plans where a spawn would (the first of Argon → Opus → Flash with quota for agy, Opus for Claude, at high effort), and `mesh approve` then moves it to the execution model and effort: agy to Flash at medium, Claude to medium effort. On a quota hit, `mesh switch` still works.
 
 ## Worker
 
