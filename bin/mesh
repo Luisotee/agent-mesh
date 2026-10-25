@@ -4214,13 +4214,42 @@ def finished_pr(repo: str | Path, branch: str, base: str | None = None) -> tuple
     return max(data, key=lambda pr: pr.get("number") or 0), None
 
 
-def fetch_origin(repo: Path) -> None:
-    """`git fetch origin`, never stopping for credentials and giving up after a minute (offline: the local copy will do)."""
+def fetch_remote(repo: Path, remote: str, *refspecs: str) -> bool:
+    """`git fetch`, never stopping for credentials and giving up after a minute (offline: the local copy will do)."""
     try:
-        subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, capture_output=True, stdin=subprocess.DEVNULL,
-                       env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=60)
+        return subprocess.run(["git", "fetch", "-q", remote, *refspecs], cwd=repo, capture_output=True,
+                              stdin=subprocess.DEVNULL, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                              timeout=60).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def pr_remote(repo: Path, pr: str) -> str | None:
+    """The remote of `repo` that a PR link belongs to (`upstream` in a fork, say), if any."""
+    match = re.search(r"github\.com/([\w.-]+/[\w.-]+)/pull/", pr)
+    try:
+        for remote in git("remote", cwd=repo).split():
+            github = GITHUB_REMOTE_RE.search(git("remote", "get-url", remote, cwd=repo))
+            if match and github and f"{github.group(1)}/{github.group(2)}".lower() == match.group(1).lower():
+                return remote
+    except MeshError:
         pass
+    return None
+
+
+def remote_default(repo: Path, remote: str, pr: str) -> str | None:
+    """`<remote>/<its default branch>`: from `<remote>/HEAD`, else from `gh repo view`; None when neither says."""
+    try:
+        return git("rev-parse", "--abbrev-ref", f"{remote}/HEAD", cwd=repo)
+    except MeshError:
+        pass
+    owner_repo = pr.split("github.com/", 1)[-1].rsplit("/pull/", 1)[0]
+    data, _ = gh_json(["repo", "view", owner_repo, "--json", "defaultBranchRef"], cwd=repo)
+    name = ((data or {}).get("defaultBranchRef") or {}).get("name") if isinstance(data, dict) else None
+    try:
+        return git("rev-parse", "--abbrev-ref", f"{remote}/{name}", cwd=repo) if name else None
+    except MeshError:
+        return None
 
 
 def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch: str | None,
@@ -4261,12 +4290,32 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
                 "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from {start} "
                              f"and open a new PR for this task"
                              + (", and decide what to do with the uncommitted changes." if dirty else ".")}
+    remote, oid = pr_remote(repo, pr.get("url") or ""), pr.get("headRefOid")
+
+    def have(commit: str, inside: str | None = None) -> bool:
+        try:
+            git("cat-file", "-e", f"{commit}^{{commit}}", cwd=cwd)
+            if inside:
+                git("merge-base", "--is-ancestor", commit, inside, cwd=cwd)
+            return True
+        except MeshError:
+            return False
     if merged:
-        fetch_origin(repo)
-        base_ref = default_base(repo)
+        fetch_remote(repo, remote or "origin")
+        start = (remote and remote_default(repo, remote, pr.get("url") or "")) or default_base(repo)
+        told = f"`{start}`"
     else:
-        base_ref = current  # a dirty worktree keeps its changes: the new branch starts at the same commit
-    sha = git("rev-parse", "--verify", f"{base_ref}^{{commit}}", cwd=cwd)
+        # a dirty worktree keeps its changes: the new branch starts at the same commit
+        start, told = "HEAD", f"the tip of `{current}`, so its commits come along"
+        if oid and not have(oid, "HEAD"):  # its branch was deleted and recreated at its base: get the PR's head
+            if remote:
+                fetch_remote(repo, remote, f"pull/{pr.get('number')}/head")
+            if have(oid):
+                start, told = oid, f"the closed PR's head ({oid[:12]}, fetched from GitHub), so its commits come along"
+            else:
+                told = (f"the tip of `{current}`, but the closed PR's commits aren't here: its branch is gone and "
+                        f"`pull/{pr.get('number')}/head` couldn't be fetched")
+    sha = git("rev-parse", "--verify", f"{start}^{{commit}}", cwd=cwd)
 
     def taken(name: str) -> bool:
         try:
@@ -4279,16 +4328,19 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
     new = f"mesh/{run_id}/{slug}"
     while new == current or taken(new):
         new, n = f"mesh/{run_id}/{slug}-{n}", n + 1
-    git("switch", "-q", "-c", new, sha, cwd=cwd)
+    try:
+        git("switch", "-q", "-c", new, sha, cwd=cwd)
+    except MeshError as exc:  # uncommitted changes that clash with the new start
+        return {"note": f"{what}, but switching to a new branch failed ({exc}), so it stays on {current}; "
+                        f"the task tells the worker to start a new branch",
+                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from {told} "
+                             f"and open a new PR for this task, and decide what to do with the uncommitted changes."}
     log_event(run_id, "branch", path=str(cwd), branch=new, left=current, pr=pr.get("url"))
-    kept = "is kept" if merged else "is kept, and its commits come along"
     return {"branch": new, "base": sha, "pr": pr.get("url"),
-            "note": f"{what}: {cwd} is now on a new branch, {new}, from {base_ref}; {current} {kept}",
+            "note": f"{what}: {cwd} is now on a new branch, {new}, from {told}; {current} is kept",
             "task_note": f"Note from mesh: {what}, so this worktree is now on a new branch, `{new}`, started from "
-                         + (f"`{base_ref}`. Push that branch and open a new PR for this task; don't push to "
-                            f"`{current}` (its commits are still there if you need them)." if merged else
-                            f"the tip of `{current}`, so its commits come along. Push that branch and open a new PR "
-                            f"for this task; don't push to `{current}`.")}
+                         f"{told}. Push that branch and open a new PR for this task; don't push to `{current}`"
+                         + (" (its commits are still there if you need them)." if merged else ".")}
 
 
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:

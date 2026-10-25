@@ -2465,18 +2465,30 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     assert mesh.unread(run, "proj-fix")
 
 
-def github_origin(tmp_path, repo):
-    """`repo` with a local origin (whose HEAD is origin/main) and a GitHub remote naming acme/proj."""
-    pr_origin(tmp_path, repo)
-    for cmd in (["fetch", "-q", "origin"], ["remote", "set-head", "origin", "main"],
-                ["remote", "add", "github", "git@github.com:acme/proj.git"]):
-        subprocess.run(["git", *cmd], cwd=repo, check=True)
-    return tmp_path / "origin"
+def github_origin(tmp_path, repo, name="origin", set_head=True):
+    """`repo` with a remote `name` that passes for GitHub's acme/proj (a clone at a `…/github.com/acme/proj` path),
+    serving PR 7's head, a commit off main, at refs/pull/7/head. `<name>/HEAD` is set unless `set_head` is off."""
+    origin = tmp_path / "gh" / "github.com" / "acme" / "proj"
+    origin.parent.mkdir(parents=True)
+    subprocess.run(["git", "clone", "-q", str(repo), str(origin)], check=True)
+    run = lambda *a, cwd=origin: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    run("update-ref", "refs/pull/7/head", run("commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "PR 7's work"))
+    run("remote", "add", name, str(origin), cwd=repo)
+    run("fetch", "-q", name, cwd=repo)
+    if not set_head:  # as before git 2.48, whose fetch sets <remote>/HEAD
+        run("config", f"remote.{name}.followRemoteHEAD", "never", cwd=repo)
+    subprocess.run(["git", "remote", "set-head", name, *(["main"] if set_head else ["-d"])], cwd=repo,
+                   capture_output=True)  # -d fails where there's nothing to delete, which is fine
+    return origin
 
 
+@pytest.mark.parametrize("remote, set_head", [("origin", True), ("upstream", False)])
 def test_resume_onto_a_merged_pr_starts_a_new_branch_from_the_default_one(mesh, fake, cli, run, repo, tmp_path,
-                                                                           capsys):
-    origin = github_origin(tmp_path, repo)
+                                                                           capsys, remote, set_head):
+    origin = github_origin(tmp_path, repo, remote, set_head)  # upstream: the PR's remote isn't origin
+    cli.on("repo", "view", stdout='{"defaultBranchRef": {"name": "main"}}')  # what <remote>/HEAD doesn't say
     path, branch = archived_worker(mesh, repo, session="c1")
     subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "squash-merged PR 7"], cwd=origin, check=True)
     merged = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
@@ -2498,7 +2510,8 @@ def test_resume_onto_a_merged_pr_starts_a_new_branch_from_the_default_one(mesh, 
     assert {"path": str(path), "repo": str(repo), "branch": "mesh/mtest/fix", "base": merged} in data["worktrees"]
     task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
     assert task.startswith("Direct task (no plan)")  # the note goes last, so the task keeps its kind
-    assert "now on a new branch, `mesh/mtest/fix`, started from `origin/main`" in task.rstrip().splitlines()[-1]
+    assert f"now on a new branch, `mesh/mtest/fix`, started from `{remote}/main`" in task.rstrip().splitlines()[-1]
+    assert bool(cli.called("repo", "view", "acme/proj")) == (not set_head)
 
 
 def test_resume_keeps_the_branch_for_an_open_pr_a_question_or_a_failing_gh(mesh, fake, cli, run, repo, tmp_path,
@@ -2542,6 +2555,31 @@ def test_resume_onto_a_closed_pr_starts_a_new_branch_at_the_old_tip(mesh, fake, 
     assert (path / "wip.txt").exists()
     task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
     assert "started from the tip of `mesh/mold/fix`, so its commits come along" in task
+
+
+@pytest.mark.parametrize("fetchable", [True, False])
+def test_a_closed_prs_head_is_fetched_when_its_branch_lost_it(mesh, fake, cli, run, repo, tmp_path, capsys,
+                                                               fetchable):
+    origin = github_origin(tmp_path, repo)
+    path, branch = archived_worker(mesh, repo, session="c1")  # the branch was recreated at its base: no PR commits
+    head = subprocess.run(["git", "rev-parse", "refs/pull/7/head"], cwd=origin, capture_output=True,
+                          text=True).stdout.strip()
+    oid = head if fetchable else "f" * 40
+    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "https://github.com/acme/proj/pull/7",
+                                              "state": "CLOSED", "headRefOid": oid}]))
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip()
+    task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
+    assert out["branch"] == "mesh/mtest/fix"
+    if fetchable:
+        assert tip == head and f"the closed PR's head ({head[:12]}, fetched from GitHub)" in task
+    else:
+        base = subprocess.run(["git", "rev-parse", branch], cwd=repo, capture_output=True, text=True).stdout.strip()
+        assert tip == base and "the closed PR's commits aren't here" in out["notes"][-1]
+        assert "couldn't be fetched" in task and "commits come along" not in task
 
 
 def test_resume_onto_a_merged_pr_with_uncommitted_work_tells_the_worker(mesh, fake, cli, run, repo, tmp_path,
