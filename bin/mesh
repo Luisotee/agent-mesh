@@ -1100,8 +1100,8 @@ def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first:
         if entry.get("resumed_from"):
             return (
                 f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}; your "
-                f"parent is {entry['parent']}. The run id, parent and paths changed: re-read {PROTOCOL_PATH}, "
-                f"then run `mesh inbox` for your {mtype}."
+                f"parent is {entry['parent']}. The run id, parent and paths changed, and background tasks from "
+                f"before (`task-…` ids) are gone: re-read {PROTOCOL_PATH}, then run `mesh inbox` for your {mtype}."
             )
         return (
             f"📬 [mesh] You are {to} ({entry['role']}) in agent-mesh run {run['id']}; your parent is "

@@ -159,6 +159,8 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
 7. **Keep the board current:** update `board.md` on every event. After your context is compacted, rebuild your picture from `board.md`, `mesh status` and `mesh inbox --all`, not from memory.
+   - Read `mesh status`, `mesh agents` and `mesh inbox` with `--json` rather than parsing their tables.
+   - `mesh agents mesh/<run>` lists the run's workers and reviewers with their PRs: gather PRs there, not by looping `gh pr list` over the repos.
 8. **Report:** the board as a table, with each task's PR, worker name, size, status and review outcome. Then the suggested merge order, and what's left for the user.
 
 ## Questions and reviews

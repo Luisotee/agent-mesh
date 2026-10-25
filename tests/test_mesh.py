@@ -640,6 +640,7 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     assert "MESH_SELF=proj-fix" in fake.called("tab", "create")[0]
     doorbell = fake.called("agent", "prompt")[-1][3]
     assert doorbell.startswith("📬 [mesh] You are proj-fix (worker) again, resumed into agent-mesh run mtest")
+    assert "background tasks from before (`task-…` ids) are gone" in doorbell  # they died with the old process
     assert mesh.unread(run, "proj-fix")
 
 
