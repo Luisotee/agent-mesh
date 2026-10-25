@@ -657,6 +657,18 @@ def test_watch_returns_at_once_on_a_report_its_parent_has_not_read(mesh, fake, r
     assert all(watch.tick(5) is None for _ in range(40))
 
 
+def test_watch_any_reports_a_gone_workers_unread_report(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    states_then(mesh, monkeypatch, "gone")  # it reported, then its pane closed: no live worker is left
+    assert mesh.main(["watch", "--any", "--alerts"]) == 0
+    assert capsys.readouterr().out.startswith("repo-fix-typo sent a done you haven't read yet")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert capsys.readouterr().out.startswith("no live workers to watch")
+
+
 def test_watch_ignores_an_idle_blip_mid_turn(mesh, fake, run, monkeypatch):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     # two idle polls (10s) inside a turn, under the 30s grace: agy between two steps
@@ -880,9 +892,14 @@ LIMIT_SCREEN = "\n".join(["older"] * 30 + ["  ⎿  You've hit your limit · rese
 def test_usage_limit_reads_only_the_last_lines_of_the_pane(mesh):
     lines = LIMIT_SCREEN.splitlines()
     assert mesh.usage_limit(lines) == "7pm (America/Los_Angeles)"
-    assert mesh.usage_limit(["API Error: Rate limit reached"]) == ""  # no reset shown
+    assert mesh.usage_limit(["  ❯ 1. Stop and wait for limit to reset", "    2. Add funds"]) == ""  # no reset shown
+    assert mesh.usage_limit(["5-hour limit reached · resets 3pm"]) == "3pm"
     assert mesh.usage_limit(lines + ["● Carrying on."] * 20) is None  # it has scrolled up: resolved
     assert mesh.usage_limit(["We discussed the rate limit in the API docs."]) is None
+    assert mesh.usage_limit(["  ⎿  API Error: Rate limit reached"]) is None  # a transient rate limit, not the usage one
+    # the agent's own output quoting one (a test fixture, a grep) isn't the screen
+    assert mesh.usage_limit(['● Added LIMIT = "You\'ve hit your limit · resets 7pm" to the fixtures.',
+                             "  ⎿  tests/test_quota.py:12: msg = \"You've hit your limit · resets 9pm\""]) is None
     assert mesh.usage_limit(None) is None
 
 
@@ -949,9 +966,11 @@ def test_a_background_worker_at_its_usage_limit_is_read_from_its_transcript(mesh
 def test_transcript_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
     entry = {"kind": "claude", "cwd": str(tmp_path / "wt")}
-    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "Rate limited."))
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"))
     assert mesh.transcript_limit(entry, "s1") == ""
-    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "x"), {"type": "user"}, REPLY)
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "API Error: Rate limit reached"))
+    assert mesh.transcript_limit(entry, "s1") is None  # the code alone isn't enough: a plain rate limit
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY)
     assert mesh.transcript_limit(entry, "s1") is None  # it went on after the reset
     write_transcript(mesh, entry["cwd"], "s1", api_error("authentication_failed", "Login expired · Please run /login"))
     assert mesh.transcript_limit(entry, "s1") is None
@@ -1007,6 +1026,36 @@ def test_a_working_registration_over_a_bare_shell_is_gone(mesh, fake, run, monke
     claude_in_pane(fake, "w2:p5", "-bash")  # herdr kept the registration after Claude died
     assert mesh.main(["watch", "repo-fix-typo"]) == 5
     assert "herdr still reads it working, but its pane runs no claude process" in capsys.readouterr().out
+
+
+def test_a_worker_that_reported_is_never_hung_or_gone_over_a_stale_working(mesh, fake, run, monkeypatch, tmp_path):
+    # it sent `done` (and the root read it), but herdr kept reading it working
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    for argv in (["claude"], ["-bash"]):
+        claude_in_pane(fake, "w2:p5", *argv)
+        watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+        assert all(watch.tick(5) is None for _ in range(5))
+    # reported during this watch, then a new task, and its CLI died: as the gone branch, it's finished
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+    watch.reported = True
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "One more thing.")
+    assert watch.tick(5, alerts_only=True) is None and watch.finished
+
+
+def test_hung_skips_a_task_already_alerted_for_its_usage_limit(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.record_alert(run, "repo-fix-typo", 1, "limit")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
+    assert not fake.called("pane", "process-info")  # no probing every poll
 
 
 def test_a_hung_agy_worker_is_judged_by_its_conversation_and_log(mesh, fake, run, monkeypatch, tmp_path):
@@ -1639,6 +1688,21 @@ def test_process_holder_matches_the_worktree_or_the_session(mesh, tmp_path):
     assert mesh.live_holder("w", shared, agents=[], procs=procs) is None
     procs.append({"pid": 4, "argv": ["claude", "--resume", "s1"], "cwd": str(repo)})
     assert mesh.live_holder("w", shared, agents=[], procs=procs)["process"] == 4
+    # a Copilot asker holds its session through its pid claim, never through some process in its worktree
+    assert mesh.live_holder("w", {**entry, "kind": "copilot"}, agents=[], procs=procs) is None
+
+
+def test_live_holder_outside_herdr_still_reads_the_processes(mesh, monkeypatch, tmp_path):
+    def no_herdr(*args, timeout=None):
+        raise mesh.MeshError("herdr not found (herdr); mesh must run inside herdr")
+
+    monkeypatch.setattr(mesh, "herdr", no_herdr)
+    entry = {"kind": "claude", "cwd": str(tmp_path / "wt"), "repo": str(tmp_path / "repo"), "session": "s1"}
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 7, "argv": ["claude"], "cwd": entry["cwd"]}])
+    assert mesh.live_holder("w", entry)["process"] == 7
+    monkeypatch.setattr(mesh, "herdr", lambda *a, timeout=None: (_ for _ in ()).throw(mesh.HerdrError("timeout", "x")))
+    with pytest.raises(mesh.HerdrError):  # herdr is there but failed: no guessing
+        mesh.live_holder("w", entry)
 
 
 def test_agent_processes_leaves_out_this_commands_ancestors():

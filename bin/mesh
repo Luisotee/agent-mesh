@@ -83,9 +83,13 @@ SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopen
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
 RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Claude Code's usage-limit screens (Gas Town's patterns, from real panes), matched on the pane's last LIMIT_LINES
-# lines only, so a limit that has scrolled up doesn't count: "You've hit your limit · resets 7pm (America/…)".
-LIMIT_RE = re.compile(r"You've hit your .*limit|limit\s*·\s*resets \d+[:\d]*(am|pm)\b|Stop and wait for limit "
-                      r"to reset|Add funds to continue with extra usage|API Error: Rate limit reached", re.IGNORECASE)
+# lines only, so a limit that has scrolled up doesn't count: "  ⎿  You've hit your limit · resets 7pm (America/…)",
+# or its options menu ("❯ 1. Stop and wait for limit to reset"). Each must start its line, after glyphs, numbers and
+# spaces, so the agent's own output quoting one doesn't count. A plain rate limit (`API Error: Rate limit reached`)
+# is a transient error, not a usage limit, as for agy's QUOTA_RE.
+LIMIT_RE = re.compile(r"^[^A-Za-z'\n]*(?:You've hit your .*limit|(?:[\w'-]+\s+){0,4}limit(?:\s+reached)?\s*·\s*resets "
+                      r"\d+[:\d]*\s*(?:am|pm)\b|Stop and wait for limit to reset|Add funds to continue with extra usage)",
+                      re.IGNORECASE | re.MULTILINE)
 LIMIT_RESET_RE = re.compile(r"\bresets\s+(.+)", re.IGNORECASE)
 LIMIT_LINES = 20
 # Doorbell retry delays in seconds (about one minute in total).
@@ -1337,8 +1341,8 @@ def transcript_limit(entry: dict, session: str | None, tail: int = 65536) -> str
     """The reset time ("" if not shown) when a Claude worker's last reply is a usage-limit error, else None.
 
     Claude Code records an API error as a synthetic assistant entry (`isApiErrorMessage`, an `error` code such as
-    `authentication_failed` or `server_error`, the text it showed). A usage limit's code is taken to be
-    `rate_limit` (no sample seen yet), so its text is matched against LIMIT_RE as well.
+    `authentication_failed` or `server_error`, the text it showed). The code of a usage limit isn't known (no
+    sample seen yet) and a plain rate limit may share it, so the text decides: it must match LIMIT_RE.
     """
     path = claude_transcript(entry, session) if session and entry.get("kind") == "claude" else None
     if not path:
@@ -1363,7 +1367,7 @@ def transcript_limit(entry: dict, session: str | None, tail: int = 65536) -> str
         content = (event.get("message") or {}).get("content")
         text = " ".join(c.get("text") or "" for c in content if isinstance(c, dict)) if isinstance(content, list) \
             else str(content or "")
-        if event.get("error") != "rate_limit" and not LIMIT_RE.search(text):
+        if not LIMIT_RE.search(text):
             return None
         reset = LIMIT_RESET_RE.search(text)
         return reset.group(1).strip() if reset else ""
@@ -2327,9 +2331,13 @@ def cmd_watch(args: argparse.Namespace) -> int:
         raise MeshError("watch whom? name a worker, or pass --any for every live worker of the run")
     if every:
         run = load_run(run_id)
-        bg_rows = claude_agents() if any(e.get("view") == "bg" for e in run["agents"].values()) else []
-        names = [name for name, e in run["agents"].items() if e["role"] != "root" and e.get("status") != "retired"
-                 and agent_status(name, e, bg_rows) != "gone"]
+        workers = {name: e for name, e in run["agents"].items() if e["role"] != "root" and e.get("status") != "retired"}
+        for name, e in workers.items():  # a gone worker's unread report is news too
+            if kind := unread_report(run_id, e.get("parent"), name):
+                print(unread_line(name, kind))
+                return 0
+        bg_rows = claude_agents() if any(e.get("view") == "bg" for e in workers.values()) else []
+        names = [name for name, e in workers.items() if agent_status(name, e, bg_rows) != "gone"]
         if not names:
             print("no live workers to watch")
             return 0
@@ -2413,6 +2421,10 @@ def unread_report(run_id: str, parent: str | None, name: str) -> str | None:
         if meta.get("from") == name and meta.get("type") in REPORT_TYPES:
             return meta["type"]
     return None
+
+
+def unread_line(name: str, kind: str) -> str:
+    return f"{name} sent a {kind} you haven't read yet: read it with `mesh inbox`"
 
 
 def epoch(stamp_iso: str | None) -> float:
@@ -2502,7 +2514,7 @@ class Watch:
         run_id, name = self.run_id, self.name
         if self.unread_report:
             kind, self.unread_report = self.unread_report, None
-            return 0, f"{name} sent a {kind} you haven't read yet: read it with `mesh inbox`"
+            return 0, unread_line(name, kind)
         finals = sends_from(run_id, name, FINAL_TYPES, events)
         if finals > self.finals_at_start:
             last = [e for e in events if e.get("event") == "send" and e.get("sender") == name][-1]
@@ -2557,14 +2569,14 @@ class Watch:
                    f"where you stopped.\"`{relay}")
 
     def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
-        """Exit 8, once per task, when it reads working (or herdr lost it, with nothing reported) and its transcript
-        hasn't changed for `hang` seconds since its last task or answer. The watch never stops it."""
+        """Exit 8, once per task, when it reads working (or herdr lost it) with nothing reported since its last task
+        or answer, and its transcript hasn't changed for `hang` seconds since then. The watch never stops it."""
         if not self.hang:
             return None
         run_id, name = self.run_id, self.name
         received, sent, at = since_last_task(events, name)
-        if (state == "unknown" and sent) or alerted(events, name, received, "hung"):
-            return None  # waiting for an answer to its report; or already alerted on
+        if sent or alerted(events, name, received, "hung") or alerted(events, name, received, "limit"):
+            return None  # it reported (herdr's `working` may be stale); or this task was already alerted on
         progress = last_progress(entry, self.conversation(entry))
         if progress is None:
             return None  # nothing to judge it by
@@ -2572,6 +2584,9 @@ class Watch:
         if quiet < self.hang:
             return None
         if not bg and pane_probe(entry.get("pane"), entry.get("kind")) in ("missing", "dead"):
+            if self.reported:
+                self.finished = True  # as in tick's gone branch: nothing to alert
+                return None
             return 5, (f"ALERT {name} is gone: herdr still reads it {state}, but its pane runs no "
                        f"{entry.get('kind') or 'agent'} process (it exited without reporting done/failed)")
         reset = self.limited(entry, bg)
@@ -2800,7 +2815,12 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
         return {"name": name, "pane_id": None, "pid": pid} if entry.get("status") == "running" and pid_alive(pid) else None
     cwd = entry.get("cwd")
     if agents is None:
-        agents = herdr("agent", "list").get("agents", [])
+        try:
+            agents = herdr("agent", "list").get("agents", [])
+        except HerdrError:
+            raise  # herdr is there but failed: don't guess
+        except MeshError:
+            agents = []  # outside herdr (`mesh open` from a plain terminal): only the processes can tell
     if not cwd or (entry.get("repo") and Path(cwd).resolve() == Path(entry["repo"]).resolve()):
         return next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
     top = Path(cwd).resolve()
@@ -2815,9 +2835,11 @@ def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] |
     line names its session. Without /proc, the pane it last ran in, if that still runs its CLI.
     """
     kind, session = entry.get("kind"), entry.get("session")
+    if kind not in AGENT_BINARIES:
+        return None  # a Copilot asker holds its session through its `mesh ask` pid (claim_copilot)
     procs = agent_processes() if procs is None else procs
     for proc in procs:
-        if kind in AGENT_BINARIES and agent_binary(proc.get("argv")) != kind:
+        if agent_binary(proc.get("argv")) != kind:
             continue
         if (inside(proc.get("cwd"), top) if top else bool(session) and session in proc.get("argv", [])):
             return {"name": name, "pane_id": None, "process": proc["pid"], "cwd": proc.get("cwd")}
