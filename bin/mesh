@@ -2306,7 +2306,8 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     again: list[Path] = []
     if not args.peek and session_reset(events := read_log(run_id), me):
         # a task it already reported done or failed on needs no reminding; `--all` shows it in its place
-        if last_report(events, me) not in FINAL_TYPES:
+        report, _ = last_report(events, me)
+        if (report["type"] if report else None) not in FINAL_TYPES:
             again = current_task(run_id, me, events)
         log_event(run_id, "inbox_again", name=me, files=[p.name for p in again])
     shown = {p.name for p in paths}
@@ -2436,6 +2437,19 @@ def since_last_task(events: list[dict], name: str) -> tuple[int, int, str | None
         elif event.get("sender") == name and event.get("type") in REPORT_TYPES:
             sent += 1
     return received, sent, at
+
+
+def last_report(events: list[dict], name: str) -> tuple[dict | None, dict | None]:
+    """(the newest report `name` sent since its last task or answer, that last task or answer), as log events."""
+    report = received = None
+    for event in events:
+        if event.get("event") != "send":
+            continue
+        if event.get("to") == name and event.get("type") in RECEIVED_TYPES:
+            report, received = None, event
+        elif event.get("sender") == name and event.get("type") in REPORT_TYPES:
+            report = event
+    return report, received
 
 
 def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
@@ -3878,22 +3892,10 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
-def last_report(events: list[dict], name: str) -> str | None:
-    """The type of the last report `name` sent since its last task or answer, if any."""
-    last = None
-    for e in events:
-        if e.get("event") != "send":
-            continue
-        if e.get("to") == name and e.get("type") in RECEIVED_TYPES:
-            last = None
-        elif e.get("sender") == name and e.get("type") in REPORT_TYPES:
-            last = e["type"]
-    return last
-
-
 def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -> str:
     """Where a worker stands on its current task, in a line it can act on."""
-    if last := last_report(events, name):
+    report, _ = last_report(events, name)
+    if last := report["type"] if report else None:
         return {"plan": "your plan is waiting for its answer: change nothing until it says approved",
                 "question": "your question is waiting for its answer"}.get(
             last, f"you reported `{last}` on it: wait for a new task or answer")
@@ -3929,8 +3931,9 @@ def reminder(run_id: str, me: str, source: str) -> str:
         lines.append(f"Phase: {worker_phase(entry, events, me, task)}.")
     else:
         lines.append("No task yet.")
-    again = (" (it shows your current task again)"
-             if files and source in RESET_SOURCES and last_report(events, me) not in FINAL_TYPES else "")
+    report, _ = last_report(events, me)
+    again = (" (it shows your current task again)" if files and source in RESET_SOURCES
+             and (report["type"] if report else None) not in FINAL_TYPES else "")
     ident = f"--run {run_id} --as {me}"  # a background session cleared has a new id and no pane to rebind by
     lines.append(f"Report with `mesh send parent {ident} …`. Run `mesh inbox {ident}` now{again}.")
     return "\n".join(lines)
