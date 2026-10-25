@@ -1205,7 +1205,8 @@ def test_approve_keep_model_executes_where_it_planned(mesh, fake, run, monkeypat
 def small_asker(mesh, run, **extra):
     with mesh.editing_run(run) as data:  # one model, no plan phase
         data["agents"]["repo-fix-typo"].update({
-            "kind": "agy", "model": "gemini-3.8-flash-low", "effort": "low", "phase": None, "exec_model": None,
+            "kind": "agy", "size": "small", "model": "gemini-3.8-flash-low", "effort": "low", "phase": None,
+            "exec_model": None,
             "exec_effort": None, "session": "c1", "cwd": "/wt/fix", "repo": "/repo", "workspace": "w9",
             "models": [{"model": "gemini-3.8-flash-low", "why": "spawn"}], **extra})
 
@@ -1242,6 +1243,30 @@ def test_a_pinned_or_user_reviewed_worker_never_gets_an_exec_phase(mesh, fake, r
         assert mesh.main(["send", "parent", "--type", "plan", "--body", "# Plan"]) == 0
         entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
         assert (entry["phase"], entry["exec_model"]) == (None, None)
+
+
+def test_an_entry_from_before_pinned_is_inferred(mesh):
+    worker = {"role": "worker", "kind": "agy"}
+    assert not mesh.has_phases({**worker, "size": "large", "exec_model": None})  # spawned with a named --model
+    assert mesh.has_phases({**worker, "size": "large", "exec_model": "flash"})  # auto
+    assert mesh.has_phases({**worker, "size": "small", "exec_model": None})  # its size's defaults
+    assert mesh.has_phases({**worker, "size": "large", "exec_model": None, "resumed_from": {"run": "m1"}})
+    assert mesh.has_phases({**worker, "size": "large", "exec_model": None, "pinned": False})
+    assert not mesh.has_phases({**worker, "size": "small", "pinned": True})
+
+
+def test_the_plan_phase_is_recorded_before_the_doorbell_rings(mesh, fake, run, monkeypatch, capsys):
+    small_asker(mesh, run)
+    as_worker(monkeypatch, run)
+    seen = []
+
+    def ring(targets, text, delays=()):
+        seen.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"])
+        return True, None
+
+    monkeypatch.setattr(mesh, "ring", ring)
+    assert mesh.main(["send", "parent", "--type", "plan", "--body", "# Plan"]) == 0
+    assert seen == ["plan"]
 
 
 def test_spawn_records_a_named_model_or_effort(mesh, fake, run, repo, monkeypatch, capsys):

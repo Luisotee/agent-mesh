@@ -1299,12 +1299,19 @@ def refuse_headless(name: str, entry: dict, what: str) -> None:
                         f"ask it again with `mesh ask {name} --body …`")
 
 
-def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False) -> dict:
-    """Store the message, then ring `to`'s doorbell, or hand back the SendMessage that tells it (`send_message`)."""
+def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False,
+            stored=None) -> dict:
+    """Store the message, then ring `to`'s doorbell, or hand back the SendMessage that tells it (`send_message`).
+
+    `stored()` runs between the two: what the recipient may act on must be recorded before it hears.
+    """
     run = load_run(run_id)
     entry = agent_entry(run, to)
     refuse_headless(to, entry, f"a `{mtype}` message")
     path = record(run_id, sender, to, mtype, body)
+    if stored:
+        stored()
+        run = load_run(run_id)
     first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
     text = doorbell_text(run, sender, to, mtype, body, first)
     route = native_route(run, sender, to)
@@ -1768,10 +1775,12 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not body or not body.strip():
         raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
     to = me_parent(run_id, me) if args.to == "parent" else args.to
-    result = deliver(run_id, me, to, args.type, body)
-    record_session(run_id, me)
-    if args.type == "plan":
-        enter_plan_phase(run_id, me, to)
+    def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
+        record_session(run_id, me)
+        if args.type == "plan":
+            enter_plan_phase(run_id, me, to)
+
+    result = deliver(run_id, me, to, args.type, body, stored=stored)
     emit(result)
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
@@ -1784,11 +1793,24 @@ def cmd_send(args: argparse.Namespace) -> int:
     return 0
 
 
+def pinned(entry: dict) -> bool:
+    """Whether a named model or effort covers the worker's whole task (spawn and resume record it).
+
+    A worker spawned before mesh recorded it: a large one with no exec model had its model named (`auto`
+    always gives one), while a sized one ran on its size's defaults. A resumed one most likely got a task
+    with no plan phase, which also leaves no exec model, so it isn't taken for pinned.
+    """
+    if "pinned" in entry:
+        return bool(entry["pinned"])
+    return not entry.get("exec_model") and entry.get("size") not in ("trivial", "small") \
+        and not entry.get("resumed_from")
+
+
 def has_phases(entry: dict | None) -> bool:
     """A worker that may plan and then execute on its exec model: not one whose model or effort was named
     for the whole task (`pinned`), nor one whose plan the user approves in its pane."""
     return bool(entry) and entry.get("role") == "worker" and entry.get("kind") in KINDS \
-        and not entry.get("pinned") and entry.get("plan_review") != "user"
+        and not pinned(entry) and entry.get("plan_review") != "user"
 
 
 def enter_plan_phase(run_id: str, name: str, to: str) -> None:
