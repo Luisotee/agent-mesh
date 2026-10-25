@@ -38,8 +38,11 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Only la
 - **When unsure, go up a size.** A wrong small task costs a redo, and a wrong large one only costs a plan review.
 - **Questions:** `small`, unless answering needs research across the whole repo (then `large`, which plans on the strong model).
 - **Reviews:** sized by the PR: `small` for a PR of up to a few hundred lines in a few files, `large` for anything bigger or riskier (auth, money, data migrations). A fresh reviewer runs at high effort whatever its size: checking is its whole job.
-- **Escalate, don't start high:** when a review finding turns out real, or a worker reports `failed`, give the fix more effort rather than starting every task high: resume the worker with `--effort high` (or send the fix task to a live worker and say what was missed). A bug whose cause is still unknown is `large`.
-- **Plan reviewed by the user:** for a large Claude task whose plan the user wants to approve themselves, pass `--plan-review user`. The worker plans in plan mode on Opus, in a pane, and the user approves it in that pane; Claude Code then executes it on Opus, in the same conversation. You don't review that plan, and you don't run `mesh approve`.
+- **Escalate, don't start high:** when a review finding turns out real, or a worker reports `failed`, give the fix more effort rather than starting every task high: resume the worker for the fix with more effort. A live worker keeps the effort it has (`mesh send` changes neither model nor effort), so stop it first (`mesh stop <name>`), then resume it:
+  - **Claude:** `mesh resume <name> --effort high …`, which runs the whole fix on Opus at high.
+  - **agy:** `mesh resume <name> --model argon …` (or `opus` when Argon is out of quota). A named `--effort` alone keeps it on the family it last ran, which after execution is Flash.
+  - A bug whose cause is still unknown is `large`.
+- **Plan reviewed by the user:** for a large Claude task whose plan the user wants to approve themselves, pass `--plan-review user`. The worker plans in plan mode on Opus, in a pane, and the user approves it in that pane; Claude Code then executes it on Opus, in the same conversation. This task has no execution phase, so it runs at high effort throughout, unlike the medium a root-approved plan executes at. You don't review that plan, and you don't run `mesh approve`.
 
 ### Where workers run
 

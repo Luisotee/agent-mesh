@@ -1189,6 +1189,22 @@ def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tm
     assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a question keeps its size's effort
 
 
+def test_a_large_reviewer_plans_high_and_still_executes_a_later_fix_at_medium(mesh, fake, run, repo, tmp_path,
+                                                                              monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    for kind in ("claude", "agy"):
+        if kind == "agy":
+            fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+            fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+        assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--review", pr, "--name", f"review-{kind}",
+                          "--no-wait"]) == 0
+        entry = mesh.load_run(run)["agents"][json.loads(capsys.readouterr().out)["name"]]
+        assert (entry["effort"], entry["phase"], entry["exec_effort"]) == ("high", "plan", "medium"), kind
+
+
 def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"

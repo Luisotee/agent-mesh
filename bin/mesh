@@ -21,6 +21,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import time
@@ -50,7 +51,8 @@ SIZE_DEFAULTS = {
 }
 # A Claude worker whose plan the user approves in its own pane: Opus plans and executes, in plan mode first.
 USER_REVIEW_MODEL = "opus"
-# A review is verification, which is where effort pays: a reviewer gets high effort at any size.
+# A review is verification, which is where effort pays: a trivial or small reviewer gets high effort
+# instead of its size's (a large one plans at DEFAULT_EFFORT, high, anyway).
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
@@ -2324,6 +2326,39 @@ def claim_copilot(entry: dict) -> None:
     entry.update(status="running", pid=os.getpid())
 
 
+def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
+    """A pane beside the root that follows a Copilot asker (`mesh peek --follow`), so the user sees it work.
+
+    Only beside the root, where the user is looking; None when that tab is full or gone, or herdr refuses.
+    """
+    env = {key: os.environ[key] for key in ("MESH_HOME", "COPILOT_HOME") if os.environ.get(key)}
+    try:
+        beside = beside_root(run_id, cwd, env)
+    except MeshError:
+        return None
+    if not beside:
+        return None
+    pane, tab, workspace = beside
+    try:
+        herdr("pane", "rename", pane, f"{name} (Copilot)")
+        herdr("pane", "run", pane, shlex.join(["mesh", "peek", name, "--from-run", run_id, "--follow"]))
+    except MeshError:
+        close_peek(run_id, name, pane)
+        return None
+    with editing_run(run_id) as run:
+        run["agents"][name].update(pane=pane, tab=tab, workspace=workspace)
+    return pane
+
+
+def close_peek(run_id: str, name: str, pane: str) -> None:
+    try:
+        herdr("pane", "close", pane)
+    except MeshError:
+        pass  # the user closed it already
+    with editing_run(run_id) as run:
+        run["agents"][name].update(pane=None, tab=None, workspace=None)
+
+
 def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
                 pr: str | None, number: int | None, base: str | None, body: str) -> int:
     """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot` prints (copilot_ask)."""
@@ -2381,9 +2416,14 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
             reviews = run["agents"][name].setdefault("reviews", [])
             if pr not in reviews:
                 reviews.append(pr)
-    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it with "
-          f"`mesh peek {name} --follow`)", file=sys.stderr)
-    copilot_ask(run_id, me, name, task, args.timeout)
+    peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
+    follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
+    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
+    try:
+        copilot_ask(run_id, me, name, task, args.timeout)
+    finally:
+        if peek:
+            close_peek(run_id, name, peek)
     meta, text = take_reply(run_id, me, name)
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
     print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
@@ -2421,6 +2461,9 @@ def cmd_peek(args: argparse.Namespace) -> int:
         look = f"`claude attach {entry['bg_id']}`" if entry.get("bg_id") else f"`herdr agent read {name}`"
         raise MeshError(f"{name} is a {entry.get('kind')} worker; look at it with {look}")
     path = copilot_events(entry)
+    while args.follow and not path.exists() and agent_status(name, entry) == "working":
+        time.sleep(1)  # Copilot writes the file once the session starts
+        entry = json.loads((folder / "run.json").read_text())["agents"][name]
     if not path.exists():
         raise MeshError(f"{name} has no Copilot session yet ({path})")
     with path.open() as f:
@@ -2486,12 +2529,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     if args.repo:
         slug = args.name or (f"review-{number}" if pr else ask_slug(body))
+        kind = args.kind or load_run(run_id)["mode"]
+        # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
+        # effort and carry into the execution phase of a fix it is later given.
+        sized = (kind, args.size or "large") in SIZE_DEFAULTS
         spawn = argparse.Namespace(
-            kind=args.kind or load_run(run_id)["mode"], role="worker", repo=str(repo), model=args.model,
-            exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr else None), exec_effort=None,
+            kind=kind, role="worker", repo=str(repo), model=args.model,
+            exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
             name=args.name, worktree=slugify(slug, 24),
-            cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size, view=args.view,
-            plan_review=None)
+            cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
+            view=args.view or ("pane" if pr else None), plan_review=None)  # the user watches a review
         finals, how = 0, "started"
     else:
         old_run, _, name, entry = target
@@ -2645,6 +2692,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
                                 f"`mesh ask` to finish (or kill it), then stop the run")
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
+        if entry.get("view") == "headless" and entry.get("pane"):  # a peek pane a killed `mesh ask` left open
+            close_peek(run_id, name, entry["pane"])
         if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == "headless":
             continue
         if entry.get("view") == "bg":
