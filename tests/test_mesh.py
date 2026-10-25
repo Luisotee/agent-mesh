@@ -2113,6 +2113,257 @@ def started(fake):
     return tuple(argv)
 
 
+# ── status and log ───────────────────────────────────────────────────────
+
+
+def test_a_torn_log_line_is_skipped_with_one_warning(mesh, fake, run, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "a") as fh:
+        fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "se')  # a write cut short
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+    capsys.readouterr()
+    events = mesh.read_log(run)
+    assert events[-1]["event"] == "send"  # sealed: the event after the fragment survives
+    assert all(isinstance(e, dict) for e in events)
+    assert mesh.read_log(run) == events
+    err = capsys.readouterr().err
+    assert err.count("skipped 1 unreadable line") == 1 and str(path) in err
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    assert mesh.main(["status", run, "--json"]) == 0  # every reader keeps working
+
+
+def status_rows(mesh, run, capsys):
+    capsys.readouterr()
+    assert mesh.main(["status", run, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    return data, {r["name"]: r for r in data["agents"]}
+
+
+def add_worker(mesh, run, name, **entry):
+    with mesh.editing_run(run) as data:
+        data["agents"][name] = {"role": "worker", "kind": "claude", "pane": f"w2:{name}", "parent": "repo-lead",
+                                "status": "running", **entry}
+
+
+def test_status_derives_what_each_worker_owes_needing_the_root_first(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    for name in ("repo-plan", "repo-ask", "repo-unread", "repo-busy", "repo-lost", "repo-idle"):
+        add_worker(mesh, run, name)
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo")  # read, no report yet
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    for name in ("repo-plan", "repo-ask", "repo-busy"):
+        mesh.mark_read(mesh.record(run, "repo-lead", name, "task", "Do it"))
+    mesh.record(run, "repo-plan", "repo-lead", "plan", "My plan")
+    mesh.mark_read(mesh.record(run, "repo-ask", "repo-lead", "question", "Which one?"))
+    mesh.record(run, "repo-lead", "repo-unread", "task", "Do it")
+    lost = mesh.record(run, "repo-lead", "repo-lost", "task", "Do it")
+    mesh.log_event(run, "doorbell_failed", sender="repo-lead", to="repo-lost", file=lost.name, error="timeout")
+    data, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-plan"]["waiting"].startswith("plan unanswered ") and rows["repo-plan"]["waiting"].endswith(", unread")
+    assert rows["repo-ask"]["waiting"].startswith("question unanswered ") and "unread" not in rows["repo-ask"]["waiting"]
+    assert rows["repo-unread"]["waiting"].startswith("task unread ") and rows["repo-unread"]["needs"] == "worker"
+    assert rows["repo-lost"]["waiting"].endswith(", doorbell failed") and rows["repo-lost"]["needs"] == "root"
+    assert rows["repo-busy"]["waiting"].startswith("on task ") and rows["repo-busy"]["needs"] == "worker"
+    assert (rows["repo-idle"]["waiting"], rows["repo-idle"]["needs"]) == ("no task", None)
+    assert (rows["repo-plan"]["report"], rows["repo-plan"]["needs"]) == ("plan", "root")
+    assert set(data["needs_root"]) == {"repo-plan", "repo-ask", "repo-lost"}
+    names = [r["name"] for r in data["agents"]]
+    assert names[:3] == ["repo-plan", "repo-ask", "repo-lost"]  # in the order they started waiting
+    assert names[-1] == "repo-lead"  # the root's own row last
+    for key in ("name", "role", "kind", "model", "size", "view", "state", "unread", "parent", "branch"):
+        assert key in rows["repo-plan"]  # what roots read before stays
+    assert mesh.main(["status", run]) == 0
+    out = capsys.readouterr().out
+    assert "WAITING" in out and "PARENT" not in out
+    assert out.index("repo-plan") < out.index("repo-busy") < out.index("repo-idle")
+
+
+def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    until = mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=30)
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md",
+                   until=until.isoformat(timespec="seconds"))
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].endswith(f", waiting until {until.astimezone():%H:%M}") and row["needs"] == "worker"
+
+
+def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
+    fake.on("agent", "get", errors=["agent_not_found"] * 4)
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].startswith("on task ") and rows["repo-fix-typo"]["needs"] == "root"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    _, rows = status_rows(mesh, run, capsys)
+    assert (rows["repo-fix-typo"]["waiting"], rows["repo-fix-typo"]["needs"]) == ("retired before reporting", None)
+
+
+def test_status_shows_a_done_with_its_pr_state_and_reviewers(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": [
+        {"status": "COMPLETED", "conclusion": "SUCCESS"}, {"status": "IN_PROGRESS", "conclusion": ""}]}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {pr}")
+    add_worker(mesh, run, "proj-review", reviews=[pr])
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Review (read-only) of {pr}: review it."))
+    data, rows = status_rows(mesh, run, capsys)
+    done = rows["repo-fix-typo"]
+    assert done["prs"] == [{"url": pr, "number": 7, "state": "open", "draft": False, "checks": "pending"}]
+    assert done["waiting"].endswith(": PR #7 open, checks pending, in review (proj-review)")
+    assert done["needs"] == "worker"  # its reviewers have the ball
+    assert len(cli.called("pr", "view")) == 1
+    mesh.record(run, "proj-review", "repo-lead", "done", f"No findings on {pr}.")
+    data, rows = status_rows(mesh, run, capsys)
+    assert len(cli.called("pr", "view")) == 1  # cached
+    assert rows["repo-fix-typo"]["needs"] == "root" and "in review" not in rows["repo-fix-typo"]["waiting"]
+    review = rows["proj-review"]
+    assert review["waiting"].startswith("answered ") and review["needs"] == "root" and "prs" not in review
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] is None and "PR #7 open" in rows["repo-fix-typo"]["waiting"]
+
+
+def test_a_pr_state_gh_cannot_read_is_unknown_or_the_last_one_seen(mesh, cli, run, monkeypatch):
+    pr = "https://github.com/acme/proj/pull/7"
+    (mesh.run_dir(run) / "pr-state.json").write_text("[]")  # not an object: read as empty
+    cli.on("pr", "view", returncode=1, stderr="gh: not logged in")
+    assert mesh.pr_states(run, [pr])[pr]["state"] == "unknown"
+    assert mesh.pr_states(run, [pr])[pr]["state"] == "unknown"
+    assert len(cli.called("pr", "view")) == 1  # a failure is cached too, for PR_RETRY_TTL
+    assert cli.called("pr", "view")[0]["argv"][-1] == "state,isDraft,statusCheckRollup"
+    monkeypatch.setattr(mesh, "PR_RETRY_TTL", -1)
+    cli.on("pr", "view", stdout=json.dumps({"state": "MERGED", "isDraft": False, "statusCheckRollup": [
+        {"__typename": "StatusContext", "state": "FAILURE"}]}))
+    assert mesh.pr_states(run, [pr])[pr] == {"state": "merged", "draft": False, "checks": "failing"}
+    monkeypatch.setattr(mesh, "PR_STATE_TTL", -1)
+    cli.on("pr", "view", returncode=1)
+    assert mesh.pr_states(run, [pr])[pr]["state"] == "merged"
+
+
+def test_in_review_counts_only_the_pr_a_reviewer_reviews_now(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    old, new = "https://github.com/acme/proj/pull/7", "https://github.com/acme/proj/pull/8"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {old}")
+    add_worker(mesh, run, "proj-review", reviews=[old, new])  # reviewed #7 before, reviews #8 now
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Review (read-only) of {new}: review it."))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root" and "in review" not in rows["repo-fix-typo"]["waiting"]
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): how does X work?"))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root"  # a question isn't a review
+
+
+def test_a_done_without_a_link_takes_only_an_earlier_dones_prs(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    plan_pr, done_pr = "https://github.com/acme/proj/pull/3", "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "plan", f"Like {plan_pr}, I will…")
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "approved"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Opened {done_pr}")
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix the review findings"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", "Fixed both findings and pushed.")
+    _, rows = status_rows(mesh, run, capsys)
+    assert [p["url"] for p in rows["repo-fix-typo"]["prs"]] == [done_pr]
+
+
+def test_a_doorbell_that_rang_later_is_no_longer_failed(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    task = mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it")
+    mesh.log_event(run, "doorbell_failed", sender="repo-lead", to="repo-fix-typo", file=task.name, error="timeout")
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root"
+    mesh.log_event(run, "rung", sender="repo-lead", to="repo-fix-typo", via="pane")  # `mesh ring` worked
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("task unread ") and "doorbell" not in row["waiting"] and row["needs"] == "worker"
+
+
+def test_status_says_a_done_changed_nothing(mesh, fake, run, repo, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    path, branch, base = mesh.add_worktree(run, repo, "noop", None)
+    add_worker(mesh, run, "proj-noop", repo=str(repo), cwd=str(path), branch=branch, base=base)
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-noop", "task", "Fix the bug"))
+    mesh.mark_read(mesh.record(run, "proj-noop", "repo-lead", "done", "Not a bug after all."))
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["proj-noop"]
+    assert row["waiting"].endswith(": no commits, no PR") and row["needs"] == "root"
+    assert (row["commits"], row["pushed"], row["dirty"]) == (0, False, False)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "work"], cwd=path, check=True)
+    (path / "wip.txt").write_text("more")
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["proj-noop"]["waiting"].endswith(": 1 commit(s), not pushed, no PR, worktree dirty")
+
+
+def test_log_prints_a_timeline(mesh, fake, run, capsys):
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan): research…\n\n# Fix the typo in README")
+    mesh.log_event(run, "nudge", name="repo-fix-typo", received=1)
+    mesh.log_event(run, "swap", name="other", model="opus", effort="medium", why="approved", bg_id=None)
+    capsys.readouterr()
+    assert mesh.main(["log", run]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("── ") and any("init" in line for line in out)
+    send = next(line for line in out if " send " in line)
+    assert "repo-lead → repo-fix-typo  task  Fix the typo in README" in send
+    nudge = next(line for line in out if " nudge " in line)
+    assert nudge.endswith("repo-fix-typo  received=1")
+    assert "bg_id" not in next(line for line in out if " swap " in line)
+    assert mesh.main(["log", run, "--agent", "repo-fix-typo"]) == 0
+    out = capsys.readouterr().out
+    assert "nudge" in out and "swap" not in out
+    assert mesh.main(["log", run, "--lines", "1"]) == 0
+    [day, last] = capsys.readouterr().out.splitlines()
+    assert day.startswith("── ") and " swap " in last
+
+
+def test_log_follow_prints_new_events_until_the_run_stops(mesh, fake, run, monkeypatch, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    polls = iter(range(10))
+
+    def sleep(_):
+        n = next(polls)
+        if n == 0:
+            with open(path, "a") as fh:
+                fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "retire", "na')  # still being written
+        elif n == 1:
+            with open(path, "a") as fh:
+                fh.write('me": "repo-fix-typo"}\n')
+        elif n == 2:
+            mesh.log_event(run, "stop", closed=[], kept=[])
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    capsys.readouterr()
+    assert mesh.main(["log", run, "--follow"]) == 0
+    out, err = capsys.readouterr()
+    assert "retire" in out and "repo-fix-typo" in out and out.rstrip().splitlines()[-1].split()[1] == "stop"
+    assert "unreadable" not in err  # a line being written is waited for, not torn
+
+
+def test_log_reads_an_archived_run(mesh, fake, run, capsys):
+    archive = mesh.mesh_home() / "archive"
+    archive.mkdir(parents=True)
+    os.replace(mesh.run_dir(run), archive / run)
+    capsys.readouterr()
+    assert mesh.main(["log", run]) == 0
+    assert "init" in capsys.readouterr().out
+    assert mesh.main(["log", run, "--agent", "repo-lead", "--follow"]) == 0  # archived: nothing more to follow
+    assert mesh.main(["log", "nope"]) == 1
+    assert mesh.main(["log", run, "--lines", "-1"]) == 1
+
+
+def test_log_follow_for_one_agent_ends_on_the_stop_that_names_nobody(mesh, fake, run, capsys):
+    mesh.log_event(run, "stop", closed=[], kept=[])
+    capsys.readouterr()
+    assert mesh.main(["log", run, "--agent", "repo-fix-typo", "--follow", "--lines", "1"]) == 0
+    assert " stop " not in capsys.readouterr().out
+
+
 def stub_new_pane(fake):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
