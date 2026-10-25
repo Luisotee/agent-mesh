@@ -66,27 +66,85 @@ def test_an_inherited_identity_falls_back_to_the_pane_map(mesh, fake, run, monke
     inherited(mesh, run, monkeypatch, view="bg", pane=None)  # HERDR_PANE_ID is still the root's pane
     capsys.readouterr()
     assert mesh.main(["whoami"]) == 0
-    assert json.loads(capsys.readouterr().out)["name"] == "repo-lead"
+    out, err = capsys.readouterr()
+    assert json.loads(out)["name"] == "repo-lead" and "acting as repo-lead" in err
+    assert [e["name"] for e in mesh.read_log(run) if e["event"] == "identity_ignored"] == ["repo-lead"]
+
+
+def test_an_inherited_identity_takes_no_run_the_pane_disagrees_with(mesh, fake, run, monkeypatch, capsys):
+    inherited(mesh, run, monkeypatch, view="bg", pane=None)
+    (mesh.run_dir("mother") / "run.json").parent.mkdir(parents=True)
+    worker = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    (mesh.run_dir("mother") / "run.json").write_text(json.dumps({"id": "mother", "agents": {"repo-fix-typo": worker}}))
+    capsys.readouterr()
+    assert mesh.main(["whoami", "--run", "mother"]) == 1
+    assert "this pane is repo-lead of run mtest, not of run mother" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("where", ["archived", "never"])
+def test_an_identity_naming_no_live_run_is_inherited(mesh, fake, run, monkeypatch, capsys, where):
+    # A daemon outlives the run whose worker started it, so a spare's MESH_RUN can name a stopped run.
+    if where == "archived":
+        (mesh.mesh_home() / "archive" / "mold").mkdir(parents=True)
+        (mesh.mesh_home() / "archive" / "mold" / "run.json").write_text("{}")
+    monkeypatch.setenv("MESH_RUN", "mold")
+    monkeypatch.setenv("MESH_SELF", "proj-review")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-s")
+    monkeypatch.delenv("HERDR_PANE_ID")
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("mesh: not in a mesh run (ignored MESH_RUN=mold: no such run (stopped?))")
 
 
 def test_a_pane_worker_in_its_own_pane_keeps_its_identity_whatever_its_session(mesh, fake, run, monkeypatch, capsys):
-    inherited(mesh, run, monkeypatch, view="pane")  # e.g. reopened by a swap or after a compaction
+    inherited(mesh, run, monkeypatch, view="pane")  # herdr doesn't say which session runs there
     monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")
     capsys.readouterr()
     assert mesh.main(["whoami"]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["session"] == "rec-s"
+
+
+def test_a_pane_worker_whose_session_changed_is_rebound(mesh, fake, run, monkeypatch, capsys):
+    inherited(mesh, run, monkeypatch, view="pane")  # e.g. `/clear`, or plan mode's "clear context"
+    monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")
+    fake.on("agent", "get", "w2:p5", result={"agent": {"agent_session": {"value": "other-s"}}})
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["session"] == "other-s"
+
+
+def test_a_session_that_isnt_the_one_in_the_pane_is_not_its_worker(mesh, fake, run, monkeypatch, capsys):
+    # A spare that inherited a pane worker's HERDR_PANE_ID along with its MESH_SELF.
+    inherited(mesh, run, monkeypatch, view="pane")
+    monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")
+    fake.on("agent", "get", "w2:p5", result={"agent": {"agent_session": {"value": "rec-s"}}})
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert "ignored MESH_SELF=repo-fix-typo" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("case", ["same session", "starting", "agy", "named"])
 def test_an_identity_is_kept_when_nothing_shows_it_inherited(mesh, fake, run, monkeypatch, capsys, case):
-    inherited(mesh, run, monkeypatch, view="bg", pane=None,
-              **{"starting": {"status": "starting"}, "agy": {"kind": "agy"}}.get(case, {}))
+    extra = {"starting": {"status": "starting", "spawned": mesh.now_iso()}, "agy": {"kind": "agy"}}.get(case, {})
+    inherited(mesh, run, monkeypatch, view="bg", pane=None, **extra)
     monkeypatch.delenv("HERDR_PANE_ID")
     if case == "same session":
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "rec-s")
     capsys.readouterr()
     assert mesh.main(["whoami", *(["--as", "repo-fix-typo"] if case == "named" else [])]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+
+
+def test_an_entry_starting_for_too_long_is_checked_again(mesh, fake, run, monkeypatch, capsys):
+    inherited(mesh, run, monkeypatch, view="bg", pane=None, status="starting", spawned="2026-01-01T00:00:00+00:00",
+              models=[{"model": "opus", "at": "2026-01-01T00:01:00+00:00"}])
+    monkeypatch.delenv("HERDR_PANE_ID")
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert "ignored MESH_SELF=repo-fix-typo" in capsys.readouterr().err
 
 
 # ── send / inbox ─────────────────────────────────────────────────────────
@@ -1485,16 +1543,34 @@ def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, 
     bg_cli(cli)
     monkeypatch.setenv("MESH_MIN_QUOTA", "30")
     monkeypatch.setenv("MESH_SELF", "repo-lead")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-s")  # the root's own session, not the worker's
+    monkeypatch.setenv("CLAUDE_CODE_MESSAGING_TOKEN", "t")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/cfg")
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix it."]) == 0
     launch = cli.called("--bg")[0]
-    assert not any(k in launch["env"] for k in (*mesh.MESH_IDS, "HERDR_PANE_ID"))
+    assert not any(k.startswith("MESH_") or k in mesh.CLAUDE_SESSION_VARS or k in mesh.HERDR_IDS
+                   for k in launch["env"])
+    assert launch["env"]["CLAUDE_CONFIG_DIR"] == "/cfg"  # configuration of Claude Code itself stays
     env = launch_settings_env(launch)
     assert (env["MESH_RUN"], env["MESH_SELF"], env["MESH_PARENT"], env["MESH_ROLE"]) == \
         ("mtest", "proj-copy", "repo-lead", "worker")
     assert env["MESH_HOME"] == str(mesh.mesh_home()) and env["MESH_MIN_QUOTA"] == "30"
+    assert env["MESH_COMPACT_AT"] == "" and env["MESH_CLAUDE"] == ""  # unset here, so a spare's value can't stay
     assert env["HERDR_PANE_ID"] == env["HERDR_TAB_ID"] == env["HERDR_WORKSPACE_ID"] == ""
+    # The `claude agents` lookups after the launch can start the daemon too.
+    assert all(not any(k in c["env"] for k in (*mesh.MESH_IDS, "HERDR_PANE_ID", "CLAUDE_CODE_SESSION_ID"))
+               for c in cli.called("agents"))
     capsys.readouterr()
+
+
+def test_an_empty_config_variable_counts_as_unset(mesh, monkeypatch):
+    for key in mesh.MESH_CONFIG:
+        monkeypatch.setenv(key, "")
+    assert (mesh.claude_bin(), mesh.side_panes(), mesh.min_quota()) == ("claude", mesh.SIDE_PANES, 10)
+    assert mesh.mesh_home() == Path.home() / ".local/state/agent-mesh"
+    assert mesh.mesh_env("r", "n", "p", "worker") == {"MESH_RUN": "r", "MESH_SELF": "n", "MESH_PARENT": "p",
+                                                      "MESH_ROLE": "worker"}
 
 
 def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, run, repo, capsys):
