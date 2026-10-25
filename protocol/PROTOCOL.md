@@ -28,7 +28,7 @@ mesh send parent --type question --body "…"
 mesh send parent --type done     --file "$(mesh dir)/reports/<your-name>.md"
 ```
 
-Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. Only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. Any message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
+Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. While you plan, only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. Any message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
 
 If the output of `mesh send` has a `send_message`, the recipient is a Claude session you reach with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded): send it with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell.
 
