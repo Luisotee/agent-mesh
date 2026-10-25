@@ -162,7 +162,7 @@ A worker's conversation outlives its run. When the PR gets review comments, or y
 /delegate-agy ask the shop-api worker to return restockedAt as a unix timestamp instead of ISO
 ```
 
-The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the planning model (the best with quota, as for a new worker, whatever it last ran on), gets it approved (which moves it to the execution model and effort, as for a new worker), and pushes to the **same** branch, so the existing PR updates.
+The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the planning model (the best with quota, as for a new worker, whatever it last ran on), gets it approved (which moves it to the execution model and effort, as for a new worker), and pushes to the **same** branch, so the existing PR updates. If that PR was merged or closed meanwhile (`gh pr list --head <branch>`), a change task starts a new branch, `mesh/<run>/<slug>`, in the same worktree, and opens a new PR; the resume output and the task say so. After a merge the branch starts from the freshly fetched default branch (a worktree with uncommitted changes stays put and the task tells the worker instead); after a close, from the old branch's tip (or the PR's head, fetched from GitHub, when the branch lost it), so its commits come along. When `gh` can't answer, it resumes on the old branch with a note.
 
 To carry on with a worker yourself, open its conversation in your own terminal:
 
@@ -172,7 +172,7 @@ mesh open shop-api-restocked-at       # cd into its worktree and resume its conv
 mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flags go to the CLI
 ```
 
-`mesh open` runs outside the mesh, with your usual permission settings. Both commands take the worker's name, its branch (`mesh/<run>/<slug>`) or a PR link. `resume` refuses a worker that's still running. `open` refuses a running pane worker (use `herdr agent focus <name>`) and attaches to a running background worker.
+`mesh open` runs outside the mesh, with your usual permission settings. Both commands take the worker's name, its branch (`mesh/<run>/<slug>`) or a PR link. A PR link names the worker whose branch is the PR's head (asked of `gh`), or else the one whose reports quote the link. `resume` refuses a worker that's still running. `open` refuses a running pane worker (use `herdr agent focus <name>`) and attaches to a running background worker.
 
 ### Compaction on the way back
 

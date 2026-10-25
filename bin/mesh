@@ -4085,17 +4085,76 @@ def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
     return [url for url in dict.fromkeys(prs) if url not in reviewed]
 
 
+def gh_json(argv: list[str], cwd: str | Path | None = None) -> tuple[object, str | None]:
+    """`gh <argv>` with `--json` fields: what it printed, parsed, or None and why gh couldn't answer."""
+    result = run_cli(["gh", *argv], cwd=cwd, timeout=30)
+    if result.returncode:
+        return None, (result.stderr.strip().splitlines() or [f"gh exited {result.returncode}"])[-1]
+    try:
+        return json.loads(result.stdout), None
+    except ValueError:
+        return None, "gh printed no JSON"
+
+
+def github_repos(repo: str | Path) -> set[str] | None:
+    """`owner/name` of each GitHub remote of `repo` (lowercase): empty when its remotes are elsewhere, None when
+    it has none or git can't read them (the repo is gone)."""
+    try:
+        remotes = git("remote", cwd=repo).split()
+        urls = [git("remote", "get-url", remote, cwd=repo) for remote in remotes]
+    except MeshError:
+        return None
+    return {f"{m.group(1)}/{m.group(2)}".lower() for m in map(GITHUB_REMOTE_RE.search, urls) if m} if urls else None
+
+
+def pr_head_branch(pr: str) -> str | None:
+    """The branch a PR was opened from (`gh pr view`), or None when gh can't say."""
+    data, _ = gh_json(["pr", "view", pr, "--json", "headRefName"])
+    return data.get("headRefName") if isinstance(data, dict) else None
+
+
+def worktree_branch(entry: dict) -> str | None:
+    """The branch a worker's own worktree is on now (it may follow its repo's naming), not a main checkout's."""
+    cwd, repo = entry.get("cwd"), entry.get("repo")
+    if not cwd or not Path(cwd).is_dir() or (repo and Path(cwd).resolve() == Path(repo).resolve()):
+        return None
+    try:
+        return git("branch", "--show-current", cwd=cwd) or None
+    except MeshError:
+        return None
+
+
+def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
+    """Whether this worker's branch is the PR's head, in the PR's repo (unless the worker's repo has no remotes)."""
+    if live_branch and pr in (entry.get("reviews") or ()):
+        return False  # a reviewer that checked the PR's branch out isn't its author (one reviewing its own PR is)
+    branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
+    if not branch or branch != head:
+        return False
+    repos = github_repos(entry["repo"]) if entry.get("repo") else None
+    owner_repo = pr.split("github.com/", 1)[1].rsplit("/pull/", 1)[0].lower()
+    return repos is None or owner_repo in repos
+
+
 def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str, dict]:
-    """The newest worker whose name, branch or PR link is `ref`."""
+    """The newest worker whose name, branch or PR link is `ref`.
+
+    A PR link names the worker whose branch is the PR's head (asked of `gh`): its recorded branch first, then
+    the branch its worktree is on. Only when gh can't answer, or no branch matches, do the PR links in the
+    workers' own messages count.
+    """
     pr = PR_RE.search(ref)
-    for run, folder in all_runs():
-        if from_run and run["id"] != from_run:
-            continue
-        for name, entry in reversed(run["agents"].items()):  # a restart beats the agent it replaced
-            if entry.get("role") == "root":
-                continue
-            if ref in (name, entry_branch(run, entry)) or (pr and pr.group(0) in worker_prs(folder, name, entry)):
-                return run, folder, name, entry
+    workers = [(run, folder, name, entry) for run, folder in all_runs() if not from_run or run["id"] == from_run
+               for name, entry in reversed(run["agents"].items())  # a restart beats the agent it replaced
+               if entry.get("role") != "root"]
+    found = next((w for w in workers if ref in (w[2], entry_branch(w[0], w[3]))), None)
+    head = pr_head_branch(pr.group(0)) if pr and not found else None
+    for live_branch in (False, True) if head else ():
+        found = found or next((w for w in workers if opened_pr(pr.group(0), head, w[0], w[3], live_branch)), None)
+    if pr and not found:
+        found = next((w for w in workers if pr.group(0) in worker_prs(w[1], w[2], w[3])), None)
+    if found:
+        return found
     raise MeshError(f"no worker matches {ref}" + (f" in run {from_run}" if from_run else "") + "; see `mesh agents`")
 
 
@@ -4197,6 +4256,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
     except MeshError:
         live = []  # outside herdr: every agent shows as gone
     query = (args.query or "").lower()
+    pr = PR_RE.search(args.query or "")
+    head = pr_head_branch(pr.group(0)) if pr else None  # a PR link also finds its author by the PR's branch
     rows = []
     runs = all_runs()
     bg_rows = claude_agents() if any(e.get("view") == "bg" for r, _ in runs for e in r["agents"].values()) else []
@@ -4208,8 +4269,12 @@ def cmd_agents(args: argparse.Namespace) -> int:
             if entry.get("role") == "root":
                 continue
             cwd, branch, prs = entry.get("cwd") or "", entry_branch(run, entry) or "", worker_prs(folder, name, entry)
+            if head and pr.group(0) not in prs and any(opened_pr(pr.group(0), head, run, entry, live)
+                                                       for live in (False, True)):
+                prs.append(pr.group(0))
             reviews = entry.get("reviews") or []
-            if query and not any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs, *reviews)):
+            if query and not (any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs, *reviews))
+                              or (pr and pr.group(0) in prs)):
                 continue
             rows.append({
                 "name": name, "run": run["id"], "archived": folder.parent.name == "archive",
@@ -4318,6 +4383,167 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     return report
 
 
+def finished_pr(repo: str | Path, branch: str, base: str | None = None) -> tuple[dict | None, str | None]:
+    """The newest PR from `branch` once none from it is open (merged or closed), and why gh couldn't say.
+
+    A PR counts only when its head commit is in the branch and not in `base`, the commit the worker started
+    from, so an old PR from a reused branch name doesn't, merged into the default branch or not. One whose head
+    commit isn't here (squash-merged and never fetched) still counts: telling would take a fetch.
+    """
+    data, error = gh_json(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid"],
+                          cwd=repo)
+    if error or not isinstance(data, list):
+        return None, error or "gh printed no list"
+
+    def is_ancestor(oid: str, ref: str) -> bool:
+        try:
+            git("merge-base", "--is-ancestor", oid, ref, cwd=repo)
+            return True
+        except MeshError:
+            return False
+
+    def on_branch(pr: dict) -> bool:
+        oid = pr.get("headRefOid")
+        try:
+            git("cat-file", "-e", f"{oid}^{{commit}}", cwd=repo)
+        except MeshError:
+            return True  # not here to compare
+        return is_ancestor(oid, f"refs/heads/{branch}") and not (base and is_ancestor(oid, base))
+    data = [pr for pr in data if pr.get("state") == "OPEN" or on_branch(pr)]
+    if not data or any(pr.get("state") == "OPEN" for pr in data):
+        return None, None
+    return max(data, key=lambda pr: pr.get("number") or 0), None
+
+
+def fetch_remote(repo: Path, remote: str, *refspecs: str) -> bool:
+    """`git fetch`, never stopping for credentials and giving up after a minute (offline: the local copy will do)."""
+    try:
+        return subprocess.run(["git", "fetch", "-q", remote, *refspecs], cwd=repo, capture_output=True,
+                              stdin=subprocess.DEVNULL, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                              timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def pr_remote(repo: Path, pr: str) -> str | None:
+    """The remote of `repo` that a PR link belongs to (`upstream` in a fork, say), if any."""
+    match = re.search(r"github\.com/([\w.-]+/[\w.-]+)/pull/", pr)
+    try:
+        for remote in git("remote", cwd=repo).split():
+            github = GITHUB_REMOTE_RE.search(git("remote", "get-url", remote, cwd=repo))
+            if match and github and f"{github.group(1)}/{github.group(2)}".lower() == match.group(1).lower():
+                return remote
+    except MeshError:
+        pass
+    return None
+
+
+def remote_default(repo: Path, remote: str, pr: str) -> str | None:
+    """`<remote>/<its default branch>`: from `<remote>/HEAD`, else from `gh repo view`; None when neither says."""
+    try:
+        return git("rev-parse", "--abbrev-ref", f"{remote}/HEAD", cwd=repo)
+    except MeshError:
+        pass
+    owner_repo = pr.split("github.com/", 1)[-1].rsplit("/pull/", 1)[0]
+    data, _ = gh_json(["repo", "view", owner_repo, "--json", "defaultBranchRef"], cwd=repo)
+    name = ((data or {}).get("defaultBranchRef") or {}).get("name") if isinstance(data, dict) else None
+    try:
+        return git("rev-parse", "--abbrev-ref", f"{remote}/{name}", cwd=repo) if name else None
+    except MeshError:
+        return None
+
+
+def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch: str | None,
+                      task: str | None) -> dict:
+    """A change task for a worker whose PR is merged or closed goes on a new branch.
+
+    Pushing to the old branch would update a dead PR (or recreate a branch deleted on merge). The worktree
+    moves to `mesh/<run>/<slug>`: after a merge at the freshly fetched default branch, when the worktree is
+    clean; after a close (the work never landed) at the old branch's tip, so its commits come along. In a main
+    checkout, or a dirty worktree after a merge, the task tells the worker to do it. Only a resume with a change
+    task is checked: without a task the worker would never hear of it, and the next resume with one checks again.
+    Returns {} when there's nothing to say, else a `note` for the resume output, `task_note` for the task, and
+    `branch` / `base` when the worktree moved. gh missing or failing never blocks a resume: it goes on as before,
+    with a note.
+    """
+    read_only = getattr(args, "read_only", False) or read_only_task(task)
+    current = worktree_branch(entry) or branch
+    if not task or read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
+        return {}  # a question or review stays put; a repo off GitHub has no PR to check
+    pr, error = finished_pr(entry["repo"], current, entry.get("base"))
+    if error:
+        return {"note": f"couldn't check whether {current} has a merged or closed PR (gh: {error}); "
+                        f"resuming on it as before"}
+    if not pr:
+        return {}
+    merged = pr.get("state") == "MERGED"
+    what = f"PR #{pr.get('number')} ({pr.get('url')}) from `{current}` is {'merged' if merged else 'closed'}"
+    cwd, repo = Path(entry["cwd"]), Path(entry["repo"])
+    main_checkout = cwd.resolve() == repo.resolve()
+    try:
+        dirty = not main_checkout and bool(git("status", "--porcelain", cwd=cwd))
+    except MeshError:
+        dirty = True
+    start = "the repo's default branch (fetch it first)" if merged else f"the tip of `{current}`"
+    if main_checkout or (dirty and merged):
+        why = "it runs in the main checkout" if main_checkout else "the worktree has uncommitted changes"
+        return {"note": f"{what}, but {why}, so it stays on {current}; the task tells the worker to start a new branch",
+                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from {start} "
+                             f"and open a new PR for this task"
+                             + (", and decide what to do with the uncommitted changes." if dirty else ".")}
+    remote, oid = pr_remote(repo, pr.get("url") or ""), pr.get("headRefOid")
+
+    def have(commit: str, inside: str | None = None) -> bool:
+        try:
+            git("cat-file", "-e", f"{commit}^{{commit}}", cwd=cwd)
+            if inside:
+                git("merge-base", "--is-ancestor", commit, inside, cwd=cwd)
+            return True
+        except MeshError:
+            return False
+    if merged:
+        fetch_remote(repo, remote or "origin")
+        start = (remote and remote_default(repo, remote, pr.get("url") or "")) or default_base(repo)
+        told = f"`{start}`"
+    else:
+        # a dirty worktree keeps its changes: the new branch starts at the same commit
+        start, told = "HEAD", f"the tip of `{current}`, so its commits come along"
+        if oid and not have(oid, "HEAD"):  # its branch was deleted and recreated at its base: get the PR's head
+            if remote:
+                fetch_remote(repo, remote, f"pull/{pr.get('number')}/head")
+            if have(oid):
+                start, told = oid, f"the closed PR's head ({oid[:12]}, fetched from GitHub), so its commits come along"
+            else:
+                told = (f"the tip of `{current}`, but the closed PR's commits aren't here: its branch is gone and "
+                        f"`pull/{pr.get('number')}/head` couldn't be fetched")
+    sha = git("rev-parse", "--verify", f"{start}^{{commit}}", cwd=cwd)
+
+    def taken(name: str) -> bool:
+        try:
+            git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}", cwd=repo)
+            return True
+        except MeshError:
+            return False
+    slug = slugify(current.rsplit("/", 1)[-1], 24)
+    slug, n = re.sub(r"-\d+$", "", slug) or slug, 2  # `fix-2` again makes `fix-3`, not `fix-2-2`
+    new = f"mesh/{run_id}/{slug}"
+    while new == current or taken(new):
+        new, n = f"mesh/{run_id}/{slug}-{n}", n + 1
+    try:
+        git("switch", "-q", "-c", new, sha, cwd=cwd)
+    except MeshError as exc:  # uncommitted changes that clash with the new start
+        return {"note": f"{what}, but switching to a new branch failed ({exc}), so it stays on {current}; "
+                        f"the task tells the worker to start a new branch",
+                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from {told} "
+                             f"and open a new PR for this task, and decide what to do with the uncommitted changes."}
+    log_event(run_id, "branch", path=str(cwd), branch=new, left=current, pr=pr.get("url"))
+    return {"branch": new, "base": sha, "pr": pr.get("url"),
+            "note": f"{what}: {cwd} is now on a new branch, {new}, from {told}; {current} is kept",
+            "task_note": f"Note from mesh: {what}, so this worktree is now on a new branch, `{new}`, started from "
+                         f"{told}. Push that branch and open a new PR for this task; don't push to `{current}`"
+                         + (" (its commits are still there if you need them)." if merged else ".")}
+
+
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     current = load_run(run_id)
 
@@ -4360,11 +4586,20 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     cwd, repo_top = old["cwd"], Path(old["repo"])
     recreated = ensure_worktree(old, branch)
+    moved = leave_finished_pr(args, run_id, old, branch, task)
+    if moved.get("note"):
+        notes.append(moved["note"])
+    if moved.get("task_note") and task:
+        task = f"{task.rstrip()}\n\n{moved['task_note']}"
+    branch, base_sha = moved.get("branch") or branch, moved.get("base") or old.get("base")
     with editing_run(run_id) as run:
         worktrees = run.setdefault("worktrees", [])
-        if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
+        known = next((w for w in worktrees if Path(w["path"]) == Path(cwd)), None)
+        if known and moved.get("branch"):
+            known.update(branch=branch, base=base_sha)
+        elif branch and Path(cwd).resolve() != repo_top.resolve() and not known:
             # so this run's stop cleans it up (and drops the branch if it still has no commits)
-            base = {"base": old["base"]} if old.get("base") else {}
+            base = {"base": base_sha} if base_sha else {}
             worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch, **base})
     compaction = maybe_compact(args, old, session, model, task, cross_run=old_run["id"] != run_id)
     if compaction.get("note"):
@@ -4379,7 +4614,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
-            "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": old.get("base"),
+            "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
             "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only,
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
@@ -4391,7 +4626,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         }
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
               "resumed_from": {"run": old_run["id"], "name": old_name}, "worktree_recreated": recreated,
-              "compaction": compaction, "notes": notes}
+              "compaction": compaction, "notes": notes, **({"left_pr": moved["pr"]} if moved.get("pr") else {})}
 
     if view == "bg":
         # A copy of the conversation, so it gets this run's identity (see launch_bg); the task waits in its mailbox.
