@@ -363,7 +363,7 @@ def test_a_nudged_worker_that_reports_is_not_an_alert(mesh, fake, run, monkeypat
 
     def status(name, *_):
         state = next(states, "idle")
-        if mesh.nudged(run, name, 1) and not mesh.sends_from(run, name):
+        if mesh.nudge_of(mesh.read_log(run), name, 1) and not mesh.sends_from(run, name):
             mesh.deliver(run, name, "repo-lead", "done", "Fixed.")
         return state
 
@@ -375,6 +375,7 @@ def test_a_second_watch_does_not_nudge_again_for_the_same_task(mesh, fake, run, 
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 3600.0)  # the next watch starts an hour later
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
     assert len([e for e in mesh.read_log(run) if e["event"] == "nudge"]) == 1
@@ -383,6 +384,53 @@ def test_a_second_watch_does_not_nudge_again_for_the_same_task(mesh, fake, run, 
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
     assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1, 2]
+
+
+def test_two_watches_at_once_nudge_once_and_both_wait_for_the_answer(mesh, fake, run, monkeypatch):
+    # `mesh ask`'s own watch and the root's `--any --alerts` watch, on the same pane worker
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    state = {"now": "working"}
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: state["now"])
+    a, b = mesh.Watch(run, "repo-fix-typo", 10.0), mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert a.tick(5) is None and b.tick(5) is None
+    state["now"] = "idle"
+    for _ in range(3):  # 10 s of idle: A nudges, then B finds A's fresh nudge and waits as A does
+        assert a.tick(5) is None and b.tick(5) is None
+    assert len([e for e in mesh.read_log(run) if e["event"] == "nudge"]) == 1
+    assert [e["rung"] for e in mesh.read_log(run) if e["event"] == "nudge_rung"] == [True]
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)  # still silent once the nudge is old
+    events = [w.tick(5) for w in (a, b) for _ in range(3)]
+    assert [e[0] for e in events if e] == [3, 3]
+    assert "(nudged once)" in next(e for e in events if e)[1]
+
+
+def test_a_nudge_that_did_not_ring_says_so(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    fake.on("agent", "prompt", errors=["agent_blocked"] * 10)
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "(its nudge was not delivered)" in capsys.readouterr().out
+    nudges = [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
+    assert len(nudges) == 3  # the short schedule: one try and two retries
+
+
+def test_an_info_from_the_worker_is_not_a_report(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "info", "Tests take a while.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("nudge")] == ["nudge", "nudge_rung"]
+
+
+def test_idle_time_while_the_worker_is_reopened_does_not_count(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "starting"
+    states = iter(["working", "idle", *["gone"] * 20])
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states, "gone"))
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+    assert all(watch.tick(5) is None for _ in range(22))
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
 def test_a_report_sent_before_the_watch_started_is_not_a_silent_stop(mesh, fake, run, monkeypatch):
@@ -682,7 +730,28 @@ def test_the_input_box_is_found_above_a_task_panel(mesh):
     # agy draws its background tasks under the input box, behind one more rule
     lines = ["> 📬 [mesh] hi", "", BOX, ">", BOX, "  ● sleep 45 running", BOX, "? for shortcuts"]
     assert mesh.above_input_box(lines) == ["> 📬 [mesh] hi", ""]
-    assert mesh.above_input_box(["no box here"]) == ["no box here"]
+    # a panel row that starts with ">" is indented; only the input line starts at column 0
+    lines = ["> 📬 [mesh] hi", BOX, ">", BOX, "  > npm test", BOX, "? for shortcuts"]
+    assert mesh.above_input_box(lines) == ["> 📬 [mesh] hi"]
+    # no input box found: nothing counts, so a doorbell can't be confirmed from what may be the box itself
+    assert mesh.above_input_box(["no box here"]) == []
+
+
+def test_a_pane_that_could_not_be_read_first_never_confirms_a_doorbell(mesh, fake, run):
+    fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
+    old = "❯ 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
+    # the first read fails; the next one shows an old doorbell, which must not pass for the new one
+    fake.screen("repo-fix-typo", None, screen(old, typed="📬 [mesh] info from repo-lead: hi"))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 2
+
+
+def test_a_wrapped_doorbell_is_still_found(mesh, fake, run):
+    fake.on("agent", "prompt", errors=["timeout"] * 7)
+    wrapped = ["❯ 📬 [mesh] info", "  from repo-lead: hi", "  (run `mesh inbox`)"]  # a narrow pane
+    fake.screen("repo-fix-typo", screen("  ⎿  Running…"), screen("  ⎿  Running…", *wrapped))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 1
 
 
 def test_agy_listing_falls_back_to_stale_cache(mesh, monkeypatch):

@@ -93,7 +93,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      - agy workers ring a doorbell in your pane.
      - Either way, the full text is in your mailbox: run `mesh inbox`.
    - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and exits with 0 once every worker it watches has reported and ended (nothing to do), or on an alert:
-     - 3: a worker stopped without reporting, and stayed silent after the one nudge the watch gave it (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
+     - 3: a worker stopped without reporting (a `plan`, `question`, `done` or `failed`), and stayed silent after the one nudge the watch gave it ("its nudge was not delivered" if that doorbell didn't ring) (a background worker isn't nudged: the line gives the `mesh send … --type info` to nudge it yourself, then pass its `send_message` on);
      - 4: it's blocked on a dialog (the alert ends with the pane's last lines: a stray menu, or a real question to answer);
      - 5: it's gone;
      - 6: timeout;
