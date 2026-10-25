@@ -34,7 +34,7 @@ If the output of `mesh send` has a `send_message`, the recipient is a Claude ses
 
 If `mesh send` exits 2, the message is stored but the doorbell didn't ring. Carry on: the recipient will see it.
 
-Never type into another agent's pane (`herdr agent prompt`, `send-keys`), even when it looks faster: that text reaches no mailbox, log or watchdog, and can land in the middle of what the user is typing there.
+Never send a message by typing into another agent's pane (`herdr agent prompt`, `send-keys`), even when it looks faster: that text reaches no mailbox, log or watchdog, and can land in the middle of what the user is typing there.
 
 ## Rules
 
