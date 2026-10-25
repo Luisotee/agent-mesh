@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -31,6 +32,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 VERSION = "0.7.0"
 MODES = ("agy", "claude")
@@ -156,6 +158,8 @@ COPILOT_DENY = ("write", *(f"shell({cmd}:*)" for cmd in PUBLISH_COMMANDS))
 # Appended to a Copilot asker's prompt, which never reads PROTOCOL.md (see copilot_ask).
 COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` to run. Your final message is your "
                 "answer (your `done`).")
+# What a Copilot asker's entry records of the processes answering for it, while it runs (live_holder).
+PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
 REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `gh pr diff {pr}` shows the change."
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
@@ -250,16 +254,41 @@ def git(*args: str, cwd: str | Path) -> str:
 
 
 def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] | None = None,
-            timeout: float | None = 120, input: str | None = None) -> subprocess.CompletedProcess:
-    """Run an agent CLI (`claude`, `agy`, `copilot`) to completion; one that can't start or times out is a failed run."""
+            timeout: float | None = 120, input: str | None = None,
+            started: Callable[[int], None] | None = None) -> subprocess.CompletedProcess:
+    """Run an agent CLI (`claude`, `agy`, `copilot`) to completion; one that can't start or times out is a failed run.
+
+    With `started`, the CLI runs in a session of its own and `started` gets its pid once it runs, for the
+    caller to record: a killed caller leaves it running, and then the record is what shows it busy. A
+    timeout or an exception here (Ctrl-C) kills its whole process group, tools it started included.
+    """
     try:
-        return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout, input=input)
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.PIPE if input is not None else None,
+                                start_new_session=started is not None)
     except FileNotFoundError:
         return subprocess.CompletedProcess(argv, 127, "", f"{argv[0]} not found")
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, 124, "", f"{argv[0]} timed out after {timeout:.0f}s")
     except OSError as exc:  # e.g. an argument over the kernel's per-argument limit
         return subprocess.CompletedProcess(argv, 126, "", f"{argv[0]} could not start: {exc}")
+
+    def kill() -> None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL) if started else proc.kill()
+        except OSError:
+            pass  # gone already
+        proc.communicate()
+
+    try:
+        if started:
+            started(proc.pid)
+        out, err = proc.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill()
+        return subprocess.CompletedProcess(argv, 124, "", f"{argv[0]} timed out after {timeout:.0f}s")
+    except BaseException:
+        kill()
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 
 def claude_bin() -> str:
@@ -2690,8 +2719,8 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
     if entry and entry.get("view") == "bg":
         return bg_status(entry, bg_rows)
     if entry and entry.get("view") == "headless":
-        # A Copilot asker runs only inside the `mesh ask` that asks it, and works while that process lives.
-        return "working" if entry.get("status") == "running" and pid_alive(entry.get("pid")) else "gone"
+        # A Copilot asker works while the `mesh ask` that asks it, or the copilot that one started, lives.
+        return "working" if live_holder(name, entry) else "gone"
     try:
         return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
     except HerdrError as exc:
@@ -3787,7 +3816,23 @@ def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str,
     raise MeshError(f"no worker matches {ref}" + (f" in run {from_run}" if from_run else "") + "; see `mesh agents`")
 
 
-def pid_alive(pid: int | None) -> bool:
+def proc_start(pid: int) -> str | None:
+    """When a process started, which tells it from a later one given the same pid: its start time in clock
+    ticks from /proc (field 22 of `stat`), else what `ps` says. None when it can't be read (or it's gone)."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        if Path("/proc/self/stat").exists():
+            return None  # a /proc without this pid: it's gone
+    try:
+        out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
+def pid_alive(pid: int | None, start: str | None = None) -> bool:
+    """Whether `pid` runs, and is still the process that started at `start` (proc_start) when that was recorded."""
     if not pid:
         return False
     try:
@@ -3795,8 +3840,8 @@ def pid_alive(pid: int | None) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True  # alive, just not ours
-    return True
+        pass  # alive, just not ours
+    return not start or proc_start(pid) in (start, None)
 
 
 def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
@@ -3813,9 +3858,14 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
         if row and row.get("status"):
             return {"name": name, "pane_id": None, "bg_id": row.get("id")}
     if entry.get("view") == "headless":
-        # Busy only while the `mesh ask` running it is alive; a `running` left by a killed one is stale.
-        pid = entry.get("pid")
-        return {"name": name, "pane_id": None, "pid": pid} if entry.get("status") == "running" and pid_alive(pid) else None
+        # Busy while the `mesh ask` running it lives, or the copilot it started, which a killed one leaves
+        # running (copilot_ask); a `running` they both left is stale.
+        if entry.get("status") != "running":
+            return None
+        for key, answering in (("pid", "mesh process"), ("copilot_pid", "copilot process")):
+            if pid_alive(entry.get(key), entry.get(f"{key}_start")):
+                return {"name": name, "pane_id": None, "pid": entry[key], "answering": answering}
+        return None
     cwd = entry.get("cwd")
     if agents is None:
         try:
@@ -3909,7 +3959,8 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
         )
     holder = live_hint(name, entry)
     if holder and holder.get("pid"):
-        raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; ask it again once that finishes")
+        raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; "
+                        "ask it again once that finishes")
     if holder and holder.get("process"):
         raise MeshError(f"{name}'s conversation may still be open in process {holder['process']} (a {entry.get('kind')} "
                         f"running in {holder.get('cwd')}, which herdr doesn't list); see it with "
@@ -4294,7 +4345,9 @@ def copilot_answer(stdout: str) -> tuple[str, str | None]:
 def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> None:
     """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
 
-    The caller has marked the entry `running` with this process's pid (`claim_copilot`). Every task goes
+    The caller has marked the entry `running` with this process's pid (`claim_copilot`), and copilot's own
+    pid joins it while it runs, in a session of its own: a killed `mesh ask` leaves it answering, and
+    live_holder then still finds it busy. Every task goes
     under the session id recorded at spawn, which starts the session the first time and
     resumes it after, so the asker keeps what it read. The prompt goes on stdin: a review's diff can be
     larger than one command-line argument may be.
@@ -4304,9 +4357,14 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     argv = ["copilot", "--output-format", "json", "--allow-all-tools", "--deny-tool", *COPILOT_DENY, "--no-ask-user",
             "--session-id", entry["session"], *copilot_model_argv(entry["requested_model"], entry["effort"])]
     log_event(run_id, "copilot", name=name)
+
+    def started(pid: int) -> None:
+        with editing_run(run_id) as run:
+            run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
+
     # No mesh identity: it answers through its output, never with `mesh send`.
     result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=timeout or None,
-                     input=f"{task}\n\n{COPILOT_NOTE}")
+                     input=f"{task}\n\n{COPILOT_NOTE}", started=started)
     text, model = copilot_answer(result.stdout)
     answered = bool(text) and result.returncode == 0
     # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
@@ -4320,7 +4378,8 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     with editing_run(run_id) as run:
         agent = run["agents"][name]
         agent["status"] = "retired"
-        agent.pop("pid", None)
+        for key in PROCESS_KEYS:
+            agent.pop(key, None)
         if answered:
             agent["model"] = model or agent["model"]
 
@@ -4328,12 +4387,15 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
 def refuse_busy(name: str, entry: dict) -> None:
     holder = live_holder(name, entry)
     if holder and holder.get("pid"):
-        raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; ask it again once that finishes")
+        raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; "
+                        "ask it again once that finishes")
 
 
 def claim_copilot(entry: dict) -> None:
     """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it."""
-    entry.update(status="running", pid=os.getpid())
+    for key in PROCESS_KEYS:
+        entry.pop(key, None)  # a copilot a killed `mesh ask` left is gone by now (refuse_busy)
+    entry.update(status="running", pid=os.getpid(), pid_start=proc_start(os.getpid()))
 
 
 def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
@@ -4706,8 +4768,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
             # Removing its worktree and archiving the run under it would lose the answer.
             holder = live_holder(name, entry)
             if holder:
-                raise MeshError(f"{name} is still answering in mesh process {holder['pid']}; wait for that "
-                                f"`mesh ask` to finish (or kill it), then stop the run")
+                kill = "kill it" if holder["answering"] == "mesh process" else f"kill it with `kill -- -{holder['pid']}`"
+                raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; wait for "
+                                f"it to finish (or {kill}), then stop the run")
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
         if entry.get("view") == "headless" and entry.get("pane"):  # a peek pane a killed `mesh ask` left open
