@@ -19,6 +19,12 @@ def as_worker(monkeypatch, run):
     monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
 
 
+def sent_plan(mesh, run, name="repo-fix-typo"):
+    """The plan `mesh approve` needs to find waiting: the worker's newest report since its last task."""
+    parent = mesh.load_run(run)["agents"][name]["parent"]
+    mesh.record(run, name, parent, "plan", "The plan.")
+
+
 # ── init / identity ──────────────────────────────────────────────────────
 
 
@@ -593,6 +599,43 @@ def test_a_clock_time_across_a_dst_change_keeps_its_wall_time(mesh, monkeypatch)
     finally:
         monkeypatch.delenv("TZ")
         time.tzset()
+
+
+@pytest.mark.parametrize("mtype", ["plan", "question", "done", "failed"])
+def test_a_report_waits_until_the_workers_task_is_read(mesh, fake, run, monkeypatch, capsys, mtype):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "# Task 2: add retries\n\nDetails.")
+    as_worker(monkeypatch, run)
+    capsys.readouterr()
+    assert mesh.main(["send", "parent", "--type", mtype, "--body", "Task 1 is done."]) == 1
+    err = capsys.readouterr().err
+    assert "not sent" in err and "task from repo-lead at " in err and "# Task 2: add retries" in err
+    assert "`mesh inbox`" in err and "--unread-ok" in err
+    assert mesh.unread(run, "repo-lead") == []  # nothing stored
+    assert mesh.main(["inbox", "--peek"]) == 0  # a peek leaves it unread
+    assert mesh.main(["send", "parent", "--type", mtype, "--body", "Task 1 is done."]) == 1
+    assert mesh.main(["inbox"]) == 0
+    assert mesh.main(["send", "parent", "--type", mtype, "--body", "Tasks 1 and 2 are done."]) == 0
+    assert len(mesh.unread(run, "repo-lead")) == 1
+
+
+def test_an_unread_answer_holds_a_report_and_info_or_the_flag_gets_through(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "changes: split it in two")
+    as_worker(monkeypatch, run)
+    assert mesh.main(["send", "parent", "--type", "plan", "--body", "The old plan."]) == 1
+    assert "answer from repo-lead" in capsys.readouterr().err
+    assert mesh.main(["send", "parent", "--type", "info", "--body", "Still on it."]) == 0
+    assert mesh.main(["send", "parent", "--type", "done", "--body", "As is.", "--unread-ok"]) == 0
+    assert len(mesh.unread(run, "repo-lead")) == 2
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1  # still unread: the flag reads nothing
+
+
+def test_the_root_sends_whatever_its_mailbox_holds(mesh, fake, run, monkeypatch):
+    as_worker(monkeypatch, run)
+    assert mesh.main(["send", "parent", "--type", "question", "--body", "Include _db.py?"]) == 0
+    monkeypatch.delenv("MESH_RUN")
+    monkeypatch.delenv("MESH_SELF")  # the root, by its pane, with the question unread
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Yes."]) == 0
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "And the tests."]) == 0
 
 
 def test_first_message_introduces_the_agent(mesh, fake, run):
@@ -1487,6 +1530,20 @@ def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, cap
     assert out["branches_deleted"] == []
 
 
+def test_only_a_root_stops_a_run(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    for argv in (["stop"], ["stop", run]):
+        capsys.readouterr()
+        assert mesh.main(argv) == 1
+        assert "only a root stops a run" in capsys.readouterr().err
+    assert (mesh.run_dir(run) / "run.json").exists() and not fake.called("pane", "close")
+    # the user in a plain shell, with no identity at all
+    for key in ("MESH_RUN", "MESH_SELF", "HERDR_PANE_ID"):
+        monkeypatch.delenv(key)
+    assert mesh.main(["stop", run]) == 0
+    assert (mesh.mesh_home() / "archive" / run / "run.json").exists()
+
+
 def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsys):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
@@ -1551,6 +1608,7 @@ def test_workers_open_beside_the_root_until_its_tab_is_full(mesh, fake, run, rep
     # a swap splits the worker's own pane, even though the tab is full and another worker's pane is bigger
     with mesh.editing_run(run) as data:
         data["agents"]["proj-one"].update(phase="plan", exec_model="flash", exec_effort="medium", session="c1")
+    sent_plan(mesh, run, "proj-one")
     fake.on("pane", "split", result={"pane": {"pane_id": "w1:p4"}})
     assert mesh.main(["approve", "proj-one"]) == 0
     assert fake.called("pane", "split")[-1][2] == "w1:p2"
@@ -1572,6 +1630,7 @@ def test_workers_open_beside_the_root_until_its_tab_is_full(mesh, fake, run, rep
     with mesh.editing_run(run) as data:
         data["agents"]["proj-four"].update(phase="plan", exec_model="flash", exec_effort="medium", session="c2")
         data.pop("tabs", None)
+    sent_plan(mesh, run, "proj-four")
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t6"}, "root_pane": {"pane_id": "w9:p20"}})
     assert mesh.main(["approve", "proj-four"]) == 0
     entry = mesh.load_run(run)["agents"]["proj-four"]
@@ -2404,6 +2463,7 @@ def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_move
     assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "flash", "medium")
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    sent_plan(mesh, run, "proj-fix")
     capsys.readouterr()
     assert mesh.main(["approve", "proj-fix"]) == 0
     assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-medium"
@@ -2524,6 +2584,7 @@ def planning_worker(mesh, run, kind="agy", model="claude-opus-5-5-high", session
             workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "opus",
             log=str(log) if kind == "agy" else None,
             models=[{"model": model, "at": "t", "why": "spawn"}])
+    sent_plan(mesh, run)
     return log
 
 
@@ -2550,6 +2611,7 @@ def test_approve_moves_the_worker_to_flash_in_the_same_conversation(mesh, fake, 
     assert msg.name.endswith("-answer.md") and "approved\n\nMind the migration." in msg.read_text()
 
     # a later approval (after a revision) doesn't switch again
+    sent_plan(mesh, run)
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert len(fake.called("agent", "start")) == 1
 
@@ -2670,9 +2732,65 @@ def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, 
 
 
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
+    sent_plan(mesh, run)
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
     assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
+
+
+def test_a_worker_never_approves_itself(mesh, fake, run, monkeypatch, capsys):
+    sent_plan(mesh, run)
+    as_worker(monkeypatch, run)
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "is for your parent (repo-lead), not for you" in capsys.readouterr().err
+    assert mesh.unread(run, "repo-fix-typo") == []
+    [refused] = [e for e in mesh.read_log(run) if e["event"] == "refused"]
+    assert (refused["name"], refused["command"], refused["agent"]) == ("repo-fix-typo", "approve", "repo-fix-typo")
+    # the user, from another terminal, acts for the parent
+    monkeypatch.delenv("MESH_RUN")
+    monkeypatch.delenv("MESH_SELF")
+    monkeypatch.delenv("HERDR_PANE_ID")
+    assert mesh.main(["approve", "repo-fix-typo", "--run", run, "--as", "repo-lead"]) == 0
+
+
+def test_another_worker_cannot_approve_switch_or_retire(mesh, fake, run, monkeypatch, capsys):
+    sent_plan(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-other"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                        "status": "running"}
+    monkeypatch.setenv("MESH_RUN", run)
+    monkeypatch.setenv("MESH_SELF", "repo-other")
+    for command in (["approve"], ["switch", "--model", "flash"], ["retire"]):
+        capsys.readouterr()
+        assert mesh.main([command[0], "repo-fix-typo", *command[1:]]) == 1
+        assert f"only repo-fix-typo's parent (repo-lead) runs `mesh {command[0]}`" in capsys.readouterr().err
+    assert not fake.called("pane", "close") and not fake.called("agent", "start")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+
+
+def test_approve_needs_a_plan_waiting(mesh, fake, run, capsys):
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "hasn't sent one" in capsys.readouterr().err
+    mesh.record(run, "repo-fix-typo", "repo-lead", "plan", "Plan.")
+    mesh.record(run, "repo-fix-typo", "repo-lead", "question", "Or keep _db.py?")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    err = capsys.readouterr().err
+    assert "newest report" in err and "is a question" in err and "mesh send repo-fix-typo --type answer" in err
+    # an answer asking for changes needs a new plan
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "changes: keep it"]) == 0
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "hasn't reported since the answer it got from repo-lead" in capsys.readouterr().err
+    mesh.record(run, "repo-fix-typo", "repo-lead", "plan", "Plan 2.")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1  # approved already
+    assert "mesh ring repo-fix-typo" in capsys.readouterr().err
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", "Done.")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "is a done; there is nothing to approve" in capsys.readouterr().err
 
 
 def test_watch_alerts_on_a_new_quota_hit(mesh, fake, run, monkeypatch, capsys):
@@ -2907,6 +3025,7 @@ def test_a_worker_with_no_plan_phase_enters_one_when_it_sends_a_plan(mesh, fake,
     assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "# Task: add retries"]) == 0
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] is None
     as_worker(monkeypatch, run)
+    assert mesh.main(["inbox"]) == 0
     for mtype in ("question", "done"):
         assert mesh.main(["send", "parent", "--type", mtype, "--body", "x"]) == 0
         assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] is None
@@ -3803,6 +3922,7 @@ def test_bg_status_speaks_herdr(mesh):
 def test_approve_moves_a_bg_worker_to_a_copy_on_its_exec_model(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    sent_plan(mesh, run)
     bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 1},
                       {"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
     unread_at_launch = []
@@ -4212,9 +4332,25 @@ def test_conflicts_finds_overlapping_branches_and_skips_stacked_ones(mesh, fake,
     assert "mesh/mtest/b2" in capsys.readouterr().out
 
 
+def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    sent_plan(mesh, run)
+    cli.on("--bg", returncode=1, stdout="boom")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["status"], entry["phase"]) == ("swap_failed", "plan")
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1  # its approval went in before the launch
+    bg_cli(cli, rows=[{"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
+    capsys.readouterr()
+
+
 def test_a_bg_swap_is_marked_starting_before_its_session_stops(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    sent_plan(mesh, run)
     bg_cli(cli, rows=[{"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
     at_stop = []
     cli.on("stop", effect=lambda argv: at_stop.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["status"]))

@@ -6,8 +6,6 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Bugs (confirmed in the code)
 
-- [ ] A report is credited to the wrong task: `since_last_task` counts a `done` for task 1, sent after task 2 arrived, as task 2's report, so a worker that then ends task 2 silently is never nudged or alerted. Make `cmd_send` refuse `plan`/`done`/`failed` while the sender has an unread `task`/`answer` (with an escape flag), which also turns PROTOCOL rule 2 into code (Rove, mcp_agent_mail)
-- [ ] `mesh approve` checks neither that the caller is the worker's parent (or `--as`) nor that the worker's newest report since its last task is a `plan`: a worker can approve itself, or one that sent a `question` gets "approved" and swapped to execution. Same caller check for `switch`, `retire`, `stop` (mcp_agent_mail, ccswarm)
 - [ ] A startup dialog in a fresh pane (Claude Code's "Settings Warning" for a repo's malformed `.claude/settings.json` rule, seen on ccswarm) makes `mesh ask`/`spawn` die with `herdr timeout: timed out waiting for agent status`, leaving the task stored but the doorbell unrung. Classify the startup screen (trust, a known blocking dialog, unknown), report the last two like watch's exit 4 with the pane tail, and ring once it clears. While there: re-read the trust dialog before the final Enter, since "No, exit" is the default (firstmate, Cyclops)
 
 ## Watchdog
