@@ -28,7 +28,7 @@ mesh send parent --type question --body "…"
 mesh send parent --type done     --file "$(mesh dir)/reports/<your-name>.md"
 ```
 
-Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`. A `plan` asks your parent to review it; the reply is an `answer`. Any message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
+Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. Any message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
 
 If the output of `mesh send` has a `send_message`, the recipient is a Claude session you reach with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded): send it with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell.
 
@@ -37,6 +37,8 @@ If `mesh send` exits 2, the message is stored but the doorbell didn't ring. Carr
 ## Rules
 
 A doorbell (or, in Claude Code, a Stop hook message) saying your turn ended without a `mesh send` is a nudge from the watchdog: run `mesh inbox` and report now (`done`, `failed` or a `question`). It comes at most once per task.
+
+**Waiting on purpose:** before you end your turn to wait for something long you started (a test suite in the background that will wake you), declare it: `mesh send parent --type wait --until 30m --body "<what you wait for>"` (a duration, a local time like `14:30`, or ISO; at most 4 h). Until then the watchdog doesn't nudge or alert you. It isn't a report and rings no doorbell: when the wait is over, report as usual.
 
 1. **Asking:** when the plan is ambiguous, wrong, or you're stuck after two honest attempts, send a `question` and **end your turn**. Don't sleep, poll or guess. The answer arrives as a new doorbell. A good question states what you tried, what you see, and the options you're choosing between.
 2. **Finishing:** every task ends with exactly **one** `done` or `failed` to your parent.

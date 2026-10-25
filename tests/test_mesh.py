@@ -502,6 +502,59 @@ def test_send_rejects_unknown_agent_and_empty_body(mesh, fake, run, capsys):
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "  "]) == 1
 
 
+def wait(mesh, until="30m", why="The full suite runs in the background."):
+    return mesh.main(["send", "parent", "--type", "wait", "--until", until, "--body", why])
+
+
+def test_a_wait_is_stored_and_logged_without_a_doorbell(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    as_worker(monkeypatch, run)
+    assert wait(mesh) == 1  # its task is still unread: the wait would belong to a task it hasn't read
+    assert "unread task/answer" in capsys.readouterr().err
+    mesh.main(["inbox"])
+    rings = len(fake.called("agent", "prompt"))
+    capsys.readouterr()
+    assert wait(mesh) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(fake.called("agent", "prompt")) == rings  # asks nothing of the parent
+    event = [e for e in mesh.read_log(run) if e["event"] == "send"][-1]
+    assert (event["type"], event["until"]) == ("wait", out["until"])
+    assert 29 * 60 < mesh.epoch(event["until"]) - time.time() <= 30 * 60
+    body = mesh.unread(run, "repo-lead")[-1].read_text()
+    assert "Waiting until " in body and "The full suite runs in the background." in body
+    assert mesh.since_last_task(mesh.read_log(run), "repo-fix-typo")[1] == 0  # not a report
+    assert mesh.declared_wait(mesh.read_log(run), "repo-fix-typo")["until"] == out["until"]
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Also the other file.")
+    assert mesh.declared_wait(mesh.read_log(run), "repo-fix-typo") is None  # a new answer ends it
+
+
+def test_a_wait_needs_a_near_future_until_and_comes_from_a_worker(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    assert mesh.main(["send", "parent", "--type", "wait", "--body", "x"]) == 1
+    assert mesh.main(["send", "parent", "--type", "info", "--until", "5m", "--body", "x"]) == 1
+    assert wait(mesh, "2000-01-01T00:00:00+00:00") == 1
+    assert wait(mesh, "5h") == 1
+    assert wait(mesh, "soon") == 1
+    err = capsys.readouterr().err
+    assert "needs --until" in err and "is for `--type wait`" in err and "in the past" in err
+    assert "more than 4 h away" in err and "give a duration" in err
+    assert mesh.main(["send", "repo-lead", "--type", "wait", "--until", "5m", "--body", "x", "--as", "repo-lead"]) == 1
+
+
+def test_until_takes_a_duration_a_clock_time_or_iso(mesh):
+    now = mesh.datetime(2026, 10, 25, 12, 0, tzinfo=mesh.timezone.utc)
+    assert mesh.parse_until("1h30m", now) - now == mesh.timedelta(minutes=90)
+    assert mesh.parse_until("90s", now) - now == mesh.timedelta(seconds=90)
+    assert mesh.parse_until("2026-10-25T13:00:00+00:00", now) - now == mesh.timedelta(hours=1)
+    local = now.astimezone()
+    later = mesh.parse_until(f"{(local.hour + 1) % 24:02d}:{local.minute:02d}", now)
+    assert later - now == mesh.timedelta(hours=1)
+    earlier = mesh.parse_until(f"{local.hour:02d}:{local.minute:02d}", now)  # now, so the next one: tomorrow
+    assert earlier - now == mesh.timedelta(days=1)
+    with pytest.raises(mesh.MeshError):
+        mesh.parse_until("25:00", now)
+
+
 def test_first_message_introduces_the_agent(mesh, fake, run):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do X.", first=True)
     text = fake.called("agent", "prompt")[-1][3]
@@ -700,6 +753,28 @@ def test_an_info_from_the_worker_is_not_a_report(mesh, fake, run, monkeypatch, c
     assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("nudge")] == ["nudge", "nudge_rung"]
 
 
+def declare_wait(mesh, run, minutes):
+    """A wait from repo-fix-typo ending `minutes` from now (negative: already over)."""
+    until = (mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=minutes)).isoformat(timespec="seconds")
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md", until=until)
+    return until
+
+
+def test_a_declared_wait_is_neither_nudged_nor_alerted_until_it_ends(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    declare_wait(mesh, run, 30)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 3600.0)  # its task is old: judged from the start
+    assert all(watch.tick(5) is None for _ in range(20))
+    assert not [e for e in mesh.read_log(run) if e["event"] in ("nudge", "alert")]
+    until = declare_wait(mesh, run, -12)  # the wait is over: the normal rules
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    out = capsys.readouterr().out
+    assert "(nudged once" in out and f"its wait until {until} ended" in out
+    assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("nudge")] == ["nudge", "nudge_rung"]
+
+
 def stop_hook(mesh, monkeypatch, capsys, run, **payload):
     """Run the worker's Stop hook as Claude Code does (JSON on stdin) and return the block reason, or None."""
     import io
@@ -791,6 +866,17 @@ def test_the_stop_hook_never_fails_a_session(mesh, fake, run, monkeypatch, capsy
         assert mesh.main(["hook", "stop", "--run", "gone", "--as", "x"]) == 0
     monkeypatch.setattr(mesh, "read_log", lambda run_id: 1 / 0)
     assert stop_hook(mesh, monkeypatch, capsys, run) is None
+
+
+def test_the_stop_hook_lets_a_waiting_worker_stop_but_not_over_unread_mail(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    declare_wait(mesh, run, 30)
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]  # kept for after the wait
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert "1 unread mesh message (info)" in reason and "without a `mesh send`" not in reason
 
 
 def test_a_watch_after_the_stop_hook_nudged_alerts_without_nudging_again(mesh, fake, run, monkeypatch, capsys):
@@ -1217,6 +1303,19 @@ def test_a_worker_working_with_a_still_transcript_is_exit_8_once_per_task(mesh, 
     assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
 
 
+def test_a_declared_wait_is_not_hung(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    until = declare_wait(mesh, run, 30)
+    real = mesh.datetime.fromisoformat
+    monkeypatch.setattr(mesh, "epoch", lambda stamp: real(stamp).timestamp() if stamp == until else 0.0)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(5))
+    assert not [e for e in mesh.read_log(run) if e["event"] == "alert"]
+
+
 def test_a_working_registration_over_a_bare_shell_is_gone(mesh, fake, run, monkeypatch, tmp_path, capsys):
     cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
     claude_worker(mesh, run, cwd=cwd, session="s1")
@@ -1225,6 +1324,29 @@ def test_a_working_registration_over_a_bare_shell_is_gone(mesh, fake, run, monke
     claude_in_pane(fake, "w2:p5", "-bash")  # herdr kept the registration after Claude died
     assert mesh.main(["watch", "repo-fix-typo"]) == 5
     assert "herdr still reads it working, but its pane runs no claude process" in capsys.readouterr().out
+
+
+def test_gone_and_stopped_alerts_show_the_workers_work(mesh, fake, cli, run, repo, monkeypatch, capsys):
+    subprocess.run(["git", "checkout", "-q", "-b", "mesh/mtest/fix"], cwd=repo, check=True)
+    base = subprocess.run(["git", "rev-parse", "main"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "fix"], cwd=repo, check=True)
+    (repo / "wip.txt").write_text("half done\n")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(repo=str(repo), cwd=str(repo), branch="mesh/mtest/fix", base=base)
+    cli.on("pr", "list", stdout=json.dumps([{"number": 31, "url": "https://github.com/o/r/pull/31"}]))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "gone")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 5
+    assert ("without reporting done/failed\n  its work: 1 commit(s) past its base, not pushed, PR #31 open, "
+            "worktree dirty") in capsys.readouterr().out
+    assert cli.called("pr", "list", "--head", "mesh/mtest/fix")
+    (repo / "wip.txt").unlink()
+    subprocess.run(["git", "reset", "-q", "--hard", base], cwd=repo, check=True)
+    states_then(mesh, monkeypatch, "working", "idle")
+    calls = len(cli.called("pr"))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "its work: no commits past its base, worktree clean" in capsys.readouterr().out
+    assert len(cli.called("pr")) == calls  # no commits, no PR to look for
 
 
 def test_a_worker_that_reported_is_never_hung_or_gone_over_a_stale_working(mesh, fake, run, monkeypatch, tmp_path):
@@ -3397,6 +3519,34 @@ def test_watch_any_returns_the_first_event_and_alerts_only_keeps_going(mesh, fak
     assert mesh.main(["watch", "--any", "--alerts"]) == 5
     assert "ALERT repo-fix-typo is gone" in capsys.readouterr().out
     assert mesh.main(["watch"]) == 1
+
+
+def test_a_running_watch_holds_its_workers_lock_and_root_commands_warn_without_one(mesh, fake, run, monkeypatch,
+                                                                                    capsys):
+    assert mesh.unwatched(run) == []  # no task yet: it owes nothing
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    assert mesh.unwatched(run) == ["repo-fix-typo"]
+    held = mesh.hold_watch(run, ["repo-fix-typo"])
+    assert mesh.watched(run, "repo-fix-typo") and mesh.unwatched(run) == []
+    for handle in held:
+        handle.close()  # as when the watch process dies
+    assert not mesh.watched(run, "repo-fix-typo")
+    monkeypatch.setattr(mesh, "spawn_worker", lambda args, run_id, me: {"name": "repo-other"})
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", ".", "--task", "x"]) == 0
+    assert "warning: no `mesh watch` covers repo-fix-typo (it owes a report)" in capsys.readouterr().err
+    seen = {}
+
+    def tick(self, *args, **kwargs):
+        seen["watched"] = mesh.watched(run, "repo-fix-typo")
+        return 0, "done"
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.watch_agents(run, ["repo-fix-typo"]) == (0, "done")
+    assert seen["watched"] and not mesh.watched(run, "repo-fix-typo")
+    assert mesh.unwatched(run, skip=("repo-fix-typo",)) == []
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    assert mesh.unwatched(run) == []
 
 
 def commit_file(path, name, text, msg):
