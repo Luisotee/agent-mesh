@@ -1537,6 +1537,9 @@ def test_only_a_root_stops_a_run(mesh, fake, run, monkeypatch, capsys):
         assert mesh.main(argv) == 1
         assert "only a root stops a run" in capsys.readouterr().err
     assert (mesh.run_dir(run) / "run.json").exists() and not fake.called("pane", "close")
+    refused = [e for e in mesh.read_log(run) if e["event"] == "refused"]
+    assert [(e["name"], e["command"], e["run"]) for e in refused] == [("repo-fix-typo", "stop", run)] * 2
+    assert not fake.called("pane", "process-info")  # no identity lookup for a named run
     # the user in a plain shell, with no identity at all
     for key in ("MESH_RUN", "MESH_SELF", "HERDR_PANE_ID"):
         monkeypatch.delenv(key)
@@ -2767,6 +2770,14 @@ def test_another_worker_cannot_approve_switch_or_retire(mesh, fake, run, monkeyp
         assert f"only repo-fix-typo's parent (repo-lead) runs `mesh {command[0]}`" in capsys.readouterr().err
     assert not fake.called("pane", "close") and not fake.called("agent", "start")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+    # nor does the root aim them at itself
+    monkeypatch.delenv("MESH_RUN")
+    monkeypatch.delenv("MESH_SELF")
+    for command in (["approve"], ["switch", "--model", "flash"], ["retire"]):
+        capsys.readouterr()
+        assert mesh.main([command[0], "repo-lead", *command[1:]]) == 1
+        assert f"repo-lead is the run's root, and `mesh {command[0]}` acts on a worker" in capsys.readouterr().err
+    assert not fake.called("agent", "wait")
 
 
 def test_approve_needs_a_plan_waiting(mesh, fake, run, capsys):
@@ -2778,11 +2789,16 @@ def test_approve_needs_a_plan_waiting(mesh, fake, run, capsys):
     assert mesh.main(["approve", "repo-fix-typo"]) == 1
     err = capsys.readouterr().err
     assert "newest report" in err and "is a question" in err and "mesh send repo-fix-typo --type answer" in err
+    assert "approve the plan it then sends again" in err
     # an answer asking for changes needs a new plan
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "changes: keep it"]) == 0
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo"]) == 1
     assert "hasn't reported since the answer it got from repo-lead" in capsys.readouterr().err
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Do it differently.")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    err = capsys.readouterr().err
+    assert "since the task it got" in err and "mesh ring" not in err  # only an answer can be a lost approval
     mesh.record(run, "repo-fix-typo", "repo-lead", "plan", "Plan 2.")
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     capsys.readouterr()
@@ -2888,6 +2904,26 @@ def test_failed_swap_marks_the_worker_and_the_watch_alerts(mesh, fake, run, monk
     fake.on("agent", "get", errors=["agent_not_found"] * 5)
     assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 5
     assert "is gone" in capsys.readouterr().out
+
+
+def test_a_failed_switch_while_planning_is_no_approval_to_retry(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    mesh.record(run, "repo-fix-typo", "repo-lead", "question", "Keep _db.py?")
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["cli_error"] * 20)
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    for answered in (False, True):
+        if answered:
+            mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "Yes.")
+        assert mesh.main(["switch", "repo-fix-typo"]) == 1
+        entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+        assert (entry["status"], entry["phase"]) == ("swap_failed", "plan")
+        capsys.readouterr()
+        assert mesh.main(["approve", "repo-fix-typo"]) == 1
+        assert "has no plan waiting" in capsys.readouterr().err
+    assert mesh.read_log(run)[-1]["why"] == "quota"
 
 
 def test_watch_stops_excusing_a_worker_that_never_comes_back(mesh, fake, run, capsys):

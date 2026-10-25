@@ -2237,7 +2237,7 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
                      read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
-        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
+        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
         raise MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry") from exc
     with editing_run(run_id) as run:
         e = run["agents"][name]
@@ -2311,7 +2311,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                      read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
-        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
+        log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
         raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
@@ -2325,6 +2325,9 @@ def require_parent(run: dict, me: str, name: str, command: str) -> dict:
     `--as` is taken as given: what this stops is the accidental call, such as a worker approving its own plan.
     """
     entry = agent_entry(run, name)
+    if entry.get("role") == "root":
+        raise MeshError(f"{name} is the run's root, and `mesh {command}` acts on a worker "
+                        "(`mesh stop` ends the run)")
     if me in (entry.get("parent"), run["root"]):
         return entry
     log_event(run["id"], "refused", name=me, command=command, agent=name)
@@ -2338,23 +2341,28 @@ def require_parent(run: dict, me: str, name: str, command: str) -> dict:
 def refuse_no_plan(run_id: str, name: str, entry: dict) -> None:
     """Approve only a plan that waits for its answer: the worker's newest report since its last task or answer.
 
-    A worker whose bg swap failed was already sent its approval, before the launch (`swap_bg`): the retry
-    that ORCHESTRATE offers approves it again.
+    A worker whose bg swap failed at approval was already sent its approval, before the launch (`swap_bg`):
+    the retry that ORCHESTRATE offers approves it again. Only that swap: a failed `mesh switch` while planning
+    leaves the same status, with nothing approved.
     """
+    events = read_log(run_id)
     if entry.get("status") == "swap_failed" and entry.get("phase") == "plan":
-        return
-    report, received = last_report(read_log(run_id), name)
+        failed = [e for e in events if e.get("event") == "swap_failed" and e.get("name") == name]
+        if failed and failed[-1].get("why") == "plan approved":
+            return
+    report, received = last_report(events, name)
     if report and report.get("type") == "plan":
         return
     if report:
-        what = (f"answer it with `mesh send {name} --type answer`; it sends a new plan if the answer changes it"
+        what = (f"answer it with `mesh send {name} --type answer`, and approve the plan it then sends again"
                 if report["type"] == "question" else "there is nothing to approve")
         raise MeshError(f"{name} has no plan waiting: its newest report, at {report.get('time')}, is a "
                         f"{report['type']}; {what}")
     if received:
+        hint = (f" (if that was the approval and its doorbell didn't ring, `mesh ring {name}`)"
+                if received.get("type") == "answer" else "")
         raise MeshError(f"{name} has no plan waiting: it hasn't reported since the {received.get('type')} it got "
-                        f"from {received.get('sender')} at {received.get('time')} (if that was the approval and "
-                        f"its doorbell didn't ring, `mesh ring {name}`)")
+                        f"from {received.get('sender')} at {received.get('time')}{hint}")
     raise MeshError(f"{name} has no plan waiting: it hasn't sent one")
 
 
@@ -3780,10 +3788,7 @@ def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.
 
 def cmd_retire(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
-    run = load_run(run_id)
-    if agent_entry(run, args.agent)["role"] == "root":
-        raise MeshError("the root is not retired; use `mesh stop`")
-    entry = require_parent(run, me, args.agent, "retire")
+    entry = require_parent(load_run(run_id), me, args.agent, "retire")
     retire_worker(run_id, args.agent, entry)
     emit({"retired": args.agent, "cwd": entry.get("cwd"), "branch": entry.get("branch")})
     return 0
@@ -4768,27 +4773,27 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
     return 0
 
 
-def stopping_worker(args: argparse.Namespace) -> tuple[str, str] | None:
-    """(run, name) when `mesh stop` comes from a worker, which never stops a run (its root does), else None.
+def stop_caller(args: argparse.Namespace) -> tuple[str, str] | None:
+    """(run, name) of who runs `mesh stop`, or None for the user in a plain shell.
 
-    With a run id and no identity at all, the caller is the user in a plain shell: nothing to refuse.
+    With a run id to stop, the caller only has to be told apart from a worker, so it's read from the flags and
+    the environment, without `identity`'s side effects: the pane map names only roots, so a caller found
+    there is never a worker. Without one, the caller's identity is the run.
     """
-    try:
-        run_id, me = identity(args)
-    except MeshError:
-        if args.run_id:
-            return None
-        raise
-    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(me) or {}
-    return (run_id, me) if entry.get("role") == "worker" else None
+    if not args.run_id:
+        return identity(args)
+    run_id = getattr(args, "run", None) or os.environ.get("MESH_RUN")
+    name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
+    return (run_id, name) if run_id and name else None
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    if worker := stopping_worker(args):
-        log_event(worker[0], "refused", name=worker[1], command="stop", agent=args.run_id or worker[0])
-        raise MeshError(f"{worker[1]} is a worker of run {worker[0]}, and only a root stops a run: report "
-                        "`done` to your parent, which stops it")
-    run_id = args.run_id or identity(args)[0]
+    caller = stop_caller(args)
+    run_id = args.run_id or caller[0]
+    if caller and (((maybe_run(caller[0]) or {}).get("agents") or {}).get(caller[1]) or {}).get("role") == "worker":
+        log_event(caller[0], "refused", name=caller[1], command="stop", run=run_id)
+        raise MeshError(f"{caller[1]} is a worker of run {caller[0]}, and only a root stops a run: report "
+                        "`done` to your parent, which stops it (the root, if this isn't a worker: pass --as <root>)")
     run = load_run(run_id)
     for name, entry in run["agents"].items():
         if entry.get("view") == "headless":
