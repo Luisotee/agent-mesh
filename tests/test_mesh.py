@@ -616,6 +616,23 @@ def test_agents_lists_archived_workers_with_their_prs(mesh, fake, run, repo, cap
     assert "No workers match" in capsys.readouterr().out
 
 
+def test_agents_run_filter_keeps_workers_resumed_into_the_run(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    with mesh.editing_run(run) as data:  # resumed here: it keeps mesh/mold/fix
+        data["agents"]["proj-fix"] = {"role": "worker", "kind": "agy", "repo": str(repo), "cwd": "/gone",
+                                      "branch": "mesh/mold/fix", "resumed_from": {"run": "mold", "name": "proj-fix"}}
+    capsys.readouterr()
+    assert mesh.main(["agents", "--run", run, "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert {(r["name"], r["run"]) for r in rows} == {("repo-fix-typo", run), ("proj-fix", run)}
+    assert mesh.main(["agents", f"mesh/{run}", "--json"]) == 0
+    assert "proj-fix" not in {r["name"] for r in json.loads(capsys.readouterr().out)}  # why --run exists
+    assert mesh.main(["agents", "proj", "--run", "mold", "--json"]) == 0
+    assert [(r["name"], r["run"]) for r in json.loads(capsys.readouterr().out)] == [("proj-fix", "mold")]
+    assert mesh.main(["agents", "--run", "nope"]) == 0
+    assert "No workers in run nope." in capsys.readouterr().out
+
+
 def stub_new_pane(fake):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
@@ -640,6 +657,7 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     assert "MESH_SELF=proj-fix" in fake.called("tab", "create")[0]
     doorbell = fake.called("agent", "prompt")[-1][3]
     assert doorbell.startswith("📬 [mesh] You are proj-fix (worker) again, resumed into agent-mesh run mtest")
+    assert "background tasks from before (`task-…` ids) are gone" in doorbell  # they died with the old process
     assert mesh.unread(run, "proj-fix")
 
 

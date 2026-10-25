@@ -265,7 +265,7 @@ mesh status <run>          # every agent: role, model, size, view, live state, u
 mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
-mesh agents [query]        # every past worker, live or archived, with branch, PRs and reviews
+mesh agents [query] [--run <id>]  # every past worker, live or archived, with branch, PRs and reviews
 mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
