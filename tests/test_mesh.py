@@ -2167,7 +2167,7 @@ def test_a_change_task_reopens_a_read_only_asker_without_its_deny_list(mesh, fak
     out = json.loads(captured.out)
     assert out["read_only_lifted"] is True and out["rung"] is True
     assert "without its deny list" in captured.err
-    argv = fake.called("agent", "start")[-1]
+    argv = started(fake)
     assert argv[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
     assert not deny_rules(argv)
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
@@ -3675,8 +3675,7 @@ def test_a_claude_reviewer_in_a_pane_gets_the_deny_list_and_agy_none(mesh, fake,
     with_quotas(mesh, monkeypatch)
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
-    start = fake.called("agent", "start")[-1]
-    argv = start[start.index("--") + 1:]
+    argv = started(fake)
     assert "Bash(gh pr comment:*)" in deny_rules(argv) and argv[-1] == "--dangerously-skip-permissions"
     # agy has no deny list: its askers are held by the prompt alone.
     assert mesh.claude_deny({"kind": "agy", "read_only": True, "cwd": "/wt"}) == []
