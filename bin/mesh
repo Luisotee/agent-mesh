@@ -2728,6 +2728,8 @@ def message_body(run_id: str, event: dict | None) -> str:
 
 
 PR_STATE_TTL = 120  # seconds `mesh status` reuses a PR's state from `<run>/pr-state.json`
+PR_RETRY_TTL = 60  # seconds before a PR whose state `gh` couldn't read is tried again
+PR_STATE_TIMEOUT = 10  # seconds one `gh pr view` may take: `mesh status` waits for it
 CHECK_FAILED = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE")
 
 
@@ -2746,7 +2748,7 @@ def checks_summary(rollup: list[dict] | None) -> str | None:
 
 
 def pr_state(url: str) -> dict | None:
-    result = run_cli(["gh", "pr", "view", url, "--json", "state,isDraft,statusCheckRollup"], timeout=30)
+    result = run_cli(["gh", "pr", "view", url, "--json", "state,isDraft,statusCheckRollup"], timeout=PR_STATE_TIMEOUT)
     try:
         data = json.loads(result.stdout) if result.returncode == 0 else None
     except ValueError:
@@ -2759,22 +2761,29 @@ def pr_state(url: str) -> dict | None:
 
 def pr_states(run_id: str, urls: list[str]) -> dict[str, dict]:
     """Each PR's state, checks and draft flag from `gh`, fetched side by side and cached for PR_STATE_TTL.
-    A failed fetch keeps the last cached state; with none, the state is `unknown`."""
+    A failed fetch keeps the last state seen, else `unknown`, and is tried again after PR_RETRY_TTL, so a `gh`
+    that can't reach GitHub slows `mesh status` once a minute, not on every call."""
     path = run_dir(run_id) / "pr-state.json"
     try:
         cache = json.loads(path.read_text())
     except (OSError, ValueError):
         cache = {}
-    stale = [u for u in dict.fromkeys(urls) if time.time() - cache.get(u, {}).get("at", 0) > PR_STATE_TTL]
-    if stale:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(8, len(stale))) as pool:
-            for url, state in zip(stale, pool.map(pr_state, stale)):
-                if state:
-                    cache[url] = {**state, "at": time.time()}
-        write_atomic(path, json.dumps(cache, indent=2) + "\n")
+    cache = {u: c for u, c in cache.items() if isinstance(c, dict)} if isinstance(cache, dict) else {}
     unknown = {"state": "unknown", "draft": False, "checks": None}
-    return {u: {k: v for k, v in cache.get(u, unknown).items() if k != "at"} for u in urls}
+
+    def stale(url: str) -> bool:
+        cached = cache.get(url, {})
+        return time.time() - cached.get("at", 0) > (PR_STATE_TTL if cached.get("ok", True) else PR_RETRY_TTL)
+
+    fetch = [u for u in dict.fromkeys(urls) if stale(u)]
+    if fetch:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(fetch))) as pool:
+            for url, state in zip(fetch, pool.map(pr_state, fetch)):
+                last = {k: v for k, v in cache.get(url, unknown).items() if k in unknown}
+                cache[url] = {**(state or last), "at": time.time(), "ok": bool(state)}
+        write_atomic(path, json.dumps(cache, indent=2) + "\n")
+    return {u: {k: cache.get(u, unknown).get(k, unknown[k]) for k in unknown} for u in urls}
 
 
 def last_task(events: list[dict], name: str) -> dict | None:
@@ -2782,11 +2791,40 @@ def last_task(events: list[dict], name: str) -> dict | None:
                  and e.get("type") == "task"), None)
 
 
-def report_prs(run_id: str, name: str, entry: dict, report: dict) -> list[str]:
-    """The PRs a `done` names (not ones the worker reviewed), else every PR its messages named."""
+def report_prs(run_id: str, name: str, entry: dict, report: dict, events: list[dict]) -> list[str]:
+    """The PRs a `done` names (not ones the worker reviewed), else those of its newest earlier `done` that
+    named any: a fix round's report may not repeat the link. Plans and questions don't count."""
     reviewed = set(entry.get("reviews") or ())
-    prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, report))) if u not in reviewed]
-    return prs or worker_prs(run_dir(run_id), name, entry)
+    dones = [e for e in events if e.get("event") == "send" and e.get("sender") == name and e.get("type") == "done"]
+    for done in reversed(dones[: dones.index(report) + 1] if report in dones else [report]):
+        prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, done))) if u not in reviewed]
+        if prs:
+            return prs
+    return []
+
+
+def reviewing_pr(run_id: str, entry: dict, events: list[dict], name: str) -> str | None:
+    """The PR a reviewer's current task reviews: the one its last task names, or its newest review; None
+    when that task isn't a review. `reviews` keeps every PR it ever reviewed."""
+    body = message_body(run_id, last_task(events, name)).lstrip()
+    if not body.startswith("Review (read-only)"):
+        return None
+    named = REVIEW_GIST_RE.match(body)
+    pr = PR_RE.search(named.group(1)) if named else None
+    reviews = entry.get("reviews") or []
+    return pr.group(0) if pr else (reviews[-1] if reviews else None)
+
+
+def doorbell_failed(events: list[dict], name: str, file: str | None) -> bool:
+    """Whether the doorbell for this message failed, and no doorbell has rung for `name` since (a `rung`
+    event, from `mesh ring` or a later send)."""
+    failed = False
+    for e in events:
+        if e.get("event") == "doorbell_failed" and e.get("to") == name and e.get("file") == file:
+            failed = True
+        elif e.get("event") == "rung" and e.get("to") == name:
+            failed = False
+    return failed
 
 
 def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -> None:
@@ -2805,14 +2843,15 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
             row.update(work_evidence(run, entry))
             read_only = message_body(run_id, last_task(events, name)).lstrip().startswith(READ_ONLY_STARTS)
             if report["type"] == "done" and not read_only:
-                pending[name] = report_prs(run_id, name, entry, report)
+                pending[name] = report_prs(run_id, name, entry, report, events)
             row["read_only"] = read_only
     states = pr_states(run_id, [u for urls in pending.values() for u in urls]) if pending else {}
     reviewing: dict[str, list[str]] = {}  # PR → reviewers that haven't reported since their last task
     for name, entry in run["agents"].items():
         report = folds.get(name, (None, None))[0]
-        if entry.get("status") != "retired" and not (report and report.get("type") in FINAL_TYPES):
-            for url in entry.get("reviews") or ():
+        if entry.get("reviews") and entry.get("status") != "retired" \
+                and not (report and report.get("type") in FINAL_TYPES):
+            if url := reviewing_pr(run_id, entry, events, name):
                 reviewing.setdefault(url, []).append(name)
     for row in rows:
         if row["role"] == "root":
@@ -2857,7 +2896,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
                 text, needs = "retired before reporting", None
             elif (inbox_dir(run_id, name) / str(received.get("file"))).exists():
                 text, needs = f"{mtype} unread {ago(age_seconds(since))}", "worker"
-                if any(e.get("event") == "doorbell_failed" and e.get("file") == received.get("file") for e in events):
+                if doorbell_failed(events, name, received.get("file")):
                     text, needs = f"{text}, doorbell failed", "root"
             else:
                 text, needs = f"on {mtype} {ago(age_seconds(since))}", "worker"
@@ -2937,27 +2976,27 @@ def cmd_log(args: argparse.Namespace) -> int:
     """The run's log.jsonl as a timeline; --follow keeps printing until the run stops."""
     run_id = args.run_id or identity(args)[0]
     path = log_path(run_id)
+
+    if args.lines < 0:
+        raise MeshError("--lines takes a count of events (0: all)")
     day = None
 
-    def show(events: list[dict]) -> bool:
+    def show(events: list[dict], last: int = 0) -> bool:
+        """Print the events naming --agent (only the last `last` of them, if given); True once the run
+        stopped, whoever an event names: `stop` names nobody."""
         nonlocal day
-        stopped = False
-        for event in events:
-            if args.agent and args.agent not in (event.get("name"), event.get("sender"), event.get("to")):
-                continue
+        shown = [e for e in events if not args.agent or args.agent in (e.get("name"), e.get("sender"), e.get("to"))]
+        for event in shown[-last:] if last else shown:
             if log_day(event) and log_day(event) != day:
                 day = log_day(event)
                 print(f"── {day} ──")
             print(log_line(event, path.parent), flush=True)
-            stopped = stopped or event.get("event") == "stop"
-        return stopped
+        return any(e.get("event") == "stop" for e in events)
 
     text = path.read_text() if path.exists() else ""
     complete = text[: text.rfind("\n") + 1]  # a line still being written waits for its newline
-    events = parse_log_lines(complete.splitlines(), path)
-    if args.agent:
-        events = [e for e in events if args.agent in (e.get("name"), e.get("sender"), e.get("to"))]
-    stopped = show(events[-args.lines:] if args.lines else events)
+    stopped = show(parse_log_lines(complete.splitlines(), path), args.lines)
+    stopped = stopped or path.parent.parent == mesh_home() / "archive"  # nothing more comes
     if not args.follow:
         return 0
     offset, lineno = len(complete.encode()), complete.count("\n") + 1

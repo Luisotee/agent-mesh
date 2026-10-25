@@ -2218,14 +2218,60 @@ def test_status_shows_a_done_with_its_pr_state_and_reviewers(mesh, fake, cli, ru
 
 def test_a_pr_state_gh_cannot_read_is_unknown_or_the_last_one_seen(mesh, cli, run, monkeypatch):
     pr = "https://github.com/acme/proj/pull/7"
+    (mesh.run_dir(run) / "pr-state.json").write_text("[]")  # not an object: read as empty
     cli.on("pr", "view", returncode=1, stderr="gh: not logged in")
     assert mesh.pr_states(run, [pr])[pr]["state"] == "unknown"
+    assert mesh.pr_states(run, [pr])[pr]["state"] == "unknown"
+    assert len(cli.called("pr", "view")) == 1  # a failure is cached too, for PR_RETRY_TTL
+    assert cli.called("pr", "view")[0]["argv"][-1] == "state,isDraft,statusCheckRollup"
+    monkeypatch.setattr(mesh, "PR_RETRY_TTL", -1)
     cli.on("pr", "view", stdout=json.dumps({"state": "MERGED", "isDraft": False, "statusCheckRollup": [
         {"__typename": "StatusContext", "state": "FAILURE"}]}))
     assert mesh.pr_states(run, [pr])[pr] == {"state": "merged", "draft": False, "checks": "failing"}
     monkeypatch.setattr(mesh, "PR_STATE_TTL", -1)
     cli.on("pr", "view", returncode=1)
     assert mesh.pr_states(run, [pr])[pr]["state"] == "merged"
+
+
+def test_in_review_counts_only_the_pr_a_reviewer_reviews_now(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    old, new = "https://github.com/acme/proj/pull/7", "https://github.com/acme/proj/pull/8"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {old}")
+    add_worker(mesh, run, "proj-review", reviews=[old, new])  # reviewed #7 before, reviews #8 now
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Review (read-only) of {new}: review it."))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root" and "in review" not in rows["repo-fix-typo"]["waiting"]
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): how does X work?"))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root"  # a question isn't a review
+
+
+def test_a_done_without_a_link_takes_only_an_earlier_dones_prs(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    plan_pr, done_pr = "https://github.com/acme/proj/pull/3", "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "plan", f"Like {plan_pr}, I will…")
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "approved"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Opened {done_pr}")
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix the review findings"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", "Fixed both findings and pushed.")
+    _, rows = status_rows(mesh, run, capsys)
+    assert [p["url"] for p in rows["repo-fix-typo"]["prs"]] == [done_pr]
+
+
+def test_a_doorbell_that_rang_later_is_no_longer_failed(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    task = mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it")
+    mesh.log_event(run, "doorbell_failed", sender="repo-lead", to="repo-fix-typo", file=task.name, error="timeout")
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["needs"] == "root"
+    mesh.log_event(run, "rung", sender="repo-lead", to="repo-fix-typo", via="pane")  # `mesh ring` worked
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("task unread ") and "doorbell" not in row["waiting"] and row["needs"] == "worker"
 
 
 def test_status_says_a_done_changed_nothing(mesh, fake, run, repo, capsys):
@@ -2295,7 +2341,16 @@ def test_log_reads_an_archived_run(mesh, fake, run, capsys):
     capsys.readouterr()
     assert mesh.main(["log", run]) == 0
     assert "init" in capsys.readouterr().out
+    assert mesh.main(["log", run, "--agent", "repo-lead", "--follow"]) == 0  # archived: nothing more to follow
     assert mesh.main(["log", "nope"]) == 1
+    assert mesh.main(["log", run, "--lines", "-1"]) == 1
+
+
+def test_log_follow_for_one_agent_ends_on_the_stop_that_names_nobody(mesh, fake, run, capsys):
+    mesh.log_event(run, "stop", closed=[], kept=[])
+    capsys.readouterr()
+    assert mesh.main(["log", run, "--agent", "repo-fix-typo", "--follow", "--lines", "1"]) == 0
+    assert " stop " not in capsys.readouterr().out
 
 
 def stub_new_pane(fake):
