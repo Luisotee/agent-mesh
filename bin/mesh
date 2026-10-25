@@ -5304,14 +5304,17 @@ def changed_files(repo: str, wt: dict, target: str) -> set[str]:
     return {f for f in files if f}
 
 
-def stacked(repo: str, parent: dict, child: dict) -> bool:
+def stacked(repo: str, parent: dict, child: dict, target: str) -> bool:
     """Whether `child` is built on `parent`'s commits: it contains them, or it started from a commit
-    on `parent`'s branch past `parent`'s own start (which still holds once `parent` commits again)."""
-    if parent["committed"] and contains(repo, parent["branch"], child["branch"]):
+    on `parent`'s branch past `parent`'s own start (which still holds once `parent` commits again).
+    What it builds on must lie past `target`: a worker started from `target` after `parent` was rebased
+    onto it, or after `parent` fast-forwarded to it, isn't stacked."""
+    if (parent["committed"] and not contains(repo, parent["branch"], target)
+            and contains(repo, parent["branch"], child["branch"])):
         return True
     base, own = child.get("base"), parent.get("base")
     return bool(base and own and base != own and contains(repo, own, base)
-                and contains(repo, base, parent["branch"]))
+                and not contains(repo, base, target) and contains(repo, base, parent["branch"]))
 
 
 def cmd_conflicts(args: argparse.Namespace) -> int:
@@ -5335,7 +5338,7 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
         # Stacked branches (one built on the other's commits) are meant to overlap: skip those pairs.
         # Two branches still at the same commit contain each other, but aren't stacked.
         apart = [(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]
-                 if not stacked(repo, wts[a], wts[b]) and not stacked(repo, wts[b], wts[a])]
+                 if not stacked(repo, wts[a], wts[b], target) and not stacked(repo, wts[b], wts[a], target)]
         pairs = [(b, target) for b in committed]
         pairs += [(a, b) for i, a in enumerate(committed) for b in committed[i + 1:]
                   if not contains(repo, a, b) and not contains(repo, b, a)]
@@ -5346,8 +5349,15 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
                 rows.append({"repo": Path(repo).name, "branch": branch, "against": against, "files": files})
                 conflicting[(branch, against)] = files
         # Overlap is an early warning: it also sees uncommitted work, which merge-tree can't.
-        touched = {b: changed_files(repo, wts[b], target) for b in branches}
+        touched: dict[str, set[str]] = {}
+        for b in branches:
+            try:
+                touched[b] = changed_files(repo, wts[b], target)
+            except MeshError as e:  # e.g. its recorded base was garbage-collected
+                print(f"mesh conflicts: no overlap check for {b}: {e}", file=sys.stderr)
         for a, b in apart:
+            if a not in touched or b not in touched:
+                continue
             shared = sorted((touched[a] & touched[b]) - set(conflicting.get((a, b), [])))
             if shared:
                 overlaps.append({"repo": Path(repo).name, "branch": a, "against": b, "files": shared,

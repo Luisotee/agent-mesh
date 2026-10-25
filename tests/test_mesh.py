@@ -4903,6 +4903,34 @@ def test_conflicts_counts_only_a_workers_own_commits(mesh, fake, run, repo, caps
     assert overlap_pairs(mesh, capsys) == {frozenset(("c1", "c2")): ["x.txt"]}
 
 
+def test_conflicts_sees_overlap_with_a_worker_started_after_a_rebase(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    b, _, _ = mesh.add_worktree(run, repo, "b", None)
+    commit_file(b, "a.txt", "b\n", "b")
+    x, _, _ = mesh.add_worktree(run, repo, "x", None)
+    commit_file(repo, "m.txt", "m\n", "main moves on")
+    subprocess.run(["git", "rebase", "-q", "main"], cwd=b, check=True)
+    subprocess.run(["git", "merge", "-q", "--ff-only", "main"], cwd=x, check=True)  # no commits of its own
+    a, _, _ = mesh.add_worktree(run, repo, "a", None)  # from main, which b and x now build on
+    (a / "a.txt").write_text("a\n")
+    y, _, _ = mesh.add_worktree(run, repo, "y", None)
+    for path in (x, y):
+        (path / "c.txt").write_text(path.name)
+    assert overlap_pairs(mesh, capsys) == {frozenset(("a", "b")): ["a.txt"], frozenset(("x", "y")): ["c.txt"]}
+
+
+def test_conflicts_skips_a_worker_whose_base_is_gone(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    for slug in ("b1", "b2", "b3"):
+        path, _, _ = mesh.add_worktree(run, repo, slug, None)
+        (path / "a.txt").write_text(slug)
+    with mesh.editing_run(run) as data:
+        next(wt for wt in data["worktrees"] if wt["branch"].endswith("/b3"))["base"] = "0" * 40
+    assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["a.txt"]}
+    assert mesh.main(["conflicts"]) == 0
+    assert "no overlap check for mesh/mtest/b3" in capsys.readouterr().err
+
+
 def test_conflicts_reads_a_rename_in_the_worktree(mesh, fake, run, repo, capsys):
     commit_file(repo, "r.txt", "".join(f"line {i}\n" for i in range(20)), "base")
     b1, _, _ = mesh.add_worktree(run, repo, "b1", None)
