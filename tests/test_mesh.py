@@ -414,6 +414,89 @@ def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsy
     assert json.loads(capsys.readouterr().out)[0]["type"] == "question"
 
 
+def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["phase"] = "plan"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "# Fix the typo\n\nIn README.md.")
+    capsys.readouterr()
+    assert mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("agent-mesh reminder (compact): you are repo-fix-typo, a worker in run mtest, and your "
+                          "parent is repo-lead.")
+    assert "Current task: Fix the typo (" in out and "-repo-lead-task.md" in out
+    assert "Phase: planning: research, then send a `plan`" in out
+    assert "it shows your current task again" in out
+    assert "Run `mesh inbox --run mtest --as repo-fix-typo` now" in out  # a cleared bg session can't rebind
+    assert "(worker) in agent-mesh run" not in out  # agy's conversation lookup searches for the first doorbell
+    assert [(e["name"], e["source"]) for e in mesh.read_log(run) if e["event"] == "reminder"] == \
+        [("repo-fix-typo", "compact")]
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "plan", "The plan.")
+    mesh.main(["whoami", "--reminder", "resume", "--run", run, "--as", "repo-fix-typo"])
+    out = capsys.readouterr().out
+    assert "Phase: your plan is waiting for its answer" in out and "again" not in out
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", f"{mesh.USER_REVIEW_PREFIX}\n\nBuild it.")
+    mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
+    out = capsys.readouterr().out
+    assert "Phase: a plan the user reviews: if the user hasn't approved your plan in your pane yet" in out
+    assert "once it's approved, make the change" in out
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Built.")
+    mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
+    out = capsys.readouterr().out
+    assert "you reported `done`" in out and "again" not in out  # nothing to show again
+    assert mesh.main(["whoami", "--reminder", "clear", "--run", "gone", "--as", "x"]) == 0  # never an error
+    assert capsys.readouterr().out == ""
+
+
+def test_inbox_shows_the_current_task_again_once_after_a_reset(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Both files.")
+    mesh.main(["inbox"])
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="resume")  # a relaunch keeps its context
+    capsys.readouterr()
+    mesh.main(["inbox"])
+    assert capsys.readouterr().out == "No unread messages.\n"
+    mesh.log_event(run, "rebind", name="repo-fix-typo", session="new-s")  # a /clear
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    mesh.main(["inbox"])
+    out = capsys.readouterr().out
+    assert out.count("(again: your session was cleared or compacted") == 2
+    assert out.index("Fix the typo.") < out.index("Both files.") < out.index("FYI.")
+    mesh.main(["inbox"])
+    assert capsys.readouterr().out == "No unread messages.\n"
+    # a new task after the reset is simply unread: nothing is shown twice
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="compact")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next one.")
+    mesh.main(["inbox", "--json"])
+    assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == [("Next one.", None)]
+    # an answer it never read, after a reset: shown as new, not "again"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Unread one.")
+    mesh.log_event(run, "rebind", name="repo-fix-typo", session="newer-s")
+    mesh.main(["inbox", "--json"])
+    assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == \
+        [("Next one.", True), ("Unread one.", None)]
+
+
+def test_inbox_does_not_show_a_reported_task_again_and_all_counts_as_shown(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.main(["inbox"])
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="compact")
+    capsys.readouterr()
+    mesh.main(["inbox"])  # it reported done on it: nothing to remind it of
+    assert capsys.readouterr().out == "No unread messages.\n"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next one.")
+    mesh.main(["inbox"])
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="clear")
+    capsys.readouterr()
+    mesh.main(["inbox", "--all", "--json"])  # shows everything, the current task marked, and counts as shown
+    assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == \
+        [("Fix the typo.", None), ("Next one.", True)]
+    mesh.main(["inbox"])
+    assert capsys.readouterr().out == "No unread messages.\n"
+
+
 def test_send_rejects_unknown_agent_and_empty_body(mesh, fake, run, capsys):
     assert mesh.main(["send", "nobody", "--type", "info", "--body", "x"]) == 1
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "  "]) == 1
@@ -615,6 +698,110 @@ def test_an_info_from_the_worker_is_not_a_report(mesh, fake, run, monkeypatch, c
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
     assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("nudge")] == ["nudge", "nudge_rung"]
+
+
+def stop_hook(mesh, monkeypatch, capsys, run, **payload):
+    """Run the worker's Stop hook as Claude Code does (JSON on stdin) and return the block reason, or None."""
+    import io
+    monkeypatch.setattr(mesh.sys, "stdin", io.StringIO(json.dumps({"hook_event_name": "Stop", **payload})))
+    capsys.readouterr()
+    assert mesh.main(["hook", "stop", "--run", run, "--as", "repo-fix-typo"]) == 0
+    out = capsys.readouterr().out
+    return json.loads(out)["reason"] if out else None
+
+
+def test_the_stop_hook_blocks_a_silent_turn_end_once_per_task(mesh, fake, run, monkeypatch, capsys):
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # no task yet
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    reason = stop_hook(mesh, monkeypatch, capsys, run, permission_mode="bypassPermissions")
+    assert "without a `mesh send`" in reason and "unread" not in reason
+    assert [(e["received"], e["via"], e["rung"]) for e in mesh.read_log(run) if e["event"] == "nudge"] == \
+        [(1, "stop-hook", True)]
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # this task's nudge is spent
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Also the other one.")
+    # an answer it hasn't read yet: a block for the mail alone, once, which keeps the answer's nudge
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert "1 unread mesh message (answer)" in reason and "without a `mesh send`" not in reason
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # the same unread mail never blocks twice
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1]
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert "without a `mesh send`" in stop_hook(mesh, monkeypatch, capsys, run)  # read, then silent
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1, 2]
+
+
+def test_the_nudge_a_mail_block_kept_still_comes_in_its_continuation(mesh, fake, run, monkeypatch, capsys):
+    # task read, a question sent, the answer lands as the turn winds down: the hook blocks for the mail alone;
+    # the worker reads it and works on in that continuation, then ends silently: that stop gets the nudge
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "question", "Which file?")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "README.md.")
+    assert "without a `mesh send`" not in stop_hook(mesh, monkeypatch, capsys, run)
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert "without a `mesh send`" in stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True)
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [2]
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # never twice
+
+
+def test_a_continuation_gets_no_mail_block_without_new_mail(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    assert "2 unread mesh messages" in stop_hook(mesh, monkeypatch, capsys, run)
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[-1])  # reads one, the task still waits
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "One more.")
+    assert "2 unread mesh messages" in stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True)
+
+
+def test_mail_that_arrives_after_the_current_task_was_read_comes_with_the_nudge(mesh, fake, run, monkeypatch,
+                                                                               capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert "1 unread mesh message (info)" in reason and "without a `mesh send`" in reason
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1]
+
+
+def test_the_stop_hook_lets_a_reported_or_planning_worker_stop(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    assert stop_hook(mesh, monkeypatch, capsys, run, permission_mode="plan") is None
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["plan_review"] = "user"
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # no permission_mode: it may be in plan mode
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(plan_review=None, status="retiring")
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "running"
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "plan", "The plan.")
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")  # mail it hasn't read, after its report
+    assert "1 unread mesh message (info)" in stop_hook(mesh, monkeypatch, capsys, run)
+
+
+def test_the_stop_hook_never_fails_a_session(mesh, fake, run, monkeypatch, capsys):
+    import io
+    for stdin in ("", "not json", "[1]"):
+        monkeypatch.setattr(mesh.sys, "stdin", io.StringIO(stdin))
+        assert mesh.main(["hook", "stop", "--run", "gone", "--as", "x"]) == 0
+    monkeypatch.setattr(mesh, "read_log", lambda run_id: 1 / 0)
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+
+
+def test_a_watch_after_the_stop_hook_nudged_alerts_without_nudging_again(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert stop_hook(mesh, monkeypatch, capsys, run)
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 3600.0)
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "(nudged once by its Stop hook" in capsys.readouterr().out
+    assert not [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
 
 
 def test_idle_time_while_the_worker_is_reopened_does_not_count(mesh, fake, run, monkeypatch):
@@ -828,6 +1015,18 @@ def test_a_background_worker_is_not_nudged(mesh, fake, run, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "`claude logs abc123`" in out and "mesh send repo-fix-typo --type info" in out
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_a_background_worker_its_stop_hook_nudged_is_alerted_as_such(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert stop_hook(mesh, monkeypatch, capsys, run)
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    out = capsys.readouterr().out
+    assert "(its Stop hook nudged it once" in out and "--type info" not in out
 
 
 def test_watch_question_then_idle_is_not_an_alert(mesh, fake, run, monkeypatch):
@@ -1141,7 +1340,8 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert second["model"] == "opus"
     assert fake.called("pane", "split", "w9:p10", "--direction", "right")
     assert mesh.load_run(run)["agents"]["proj-port"]["status"] == "running"
-    assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    assert started(fake)[-5:] == ("--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    assert "--settings" in fake.called("agent", "start")[-1]  # a Claude pane worker gets its hooks
 
 
 def test_workers_open_beside_the_root_until_its_tab_is_full(mesh, fake, run, repo, monkeypatch, capsys):
@@ -1591,6 +1791,14 @@ def test_agents_run_filter_keeps_workers_resumed_into_the_run(mesh, fake, run, r
     assert "No workers in run nope." in capsys.readouterr().out
 
 
+def started(fake):
+    """The CLI arguments of the last `herdr agent start`, without the `--settings` a Claude worker gets."""
+    argv = list(fake.called("agent", "start")[-1])
+    if "--settings" in argv:
+        del argv[argv.index("--settings"):argv.index("--settings") + 2]
+    return tuple(argv)
+
+
 def stub_new_pane(fake):
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
@@ -1654,8 +1862,9 @@ def test_resume_of_a_claude_worker_whose_name_is_taken(mesh, fake, run, repo, ca
     capsys.readouterr()
     assert mesh.main(["resume", "mesh/mold/fix"]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "proj-fix-2"
-    assert fake.called("agent", "start")[-1][-7:] == (
+    assert started(fake)[-7:] == (
         "--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    assert "--settings" in fake.called("agent", "start")[-1]
 
 
 def test_resume_refuses_a_worker_that_is_still_running(mesh, fake, run, repo, capsys):
@@ -1784,8 +1993,11 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
     planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
     stub_new_pane(fake)
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
-    assert fake.called("agent", "start")[-1][-7:] == (
+    assert started(fake)[-7:] == (
         "--resume", "s-1", "--model", "opus", "--effort", "medium", "--dangerously-skip-permissions")
+    argv = fake.called("agent", "start")[-1]
+    hooks = json.loads(argv[argv.index("--settings") + 1])["hooks"]  # reopened with its hooks again
+    assert "hook stop --run mtest --as repo-fix-typo" in hooks["Stop"][0]["hooks"][0]["command"]
 
 
 def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, capsys):
@@ -2464,7 +2676,7 @@ def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tm
     assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
                       "--no-wait"]) == 0
     assert json.loads(capsys.readouterr().out)["effort"] == "high"
-    assert fake.called("agent", "start")[-1][-5:-1] == ("--model", "opus", "--effort", "high")
+    assert started(fake)[-5:-1] == ("--model", "opus", "--effort", "high")
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
     assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
@@ -2693,6 +2905,21 @@ def test_small_claude_task_runs_in_the_background_with_no_plan(mesh, fake, cli, 
     assert out["delivery"]["launched"] is True
 
 
+def test_a_claude_worker_gets_its_hooks_and_agy_none(mesh, fake, run):
+    env = mesh.mesh_env(run, "proj-x", "repo-lead", "worker")
+    assert mesh.settings_argv("agy", env) == []
+    flag, settings = mesh.settings_argv("claude", env)
+    settings = json.loads(settings)
+    assert flag == "--settings" and "env" not in settings  # a pane has its environment
+    command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert command.split() == [str(Path(mesh.__file__).absolute()), "hook", "stop", "--run", run, "--as", "proj-x"]
+    starts = settings["hooks"]["SessionStart"]
+    assert [g["matcher"] for g in starts] == ["compact", "clear", "resume"]
+    assert starts[1]["hooks"][0]["command"].split()[1:4] == ["whoami", "--reminder", "clear"]
+    bg = json.loads(mesh.worker_settings(env, bg=True))
+    assert bg["hooks"] == settings["hooks"] and bg["env"]["MESH_SELF"] == "proj-x"
+
+
 def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, cli, run, repo, monkeypatch, capsys):
     # A spare process keeps the environment of whoever started Claude Code's daemon, so the launch's own
     # environment carries no identity, and settings set every MESH_* variable and blank the herdr ids.
@@ -2715,6 +2942,8 @@ def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, 
     assert env["MESH_HOME"] == str(mesh.mesh_home()) and env["MESH_MIN_QUOTA"] == "30"
     assert env["MESH_COMPACT_AT"] == "" and env["MESH_CLAUDE"] == ""  # unset here, so a spare's value can't stay
     assert env["HERDR_PANE_ID"] == env["HERDR_TAB_ID"] == env["HERDR_WORKSPACE_ID"] == ""
+    hooks = json.loads(launch["argv"][launch["argv"].index("--settings") + 1])["hooks"]
+    assert hooks["Stop"][0]["hooks"][0]["command"].endswith("hook stop --run mtest --as proj-copy")
     # The `claude agents` lookups after the launch can start the daemon too.
     assert all(not any(k in c["env"] for k in (*mesh.MESH_IDS, "HERDR_PANE_ID", "CLAUDE_CODE_SESSION_ID"))
                for c in cli.called("agents"))
@@ -2735,7 +2964,7 @@ def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, 
     assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "starting a pane" in out["notes"][0]
-    assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "medium",
+    assert started(fake)[-5:] == ("--model", "opus", "--effort", "medium",
                                                       "--dangerously-skip-permissions")
     assert not cli.called("--bg")
 
@@ -2776,7 +3005,7 @@ def test_user_reviewed_plan_runs_opus_in_plan_mode(mesh, fake, run, repo, capsys
     stub_new_pane(fake)
     assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Build it."]) == 0
-    start = fake.called("agent", "start")[-1]
+    start = started(fake)
     assert start[start.index("--model") + 1] == "opus" and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
     assert "--dangerously-skip-permissions" not in start
     entry = mesh.load_run(run)["agents"]["proj-feat"]
