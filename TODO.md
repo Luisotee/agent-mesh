@@ -9,8 +9,6 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 - [ ] A report is credited to the wrong task: `since_last_task` counts a `done` for task 1, sent after task 2 arrived, as task 2's report, so a worker that then ends task 2 silently is never nudged or alerted. Make `cmd_send` refuse `plan`/`done`/`failed` while the sender has an unread `task`/`answer` (with an escape flag), which also turns PROTOCOL rule 2 into code (Rove, mcp_agent_mail)
 - [ ] `mesh approve` checks neither that the caller is the worker's parent (or `--as`) nor that the worker's newest report since its last task is a `plan`: a worker can approve itself, or one that sent a `question` gets "approved" and swapped to execution. Same caller check for `switch`, `retire`, `stop` (mcp_agent_mail, ccswarm)
 - [ ] One torn line in `log.jsonl` makes `read_log` raise for every reader (watch, status, ask); skip it and warn once (Cyclops, ccswarm)
-- [ ] Doorbell confirmation can be wrong: the 25-character needle is the same for every task from one sender, so an earlier doorbell being submitted confirms a new one still sitting in the box. Put a per-message token in the doorbell, stop retrying once the message has moved to `read/`, and log successful rings with how they were confirmed (Cyclops)
-- [ ] `ring()` never checks for a human's draft (the composer-empty check credited to firstmate was never taken: `ring()` reads the pane only to avoid duplicates), so a doorbell can be submitted fused with the user's half-typed text. *Live check* first: what `herdr agent prompt` does with a draft, and whether `herdr agent read --ansi` keeps Claude's NBSP/dim markers. Then hold only on a positively seen draft and type anyway when the screen is ambiguous (Rove deleted a broad composer gate after an 11 h stall, Cyclops dropped fail-closed after 16 h); keep the bounded retry and exit 2. Add a per-pane lock so concurrent rings don't interleave (Orca, Cyclops, Gas Town)
 - [ ] A startup dialog in a fresh pane (Claude Code's "Settings Warning" for a repo's malformed `.claude/settings.json` rule, seen on ccswarm) makes `mesh ask`/`spawn` die with `herdr timeout: timed out waiting for agent status`, leaving the task stored but the doorbell unrung. Classify the startup screen (trust, a known blocking dialog, unknown), report the last two like watch's exit 4 with the pane tail, and ring once it clears. While there: re-read the trust dialog before the final Enter, since "No, exit" is the default (firstmate, Cyclops)
 
 ## Watchdog
@@ -20,6 +18,7 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 - [ ] Once #21 (send-guards) and the declared wait both land: fold `send_wait`'s unread task/answer check into `refuse_stale_report` (`wait` alongside `REPORT_TYPES`)
 - [ ] Maybe: let the Stop hook pass only one turn end per declared wait (then nudge as usual), so a worker that wakes early and stops silently is caught before the deadline; the watch would need the same rule
 - [ ] Once #26 (status-log) and the declared wait both land: `waiting_rows` shows an active wait (`declared_wait`) as `on task 12m, waiting until 14:30`, and the duplicate `work_evidence` goes
+- [ ] A nudge held by a draft in the worker's pane ends in exit 3 as "its nudge was not delivered": say why (the `doorbell_failed` event has `error: human_draft`), so the root knows the user is typing there
 
 ## Reports and reviews
 
@@ -37,7 +36,6 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Protocol wording and tests
 
-- [ ] Strip quotes, backticks and `$` from the doorbell preview (done in PR #23; drop this line when it merges)
 - [ ] Real captured panes (`herdr agent read --ansi`: Claude and agy idle, busy, with a draft, a queued doorbell, a trust dialog, the usage-limit screen) as test fixtures for `above_input_box`, `trust_keys` and the needle, re-captured when a CLI changes; point the `mesh` fixture's herdr at a missing binary so no test can type into a real pane; maybe an opt-in live suite in a separate herdr session (Orca, Cyclops, Gas Town, firstmate, Rove)
 
 ## Other

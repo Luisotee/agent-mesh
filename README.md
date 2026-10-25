@@ -189,12 +189,14 @@ An old conversation has lost its prompt cache, so every turn of a follow-up woul
 Typing into a terminal is not reliable delivery: the agent might be busy, stopped at a dialog, or you might be typing in that pane. So every message is **written to the recipient's mailbox first**, and only then does the recipient get a one-line **doorbell**:
 
 ```
-📬 [mesh] question from shop-api-restocked-at: Should restockedAt be null for products that were never out of stock? (run `mesh inbox`)
+📬 [mesh] question from shop-api-restocked-at (ref 3fa9c1): Should restockedAt be null for products that were never out of stock? (run `mesh inbox`)
 ```
 
 - **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
 - **Between Claude sessions it goes by `SendMessage`.** A Claude worker reporting to a Claude root, or anyone writing to a background worker, gets a `send_message` back from `mesh send` and passes it on with Claude Code's own cross-session messaging. Nothing is typed into the pane you work in. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
-- **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell that showed up above the input box counts as delivered. A pane it couldn't read, or whose input box it can't find, never confirms one.
+- **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell whose `ref` showed up above the input box counts as delivered. The `ref` is new for every doorbell, so an older one never confirms it. A pane it couldn't read, or whose input box it can't find, never confirms one. Retrying also stops once the recipient has read the message, and every doorbell that got through is logged (`rung`, with how it was confirmed).
+- **Your draft is never sent for you.** herdr submits a doorbell fused to whatever is in the input box, so `mesh` doesn't type while you have a half-written prompt in an agent's pane: it waits through its retries (about a minute) and then gives up with exit 2 (`human_draft`), the message still in the mailbox. When the box can't be read, it types anyway. One doorbell at a time goes into a pane, since herdr merges prompts typed at once.
+- **The preview is plain text.** Backticks, `$` and quotes are dropped from the message preview, so it never reads as a shell command.
 - **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts.
 - **The mailbox is the record.** `~/.local/state/agent-mesh/<run>/` holds every message, plan and report, plus a `log.jsonl` of events. `mesh stop` archives it.
 

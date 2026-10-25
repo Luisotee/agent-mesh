@@ -8,6 +8,12 @@ import pytest
 from conftest import load_mesh
 
 
+def bare(doorbell):
+    """A doorbell without its ring token."""
+    import re
+    return re.sub(r" \(ref [0-9a-f]{6}\)", "", doorbell)
+
+
 def as_worker(monkeypatch, run):
     monkeypatch.setenv("MESH_RUN", run)
     monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
@@ -375,6 +381,7 @@ def test_doorbell_retries_while_blocked(mesh, fake, run, capsys):
     fake.on("agent", "prompt", errors=["agent_blocked", "agent_blocked"])
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert len(fake.called("agent", "prompt")) == 3
+    assert [e["tries"] for e in mesh.read_log(run) if e["event"] == "rung"] == [1]  # refused prompts typed nothing
 
 
 def test_failed_doorbell_keeps_the_message(mesh, fake, run, capsys):
@@ -390,6 +397,20 @@ def test_doorbell_falls_back_to_pane_id(mesh, fake, run):
     fake.on("agent", "prompt", "repo-fix-typo", error="agent_not_found")
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert fake.called("agent", "prompt", "w2:p5")
+    rung = [e for e in mesh.read_log(run) if e["event"] == "rung"]
+    assert [(e["via"], e["tries"]) for e in rung] == [("working", 1)]  # the name herdr didn't know typed nothing
+
+
+def test_ring_reminds_of_unread_messages(mesh, fake, run, monkeypatch, capsys):
+    fixed_token(mesh, monkeypatch)
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert "no unread messages" in capsys.readouterr().out
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it.")
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert json.loads(capsys.readouterr().out)["via"] == "working"
+    assert fake.called("agent", "prompt")[-1][3] == "📬 [mesh] (ref abc123) you have 1 unread message(s) (run `mesh inbox`)"
+    rung = [e for e in mesh.read_log(run) if e["event"] == "rung"]
+    assert [(e["to"], e["via"], e["file"]) for e in rung] == [("repo-fix-typo", "working", mesh.unread(run, "repo-fix-typo")[-1].name)]
 
 
 def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsys):
@@ -397,7 +418,7 @@ def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsy
     assert mesh.main(["send", "parent", "--type", "question", "--body", "Include _db.py?"]) == 0
     doorbell = fake.called("agent", "prompt")[-1]
     assert doorbell[2] == "repo-lead"
-    assert doorbell[3].startswith("📬 [mesh] question from repo-fix-typo: Include _db.py?")
+    assert bare(doorbell[3]).startswith("📬 [mesh] question from repo-fix-typo: Include _db.py?")
 
     monkeypatch.delenv("MESH_RUN")
     monkeypatch.delenv("MESH_SELF")  # back to the root (pane map)
@@ -703,7 +724,7 @@ def test_watch_nudges_a_silent_stop_once_then_alerts(mesh, fake, run, monkeypatc
     assert "last lines of its pane:\n    ● Edited README.md" in out
     nudges = [e for e in mesh.read_log(run) if e["event"] == "nudge"]
     assert [(e["name"], e["received"]) for e in nudges] == [("repo-fix-typo", 1)]
-    assert "turn ended without a `mesh send`" in fake.called("agent", "prompt")[-1][3]
+    assert "turn ended without a mesh send" in fake.called("agent", "prompt")[-1][3]
     assert "Your turn ended" in mesh.unread(run, "repo-fix-typo")[-1].read_text()
 
 
@@ -1632,19 +1653,39 @@ def screen(*above, typed=""):
     return "\n".join([*above, BOX, f"❯ {typed}", BOX, "  esc to interrupt"])
 
 
-def test_a_doorbell_a_busy_agent_queued_is_not_typed_again(mesh, fake, run):
+def fixed_token(mesh, monkeypatch, token="abc123"):
+    monkeypatch.setattr(mesh, "ring_token", lambda: token)
+    return token
+
+
+def test_a_doorbell_a_busy_agent_queued_is_not_typed_again(mesh, fake, run, monkeypatch):
     # Claude Code running a command queues the prompt, and herdr times out waiting for "working"
+    fixed_token(mesh, monkeypatch)
     fake.on("agent", "prompt", errors=["timeout"] * 7)
-    queued = "❯ 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
-    fake.screen("repo-fix-typo", screen("  ⎿  Running… (24s)"), screen("  ⎿  Running… (24s)", queued))
+    queued = "❯ 📬 [mesh] info from repo-lead (ref abc123): hi (run `mesh inbox`)"
+    fake.screen("repo-fix-typo", screen("  ⎿  Running… (24s)"), screen("  ⎿  Running… (24s)"),
+                screen("  ⎿  Running… (24s)", queued))
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert len(fake.called("agent", "prompt")) == 1
+    rung = [e for e in mesh.read_log(run) if e["event"] == "rung"]
+    assert [(e["to"], e["via"], e["tries"]) for e in rung] == [("repo-fix-typo", "pane", 1)]
+    assert "type" not in rung[0]  # never counted as a send
 
 
 def test_an_earlier_identical_doorbell_does_not_count(mesh, fake, run):
     fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
-    old = "> 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
+    old = "> 📬 [mesh] info from repo-lead (ref 0ld0ld): hi (run `mesh inbox`)"
     fake.screen("repo-fix-typo", screen(old, "  Done."))  # the same doorbell from before, already handled
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 2
+
+
+def test_an_earlier_doorbell_submitted_meanwhile_does_not_confirm_a_new_one(mesh, fake, run):
+    # the old doorbell sat in the box and got submitted between the reads; the new one is still unsent
+    fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
+    old = "📬 [mesh] info from repo-lead (ref 0ld0ld): hi (run `mesh inbox`)"
+    fake.screen("repo-fix-typo", screen("  Done.", typed=old), screen("  Done.", typed=old),
+                screen("  Done.", "❯ " + old))
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert len(fake.called("agent", "prompt")) == 2
 
@@ -1667,21 +1708,139 @@ def test_the_input_box_is_found_above_a_task_panel(mesh):
     assert mesh.above_input_box(["no box here"]) == []
 
 
-def test_a_pane_that_could_not_be_read_first_never_confirms_a_doorbell(mesh, fake, run):
+def test_a_pane_that_could_not_be_read_first_never_confirms_a_doorbell(mesh, fake, run, monkeypatch):
+    fixed_token(mesh, monkeypatch)
     fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
-    old = "❯ 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
-    # the first read fails; the next one shows an old doorbell, which must not pass for the new one
-    fake.screen("repo-fix-typo", None, screen(old, typed="📬 [mesh] info from repo-lead: hi"))
+    new = "❯ 📬 [mesh] info from repo-lead (ref abc123): hi (run `mesh inbox`)"
+    # the first read fails; a later one shows the doorbell, which may have been there before
+    fake.screen("repo-fix-typo", None, screen(new))
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert len(fake.called("agent", "prompt")) == 2
 
 
-def test_a_wrapped_doorbell_is_still_found(mesh, fake, run):
+def test_a_wrapped_doorbell_is_still_found(mesh, fake, run, monkeypatch):
+    fixed_token(mesh, monkeypatch)
     fake.on("agent", "prompt", errors=["timeout"] * 7)
-    wrapped = ["❯ 📬 [mesh] info", "  from repo-lead: hi", "  (run `mesh inbox`)"]  # a narrow pane
-    fake.screen("repo-fix-typo", screen("  ⎿  Running…"), screen("  ⎿  Running…", *wrapped))
+    wrapped = ["❯ 📬 [mesh] info", "  from repo-lead (ref abc", "  123): hi (run", "  `mesh inbox`)"]  # narrow pane
+    fake.screen("repo-fix-typo", screen("  ⎿  Running…"), screen("  ⎿  Running…"), screen("  ⎿  Running…", *wrapped))
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
     assert len(fake.called("agent", "prompt")) == 1
+
+
+def test_a_message_read_meanwhile_stops_the_doorbell(mesh, fake, run, monkeypatch):
+    fake.on("agent", "prompt", errors=["agent_prompt_stalled"] * 7)
+
+    def read_it(seconds):  # the agent ran `mesh inbox` (after an earlier doorbell) during the first backoff
+        for path in mesh.unread(run, "repo-fix-typo"):
+            mesh.mark_read(path)
+
+    monkeypatch.setattr(mesh.time, "sleep", read_it)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 1
+    rung = [e for e in mesh.read_log(run) if e["event"] == "rung"]
+    assert [(e["via"], e["tries"]) for e in rung] == [("read", 1)]
+
+
+# Rows captured with `herdr agent read --ansi` (herdr 0.8.2, Claude Code 2.1.310, agy 1.4.7; rules shortened).
+CLAUDE_RULE = "\x1b[0m\x1b[38;2;136;136;136m" + "─" * 40 + "\x1b[0m"
+CLAUDE_FOOTER = "  \x1b[0m\x1b[38;2;255;107;128m⏵⏵ bypass permissions on\x1b[0m"
+CLAUDE_ECHO = ("\x1b[0m\x1b[38;2;153;153;153m\x1b[48;2;55;55;55m❯ \x1b[0m\x1b[38;2;255;255;255m"
+               "\x1b[48;2;55;55;55msay hi\x1b[0m")
+AGY_RULE = "\x1b[0m\x1b[38;5;8m" + "─" * 40 + "\x1b[0m"
+AGY_FOOTER = "\x1b[0m\x1b[38;5;8m? for shortcuts         \x1b[0m\x1b[2mGemini 3.8 Flash · medium\x1b[0m"
+
+
+def claude_pane(*box):
+    return [CLAUDE_ECHO, "", CLAUDE_RULE, *box, CLAUDE_RULE, CLAUDE_FOOTER]
+
+
+def agy_pane(*box):
+    return ["\x1b[0m\x1b[1m\x1b[38;5;4m> say hi\x1b[0m", "", AGY_RULE, *box, AGY_RULE, AGY_FOOTER]
+
+
+@pytest.mark.parametrize("lines, typed", [
+    (claude_pane("❯\xa0"), ""),
+    (claude_pane('❯\xa0\x1b[0m\x1b[2mTry "fix typecheck errors"\x1b[0m'), ""),  # ghost text is dim
+    (claude_pane("❯\xa0hello draft"), "hello draft"),
+    (claude_pane("❯\xa0\x1b[38;5;153m/model\x1b[0m"), "/model"),  # a coloured slash command is typed
+    (claude_pane("❯\xa0word word", "  word", "  word"), "word word word word"),  # a wrapped draft
+    (agy_pane("\x1b[0m\x1b[38;5;12m>\x1b[0m"), ""),
+    (agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[0mhello draft"), "hello draft"),
+    (["no box here"], None),
+    (claude_pane("❯\xa0hello draft")[:-2], None),  # no closing rule: what follows may be a footer
+    (claude_pane("❯\xa0see \x1b]8;;https://x.io\x1b\\x.io\x1b]8;;\x1b\\"), "see x.io"),  # an OSC 8 link
+    (claude_pane("❯\xa0\x1b[2Kodd"), None),  # an escape that isn't SGR or OSC: can't tell
+])
+def test_typed_text_reads_the_input_box(mesh, lines, typed):
+    assert mesh.typed_text(lines) == typed
+
+
+def test_only_a_human_draft_holds_a_doorbell(mesh):
+    assert mesh.human_draft(claude_pane("❯\xa0hello draft"))
+    assert not mesh.human_draft(claude_pane('❯\xa0\x1b[0m\x1b[2mTry "fix typecheck errors"\x1b[0m'))
+    assert not mesh.human_draft(claude_pane("❯\xa0📬 [mesh] info from repo-lead: hi"))  # an earlier doorbell
+    assert not mesh.human_draft(["no box here"])  # can't tell: type
+    assert not mesh.human_draft(None)  # unreadable: type
+
+
+def test_a_draft_holds_the_doorbell_until_it_is_sent(mesh, fake, run):
+    busy_draft = "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[0mbusy draft"))
+    fake.screen("repo-fix-typo", busy_draft, busy_draft, "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m>\x1b[0m")))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 1  # typed only once the user had sent their draft
+
+
+def test_a_draft_that_stays_ends_in_exit_2(mesh, fake, run, capsys):
+    fake.screen("repo-fix-typo", "\n".join(claude_pane("❯\xa0half a sentence")))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 2
+    assert not fake.called("agent", "prompt")
+    failed = [e for e in mesh.read_log(run) if e["event"] == "doorbell_failed"]
+    assert failed[0]["error"] == "human_draft"
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+
+
+def test_rings_into_one_pane_take_turns(mesh, fake, run, monkeypatch):
+    import fcntl
+    path = mesh.mesh_home() / "locks" / "ring-w2_p5.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    order = []
+    with open(path, "w") as other:  # another ring is typing into the same pane
+        fcntl.flock(other, fcntl.LOCK_EX)
+        tries = iter(range(3))
+
+        def wait(seconds):
+            order.append("waited")
+            if next(tries, None) == 2:
+                fcntl.flock(other, fcntl.LOCK_UN)
+
+        monkeypatch.setattr(mesh.time, "sleep", wait)
+        assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert order == ["waited"] * 3  # it typed only once the other ring let go
+    assert len(fake.called("agent", "prompt")) == 1
+
+
+def test_a_ring_lock_held_too_long_is_ignored(mesh, fake, run, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(mesh, "RING_LOCK_WAIT", 1)
+    path = mesh.mesh_home() / "locks" / "ring-w2_p5.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as other:
+        fcntl.flock(other, fcntl.LOCK_EX)
+        assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 1
+
+
+def test_a_doorbell_carries_its_token_and_keeps_the_searched_start(mesh, run):
+    text = mesh.doorbell_text(mesh.load_run(run), "repo-lead", "repo-fix-typo", "task", "x", True, "abc123")
+    assert text.startswith(f"📬 [mesh] {mesh.first_doorbell('repo-fix-typo')}")
+    assert f"in agent-mesh run {run} (ref abc123);" in text  # early, where a shortened prompt keeps it
+    assert mesh.doorbell_text(mesh.load_run(run), "repo-lead", "repo-fix-typo", "info", "hi", False, "abc123") \
+        == "📬 [mesh] info from repo-lead (ref abc123): hi (run `mesh inbox`)"
+    assert "ref" not in mesh.doorbell_text(mesh.load_run(run), "repo-lead", "repo-fix-typo", "info", "hi", False)
+
+
+def test_the_preview_never_reads_as_shell(mesh):
+    assert mesh.preview("Run `rm -rf $HOME` and \"quote\" it, don't") == "Run rm -rf HOME and quote it, don’t"
 
 
 def test_agy_listing_falls_back_to_stale_cache(mesh, monkeypatch):
@@ -1799,12 +1958,15 @@ def test_agy_conversation_comes_from_the_first_doorbell(mesh, tmp_path, monkeypa
         {"display": "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold; …", "workspace": wt, "conversationId": "c1"},
         {"display": "📬 [mesh] You are proj-other (worker) in agent-mesh run mold; …", "workspace": "/wt/o", "conversationId": "c2"},
         {"display": "📬 [mesh] You are proj-fix-2 (worker) in agent-mesh run mold; …", "workspace": wt, "conversationId": "c3"},
+        {"display": "📬 [mesh] You are proj-new (worker) in agent-mesh run mold (ref 1a2b3c); …", "workspace": "/wt/n",
+         "conversationId": "c4"},  # a rung first doorbell carries its token right after the run
     ]
     history.write_text("\n".join(json.dumps(line) for line in lines) + "\nnot json\n")
     assert mesh.agy_conversation("proj-fix", "mold", wt) == "c1"
     assert mesh.agy_conversation("proj-fix-2", "mold", wt) == "c3"
     assert mesh.agy_conversation("proj-fix", "mol", wt) == "c3"  # wrong run: only the cwd fallback is left
     assert mesh.agy_conversation("ghost", "mold", None) is None
+    assert mesh.agy_conversation("proj-new", "mold", None) == "c4"
 
 
 def test_agy_worker_in_a_main_checkout_never_borrows_the_users_session(mesh, tmp_path, monkeypatch):
@@ -2131,7 +2293,7 @@ def test_approve_moves_the_worker_to_flash_in_the_same_conversation(mesh, fake, 
     assert entry["effort"] == "medium" and entry["models"][-1]["effort"] == "medium"
     assert "swapped" not in entry and entry["models"][-1]["why"] == "plan approved"
     doorbell = fake.called("agent", "prompt")[-1][3]
-    assert doorbell.startswith("📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, "
+    assert bare(doorbell).startswith("📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, "
                                "now on gemini-3.8-flash-medium at medium effort")
     [msg] = mesh.unread(run, "repo-fix-typo")
     assert msg.name.endswith("-answer.md") and "approved\n\nMind the migration." in msg.read_text()
@@ -2159,13 +2321,13 @@ def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, 
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
-    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
 
 
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
-    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
 
 
 def test_watch_alerts_on_a_new_quota_hit(mesh, fake, run, monkeypatch, capsys):
@@ -2372,7 +2534,7 @@ def test_approve_keep_model_executes_where_it_planned(mesh, fake, run, monkeypat
     out = json.loads(capsys.readouterr().out)
     assert out["kept_model"] is True and out["model"] == "gemini-4-argon-high"
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
-    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     assert (entry["phase"], entry["model"], entry["effort"]) == ("exec", "gemini-4-argon-high", "high")
     assert entry["models"][-1]["why"] == "plan approved" and entry["models"][-1]["kept"] is True
@@ -2443,9 +2605,9 @@ def test_the_plan_phase_is_recorded_before_the_doorbell_rings(mesh, fake, run, m
     as_worker(monkeypatch, run)
     seen = []
 
-    def ring(targets, text, delays=()):
+    def ring(targets, text, token, read=(), delays=()):
         seen.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"])
-        return True, None
+        return {"rung": True, "error": None, "via": "working", "tries": 1}
 
     monkeypatch.setattr(mesh, "ring", ring)
     assert mesh.main(["send", "parent", "--type", "plan", "--body", "# Plan"]) == 0
@@ -2547,7 +2709,7 @@ def test_the_new_model_doorbell_survives_a_failed_ring(mesh, fake, run, monkeypa
     assert mesh.main(["approve", "repo-fix-typo"]) == 2
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["swapped"] is True
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "ping"]) == 0
-    assert fake.called("agent", "prompt")[-1][3].startswith(
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith(
         "📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, now on gemini-3.8-flash-medium at medium effort")
     assert "swapped" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
@@ -2693,7 +2855,7 @@ def test_ask_a_live_worker_sends_it_the_question(mesh, fake, run, monkeypatch, c
     assert not fake.called("tab", "create") and not fake.called("agent", "start")
     [task] = mesh.unread(run, "repo-fix-typo")
     assert mesh.parse_message(task)[1].startswith("Question (read-only)")
-    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] task from repo-lead: Question (read-only)")
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] task from repo-lead: Question (read-only)")
 
 
 def test_ask_a_past_worker_resumes_its_conversation(mesh, fake, run, repo, monkeypatch, capsys):
@@ -3132,6 +3294,7 @@ def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake,
     assert len(mesh.unread(run, "proj-ui")) == 1  # stored once, before the launch that failed
     assert out["delivery"]["rung"] is True
     assert "You are proj-ui (worker) in agent-mesh run mtest" in fake.called("agent", "prompt")[-1][3]
+    assert [(e["to"], e["via"]) for e in mesh.read_log(run) if e["event"] == "rung"] == [("proj-ui", "working")]
 
 
 def test_small_and_trivial_agy_tasks_are_flash_at_high_and_low_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
