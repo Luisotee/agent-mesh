@@ -120,10 +120,11 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - Compare the PR diff (`gh pr diff <url> --name-only` first, then the risky files) against the approved plan or the task.
    - For trivial and small tasks, a reviewer (see "Questions and reviews") checks the diff instead of you.
    - If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"`.
-9. **On `failed`:** don't restart the worker on another model by yourself.
+9. **Close what you're done with:** once a worker's `done` checks out and you have nothing more for it, `mesh retire <worker>`. Its pane closes, and its conversation stays resumable (`mesh resume <worker>` brings it back with everything it knew), so an idle agent never sits open just in case.
+10. **On `failed`:** don't restart the worker on another model by yourself.
    - Tell the user what blocked it and suggest a next step (a hint, a larger size, or a stronger model such as `argon` or Claude).
    - If the user agrees, retire the worker (`mesh retire <worker>`) and start the new one **in the same worktree** with `--cwd <worktree>`, giving it the plan and what failed. It gets the old name plus `-2`.
-10. **Finish:** when every worker has reported and your own part is done, tell the user:
+11. **Finish:** when every worker has reported and your own part is done, tell the user:
     - one line per repo with the PR link and the worker's name (so it can be resumed later), plus what you changed in your own repo (it follows that repo's usual flow, not the mesh's)
     - what's left for them to do (review, test, deploy)
     - anything that failed or was restarted
@@ -148,7 +149,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
 4. **Supervise** as in the Root steps. After each `done`:
    - start a reviewer for that PR (`mesh ask --repo <repo> --review <PR> --size <by PR size>`, the other vendor by default);
    - run `mesh conflicts`.
-5. **Reviews:** send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its review has nothing left that you agree with.
+5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its review has nothing left that you agree with.
 6. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
@@ -182,11 +183,11 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
 
 Then:
 
-1. **Relay the answer** to the user with the worker's name, so they can ask it again. Spot-check claims that matter against the code, as you would a `done`.
-2. **A review:** decide on each finding (agree, or disagree and why). Fix your own repo's PR yourself. Send findings on another worker's PR, with your opinion on each, to the worker that made it (see "Follow-ups"), not to the reviewer.
+1. **Relay the answer** to the user with the worker's name, so they can ask it again. `mesh ask` closes an agent it opened once it has answered (`--keep` leaves it open); asking again reopens the same conversation. When the answer came by `SendMessage` or after `--no-wait`, `mesh retire <name>` it yourself once you have no follow-up for it. Spot-check claims that matter against the code, as you would a `done`.
+2. **A review:** a finding is a claim to check, not an order (`PROTOCOL.md` rule 9). For each one, check against the code that the bug really happens (trace it, or run the failing case) and whether the suggested fix is the best one, then decide: agree, agree with a different fix, or disagree and why. Fix your own repo's PR yourself. Send findings on another worker's PR, with your opinion on each, to the worker that made it (see "Follow-ups"), not to the reviewer.
 3. **More questions:** `mesh ask <name> --body "…"` again. The worker still has everything it read.
 4. **Turning the answer into a change** in that repo: send the same worker a normal task (`mesh send <name> --type task --file …`, or `mesh resume <name> --task-file …` once it's gone). From there it's an ordinary worker.
-   - A large asker plans, you `mesh approve`, and it executes on its branch `mesh/<run>/<slug>` and opens a PR. Supervise it as in steps 5 to 10.
+   - A large asker plans, you `mesh approve`, and it executes on its branch `mesh/<run>/<slug>` and opens a PR. Supervise it as in steps 5 to 11.
    - A small asker has no plan phase: make the task a `Direct task (no plan)` by starting it with that line.
 
 `mesh stop` deletes a branch that never got a commit or a push, such as an asker's. Resuming that worker starts the branch again at the same commit.
@@ -202,7 +203,7 @@ When the request is about something a worker already built, in this run or an ea
    mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"
    ```
    It reopens the worker's own conversation, on the model it ran on, in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. A background worker comes back in the background. The task file contains:
-   - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead
+   - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead. Ask it to check each finding itself before fixing it (`PROTOCOL.md` rule 9) and to say in its plan which it fixes, how, and which it declines and why
    - "plan first; push to the same branch so the PR updates; report `done`" (for a small follow-up: start it with `Direct task (no plan)`)
 4. **Compaction:** an old conversation has lost its prompt cache, so every turn of the follow-up would pay for all of its context again. `resume` (and `ask`) compact it first, headless, keeping what the new task needs:
    - with `--compact auto` (the default): a Claude conversation over 100k tokens (200k for a read-only question; `MESH_COMPACT_AT`), or an agy one coming back from an earlier run;
@@ -211,7 +212,7 @@ When the request is about something a worker already built, in this run or an ea
    - the output's `compaction` shows the context size before and after.
 5. Supervise and review it exactly like a new worker.
 
-A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker keeps one model throughout: approving its plan doesn't switch it. On a quota hit, `mesh switch` still works.
+A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker plans on the model it ran on. With a task that has a plan phase (not a `Direct task (no plan)` or a question, and no `--model` / `--effort`), `mesh approve` then moves it to the execution model and effort, as for a spawn: agy to Flash at medium, Claude to medium effort. On a quota hit, `mesh switch` still works.
 
 ## Worker
 
@@ -221,7 +222,7 @@ You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the 
 
 **Read-only tasks.** A task that starts with `Question (read-only)` or `Review (read-only)` comes from `mesh ask`. Skip the plan (steps 4 to 9): research, then answer. Change no files, commit nothing, push nothing, switch no branches, and post nothing on GitHub. Install dependencies only if you need them to answer (to run a test, for example). Report one `done`:
 - **A question:** the answer, with the file paths and functions that back it, and what you're unsure of.
-- **A review:** findings ranked by severity, each with file:line, why it matters and a suggested fix, then what you checked (the tests you ran, say).
+- **A review:** findings ranked by severity, each with file:line, a concrete failure (the input or state, and what goes wrong), why it matters and a suggested fix, then what you checked (the tests you ran, say). Report only what you've confirmed in the code, mark anything you couldn't confirm as unverified, and leave out style preferences the repo's rules don't ask for.
 
 Then end your turn. A later task may ask more, or ask you to make a change, which follows the steps below as usual.
 

@@ -115,12 +115,12 @@ Not every cross-repo need is a change. To ask another repo something, or to get 
 /delegate-agy    ask the agent that made shop-api#88 why it returns ISO dates
 ```
 
-The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it. The agent changes nothing and posts nothing on GitHub.
+The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
 
 The agent is an ordinary worker, so it stays useful after it answers:
 
 - **Ask it again:** a follow-up question goes to the same agent, with everything it already read.
-- **Hand it the change:** when the answer leads to a fix, send it a task. It plans, the root approves, it executes and opens a PR, like any worker.
+- **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
 ```bash
@@ -140,7 +140,7 @@ Hand the root a whole list, and it supervises instead of coding:
 
 1. **Triage:** the root sizes each task, checks which ones touch the same files, writes a board (`$(mesh dir)/board.md`), and asks you to confirm it once.
 2. **Workers:** one per task, in its own worktree, with at most four working at a time. Overlapping tasks are stacked on each other's branch, or run one after the other. The root writes no code itself, in its own repo too.
-3. **A reviewer per PR:** each PR gets a read-only review, from the other vendor by default. The findings go back to the worker that wrote it.
+3. **A reviewer per PR:** each PR gets a read-only review, from the other vendor by default. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
 4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
 5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
 
@@ -153,7 +153,7 @@ A worker's conversation outlives its run. When the PR gets review comments, or y
 /delegate-agy ask the shop-api worker to return restockedAt as a unix timestamp instead of ISO
 ```
 
-The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change, gets it approved, and pushes to the **same** branch, so the existing PR updates.
+The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the model it ran on, gets it approved (which moves it to the execution model and effort, as for a new worker), and pushes to the **same** branch, so the existing PR updates.
 
 To carry on with a worker yourself, open its conversation in your own terminal:
 
