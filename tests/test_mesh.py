@@ -546,6 +546,53 @@ def test_a_background_worker_idle_from_the_start_is_alerted_not_nudged(mesh, fak
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
+@pytest.mark.parametrize("view", ["pane", "bg"])
+def test_a_restarted_watch_does_not_alert_again_for_the_same_task(mesh, fake, run, monkeypatch, capsys, view):
+    if view == "bg":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "--any", "--alerts"]) == 3  # the first watch alerts
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "alert"] == [1]
+    # the root handles the alert and starts the watch again: the same silent task is not alerted twice
+    assert mesh.main(["watch", "--any", "--alerts", "--timeout", "1", "--interval", "5"]) == 6
+    # a new answer re-arms it
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Try again.")
+    assert mesh.main(["watch", "--any", "--alerts"]) == 3
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "alert"] == [1, 2]
+
+
+def test_a_working_reading_rearms_an_alerted_task(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    states_then(mesh, monkeypatch, "working", "idle")  # it worked again, then stopped silently again
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+
+
+def test_grace_zero_still_waits_before_judging_a_fresh_task(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")  # its pane is still booting
+    watch = mesh.Watch(run, "repo-fix-typo", 0.0)
+    assert watch.start_grace == mesh.SETTLE_GRACE
+    assert all(watch.tick(5) is None for _ in range(3))
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_an_unread_answer_is_named_as_an_answer(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    for path in mesh.unread(run, "repo-fix-typo"):
+        mesh.mark_read(path)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "approved")
+    old_tasks(mesh, monkeypatch)
+    states_then(mesh, monkeypatch, "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "(nudged once, its answer is still unread)" in capsys.readouterr().out
+
+
 def test_a_background_worker_is_not_nudged(mesh, fake, run, monkeypatch, capsys):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
