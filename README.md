@@ -194,6 +194,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 - **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
 - **Between Claude sessions it goes by `SendMessage`.** A Claude worker reporting to a Claude root, or anyone writing to a background worker, gets a `send_message` back from `mesh send` and passes it on with Claude Code's own cross-session messaging. Nothing is typed into the pane you work in. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
+- **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell that showed up above the input box counts as delivered. A pane it couldn't read, or whose input box it can't find, never confirms one.
 - **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts.
 - **The mailbox is the record.** `~/.local/state/agent-mesh/<run>/` holds every message, plan and report, plus a `log.jsonl` of events. `mesh stop` archives it.
 
@@ -213,11 +214,13 @@ The root runs `mesh watch <worker>` in the background, or one `mesh watch --any`
 
 | Status | Meaning |
 |---|---|
-| 3 | the worker stopped without reporting |
+| 3 | the worker stopped without reporting, and stayed silent after one nudge |
 | 4 | the worker is blocked on a dialog |
 | 5 | the worker's pane is gone (or a model switch failed to reopen it) |
 | 6 | timeout |
 | 7 | the worker hit a quota (`mesh switch` moves it on) |
+
+A worker counts as stopped once it has read idle for `--grace` seconds (30) with no `plan`, `question`, `done` or `failed` since its last task or answer (an `info` isn't a report); a short idle reading mid-turn doesn't count. A pane worker then gets one nudge (an `info` asking it to report with `mesh send`), once per task even with several watches running, and the watch exits 3 only if it stays silent; the line says whether the nudge's doorbell rang. A background worker can't be reached from the watch, so its exit-3 line says how to nudge it. The blocked (4) and stopped (3) alerts end with the pane's last lines, so you can tell a stray menu from a real question.
 
 A Claude root gets notified the moment the watch exits.
 

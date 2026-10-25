@@ -82,6 +82,23 @@ RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
+# Errors after which the text was typed: a busy agent may have queued it although herdr saw no change, so
+# the pane is read before retyping (design §3).
+TYPED_RING_ERRORS = ("agent_prompt_stalled", "timeout")
+DOORBELL_NEEDLE = 25  # characters of a doorbell looked for in the pane, matched with whitespace normalised
+PANE_READ_LINES = 60
+HERDR_READ_TIMEOUT = 10
+RULE_RE = re.compile(r"^\s*─{10,}\s*$")  # the rules both CLIs draw above and below their input box
+INPUT_RE = re.compile(r"^[>❯]")  # the input line starts at column 0 in both; agy's task panel rows are indented
+ALERT_TAIL_LINES = 8
+# `mesh watch`: a worker counts as stopped once it has stayed idle this long (`--grace`); agy reads idle for
+# a few seconds between steps of a turn (design, "Lessons").
+SETTLE_GRACE = 30.0
+RECEIVED_TYPES = ("task", "answer")  # what a worker acts on
+REPORT_TYPES = ("plan", "question", "done", "failed")  # what ends a worker's turn (an `info` doesn't)
+NUDGE_RING_DELAYS = (2, 5)  # a nudge that doesn't ring ends in the exit-3 alert, so it needn't retry long
+NUDGE_BODY = ("Your turn ended without a `mesh send`. If the task is finished, run `mesh inbox`, then report "
+              "`done` or `failed` with `mesh send parent`; if you're stuck, send a `question`.")
 PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
 PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?$")
@@ -619,10 +636,59 @@ def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> 
     return created["root_pane"]["pane_id"], tab_id
 
 
-def herdr_text(*args: str) -> str:
-    """A herdr command whose output is plain text (e.g. `agent read`)."""
-    proc = subprocess.run([os.environ.get("MESH_HERDR") or "herdr", *args], capture_output=True, text=True)
-    return proc.stdout
+def herdr_text(*args: str) -> str | None:
+    """A herdr command whose output is plain text (e.g. `agent read`), or None if it failed or hung."""
+    try:
+        proc = subprocess.run([os.environ.get("MESH_HERDR") or "herdr", *args], capture_output=True, text=True,
+                              timeout=HERDR_READ_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def pane_lines(target: str, lines: int = PANE_READ_LINES) -> list[str] | None:
+    """The pane's recent lines, trailing blanks dropped; None if herdr can't read it (not the same as no lines)."""
+    text = herdr_text("agent", "read", target, "--source", "recent", "--lines", str(lines))
+    if text is None:
+        return None
+    rows = text.splitlines()
+    while rows and not rows[-1].strip():
+        rows.pop()
+    return rows
+
+
+def above_input_box(lines: list[str]) -> list[str]:
+    """The lines above the agent's input box (a rule line with the prompt under it), so not what is typed in it.
+
+    A panel can follow the box (agy's background tasks), so the box is found from the bottom, not by counting rules.
+    No box found, no lines: what can't be told apart from the input box never confirms a doorbell.
+    """
+    for i in range(len(lines) - 2, -1, -1):
+        if RULE_RE.match(lines[i]) and INPUT_RE.match(lines[i + 1]):
+            return lines[:i]
+    return []
+
+
+def squeeze(text: str) -> str:
+    return " ".join(text.split())
+
+
+def doorbell_needle(text: str) -> str:
+    return squeeze(text)[:DOORBELL_NEEDLE]
+
+
+def doorbells_shown(target: str, needle: str) -> int | None:
+    """Copies of the doorbell above the target's input box (wrapped lines joined), or None if it can't be read."""
+    lines = pane_lines(target)
+    if lines is None:
+        return None
+    return squeeze(" ".join(above_input_box(lines))).count(needle)
+
+
+def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
+    """The pane's last non-empty lines, indented, for an alert; empty if it can't be read."""
+    rows = [line.rstrip() for line in pane_lines(target, 40) or [] if line.strip()][-count:]
+    return "\n".join("    " + (line if len(line) <= 160 else line[:159] + "…") for line in rows)
 
 
 def trust_keys(screen: str) -> list[str] | None:
@@ -643,7 +709,7 @@ def trust_keys(screen: str) -> list[str] | None:
 
 def accept_trust_prompt(name: str) -> bool:
     """Accept a folder-trust dialog (a directory mesh chose); refuse any other startup prompt."""
-    screen = herdr_text("agent", "read", name, "--source", "detection", "--lines", "40")
+    screen = herdr_text("agent", "read", name, "--source", "detection", "--lines", "40") or ""
     keys = trust_keys(screen)
     if keys is None:
         return False
@@ -1218,16 +1284,26 @@ def store_message(run_id: str, sender: str, to: str, mtype: str, body: str) -> P
 
 
 def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -> tuple[bool, str | None]:
-    """Type the doorbell into the first reachable target, retrying while it is busy."""
+    """Type the doorbell into the first reachable target, retrying while it is busy.
+
+    herdr can miss that a busy agent queued the text (it returns stalled or timeout), so after those errors the
+    pane is read, and a doorbell that showed up above the input box since the first try counts as delivered.
+    A pane that couldn't be read before the first try is never checked: a later read would count old doorbells.
+    """
+    needle = doorbell_needle(text)
+    before: dict[str, int | None] = {}  # doorbells already in each target's pane before it was first typed into
     last_error = None
     for delay in (0, *delays):
         if delay:
             time.sleep(delay)
         for target in targets:
+            if target not in before:
+                before[target] = doorbells_shown(target, needle)
             try:
                 # --until working confirms delivery: an idle agent that doesn't start working
                 # within 5s never got the text (agent_prompt_stalled), so it is retried. A busy
-                # agent matches at once; it queues the doorbell for after its current turn.
+                # agent queues the doorbell for after its current turn, but herdr may not see it
+                # as working (agy between steps, Claude running a command): hence the pane check.
                 herdr("agent", "prompt", target, text, "--wait", "--until", "working", "--timeout", "15000",
                       timeout=30)
                 return True, None
@@ -1235,6 +1311,10 @@ def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -
                 last_error = exc.code
                 if exc.code == "agent_not_found":
                     continue  # try the next target (the pane id)
+                if exc.code in TYPED_RING_ERRORS and before[target] is not None:
+                    shown = doorbells_shown(target, needle)
+                    if shown is not None and shown > before[target]:
+                        return True, None
                 if exc.code not in RETRYABLE_RING_ERRORS:
                     return False, exc.code
                 break
@@ -1300,7 +1380,7 @@ def refuse_headless(name: str, entry: dict, what: str) -> None:
 
 
 def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False,
-            stored=None) -> dict:
+            stored=None, delays: tuple[int, ...] = RING_DELAYS) -> dict:
     """Store the message, then ring `to`'s doorbell, or hand back the SendMessage that tells it (`send_message`).
 
     `stored()` runs between the two: what the recipient may act on must be recorded before it hears.
@@ -1323,7 +1403,7 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
         return {"stored": str(path), "rung": False, "error": error}
     targets = [to] + ([entry["pane"]] if entry.get("pane") else [])
-    rung, error = ring(targets, text)
+    rung, error = ring(targets, text, delays)
     if rung and entry.get("swapped"):
         with editing_run(run_id) as run:
             run["agents"][to].pop("swapped", None)
@@ -1933,8 +2013,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def sends_from(run_id: str, name: str, types: tuple[str, ...] = TYPES) -> int:
-    return sum(1 for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name and e.get("type") in types)
+def sends_from(run_id: str, name: str, types: tuple[str, ...] = TYPES, events: list[dict] | None = None) -> int:
+    events = read_log(run_id) if events is None else events
+    return sum(1 for e in events if e.get("event") == "send" and e.get("sender") == name and e.get("type") in types)
 
 
 def cmd_watch(args: argparse.Namespace) -> int:
@@ -1958,6 +2039,56 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return status
 
 
+def since_last_task(events: list[dict], name: str) -> tuple[int, int]:
+    """(tasks and answers `name` has received, reports it has sent since the last of them)."""
+    received = sent = 0
+    for event in events:
+        if event.get("event") != "send":
+            continue
+        if event.get("to") == name and event.get("type") in RECEIVED_TYPES:
+            received, sent = received + 1, 0
+        elif event.get("sender") == name and event.get("type") in REPORT_TYPES:
+            sent += 1
+    return received, sent
+
+
+def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
+    """The logged nudge for `name`'s current task, with `rung` once its doorbell was tried."""
+    found = None
+    for e in events:
+        if e.get("name") == name and e.get("received") == received:
+            if e.get("event") == "nudge":
+                found = dict(e)
+            elif e.get("event") == "nudge_rung" and found:
+                found["rung"] = e.get("rung")
+    return found
+
+
+def claim_nudge(run_id: str, name: str, received: int) -> bool:
+    """Log the nudge for this task unless a watch already did (checked and logged under the run lock)."""
+    with run_lock(run_id):
+        if nudge_of(read_log(run_id), name, received):
+            return False
+        log_event(run_id, "nudge", name=name, received=received)
+        return True
+
+
+def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
+    """Remind a worker whose turn ended silently to report, through `deliver`, with a short ring schedule."""
+    delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", NUDGE_BODY,
+                       delays=NUDGE_RING_DELAYS)
+    rung = bool(delivery.get("rung"))
+    log_event(run_id, "nudge_rung", name=name, received=received, rung=rung)
+    return rung
+
+
+def age_seconds(stamp_iso: str | None) -> float:
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(stamp_iso)).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
 class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
@@ -1969,19 +2100,22 @@ class Watch:
         self.log = entry.get("log")
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.prev: str | None = None
-        self.work_start_sends = sends_from(run_id, name)
+        self.worked = False  # seen working since it last reported (or since it was nudged)
+        self.idle_for: float | None = None  # seconds it has read idle since it last worked
         self.blocked_polls = 0
+        self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
         self.finished = False  # it reported, then its pane closed or its session ended
 
-    def tick(self, interval: float, alerts_only: bool = False,
-             bg_rows: list[dict] | None = None) -> tuple[int, str] | None:
-        """(status, line) once there is something to say, else None."""
+    def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
+             events: list[dict] | None = None) -> tuple[int, str] | None:
+        """(status, line) once there is something to say, else None. `events` is this poll's read of the log."""
         run_id, name = self.run_id, self.name
-        finals = sends_from(run_id, name, FINAL_TYPES)
+        events = read_log(run_id) if events is None else events
+        finals = sends_from(run_id, name, FINAL_TYPES, events)
         if finals > self.finals_at_start:
-            last = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == name][-1]
+            last = [e for e in events if e.get("event") == "send" and e.get("sender") == name][-1]
             if not alerts_only:
                 return 0, f"{name} reported {last['type']}: read it with `mesh inbox`"
             self.finals_at_start, self.reported = finals, True
@@ -1994,33 +2128,64 @@ class Watch:
         state = agent_status(name, entry, bg_rows)
         if (state == "gone" and self.reopening < SWAP_GRACE
                 and agent_entry(load_run(run_id), name).get("status") == "starting"):  # read after the state
-            state = self.prev  # `mesh approve` / `mesh switch` is reopening it on another model
-            self.reopening += interval
-        elif state != "gone":
+            self.reopening += interval  # `mesh approve` / `mesh switch` is reopening it on another model
+            return None  # nothing to judge meanwhile: its idle time doesn't count either
+        if state != "gone":
             self.reopening = 0.0
         if state == "gone":
             if self.reported:
                 self.finished = True  # nothing to alert
                 return None
             return 5, f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
+        bg = entry.get("view") == "bg"
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
-            look = f"`claude attach {entry['bg_id']}`" if entry.get("view") == "bg" else f"`herdr agent read {name}`"
-            return 4, f"ALERT {name} is blocked on a UI prompt; inspect it with {look}"
-        if state == "working" and self.prev != "working":
-            self.work_start_sends = sends_from(run_id, name)
-        if self.prev == "working" and state in ("idle", "done"):
-            time.sleep(self.grace)  # let a send that raced the state change land in the log
-            if (sends_from(run_id, name) == self.work_start_sends
-                    and sends_from(run_id, name, FINAL_TYPES) == self.finals_at_start):
-                look = (f"`claude logs {entry['bg_id']}`" if entry.get("view") == "bg"
-                        else f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
-                return 3, f"ALERT {name} stopped working without sending a message; inspect it with {look}"
+            look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
+            return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg, entry)
         self.prev = state
+        if state in ("idle", "done") and self.worked:
+            # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
+            self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
+            if self.idle_for >= self.grace:
+                return self.stopped(entry, bg, events)
+        else:
+            self.idle_for = None
+            if state == "working":
+                self.worked = True
         return None
 
+    def stopped(self, entry: dict, bg: bool, events: list[dict]) -> tuple[int, str] | None:
+        """Its turn has ended: fine if it reported since its last task or answer, else nudge it once, then alert."""
+        run_id, name = self.run_id, self.name
+        received, sent = since_last_task(events, name)
+        self.worked, self.idle_for = False, None
+        if sent:
+            return None  # a report, or a plan or question waiting for its answer
+        if bg:
+            return 3, (f"ALERT {name} stopped working without sending a message; inspect it with "
+                       f"`claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
+                       f"--body \"Report with mesh send\"` and pass its send_message on")
+        if claim_nudge(run_id, name, received):
+            self.nudged = received
+            nudge(run_id, name, entry, received)
+            self.worked, self.idle_for = True, 0.0  # alert if it stays idle, or goes idle again without a report
+            return None
+        done = nudge_of(read_log(run_id), name, received) or {}
+        if self.nudged != received and age_seconds(done.get("time")) < self.grace:
+            # another watch just nudged it: give it the same time the nudger gives it
+            self.worked, self.idle_for = True, 0.0
+            return None
+        how = "nudged once" if done.get("rung") else "its nudge was not delivered"
+        line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
+                f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
+        return 3, self.with_tail(line, bg, entry)
 
-def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = 5.0,
+    def with_tail(self, line: str, bg: bool, entry: dict) -> str:
+        tail = "" if bg else pane_tail(self.name) or (pane_tail(entry["pane"]) if entry.get("pane") else "")
+        return f"{line}\n  last lines of its pane:\n{tail}" if tail else line
+
+
+def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-7), with the line that says which.
 
@@ -2033,8 +2198,9 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
         run = load_run(run_id)
         # One `claude agents` call per poll, shared by every background worker.
         bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
+        events = read_log(run_id)  # one read per poll, shared by every watch
         for watch in watches:
-            event = watch.tick(interval, alerts_only, bg_rows)
+            event = watch.tick(interval, alerts_only, bg_rows, events)
             if event:
                 return event
         if alerts_only and all(w.finished for w in watches):
@@ -2049,7 +2215,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
         time.sleep(interval)
 
 
-def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = 5.0,
+def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                 finals_at_start: int | None = None) -> tuple[int, str]:
     return watch_agents(run_id, [name], timeout, interval, grace, finals_at_start)
 
@@ -3136,7 +3302,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id")
     p.add_argument("--timeout", type=int, default=0, help="seconds (0 = none)")
     p.add_argument("--interval", type=float, default=5.0)
-    p.add_argument("--grace", type=float, default=5.0)
+    p.add_argument("--grace", type=float, default=SETTLE_GRACE,
+                   help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
     p.set_defaults(func=cmd_watch)
 
     p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))
