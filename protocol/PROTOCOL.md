@@ -36,6 +36,8 @@ If `mesh send` exits 2, the message is stored but the doorbell didn't ring. Carr
 
 ## Rules
 
+A doorbell saying your turn ended without a `mesh send` is a nudge from the watchdog: run `mesh inbox` and report now (`done`, `failed` or a `question`). It comes at most once per task.
+
 1. **Asking:** when the plan is ambiguous, wrong, or you're stuck after two honest attempts, send a `question` and **end your turn**. Don't sleep, poll or guess. The answer arrives as a new doorbell. A good question states what you tried, what you see, and the options you're choosing between.
 2. **Finishing:** every task ends with exactly **one** `done` or `failed` to your parent.
    - **Run `mesh inbox` once more right before reporting.** Doorbells that arrive while you're working are queued, not lost. Handle any late message first, so you don't report on stale instructions.

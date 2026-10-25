@@ -82,6 +82,20 @@ RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
+# Errors after which the text was typed: a busy agent may have queued it although herdr saw no change, so
+# the pane is read before retyping (design §3).
+TYPED_RING_ERRORS = ("agent_prompt_stalled", "timeout")
+DOORBELL_NEEDLE = 40  # characters of a doorbell looked for in the pane: short enough not to be wrapped
+PANE_READ_LINES = 120
+RULE_RE = re.compile(r"^\s*─{10,}\s*$")  # the rules both CLIs draw above and below their input box
+INPUT_RE = re.compile(r"^\s*[>❯]")
+ALERT_TAIL_LINES = 8
+# `mesh watch`: a worker counts as stopped once it has stayed idle this long (`--grace`); agy reads idle for
+# a few seconds between steps of a turn (design, "Lessons").
+SETTLE_GRACE = 30.0
+RECEIVED_TYPES = ("task", "answer")  # what a worker acts on; anything it sends after the last one is a report
+NUDGE_BODY = ("Your turn ended without a `mesh send`. If the task is finished, run `mesh inbox`, then report "
+              "`done` or `failed` with `mesh send parent`; if you're stuck, send a `question`.")
 PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
 PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?$")
@@ -623,6 +637,39 @@ def herdr_text(*args: str) -> str:
     """A herdr command whose output is plain text (e.g. `agent read`)."""
     proc = subprocess.run([os.environ.get("MESH_HERDR") or "herdr", *args], capture_output=True, text=True)
     return proc.stdout
+
+
+def pane_lines(target: str, lines: int = PANE_READ_LINES) -> list[str]:
+    """The pane's recent lines, trailing blanks dropped; none if herdr can't read it."""
+    try:
+        text = herdr_text("agent", "read", target, "--source", "recent", "--lines", str(lines))
+    except OSError:
+        return []
+    rows = text.splitlines()
+    while rows and not rows[-1].strip():
+        rows.pop()
+    return rows
+
+
+def above_input_box(lines: list[str]) -> list[str]:
+    """The lines above the agent's input box (a rule line with the prompt under it), so not what is typed in it.
+
+    A panel can follow the box (agy's background tasks), so the box is found from the bottom, not by counting rules.
+    """
+    for i in range(len(lines) - 2, -1, -1):
+        if RULE_RE.match(lines[i]) and INPUT_RE.match(lines[i + 1]):
+            return lines[:i]
+    return lines
+
+
+def doorbells_shown(target: str, needle: str) -> int:
+    return sum(line.count(needle) for line in above_input_box(pane_lines(target)))
+
+
+def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
+    """The pane's last non-empty lines, indented, for an alert; empty if it can't be read."""
+    rows = [line.rstrip() for line in pane_lines(target, 40) if line.strip()][-count:]
+    return "\n".join("    " + (line if len(line) <= 160 else line[:159] + "…") for line in rows)
 
 
 def trust_keys(screen: str) -> list[str] | None:
@@ -1218,16 +1265,25 @@ def store_message(run_id: str, sender: str, to: str, mtype: str, body: str) -> P
 
 
 def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -> tuple[bool, str | None]:
-    """Type the doorbell into the first reachable target, retrying while it is busy."""
+    """Type the doorbell into the first reachable target, retrying while it is busy.
+
+    herdr can miss that a busy agent queued the text (it returns stalled or timeout), so after those errors the
+    pane is read, and a doorbell that showed up above the input box since the first try counts as delivered.
+    """
+    needle = text[:DOORBELL_NEEDLE]
+    before: dict[str, int] = {}  # doorbells already in each target's pane before it was first typed into
     last_error = None
     for delay in (0, *delays):
         if delay:
             time.sleep(delay)
         for target in targets:
+            if target not in before:
+                before[target] = doorbells_shown(target, needle)
             try:
                 # --until working confirms delivery: an idle agent that doesn't start working
                 # within 5s never got the text (agent_prompt_stalled), so it is retried. A busy
-                # agent matches at once; it queues the doorbell for after its current turn.
+                # agent queues the doorbell for after its current turn, but herdr may not see it
+                # as working (agy between steps, Claude running a command): hence the pane check.
                 herdr("agent", "prompt", target, text, "--wait", "--until", "working", "--timeout", "15000",
                       timeout=30)
                 return True, None
@@ -1235,6 +1291,8 @@ def ring(targets: list[str], text: str, delays: tuple[int, ...] = RING_DELAYS) -
                 last_error = exc.code
                 if exc.code == "agent_not_found":
                     continue  # try the next target (the pane id)
+                if exc.code in TYPED_RING_ERRORS and doorbells_shown(target, needle) > before[target]:
+                    return True, None
                 if exc.code not in RETRYABLE_RING_ERRORS:
                     return False, exc.code
                 break
@@ -1958,6 +2016,35 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return status
 
 
+def since_last_task(run_id: str, name: str) -> tuple[int, int]:
+    """(tasks and answers `name` has received, messages it has sent since the last of them)."""
+    received = sent = 0
+    for event in read_log(run_id):
+        if event.get("event") != "send":
+            continue
+        if event.get("to") == name and event.get("type") in RECEIVED_TYPES:
+            received, sent = received + 1, 0
+        elif event.get("sender") == name:
+            sent += 1
+    return received, sent
+
+
+def nudged(run_id: str, name: str, received: int) -> bool:
+    return any(e.get("event") == "nudge" and e.get("name") == name and e.get("received") == received
+               for e in read_log(run_id))
+
+
+def nudge(run_id: str, name: str, entry: dict, received: int) -> None:
+    """Remind a worker whose turn ended silently to report, once per task (logged, so every watch sees it)."""
+    log_event(run_id, "nudge", name=name, received=received)
+    parent = entry.get("parent") or me_parent(run_id, name)
+    record(run_id, parent, name, "info", NUDGE_BODY)
+    text = doorbell_text(load_run(run_id), parent, name, "info", NUDGE_BODY, False)
+    rung, error = ring([name] + ([entry["pane"]] if entry.get("pane") else []), text)
+    if not rung:
+        log_event(run_id, "doorbell_failed", sender=parent, to=name, error=error)
+
+
 class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
@@ -1969,7 +2056,8 @@ class Watch:
         self.log = entry.get("log")
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.prev: str | None = None
-        self.work_start_sends = sends_from(run_id, name)
+        self.worked = False  # seen working since it last reported (or since it was nudged)
+        self.idle_for: float | None = None  # seconds it has read idle since it last worked
         self.blocked_polls = 0
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
@@ -2003,24 +2091,48 @@ class Watch:
                 self.finished = True  # nothing to alert
                 return None
             return 5, f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
+        bg = entry.get("view") == "bg"
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
-            look = f"`claude attach {entry['bg_id']}`" if entry.get("view") == "bg" else f"`herdr agent read {name}`"
-            return 4, f"ALERT {name} is blocked on a UI prompt; inspect it with {look}"
-        if state == "working" and self.prev != "working":
-            self.work_start_sends = sends_from(run_id, name)
-        if self.prev == "working" and state in ("idle", "done"):
-            time.sleep(self.grace)  # let a send that raced the state change land in the log
-            if (sends_from(run_id, name) == self.work_start_sends
-                    and sends_from(run_id, name, FINAL_TYPES) == self.finals_at_start):
-                look = (f"`claude logs {entry['bg_id']}`" if entry.get("view") == "bg"
-                        else f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
-                return 3, f"ALERT {name} stopped working without sending a message; inspect it with {look}"
+            look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
+            return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg)
         self.prev = state
+        if state in ("idle", "done") and self.worked:
+            # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
+            self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
+            if self.idle_for >= self.grace:
+                return self.stopped(entry, bg)
+        else:
+            self.idle_for = None
+            if state == "working":
+                self.worked = True
         return None
 
+    def stopped(self, entry: dict, bg: bool) -> tuple[int, str] | None:
+        """Its turn has ended: fine if it sent anything since its last task or answer, else nudge it once, then alert."""
+        run_id, name = self.run_id, self.name
+        received, sent = since_last_task(run_id, name)
+        self.worked, self.idle_for = False, None
+        if sent:
+            return None  # a report, a plan or a question waiting for its answer
+        if bg:
+            return 3, (f"ALERT {name} stopped working without sending a message; inspect it with "
+                       f"`claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
+                       f"--body \"Report with mesh send\"` and pass its send_message on")
+        if not nudged(run_id, name, received):
+            nudge(run_id, name, entry, received)
+            self.worked, self.idle_for = True, 0.0  # alert if it stays idle, or goes idle again without a send
+            return None
+        line = (f"ALERT {name} stopped working without sending a message (nudged once); inspect it with "
+                f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
+        return 3, self.with_tail(line, bg)
 
-def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = 5.0,
+    def with_tail(self, line: str, bg: bool) -> str:
+        tail = "" if bg else pane_tail(self.name)
+        return f"{line}\n  last lines of its pane:\n{tail}" if tail else line
+
+
+def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-7), with the line that says which.
 
@@ -2049,7 +2161,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
         time.sleep(interval)
 
 
-def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = 5.0,
+def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                 finals_at_start: int | None = None) -> tuple[int, str]:
     return watch_agents(run_id, [name], timeout, interval, grace, finals_at_start)
 
@@ -3136,7 +3248,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id")
     p.add_argument("--timeout", type=int, default=0, help="seconds (0 = none)")
     p.add_argument("--interval", type=float, default=5.0)
-    p.add_argument("--grace", type=float, default=5.0)
+    p.add_argument("--grace", type=float, default=SETTLE_GRACE,
+                   help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
     p.set_defaults(func=cmd_watch)
 
     p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))

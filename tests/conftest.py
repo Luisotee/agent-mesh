@@ -23,6 +23,18 @@ class FakeHerdr:
         self.mesh = mesh
         self.calls: list[tuple[str, ...]] = []
         self.handlers = {}
+        self.screens: dict[str, list[str]] = {}
+
+    def screen(self, target, *texts):
+        """What `herdr agent read <target>` prints: one text per read, the last one repeated."""
+        self.screens[target] = list(texts)
+
+    def text(self, *args):
+        self.calls.append(args)
+        if args[:2] == ("agent", "read") and args[2] in self.screens:
+            texts = self.screens[args[2]]
+            return texts.pop(0) if len(texts) > 1 else texts[0]
+        return ""
 
     def on(self, *prefix, result=None, error=None, errors=None):
         """Answer calls starting with `prefix`: a result, one error, or a list of errors then the result."""
@@ -98,6 +110,7 @@ def cli(mesh):
 def fake(mesh, monkeypatch):
     stub = FakeHerdr(mesh)
     monkeypatch.setattr(mesh, "herdr", stub)
+    monkeypatch.setattr(mesh, "herdr_text", stub.text)
     return stub
 
 

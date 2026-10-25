@@ -337,11 +337,82 @@ def test_watch_returns_when_child_reports_done(mesh, fake, run, monkeypatch):
     assert mesh.main(["watch", "repo-fix-typo"]) == 0
 
 
-def test_watch_alerts_on_silent_stop(mesh, fake, run, monkeypatch, capsys):
-    states = iter(["working", "working", "idle"])
-    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
+def states_then(mesh, monkeypatch, *states):
+    """agent_status answers `states` in turn, then the last one for good."""
+    it = iter(states)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(it, states[-1]))
+
+
+def test_watch_nudges_a_silent_stop_once_then_alerts(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "working", "idle")
+    fake.screen("repo-fix-typo", "● Edited README.md\n─────────────────\n> \n─────────────────\n? for shortcuts")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
-    assert "without sending a message" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "without sending a message (nudged once)" in out
+    assert "last lines of its pane:\n    ● Edited README.md" in out
+    nudges = [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+    assert [(e["name"], e["received"]) for e in nudges] == [("repo-fix-typo", 1)]
+    assert "turn ended without a `mesh send`" in fake.called("agent", "prompt")[-1][3]
+    assert "Your turn ended" in mesh.unread(run, "repo-fix-typo")[-1].read_text()
+
+
+def test_a_nudged_worker_that_reports_is_not_an_alert(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states = iter(["working", "idle", "idle", "idle", "idle", "idle", "idle", "idle", "working", "idle"])
+
+    def status(name, *_):
+        state = next(states, "idle")
+        if mesh.nudged(run, name, 1) and not mesh.sends_from(run, name):
+            mesh.deliver(run, name, "repo-lead", "done", "Fixed.")
+        return state
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+
+
+def test_a_second_watch_does_not_nudge_again_for_the_same_task(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert len([e for e in mesh.read_log(run) if e["event"] == "nudge"]) == 1
+    # a new task earns a new nudge
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Also the other one.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1, 2]
+
+
+def test_a_report_sent_before_the_watch_started_is_not_a_silent_stop(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review PR 6.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "No findings.")
+    states = iter(["working", *["idle"] * 10, "gone"])
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
+    # the watch starts after the done, sees the end of that turn, and neither nudges nor alerts 3
+    assert mesh.main(["watch", "--any", "--alerts"]) == 5
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_watch_ignores_an_idle_blip_mid_turn(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    # two idle polls (10s) inside a turn, under the 30s grace: agy between two steps
+    states = iter(["working", "idle", "idle", "working", "working", "gone"])
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 5
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+
+def test_a_background_worker_is_not_nudged(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    out = capsys.readouterr().out
+    assert "`claude logs abc123`" in out and "mesh send repo-fix-typo --type info" in out
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
 def test_watch_question_then_idle_is_not_an_alert(mesh, fake, run, monkeypatch):
@@ -372,9 +443,14 @@ def test_watch_plan_then_idle_waits_for_review(mesh, fake, run, monkeypatch):
     assert mesh.main(["watch", "repo-fix-typo"]) == 5
 
 
-def test_watch_alerts_when_blocked(mesh, fake, run, monkeypatch):
+def test_watch_alerts_when_blocked(mesh, fake, run, monkeypatch, capsys):
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
+    fake.screen("repo-fix-typo", "\n".join(["older"] * 20 + ["  Select effort", "  ❯ high", "    medium", "", ""]))
     assert mesh.main(["watch", "repo-fix-typo"]) == 4
+    out = capsys.readouterr().out
+    assert out.startswith("ALERT repo-fix-typo is blocked on a UI prompt")
+    assert out.rstrip().endswith("    older\n      Select effort\n      ❯ high\n        medium")
+    assert out.count("older") == 5  # the last 8 non-empty lines
 
 
 # ── worktrees / stop ─────────────────────────────────────────────────────
@@ -568,6 +644,45 @@ def test_doorbell_confirms_delivery_and_retries_when_stalled(mesh, fake, run):
     calls = fake.called("agent", "prompt")
     assert len(calls) == 2
     assert calls[0][4:8] == ("--wait", "--until", "working", "--timeout")
+
+
+BOX = "─" * 40
+
+
+def screen(*above, typed=""):
+    """An agent's pane: transcript lines, then its input box (with what is typed in it) and a footer."""
+    return "\n".join([*above, BOX, f"❯ {typed}", BOX, "  esc to interrupt"])
+
+
+def test_a_doorbell_a_busy_agent_queued_is_not_typed_again(mesh, fake, run):
+    # Claude Code running a command queues the prompt, and herdr times out waiting for "working"
+    fake.on("agent", "prompt", errors=["timeout"] * 7)
+    queued = "❯ 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
+    fake.screen("repo-fix-typo", screen("  ⎿  Running… (24s)"), screen("  ⎿  Running… (24s)", queued))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 1
+
+
+def test_an_earlier_identical_doorbell_does_not_count(mesh, fake, run):
+    fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
+    old = "> 📬 [mesh] info from repo-lead: hi (run `mesh inbox`)"
+    fake.screen("repo-fix-typo", screen(old, "  Done."))  # the same doorbell from before, already handled
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 2
+
+
+def test_a_doorbell_left_in_the_input_box_is_typed_again(mesh, fake, run):
+    fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
+    fake.screen("repo-fix-typo", screen("  Done."), screen("  Done.", typed="📬 [mesh] info from repo-lead: hi"))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert len(fake.called("agent", "prompt")) == 2
+
+
+def test_the_input_box_is_found_above_a_task_panel(mesh):
+    # agy draws its background tasks under the input box, behind one more rule
+    lines = ["> 📬 [mesh] hi", "", BOX, ">", BOX, "  ● sleep 45 running", BOX, "? for shortcuts"]
+    assert mesh.above_input_box(lines) == ["> 📬 [mesh] hi", ""]
+    assert mesh.above_input_box(["no box here"]) == ["no box here"]
 
 
 def test_agy_listing_falls_back_to_stale_cache(mesh, monkeypatch):
@@ -1670,10 +1785,9 @@ def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, caps
 
 
 def test_ask_reports_a_worker_that_stops_without_answering(mesh, fake, run, monkeypatch, capsys):
-    states = iter(["idle", "working", "idle"])
-    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
+    states_then(mesh, monkeypatch, "idle", "working", "idle")
     assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 3
-    assert "without sending a message" in capsys.readouterr().out
+    assert "without sending a message (nudged once)" in capsys.readouterr().out
 
 
 def test_stop_drops_untouched_branches_and_resume_brings_them_back(mesh, fake, run, repo, tmp_path, capsys):
