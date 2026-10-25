@@ -28,7 +28,7 @@ import time
 import urllib.parse
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -69,7 +69,7 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
 ROLES = ("worker",)
-TYPES = ("task", "plan", "question", "answer", "done", "failed", "info")
+TYPES = ("task", "plan", "question", "answer", "done", "failed", "info", "wait")
 FINAL_TYPES = ("done", "failed")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # agy model ids: gemini-<version>-<family>-<effort> and claude-<family>-<version>-<effort>.
@@ -118,10 +118,13 @@ SESSION_RETRY = 60.0  # seconds before a watch looks again for a conversation it
 AGENT_BINARIES = ("claude", "agy")  # the processes that run a worker (argv[0], auto-updates move the binary)
 INTERPRETERS = ("node", "bun", "deno")  # a CLI installed as a script runs under one of these
 RECEIVED_TYPES = ("task", "answer")  # what a worker acts on
-REPORT_TYPES = ("plan", "question", "done", "failed")  # what ends a worker's turn (an `info` doesn't)
+REPORT_TYPES = ("plan", "question", "done", "failed")  # what ends a worker's turn (an `info` or a `wait` doesn't)
+MAX_WAIT = 4 * 3600  # seconds ahead a worker's declared wait (`--type wait --until`) may end
+UNTIL_RE = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$")
 NUDGE_RING_DELAYS = (2, 5)  # a nudge that doesn't ring ends in the exit-3 alert, so it needn't retry long
 NUDGE_BODY = ("Your turn ended without a `mesh send`. If the task is finished, run `mesh inbox`, then report "
-              "`done` or `failed` with `mesh send parent`; if you're stuck, send a `question`.")
+              "`done` or `failed` with `mesh send parent`; if you're stuck, send a `question`; if you're waiting "
+              "on a long command you started, say so with `mesh send parent --type wait --until <time> --body …`.")
 PROTOCOL_PATH = "~/.config/agent-mesh/PROTOCOL.md"
 PR_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?$")
@@ -1860,7 +1863,9 @@ def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
-    emit(spawn_worker(args, *identity(args)))
+    run_id, me = identity(args)
+    emit(spawn_worker(args, run_id, me))
+    warn_unwatched(run_id)
     return 0
 
 
@@ -2117,6 +2122,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     result["delivery"] = (result.get("swap") or {}).pop("delivery", None) or deliver(
         run_id, me, args.agent, "answer", body, first="swap" in result)
     emit(result)
+    warn_unwatched(run_id)
     return 0 if delivered(result["delivery"]) else 2
 
 
@@ -2152,6 +2158,7 @@ def cmd_switch(args: argparse.Namespace) -> int:
                       message=(me, "task", body))
     delivery = swap.pop("delivery", None) or deliver(run_id, me, args.agent, "task", body, first=True)
     emit({**swap, "notes": notes, "delivery": delivery})
+    warn_unwatched(run_id)
     return 0 if delivered(delivery) else 2
 
 
@@ -2187,6 +2194,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not body or not body.strip():
         raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
     to = me_parent(run_id, me) if args.to == "parent" else args.to
+    if args.type == "wait" or getattr(args, "until", None):
+        return send_wait(args, run_id, me, to, body)
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -2202,6 +2211,69 @@ def cmd_send(args: argparse.Namespace) -> int:
         print(f"warning: stored, but the doorbell did not ring ({result['error']}); "
               f"{to} will see it on its next `mesh inbox`", file=sys.stderr)
         return 2
+    return 0
+
+
+def parse_until(text: str, now: datetime | None = None) -> datetime:
+    """A wait's end, in UTC: a duration (`45m`, `1h30m`, `90s`), a local clock time (`14:30`, the next one), or
+    ISO 8601 (local time without an offset)."""
+    now = now or datetime.now(timezone.utc)
+    text = text.strip()
+    spans = UNTIL_RE.match(text.lower())
+    if text and spans and any(spans.groups()):
+        h, m, sec = (int(g or 0) for g in spans.groups())
+        try:
+            return now + timedelta(hours=h, minutes=m, seconds=sec)
+        except OverflowError as exc:
+            raise MeshError(f"--until {text} is more than {MAX_WAIT // 3600} h away") from exc
+    if clock := re.fullmatch(r"(\d{1,2}):(\d{2})", text):
+        local = now.astimezone()
+        try:
+            # naive local times, each given its own offset: tomorrow's may differ from today's across a DST change
+            today = datetime(local.year, local.month, local.day, int(clock.group(1)), int(clock.group(2)))
+        except ValueError as exc:
+            raise MeshError(f"--until {text}: not a time of day") from exc
+        at = today.astimezone()
+        if at <= local:
+            at = (today + timedelta(days=1)).astimezone()
+        return at.astimezone(timezone.utc)
+    try:
+        at = datetime.fromisoformat(text[:-1] + "+00:00" if text[-1:] in "zZ" and text else text)  # 3.10 has no Z
+    except ValueError as exc:
+        raise MeshError(f"--until {text}: give a duration (45m, 1h30m), a local time (14:30) or ISO 8601") from exc
+    return (at if at.tzinfo else at.astimezone()).astimezone(timezone.utc)
+
+
+def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str) -> int:
+    """A worker declares a deliberate wait for its current task: until then the watch neither nudges nor
+    alerts it for a silent stop, and its Stop hook lets its turn end. Not a report, and no doorbell: it asks
+    nothing of the parent, who sees it in `mesh inbox` (`declared_wait` reads it from the log)."""
+    if args.type != "wait":
+        raise MeshError("--until is for `--type wait`")
+    if not args.until:
+        raise MeshError("a wait needs --until: a duration (45m, 1h30m), a local time (14:30) or ISO 8601")
+    entry = agent_entry(load_run(run_id), me)
+    if entry.get("role") != "worker" or to != entry.get("parent"):
+        raise MeshError("a wait is a worker's note to its parent: `mesh send parent --type wait`")
+    until = parse_until(args.until)
+    ahead = (until - datetime.now(timezone.utc)).total_seconds()
+    if ahead <= 0:
+        raise MeshError(f"--until {args.until} is in the past")
+    if ahead > MAX_WAIT:
+        raise MeshError(f"--until {args.until} is more than {MAX_WAIT // 3600} h away: wait at most that long, and "
+                        "send another wait then if you still need one")
+    received = [p for p in unread(run_id, me) if p.stem.rsplit("-", 1)[-1] in RECEIVED_TYPES]
+    if received:  # it would be the wait of a task it hasn't read
+        raise MeshError(f"not sent: your mailbox has {len(received)} unread task/answer message(s); run "
+                        "`mesh inbox` and act on them first")
+    stamp_iso = until.isoformat(timespec="seconds")
+    text = f"Waiting until {until.astimezone():%H:%M} ({stamp_iso}): {body.strip()}"
+    path = store_message(run_id, me, to, "wait", text)
+    log_event(run_id, "send", sender=me, to=to, type="wait", file=path.name, until=stamp_iso)
+    record_session(run_id, me)
+    emit({"stored": str(path), "until": stamp_iso, "rung": False})
+    print(f"mesh: stored for {to}, without a doorbell. Until {until.astimezone():%H:%M} the watch won't nudge or "
+          "alert you for ending your turn; report as usual when you're done", file=sys.stderr)
     return 0
 
 
@@ -2452,6 +2524,28 @@ def last_report(events: list[dict], name: str) -> tuple[dict | None, dict | None
     return report, received
 
 
+def declared_wait(events: list[dict], name: str) -> dict | None:
+    """The wait `name` declared for its current task (its `send` event, `until` in ISO): sent since its last task
+    or answer and after its newest report. A new task or answer, or a report, ends it."""
+    found = None
+    for event in events:
+        if event.get("event") != "send":
+            continue
+        if (event.get("to") == name and event.get("type") in RECEIVED_TYPES) or (
+                event.get("sender") == name and event.get("type") in REPORT_TYPES):
+            found = None
+        elif event.get("sender") == name and event.get("type") == "wait":
+            found = event
+    return found
+
+
+def waiting_until(events: list[dict], name: str) -> float | None:
+    """The epoch a deliberate wait of `name`'s current task ends, while it hasn't yet."""
+    wait = declared_wait(events, name)
+    until = epoch(wait.get("until")) if wait else 0.0
+    return until if until > time.time() else None
+
+
 def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
     """The logged nudge for `name`'s current task, with `rung` once its doorbell was tried."""
     found = None
@@ -2477,7 +2571,8 @@ def claim_nudge(run_id: str, name: str, received: int, via: str | None = None) -
 HOOK_NUDGE = ("agent-mesh: you're ending your turn without a `mesh send` since your last task or answer. If the "
               "task is finished, run `mesh inbox`, then report `done` or `failed` with `mesh send parent`; if you're "
               "stuck, send a `question`. If you're deliberately waiting (a background command you started will "
-              "wake you), just end your turn again: this reminder comes once per task.")
+              "wake you), declare it with `mesh send parent --type wait --until <time> --body …` and end your "
+              "turn: this reminder comes once per task.")
 
 
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
@@ -2500,6 +2595,7 @@ def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     received, sent, _ = since_last_task(events, name)
     paths = unread(run_id, name)
     mail = [parse_message(p)[0].get("type") or "message" for p in paths]
+    sent = sent or bool(waiting_until(events, name))  # a declared wait lets the turn end until its deadline
     if not received or (sent and not mail):
         return None
     if mail and (sent or last_received_unread(run_id, name, events)):
@@ -2552,7 +2648,7 @@ def cmd_hook(args: argparse.Namespace) -> int:
 
 def alerted(events: list[dict], name: str, received: int, kind: str = "stopped") -> bool:
     """Whether a watch already raised this alert for `name`'s current task: `stopped` (exit 3, the kind of an
-    alert logged without one), `limit` (a Claude usage limit, exit 7) or `hung` (exit 8)."""
+    alert logged without one), `gone` (exit 5), `limit` (a Claude usage limit, exit 7) or `hung` (exit 8)."""
     return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received
                and e.get("kind", "stopped") == kind for e in events)
 
@@ -2600,6 +2696,74 @@ def epoch(stamp_iso: str | None) -> float:
         return 0.0
 
 
+def work_evidence(run: dict, entry: dict) -> dict:
+    """What a worker's branch and worktree show of its work: commits past its base, whether the tip is pushed,
+    whether the worktree has uncommitted changes. None where it can't be told (no branch, base or worktree)."""
+    repo, branch, base, cwd = entry.get("repo"), entry_branch(run, entry), entry.get("base"), entry.get("cwd")
+    found: dict = {"commits": None, "pushed": None, "dirty": None}
+    if repo and branch:
+        try:
+            tip = git("rev-parse", f"refs/heads/{branch}", cwd=repo)
+            if base:
+                found["commits"] = int(git("rev-list", "--count", f"{base}..{tip}", cwd=repo))
+            try:
+                found["pushed"] = git("rev-parse", f"{branch}@{{upstream}}", cwd=repo) == tip
+            except MeshError:
+                found["pushed"] = False  # no upstream
+        except (MeshError, ValueError):
+            pass
+    if cwd and Path(cwd).is_dir():
+        try:
+            found["dirty"] = bool(git("status", "--porcelain", cwd=cwd))
+        except MeshError:
+            pass
+    return found
+
+
+PR_LIST_TIMEOUT = 10  # seconds the `gh pr list` of an alert's evidence may take
+
+
+def open_pr(run: dict, entry: dict) -> str | None:
+    """`PR #n open` for an open PR from the worker's branch, `no open PR`, or `PR unknown` when gh can't say."""
+    branch = entry_branch(run, entry)
+    if not branch or not entry.get("repo"):
+        return None
+    result = run_cli(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url"],
+                     cwd=entry["repo"], timeout=PR_LIST_TIMEOUT)
+    try:
+        prs = json.loads(result.stdout) if result.returncode == 0 else None
+    except ValueError:
+        prs = None
+    if not isinstance(prs, list):
+        return "PR unknown"
+    return ", ".join(f"PR #{pr.get('number')} open" for pr in prs if isinstance(pr, dict)) or "no open PR"
+
+
+def evidence_line(run: dict, entry: dict) -> str:
+    """What an exit 3/5 alert adds about the worker's work: commits past its base, pushed, an open PR (asked of
+    gh only when there are commits), a dirty worktree. Empty when none of it can be told."""
+    found = work_evidence(run, entry)
+    commits, parts = found["commits"], []
+    if commits is not None:
+        parts.append("no commits past its base" if commits == 0 else f"{commits} commit(s) past its base")
+    if commits and found["pushed"] is not None:
+        parts.append("pushed" if found["pushed"] else "not pushed")
+    if commits and (pr := open_pr(run, entry)):
+        parts.append(pr)
+    if found["dirty"] is not None:
+        parts.append("worktree dirty" if found["dirty"] else "worktree clean")
+    return f"\n  its work: {', '.join(parts)}" if parts else ""
+
+
+def wait_note(events: list[dict], name: str) -> str:
+    """Says so when the worker's current task had a declared wait, now over."""
+    wait = declared_wait(events, name)
+    if not wait:
+        return ""
+    over = max(0, int(age_seconds(wait.get("until")) // 60))
+    return f"; its wait until {wait.get('until')} ended {over} min ago"
+
+
 class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
@@ -2620,6 +2784,7 @@ class Watch:
         self.prev: str | None = None
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
+        self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit is looked for
         self.blocked_polls = 0
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
@@ -2652,7 +2817,9 @@ class Watch:
             if self.reported:
                 self.finished = True  # nothing to alert
                 return None
-            return 5, f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
+            record_alert(run_id, name, since_last_task(events, name)[0], "gone")
+            return 5, (f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
+                       + evidence_line(load_run(run_id), entry))
         bg = entry.get("view") == "bg"
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
@@ -2662,6 +2829,18 @@ class Watch:
             look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
             return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg, entry)
         self.prev = state
+        if waiting_until(events, name):  # a declared wait: a silent stop or a quiet transcript is expected
+            self.idle_for = None
+            self.worked = self.worked or state == "working"
+            if state not in ("idle", "done") or entry.get("kind") != "claude":
+                self.wait_idle = 0.0
+                return None
+            self.wait_idle += interval  # ...but not a usage limit: look once per `grace` of idle
+            if self.wait_idle < self.grace:
+                return None
+            self.wait_idle = 0.0
+            reset = self.limited(entry, bg)
+            return self.limit_alert(entry, bg, reset, events) if reset is not None else None
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
@@ -2753,8 +2932,10 @@ class Watch:
             if self.reported:
                 self.finished = True  # as in tick's gone branch: nothing to alert
                 return None
+            record_alert(run_id, name, received, "gone")
             return 5, (f"ALERT {name} is gone: herdr still reads it {state}, but its pane runs no "
-                       f"{entry.get('kind') or 'agent'} process (it exited without reporting done/failed)")
+                       f"{entry.get('kind') or 'agent'} process (it exited without reporting done/failed)"
+                       + evidence_line(load_run(run_id), entry))
         reset = self.limited(entry, bg)
         if reset is not None:
             return self.limit_alert(entry, bg, reset, events)
@@ -2786,14 +2967,17 @@ class Watch:
         reset = self.limited(entry, bg)
         if reset is not None:  # nothing to nudge: it can't go on until the reset
             return self.limit_alert(entry, bg, reset, events)
+        def work() -> str:  # git and gh calls: only for an alert
+            return wait_note(events, name) + evidence_line(load_run(run_id), entry)
+
         if bg:  # the watch can't reach a background session: only its Stop hook nudges it
             record_alert(run_id, name, received)
             if (nudge_of(events, name, received) or {}).get("via"):
                 return 3, (f"ALERT {name} stopped working without sending a message (its Stop hook nudged it once"
-                           f"{self.unread_note()}); inspect it with `claude logs {entry['bg_id']}`")
+                           f"{self.unread_note()}); inspect it with `claude logs {entry['bg_id']}`{work()}")
             return 3, (f"ALERT {name} stopped working without sending a message{self.unread_note(' (', ')')}; "
                        f"inspect it with `claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
-                       f"--body \"Report with mesh send\"` and pass its send_message on")
+                       f"--body \"Report with mesh send\"` and pass its send_message on{work()}")
         if claim_nudge(run_id, name, received):
             self.nudged = received
             nudge(run_id, name, entry, received)
@@ -2808,7 +2992,7 @@ class Watch:
                else "its nudge was not delivered")
         how += self.unread_note()
         line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
-                f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
+                f"`herdr agent read {name} --source recent-unwrapped --lines 80`{work()}")
         record_alert(run_id, name, received)
         return 3, self.with_tail(line, bg, entry)
 
@@ -2838,6 +3022,16 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     hang = hang_after() if hang is None else hang
     watches = [Watch(run_id, name, grace, finals_at_start, hang) for name in names]
     deadline = time.monotonic() + timeout if timeout else None
+    held = hold_watch(run_id, names)
+    try:
+        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only)
+    finally:
+        for handle in held:
+            handle.close()
+
+
+def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
+                 alerts_only: bool) -> tuple[int, str]:
     while True:
         run = load_run(run_id)
         # One `claude agents` call per poll, shared by every background worker.
@@ -2862,6 +3056,88 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
         time.sleep(interval)
+
+
+def watch_lock(run_id: str, name: str) -> Path:
+    return run_dir(run_id) / "watching" / f"{name}.lock"
+
+
+def hold_watch(run_id: str, names: list[str]) -> list:
+    """A shared lock on each watched worker's lock file, held while the watch runs: the kernel drops it when the
+    process dies, so `watched` never trusts a stale pid file."""
+    held = []
+    for name in names:
+        path = watch_lock(run_id, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a")
+        fcntl.flock(handle, fcntl.LOCK_SH)
+        held.append(handle)
+    return held
+
+
+def watched(run_id: str, name: str) -> bool:
+    """Whether some running `mesh watch` (or `mesh ask`) watches `name`."""
+    path = watch_lock(run_id, name)
+    if not path.exists():
+        return False
+    with path.open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    return False
+
+
+def unwatched(run_id: str, skip: tuple[str, ...] = ()) -> list[str]:
+    """The run's workers that owe a report (a task or answer with no report since) and that no watch covers,
+    skipping one a watch already raised as gone (exit 5) on that task. No herdr or `claude` calls."""
+    run = maybe_run(run_id)
+    if not run:
+        return []
+    events = read_log(run_id)
+    owing = []
+    for name, entry in run["agents"].items():
+        if (entry.get("role") != "worker" or name in skip or entry.get("view") == "headless"
+                or entry.get("status") in ("retiring", "retired")):
+            continue
+        received, sent, _ = since_last_task(events, name)
+        if received and not sent and not alerted(events, name, received, "gone") and not watched(run_id, name):
+            owing.append(name)
+    return owing
+
+
+def warn_unwatched(run_id: str, skip: tuple[str, ...] = ()) -> None:
+    """Root-side commands warn when a worker that owes a report has no watch, so a silent stop goes unseen. Only
+    those are asked whether they're gone: `mesh watch --any` leaves a gone worker out, so it needs other advice."""
+    try:
+        names = unwatched(run_id, skip)
+    except (OSError, MeshError):
+        return  # a warning must never fail the command that just did its work
+    if not names:
+        return
+
+    def looks_gone(name: str, entry: dict, bg_rows: list[dict]) -> bool:
+        try:
+            return agent_status(name, entry, bg_rows) == "gone"
+        except Exception:  # noqa: BLE001 - can't tell: warn as for a live one
+            return False
+
+    agents = load_run(run_id)["agents"]
+    try:
+        bg_rows = claude_agents() if any(agents[n].get("view") == "bg" for n in names) else []
+    except Exception:  # noqa: BLE001
+        bg_rows = []
+    gone = [n for n in names if looks_gone(n, agents[n], bg_rows)]
+    live = [n for n in names if n not in gone]
+    if live:
+        each = "each owes" if len(live) > 1 else "it owes"
+        print(f"warning: no `mesh watch` covers {', '.join(live)} ({each} a report): start "
+              f"`mesh watch --any --alerts` in the background; a running --any watch doesn't pick up workers "
+              "spawned after it started", file=sys.stderr)
+    for name in gone:
+        print(f"warning: {name} looks gone without a report: `mesh watch {name}` (exit 5), or `mesh resume` / "
+              f"`mesh retire` it", file=sys.stderr)
 
 
 def hang_after() -> float:
@@ -3090,7 +3366,9 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
 
 def cmd_resume(args: argparse.Namespace) -> int:
     """Bring a past worker back, conversation and all, as a worker of this run."""
-    emit(resume_worker(args, *identity(args)))
+    run_id, me = identity(args)
+    emit(resume_worker(args, run_id, me))
+    warn_unwatched(run_id)
     return 0
 
 
@@ -3726,6 +4004,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     delivery = result.get("delivery") or {}
     if "send_message" in delivery:
         emit(result)
+        warn_unwatched(run_id)
         print(f"mesh: stored; now send it to {name} with SendMessage (`to` and `message` as in send_message). "
               "Its answer comes back the same way.", file=sys.stderr)
         return 0
@@ -3738,6 +4017,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if (not args.wait and entry.get("kind") == "claude"
             and native_route(load_run(run_id), name, me)):  # the answer comes as a SendMessage from the worker
         args.no_wait = True
+    warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
     if args.no_wait:
         emit(result)
         return 0
@@ -4056,6 +4336,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = ident(sub.add_parser("send", help="send a message (mailbox first, then the doorbell)"))
     p.add_argument("to", help="agent name, or `parent`")
     p.add_argument("--type", choices=TYPES, required=True)
+    p.add_argument("--until", help="a `wait`'s end: a duration (45m, 1h30m), a local time (14:30) or ISO 8601")
     p.add_argument("--body")
     p.add_argument("--file", help="message body from a file (- for stdin)")
     p.set_defaults(func=cmd_send)

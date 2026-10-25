@@ -17,7 +17,9 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 - [ ] A Claude worker whose login expired (`Login expired · Please run /login`, recorded as `error: "authentication_failed"` in its session file) reads like a usage limit's 3/4/8: give it the same once-per-task alert, telling the root to ask the user to log in
 - [ ] Check the usage-limit readings against a real limit when one happens: the transcript's `error` code and text (only the text is matched now) and the herdr state of Claude's limit screen; a `StopFailure` hook in `worker_hooks` would give the code directly
-- [ ] Let a worker declare a deliberate wait (`--type wait --until <time>`) so a long test run, which herdr reads as idle for agy, isn't nudged and alerted; warn from root-side commands when a run has live workers and no running watch (firstmate)
+- [ ] Once #21 (send-guards) and the declared wait both land: fold `send_wait`'s unread task/answer check into `refuse_stale_report` (`wait` alongside `REPORT_TYPES`)
+- [ ] Maybe: let the Stop hook pass only one turn end per declared wait (then nudge as usual), so a worker that wakes early and stops silently is caught before the deadline; the watch would need the same rule
+- [ ] Once #26 (status-log) and the declared wait both land: `waiting_rows` shows an active wait (`declared_wait`) as `on task 12m, waiting until 14:30`, and the duplicate `work_evidence` goes
 
 ## Reports and reviews
 
@@ -29,7 +31,7 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Status and UX
 
-- [ ] Derive what each worker owes or waits on in `mesh status` (plan unanswered for 12m, question, task unread, done plus PR state, or "no commits, no PR" so the root sees a done that changed nothing, which is legitimate when the bug turned out not to be one), needing-the-root first, so `board.md` keeps only the planned columns; add the evidence to exit 3/5 alerts (commits ahead, pushed, PR open, worktree dirty); a `mesh log [--follow]` timeline of `log.jsonl` (Rove, Gas Town, firstmate, ccswarm)
+- [ ] Derive what each worker owes or waits on in `mesh status` (plan unanswered for 12m, question, task unread, done plus PR state, or "no commits, no PR" so the root sees a done that changed nothing, which is legitimate when the bug turned out not to be one), needing-the-root first, so `board.md` keeps only the planned columns; a `mesh log [--follow]` timeline of `log.jsonl` (Rove, Gas Town, firstmate, ccswarm)
 - [ ] `mesh conflicts` skips a branch whose tip is its base, so uncommitted overlap stays invisible until the first commit: intersect each live worktree's changed files too (mcp_agent_mail)
 - [ ] Maybe: `mesh slot <name> -- <cmd>` (an `flock`, released when the process dies) for test suites that share a port or database, and the four-worker cap enforced in `spawn` (mcp_agent_mail, firstmate)
 
