@@ -322,6 +322,10 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
     """Return (run_id, own agent name) from flags, the environment or the pane map."""
     run_id = getattr(args, "run", None) or os.environ.get("MESH_RUN")
     name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
+    ignored = None
+    if run_id and name and not getattr(args, "as_", None):  # a name you pass is taken as given
+        if ignored := inherited_identity(run_id, name):
+            run_id, name = getattr(args, "run", None), None
     if not (run_id and name):
         pane = os.environ.get("HERDR_PANE_ID")
         mapping = mesh_home() / "by-pane" / f"{pane_key(pane)}.json" if pane else None
@@ -330,9 +334,36 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
             run_id = run_id or entry["run"]
             name = name or entry["name"]
     if not (run_id and name):
-        raise MeshError("not in a mesh run: run `mesh init` first, or pass --run and --as")
+        raise MeshError(f"not in a mesh run{f' ({ignored})' if ignored else ''}: run `mesh init` first, or pass "
+                        "--run and --as (`mesh agents` lists past and present workers, `mesh status --run <id>` "
+                        "shows a run's agents)")
     refresh_root_address(run_id, name)
     return run_id, name
+
+
+def inherited_identity(run_id: str, name: str) -> str | None:
+    """Why the MESH_RUN / MESH_SELF in the environment aren't this session's, or None if they may be.
+
+    A process can inherit another agent's identity: a background session runs in a spare process forked with
+    whatever environment started Claude Code's daemon (see `bg_settings`). Claude Code tells its tools which
+    session they run in, and a Claude worker's entry records its session, so a mismatch gives it away. A pane
+    worker inside its own pane is itself whatever its session, and an entry still `starting` may not have its
+    new session recorded yet.
+    """
+    current = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not current:
+        return None
+    try:
+        entry = load_run(run_id)["agents"].get(name) or {}
+    except (MeshError, OSError, ValueError):
+        return None
+    recorded = entry.get("session")
+    if entry.get("kind") != "claude" or not recorded or recorded == current or entry.get("status") == "starting":
+        return None
+    if entry.get("pane") and entry["pane"] == os.environ.get("HERDR_PANE_ID"):
+        return None
+    return (f"ignored MESH_SELF={name} of run {run_id}: that agent is Claude session {recorded}, and this is "
+            f"{current}, which inherited its environment")
 
 
 def refresh_root_address(run_id: str, name: str) -> None:
@@ -624,9 +655,19 @@ def env_without_identity(keep_herdr: bool) -> dict[str, str]:
             if k not in MESH_IDS and (keep_herdr or k not in HERDR_IDS)}
 
 
-def bg_env(env: dict[str, str]) -> dict[str, str]:
-    """This process's environment for a background worker: its own MESH_* identity, and not the root pane's herdr ids."""
-    return {**env_without_identity(keep_herdr=False), **env}
+def bg_settings(env: dict[str, str]) -> str:
+    """`--settings` JSON that gives a background worker its environment.
+
+    `claude --bg` runs the session in a spare process the daemon forked from its own environment, which is
+    whoever's `claude --bg` started the daemon (an earlier worker, say), so the launch's own environment never
+    reaches it. Settings `env` does, and overrides the spare's values, so every MESH_* variable is set here:
+    this launch's configuration and identity, MESH_PARENT empty when there is none, and the herdr ids empty,
+    since settings can't unset a variable and `identity()` would map a spare's pane id to its owner.
+    """
+    values = {k: v for k, v in os.environ.items() if k.startswith("MESH_") and k not in MESH_IDS}
+    values.update({k: "" for k in (*MESH_IDS, *HERDR_IDS)})
+    values.update(env)
+    return json.dumps({"env": values})
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -634,12 +675,13 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     """Start a background Claude session and return (short id, session id).
 
     `--bg` picks its own session id. With `resume`, the flags make it start a *copy* of that conversation under
-    a new id, which is what a resume needs: a copy gets this launch's environment and model, while continuing
-    the old id would bring back the environment and options it was first started with.
+    a new id, which is what a resume needs: a copy gets this launch's model and settings (the identity, see
+    `bg_settings`), while continuing the old id would bring back the options it was first started with.
     """
     argv = [claude_bin(), "--bg", *(["--resume", resume] if resume else []), "-n", name, "--model", model,
-            "--effort", effort, "--dangerously-skip-permissions", prompt]
-    proc = run_cli(argv, cwd=cwd, env=bg_env(env), timeout=120)
+            "--effort", effort, "--settings", bg_settings(env), "--dangerously-skip-permissions", prompt]
+    # No identity in the process itself, so a daemon this launch starts, and its spares, carry none.
+    proc = run_cli(argv, cwd=cwd, env=env_without_identity(keep_herdr=False), timeout=120)
     out = f"{proc.stdout}\n{proc.stderr}".strip()
     if "Workspace not trusted" in out:
         raise BgUntrusted(f"Claude Code doesn't trust {cwd} yet, so it can't run in the background there")

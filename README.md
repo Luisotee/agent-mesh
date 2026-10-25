@@ -205,7 +205,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Identity
 
-`mesh spawn` injects `MESH_RUN`, `MESH_SELF`, `MESH_PARENT` and `MESH_ROLE` into each new pane through herdr. The root is found by its pane id. Agents never pass ids by hand: `mesh send parent --type question --body "…"` just works.
+`mesh spawn` injects `MESH_RUN`, `MESH_SELF`, `MESH_PARENT` and `MESH_ROLE` into each new pane through herdr, and into a background session through `claude --bg --settings` (its own process environment comes from Claude Code's daemon, not from mesh). A Claude session that inherited another worker's variables is caught by its session id and ignored. The root is found by its pane id. Agents never pass ids by hand: `mesh send parent --type question --body "…"` just works.
 
 ### Watchdog
 
