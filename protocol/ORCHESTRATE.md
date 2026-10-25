@@ -59,7 +59,7 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Only la
 The command sets the CLI. You may *propose* routing a task to the other CLI, in the triage table (see "Task lists") or in your one-line summary, when it saves the user something:
 
 - **Under `/delegate-agy`:** a large task can go to Claude when `mesh usage` shows Argon and Claude Opus both under the threshold.
-- **Reviews:** they go to the other vendor by default (`mesh ask --review --kind <the other one>`), since a second model catches what the first one missed. Copilot reviews only when the user names it.
+- **Reviews:** each PR gets two reviewers by default, run side by side, since a second model catches what the first one missed. Which two follows the review's size ("Sizes"): a `small` review gets Claude and agy (`--kind claude`, `--kind agy`), and a `large` one (a big PR, or a risky one: auth, money, data migrations) gets Claude and Copilot (`--kind claude`, `--kind copilot`), since Copilot's credits are kept for the PRs that matter. A request that names reviewers gets those instead.
 
 A routing proposal is only a proposal: the user confirms the table, or you mention it in your one-line summary for a single task. A request that names an agent or model is never re-routed.
 
@@ -153,7 +153,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
    - A dependency between repos follows step 4's contract rules.
 3. **Cap:** keep at most **4** workers working at once. Start the next one when one reports.
 4. **Supervise** as in the Root steps. After each `done`:
-   - start a reviewer for that PR (`mesh ask --repo <repo> --review <PR> --size <by PR size>`, the other vendor by default);
+   - start its reviewers (`mesh ask --repo <repo> --review <PR> --size <by PR size>`, two by default, picked by the review's size, see "Routing");
    - run `mesh conflicts`.
 5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its review has nothing left that you agree with.
 6. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
@@ -178,7 +178,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
 - **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot`, your own CLI).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing, so it doesn't conflict with doing your repo's part yourself.
 - **A fresh agent** follows the mode table and `--size`, like a spawn, except that a fresh reviewer opens in a pane at any size and runs at high effort when it is trivial or small ("Sizes"). Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
-- **Copilot** (`--kind copilot`, only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no agent pane of its own: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; while it works, a pane beside yours follows it (`mesh peek <name> --follow`) and closes once it has answered, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
+- **Copilot** (`--kind copilot`: a default reviewer of large PRs, otherwise only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no agent pane of its own: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; while it works, a pane beside yours follows it (`mesh peek <name> --follow`) and closes once it has answered, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
   - A PR link names the worker that opened the PR; a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.

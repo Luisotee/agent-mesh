@@ -4,7 +4,7 @@ description: >-
   agent-mesh: gets a pull request reviewed by one or more other agents, Claude, agy and Copilot, each running inside the
   PR's repo with its rules loaded and the PR head checked out. They change nothing and post nothing; you get their
   findings merged, each checked against the code, and reviewers you can ask again. Defaults to the current branch's PR
-  and to the other vendor from the one you are (Claude ↔ agy); Copilot only when named; `all` is all three. Use it,
+  and to two reviewers by the PR's size: Claude plus agy, or Claude plus Copilot for a large or risky PR; `all` is all three. Use it,
   whether the user types /delegate-review or not, for any PR review the user asks for, their own PR included
   ("review my PR", "have Copilot review PR 42", "second opinion from Gemini and GPT on this PR"). Vendor words name
   reviewers: Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the reviews a
@@ -17,7 +17,7 @@ argument-hint: "[all | claude agy copilot (any of them)] [PR link or number]"
 Get a review for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
 1. **The PR:** the link or number given. Otherwise the current branch's PR (`gh pr view --json url -q .url`). If there is none, ask the user which PR.
-2. **The reviewers:** every CLI named, in any order (vendor words as in the description), or all three for `all`. With none named, the other vendor from you: agy if you are Claude Code, claude if you are agy. Copilot reviews only when the user names it (or says `all`).
+2. **The reviewers:** every CLI named, in any order (vendor words as in the description), or all three for `all`. With none named, two, picked by the size (step 3): Claude and agy for `small`, Claude and Copilot for `large`. Copilot's credits are kept for the PRs that matter.
 3. **The size:** `small` for a PR of up to a few hundred lines in a few files (`gh pr view <PR> --json additions,deletions,changedFiles`), `large` for anything bigger or riskier (auth, money, data migrations). Every reviewer gets the same size. The size picks the plan phase; Claude and agy reviewers run at high effort either way, each in a pane beside you.
 4. **Run them** from the local checkout of the PR's repo (the current one, or ask the user where it is), one `mesh ask` per reviewer:
 
