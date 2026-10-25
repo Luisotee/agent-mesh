@@ -1303,6 +1303,22 @@ def test_a_dead_root_socket_falls_back_to_the_doorbell(mesh, fake, run, monkeypa
     assert "send_message" not in json.loads(capsys.readouterr().out) and fake.called("agent", "prompt")
 
 
+def test_a_reopened_claude_root_rebinds_its_socket_on_its_next_command(mesh, fake, run, monkeypatch, capsys):
+    import os
+    from pathlib import Path
+    old = claude_root(mesh, run)
+    Path(old[4:]).unlink()
+    (Path(os.environ["MESH_CC_SOCKS"]) / f"{os.getpid()}.sock").write_text("")
+    assert mesh.main(["inbox"]) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["address"] == mesh.claude_address() != old
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    as_worker(monkeypatch, run)
+    capsys.readouterr()
+    assert mesh.main(["send", "parent", "--type", "info", "--body", "x"]) == 0
+    assert json.loads(capsys.readouterr().out)["send_message"]["to"] == mesh.claude_address()
+
+
 def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, capsys):
     import os
     from pathlib import Path

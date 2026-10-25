@@ -306,7 +306,24 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
             name = name or entry["name"]
     if not (run_id and name):
         raise MeshError("not in a mesh run: run `mesh init` first, or pass --run and --as")
+    refresh_root_address(run_id, name)
     return run_id, name
+
+
+def refresh_root_address(run_id: str, name: str) -> None:
+    """Re-record a Claude root's socket when it was reopened: the socket belongs to the process, not the
+    conversation, so a resumed root has a new one and its workers would otherwise ring its pane."""
+    try:
+        entry = load_run(run_id)["agents"].get(name, {})
+    except (MeshError, OSError, ValueError):
+        return
+    if entry.get("role") != "root" or entry.get("kind") != "claude":
+        return
+    address = claude_address()
+    if address and address != entry.get("address"):
+        with editing_run(run_id) as data:
+            data["agents"][name]["address"] = address
+        log_event(run_id, "rebind", name=name, address=address)
 
 
 def agent_name(repo: str, suffix: str, taken: set[str]) -> str:

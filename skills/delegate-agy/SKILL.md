@@ -5,14 +5,15 @@ description: >-
   Work is sized to save quota: trivial and small tasks run on Flash with no plan, large ones plan on the strongest model with quota left (Argon → Opus → Flash),
   get their plan reviewed, then execute on Flash and open a PR. Also answers questions about another repo and reviews PRs, with agents you can ask again,
   resume (compacted on the way back) or hand the change to; can route large tasks or second-opinion reviews to Claude.
-  Use ONLY when the user explicitly types /delegate-agy; never on your own initiative.
-disable-model-invocation: true
+  Use it, whether the user types /delegate-agy or not, when the user wants another repo's part of a change, a question about another repo,
+  a PR review or a task list handed to agents that work inside those repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), and they don't name the other CLI (Claude, Opus, Sonnet); with neither named, use this one when you are agy.
+  Not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix, ask or review, in which repos, or a task list>
 ---
 
 # /delegate-agy
 
-Run an **agent-mesh** in mode **`agy`** for the user's request: the text after the command, which is also `$ARGUMENTS`.
+Run an **agent-mesh** in mode **`agy`** for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
 1. Read `~/.config/agent-mesh/ORCHESTRATE.md` and `~/.config/agent-mesh/PROTOCOL.md` in full.
 2. You are the **root**. Follow the "Root" section with `mesh init --mode agy`.

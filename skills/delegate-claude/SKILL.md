@@ -5,14 +5,15 @@ description: >-
   Work is sized to save tokens: trivial and small tasks go to Sonnet in the background with no plan, large ones plan on Opus in a visible herdr pane,
   get their plan reviewed, execute at medium effort and open a PR. Workers report back by SendMessage. Also answers questions about another repo and
   reviews PRs, with agents you can ask again, resume (compacted when large) or hand the change to; can route cheap tasks or second-opinion reviews to agy.
-  Use ONLY when the user explicitly types /delegate-claude; never on your own initiative.
-disable-model-invocation: true
+  Use it, whether the user types /delegate-claude or not, when the user wants another repo's part of a change, a question about another repo,
+  a PR review or a task list handed to agents that work inside those repos ("have Claude do it", "delegate this", "ask the shop-api agent"), and they don't name the other CLI (agy, Gemini, Argon, Flash); with neither named, use this one when you are Claude Code.
+  Not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix, ask or review, in which repos, or a task list>
 ---
 
 # /delegate-claude
 
-Run an **agent-mesh** in mode **`claude`** for the user's request: the text after the command, which is also `$ARGUMENTS`.
+Run an **agent-mesh** in mode **`claude`** for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
 1. Read `~/.config/agent-mesh/ORCHESTRATE.md` and `~/.config/agent-mesh/PROTOCOL.md` in full.
 2. You are the **root**. Follow the "Root" section with `mesh init --mode claude`. Its `address` is how your Claude workers will report to you with `SendMessage`.

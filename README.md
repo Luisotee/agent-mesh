@@ -51,6 +51,7 @@ Both commands work from Claude Code and from agy:
 | `/delegate-agy` | agy: plans on Argon → Claude Opus → Flash (the first with quota left) at high effort, executes on Flash at medium |
 | `/delegate-claude` | Claude: plans on Opus at high effort, executes on Opus at medium |
 
+- **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
 - **Overrides:** naming a model in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
 
@@ -183,7 +184,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 ```
 
 - **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
-- **Between Claude sessions it goes by `SendMessage`.** A Claude worker reporting to a Claude root, or anyone writing to a background worker, gets a `send_message` back from `mesh send` and passes it on with Claude Code's own cross-session messaging. Nothing is typed into the pane you work in. The root is addressed by its session's socket, which `mesh init` records, because session names change.
+- **Between Claude sessions it goes by `SendMessage`.** A Claude worker reporting to a Claude root, or anyone writing to a background worker, gets a `send_message` back from `mesh send` and passes it on with Claude Code's own cross-session messaging. Nothing is typed into the pane you work in. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
 - **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts.
 - **The mailbox is the record.** `~/.local/state/agent-mesh/<run>/` holds every message, plan and report, plus a `log.jsonl` of events. `mesh stop` archives it.
 

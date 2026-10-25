@@ -59,7 +59,7 @@ Model ids go stale (Gemini 3.8 Flash, then 3.9…), so the skills name **familie
 - `argon` / `flash` / `opus` / `sonnet` for agy, which `mesh` resolves to the newest matching `gemini-<version>-<family>-<effort>` or `claude-<family>-<version>-<effort>` in `agy models`
 - `opus` / `sonnet` for Claude, which the CLI resolves itself
 
-The modes are commands rather than a flag, so the mode is never guessed from wording, and they're explicit-only (`disable-model-invocation`) so a casual "have agy do X" never starts a mesh. That limit is on meshes, not on the CLIs: a read-only ask ("have agy summarise repo B") is one headless `agy -p` from B's directory, with no panes, worktree or PR, and the global rule says so, so an agent doesn't refuse it. A question you'll want to follow up on goes through the commands instead, as a worker (§10). Within a mesh, the root picks the model *size* per task (§11), but never a model family the user didn't ask for.
+The modes are two skills rather than a flag. They used to be explicit-only (`disable-model-invocation`), so a casual "have agy do X" never started a mesh. That made the user remember a command for the thing the mesh exists for, and an agent asked "have the shop-api agent fix it" would edit shop-api itself or refuse. Now agents invoke them like any skill when a request fits the description: work, a question or a review for another repo. The mode comes from the CLI the user names, or the agent's own CLI when none is named. Two limits stay: a worker never invokes them (1:N, §7), and outside herdr, where no mesh can start, a read-only ask is one headless `agy -p` from B's directory. Within a mesh, the root picks the model *size* per task (§11), but never a model family the user didn't ask for.
 
 ## 6. The mesh is process-agnostic
 
@@ -135,6 +135,7 @@ By 0.6 mesh had its own copies of things Claude Code now does natively: typing d
   - `mesh init` finds the root's socket by walking up from its own process to the Claude Code process.
   - A background worker's socket comes from the pid in `claude agents --json`.
   - A socket that's gone (the root restarted) falls back to the doorbell.
+  - The socket belongs to the process, not the conversation, so a root reopened with `--resume` has a new one. Every mesh command the root runs re-records its current socket (`refresh_root_address`), so a reopened root heals on its next `mesh inbox` or `watch` with no extra step.
 - **Panes for large work, background for small.** The user wants to oversee the work that matters in herdr, but doesn't need a pane for a translation fix. Large tasks keep panes. Trivial and small Claude tasks run as `claude --bg` sessions: recorded workers like any other (resume, ask, PR lookup), visible in `mesh status` and `claude agents`, and `mesh open` attaches to one. agy has no background sessions, so agy workers always get panes.
 - **Background quirks** (from the smoke test below), and what mesh does about them:
   - `--bg` picks its own session id, so mesh reads it back from `claude agents --json`.

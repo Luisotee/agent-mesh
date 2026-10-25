@@ -2,7 +2,7 @@
 
 The shared procedure behind `/delegate-agy` and `/delegate-claude`, for changes, questions, PR reviews and whole task lists.
 
-- **The root** is the agent the user typed the command into, usually in the middle of its own work in its own repo. It keeps doing its own repo's part itself, and spawns one *worker* per **other** affected repo.
+- **The root** is the agent running the command (typed by the user, or picked by the agent for the user's request), usually in the middle of its own work in its own repo. It keeps doing its own repo's part itself, and spawns one *worker* per **other** affected repo.
 - **Each worker** loads its repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Depending on the task's size, it either does the task directly, or researches it, sends the root a plan to review and, once the plan is approved, carries it out **itself**, with all the context its research built up.
 - **Workers never spawn agents** of their own.
 
@@ -61,7 +61,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
 ## Root
 
 1. **Start the run:** `mesh init --mode <mode> --request "<one-line summary>"`.
-   - Under Claude Code, `init` records your session's address (`address` in its output). Claude workers then report to you with `SendMessage`, so nothing is typed into the pane the user works in, and background workers become possible.
+   - Under Claude Code, `init` records your session's address (`address` in its output). Claude workers then report to you with `SendMessage`, so nothing is typed into the pane the user works in, and background workers become possible. If your session is reopened, your next mesh command records its new address.
    - Cross-session messages reach you without the user's approval only when your session and the worker's run in the same permission mode. Workers bypass permissions, so in any other mode the user has to approve each report. If `address` is null (an agy root), every worker uses doorbells.
 2. **Find the scope:** which repos the request touches (usually under `~/projects/`). Ask the user only if that's genuinely ambiguous.
    - **Your own repo** (the one you're running in) stays **yours**: you do its part yourself, in your current checkout and branch, exactly as you would without a mesh. Its rules are already loaded in your session. Spawn a worker for it only when the user explicitly asks to delegate it too.
