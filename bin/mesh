@@ -1942,6 +1942,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
     runs = all_runs()
     bg_rows = claude_agents() if any(e.get("view") == "bg" for r, _ in runs for e in r["agents"].values()) else []
     for run, folder in runs:
+        if args.run and run["id"] != args.run:
+            continue  # by run id, not branch: a worker resumed into a run keeps its old run's branch
         for name, entry in run["agents"].items():
             if entry.get("role") == "root":
                 continue
@@ -1961,7 +1963,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
     if args.json:
         emit(rows)
     elif not rows:
-        print("No workers found." if not query else f"No workers match {args.query}.")
+        scope = (f" match {args.query}" if query else "") + (f" in run {args.run}" if args.run else "")
+        print(f"No workers{scope or ' found'}.")
     else:
         print_table(rows, ("name", "run", "kind", "model", "view", "repo", "branch", "worktree", "state", "session",
                            "prs", "reviews"))
@@ -2911,6 +2914,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("agents", help="past and present workers of every run, with branches and PRs")
     p.add_argument("query", nargs="?", help="filter on name, repo, branch or PR link")
+    p.add_argument("--run", help="only this run's workers, resumed ones included")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_agents)
 
