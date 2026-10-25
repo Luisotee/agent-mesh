@@ -2611,6 +2611,76 @@ def test_context_tokens_counts_the_last_prompt_since_compaction(mesh, monkeypatc
     assert mesh.context_tokens(entry, "missing") is None
 
 
+def pb_varint(n):
+    out = bytearray()
+    while True:
+        out.append(n & 0x7F | (0x80 if n > 0x7F else 0))
+        n >>= 7
+        if not n:
+            return bytes(out)
+
+
+def pb(*fields):
+    """A protobuf message from (field, value) pairs: an int is a varint, bytes are length-delimited."""
+    out = b""
+    for field, value in fields:
+        if isinstance(value, int):
+            out += pb_varint(field << 3) + pb_varint(value)
+        else:
+            out += pb_varint(field << 3 | 2) + pb_varint(len(value)) + value
+    return out
+
+
+def agy_call(fresh, cached=0, out=50):
+    """A model call's step metadata as agy writes it: usage in field 9, among fields mesh ignores."""
+    usage = pb((1, 1320), (2, fresh), (3, out), *([(5, cached)] if cached else []), (6, 24),
+               (7, b"bot-167b372f"), (8, pb((1, b"sessionID"), (2, b"-375"))))
+    return pb((1, pb((1, 1792958697), (2, 540058032))), (3, 2), (9, usage), (11, 1320), (12, b"a39c9314"))
+
+
+def agy_conversation_file(mesh, session, steps):
+    """agy's conversation file: `steps` are (step_type, metadata[, status]) in order, done unless a status is given."""
+    import sqlite3
+    folder = Path(os.environ["MESH_AGY_CONVERSATIONS"])
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{session}.db").unlink(missing_ok=True)
+    db = sqlite3.connect(folder / f"{session}.db")
+    db.execute("CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer NOT NULL DEFAULT 0, "
+               "status integer NOT NULL DEFAULT 0, metadata blob, step_payload blob)")
+    db.executemany("INSERT INTO steps (idx, step_type, status, metadata) VALUES (?, ?, ?, ?)",
+                   [(i, step[0], step[2] if len(step) > 2 else 3, step[1]) for i, step in enumerate(steps)])
+    db.commit()
+    db.close()
+
+
+def test_agy_context_is_the_last_calls_prompt_since_its_last_compaction(mesh):
+    user, tool = (14, pb((1, pb((1, 5))))), (132, b"\xff\xff")  # a tool step that isn't protobuf is skipped
+    agy_conversation_file(mesh, "c1", [user, (15, agy_call(11_904)), tool, (15, agy_call(2_083, cached=82_756)), tool])
+    assert mesh.context_tokens({"kind": "agy"}, "c1") == 84_839  # fresh plus cached input, not the output
+    agy_conversation_file(mesh, "c1", [(15, agy_call(248_334)), (23, pb((1, b"<summary>")))])
+    assert mesh.context_tokens({"kind": "agy"}, "c1") == 0  # compacted (by `/compact`, or by agy itself)
+    agy_conversation_file(mesh, "c1", [(15, agy_call(248_334)), (23, b""), user, (15, agy_call(18_134))])
+    assert mesh.agy_context_tokens("c1") == 18_134
+    agy_conversation_file(mesh, "c1", [(15, agy_call(248_334)), (23, b"", 2)])
+    assert mesh.agy_context_tokens("c1") == 248_334  # a compaction that didn't finish compacted nothing
+    agy_conversation_file(mesh, "c1", [(15, agy_call(20_000)), (15, "not bytes"), (15, 7)])
+    assert mesh.agy_context_tokens("c1") == 20_000  # metadata that isn't a blob is skipped, not a crash
+    agy_conversation_file(mesh, "c1", [user])
+    assert mesh.agy_context_tokens("c1") is None  # no model call yet
+    assert mesh.agy_context_tokens("missing") is None
+    (Path(os.environ["MESH_AGY_CONVERSATIONS"]) / "junk.db").write_text("not sqlite")
+    assert mesh.agy_context_tokens("junk") is None
+
+
+def test_protobuf_fields_reads_every_wire_type_and_refuses_a_truncated_message(mesh):
+    blob = pb((1, 300), (2, b"hi")) + bytes([0x1D]) + b"\x01\x02\x03\x04" + bytes([0x21]) + bytes(8)
+    assert mesh.protobuf_fields(blob) == [(1, 300), (2, b"hi"), (3, b"\x01\x02\x03\x04"), (4, bytes(8))]
+    with pytest.raises(ValueError):
+        mesh.protobuf_fields(pb((2, b"hello"))[:-2])
+    with pytest.raises(IndexError):
+        mesh.protobuf_fields(bytes([0x08, 0x80]))
+
+
 def test_when_auto_compaction_compacts(mesh, monkeypatch):
     claude, agy = {"kind": "claude"}, {"kind": "agy"}
     assert mesh.should_compact("auto", claude, 450_000, False, True)
@@ -2619,10 +2689,17 @@ def test_when_auto_compaction_compacts(mesh, monkeypatch):
     assert mesh.should_compact("auto", claude, 650_000, True, False)
     assert not mesh.should_compact("auto", claude, None, False, True)
     assert mesh.should_compact("yes", claude, 10, False, False) and not mesh.should_compact("no", claude, 10**6, False, True)
+    assert mesh.should_compact("auto", agy, 150_000, False, False)  # its own threshold, whatever run it's from
+    assert not mesh.should_compact("auto", agy, 50_000, False, True)
+    assert not mesh.should_compact("auto", agy, 150_000, True, True) and mesh.should_compact("auto", agy, 250_000, True, True)
+    # its size can't be read: compact what comes back from an earlier run, unless it's a question
     assert mesh.should_compact("auto", agy, None, False, True)
     assert not mesh.should_compact("auto", agy, None, False, False) and not mesh.should_compact("auto", agy, None, True, True)
     monkeypatch.setenv("MESH_COMPACT_AT", "1000")
     assert mesh.should_compact("auto", claude, 1500, False, False)
+    assert not mesh.should_compact("auto", agy, 50_000, False, False)
+    monkeypatch.setenv("MESH_AGY_COMPACT_AT", "40000")
+    assert mesh.should_compact("auto", agy, 50_000, False, False)
 
 
 def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cli, run, repo, monkeypatch,
@@ -2664,6 +2741,16 @@ def test_agy_compacts_when_it_comes_back_from_another_run(mesh, fake, cli, run, 
     assert argv[:4] == ["agy", "--conversation", "c1", "--model"] and argv[-2] == "-p"
     assert argv[-1].startswith("/compact ")
     capsys.readouterr()
+
+
+def test_a_small_agy_conversation_from_another_run_is_not_compacted(mesh, fake, cli, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    agy_conversation_file(mesh, "c1", [(15, agy_call(3_000, cached=40_000))])
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    assert not cli.called("--conversation")
+    assert json.loads(capsys.readouterr().out)["compaction"] == {"context_tokens": 43_000, "compacted": False}
 
 
 def test_compact_no_skips_it(mesh, fake, cli, run, repo, capsys):

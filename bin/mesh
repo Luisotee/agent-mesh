@@ -57,6 +57,9 @@ USER_REVIEW_MODEL = "opus"
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
+# The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
+AGY_COMPACT_AT = 100_000
+AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
 # then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
 # the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
@@ -836,7 +839,8 @@ MESH_IDS = ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")
 HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
-               "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_HISTORY", "MESH_COPILOT_MODEL")
+               "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
+               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -1167,7 +1171,7 @@ def agy_conversation(name: str, run_id: str, cwd: str | None, pinned_only: bool 
     (not with `pinned_only`). agy sometimes replaces the index's first prompt with the conversation's
     title, which is why a worker's conversation is recorded once it first writes (see record_session).
     """
-    home = Path.home() / ".gemini/antigravity-cli"
+    home = Path.home() / AGY_HOME
     sources = ((os.environ.get("MESH_AGY_SUMMARIES") or home / "conversation_summaries.db", agy_summaries),
                (os.environ.get("MESH_AGY_HISTORY") or home / "history.jsonl", agy_history))
     run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
@@ -1220,11 +1224,13 @@ def find_session(run_id: str, name: str, entry: dict) -> str | None:
 
 
 def context_tokens(entry: dict, session: str) -> int | None:
-    """A Claude worker's context size: the prompt of its last reply since its last compaction (0 right after one).
+    """A worker's context size: the prompt of its last reply since its last compaction (0 right after one).
 
-    None for agy, which shows no context size, or when the session file can't be read.
+    None when its conversation file can't be read.
     """
-    if entry.get("kind") == "agy" or not entry.get("cwd"):
+    if entry.get("kind") == "agy":
+        return agy_context_tokens(session)
+    if not entry.get("cwd"):
         return None
     path = claude_sessions_dir(entry["cwd"]) / f"{session}.jsonl"
     if not path.exists():
@@ -1246,11 +1252,88 @@ def context_tokens(entry: dict, session: str) -> int | None:
     return tokens
 
 
-def compact_at() -> int:
+AGY_COMPACTION_STEP = 23  # a step holding a compaction's <summary>: a `/compact`, or agy's own
+AGY_STEP_DONE = 3  # a step's status once it has finished (tool steps that failed or were cancelled have others)
+
+
+def protobuf_fields(blob: bytes) -> list[tuple[int, int | bytes]]:
+    """(field number, value) of each field of one protobuf message: varints as ints, the rest as bytes.
+
+    ValueError or IndexError when `blob` isn't one.
+    """
+    def varint(i: int) -> tuple[int, int]:
+        n = shift = 0
+        while True:
+            byte = blob[i]
+            n, i, shift = n | (byte & 0x7F) << shift, i + 1, shift + 7
+            if not byte & 0x80:
+                return n, i
+    fields, i = [], 0
+    while i < len(blob):
+        key, i = varint(i)
+        wire = key & 7
+        if wire == 0:
+            value, i = varint(i)
+        elif wire in (1, 5):
+            size = 8 if wire == 1 else 4
+            value, i = blob[i:i + size], i + size
+        elif wire == 2:
+            size, i = varint(i)
+            value, i = blob[i:i + size], i + size
+        else:
+            raise ValueError(f"protobuf wire type {wire}")
+        if i > len(blob):
+            raise ValueError("truncated protobuf")
+        fields.append((key >> 3, value))
+    return fields
+
+
+def agy_context_tokens(session: str) -> int | None:
+    """An agy conversation's context size: the prompt of its last model call since its last compaction.
+
+    agy documents no format. Its conversation file is SQLite, and field 9 of a step's `metadata` protobuf is
+    that call's usage: 2 the input read fresh, 5 the input read from cache, 3 the output. Checked against
+    `agy -p --output-format json`, whose `usage` sums them over the whole conversation (so it can't tell
+    the size). None when the file is missing or reads otherwise, and `--compact auto` falls back.
+    """
     try:
-        return int(os.environ.get("MESH_COMPACT_AT") or COMPACT_AT)
+        import sqlite3  # here, so a Python built without it only loses this reading
+    except ImportError:
+        return None
+    base = os.environ.get("MESH_AGY_CONVERSATIONS") or Path.home() / AGY_HOME / "conversations"
+    path = Path(base) / f"{session}.db"
+    if not path.exists():
+        return None
+    try:
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
+        try:
+            # Newest first, read only as far as the first call or compaction.
+            for step_type, status, metadata in db.execute("SELECT step_type, status, metadata FROM steps "
+                                                          "ORDER BY idx DESC"):
+                if step_type == AGY_COMPACTION_STEP and status == AGY_STEP_DONE:  # a failed one compacted nothing
+                    return 0
+                if not isinstance(metadata, bytes):
+                    continue
+                try:
+                    usage = next((v for f, v in protobuf_fields(metadata) if f == 9 and isinstance(v, bytes)), b"")
+                    counts = {f: v for f, v in protobuf_fields(usage) if isinstance(v, int)}
+                except (ValueError, IndexError):
+                    continue
+                if 2 in counts:
+                    return counts[2] + counts.get(5, 0)
+        finally:
+            db.close()
+    except (sqlite3.Error, ValueError):
+        return None
+    return None
+
+
+def compact_at(kind: str | None = None) -> int:
+    key, default = ("MESH_AGY_COMPACT_AT", AGY_COMPACT_AT) if kind == "agy" else ("MESH_COMPACT_AT", COMPACT_AT)
+    try:
+        return int(os.environ.get(key) or default)
     except ValueError:
-        return COMPACT_AT
+        return default
 
 
 def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, cross_run: bool) -> bool:
@@ -1261,9 +1344,9 @@ def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, 
     """
     if mode != "auto":
         return mode == "yes"
-    if entry.get("kind") == "agy":
+    if tokens is None and entry.get("kind") == "agy":
         return cross_run and not read_only  # no size to go on: compact what comes back from an earlier run
-    return tokens is not None and tokens > compact_at() * (2 if read_only else 1)
+    return tokens is not None and tokens > compact_at(entry.get("kind")) * (2 if read_only else 1)
 
 
 def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
@@ -3372,8 +3455,9 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
-                   help=f"compact the conversation before reopening it (auto: a Claude one over {COMPACT_AT:,} "
-                        "tokens, twice that for a question; an agy one coming from another run)")
+                   help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
+                        f"{AGY_COMPACT_AT:,} for agy, twice that for a question; an agy one whose size can't be "
+                        "read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
 
 

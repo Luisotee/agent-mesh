@@ -214,7 +214,7 @@ When the request is about something a worker already built, in this run or an ea
    - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead. Ask it to check each finding itself before fixing it (`PROTOCOL.md` rule 9) and to say in its plan which it fixes, how, and which it declines and why
    - "plan first; push to the same branch so the PR updates; report `done`" (for a small follow-up: start it with `Direct task (no plan)`)
 4. **Compaction:** an old conversation has lost its prompt cache, so every turn of the follow-up would pay for all of its context again. `resume` (and `ask`) compact it first, headless, keeping what the new task needs:
-   - with `--compact auto` (the default): a Claude conversation over 300k tokens (600k for a read-only question; `MESH_COMPACT_AT`), or an agy one coming back from an earlier run;
+   - with `--compact auto` (the default): a Claude conversation over 300k tokens (`MESH_COMPACT_AT`) or an agy one over 100k (`MESH_AGY_COMPACT_AT`), twice that for a read-only question; an agy one whose size can't be read is compacted when it comes back from an earlier run;
    - `--compact yes|no` forces it either way;
    - `--focus "<what matters>"` replaces the default focus when you know better ("the restockedAt contract and why we chose ISO dates");
    - the output's `compaction` shows the context size before and after.
