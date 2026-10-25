@@ -7,7 +7,7 @@ description: >-
   and to the other vendor from the one you are (Claude ↔ agy); Copilot only when named; `all` is all three. Use it,
   whether the user types /delegate-review or not, for any PR review the user asks for, their own PR included
   ("review my PR", "have Copilot review PR 42", "second opinion from Gemini and GPT on this PR"). Vendor words name
-  reviewers: Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet → claude. Not for the reviews a
+  reviewers: Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the reviews a
   `/delegate-*` run gives its own workers' PRs, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
 argument-hint: "[all | claude agy copilot (any of them)] [PR link or number]"
 ---

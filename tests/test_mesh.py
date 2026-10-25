@@ -1189,6 +1189,22 @@ def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tm
     assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a question keeps its size's effort
 
 
+def test_a_trivial_reviewer_gets_high_effort_on_either_cli(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "agy", "--size", "trivial", "--review", pr,
+                      "--name", "review-agy", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-high"  # not its size's low
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "trivial", "--review", pr,
+                      "--name", "review-claude", "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["model"], out["effort"]) == ("opus", "high")
+
+
 def test_a_large_reviewer_plans_high_and_still_executes_a_later_fix_at_medium(mesh, fake, run, repo, tmp_path,
                                                                               monkeypatch, capsys):
     pr_origin(tmp_path, repo)
@@ -2105,6 +2121,56 @@ def test_a_copilot_asker_gets_a_peek_pane_beside_the_root_while_it_answers(mesh,
     splits = len(fake.called("pane", "split"))
     assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
     assert len(fake.called("pane", "split")) == splits and not fake.called("tab", "create")
+
+
+def test_a_peek_pane_is_closed_when_copilot_fails_and_a_stale_one_when_it_is_asked_again(mesh, fake, cli, run, repo,
+                                                                                         monkeypatch, capsys):
+    monkeypatch.setenv("MESH_SIDE_PANES", "3")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+
+    def boom(*args, **kwargs):
+        raise mesh.MeshError("copilot vanished")
+    real = mesh.copilot_ask
+    monkeypatch.setattr(mesh, "copilot_ask", boom)
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
+    assert fake.called("pane", "close", "w1:p3")  # the finally path
+    monkeypatch.setattr(mesh, "copilot_ask", real)
+
+    with mesh.editing_run(run) as data:  # a `mesh ask` killed mid-answer left its pane and a dead pid
+        data["agents"]["proj-ask-auth"].update(status="running", pid=2 ** 22 + 7, pane="w1:p7", tab="w1:t1",
+                                               workspace="w1")
+    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p8"}})
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
+    closed = [c[2] for c in fake.called("pane", "close")]
+    assert closed[-2:] == ["w1:p7", "w1:p8"]  # the stale one before the new one opened, the new one after
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"] is None
+    capsys.readouterr()
+
+
+def test_panes_beside_the_root_are_counted_split_and_recorded_under_one_lock(mesh, fake, run, monkeypatch):
+    import fcntl
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    held = []
+
+    def split_at(target, cwd, env):
+        with open(mesh.run_dir(run) / ".panes.lock", "w") as fh:  # what a parallel `mesh` call would try
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w2:p5"  # not recorded yet
+        return "w1:p2"
+    monkeypatch.setattr(mesh, "split_at", split_at)
+    assert mesh.beside_root(run, "repo-fix-typo", Path("/x"), {}) == ("w1:p2", "w1:t1", "w1")
+    assert held == [True]
+    # recorded before the lock is let go, so the next placement counts it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w1:p2"
 
 
 def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):

@@ -450,12 +450,27 @@ def split_at(pane: dict, cwd: Path, env: dict[str, str]) -> str:
     return split["pane"]["pane_id"]
 
 
-def beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None = None) -> tuple[str, str, str] | None:
-    """A pane in the root's own tab, so the user sees the workers next to it; None when that tab is full.
+def beside_root(run_id: str, name: str, cwd: Path, env: dict[str, str],
+                replacing: str | None = None) -> tuple[str, str, str] | None:
+    """A pane in the root's own tab for agent `name`, so the user sees it next to the root; None when that tab is full.
 
     The first worker splits the root pane, later ones split the biggest worker pane, so the root keeps its half.
     A swap (`replacing` its old pane) splits that pane, so the worker reopens where it was whatever the count.
+    Parallel `mesh` calls (reviewers started in one turn, a Copilot peek pane) would all count the same panes and
+    split the same one, so counting, splitting and recording the new pane on `name` happen under one lock.
     """
+    with file_lock(run_dir(run_id) / ".panes.lock"):
+        beside = _beside_root(run_id, cwd, env, replacing)
+        if beside:
+            with editing_run(run_id) as run:
+                entry = run["agents"][name]
+                entry.update(pane=beside[0], tab=beside[1], workspace=beside[2])
+                if entry.get("view") == "bg":  # a background launch that fell back to a pane
+                    entry["view"] = "pane"
+        return beside
+
+
+def _beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None) -> tuple[str, str, str] | None:
     run = load_run(run_id)
     root = run["agents"][run["root"]]
     tab = root.get("tab")
@@ -483,9 +498,10 @@ def beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | No
         return None
 
 
-def place_pane(run_id: str, repo_top: Path, cwd: Path, env: dict[str, str]) -> tuple[str, str, str, bool]:
+def place_pane(run_id: str, name: str, repo_top: Path, cwd: Path,
+               env: dict[str, str]) -> tuple[str, str, str, bool]:
     """(pane, tab, workspace, workspace created) for a new worker pane: beside the root, else the run's tab."""
-    if beside := beside_root(run_id, cwd, env):
+    if beside := beside_root(run_id, name, cwd, env):
         return *beside, False
     workspace_id, created_ws = find_or_create_workspace(repo_top)
     return *new_pane(run_id, workspace_id, cwd, env), workspace_id, created_ws
@@ -1370,7 +1386,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                 result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
             return result
 
-    pane, tab, workspace_id, created_ws = place_pane(run_id, repo_top, cwd, env)
+    pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
@@ -1458,7 +1474,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
     run = load_run(run_id)
     side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
-    beside = side and beside_root(run_id, Path(entry["cwd"]), env, replacing=entry.get("pane"))
+    beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
     if beside:
         pane, tab, workspace_id = beside
     else:  # a side worker's recorded workspace is the root's, so it goes to its project's
@@ -2111,7 +2127,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         path = None
 
-    pane, tab, workspace_id, _ = place_pane(run_id, repo_top, Path(cwd), env)
+    pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env)
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     result["view"] = "pane"
@@ -2331,9 +2347,11 @@ def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
 
     Only beside the root, where the user is looking; None when that tab is full or gone, or herdr refuses.
     """
+    if stale := agent_entry(load_run(run_id), name).get("pane"):  # left by a `mesh ask` that was killed
+        close_peek(run_id, name, stale)
     env = {key: os.environ[key] for key in ("MESH_HOME", "COPILOT_HOME") if os.environ.get(key)}
     try:
-        beside = beside_root(run_id, cwd, env)
+        beside = beside_root(run_id, name, cwd, env)
     except MeshError:
         return None
     if not beside:
