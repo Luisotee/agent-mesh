@@ -81,9 +81,11 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      --task-file "$(mesh dir)/tasks/<repo>.md"      # plus --model/--effort only if the user named them
    ```
    The slug names both the branch (`mesh/<run>/<slug>`) and the agent (`<repo>-<slug>`), so make it short and descriptive: `fix-reactions`, not `task1`. The task file contains:
-   - that repo's slice of the request
+   - that repo's slice of the request, with the user's own words quoted where the wording matters
    - what you know from your own work that it needs: the contract your repo expects (field names, API shapes, error cases), with file paths in your repo it can read for reference
    - dependencies on other repos (what to wait for, and what the other workers will need from this one)
+   - what you know about that repo and what you only assume, with the assumptions marked so the worker checks them
+   - what is out of scope: files, behaviour or other repos it should leave alone
    - for a large task: "send your plan for review before changing anything"; for every task: "report `done` with the PR link"
 
    Tell the user, in one line per worker, its size, model and where it runs (pane or background). When the spawn output has `notes` (for example "gemini-4-argon-high has 0% left"), add that in a few words.
