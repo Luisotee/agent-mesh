@@ -4265,7 +4265,7 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
     `branch` / `base` when the worktree moved. gh missing or failing never blocks a resume: it goes on as before,
     with a note.
     """
-    read_only = getattr(args, "read_only", False) or bool(task and task.lstrip().startswith(READ_ONLY_STARTS))
+    read_only = getattr(args, "read_only", False) or read_only_task(task)
     current = worktree_branch(entry) or branch
     if not task or read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
         return {}  # a question or review stays put; a repo off GitHub has no PR to check
