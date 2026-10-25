@@ -160,7 +160,7 @@ def pane_key(pane_id: str) -> str:
 
 def herdr(*args: str, timeout: float | None = None) -> dict:
     """Run a herdr CLI command and return its JSON `result`."""
-    binary = os.environ.get("MESH_HERDR", "herdr")
+    binary = os.environ.get("MESH_HERDR") or "herdr"
     try:
         proc = subprocess.run([binary, *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -199,13 +199,13 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
 
 
 def claude_bin() -> str:
-    return os.environ.get("MESH_CLAUDE", "claude")
+    return os.environ.get("MESH_CLAUDE") or "claude"
 
 
 def claude_agents() -> list[dict]:
     """Claude Code's own session list (`claude agents --json --all`): background sessions carry a `status`
     (busy / idle / waiting) while their process runs, and keep their entry after they exit."""
-    proc = run_cli([claude_bin(), "agents", "--json", "--all"], timeout=30)
+    proc = run_cli([claude_bin(), "agents", "--json", "--all"], env=claude_env(), timeout=30)
     try:
         rows = json.loads(proc.stdout) if proc.returncode == 0 else []
     except ValueError:
@@ -320,28 +320,110 @@ def read_log(run_id: str) -> list[dict]:
 
 def identity(args: argparse.Namespace) -> tuple[str, str]:
     """Return (run_id, own agent name) from flags, the environment or the pane map."""
-    run_id = getattr(args, "run", None) or os.environ.get("MESH_RUN")
-    name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
+    flag_run, flag_name = getattr(args, "run", None), getattr(args, "as_", None)
+    run_id = flag_run or os.environ.get("MESH_RUN")
+    name = flag_name or os.environ.get("MESH_SELF")
+    run, ignored = None, None
+    if run_id and name and not flag_name:  # a name you pass is taken as given
+        run = maybe_run(run_id)
+        if ignored := inherited_identity(run_id, name, run):
+            run_id, name, run = None, None, None
     if not (run_id and name):
         pane = os.environ.get("HERDR_PANE_ID")
         mapping = mesh_home() / "by-pane" / f"{pane_key(pane)}.json" if pane else None
         if mapping and mapping.exists():
             entry = json.loads(mapping.read_text())
-            run_id = run_id or entry["run"]
-            name = name or entry["name"]
+            if ignored:  # this pane's identity, all of it, or none
+                if flag_run and flag_run != entry["run"]:
+                    raise MeshError(f"{ignored}; this pane is {entry['name']} of run {entry['run']}, "
+                                    f"not of run {flag_run}")
+                run_id, name = entry["run"], entry["name"]
+                print(f"mesh: {ignored}; acting as {name}, this pane's agent", file=sys.stderr)
+                log_event(run_id, "identity_ignored", name=name, reason=ignored)
+            else:
+                run_id = run_id or entry["run"]
+                name = name or entry["name"]
     if not (run_id and name):
-        raise MeshError("not in a mesh run: run `mesh init` first, or pass --run and --as")
-    refresh_root_address(run_id, name)
+        raise MeshError(f"not in a mesh run{f' ({ignored})' if ignored else ''}: run `mesh init` first, or pass "
+                        "--run and --as (`mesh agents` lists past and present workers, `mesh status --run <id>` "
+                        "shows a run's agents)")
+    refresh_root_address(run_id, name, run)
     return run_id, name
 
 
-def refresh_root_address(run_id: str, name: str) -> None:
+def maybe_run(run_id: str) -> dict | None:
+    try:
+        return load_run(run_id)
+    except (MeshError, OSError, ValueError):
+        return None
+
+
+# A launch records its new session when it returns; past this, a `starting` entry is a launch that failed.
+STARTING_GRACE = 300
+
+
+def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
+    """Why the MESH_RUN / MESH_SELF in the environment aren't this session's, or None if they may be.
+
+    A process can inherit another agent's identity: a background session runs in a spare process forked with
+    whatever environment started Claude Code's daemon (see `bg_settings`), and the daemon can outlive the run.
+    Claude Code tells its tools which session they run in, and a Claude worker's entry records its session, so
+    a mismatch gives it away, except while a launch is recording a new one (`starting`). A pane worker's
+    session can change legitimately (`/clear`, plan mode's "clear context"): herdr says which session runs in
+    the pane, and when that's this one the entry is brought up to date.
+    """
+    current = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not current:
+        return None
+    if run is None:
+        if (run_dir(run_id) / "run.json").exists():
+            return None  # unreadable right now: not evidence either way
+        return f"ignored MESH_RUN={run_id}: no such run (stopped?)"
+    entry = run["agents"].get(name) or {}
+    if entry.get("kind") and entry["kind"] != "claude":  # a Claude session is never an agy or Copilot agent
+        return (f"ignored MESH_SELF={name} of run {run_id}: that agent is {entry['kind']}, and this is "
+                f"Claude session {current}")
+    recorded = entry.get("session")
+    if not recorded or recorded == current:
+        return None
+    if entry.get("status") == "starting" and seconds_since(last_launch(entry)) < STARTING_GRACE:
+        return None
+    if entry.get("pane") and entry["pane"] == os.environ.get("HERDR_PANE_ID"):
+        try:
+            in_pane = ((herdr("agent", "get", entry["pane"], timeout=10).get("agent") or {})
+                       .get("agent_session") or {}).get("value")
+        except MeshError:
+            in_pane = None
+        if not in_pane:
+            return None  # herdr can't say: trust the pane, as before herdr reported sessions
+        if in_pane == current:
+            with editing_run(run_id) as data:
+                data["agents"][name]["session"] = current
+            log_event(run_id, "rebind", name=name, session=current)
+            entry["session"] = current
+            return None
+    return (f"ignored MESH_SELF={name} of run {run_id}: that agent is Claude session {recorded}, and this is "
+            f"{current}, which inherited its environment")
+
+
+def last_launch(entry: dict) -> str | None:
+    """When the entry's session last (re)started: its spawn, or its latest model change."""
+    times = [entry.get("spawned"), *(m.get("at") for m in entry.get("models") or [])]
+    return max((t for t in times if t), default=None)
+
+
+def seconds_since(iso: str | None) -> float:
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> None:
     """Re-record a Claude root's socket when it was reopened: the socket belongs to the process, not the
     conversation, so a resumed root has a new one and its workers would otherwise ring its pane."""
-    try:
-        entry = load_run(run_id)["agents"].get(name, {})
-    except (MeshError, OSError, ValueError):
-        return
+    run = run or maybe_run(run_id)
+    entry = (run or {}).get("agents", {}).get(name, {})
     if entry.get("role") != "root" or entry.get("kind") != "claude":
         return
     address = claude_address()
@@ -534,7 +616,7 @@ def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> 
 
 def herdr_text(*args: str) -> str:
     """A herdr command whose output is plain text (e.g. `agent read`)."""
-    proc = subprocess.run([os.environ.get("MESH_HERDR", "herdr"), *args], capture_output=True, text=True)
+    proc = subprocess.run([os.environ.get("MESH_HERDR") or "herdr", *args], capture_output=True, text=True)
     return proc.stdout
 
 
@@ -615,6 +697,14 @@ def bg_status(entry: dict, rows: list[dict] | None = None) -> str:
 
 MESH_IDS = ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")
 HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
+# Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
+MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
+               "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_HISTORY", "MESH_COPILOT_MODEL")
+# What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
+CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
+                       "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+                       "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_JOB_DIR", "CLAUDE_BG_BACKEND",
+                       "CLAUDE_BG_SOCKET_TOKENS_PATH")
 
 
 def env_without_identity(keep_herdr: bool) -> dict[str, str]:
@@ -624,9 +714,24 @@ def env_without_identity(keep_herdr: bool) -> dict[str, str]:
             if k not in MESH_IDS and (keep_herdr or k not in HERDR_IDS)}
 
 
-def bg_env(env: dict[str, str]) -> dict[str, str]:
-    """This process's environment for a background worker: its own MESH_* identity, and not the root pane's herdr ids."""
-    return {**env_without_identity(keep_herdr=False), **env}
+def claude_env(strip_mesh: bool = False) -> dict[str, str]:
+    """The environment for a `claude` CLI call. Any of them may start Claude Code's daemon, whose spare processes
+    then run later background sessions with this environment, so it carries no mesh identity, no herdr pane ids
+    and nothing of the calling Claude session; with `strip_mesh`, no MESH_* configuration either."""
+    return {k: v for k, v in env_without_identity(keep_herdr=False).items()
+            if k not in CLAUDE_SESSION_VARS and not (strip_mesh and k.startswith("MESH_"))}
+
+
+def bg_settings(env: dict[str, str]) -> str:
+    """`--settings` JSON that gives a background worker its environment.
+
+    `claude --bg` runs the session in a spare process the daemon forked from its own environment, which is
+    whoever's call started the daemon (an earlier worker, say), so the launch's own environment never reaches
+    it. Settings `env` does, and overrides the spare's values, but can only set a variable: so every config
+    key is set, empty when this launch has none, and the herdr ids are set empty, or a spare's stale values
+    would stay (a pane id that `identity()` maps to its owner, another MESH_HOME).
+    """
+    return json.dumps({"env": {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}})
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -634,12 +739,13 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     """Start a background Claude session and return (short id, session id).
 
     `--bg` picks its own session id. With `resume`, the flags make it start a *copy* of that conversation under
-    a new id, which is what a resume needs: a copy gets this launch's environment and model, while continuing
-    the old id would bring back the environment and options it was first started with.
+    a new id, which is what a resume needs: a copy gets this launch's model and settings (the identity, see
+    `bg_settings`), while continuing the old id would bring back the options it was first started with.
     """
     argv = [claude_bin(), "--bg", *(["--resume", resume] if resume else []), "-n", name, "--model", model,
-            "--effort", effort, "--dangerously-skip-permissions", prompt]
-    proc = run_cli(argv, cwd=cwd, env=bg_env(env), timeout=120)
+            "--effort", effort, "--settings", bg_settings(env), "--dangerously-skip-permissions", prompt]
+    # No MESH_* in the process itself, so a daemon this launch starts, and its spares, carry none.
+    proc = run_cli(argv, cwd=cwd, env=claude_env(strip_mesh=True), timeout=120)
     out = f"{proc.stdout}\n{proc.stderr}".strip()
     if "Workspace not trusted" in out:
         raise BgUntrusted(f"Claude Code doesn't trust {cwd} yet, so it can't run in the background there")
@@ -652,7 +758,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
         if row and row.get("sessionId"):
             return short, row["sessionId"]
         time.sleep(1)
-    run_cli([claude_bin(), "stop", short], timeout=30)  # a stray session would do the task twice
+    run_cli([claude_bin(), "stop", short], env=claude_env(), timeout=30)  # a stray session would do the task twice
     raise MeshError(f"{name} started as background session {short}, but `claude agents` doesn't list it")
 
 
@@ -660,7 +766,7 @@ def stop_bg(entry: dict) -> bool:
     """Stop a background worker's process; its conversation is kept (never `claude rm`)."""
     if not entry.get("bg_id"):
         return False
-    return run_cli([claude_bin(), "stop", entry["bg_id"]], timeout=30).returncode == 0
+    return run_cli([claude_bin(), "stop", entry["bg_id"]], env=claude_env(), timeout=30).returncode == 0
 
 
 def wait_bg_idle(entry: dict, wait_ms: int, strict: bool) -> None:
@@ -990,7 +1096,7 @@ def compact_conversation(entry: dict, session: str, model: str, focus: str) -> t
     else:
         argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions", prompt]
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
-    proc = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=COMPACT_TIMEOUT)
+    proc = run_cli(argv, cwd=entry["cwd"], env=claude_env(), timeout=COMPACT_TIMEOUT)
     return proc.returncode == 0, (proc.stderr or proc.stdout).strip()[-300:]
 
 
@@ -1282,10 +1388,9 @@ def worker_log(run_id: str, name: str) -> str:
 
 
 def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
+    """A worker's identity, and the configuration this process runs with (only the keys that are set)."""
     env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": role}
-    for key in ("MESH_HOME", "MESH_WORKTREES"):
-        if os.environ.get(key):
-            env[key] = os.environ[key]
+    env.update({key: os.environ[key] for key in MESH_CONFIG if os.environ.get(key)})
     return env
 
 
