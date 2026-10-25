@@ -87,7 +87,7 @@ Background workers report to a Claude root with `SendMessage`, so the root has t
 A worker on the default (`--model auto`) has two phases in one conversation:
 
 - **Planning** runs on the first model in the chain with at least 10% quota left. For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model.
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
 
 ```bash
@@ -269,6 +269,7 @@ mesh agents [query] [--run <id>]  # every past worker, live or archived, with br
 mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
+                           #   --keep-model: execute on the current model when that move can't start
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
 mesh usage                 # agy quotas and the models auto would pick
 mesh conflicts             # which run branches conflict with the default branch or each other

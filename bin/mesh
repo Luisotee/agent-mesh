@@ -22,9 +22,11 @@ import os
 import re
 import secrets
 import shlex
+import sqlite3
 import subprocess
 import sys
 import time
+import urllib.parse
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -123,6 +125,10 @@ TRUST_OPTION_RE = re.compile(r"^\s*[❯>]?\s*(Yes|No)\b")
 
 class MeshError(Exception):
     """A user-facing failure: printed without a traceback, exit status 1."""
+
+
+class SwapNotStarted(MeshError):
+    """A model swap that stopped before touching the worker: it still runs, on its old model."""
 
 
 class HerdrError(MeshError):
@@ -778,7 +784,7 @@ def wait_bg_idle(entry: dict, wait_ms: int, strict: bool) -> None:
             return
         if time.monotonic() > deadline:
             if strict:
-                raise MeshError(f"background session {entry.get('bg_id')} is still {state}")
+                raise SwapNotStarted(f"background session {entry.get('bg_id')} is still {state}")
             return
         time.sleep(2)
 
@@ -991,26 +997,62 @@ def agy_history(path: str, mtime: float) -> list[dict]:
     return entries
 
 
+@lru_cache(maxsize=4)
+def agy_summaries(path: str, mtime: float) -> list[dict]:
+    """agy's own index of its conversations: id, first prompt (`preview`) and workspace, oldest first.
+
+    It has a conversation's id from its first prompt on, while history.jsonl only gets one with a later prompt.
+    Opened read-only; agy keeps it in WAL mode, so reading never blocks it.
+    """
+    try:
+        db = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True, timeout=2)
+        try:
+            # Top-level conversations only: agy's subagents (`nesting_depth` > 0) share the workspace.
+            rows = db.execute("SELECT conversation_id, preview, workspace_uris FROM conversation_summaries "
+                              "WHERE nesting_depth = 0 AND step_count > 0 ORDER BY last_modified_time").fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return []
+    entries = []
+    for conversation, preview, uris in rows:
+        try:
+            workspaces = [urllib.parse.unquote(urllib.parse.urlparse(uri).path) for uri in json.loads(uris)]
+        except (ValueError, TypeError, AttributeError):
+            workspaces = []
+        entries.append({"conversationId": conversation, "display": preview or "", "workspaces": workspaces})
+    return entries
+
+
 def agy_conversation(name: str, run_id: str, cwd: str | None) -> str | None:
-    """agy's conversation id for an agent, from the prompt history agy keeps for every session.
+    """agy's conversation id for an agent, from agy's conversation index, else the prompt history it keeps.
 
     The first doorbell names the agent and its run, so it pins the conversation even when
-    a restart (`-2`) shares the worktree; the last prompt typed in that directory is the fallback.
+    a restart (`-2`) shares the worktree; the newest conversation in that directory is the fallback.
     """
-    path = Path(os.environ.get("MESH_AGY_HISTORY") or Path.home() / ".gemini/antigravity-cli/history.jsonl")
-    if not path.exists():
-        return None
+    home = Path.home() / ".gemini/antigravity-cli"
+    sources = ((os.environ.get("MESH_AGY_SUMMARIES") or home / "conversation_summaries.db", agy_summaries),
+               (os.environ.get("MESH_AGY_HISTORY") or home / "history.jsonl", agy_history))
     run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
-    by_doorbell = by_cwd = None
-    for entry in agy_history(str(path), path.stat().st_mtime):
-        conversation, display = entry.get("conversationId"), entry.get("display") or ""
-        if not conversation:
+    doorbells, cwds = [], []
+    for source, read in sources:
+        path = Path(source)
+        if not path.exists():
             continue
-        if display.startswith(f"📬 [mesh] {first_doorbell(name)}") and run_re.search(display):
-            by_doorbell = conversation
-        elif cwd and entry.get("workspace") == cwd:
-            by_cwd = conversation
-    return by_doorbell or by_cwd
+        by_doorbell = by_cwd = None
+        # agy's db takes new rows in its write-ahead log first, so that file's mtime counts too
+        mtime = max(f.stat().st_mtime for f in (path, path.with_name(path.name + "-wal")) if f.exists())
+        for entry in read(str(path), mtime):
+            conversation, display = entry.get("conversationId"), entry.get("display") or ""
+            if not conversation:
+                continue
+            if display.startswith(f"📬 [mesh] {first_doorbell(name)}") and run_re.search(display):
+                by_doorbell = conversation
+            elif cwd and cwd in entry.get("workspaces", [entry.get("workspace")]):
+                by_cwd = conversation
+        doorbells.append(by_doorbell)
+        cwds.append(by_cwd)
+    return next((c for c in doorbells + cwds if c), None)
 
 
 def claude_sessions_dir(cwd: str) -> Path:
@@ -1564,8 +1606,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     refuse_headless(name, entry, "a model swap")
     session = find_session(run_id, name, entry)
     if not session:
-        raise MeshError(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
-                        f"message it as it is, or start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}`")
+        raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
+                             f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
     if entry.get("view") == "bg":
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
                        message or ("mesh", "info", f"You are now on {model} at {effort} effort."))
@@ -1574,7 +1616,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
               timeout=wait_ms / 1000 + 10)
     except HerdrError as exc:
         if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
-            raise
+            raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
     run = load_run(run_id)
@@ -1625,9 +1667,21 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         effort = entry.get("exec_effort") or EXEC_EFFORT
         model = resolve_model(entry["kind"], entry["exec_model"], effort)
-        if (model, effort) != (entry.get("model"), entry.get("effort")):
-            result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved",
-                                        message=(me, "answer", body))
+        if args.keep_model:  # asked for, never a fallback: it executes on what it planned on
+            with editing_run(run_id) as run:
+                run["agents"][args.agent].setdefault("models", []).append(
+                    {"model": entry.get("model"), "effort": entry.get("effort"), "at": now_iso(),
+                     "why": "plan approved", "kept": True})
+            log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
+            result["kept_model"] = True
+        elif (model, effort) != (entry.get("model"), entry.get("effort")):
+            try:
+                result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved",
+                                            message=(me, "answer", body))
+            except SwapNotStarted as exc:
+                raise MeshError(f"{exc}. Nothing was sent. To approve it on {entry.get('model')} instead, run "
+                                f"`mesh approve {args.agent} --keep-model`: it is then recorded as executing, so a "
+                                f"later `mesh switch` moves it to {entry['exec_model']}") from exc
             result["model"] = model
         with editing_run(run_id) as run:
             run["agents"][args.agent]["phase"] = "exec"
@@ -1640,9 +1694,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
 def models_tried(entry: dict) -> tuple[str, ...]:
     """Every model the worker has run on in its current phase: `switch` never goes back to one."""
     models = entry.get("models", [])
-    start = 0
-    if entry.get("phase") == "exec":
-        start = next((i for i in range(len(models) - 1, -1, -1) if models[i].get("why") == "plan approved"), 0)
+    marker = "plan approved" if entry.get("phase") == "exec" else "planned task"
+    start = next((i for i in range(len(models) - 1, -1, -1) if models[i].get("why") == marker), 0)
     return tuple({entry.get("model"), *(m["model"] for m in models[start:])})
 
 
@@ -1703,6 +1756,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not body or not body.strip():
         raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
     to = me_parent(run_id, me) if args.to == "parent" else args.to
+    if args.type == "task":
+        enter_plan_phase(run_id, to, body)
     result = deliver(run_id, me, to, args.type, body)
     emit(result)
     if "send_message" in result:
@@ -1714,6 +1769,25 @@ def cmd_send(args: argparse.Namespace) -> int:
               f"{to} will see it on its next `mesh inbox`", file=sys.stderr)
         return 2
     return 0
+
+
+def enter_plan_phase(run_id: str, name: str, task: str) -> None:
+    """A planned task to a live worker with no plan phase (a small asker, a worker already executing) gets one,
+    as `mesh resume` gives it, so `mesh approve` moves it to its execution model and effort.
+
+    It plans on the model it is on: reopening a live worker to change that is what `retire` and `resume` are for.
+    """
+    with editing_run(run_id) as run:
+        entry = run["agents"].get(name)
+        if not entry or entry.get("role") != "worker" or entry.get("kind") not in KINDS \
+                or entry.get("phase") == "plan" or not planned_task(task):
+            return
+        entry.update(phase="plan", exec_model=entry.get("exec_model") or EXEC_MODEL[entry["kind"]],
+                     exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
+        # where this plan phase starts, for models_tried
+        entry.setdefault("models", []).append({"model": entry.get("model"), "effort": entry.get("effort"),
+                                               "at": now_iso(), "why": "planned task"})
+    log_event(run_id, "plan_phase", name=name, exec_model=entry["exec_model"])
 
 
 def me_parent(run_id: str, me: str) -> str:
@@ -2112,6 +2186,11 @@ def first_line(text: str | None, limit: int = 160) -> str:
 DIRECT_STARTS = ("Direct task (no plan)", "Plan review by the user")
 
 
+def planned_task(task: str | None) -> bool:
+    """A task the worker plans first: not a question, a review or a direct task."""
+    return bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS)
+
+
 def task_gist(task: str | None, limit: int = 160) -> str:
     """The line that says what a task is: the first one past the standard prefixes, without a heading's `#`."""
     for paragraph in re.split(r"\n\s*\n", task or ""):
@@ -2163,8 +2242,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     task = read_body(args.task, args.task_file)
     # A task it plans first plans where a spawn on `auto` would, whatever it last ran on, and gets the
     # execution phase, so `mesh approve` moves it on; a named model or effort covers the whole task, as in spawn.
-    planned = bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS) \
-        and not (args.model or args.effort)
+    planned = planned_task(task) and not (args.model or args.effort)
     notes: list[str] = []
     if planned:
         effort = DEFAULT_EFFORT
@@ -3006,6 +3084,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.add_argument("--body", help="notes to go with the approval")
     p.add_argument("--file", help="notes from a file (- for stdin)")
+    p.add_argument("--keep-model", action="store_true",
+                   help="execute on the current model: for when the swap can't start (no conversation found, busy)")
     p.set_defaults(func=cmd_approve)
 
     p = ident(sub.add_parser("switch", help="move a worker that hit a quota to the next model with quota left"))

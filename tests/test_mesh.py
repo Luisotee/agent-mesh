@@ -702,6 +702,73 @@ def test_agy_worker_in_a_main_checkout_never_borrows_the_users_session(mesh, tmp
     assert mesh.find_session("mold", "repo-planner", {**entry, "cwd": "/wt/x", "session": "s"}) == "s"
 
 
+# agy's conversation index, `CREATE TABLE` copied from the real ~/.gemini/antigravity-cli/conversation_summaries.db
+AGY_SUMMARIES_SCHEMA = """CREATE TABLE `conversation_summaries` (`conversation_id` text,`title` text NOT NULL DEFAULT "",`preview` text NOT NULL DEFAULT "",`step_count` integer NOT NULL DEFAULT 0,`last_modified_time` datetime NOT NULL,`workspace_uris` text NOT NULL,`status` text NOT NULL DEFAULT "",`source` text NOT NULL DEFAULT "",`project_id` text NOT NULL DEFAULT "",`agent_name` text NOT NULL DEFAULT "",`parent_conversation_id` text NOT NULL DEFAULT "",`nesting_depth` integer NOT NULL DEFAULT 0,`battle_id` text NOT NULL DEFAULT "",`winning_conversation_id` text NOT NULL DEFAULT "",`not_fully_idle` numeric NOT NULL DEFAULT false,`killed` numeric NOT NULL DEFAULT false,`last_user_input_time` datetime NOT NULL,`last_user_input_step_index` integer NOT NULL DEFAULT -1,`app_data_dir` text NOT NULL DEFAULT "",`raw_summary` blob,`group_id` text NOT NULL DEFAULT "",PRIMARY KEY (`conversation_id`))"""
+
+
+def agy_summaries_db(path, rows):
+    """A conversation index like agy's; each row is (id, preview, workspace, modified[, steps, depth])."""
+    import sqlite3
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
+    db.execute("PRAGMA journal_mode=WAL")  # as agy keeps it
+    db.execute(AGY_SUMMARIES_SCHEMA)
+    for conversation, preview, workspace, modified, *rest in rows:
+        steps, depth = (*rest, 12, 0)[:2]
+        db.execute("INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, "
+                   "last_modified_time, workspace_uris, nesting_depth, last_user_input_time) VALUES (?,?,?,?,?,?,?,?)",
+                   (conversation, "Agent Mesh Setup", preview, steps, modified,
+                    json.dumps([Path(workspace).as_uri()]), depth, modified))
+    db.commit()
+    return db  # still open: its rows may sit in the WAL only, as agy's do
+
+
+def test_agy_conversation_comes_from_agys_index_before_a_second_prompt(mesh, tmp_path, monkeypatch):
+    wt, other = "/wt/proj fix", "/wt/proj-other"
+    history = tmp_path / "agy" / "history.jsonl"
+    history.parent.mkdir(parents=True)
+    # agy writes a first prompt with no conversationId
+    history.write_text(json.dumps({"display": "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold; …",
+                                   "workspace": wt}) + "\n")
+    db = agy_summaries_db(tmp_path / "agy" / "conversation_summaries.db", [
+        ("old", "Agent Mesh Setup", wt, "2026-10-01 10:00:00+00:00"),  # an older agy: preview is the title
+        ("c1", "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold; …", wt, "2026-10-02 10:00:00+00:00"),
+        ("c2", "📬 [mesh] You are proj-other (worker) in agent-mesh run mold; …", other, "2026-10-02 11:00:00+00:00"),
+        ("sub", "research the API", wt, "2026-10-02 12:00:00+00:00", 5, 1),  # an agy subagent
+        ("slash", "", wt, "2026-10-02 13:00:00+00:00", 0, 0),  # /model only, no turn
+    ])
+    assert mesh.agy_conversation("proj-fix", "mold", wt) == "c1"
+    assert mesh.agy_conversation("proj-fix", "mold", None) == "c1"
+    assert mesh.agy_conversation("proj-other", "mold", other) == "c2"
+    assert mesh.agy_conversation("proj-fix", "mol", wt) == "c1"  # wrong run: the newest in that worktree
+
+    # a restart sharing the worktree is pinned by its own doorbell; the first one keeps its conversation
+    db.execute("INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, "
+               "workspace_uris, last_user_input_time) VALUES (?,?,?,?,?,?)",
+               ("c3", "📬 [mesh] You are proj-fix-2 (worker) in agent-mesh run mold; …", 3,
+                "2026-10-03 10:00:00+00:00", json.dumps([Path(wt).as_uri()]), "2026-10-03 10:00:00+00:00"))
+    db.commit()
+    assert mesh.agy_conversation("proj-fix-2", "mold", wt) == "c3"
+    assert mesh.agy_conversation("proj-fix", "mold", wt) == "c1"
+    assert mesh.agy_conversation("proj-fix", "mol", wt) == "c3"
+    db.close()
+
+
+def test_agy_conversation_falls_back_to_history_without_a_readable_index(mesh, tmp_path, monkeypatch):
+    history = tmp_path / "agy" / "history.jsonl"
+    history.parent.mkdir(parents=True)
+    history.write_text(json.dumps({"display": "📬 [mesh] You are proj-fix (worker) in agent-mesh run mold; …",
+                                   "workspace": "/wt/fix", "conversationId": "h1"}) + "\n")
+    (tmp_path / "agy" / "conversation_summaries.db").write_text("not a database")
+    assert mesh.agy_conversation("proj-fix", "mold", "/wt/fix") == "h1"
+    # a pinned doorbell in history beats a mere worktree match in the index
+    (tmp_path / "agy" / "conversation_summaries.db").unlink()
+    agy_summaries_db(tmp_path / "agy" / "conversation_summaries.db",
+                     [("i1", "Agent Mesh Setup", "/wt/fix", "2026-10-02 10:00:00+00:00")]).close()
+    assert mesh.agy_conversation("proj-fix", "mold", "/wt/fix") == "h1"
+    assert mesh.agy_conversation("proj-other", "mold", "/wt/fix") == "i1"
+
+
 def test_claude_session_found_for_workers_spawned_before_session_ids(mesh, tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     cwd = "/home/u/.local/share/agent-mesh/worktrees/mold/proj-fix"
@@ -1085,6 +1152,89 @@ def test_approve_does_not_cut_a_busy_worker_short(mesh, fake, run, monkeypatch, 
     assert mesh.main(["approve", "repo-fix-typo"]) == 1
     assert not fake.called("pane", "close") and not fake.called("agent", "start")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "plan"
+
+
+def test_approve_suggests_keep_model_when_the_swap_cannot_start(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, session=None)  # agy has no conversation for it on record
+    with_quotas(mesh, monkeypatch)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    err = capsys.readouterr().err
+    assert "can't find repo-fix-typo's agy conversation" in err
+    assert "mesh approve repo-fix-typo --keep-model" in err and "mesh send" not in err
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["phase"] == "plan" and mesh.unread(run, "repo-fix-typo") == []
+
+    fake.on("agent", "wait", error="timeout")  # a busy worker: same hint
+    planning_worker(mesh, run)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "--keep-model" in capsys.readouterr().err
+
+
+def test_approve_does_not_suggest_keep_model_once_the_pane_is_gone(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run)
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["cli_error"] * 10)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    err = capsys.readouterr().err
+    assert "then retry" in err and "--keep-model" not in err
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "swap_failed"
+
+
+def test_approve_keep_model_executes_where_it_planned(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high", session=None)
+    with_quotas(mesh, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo", "--keep-model"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["kept_model"] is True and out["model"] == "gemini-4-argon-high"
+    assert not fake.called("agent", "start") and not fake.called("pane", "close")
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] answer from repo-lead: approved")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["phase"], entry["model"], entry["effort"]) == ("exec", "gemini-4-argon-high", "high")
+    assert entry["models"][-1]["why"] == "plan approved" and entry["models"][-1]["kept"] is True
+
+    # executing, so a quota hit moves it to the exec model, not down the plan chain
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["session"] = "c1"
+    stub_new_pane(fake)
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-high"
+
+
+def test_a_planned_task_sent_to_a_worker_with_no_plan_phase_gets_one(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:  # a small asker: one model, no plan phase
+        data["agents"]["repo-fix-typo"].update(kind="agy", model="gemini-3.8-flash-low", effort="low", phase=None,
+                                               exec_model=None, exec_effort=None, session="c1", cwd="/wt/fix",
+                                               repo="/repo", workspace="w9", models=[{"model": "gemini-3.8-flash-low", "why": "spawn"}])
+    for mtype, body in (("info", "FYI"), ("task", "Direct task (no plan): fix the typo"),
+                        ("task", "Question (read-only): where is X?")):
+        assert mesh.main(["send", "repo-fix-typo", "--type", mtype, "--body", body]) == 0
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] is None
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "# Task: add retries"]) == 0
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "flash", "medium")
+    assert entry["model"] == "gemini-3.8-flash-low" and entry["models"][-1]["why"] == "planned task"
+
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-medium"
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
+
+
+def test_a_planned_task_to_an_executing_worker_starts_a_new_plan_phase(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-3.8-flash-medium", phase="exec")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["models"] = [
+            {"model": "gemini-4-argon-high", "why": "spawn"},
+            {"model": "gemini-3.8-flash-medium", "why": "plan approved"}]
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Now also handle Y."]) == 0
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["phase"] == "plan" and entry["exec_model"] == "flash"
+    # planning again: Argon ran out in the first plan phase, but a switch now may go back to it
+    assert mesh.models_tried(entry) == ("gemini-3.8-flash-medium",)
 
 
 def test_the_new_model_doorbell_survives_a_failed_ring(mesh, fake, run, monkeypatch, capsys):
