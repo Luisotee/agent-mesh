@@ -499,10 +499,20 @@ def bg_status(entry: dict, rows: list[dict] | None = None) -> str:
     return BG_STATUS.get(row["status"], "unknown")
 
 
+MESH_IDS = ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")
+HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
+
+
+def env_without_identity(keep_herdr: bool) -> dict[str, str]:
+    """This process's environment with no mesh identity. Without `keep_herdr` it also loses the pane's herdr ids,
+    which `identity()` would otherwise map back to whoever owns this pane (the root)."""
+    return {k: v for k, v in os.environ.items()
+            if k not in MESH_IDS and (keep_herdr or k not in HERDR_IDS)}
+
+
 def bg_env(env: dict[str, str]) -> dict[str, str]:
     """This process's environment for a background worker: its own MESH_* identity, and not the root pane's herdr ids."""
-    drop = {"HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE"}
-    return {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
+    return {**env_without_identity(keep_herdr=False), **env}
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -528,6 +538,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
         if row and row.get("sessionId"):
             return short, row["sessionId"]
         time.sleep(1)
+    run_cli([claude_bin(), "stop", short], timeout=30)  # a stray session would do the task twice
     raise MeshError(f"{name} started as background session {short}, but `claude agents` doesn't list it")
 
 
@@ -860,9 +871,8 @@ def compact_conversation(entry: dict, session: str, model: str, focus: str) -> t
         argv = ["agy", "--conversation", session, "--model", model, "--dangerously-skip-permissions", "-p", prompt]
     else:
         argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions", prompt]
-    # No MESH_* identity: the compaction turn must not message anyone.
-    env = {k: v for k, v in os.environ.items() if k not in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")}
-    proc = run_cli(argv, cwd=entry["cwd"], env=env, timeout=COMPACT_TIMEOUT)
+    # No identity at all: the compaction turn must not message anyone, or pass for the root.
+    proc = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False), timeout=COMPACT_TIMEOUT)
     return proc.returncode == 0, (proc.stderr or proc.stdout).strip()[-300:]
 
 
@@ -1171,12 +1181,13 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                         "drop --exec-model / --exec-effort")
     if user_review and (args.kind != "claude" or sized):
         raise MeshError("--plan-review user is for a large Claude task (opusplan in plan mode, in a pane)")
+    named = args.model if args.model != "auto" else None  # `auto` names the plan chain, which these tasks skip
     if sized:  # one cheap model for the whole task, and no plan phase
         auto, exec_model, exec_effort = False, None, None
-        model, effort, notes = args.model or sized["model"], args.effort or sized["effort"], []
+        model, effort, notes = named or sized["model"], args.effort or sized["effort"], []
     elif user_review:  # Claude Code switches opusplan from Opus to Sonnet when the user approves the plan
         auto, exec_model, exec_effort = False, None, None
-        model, effort, notes = args.model or USER_REVIEW_MODEL, args.effort or DEFAULT_EFFORT, []
+        model, effort, notes = named or USER_REVIEW_MODEL, args.effort or DEFAULT_EFFORT, []
     else:
         # `auto` plans on the best model with quota and switches to the exec model at `mesh approve`.
         auto = (args.model or "auto") == "auto"
@@ -1235,7 +1246,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
         try:
             bg_id, session = launch_bg(name, cwd, model, effort, env, prompt)
-        except BgUntrusted as exc:
+        except MeshError as exc:  # untrusted folder, or a launch that didn't take
             notes.append(f"{exc}; starting a pane instead")
             view = "pane"
         else:
@@ -1280,13 +1291,13 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     The message goes into its mailbox first, since the copy's opening prompt is the doorbell for it.
     """
     wait_bg_idle(entry, wait_ms, strict)
-    stop_bg(entry)
     sender, mtype, body = message
     path = record(run_id, sender, name, mtype, body)
-    with editing_run(run_id) as run:
+    with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, status="starting", swapped=True)
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
+    stop_bg(entry)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
@@ -1370,9 +1381,6 @@ def cmd_approve(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), args.agent)
     result: dict = {"name": args.agent, "model": entry.get("model")}
-    if entry.get("phase") == "plan" and entry.get("exec_model"):
-        effort = entry.get("exec_effort") or EXEC_EFFORT
-        model = resolve_model(entry["kind"], entry["exec_model"], effort)
     extra = read_body(args.body, args.file)
     body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
     if entry.get("phase") == "plan" and entry.get("exec_model"):
@@ -1590,8 +1598,10 @@ class Watch:
         self.blocked_polls = 0
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
+        self.finished = False  # it reported, then its pane closed or its session ended
 
-    def tick(self, interval: float, alerts_only: bool = False) -> tuple[int, str] | None:
+    def tick(self, interval: float, alerts_only: bool = False,
+             bg_rows: list[dict] | None = None) -> tuple[int, str] | None:
         """(status, line) once there is something to say, else None."""
         run_id, name = self.run_id, self.name
         finals = sends_from(run_id, name, FINAL_TYPES)
@@ -1606,7 +1616,7 @@ class Watch:
             return 7, (f"ALERT {name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
                        + f"; move it to the next model with `mesh switch {name}`")
         entry = agent_entry(load_run(run_id), name)
-        state = agent_status(name, entry)
+        state = agent_status(name, entry, bg_rows)
         if (state == "gone" and self.reopening < SWAP_GRACE
                 and agent_entry(load_run(run_id), name).get("status") == "starting"):  # read after the state
             state = self.prev  # `mesh approve` / `mesh switch` is reopening it on another model
@@ -1615,7 +1625,8 @@ class Watch:
             self.reopening = 0.0
         if state == "gone":
             if self.reported:
-                return None  # it reported, then its pane closed or its session ended: nothing to alert
+                self.finished = True  # nothing to alert
+                return None
             return 5, f"ALERT {name} is gone (pane closed or agent exited) without reporting done/failed"
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
@@ -1644,13 +1655,21 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     watches = [Watch(run_id, name, grace, finals_at_start) for name in names]
     deadline = time.monotonic() + timeout if timeout else None
     while True:
+        run = load_run(run_id)
+        # One `claude agents` call per poll, shared by every background worker.
+        bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
         for watch in watches:
-            event = watch.tick(interval, alerts_only)
+            event = watch.tick(interval, alerts_only, bg_rows)
             if event:
                 return event
+        if alerts_only and all(w.finished for w in watches):
+            return 0, "every watched worker reported and has ended; nothing left to watch"
         if deadline and time.monotonic() > deadline:
-            states = ", ".join(f"{w.name}: {w.prev}" for w in watches)
-            who = watches[0].name if len(watches) == 1 else f"{len(watches)} workers"
+            waiting = [w for w in watches if not w.reported]
+            if not waiting:
+                return 0, f"every watched worker reported within {timeout}s"
+            states = ", ".join(f"{w.name}: {w.prev}" for w in waiting)
+            who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
         time.sleep(interval)
 
@@ -1815,6 +1834,21 @@ def first_line(text: str | None, limit: int = 160) -> str:
     return line[:limit]
 
 
+DIRECT_STARTS = ("Direct task (no plan)", "Plan review by the user")
+
+
+def task_gist(task: str | None, limit: int = 160) -> str:
+    """The line that says what a task is: the first one past the standard prefixes, without a heading's `#`."""
+    for paragraph in re.split(r"\n\s*\n", task or ""):
+        paragraph = paragraph.strip()
+        if not paragraph or paragraph.startswith(READ_ONLY_STARTS + DIRECT_STARTS):
+            continue
+        line = first_line(paragraph.lstrip("#").strip())
+        if line:
+            return line[:limit]
+    return ""
+
+
 def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: str, task: str | None,
                   cross_run: bool) -> dict:
     """`--compact`: compact the conversation before it is reopened, if it's worth it (see should_compact)."""
@@ -1825,7 +1859,7 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     if not should_compact(mode, entry, tokens, read_only, cross_run):
         return report
     focus = getattr(args, "focus", None) or COMPACT_FOCUS.format(
-        task=first_line(task) or "the follow-up task you are about to get")
+        task=task_gist(task) or "the follow-up task you are about to get")
     ok, output = compact_conversation(entry, session, model, focus)
     report["compacted"] = ok
     if ok:
@@ -1896,20 +1930,27 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         # A copy of the conversation, so it gets this run's identity (see launch_bg); the task waits in its mailbox.
         path = record(run_id, me, name, "task", task) if task else None
         prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
-        bg_id, new_session = launch_bg(name, cwd, model, effort, env, prompt, resume=session)
-        with editing_run(run_id) as run:
-            run["agents"][name].update(bg_id=bg_id, session=new_session, sessions=[session], status="running")
-        log_event(run_id, "resume", name=name, kind=old["kind"], model=model, view="bg", bg_id=bg_id, parent=me,
-                  from_run=old_run["id"], from_name=old_name, session=new_session)
-        result.update(bg_id=bg_id, session=new_session)
-        if path:
-            result["delivery"] = {"stored": str(path), "rung": False, "error": None, "launched": True}
-        return result
+        try:
+            bg_id, new_session = launch_bg(name, cwd, model, effort, env, prompt, resume=session)
+        except MeshError as exc:  # as in spawn_worker: the conversation reopens in a pane instead
+            notes.append(f"{exc}; reopening in a pane instead")
+        else:
+            with editing_run(run_id) as run:
+                run["agents"][name].update(bg_id=bg_id, session=new_session, sessions=[session], status="running")
+            log_event(run_id, "resume", name=name, kind=old["kind"], model=model, view="bg", bg_id=bg_id, parent=me,
+                      from_run=old_run["id"], from_name=old_name, session=new_session)
+            result.update(bg_id=bg_id, session=new_session)
+            if path:
+                result["delivery"] = {"stored": str(path), "rung": False, "error": None, "launched": True}
+            return result
+    else:
+        path = None
 
     workspace_id, _ = find_or_create_workspace(repo_top)
     pane, tab = new_pane(run_id, workspace_id, Path(cwd), env)
     with editing_run(run_id) as run:
-        run["agents"][name].update(pane=pane, tab=tab, workspace=workspace_id)
+        run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
+    result["view"] = "pane"
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
 
@@ -1919,7 +1960,10 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         run["agents"][name]["status"] = "running"
 
     result.update(pane=pane, workspace=workspace_id, session=session)
-    if task:
+    if path:  # stored before a background launch that fell back to this pane
+        rung, error = ring([name, pane], doorbell_text(load_run(run_id), me, name, "task", task, first=True))
+        result["delivery"] = {"stored": str(path), "rung": rung, "error": error}
+    elif task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
     return result
 

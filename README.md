@@ -198,7 +198,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Watchdog
 
-The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits only on an alert:
+The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended:
 
 | Status | Meaning |
 |---|---|

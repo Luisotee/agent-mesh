@@ -1549,3 +1549,126 @@ def test_conflicts_finds_overlapping_branches_and_skips_stacked_ones(mesh, fake,
     assert all(r["files"] == ["a.txt"] for r in rows)
     assert mesh.main(["conflicts"]) == 0
     assert "mesh/mtest/b2" in capsys.readouterr().out
+
+
+def test_a_bg_swap_is_marked_starting_before_its_session_stops(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
+    bg_cli(cli, rows=[{"id": "abcdef12", "sessionId": "new-s", "status": "busy", "pid": 2}], short="abcdef12")
+    at_stop = []
+    cli.on("stop", effect=lambda argv: at_stop.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["status"]))
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert at_stop == ["starting"]  # a watch polling during the stop excuses the gap
+    capsys.readouterr()
+
+
+def test_a_bg_session_that_never_lists_is_stopped_and_the_spawn_takes_a_pane(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    stub_new_pane(fake)
+    bg_cli(cli, rows=[])
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
+                      "--task", "Tweak the button."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert cli.called("stop", "ab12cd34")  # no stray session left to do the task too
+    assert out["view"] == "pane" and "doesn't list it" in out["notes"][0]
+    assert mesh.load_run(run)["agents"]["proj-ui"]["status"] == "running"
+    assert len(mesh.unread(run, "proj-ui")) == 1 and out["delivery"]["rung"] is True
+
+
+def test_a_bg_resume_in_an_untrusted_folder_reopens_in_a_pane(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    with open(mesh.mesh_home() / "archive" / "mold" / "run.json") as fh:
+        data = json.load(fh)
+    data["agents"]["proj-fix"].update(view="bg", bg_id="s1short")
+    (mesh.mesh_home() / "archive" / "mold" / "run.json").write_text(json.dumps(data))
+    stub_new_pane(fake)
+    cli.on("--bg", returncode=1, stdout="Workspace not trusted. Run `claude` in /x once")
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Address the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (out["view"], entry["view"], entry["status"]) == ("pane", "pane", "running")
+    assert fake.called("agent", "start") and "doesn't trust" in out["notes"][-1]
+    assert len(mesh.unread(run, "proj-fix")) == 1 and out["delivery"]["rung"] is True
+
+
+def test_an_alerts_watch_ends_once_every_worker_reported_and_ended(mesh, fake, run, monkeypatch, capsys):
+    polls = {"n": 0}
+
+    def status(name, *_):
+        polls["n"] += 1
+        if polls["n"] == 2:
+            mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+        return "working" if polls["n"] < 4 else "gone"
+
+    monkeypatch.setattr(mesh, "agent_status", status)
+    assert mesh.main(["watch", "--any", "--alerts"]) == 0
+    assert "nothing left to watch" in capsys.readouterr().out
+
+
+def test_an_alerts_watch_timeout_names_only_the_workers_that_have_not_reported(mesh, fake, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                      "status": "running"}
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="info", file="x.md")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    clock = iter(range(0, 10**6, 100))
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: next(clock))
+    watches = []
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        if self.name == "repo-fix-typo" and not self.reported:
+            mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="y.md")
+        watches.append(self)
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    status, line = mesh.watch_agents(run, ["repo-fix-typo", "repo-two"], timeout=150, alerts_only=True)
+    assert status == 6 and line.startswith("ALERT repo-two has not reported") and "repo-fix-typo" not in line
+
+
+def test_the_compaction_focus_skips_the_prefixes(mesh):
+    assert mesh.task_gist(f"{mesh.DIRECT_PREFIX}\n\n# Fix reactions\n\nDetails") == "Fix reactions"
+    assert mesh.task_gist(f"{mesh.ASK_PREFIX}\n\nHow is restockedAt computed?") == "How is restockedAt computed?"
+    assert mesh.task_gist("Apply the review.\nDetails…") == "Apply the review."
+    assert mesh.task_gist(None) == ""
+
+
+def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    stub_new_pane(fake)
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")  # the root's pane, which by-pane maps to the root
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Go."]) == 0
+    env = cli.called("-p")[0]["env"]
+    assert "HERDR_PANE_ID" not in env and not any(k in env for k in mesh.MESH_IDS)
+    assert env["MESH_HOME"] == str(mesh.mesh_home())  # configuration stays
+    capsys.readouterr()
+
+
+def test_model_auto_on_a_small_task_means_its_default(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--repo", str(repo),
+                      "--worktree", "copy"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "sonnet"
+    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "sonnet"]
+
+
+def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsys):
+    bg_worker(mesh, run, session="s1", bg_id="b1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {**data["agents"]["repo-fix-typo"], "session": "s2", "bg_id": "b2"}
+    rows = [{"id": "b1", "sessionId": "s1", "status": "busy"}, {"id": "b2", "sessionId": "s2", "status": "busy"}]
+
+    def agents_call(argv):
+        if len(cli.called("agents")) == 3:
+            mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
+
+    cli.on("agents", stdout=lambda: json.dumps(rows), effect=agents_call)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-two reported done" in capsys.readouterr().out
+    assert len(cli.called("agents")) == 3  # one to list the live workers, then one per poll
