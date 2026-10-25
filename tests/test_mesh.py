@@ -1293,6 +1293,13 @@ def test_agents_lists_archived_workers_with_their_prs(mesh, fake, run, repo, cap
     assert "No workers match" in capsys.readouterr().out
 
 
+def test_worker_prs_lists_a_pr_once_when_a_report_repeats_it(mesh, fake, run):
+    pr, other = "https://github.com/acme/proj/pull/7", "https://github.com/acme/proj/pull/8"
+    mesh.store_message(run, "repo-fix-typo", "repo-lead", "done", f"Opened {pr}.\n\nPR: {pr}, and see {other}")
+    mesh.store_message(run, "repo-fix-typo", "repo-lead", "done", f"Updated {other}")
+    assert mesh.worker_prs(mesh.run_dir(run), "repo-fix-typo") == [pr, other]
+
+
 def test_agents_run_filter_keeps_workers_resumed_into_the_run(mesh, fake, run, repo, capsys):
     archived_worker(mesh, repo, session="c1")
     with mesh.editing_run(run) as data:  # resumed here: it keeps mesh/mold/fix
@@ -2058,14 +2065,28 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["name"] == "proj-review-7"
+    assert out["name"] == "proj-review-7-agy"
     wt_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=out["cwd"], capture_output=True, text=True).stdout
     assert wt_head.strip() == head
-    entry = mesh.load_run(run)["agents"]["proj-review-7"]
+    entry = mesh.load_run(run)["agents"]["proj-review-7-agy"]
     assert (entry["reviews"], entry["base"]) == ([pr], head)
-    [task] = mesh.unread(run, "proj-review-7")
+    [task] = mesh.unread(run, "proj-review-7-agy")
     body = mesh.parse_message(task)[1]
     assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
+
+
+def test_a_second_fresh_reviewer_of_a_pr_gets_its_own_branch(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    second = json.loads(capsys.readouterr().out)  # the first one's branch is still there, as a retired one's is
+    assert (first["branch"], second["branch"]) == ("mesh/mtest/review-7-claude", "mesh/mtest/review-7-claude-2")
+    assert second["name"] != first["name"]
 
 
 def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
@@ -2859,8 +2880,8 @@ def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cl
     cli.on("--output-format", stdout=copilot_jsonl("1. x.py:3 crashes on empty input."))
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--kind", "copilot"]) == 0
     captured = capsys.readouterr()
-    assert "── done from proj-review-7 ──\n1. x.py:3 crashes" in captured.out and "apply" not in captured.err
-    entry = mesh.load_run(run)["agents"]["proj-review-7"]
+    assert "── done from proj-review-7-copilot ──\n1. x.py:3 crashes" in captured.out and "apply" not in captured.err
+    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
     assert (entry["kind"], entry["view"], entry["status"], entry["model"], entry["reviews"], entry["base"]) == (
         "copilot", "headless", "retired", "gpt-5.6-luna", [pr], head)
     [call] = cli.called("--output-format")
@@ -2873,10 +2894,10 @@ def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cl
     assert denied[0] == "write" and "shell(git push:*)" in denied and "shell(gh pr comment:*)" in denied
     assert argv[argv.index("--session-id") + 1] == entry["session"]
     assert argv[argv.index("--model") + 1] == "auto" and "--auto-tier" in argv and "--reasoning-effort" not in argv
-    assert not fake.called("agent", "start") and not mesh.unread(run, "proj-review-7")
+    assert not fake.called("agent", "start") and not mesh.unread(run, "proj-review-7-copilot")
 
     cli.on("--output-format", stdout=copilot_jsonl("Because the list can be empty."))
-    assert mesh.main(["ask", "proj-review-7", "--body", "Why?"]) == 0
+    assert mesh.main(["ask", "proj-review-7-copilot", "--body", "Why?"]) == 0
     assert "Because the list can be empty." in capsys.readouterr().out
     follow = cli.called("--output-format")[-1]
     # The same --session-id resumes the session it started.
