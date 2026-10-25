@@ -403,16 +403,49 @@ def editing_run(run_id: str):
 
 
 def log_event(run_id: str, event: str, **fields) -> None:
-    line = json.dumps({"time": now_iso(), "event": event, **fields})
-    with open(run_dir(run_id) / "log.jsonl", "a") as fh:
-        fh.write(line + "\n")
+    line = json.dumps({"time": now_iso(), "event": event, **fields}) + "\n"
+    fd = os.open(run_dir(run_id) / "log.jsonl", os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        # A write cut short (a kill, a full disk) leaves a line with no newline: end it first, or this event
+        # is glued onto the fragment and lost with it. Two writers sealing at once leave an empty line.
+        size = os.fstat(fd).st_size
+        if size and os.pread(fd, 1, size - 1) != b"\n":
+            line = "\n" + line
+        os.write(fd, line.encode())
+    finally:
+        os.close(fd)
+
+
+TORN_WARNED: set[str] = set()  # log files whose unreadable lines were reported, once per process
+
+
+def parse_log_lines(lines: list[str], path: Path, first: int = 1) -> list[dict]:
+    """The events in `lines` (line `first` onwards of `path`), skipping any that don't parse: one torn line
+    must not break every reader. The first time a file has some, a warning says so on stderr."""
+    events, bad = [], []
+    for number, line in enumerate(lines, first):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            event = None
+        if isinstance(event, dict):
+            events.append(event)
+        else:
+            bad.append(number)
+    if bad and str(path) not in TORN_WARNED:
+        TORN_WARNED.add(str(path))
+        print(f"mesh: skipped {len(bad)} unreadable line(s) in {path} (line {bad[0]}: a write cut short?)",
+              file=sys.stderr)
+    return events
 
 
 def read_log(run_id: str) -> list[dict]:
     path = run_dir(run_id) / "log.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return parse_log_lines(path.read_text().splitlines(), path)
 
 
 # ── identity ─────────────────────────────────────────────────────────────
@@ -2667,6 +2700,173 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
         raise
 
 
+def ago(seconds: float) -> str:
+    """A short age: 45s, 12m, 3h05m, 2d3h."""
+    if seconds == float("inf"):
+        return "?"
+    s = max(0, int(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h{s % 3600 // 60:02d}m"
+    return f"{s // 86400}d{s % 86400 // 3600}h"
+
+
+def message_file(run_id: str, to: str, file: str | None) -> Path | None:
+    """A logged message's file in `to`'s mailbox, unread or read."""
+    if not file:
+        return None
+    folder = inbox_dir(run_id, to)
+    return next((p for p in (folder / file, folder / "read" / file) if p.exists()), None)
+
+
+def message_body(run_id: str, event: dict | None) -> str:
+    path = message_file(run_id, event.get("to"), event.get("file")) if event else None
+    return parse_message(path)[1] if path else ""
+
+
+PR_STATE_TTL = 120  # seconds `mesh status` reuses a PR's state from `<run>/pr-state.json`
+CHECK_FAILED = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE")
+
+
+def checks_summary(rollup: list[dict] | None) -> str | None:
+    """`gh`'s statusCheckRollup as one word: failing, pending or pass (None with no checks)."""
+    seen = set()
+    for check in rollup or ():
+        if "conclusion" in check or "status" in check:  # a check run
+            done = (check.get("status") or "").upper() == "COMPLETED"
+            outcome = (check.get("conclusion") or "").upper()
+        else:  # a commit status
+            outcome = (check.get("state") or "").upper()
+            done = outcome not in ("PENDING", "EXPECTED")
+        seen.add("pending" if not done else "failing" if outcome in CHECK_FAILED else "pass")
+    return next((word for word in ("failing", "pending", "pass") if word in seen), None)
+
+
+def pr_state(url: str) -> dict | None:
+    result = run_cli(["gh", "pr", "view", url, "--json", "state,isDraft,statusCheckRollup"], timeout=30)
+    try:
+        data = json.loads(result.stdout) if result.returncode == 0 else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not data.get("state"):
+        return None
+    return {"state": data["state"].lower(), "draft": bool(data.get("isDraft")),
+            "checks": checks_summary(data.get("statusCheckRollup"))}
+
+
+def pr_states(run_id: str, urls: list[str]) -> dict[str, dict]:
+    """Each PR's state, checks and draft flag from `gh`, fetched side by side and cached for PR_STATE_TTL.
+    A failed fetch keeps the last cached state; with none, the state is `unknown`."""
+    path = run_dir(run_id) / "pr-state.json"
+    try:
+        cache = json.loads(path.read_text())
+    except (OSError, ValueError):
+        cache = {}
+    stale = [u for u in dict.fromkeys(urls) if time.time() - cache.get(u, {}).get("at", 0) > PR_STATE_TTL]
+    if stale:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(stale))) as pool:
+            for url, state in zip(stale, pool.map(pr_state, stale)):
+                if state:
+                    cache[url] = {**state, "at": time.time()}
+        write_atomic(path, json.dumps(cache, indent=2) + "\n")
+    unknown = {"state": "unknown", "draft": False, "checks": None}
+    return {u: {k: v for k, v in cache.get(u, unknown).items() if k != "at"} for u in urls}
+
+
+def last_task(events: list[dict], name: str) -> dict | None:
+    return next((e for e in reversed(events) if e.get("event") == "send" and e.get("to") == name
+                 and e.get("type") == "task"), None)
+
+
+def report_prs(run_id: str, name: str, entry: dict, report: dict) -> list[str]:
+    """The PRs a `done` names (not ones the worker reviewed), else every PR its messages named."""
+    reviewed = set(entry.get("reviews") or ())
+    prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, report))) if u not in reviewed]
+    return prs or worker_prs(run_dir(run_id), name, entry)
+
+
+def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -> None:
+    """Add to each status row what the worker owes or waits on, derived from the log, mailboxes, git and `gh`:
+    `waiting` (what to show), `needs` (who acts next: root, worker or None), `since`, `report`, and for a
+    `done` or `failed` its `prs` and work evidence."""
+    folds = {r["name"]: last_report(events, r["name"]) for r in rows if r["role"] != "root"}
+    pending = {}  # a done's PRs, fetched together below
+    for row in rows:
+        row.update(waiting="", needs=None, since=None, report=None)
+        name, entry = row["name"], run["agents"][row["name"]]
+        if row["role"] == "root":
+            continue
+        report, received = folds[name]
+        if report and report.get("type") in FINAL_TYPES:
+            row.update(work_evidence(run, entry))
+            read_only = message_body(run_id, last_task(events, name)).lstrip().startswith(READ_ONLY_STARTS)
+            if report["type"] == "done" and not read_only:
+                pending[name] = report_prs(run_id, name, entry, report)
+            row["read_only"] = read_only
+    states = pr_states(run_id, [u for urls in pending.values() for u in urls]) if pending else {}
+    reviewing: dict[str, list[str]] = {}  # PR → reviewers that haven't reported since their last task
+    for name, entry in run["agents"].items():
+        report = folds.get(name, (None, None))[0]
+        if entry.get("status") != "retired" and not (report and report.get("type") in FINAL_TYPES):
+            for url in entry.get("reviews") or ():
+                reviewing.setdefault(url, []).append(name)
+    for row in rows:
+        if row["role"] == "root":
+            continue
+        name, entry = row["name"], run["agents"][row["name"]]
+        report, received = folds[name]
+        retired = row["state"] == "retired"
+        if report:
+            mtype, since = report["type"], report.get("time")
+            unread_note = ", unread" if (inbox_dir(run_id, report["to"]) / str(report.get("file"))).exists() else ""
+            needs = "root"
+            if mtype in ("plan", "question"):
+                text = f"{mtype} unanswered {ago(age_seconds(since))}{unread_note}"
+            elif mtype == "failed":
+                text = f"failed {ago(age_seconds(since))}{unread_note}"
+            elif row.pop("read_only", False):
+                text = f"answered {ago(age_seconds(since))}{unread_note}"
+            else:
+                urls = pending.get(name, [])
+                row["prs"] = [{"url": u, "number": int(u.rsplit("/", 1)[1]), **states[u]} for u in urls]
+                parts = [f"PR #{p['number']} {p['state']}" + (", draft" if p["draft"] else "")
+                         + (f", checks {p['checks']}" if p["checks"] else "") for p in row["prs"]]
+                if not urls:
+                    commits = row.get("commits")
+                    parts.append("no commits" if commits == 0 else f"{commits} commit(s)" if commits else "")
+                    if commits and row.get("pushed") is False:
+                        parts.append("not pushed")
+                    parts.append("no PR")
+                if row.get("dirty"):
+                    parts.append("worktree dirty")
+                reviewers = [r for u in urls for r in reviewing.get(u, []) if r != name]
+                if reviewers:
+                    parts.append(f"in review ({', '.join(dict.fromkeys(reviewers))})")
+                    needs = "worker"
+                text = f"done {ago(age_seconds(since))}{unread_note}: " + ", ".join(p for p in parts if p)
+            row.pop("read_only", None)
+        elif not received:
+            text, since, needs = "no task", None, None
+        else:
+            mtype, since = received["type"], received.get("time")
+            if retired:
+                text, needs = "retired before reporting", None
+            elif (inbox_dir(run_id, name) / str(received.get("file"))).exists():
+                text, needs = f"{mtype} unread {ago(age_seconds(since))}", "worker"
+                if any(e.get("event") == "doorbell_failed" and e.get("file") == received.get("file") for e in events):
+                    text, needs = f"{text}, doorbell failed", "root"
+            else:
+                text, needs = f"on {mtype} {ago(age_seconds(since))}", "worker"
+            if needs == "worker" and (row["state"] in ("gone", "blocked") or entry.get("status") == "swap_failed"):
+                needs = "root"  # it owes a report it can't send
+                text += " (swap failed)" if entry.get("status") == "swap_failed" else ""
+        row.update(waiting=text, needs=None if retired else needs, since=since, report=report and report["type"])
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     run_id = args.run_id or identity(args)[0]
     run = load_run(run_id)
@@ -2680,11 +2880,105 @@ def cmd_status(args: argparse.Namespace) -> int:
             "state": live, "unread": len(unread(run_id, name)), "parent": entry.get("parent") or "",
             "branch": entry.get("branch") or "",
         })
+    waiting_rows(run_id, run, rows, read_log(run_id))
+    # What needs the root first, longest-waiting first; then what waits on a worker; the root's own row last.
+    rank = {"root": 0, "worker": 1, None: 2}
+    rows.sort(key=lambda r: (3 if r["role"] == "root" else rank[r["needs"]], r["since"] or "~"))
     if args.json:
-        emit({"run": run_id, "mode": run["mode"], "agents": rows})
+        emit({"run": run_id, "mode": run["mode"], "agents": rows,
+              "needs_root": [r["name"] for r in rows if r["needs"] == "root"]})
         return 0
     print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}")
-    print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "parent", "branch"))
+    print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "waiting", "branch"))
+    return 0
+
+
+def log_path(run_id: str) -> Path:
+    """A run's log, live or archived."""
+    for folder in (run_dir(run_id), mesh_home() / "archive" / run_id):
+        if (folder / "run.json").exists():
+            return folder / "log.jsonl"
+    raise MeshError(f"unknown run {run_id} (no {run_dir(run_id)}, nor one in {mesh_home() / 'archive'})")
+
+
+REVIEW_GIST_RE = re.compile(r"^(Review \(read-only\) of \S+?):\s")
+LOG_SKIP = ("time", "event", "name", "sender", "to", "type", "file")
+
+
+def log_line(event: dict, folder: Path) -> str:
+    """One event as a timeline line: local time, event, who, and the rest; a message shows its gist."""
+    try:
+        when = datetime.fromisoformat(event["time"]).astimezone().strftime("%H:%M:%S")
+    except (KeyError, TypeError, ValueError):
+        when = "--:--:--"
+    kind = event.get("event", "?")
+    if kind == "send":
+        who = f"{event.get('sender')} → {event.get('to')}  {event.get('type')}"
+        path = next((p for p in (folder / "inbox" / str(event.get("to")) / sub / str(event.get("file"))
+                                 for sub in ("", "read")) if p.is_file()), None)
+        body = parse_message(path)[1].strip() if path else ""
+        review = REVIEW_GIST_RE.match(body)  # a review's notes may be only its diff: name the PR instead
+        rest = review.group(1) if review else task_gist(body, 100)
+    else:
+        who = event.get("name") or (f"{event.get('sender')} → {event.get('to')}" if event.get("to") else "")
+        rest = " ".join(f"{k}={v if isinstance(v, str) else json.dumps(v)}" for k, v in event.items()
+                        if k not in LOG_SKIP and v not in (None, "", [], {}))
+    return "  ".join(part for part in (when, f"{kind:<15}", who, rest) if part).rstrip()
+
+
+def log_day(event: dict) -> str | None:
+    try:
+        return datetime.fromisoformat(event["time"]).astimezone().strftime("%Y-%m-%d")
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    """The run's log.jsonl as a timeline; --follow keeps printing until the run stops."""
+    run_id = args.run_id or identity(args)[0]
+    path = log_path(run_id)
+    day = None
+
+    def show(events: list[dict]) -> bool:
+        nonlocal day
+        stopped = False
+        for event in events:
+            if args.agent and args.agent not in (event.get("name"), event.get("sender"), event.get("to")):
+                continue
+            if log_day(event) and log_day(event) != day:
+                day = log_day(event)
+                print(f"── {day} ──")
+            print(log_line(event, path.parent), flush=True)
+            stopped = stopped or event.get("event") == "stop"
+        return stopped
+
+    text = path.read_text() if path.exists() else ""
+    complete = text[: text.rfind("\n") + 1]  # a line still being written waits for its newline
+    events = parse_log_lines(complete.splitlines(), path)
+    if args.agent:
+        events = [e for e in events if args.agent in (e.get("name"), e.get("sender"), e.get("to"))]
+    stopped = show(events[-args.lines:] if args.lines else events)
+    if not args.follow:
+        return 0
+    offset, lineno = len(complete.encode()), complete.count("\n") + 1
+    try:
+        while not stopped:
+            time.sleep(1)
+            if not path.exists():  # `mesh stop` archived the run
+                print("(run archived)")
+                break
+            with open(path, "rb") as fh:
+                fh.seek(offset)
+                chunk = fh.read()
+            ended = chunk[: chunk.rfind(b"\n") + 1]
+            if not ended:
+                continue
+            offset += len(ended)
+            lines = ended.decode(errors="replace").splitlines()
+            stopped = show(parse_log_lines(lines, path, lineno))
+            lineno += len(lines)
+    except KeyboardInterrupt:
+        pass
     return 0
 
 
@@ -4607,6 +4901,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_id", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
+
+    p = ident(sub.add_parser("log", help="the run's events as a timeline (sends, nudges, alerts, swaps…)"))
+    p.add_argument("run_id", nargs="?", help="a live or archived run (default: yours)")
+    p.add_argument("--agent", help="only events naming this agent")
+    p.add_argument("--lines", type=int, default=0, help="only the last N events (default: all)")
+    p.add_argument("--follow", action="store_true", help="keep printing new events until the run stops")
+    p.set_defaults(func=cmd_log)
 
     p = ident(sub.add_parser("watch", help="watchdog: exits when a child reports or stalls"))
     p.add_argument("agent", nargs="?")

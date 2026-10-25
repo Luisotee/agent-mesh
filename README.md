@@ -197,7 +197,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 - **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell whose `ref` showed up above the input box counts as delivered. The `ref` is new for every doorbell, so an older one never confirms it. A pane it couldn't read, or whose input box it can't find, never confirms one. Retrying also stops once the recipient has read the message, and every doorbell that got through is logged (`rung`, with how it was confirmed).
 - **Your draft is never sent for you.** herdr submits a doorbell fused to whatever is in the input box, so `mesh` doesn't type while you have a half-written prompt in an agent's pane: it waits through its retries (about a minute) and then gives up with exit 2 (`human_draft`), the message still in the mailbox. When the box can't be read, it types anyway. One doorbell at a time goes into a pane, since herdr merges prompts typed at once.
 - **The preview is plain text.** Backticks, `$` and quotes are dropped from the message preview, so it never reads as a shell command.
-- **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts.
+- **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts and a task whose doorbell failed.
 - **The mailbox is the record.** `~/.local/state/agent-mesh/<run>/` holds every message, plan and report, plus a `log.jsonl` of events. `mesh stop` archives it.
 
 ### Names and workspaces
@@ -271,7 +271,9 @@ Claude workers run with `--dangerously-skip-permissions`, and Claude Code delive
 Useful commands while a run is going:
 
 ```bash
-mesh status <run>          # every agent: role, model, size, view, live state, unread mail, branch
+mesh status <run>          # every agent: model, size, view, live state, unread mail, branch, and what it
+                           #   owes or waits on (plan unanswered 12m, task unread, done + PR state), needing-you first
+mesh log [<run>] [--follow]  # the run's events as a timeline: sends, nudges, alerts, swaps
 mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer

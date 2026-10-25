@@ -189,7 +189,7 @@ By 0.6 mesh had its own copies of things Claude Code now does natively: typing d
 - **Task lists:** a list of tasks makes the root a supervisor.
   - It triages into a board the user confirms once, writes no code itself, runs at most four workers at a time, and gives each PR two reviewers, picked by its size (§10), as every run does.
   - It checks conflicts with `git merge-tree --write-tree` (`mesh conflicts`), which needs no checkout, and skips stacked pairs.
-  - The board lives in the run directory, so a root whose context was compacted can rebuild its picture from it instead of from memory.
+  - The board lives in the run directory, so a root whose context was compacted can rebuild its picture from it instead of from memory. It holds only the plan (tasks, sizes, order, overlaps, workers); each task's state comes from `mesh status` (§13).
 - **What we don't use:**
   - Claude Code's `-w` worktrees: mesh's worktrees record their base, name their branch after the run, and are recreated at the same path on resume, which Claude needs to find the session (§8).
   - `/batch` and agent teams: a worker never spawns agents (§7), teams can't include agy, and neither can be resumed across runs.
@@ -206,6 +206,19 @@ Resuming a worker is the point of §8, but an old conversation is expensive to r
   - **Within a run:** approve and switch never compact; the context is warm and the task is the same.
 - **Focused on the next task:** the default focus keeps the repo facts, the decisions and their reasons, the branch and the PR, and names the new task. The root can replace it with `--focus` when it knows what matters.
 - **Never a failure:** a compaction that fails is a note, and the worker resumes as it was.
+
+## 13. State is derived, not kept
+
+A root that kept each worker's status by hand (the board's old status column, "update it on every event") paid context for it, drifted when it missed an event, and after a compaction trusted what it had written over what happened. The projects surveyed in run `mac82` say the same ("a coordinator that remembers is a coordinator that is wrong", Rove; "discover, don't track", Gas Town). So `mesh status` works it out on every call, from what the run already records:
+
+- **The log** gives each worker's newest report since its last task or answer (`last_report`): a `plan` or `question` waits on the root, with its age, and `, unread` while it's still in the root's mailbox; no report means the worker has the ball, `task unread` while the task sits in its mailbox (`, doorbell failed` when the log says so, which the root fixes with `mesh ring`).
+- **Git and `gh`** describe a `done`: the PRs it names, with their state and checks (`gh pr view`, side by side, cached two minutes in `pr-state.json`, an error keeping the last value), or, with no PR, the commits past its base, whether they're pushed and whether the worktree is dirty (`work_evidence`). "no commits, no PR" is information, not an error: the bug may have turned out not to be one. A `done` to a read-only task is `answered`.
+- **Reviews:** a `done` whose PR a live reviewer of the run is still reviewing shows `in review (…)` and waits on the reviewers, not on the root.
+- **Order:** rows that need the root first, longest-waiting first, then those waiting on a worker, then the finished ones. A worker that owes a report but is gone, blocked or failed a swap needs the root.
+
+Nothing of it is stored, so nothing can go stale; `pr-state.json` is only a cache. `mesh log [--follow]` prints the same log as a timeline, for watching a run in a side pane or debugging one after.
+
+`log.jsonl` is append-only and written without the run lock, so a kill or a full disk can leave a torn last line. Readers skip a line that doesn't parse and warn once, and `log_event` ends a torn line before appending, so the next event isn't glued to the fragment and lost with it.
 
 ## Alternatives considered
 
