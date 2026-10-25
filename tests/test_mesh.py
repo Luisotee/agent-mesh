@@ -426,6 +426,7 @@ def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, m
     assert "Current task: Fix the typo (" in out and "-repo-lead-task.md" in out
     assert "Phase: planning: research, then send a `plan`" in out
     assert "it shows your current task again" in out
+    assert "Run `mesh inbox --run mtest --as repo-fix-typo` now" in out  # a cleared bg session can't rebind
     assert "(worker) in agent-mesh run" not in out  # agy's conversation lookup searches for the first doorbell
     assert [(e["name"], e["source"]) for e in mesh.read_log(run) if e["event"] == "reminder"] == \
         [("repo-fix-typo", "compact")]
@@ -433,6 +434,13 @@ def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, m
     mesh.main(["whoami", "--reminder", "resume", "--run", run, "--as", "repo-fix-typo"])
     out = capsys.readouterr().out
     assert "Phase: your plan is waiting for its answer" in out and "again" not in out
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", f"{mesh.USER_REVIEW_PREFIX}\n\nBuild it.")
+    mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
+    assert "Phase: a plan the user reviews: plan in plan mode, change nothing" in capsys.readouterr().out
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Built.")
+    mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"])
+    out = capsys.readouterr().out
+    assert "you reported `done`" in out and "again" not in out  # nothing to show again
     assert mesh.main(["whoami", "--reminder", "clear", "--run", "gone", "--as", "x"]) == 0  # never an error
     assert capsys.readouterr().out == ""
 
@@ -459,6 +467,26 @@ def test_inbox_shows_the_current_task_again_once_after_a_reset(mesh, fake, run, 
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next one.")
     mesh.main(["inbox", "--json"])
     assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == [("Next one.", None)]
+
+
+def test_inbox_does_not_show_a_reported_task_again_and_all_counts_as_shown(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.main(["inbox"])
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="compact")
+    capsys.readouterr()
+    mesh.main(["inbox"])  # it reported done on it: nothing to remind it of
+    assert capsys.readouterr().out == "No unread messages.\n"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next one.")
+    mesh.main(["inbox"])
+    mesh.log_event(run, "reminder", name="repo-fix-typo", source="clear")
+    capsys.readouterr()
+    mesh.main(["inbox", "--all", "--json"])  # shows everything, the current task marked, and counts as shown
+    assert [(m["body"], m.get("again")) for m in json.loads(capsys.readouterr().out)] == \
+        [("Fix the typo.", None), ("Next one.", True)]
+    mesh.main(["inbox"])
+    assert capsys.readouterr().out == "No unread messages.\n"
 
 
 def test_send_rejects_unknown_agent_and_empty_body(mesh, fake, run, capsys):
@@ -685,8 +713,24 @@ def test_the_stop_hook_blocks_a_silent_turn_end_once_per_task(mesh, fake, run, m
     assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
     assert stop_hook(mesh, monkeypatch, capsys, run) is None  # this task's nudge is spent
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Also the other one.")
-    reason = stop_hook(mesh, monkeypatch, capsys, run)  # a new task or answer earns a new one
-    assert "1 unread mesh message (answer)" in reason and "without a `mesh send`" in reason
+    # an answer it hasn't read yet: a block for the mail alone, once, which keeps the answer's nudge
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert "1 unread mesh message (answer)" in reason and "without a `mesh send`" not in reason
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # the same unread mail never blocks twice
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1]
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert "without a `mesh send`" in stop_hook(mesh, monkeypatch, capsys, run)  # read, then silent
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1, 2]
+
+
+def test_mail_that_arrives_after_the_current_task_was_read_comes_with_the_nudge(mesh, fake, run, monkeypatch,
+                                                                               capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert "1 unread mesh message (info)" in reason and "without a `mesh send`" in reason
+    assert [e["received"] for e in mesh.read_log(run) if e["event"] == "nudge"] == [1]
 
 
 def test_the_stop_hook_lets_a_reported_or_planning_worker_stop(mesh, fake, run, monkeypatch, capsys):
@@ -719,6 +763,7 @@ def test_the_stop_hook_never_fails_a_session(mesh, fake, run, monkeypatch, capsy
 
 def test_a_watch_after_the_stop_hook_nudged_alerts_without_nudging_again(mesh, fake, run, monkeypatch, capsys):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
     assert stop_hook(mesh, monkeypatch, capsys, run)
     monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 3600.0)
     states_then(mesh, monkeypatch, "working", "idle")
@@ -944,6 +989,7 @@ def test_a_background_worker_its_stop_hook_nudged_is_alerted_as_such(mesh, fake,
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(view="bg", bg_id="abc123", kind="claude")
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
     assert stop_hook(mesh, monkeypatch, capsys, run)
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3

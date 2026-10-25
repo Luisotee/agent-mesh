@@ -951,7 +951,7 @@ def hook_command(*args: str) -> str:
 
 
 def worker_hooks(run_id: str, name: str) -> dict:
-    """The hooks a Claude worker is started with (design, "The turn-end guard"). The command names the worker,
+    """The hooks a Claude worker is started with (design, "The Stop hook"). The command names the worker,
     as only the sessions mesh starts for it carry these hooks: nothing has to be read from the hook's
     environment. Claude Code adds them to the user's and the repo's own hooks."""
     ident = ("--run", run_id, "--as", name)
@@ -2301,19 +2301,23 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     folder = inbox_dir(run_id, me)
     paths = unread(run_id, me)
-    again: list[Path] = []
     if args.all and (folder / "read").exists():
         paths = sorted((folder / "read").glob("*.md")) + paths
-    elif not args.peek and session_reset(events := read_log(run_id), me):
-        again = [p for p in current_task(run_id, me, events) if p.name not in {q.name for q in paths}]
+    again: list[Path] = []
+    if not args.peek and session_reset(events := read_log(run_id), me):
+        # a task it already reported done or failed on needs no reminding; `--all` shows it in its place
+        if last_report(events, me) not in FINAL_TYPES:
+            again = current_task(run_id, me, events)
         log_event(run_id, "inbox_again", name=me, files=[p.name for p in again])
+    shown = {p.name for p in paths}
     messages = []
-    for path in again:
+    for path in (p for p in again if p.name not in shown):
         meta, body = parse_message(path)
         messages.append({"file": str(path), **meta, "body": body.strip(), "again": True})
     for path in paths:
         meta, body = parse_message(path)
-        messages.append({"file": str(path), **meta, "body": body.strip()})
+        messages.append({"file": str(path), **meta, "body": body.strip(),
+                         **({"again": True} if path in again else {})})
         if not args.peek and path.parent == folder:
             mark_read(path)
     if args.json:
@@ -2476,21 +2480,41 @@ def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
         return None
     if entry.get("plan_review") == "user" and "permission_mode" not in payload:
         return None  # can't tell whether it is still in plan mode: the watch judges it
-    received, sent, _ = since_last_task(read_log(run_id), name)
-    mail = [parse_message(p)[0].get("type") or "message" for p in unread(run_id, name)]
+    events = read_log(run_id)
+    received, sent, _ = since_last_task(events, name)
+    paths = unread(run_id, name)
+    mail = [parse_message(p)[0].get("type") or "message" for p in paths]
     if not received or (sent and not mail):
         return None
+    if mail and (sent or last_received_unread(run_id, name, events)):
+        # Mail alone: the task's one nudge is kept for a silent turn end after the worker has read its task.
+        # A mail block is deduped by the unread files instead, so the same mail never blocks twice.
+        files = sorted(p.name for p in paths)
+        with run_lock(run_id):
+            last = next((e for e in reversed(read_log(run_id))
+                         if e.get("event") == "hook_mail" and e.get("name") == name), None)
+            if last and last.get("files") == files:
+                return None
+            log_event(run_id, "hook_mail", name=name, files=files)
+        return mail_reason(mail)
     if not claim_nudge(run_id, name, received, via="stop-hook"):
         return None
-    reasons = []
-    if mail:
-        kinds = ", ".join(dict.fromkeys(mail))
-        reasons.append(f"agent-mesh: you have {len(mail)} unread mesh message{'s' if len(mail) > 1 else ''} "
-                       f"({kinds}): run `mesh inbox` and handle {'them' if len(mail) > 1 else 'it'} before ending "
-                       "your turn.")
-    if not sent:
-        reasons.append(HOOK_NUDGE)
+    reasons = [mail_reason(mail)] if mail else []
+    reasons.append(HOOK_NUDGE)
     return "\n\n".join(reasons)
+
+
+def mail_reason(mail: list[str]) -> str:
+    kinds = ", ".join(dict.fromkeys(mail))
+    return (f"agent-mesh: you have {len(mail)} unread mesh message{'s' if len(mail) > 1 else ''} ({kinds}): run "
+            f"`mesh inbox` and handle {'them' if len(mail) > 1 else 'it'} before ending your turn.")
+
+
+def last_received_unread(run_id: str, name: str, events: list[dict]) -> bool:
+    """Whether the last task or answer `name` received is still in its mailbox, unread."""
+    last = next((e for e in reversed(events) if e.get("event") == "send" and e.get("to") == name
+                 and e.get("type") in RECEIVED_TYPES), None)
+    return bool(last and last.get("file") and (inbox_dir(run_id, name) / last["file"]).exists())
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
@@ -3854,17 +3878,30 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def last_report(events: list[dict], name: str) -> str | None:
+    """The type of the last report `name` sent since its last task or answer, if any."""
+    last = None
+    for e in events:
+        if e.get("event") != "send":
+            continue
+        if e.get("to") == name and e.get("type") in RECEIVED_TYPES:
+            last = None
+        elif e.get("sender") == name and e.get("type") in REPORT_TYPES:
+            last = e["type"]
+    return last
+
+
 def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -> str:
     """Where a worker stands on its current task, in a line it can act on."""
-    _, sent, _ = since_last_task(events, name)
-    if sent:
-        last = [e["type"] for e in events if e.get("event") == "send" and e.get("sender") == name
-                and e.get("type") in REPORT_TYPES][-1]
+    if last := last_report(events, name):
         return {"plan": "your plan is waiting for its answer: change nothing until it says approved",
                 "question": "your question is waiting for its answer"}.get(
             last, f"you reported `{last}` on it: wait for a new task or answer")
     if (task or "").startswith(READ_ONLY_STARTS):
         return "a read-only task: change nothing, and report one `done` with the answer"
+    if (task or "").startswith(DIRECT_STARTS[1]):  # before the direct task: it plans first
+        return ("a plan the user reviews: plan in plan mode, change nothing until the user approves it in your "
+                "pane, then make the change, verify it, open the PR and report `done`")
     if (task or "").startswith(DIRECT_STARTS):
         return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
     if entry.get("phase") == "plan":
@@ -3892,8 +3929,10 @@ def reminder(run_id: str, me: str, source: str) -> str:
         lines.append(f"Phase: {worker_phase(entry, events, me, task)}.")
     else:
         lines.append("No task yet.")
-    again = " (it shows your current task again)" if source in RESET_SOURCES else ""
-    lines.append(f"Report with `mesh send parent`. Run `mesh inbox` now{again}.")
+    again = (" (it shows your current task again)"
+             if files and source in RESET_SOURCES and last_report(events, me) not in FINAL_TYPES else "")
+    ident = f"--run {run_id} --as {me}"  # a background session cleared has a new id and no pane to rebind by
+    lines.append(f"Report with `mesh send parent {ident} …`. Run `mesh inbox {ident}` now{again}.")
     return "\n".join(lines)
 
 
