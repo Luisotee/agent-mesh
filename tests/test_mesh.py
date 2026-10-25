@@ -150,6 +150,93 @@ def test_an_identity_is_kept_when_nothing_shows_it_inherited(mesh, fake, run, mo
     assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
 
 
+def claude_ancestry(mesh, monkeypatch, *claudes):
+    """Fake this command's process tree: os.getpid() → 9001 → 9002 → 9003 → 1, a Claude socket at each of `claudes`."""
+    chain = [os.getpid(), 9001, 9002, 9003, 1]
+    monkeypatch.setattr(mesh, "parent_pid", lambda pid: chain[chain.index(pid) + 1] if pid in chain[:-1] else 0)
+    socks = Path(os.environ["MESH_CC_SOCKS"])
+    socks.mkdir(parents=True, exist_ok=True)
+    for pid in claudes:
+        (socks / f"{pid}.sock").write_text("")
+
+
+def test_a_claude_inside_another_is_nested(mesh, monkeypatch):
+    claude_ancestry(mesh, monkeypatch, 9002)
+    assert not mesh.nested_claude() and mesh.claude_address().endswith("/9002.sock")
+    claude_ancestry(mesh, monkeypatch, 9001, 9003)  # a `claude -p` (9001) run by another Claude's tool (9003)
+    assert mesh.nested_claude() and mesh.claude_address().endswith("/9001.sock")
+
+
+def as_session_in_root_pane(fake, monkeypatch, in_pane):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-s")  # no MESH_*: the pane map names the root
+    if in_pane:
+        fake.on("agent", "get", "w1:p1", result={"agent": {"agent_session": {"value": in_pane}}})
+
+
+@pytest.mark.parametrize("in_pane", ["other-s", None])
+def test_the_root_in_its_own_pane_is_the_root(mesh, fake, run, monkeypatch, capsys, in_pane):
+    # A mesh command from the root's own tool (its socket the only one above), after a `/clear` or not.
+    claude_ancestry(mesh, monkeypatch, 9002)
+    as_session_in_root_pane(fake, monkeypatch, in_pane)
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-lead"
+
+
+def test_a_session_herdr_doesnt_see_in_the_root_pane_is_not_the_root(mesh, fake, run, monkeypatch, capsys):
+    # A background session whose daemon the user started in the root's pane carries that pane's id.
+    as_session_in_root_pane(fake, monkeypatch, "root-s")
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    err = capsys.readouterr().err
+    assert "not in a mesh run" in err and "herdr sees as Claude session root-s, and this is other-s" in err
+    assert mesh.load_run(run)["agents"]["repo-lead"]["address"] is None  # its socket isn't taken over
+
+
+def test_a_claude_session_in_an_agy_roots_pane_is_not_the_root(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "agy"
+    as_session_in_root_pane(fake, monkeypatch, None)
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert "which is agy, and this is Claude session other-s" in capsys.readouterr().err
+
+
+def test_a_nested_claude_in_the_root_pane_is_not_the_root_unless_named(mesh, fake, run, monkeypatch, capsys):
+    claude_ancestry(mesh, monkeypatch, 9001, 9003)
+    as_session_in_root_pane(fake, monkeypatch, "other-s")  # even if herdr reports the nested session
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert "runs inside another Claude session" in capsys.readouterr().err
+    assert mesh.main(["whoami", "--run", run, "--as", "repo-lead"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-lead"
+
+
+@pytest.mark.parametrize("in_pane", ["other-s", None])
+def test_a_nested_claude_in_a_workers_pane_is_not_the_worker(mesh, fake, run, monkeypatch, capsys, in_pane):
+    # A `claude -p` from the worker's tool inherits its MESH_SELF and pane; it never rebinds the worker's session.
+    claude_ancestry(mesh, monkeypatch, 9001, 9003)
+    inherited(mesh, run, monkeypatch, view="pane")
+    monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")
+    if in_pane:
+        fake.on("agent", "get", "w2:p5", result={"agent": {"agent_session": {"value": in_pane}}})
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    err = capsys.readouterr().err
+    assert "runs inside another Claude session" in err and "--as repo-fix-typo" in err
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["session"] == "rec-s"
+
+
+def test_a_bg_worker_under_other_claude_processes_keeps_its_identity(mesh, fake, cli, run, monkeypatch, capsys):
+    # A daemon's spare process may have Claude processes above it: only pane identities look at the tree.
+    claude_ancestry(mesh, monkeypatch, 9001, 9003)
+    inherited(mesh, run, monkeypatch, view="bg", pane=None)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "rec-s")
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+
+
 def test_an_entry_starting_for_too_long_is_checked_again(mesh, fake, run, monkeypatch, capsys):
     inherited(mesh, run, monkeypatch, view="bg", pane=None, status="starting", spawned="2026-01-01T00:00:00+00:00",
               models=[{"model": "opus", "at": "2026-01-01T00:01:00+00:00"}])

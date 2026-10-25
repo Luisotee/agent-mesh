@@ -251,20 +251,34 @@ def socket_address(pid: int | None) -> str | None:
     return f"uds:{sock}" if sock.exists() else None
 
 
+def claude_sockets():
+    """The sockets of the Claude Code processes this command runs under, nearest first."""
+    pid = os.getpid()
+    for _ in range(16):
+        if pid <= 1:
+            break
+        if address := socket_address(pid):
+            yield address
+        pid = parent_pid(pid)
+
+
 def claude_address() -> str | None:
     """The cross-session address of the Claude Code session this command runs under.
 
     Session names change as Claude retitles a conversation, so other sessions reach it by this socket, which
     belongs to the process. None outside Claude Code (an agy root) or where /proc can't be walked.
     """
-    pid = os.getpid()
-    for _ in range(16):
-        if pid <= 1:
-            break
-        if address := socket_address(pid):
-            return address
-        pid = parent_pid(pid)
-    return None
+    return next(claude_sockets(), None)
+
+
+def nested_claude() -> bool:
+    """Whether this command's Claude session was started by another one's tool (a `claude -p` in a pane).
+
+    Claude Code sets the same session variables for both (`CLAUDE_CODE_CHILD_SESSION` included), so the process
+    tree decides: a second Claude socket above this session's own. False where /proc can't be walked.
+    """
+    sockets = claude_sockets()
+    return next(sockets, None) is not None and next(sockets, None) is not None
 
 
 def address_alive(address: str | None) -> bool:
@@ -355,7 +369,9 @@ def identity(args: argparse.Namespace) -> tuple[str, str]:
         mapping = mesh_home() / "by-pane" / f"{pane_key(pane)}.json" if pane else None
         if mapping and mapping.exists():
             entry = json.loads(mapping.read_text())
-            if ignored:  # this pane's identity, all of it, or none
+            if foreign := foreign_to_pane(entry["run"], entry["name"], pane):
+                ignored = f"{ignored}; {foreign}" if ignored else foreign
+            elif ignored:  # this pane's identity, all of it, or none
                 if flag_run and flag_run != entry["run"]:
                     raise MeshError(f"{ignored}; this pane is {entry['name']} of run {entry['run']}, "
                                     f"not of run {flag_run}")
@@ -392,7 +408,8 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
     Claude Code tells its tools which session they run in, and a Claude worker's entry records its session, so
     a mismatch gives it away, except while a launch is recording a new one (`starting`). A pane worker's
     session can change legitimately (`/clear`, plan mode's "clear context"): herdr says which session runs in
-    the pane, and when that's this one the entry is brought up to date.
+    the pane, and when that's this one the entry is brought up to date. A Claude started inside another one's
+    tool (`nested_claude`) is never the pane's agent, whatever herdr says.
     """
     current = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not current:
@@ -411,11 +428,9 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
     if entry.get("status") == "starting" and seconds_since(last_launch(entry)) < STARTING_GRACE:
         return None
     if entry.get("pane") and entry["pane"] == os.environ.get("HERDR_PANE_ID"):
-        try:
-            in_pane = ((herdr("agent", "get", entry["pane"], timeout=10).get("agent") or {})
-                       .get("agent_session") or {}).get("value")
-        except MeshError:
-            in_pane = None
+        if nested_claude():  # whatever herdr says: its hook may report the nested session for the pane
+            return nested_refusal(run_id, name, entry["pane"])
+        in_pane = pane_session(entry["pane"])
         if not in_pane:
             return None  # herdr can't say: trust the pane, as before herdr reported sessions
         if in_pane == current:
@@ -426,6 +441,44 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
             return None
     return (f"ignored MESH_SELF={name} of run {run_id}: that agent is Claude session {recorded}, and this is "
             f"{current}, which inherited its environment")
+
+
+def foreign_to_pane(run_id: str, name: str, pane: str) -> str | None:
+    """Why this Claude session isn't the root that the pane map names for its pane, or None if it may be.
+
+    Anything started in the root's pane carries its `HERDR_PANE_ID`: a background session whose daemon the user
+    started there, or a Claude started by one of the root's tools. The root records no session, so herdr's
+    `agent_session` for the pane decides, as for a pane worker; when herdr can't say, the pane is trusted.
+    """
+    current = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not current:
+        return None
+    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}
+    if entry.get("kind") and entry["kind"] != "claude":
+        return (f"pane {pane} is {name} of run {run_id}, which is {entry['kind']}, and this is "
+                f"Claude session {current}")
+    if nested_claude():
+        return nested_refusal(run_id, name, pane)
+    in_pane = pane_session(pane)
+    if in_pane and in_pane != current:
+        return (f"pane {pane} is {name} of run {run_id}, which herdr sees as Claude session {in_pane}, and "
+                f"this is {current}")
+    return None
+
+
+def nested_refusal(run_id: str, name: str, pane: str) -> str:
+    return (f"Claude session {os.environ.get('CLAUDE_CODE_SESSION_ID')} runs inside another Claude session, so "
+            f"it isn't {name} of run {run_id}, the agent of pane {pane} (pass --run {run_id} --as {name} if it "
+            "should act as that agent)")
+
+
+def pane_session(pane: str) -> str | None:
+    """The agent session herdr sees running in a pane (from its agent hooks), or None if it can't say."""
+    try:
+        return ((herdr("agent", "get", pane, timeout=10).get("agent") or {})
+                .get("agent_session") or {}).get("value")
+    except MeshError:
+        return None
 
 
 def last_launch(entry: dict) -> str | None:
