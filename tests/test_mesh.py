@@ -1707,6 +1707,269 @@ def test_trust_keys_ignores_other_prompts(mesh):
     assert mesh.trust_keys("Select a theme\n❯ Dark\n  Light\n") is None
 
 
+# Claude Code 2.1.310 in a repo whose .claude/settings.json has a malformed rule (ccswarm), as `pane read` shows it.
+SETTINGS_WARNING = """ubuntu@host:~/research/orchestrators/ccswarm$ claude --dangerously-skip-permissions
+
+────────────────────────────────────────────────────────────
+  Settings Warning
+
+  /home/ubuntu/research/orchestrators/ccswarm/.claude/settings.json
+  └ permissions.deny: Invalid permission rule "Bash(rm -rf /)*" was skipped: Malformed Tool(content) rule.
+
+  The values listed above were skipped; the rest of the file is in effect.
+
+  ❯ 1. Continue
+    2. Fix with Claude
+    3. Exit and fix manually
+
+  Enter to confirm · Esc to cancel
+"""
+
+
+def test_startup_screen_classifies_trust_known_dialogs_and_the_rest(mesh):
+    assert mesh.startup_screen(AGY_TRUST) == ("trust", None)
+    assert mesh.startup_screen(CLAUDE_TRUST) == ("trust", None)
+    assert mesh.startup_screen(SETTINGS_WARNING) == ("dialog", "Settings Warning")
+    imports = "Allow external CLAUDE.md file imports?\n❯ No, disable external imports\n  Yes, allow external imports\n"
+    assert mesh.startup_screen(imports) == ("dialog", "external CLAUDE.md imports")
+    # a heading quoted without its dialog's own options (a diff, a doc) isn't the dialog
+    assert mesh.startup_screen("+  Settings Warning\n+ shown on a bad rule\n") == ("unknown", None)
+    assert mesh.startup_screen("  Settings Warning\n  press Enter to confirm it\n") == ("unknown", None)
+    assert mesh.startup_screen("Select a theme\n❯ Dark\n  Light\n") == ("unknown", None)
+
+
+CLAUDE_TRUST_YES = CLAUDE_TRUST.replace("❯ No, exit\n   Yes", "  No, exit\n ❯ Yes")
+WELCOME = "Claude Code v2.1.310\n────────────\n❯ \n────────────\n"
+
+
+def test_trust_is_confirmed_only_once_the_screen_shows_yes_selected(mesh, fake):
+    fake.screen("w9:p10", CLAUDE_TRUST_YES, CLAUDE_TRUST_YES, WELCOME)  # the dialog takes a read to go
+    assert mesh.accept_trust_prompt("w9:p10", CLAUDE_TRUST) is True
+    keys = [c[3] for c in fake.called("pane", "send-keys")]
+    assert keys == ["down", "enter"]
+    assert fake.called("agent", "wait", "w9:p10")[0][-3:] == ("blocked", "--timeout", "60000")
+
+
+def test_a_trust_dialog_that_stays_after_enter_is_not_accepted(mesh, fake):
+    fake.screen("w9:p10", AGY_TRUST)
+    assert mesh.accept_trust_prompt("w9:p10", AGY_TRUST) is False
+    assert [c[3] for c in fake.called("pane", "send-keys")] == ["enter"]  # never a second Enter
+    assert not fake.called("agent", "wait")
+
+
+def test_a_slow_start_after_trust_is_not_held(mesh, fake, monkeypatch):
+    # The dialog reads `blocked`; herdr's state lags once it's gone, then the agent reads idle.
+    fake.screen("w9:p10", CLAUDE_TRUST, CLAUDE_TRUST_YES, WELCOME)
+    states = iter(["blocked", "blocked", "idle"])
+    monkeypatch.setattr(mesh, "startup_state", lambda name, pane: next(states))
+    assert mesh.clear_startup("proj-x", "w9:p10") == {}
+    assert [c[3] for c in fake.called("pane", "send-keys")] == ["down", "enter"]
+
+
+def test_a_cli_that_exits_at_startup_is_an_error(mesh, fake):
+    fake.on("agent", "get", errors=["agent_not_found"] * 20)  # neither by name nor by pane, on every read
+    fake.screen("w9:p10", "ubuntu@host:~/proj$ claude\nError: bad flag\nubuntu@host:~/proj$ ")
+    with pytest.raises(mesh.MeshError, match=r"(?s)proj-x exited during startup; last lines of its pane:\n.*bad flag"):
+        mesh.clear_startup("proj-x", "w9:p10")
+
+
+def test_a_lost_arrow_never_confirms_no_exit(mesh, fake):
+    fake.screen("w9:p10", CLAUDE_TRUST)  # the arrow never lands: "No, exit" stays selected
+    assert mesh.accept_trust_prompt("w9:p10", CLAUDE_TRUST) is False
+    assert [c[3] for c in fake.called("pane", "send-keys")] == ["down", "down"]  # tried twice, never Enter
+
+
+def test_trust_then_a_settings_warning_holds_the_spawn_task(mesh, fake, run, repo, monkeypatch, capsys):
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    fake.on("agent", "start", errors=["agent_not_ready"])
+    fake.screen("w9:p10", CLAUDE_TRUST, CLAUDE_TRUST_YES, SETTINGS_WARNING)
+
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "fix", "--task", "Do it."]) == 4
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert len(fake.called("agent", "start")) == 1  # not retried into a running CLI
+    assert [c[3] for c in fake.called("pane", "send-keys")] == ["down", "enter"]
+    assert not fake.called("agent", "prompt")  # nothing typed into the warning
+    assert out["delivery"]["held"] == "Settings Warning" and out["delivery"]["rung"] is False
+    [task] = mesh.unread(run, "proj-fix")
+    assert "Do it." in task.read_text()
+    assert captured.err.startswith("ALERT proj-fix is waiting at a startup screen (Settings Warning)")
+    assert "Its task is stored" in captured.err
+    alert, _, warning = captured.err.partition("\nwarning: ")
+    assert alert.rstrip().endswith("Enter to confirm · Esc to cancel")
+    assert warning.startswith("no `mesh watch` covers proj-fix")  # main's warning comes after the alert
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert entry["status"] == "running" and entry["held"]["file"] == task.name
+
+
+def test_a_timed_out_start_is_classified_not_retried(mesh, fake, run, repo, capsys):
+    fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    fake.on("agent", "start", errors=["timeout"])
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    fake.screen("w9:p10", "welcome\n────────────\n❯ \n")  # a slow start that got there
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "slow", "--task", "Go."]) == 0
+    assert len(fake.called("agent", "start")) == 1
+    assert json.loads(capsys.readouterr().out)["delivery"]["rung"] is True
+
+
+def test_an_unknown_startup_screen_is_held(mesh, fake):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    fake.screen("w9:p10", "Select a theme\n❯ Dark\n  Light\n")
+    held = mesh.clear_startup("proj-x", "w9:p10")
+    assert held["held"] == "a screen mesh doesn't know" and held["tail"].endswith("    Light")
+    assert not fake.called("pane", "send-keys")
+
+
+def held_worker(mesh, run, mtype="task"):
+    path = mesh.record(run, "repo-lead", "repo-fix-typo", mtype, "Do it.")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": "repo-lead", "type": mtype, "file": path.name,
+                                                   "screen": "Settings Warning", "at": mesh.now_iso()}
+    return path
+
+
+def test_the_watch_rings_a_held_worker_once_its_startup_screen_is_gone(mesh, fake, run, monkeypatch, capsys):
+    held_worker(mesh, run)
+    states = iter(["blocked"] * 3 + ["idle", "idle"])
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
+    watch, other = mesh.Watch(run, "repo-fix-typo", 30), mesh.Watch(run, "repo-fix-typo", 30)
+    assert [watch.tick(5) for _ in range(3)] == [None] * 3  # its start reported the screen: no exit 4 here
+    assert not fake.called("agent", "prompt")
+    assert watch.tick(5) is None and other.tick(5) is None  # two watches see it idle; one rings
+    [prompt] = fake.called("agent", "prompt")  # rung once, with the doorbell that says who it is
+    assert prompt[3].startswith("📬 [mesh] You are repo-fix-typo (worker) in agent-mesh run mtest")
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_a_held_worker_that_exits_is_gone(mesh, fake, run, monkeypatch):
+    held_worker(mesh, run)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "gone")
+    assert mesh.Watch(run, "repo-fix-typo", 30).tick(0)[0] == 5
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_mesh_ring_gives_a_held_worker_its_first_doorbell(mesh, fake, run, capsys):
+    held_worker(mesh, run)
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] You are repo-fix-typo (worker) in agent-mesh")
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_approve_holds_the_answer_when_the_reopened_pane_waits_at_a_startup_screen(mesh, fake, run, monkeypatch,
+                                                                                    capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["agent_not_ready"])
+    fake.screen("w9:p10", SETTINGS_WARNING)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 4
+    assert not fake.called("agent", "prompt")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["held"]["type"] == "answer" and entry["phase"] == "exec" and entry["swapped"]
+    [msg] = mesh.unread(run, "repo-fix-typo")
+    assert msg.name.endswith("-answer.md")
+
+
+def test_switch_holds_its_continue_task_at_a_startup_screen(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["agent_not_ready"])
+    fake.screen("w9:p10", SETTINGS_WARNING)
+    assert mesh.main(["switch", "repo-fix-typo"]) == 4
+    assert not fake.called("agent", "prompt")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["type"] == "task"
+    assert "Continue exactly where you stopped" in mesh.unread(run, "repo-fix-typo")[0].read_text()
+    assert capsys.readouterr().err.startswith("ALERT repo-fix-typo is waiting at a startup screen (Settings Warning)")
+
+
+def test_resume_holds_its_task_at_a_startup_screen(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["agent_not_ready"])
+    fake.screen("w9:p10", SETTINGS_WARNING)
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 4
+    assert not fake.called("agent", "prompt")
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert entry["held"]["screen"] == "Settings Warning" and entry["status"] == "running"
+    assert "Apply the review." in mesh.unread(run, "proj-fix")[0].read_text()
+
+
+def test_a_message_to_a_held_worker_is_stored_not_typed(mesh, fake, run):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    with mesh.editing_run(run) as data:  # spawned with no task, so nothing waits to be rung yet
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": None, "type": None, "file": None,
+                                                   "screen": "Settings Warning", "at": mesh.now_iso()}
+    delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do it.")
+    assert delivery["held"] == "Settings Warning" and not delivery["rung"] and not fake.called("agent", "prompt")
+    held = mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]
+    assert (held["sender"], held["type"], held["file"]) == ("repo-lead", "task", Path(delivery["stored"]).name)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "Also this.")  # the first one stays the one rung
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["type"] == "task"
+
+
+def test_a_stale_hold_is_dropped_and_the_message_gets_the_first_doorbell(mesh, fake, run):
+    held_worker(mesh, run)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # the user cleared it and prompted it
+    delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Yes.")
+    assert delivery["rung"] and "held" not in delivery
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] You are repo-fix-typo (worker) in agent-mesh")
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_a_failed_release_keeps_the_hold_for_a_retry(mesh, fake, run, monkeypatch):
+    held_worker(mesh, run)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    monkeypatch.setattr(mesh, "ring", lambda *a, **k: {"rung": False, "error": "agent_prompt_stalled", "via": None, "tries": 1})
+    watch = mesh.Watch(run, "repo-fix-typo", 30)
+    assert watch.tick(5) is None and watch.tick(5) is None  # quiet while it retries
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["tries"] == 2
+    assert mesh.release_held(run, "repo-fix-typo", mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"),
+                             "idle") is False  # the third: the watch carries on, its nudge rings it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["tries"] == 3  # `mesh ring` still sees it
+
+
+def test_a_release_rings_for_any_unread_message(mesh, fake, run, monkeypatch):
+    path = held_worker(mesh, run)
+    mesh.mark_read(path)
+    mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "Later.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    assert mesh.Watch(run, "repo-fix-typo", 30).tick(5) is None
+    assert fake.called("agent", "prompt")[-1][3].startswith("📬 [mesh] You are repo-fix-typo (worker) in agent-mesh")
+
+
+def test_mesh_ring_clears_a_hold_with_nothing_to_ring(mesh, fake, run, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": None, "type": None, "file": None,
+                                                   "screen": "Settings Warning", "at": mesh.now_iso()}
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert "startup hold is cleared" in capsys.readouterr().out
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_start_grace_counts_from_the_release(mesh, fake, run):
+    held_worker(mesh, run)
+    watch = mesh.Watch(run, "repo-fix-typo", 30)
+    events = mesh.read_log(run)
+    for e in events:
+        if e.get("event") == "send":
+            e["time"] = "2026-01-01T00:00:00+00:00"  # its task is long past start_grace
+    assert watch.idle_from_start(events) is True
+    events.append({"event": "held_rung", "name": "repo-fix-typo", "rung": False, "time": mesh.now_iso()})
+    assert watch.idle_from_start(events) is True  # a ring that failed told it nothing
+    events.append({"event": "held_rung", "name": "repo-fix-typo", "rung": True, "time": mesh.now_iso()})
+    assert watch.idle_from_start(events) is False  # but it heard of it only now
+
+
+def test_a_held_message_already_read_is_not_rung(mesh, fake, run, monkeypatch):
+    path = held_worker(mesh, run)
+    mesh.mark_read(path)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    assert mesh.Watch(run, "repo-fix-typo", 30).tick(5) is None
+    assert not fake.called("agent", "prompt") and "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
 def test_doorbell_confirms_delivery_and_retries_when_stalled(mesh, fake, run):
     fake.on("agent", "prompt", errors=["agent_prompt_stalled"])
     assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0

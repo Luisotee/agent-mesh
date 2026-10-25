@@ -88,6 +88,8 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - what is out of scope: files, behaviour or other repos it should leave alone
    - for a large task: "send your plan for review before changing anything"; for every task: "report `done` with the PR link"
 
+   **Exit 4** from `spawn` (or `ask`, `resume`, `approve`, `switch`): the worker waits at a startup screen mesh doesn't answer (the `ALERT` names it and ends with the pane's last lines, e.g. a Settings Warning for a malformed `.claude/settings.json` rule). Its message is stored. Tell the user to clear it in that pane; don't answer it yourself. Start the watch as usual: it rings the doorbell once the screen is gone, and doesn't alert on that screen again (an agy root runs `mesh ring <worker>` once the user says it's cleared). After `ask`, `mesh watch <worker>` rings it and waits for the answer.
+
    Tell the user, in one line per worker, its size, model and where it runs (pane or background). When the spawn output has `notes` (for example "gemini-4-argon-high has 0% left"), add that in a few words.
 5. **Supervise:**
    - **How reports reach you:**
@@ -198,6 +200,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
   - **An agy worker, Claude root:** run `ask` with `run_in_background`, and the answer arrives as the notification.
   - **agy root:** run it in the foreground, or pass `--no-wait` and wait for the doorbell.
   - Exit codes are those of `mesh watch`; on 7 (an agy quota), `mesh switch` the worker and `mesh watch` it; on a Claude usage limit, wait for the reset as in "Supervise".
+  - Exit 4 with `ALERT <name> is waiting at a startup screen` comes before any waiting: the agent's pane stopped at a screen mesh doesn't answer (a Settings Warning for a malformed `.claude/settings.json` rule, say), and the question is stored. Tell the user to clear it in that pane, and don't answer it yourself. Then `mesh watch <name>` rings it once the screen is gone and waits for the answer; read it with `mesh inbox`, then `mesh retire <name>` once you have no follow-up for it.
 
 Then:
 

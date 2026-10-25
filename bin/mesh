@@ -179,6 +179,18 @@ TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
 )
 TRUST_OPTION_RE = re.compile(r"^\s*[❯>]?\s*(Yes|No)\b")
+# Startup screens that wait for the user and that mesh never answers: (label, heading, one of its own option or
+# footer lines). Both must show, so text that only quotes a heading (a diff, a CLAUDE.md) doesn't match.
+STARTUP_DIALOGS = (
+    ("Settings Warning", re.compile(r"^\s*Settings Warning\s*$", re.M),
+     re.compile(r"^\s*(?:[❯>]?\s*\d\.\s*Exit and fix manually|Enter to confirm)", re.M)),
+    ("external CLAUDE.md imports", re.compile(r"Allow external CLAUDE\.md file imports\?"),
+     re.compile(r"(No, disable|Yes, allow) external imports")),
+)
+STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
+TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
+HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
+STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 
 
 class MeshError(Exception):
@@ -954,7 +966,12 @@ def doorbells_shown(lines: list[str] | None, needle: str) -> int | None:
 
 def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
     """The pane's last non-empty lines, indented, for an alert; empty if it can't be read."""
-    rows = [line.rstrip() for line in pane_lines(target, 40) or [] if line.strip()][-count:]
+    return screen_tail(pane_lines(target, 40) or [], count)
+
+
+def screen_tail(rows: list[str], count: int = ALERT_TAIL_LINES) -> str:
+    """The last non-empty lines of a screen, indented, for an alert."""
+    rows = [line.rstrip() for line in rows if line.strip()][-count:]
     return "\n".join("    " + (line if len(line) <= 160 else line[:159] + "…") for line in rows)
 
 
@@ -1012,37 +1029,183 @@ def trust_keys(screen: str) -> list[str] | None:
     return [step] * abs(yes - cursor) + ["enter"]
 
 
-def accept_trust_prompt(name: str) -> bool:
-    """Accept a folder-trust dialog (a directory mesh chose); refuse any other startup prompt."""
-    screen = herdr_text("agent", "read", name, "--source", "detection", "--lines", "40") or ""
-    keys = trust_keys(screen)
-    if keys is None:
-        return False
-    for key in keys:
-        herdr("agent", "send-keys", name, key)
-        time.sleep(0.3)
-    herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", "60000")
-    time.sleep(3)  # the CLI redraws its welcome screen after the dialog; typing during it is lost
-    return True
+def startup_screen(screen: str) -> tuple[str, str | None]:
+    """What a new agent waits at: ("trust", None), ("dialog", label) for one of STARTUP_DIALOGS, or ("unknown", None)."""
+    if TRUST_PROMPT_RE.search(screen):
+        return "trust", None
+    for label, heading, option in STARTUP_DIALOGS:
+        if heading.search(screen) and option.search(screen):
+            return "dialog", label
+    return "unknown", None
+
+
+def startup_text(pane: str) -> str:
+    """The pane's screen, read by pane, so it works before herdr has found the agent in it."""
+    return herdr_text("pane", "read", pane, "--source", "detection", "--lines", "40") or ""
+
+
+def startup_state(name: str, pane: str) -> str:
+    """herdr's state for a starting agent; one herdr found without its name is given it."""
+    try:
+        return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
+    except HerdrError as exc:
+        if exc.code != "agent_not_found":
+            return "unknown"
+    try:
+        state = herdr("agent", "get", pane)["agent"].get("agent_status", "unknown")
+        herdr("agent", "rename", pane, name)
+        return state
+    except HerdrError:
+        return "gone"
+
+
+def accept_trust_prompt(pane: str, screen: str) -> bool:
+    """Accept a folder-trust dialog (a directory mesh chose); False if the cursor never reaches "Yes".
+
+    Claude Code highlights "No, exit", so the screen is read again after the arrows and Enter is pressed only
+    with "Yes" selected: a lost arrow would otherwise quit the agent. The arrows are tried twice.
+    """
+    for attempt in range(3):
+        keys = trust_keys(screen)
+        if keys == ["enter"]:
+            herdr("pane", "send-keys", pane, "enter")
+            # The dialog itself reads `blocked`, so waiting for a state would return at once: first wait for
+            # it to leave the screen, so a slow redraw isn't taken for another screen nor gets a second Enter.
+            for _ in range(TRUST_GONE_READS):
+                if not TRUST_PROMPT_RE.search(startup_text(pane)):
+                    break
+                time.sleep(0.5)
+            else:
+                return False
+            try:  # `blocked` too: another startup screen can follow the trust dialog (a Settings Warning)
+                herdr("agent", "wait", pane, "--until", "idle", "--until", "done", "--until", "blocked",
+                      "--timeout", "60000")
+            except HerdrError:
+                pass  # clear_startup looks at the screen again
+            time.sleep(3)  # the CLI redraws its welcome screen after the dialog; typing during it is lost
+            return True
+        if keys is None or attempt == 2:
+            return False
+        for key in keys[:-1]:
+            herdr("pane", "send-keys", pane, key)
+            time.sleep(0.3)
+        screen = startup_text(pane)
+    return False
+
+
+def clear_startup(name: str, pane: str) -> dict:
+    """Past `agent start`'s "not ready": accept folder-trust dialogs, then {} once the agent takes input, or
+    {"held": label, "tail": …} for a screen only the user answers (see `hold`). A CLI that exited is an error."""
+    accepted, settle = 0, STARTUP_SETTLE_READS
+    while True:
+        screen = startup_text(pane)
+        kind, label = startup_screen(screen)
+        if kind == "trust":
+            if accepted < STARTUP_SCREENS and accept_trust_prompt(pane, screen):
+                accepted += 1
+                continue
+            label = "the folder-trust dialog"
+        elif kind == "unknown":
+            state = startup_state(name, pane)
+            if state in ("idle", "done", "working"):
+                return {}
+            if settle:  # herdr may still show the last dialog's `blocked`, or not have found the agent yet
+                settle -= 1
+                time.sleep(1)
+                continue
+            if state == "gone":
+                tail = screen_tail(screen.splitlines())
+                raise MeshError(f"{name} exited during startup" + (f"; last lines of its pane:\n{tail}" if tail else ""))
+            label = "a screen mesh doesn't know"
+        return {"held": label, "tail": screen_tail(screen.splitlines())}
 
 
 def start_agent(name: str, kind: str, pane: str, argv: list[str], attempts: int = 10) -> dict:
-    """`herdr agent start`, retried while the new shell is still starting."""
+    """`herdr agent start`, retried while the new shell is still starting, then past any folder-trust dialog.
+
+    {} once the agent takes input, or `clear_startup`'s {"held": …} when it waits at another startup screen.
+    A `timeout` isn't retried: the CLI already runs in the pane.
+    """
     last: HerdrError | None = None
     for _ in range(attempts):
         try:
-            return herdr("agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--", *argv)
+            herdr("agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--", *argv)
+            return {}
         except HerdrError as exc:
-            if exc.code == "agent_not_ready":
-                if accept_trust_prompt(name):
-                    return {"trust_accepted": True}
-                raise MeshError(
-                    f"{name} started but is waiting at a startup prompt; "
-                    f"inspect it with `herdr agent read {name}`"
-                ) from exc
+            if exc.code in ("agent_not_ready", "timeout"):
+                return clear_startup(name, pane)
             last = exc
             time.sleep(1)
     raise MeshError(f"could not start {name}: {last}")
+
+
+def hold(run_id: str, sender: str, name: str, mtype: str, body: str | None, started: dict,
+         stored: Path | None = None) -> dict:
+    """The delivery for a worker held at a startup screen: the message is stored now, and `release_held` rings
+    its first doorbell once the agent takes input."""
+    path = stored or (record(run_id, sender, name, mtype, body) if body else None)
+    with editing_run(run_id) as run:
+        run["agents"][name]["held"] = {"sender": sender, "type": mtype, "file": path.name if path else None,
+                                       "screen": started["held"], "at": now_iso()}
+    log_event(run_id, "held", name=name, screen=started["held"], file=path.name if path else None)
+    return {"stored": str(path) if path else None, "rung": False, "type": mtype,
+            "error": f"waiting at a startup screen ({started['held']})", "held": started["held"],
+            "tail": started.get("tail", "")}
+
+
+def held_alert(name: str, delivery: dict) -> str:
+    """What a command that left a worker held prints, like watch's exit 4."""
+    line = (f"ALERT {name} is waiting at a startup screen ({delivery['held']}) that mesh doesn't answer: "
+            f"the user clears it in its pane (`herdr agent focus {name}`)")
+    if delivery.get("stored"):
+        line += (f". Its {delivery.get('type')} is stored, and a running `mesh watch` rings its doorbell once "
+                 f"the screen is gone (or run `mesh ring {name}` then)")
+    tail = delivery.get("tail")
+    return f"{line}\n  last lines of its pane:\n{tail}" if tail else line
+
+
+def report_held(name: str, delivery: dict | None) -> int | None:
+    """Exit 4 with the alert when a start left the worker held; None otherwise."""
+    if not (delivery or {}).get("held"):
+        return None
+    print(held_alert(name, delivery), file=sys.stderr)
+    return 4
+
+
+def held_doorbell(run: dict, name: str, held: dict, token: str) -> str:
+    """The first doorbell, which says who the worker is: a held worker never heard it (agy's session lookup
+    keys on it)."""
+    return doorbell_text(run, held.get("sender"), name, held.get("type") or "messages", "", True, token)
+
+
+def release_held(run_id: str, name: str, entry: dict, state: str) -> bool:
+    """For a watch: ring a held worker's first doorbell once its startup screen is gone, if it has unread mail.
+
+    True while the watch should stay quiet: still at the screen its start already reported (or working past
+    it), or just rung. Gone (the user chose to exit) drops the hold, so the watch says so. A ring that fails
+    keeps the hold, so the next poll or `mesh ring` tries the first doorbell again; after HELD_RING_TRIES
+    polls the watch carries on, and its nudge (`deliver`) drops the stale hold and rings it.
+    """
+    if state not in ("idle", "done", "gone"):
+        return True
+    with editing_run(run_id) as run:  # whoever takes it rings: two watches don't both ring
+        held = run["agents"][name].pop("held", None)
+    if not held or state == "gone":
+        return False
+    paths = unread(run_id, name)
+    if not paths:  # nothing waiting (it was read, or there never was a task)
+        return True
+    token = ring_token()
+    rung = ring_stored(run_id, held.get("sender"), name, [name] + ([entry["pane"]] if entry.get("pane") else []),
+                       held_doorbell(load_run(run_id), name, held, token), token, paths[-1],
+                       read=tuple(paths))["rung"]
+    log_event(run_id, "held_rung", name=name, rung=rung)
+    with editing_run(run_id) as run:
+        if rung:
+            run["agents"][name].pop("swapped", None)
+        else:
+            run["agents"][name].setdefault("held", {**held, "tries": held.get("tries", 0) + 1})
+    return rung or held.get("tries", 0) + 1 < HELD_RING_TRIES
 
 
 # ── background sessions ──────────────────────────────────────────────────
@@ -1968,6 +2131,19 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     if stored:
         stored()
         run = load_run(run_id)
+    if entry.get("held"):  # at a startup screen: typing would answer it; release_held rings once it's gone
+        try:
+            at_screen = agent_status(to, entry) in ("blocked", "unknown")
+        except HerdrError:
+            at_screen = True  # can't tell: holding never types into a dialog
+        with editing_run(run_id) as run:
+            held = run["agents"][to].get("held") if at_screen else run["agents"][to].pop("held", None)
+            if held and at_screen and not held.get("file"):  # nothing stored to ring for yet: this one is
+                held.update(sender=sender, type=mtype, file=path.name)
+        if held and at_screen:
+            return {"stored": str(path), "rung": False, "type": mtype, "held": held["screen"],
+                    "error": f"waiting at a startup screen ({held['screen']})"}
+        first = first or bool(held)  # the screen is gone but its first doorbell never rang
     first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
     route = native_route(run, sender, to)
     if route:  # no token: nothing reads a pane for it
@@ -2120,9 +2296,11 @@ def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
 
 def cmd_spawn(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
-    emit(spawn_worker(args, run_id, me))
+    result = spawn_worker(args, run_id, me)
+    emit(result)
+    held = report_held(result["name"], result.get("delivery"))  # the alert first: only the user can clear it
     warn_unwatched(run_id)
-    return 0
+    return held or 0
 
 
 def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
@@ -2228,12 +2406,14 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
 
-    start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)])
+    started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
     result.update(view="pane", pane=pane, workspace=workspace_id, workspace_created=created_ws)
-    if task_path:  # stored before a background launch that fell back to this pane
+    if started.get("held"):  # at a startup screen: no ring now, the watch rings once it's gone
+        result["delivery"] = hold(run_id, me, name, "task", task, started, stored=task_path)
+    elif task_path:  # stored before a background launch that fell back to this pane
         token = ring_token()
         rang = ring_stored(run_id, me, name, [name, pane],
                            doorbell_text(load_run(run_id), me, name, "task", task, True, token), token, task_path)
@@ -2341,7 +2521,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             if exc.code not in ("pane_not_found", "agent_not_found"):
                 raise
         log_event(run_id, "swap", name=name, model=model, effort=effort, why=why, pane=pane, session=session)
-        start_agent(name, entry["kind"], pane, argv)
+        started = start_agent(name, entry["kind"], pane, argv)
     except MeshError as exc:
         with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
             e = run["agents"][name]
@@ -2354,7 +2534,10 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
-    return {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
+    result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
+    if started.get("held") and message:  # the caller would ring a pane at a startup screen: hold it instead
+        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started)
+    return result
 
 
 def require_parent(run: dict, me: str, name: str, command: str) -> dict:
@@ -2437,8 +2620,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
     result["delivery"] = (result.get("swap") or {}).pop("delivery", None) or deliver(
         run_id, me, args.agent, "answer", body, first="swap" in result)
     emit(result)
+    held = report_held(args.agent, result["delivery"])
     warn_unwatched(run_id)
-    return 0 if delivered(result["delivery"]) else 2
+    return held or (0 if delivered(result["delivery"]) else 2)
 
 
 def models_tried(entry: dict) -> tuple[str, ...]:
@@ -2473,8 +2657,9 @@ def cmd_switch(args: argparse.Namespace) -> int:
                       message=(me, "task", body))
     delivery = swap.pop("delivery", None) or deliver(run_id, me, args.agent, "task", body, first=True)
     emit({**swap, "notes": notes, "delivery": delivery})
+    held = report_held(args.agent, delivery)
     warn_unwatched(run_id)
-    return 0 if delivered(delivery) else 2
+    return held or (0 if delivered(delivery) else 2)
 
 
 def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
@@ -2778,8 +2963,12 @@ def cmd_ring(args: argparse.Namespace) -> int:
     entry = agent_entry(run, args.agent)
     refuse_headless(args.agent, entry, "a doorbell")
     count = len(unread(run_id, args.agent))
+    held = entry.get("held")
     if not count:
-        print(f"{args.agent} has no unread messages.")
+        if held:  # spawned with no task: nothing to ring, and nothing left to hold
+            with editing_run(run_id) as data:
+                data["agents"][args.agent].pop("held", None)
+        print(f"{args.agent} has no unread messages" + ("; its startup hold is cleared." if held else "."))
         return 0
     text = f"you have {count} unread message(s) (run `mesh inbox`)"
     route = native_route(run, me, args.agent)
@@ -2789,8 +2978,13 @@ def cmd_ring(args: argparse.Namespace) -> int:
     token = ring_token()
     targets = [args.agent] + ([entry["pane"]] if entry.get("pane") else [])
     paths = unread(run_id, args.agent)
-    result = ring_stored(run_id, me, args.agent, targets, f"📬 [mesh] (ref {token}) {text}", token, paths[-1],
-                         read=tuple(paths))
+    # A held worker never heard its first doorbell, which says who it is.
+    doorbell = held_doorbell(run, args.agent, held, token) if held else f"📬 [mesh] (ref {token}) {text}"
+    result = ring_stored(run_id, me, args.agent, targets, doorbell, token, paths[-1], read=tuple(paths))
+    if result["rung"] and held:
+        with editing_run(run_id) as data:
+            data["agents"][args.agent].pop("held", None)
+            data["agents"][args.agent].pop("swapped", None)
     emit({**result, "unread": count})
     return 0 if result["rung"] else 2
 
@@ -3479,6 +3673,8 @@ class Watch:
             return None
         if self.retired:  # its retire failed, or it was resumed: watch it again
             self.retired = self.finished = False
+        if entry.get("held") and release_held(run_id, name, entry, state):
+            return None  # at the startup screen its start already reported (exit 4), or its doorbell just rang
         if (state == "gone" and self.reopening < SWAP_GRACE
                 and agent_entry(load_run(run_id), name).get("status") == "starting"):  # read after the state
             self.reopening += interval  # `mesh approve` / `mesh switch` is reopening it on another model
@@ -3626,7 +3822,10 @@ class Watch:
         already alerted on isn't judged again (a restarted watch would re-alert every `--grace`); a new task or
         answer, or a `working` reading, re-arms it."""
         received, sent, at = since_last_task(events, self.name)
-        return (bool(received) and not sent and age_seconds(at) >= self.start_grace
+        # A worker held at a startup screen heard its task only once its released doorbell rang.
+        released = next((e.get("time") for e in reversed(events)
+                         if e.get("event") == "held_rung" and e.get("name") == self.name and e.get("rung")), None)
+        return (bool(received) and not sent and min(age_seconds(at), age_seconds(released)) >= self.start_grace
                 and not alerted(events, self.name, received))
 
     def stopped(self, entry: dict, bg: bool, events: list[dict]) -> tuple[int, str] | None:
@@ -4059,9 +4258,11 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
 def cmd_resume(args: argparse.Namespace) -> int:
     """Bring a past worker back, conversation and all, as a worker of this run."""
     run_id, me = identity(args)
-    emit(resume_worker(args, run_id, me))
+    result = resume_worker(args, run_id, me)
+    emit(result)
+    held = report_held(result["name"], result.get("delivery"))  # the alert first: only the user can clear it
     warn_unwatched(run_id)
-    return 0
+    return held or 0
 
 
 READ_ONLY_STARTS = ("Question (read-only)", "Review (read-only)")
@@ -4219,13 +4420,15 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
 
-    start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
-                                          "--dangerously-skip-permissions", *settings_argv(old["kind"], env)])
+    started = start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
+                                                    "--dangerously-skip-permissions", *settings_argv(old["kind"], env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
     result.update(pane=pane, workspace=workspace_id, session=session)
-    if path:  # stored before a background launch that fell back to this pane
+    if started.get("held"):  # as in spawn_worker
+        result["delivery"] = hold(run_id, me, name, "task", task, started, stored=path)
+    elif path:  # stored before a background launch that fell back to this pane
         token = ring_token()
         rang = ring_stored(run_id, me, name, [name, pane],
                            doorbell_text(load_run(run_id), me, name, "task", task, True, token), token, path)
@@ -4759,6 +4962,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print(f"mesh: stored; now send it to {name} with SendMessage (`to` and `message` as in send_message). "
               "Its answer comes back the same way.", file=sys.stderr)
         return 0
+    if delivery.get("held"):  # only the user can clear it: say so now rather than wait silently
+        emit(result)
+        status = report_held(name, delivery)
+        print(f"mesh: `mesh watch {name}` rings it once the screen is gone, and waits for its answer", file=sys.stderr)
+        return status
     if not delivered(delivery):
         emit(result)
         print(f"warning: stored, but the doorbell did not ring ({delivery.get('error')}); "
