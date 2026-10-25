@@ -21,7 +21,7 @@ Run an **agent-mesh** in mode **`claude`** for the user's request: `$ARGUMENTS` 
    - Pass `--model` / `--effort` only if the request names them. Pass `--plan-review user` only if the user wants to approve a large plan themselves.
    - **Your own repo:** keep doing its part yourself; spawn workers only for the other repos (and for yours only if the user asks).
    - **A question about another repo, or a PR review,** that changes nothing: use `mesh ask --kind claude` ("Questions and reviews").
-   - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model, and it's compacted first if its conversation is large.
+   - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model (a change it must plan first plans on Opus), and it's compacted first if its conversation is large.
    - **A list of tasks:** follow "Task lists". Triage it into the board, get the user's one confirmation, then supervise without writing code yourself.
    - Whenever `mesh` prints a `send_message`, pass it on with the `SendMessage` tool, exactly as printed.
 3. Tell the user in one line what you started: run id, and each worker's repo, size, model and whether it's in a pane or in the background. Then supervise until every worker reports back. For a question or a review, give the user the answer and the name of the worker that gave it, so they can ask it again.

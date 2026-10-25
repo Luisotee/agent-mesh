@@ -38,7 +38,7 @@ SIZES = ("trivial", "small", "large")
 SIZE_DEFAULTS = {
     ("claude", "trivial"): {"model": "sonnet", "effort": "low", "view": "bg"},
     ("claude", "small"): {"model": "sonnet", "effort": "medium", "view": "bg"},
-    ("agy", "trivial"): {"model": "flash", "effort": "medium", "view": "pane"},
+    ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
 }
 # A Claude worker whose plan the user approves in its own pane: Opus plans, Sonnet executes.
@@ -82,6 +82,7 @@ REVIEW_PREFIX = ("Review (read-only) of {pr}: review this pull request. Change n
                  "goes wrong), why it matters and a suggested fix; report only what you confirmed in the code and "
                  "mark the rest unverified. Or reply `failed`.")
 REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `gh pr diff {pr}` shows the change."
+REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
 # Tasks with no plan phase (PROTOCOL.md rule 8, ORCHESTRATE.md "Direct tasks").
@@ -1973,9 +1974,17 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         return holder
 
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
-    model, effort = resumed_model(old, args.model, args.effort)
     task = read_body(args.task, args.task_file)
+    # A task it plans first plans where a spawn on `auto` would, whatever it last ran on, and gets the
+    # execution phase, so `mesh approve` moves it on; a named model or effort covers the whole task, as in spawn.
+    planned = bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS) \
+        and not (args.model or args.effort)
     notes: list[str] = []
+    if planned:
+        effort = DEFAULT_EFFORT
+        model, notes = plan_model(old["kind"], effort)
+    else:
+        model, effort = resumed_model(old, args.model, args.effort)
     view = getattr(args, "view", None) or old.get("view") or "pane"
     if view == "bg" and old["kind"] != "claude":
         raise MeshError("--view bg is for Claude workers; agy has no background sessions")
@@ -2004,10 +2013,6 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     env = mesh_env(run_id, name, me, "worker")
-    # A task it plans first gets the execution phase a spawn on `auto` gets, so `mesh approve` moves it on;
-    # a named model or effort covers the whole task, as in spawn.
-    planned = bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS) \
-        and not (args.model or args.effort)
     exec_model = (old.get("exec_model") or EXEC_MODEL[old["kind"]]) if planned else None
     exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
@@ -2156,13 +2161,24 @@ def ask_slug(body: str) -> str:
     return slug
 
 
+def pr_diff(pr: str) -> str:
+    """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit."""
+    result = run_cli(["gh", "pr", "diff", pr], timeout=60)
+    if result.returncode or not result.stdout.strip():
+        return ""
+    if len(result.stdout) > REVIEW_DIFF_MAX:
+        return f"The diff is too long to include here ({len(result.stdout):,} characters): read it with `gh pr diff {pr}`."
+    return f"The change (`gh pr diff {pr}`):\n\n````diff\n{result.stdout.rstrip()}\n````"
+
+
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool) -> str:
     if pr:
         where = (REVIEW_FRESH if fresh else REVIEW_OWN).format(pr=pr, n=number)
         task = REVIEW_PREFIX.format(pr=pr, where=where)
     else:
         task = ASK_PREFIX
-    return task + (f"\n\n{body}" if body else "")
+    diff = pr_diff(pr) if pr else ""
+    return task + "".join(f"\n\n{part}" for part in (body, diff) if part)
 
 
 def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:

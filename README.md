@@ -61,7 +61,7 @@ The root sizes every task before it starts a worker:
 
 | Size | For | Claude worker | agy worker | Plan reviewed? |
 |---|---|---|---|---|
-| trivial | translations, copy, config | Sonnet, low effort, background | Flash, medium | no |
+| trivial | translations, copy, config | Sonnet, low effort, background | Flash, low | no |
 | small | a bug fix, a UI tweak, a test | Sonnet, medium effort, background | Flash, high | no |
 | large | a feature, a cross-repo contract | the table above, in a pane | the table above, in a pane | yes |
 
@@ -115,7 +115,7 @@ Not every cross-repo need is a change. To ask another repo something, or to get 
 /delegate-agy    ask the agent that made shop-api#88 why it returns ISO dates
 ```
 
-The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
+The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
 
 The agent is an ordinary worker, so it stays useful after it answers:
 
@@ -153,7 +153,7 @@ A worker's conversation outlives its run. When the PR gets review comments, or y
 /delegate-agy ask the shop-api worker to return restockedAt as a unix timestamp instead of ISO
 ```
 
-The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the model it ran on, gets it approved (which moves it to the execution model and effort, as for a new worker), and pushes to the **same** branch, so the existing PR updates.
+The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the planning model (the best with quota, as for a new worker, whatever it last ran on), gets it approved (which moves it to the execution model and effort, as for a new worker), and pushes to the **same** branch, so the existing PR updates.
 
 To carry on with a worker yourself, open its conversation in your own terminal:
 

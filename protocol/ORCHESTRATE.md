@@ -29,7 +29,7 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Most to
 
 | Size | For | Claude worker | agy worker | Plan? |
 |---|---|---|---|---|
-| `trivial` | translations, copy, config, a version bump | Sonnet, low effort, in the background | Flash, medium | no |
+| `trivial` | translations, copy, config, a version bump | Sonnet, low effort, in the background | Flash, low | no |
 | `small` | a bug fix, a UI tweak, a test, a contained refactor | Sonnet, medium effort, in the background | Flash, high | no |
 | `large` (the default) | a feature, a cross-repo contract, anything you'd want to review before it's built | the mode table, in a pane | the mode table, in a pane | yes |
 
@@ -212,7 +212,7 @@ When the request is about something a worker already built, in this run or an ea
    - the output's `compaction` shows the context size before and after.
 5. Supervise and review it exactly like a new worker.
 
-A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker plans on the model it ran on. With a task that has a plan phase (not a `Direct task (no plan)` or a question, and no `--model` / `--effort`), `mesh approve` then moves it to the execution model and effort, as for a spawn: agy to Flash at medium, Claude to medium effort. On a quota hit, `mesh switch` still works.
+A conversation can't move to another CLI. If the user wants a different agent (agy → Claude), spawn a fresh one with `--cwd <worktree>` and give it the old plan and report, as on `failed`. `mesh resume --model` changes the model within the same CLI. A resumed worker keeps the model it ran on, except for a task that has a plan phase (not a `Direct task (no plan)` or a question, and no `--model` / `--effort`): that one plans where a spawn would (the first of Argon → Opus → Flash with quota for agy, Opus for Claude, at high effort), and `mesh approve` then moves it to the execution model and effort: agy to Flash at medium, Claude to medium effort. On a quota hit, `mesh switch` still works.
 
 ## Worker
 
