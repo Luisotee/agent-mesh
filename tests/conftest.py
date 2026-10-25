@@ -55,9 +55,9 @@ class FakeCli:
     def on(self, *prefix, returncode=0, stdout="", stderr="", effect=None):
         self.handlers[prefix] = (returncode, stdout, stderr, effect)
 
-    def __call__(self, argv, cwd=None, env=None, timeout=120):
+    def __call__(self, argv, cwd=None, env=None, timeout=120, input=None):
         import subprocess
-        self.calls.append({"argv": list(argv), "cwd": cwd, "env": env})
+        self.calls.append({"argv": list(argv), "cwd": cwd, "env": env, "input": input})
         for prefix, (code, out, err, effect) in sorted(self.handlers.items(), key=lambda kv: -len(kv[0])):
             if tuple(argv[1: 1 + len(prefix)]) == prefix:
                 if effect:

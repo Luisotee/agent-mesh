@@ -40,7 +40,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
   - you're asked only about real product decisions
   - every agent is a visible terminal you can step into
-- **No new runtime:** it's a single stdlib-Python CLI, two skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
+- **No new runtime:** it's a single stdlib-Python CLI, three skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
 
 ## Commands
 
@@ -107,13 +107,18 @@ More examples:
 
 ## Questions and reviews
 
-Not every cross-repo need is a change. To ask another repo something, or to get a PR reviewed, use the same commands:
+Not every cross-repo need is a change. To ask another repo something, use the same commands. To get a PR reviewed, yours included, use `/delegate-review`, which takes the reviewers as arguments:
 
 ```
-/delegate-agy    how does shop-api compute restockedAt, and is it ever null?
-/delegate-claude review the PR we just made
-/delegate-agy    ask the agent that made shop-api#88 why it returns ISO dates
+/delegate-agy     how does shop-api compute restockedAt, and is it ever null?
+/delegate-agy     ask the agent that made shop-api#88 why it returns ISO dates
+/delegate-review                  # the current branch's PR, reviewed by the other vendor (Claude ↔ agy)
+/delegate-review  copilot 88      # PR #88, reviewed by Copilot
+/delegate-review  copilot agy     # the current PR, by Copilot and agy at the same time
+/delegate-review  all 88          # PR #88, by Claude, agy and Copilot
 ```
+
+`/delegate-review` checks every finding against the code before it shows you, merges the ones several reviewers found (saying who found each), gives its verdict on each, and fixes nothing unless you ask.
 
 The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
 
@@ -123,9 +128,12 @@ The agent is an ordinary worker, so it stays useful after it answers:
 - **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
+A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call, with no pane, and only answers. `mesh peek <name> --follow` shows what it's doing. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
+
 ```bash
 mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
 mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
+mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot, headless
 mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
 ```
@@ -257,6 +265,7 @@ mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
 mesh agents [query]        # every past worker, live or archived, with branch, PRs and reviews
+mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve a plan; an auto worker moves to its exec model
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
