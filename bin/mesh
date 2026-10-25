@@ -93,6 +93,7 @@ COMPACT_FOCUS = ("Keep what the next task needs: {task}. Keep the repo facts, th
                  "the branch and the PR; drop tool output and dead ends.")
 BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
+RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -1773,7 +1774,12 @@ def retire_worker(run_id: str, name: str, entry: dict) -> None:
     """Close a worker's pane (or stop its background session); its conversation stays resumable."""
     if entry.get("view") == "bg":
         stop_bg(entry)
-    else:
+    elif entry.get("pane"):  # none if its pane never opened
+        try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
+            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
+                  timeout=RETIRE_WAIT_MS / 1000 + 10)
+        except HerdrError:
+            pass  # gone already, or still busy: close it anyway
         try:
             herdr("pane", "close", entry["pane"])
         except HerdrError as exc:

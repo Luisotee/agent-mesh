@@ -1066,6 +1066,17 @@ def test_ask_closes_the_agent_it_opened_once_it_answers(mesh, fake, run, repo, m
     assert fake.called("agent", "start")[-1][-5:-2] == ("--conversation", "c9", "--model")
 
 
+def test_retire_lets_the_turn_end_and_copes_with_a_pane_that_never_opened(mesh, fake, run, capsys):
+    assert mesh.main(["retire", "repo-fix-typo"]) == 0
+    wait = fake.called("agent", "wait", "repo-fix-typo")
+    assert wait and fake.calls.index(wait[0]) < fake.calls.index(fake.called("pane", "close", "w2:p5")[0])
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-broken"] = {"role": "worker", "kind": "agy", "pane": None, "parent": "repo-lead",
+                                         "status": "starting"}
+    assert mesh.main(["retire", "proj-broken"]) == 0
+    assert mesh.load_run(run)["agents"]["proj-broken"]["status"] == "retired"
+
+
 def test_ask_leaves_a_worker_that_was_already_open(mesh, fake, run, monkeypatch, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     answer_on_sleep(mesh, monkeypatch, run, "repo-fix-typo", body="Because.")
