@@ -206,7 +206,7 @@ Then:
 When the request is about something a worker already built, in this run or an earlier one, resume **that worker**: it still has its research, plan and reasoning, so a fresh one would only rediscover them.
 
 1. **Find it:** `mesh agents <PR link | repo | branch>` lists past workers with their run, branch, PRs and whether their conversation was found. With several matches, the newest is usually the one that last touched the PR.
-2. **If it's still running in this run**, just `mesh send <worker> --type task --file …`. A task with a plan phase plans on the model the worker is on, and `mesh approve` moves it to the execution model; to plan on the strong model instead, `mesh retire` it and resume it (step 3).
+2. **If it's still running in this run**, just `mesh send <worker> --type task --file …`. If it sends a plan, it plans on the model it's on, and `mesh approve` moves it to the execution model (a worker spawned with a named `--model` / `--effort` stays on it); to plan on the strong model instead, `mesh retire` it and resume it (step 3).
 3. **Otherwise resume it:** `mesh init` first if you have no run, then
    ```bash
    mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"

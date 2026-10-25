@@ -22,7 +22,6 @@ import os
 import re
 import secrets
 import shlex
-import sqlite3
 import subprocess
 import sys
 import time
@@ -1005,14 +1004,18 @@ def agy_summaries(path: str, mtime: float) -> list[dict]:
     Opened read-only; agy keeps it in WAL mode, so reading never blocks it.
     """
     try:
-        db = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True, timeout=2)
+        import sqlite3  # here, so a Python built without it only loses this lookup
+    except ImportError:
+        return []
+    try:
+        db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=2)
         try:
             # Top-level conversations only: agy's subagents (`nesting_depth` > 0) share the workspace.
             rows = db.execute("SELECT conversation_id, preview, workspace_uris FROM conversation_summaries "
                               "WHERE nesting_depth = 0 AND step_count > 0 ORDER BY last_modified_time").fetchall()
         finally:
             db.close()
-    except sqlite3.Error:
+    except (sqlite3.Error, ValueError):
         return []
     entries = []
     for conversation, preview, uris in rows:
@@ -1024,35 +1027,36 @@ def agy_summaries(path: str, mtime: float) -> list[dict]:
     return entries
 
 
-def agy_conversation(name: str, run_id: str, cwd: str | None) -> str | None:
+def agy_conversation(name: str, run_id: str, cwd: str | None, pinned_only: bool = False) -> str | None:
     """agy's conversation id for an agent, from agy's conversation index, else the prompt history it keeps.
 
     The first doorbell names the agent and its run, so it pins the conversation even when
-    a restart (`-2`) shares the worktree; the newest conversation in that directory is the fallback.
+    a restart (`-2`) shares the worktree; the newest conversation in that directory is the fallback
+    (not with `pinned_only`). agy sometimes replaces the index's first prompt with the conversation's
+    title, which is why a worker's conversation is recorded once it first writes (see record_session).
     """
     home = Path.home() / ".gemini/antigravity-cli"
     sources = ((os.environ.get("MESH_AGY_SUMMARIES") or home / "conversation_summaries.db", agy_summaries),
                (os.environ.get("MESH_AGY_HISTORY") or home / "history.jsonl", agy_history))
     run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
-    doorbells, cwds = [], []
+    cwds = []
     for source, read in sources:
         path = Path(source)
-        if not path.exists():
+        try:  # agy's db takes new rows in its write-ahead log first, so that file's mtime counts too
+            mtime = max(f.stat().st_mtime for f in (path, path.with_name(path.name + "-wal")) if f.exists())
+        except (OSError, ValueError):  # gone, or its log removed as we looked
             continue
-        by_doorbell = by_cwd = None
-        # agy's db takes new rows in its write-ahead log first, so that file's mtime counts too
-        mtime = max(f.stat().st_mtime for f in (path, path.with_name(path.name + "-wal")) if f.exists())
+        by_cwd = None
         for entry in read(str(path), mtime):
             conversation, display = entry.get("conversationId"), entry.get("display") or ""
             if not conversation:
                 continue
             if display.startswith(f"📬 [mesh] {first_doorbell(name)}") and run_re.search(display):
-                by_doorbell = conversation
-            elif cwd and cwd in entry.get("workspaces", [entry.get("workspace")]):
+                return conversation
+            if cwd and cwd in entry.get("workspaces", [entry.get("workspace")]):
                 by_cwd = conversation
-        doorbells.append(by_doorbell)
         cwds.append(by_cwd)
-    return next((c for c in doorbells + cwds if c), None)
+    return None if pinned_only else next((c for c in cwds if c), None)
 
 
 def claude_sessions_dir(cwd: str) -> Path:
@@ -1483,6 +1487,10 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if view == "bg" and not address_alive(run["agents"][run["root"]].get("address")):
         notes.append("background needs a Claude root that background workers can message; starting a pane")
         view = "pane"
+    # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
+    # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
+    pinned = getattr(args, "pinned", None)
+    pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, effort, log)
     if user_review:
@@ -1504,7 +1512,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
-            "plan_review": "user" if user_review else None,
+            "plan_review": "user" if user_review else None, "pinned": pinned,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
             "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
             "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
@@ -1616,7 +1624,9 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
               timeout=wait_ms / 1000 + 10)
     except HerdrError as exc:
         if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
-            raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
+            if exc.code == "timeout":
+                raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
+            raise
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
     run = load_run(run_id)
@@ -1705,6 +1715,8 @@ def cmd_switch(args: argparse.Namespace) -> int:
     entry = agent_entry(load_run(run_id), args.agent)
     refuse_headless(args.agent, entry, "`mesh switch`")
     effort = entry.get("effort") or DEFAULT_EFFORT
+    if entry.get("phase") == "exec" and not args.model:  # after `approve --keep-model` it still has the plan's
+        effort = entry.get("exec_effort") or EXEC_EFFORT
     notes: list[str] = []
     if args.model:
         model = resolve_model(entry["kind"], args.model, effort)
@@ -1756,9 +1768,10 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not body or not body.strip():
         raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
     to = me_parent(run_id, me) if args.to == "parent" else args.to
-    if args.type == "task":
-        enter_plan_phase(run_id, to, body)
     result = deliver(run_id, me, to, args.type, body)
+    record_session(run_id, me)
+    if args.type == "plan":
+        enter_plan_phase(run_id, me, to)
     emit(result)
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
@@ -1771,23 +1784,45 @@ def cmd_send(args: argparse.Namespace) -> int:
     return 0
 
 
-def enter_plan_phase(run_id: str, name: str, task: str) -> None:
-    """A planned task to a live worker with no plan phase (a small asker, a worker already executing) gets one,
-    as `mesh resume` gives it, so `mesh approve` moves it to its execution model and effort.
+def has_phases(entry: dict | None) -> bool:
+    """A worker that may plan and then execute on its exec model: not one whose model or effort was named
+    for the whole task (`pinned`), nor one whose plan the user approves in its pane."""
+    return bool(entry) and entry.get("role") == "worker" and entry.get("kind") in KINDS \
+        and not entry.get("pinned") and entry.get("plan_review") != "user"
 
-    It plans on the model it is on: reopening a live worker to change that is what `retire` and `resume` are for.
+
+def enter_plan_phase(run_id: str, name: str, to: str) -> None:
+    """A worker that sends its parent a plan while not planning (a small asker given a change, a worker that
+    finished and got a new task) enters a plan phase, as `mesh resume` gives one, so `mesh approve` moves it
+    to its exec model and effort. It is planning on the model it is on: `send` never reopens a worker.
+
+    The trigger is the plan itself, not the task: a fix the worker just does keeps its exec phase.
     """
+    entry = load_run(run_id)["agents"].get(name)
+    if not has_phases(entry) or entry.get("phase") == "plan" or entry.get("parent") != to:
+        return
     with editing_run(run_id) as run:
-        entry = run["agents"].get(name)
-        if not entry or entry.get("role") != "worker" or entry.get("kind") not in KINDS \
-                or entry.get("phase") == "plan" or not planned_task(task):
-            return
+        entry = run["agents"][name]
         entry.update(phase="plan", exec_model=entry.get("exec_model") or EXEC_MODEL[entry["kind"]],
                      exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
         # where this plan phase starts, for models_tried
         entry.setdefault("models", []).append({"model": entry.get("model"), "effort": entry.get("effort"),
                                                "at": now_iso(), "why": "planned task"})
     log_event(run_id, "plan_phase", name=name, exec_model=entry["exec_model"])
+
+
+def record_session(run_id: str, name: str) -> None:
+    """Record an agy worker's conversation on its first message, while agy's index still holds its first
+    doorbell: agy may later replace that with a title, and the worktree fallback can pick a restart's."""
+    entry = load_run(run_id)["agents"].get(name)
+    if not entry or entry.get("kind") != "agy" or entry.get("session") or entry.get("role") != "worker":
+        return
+    session = agy_conversation(name, run_id, None, pinned_only=True)
+    if session:
+        with editing_run(run_id) as run:
+            e = run["agents"][name]
+            e["session"] = e.get("session") or session
+        log_event(run_id, "session", name=name, session=session)
 
 
 def me_parent(run_id: str, me: str) -> str:
@@ -2287,6 +2322,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             "workspace": None, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
             "phase": "plan" if planned else None, "exec_model": exec_model, "exec_effort": exec_effort,
+            "pinned": bool(args.model or args.effort) or (not planned and bool(old.get("pinned"))),
             "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "resume"}],
         }
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
@@ -2742,7 +2778,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
             exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
             name=args.name, worktree=slugify(slug, 24),
             cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
-            view=args.view or ("pane" if pr else None), plan_review=None)  # the user watches a review
+            view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
+            pinned=bool((args.model and args.model != "auto") or args.effort))
         finals, how = 0, "started"
     else:
         old_run, _, name, entry = target
