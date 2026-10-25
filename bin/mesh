@@ -59,6 +59,7 @@ VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` 
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
+AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
 # then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
 # the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
@@ -1170,7 +1171,7 @@ def agy_conversation(name: str, run_id: str, cwd: str | None, pinned_only: bool 
     (not with `pinned_only`). agy sometimes replaces the index's first prompt with the conversation's
     title, which is why a worker's conversation is recorded once it first writes (see record_session).
     """
-    home = Path.home() / ".gemini/antigravity-cli"
+    home = Path.home() / AGY_HOME
     sources = ((os.environ.get("MESH_AGY_SUMMARIES") or home / "conversation_summaries.db", agy_summaries),
                (os.environ.get("MESH_AGY_HISTORY") or home / "history.jsonl", agy_history))
     run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
@@ -1252,6 +1253,7 @@ def context_tokens(entry: dict, session: str) -> int | None:
 
 
 AGY_COMPACTION_STEP = 23  # a step holding a compaction's <summary>: a `/compact`, or agy's own
+AGY_STEP_DONE = 3  # a step's status once it has finished (tool steps that failed or were cancelled have others)
 
 
 def protobuf_fields(blob: bytes) -> list[tuple[int, int | bytes]]:
@@ -1298,28 +1300,31 @@ def agy_context_tokens(session: str) -> int | None:
         import sqlite3  # here, so a Python built without it only loses this reading
     except ImportError:
         return None
-    base = os.environ.get("MESH_AGY_CONVERSATIONS") or Path.home() / ".gemini/antigravity-cli/conversations"
+    base = os.environ.get("MESH_AGY_CONVERSATIONS") or Path.home() / AGY_HOME / "conversations"
     path = Path(base) / f"{session}.db"
     if not path.exists():
         return None
     try:
         db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
         try:
-            rows = db.execute("SELECT step_type, metadata FROM steps ORDER BY idx DESC").fetchall()
+            # Newest first, read only as far as the first call or compaction.
+            for step_type, status, metadata in db.execute("SELECT step_type, status, metadata FROM steps "
+                                                          "ORDER BY idx DESC"):
+                if step_type == AGY_COMPACTION_STEP and status == AGY_STEP_DONE:  # a failed one compacted nothing
+                    return 0
+                if not isinstance(metadata, bytes):
+                    continue
+                try:
+                    usage = next((v for f, v in protobuf_fields(metadata) if f == 9 and isinstance(v, bytes)), b"")
+                    counts = {f: v for f, v in protobuf_fields(usage) if isinstance(v, int)}
+                except (ValueError, IndexError):
+                    continue
+                if 2 in counts:
+                    return counts[2] + counts.get(5, 0)
         finally:
             db.close()
     except (sqlite3.Error, ValueError):
         return None
-    for step_type, metadata in rows:  # newest first
-        if step_type == AGY_COMPACTION_STEP:
-            return 0
-        try:
-            usage = next((v for f, v in protobuf_fields(metadata or b"") if f == 9 and isinstance(v, bytes)), None)
-            counts = {f: v for f, v in protobuf_fields(usage or b"") if isinstance(v, int)}
-        except (ValueError, IndexError):
-            continue
-        if 2 in counts:
-            return counts[2] + counts.get(5, 0)
     return None
 
 

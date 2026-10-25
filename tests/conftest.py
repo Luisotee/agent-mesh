@@ -95,8 +95,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_AGY_CONVERSATIONS", str(tmp_path / "agy" / "conversations"))
     # CLAUDE_CODE_SESSION_ID, CLAUDE_PID: the suite may run inside Claude Code, whose session would meet
     # `inherited_identity` and whose process `claude_address`.
-    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_PID"):
+    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
+                "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"):
         monkeypatch.delenv(key, raising=False)
     module = load_mesh()
     monkeypatch.setattr(module.time, "sleep", lambda s: None)

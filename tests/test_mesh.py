@@ -2639,16 +2639,16 @@ def agy_call(fresh, cached=0, out=50):
 
 
 def agy_conversation_file(mesh, session, steps):
-    """agy's conversation file: `steps` are (step_type, metadata) in order."""
+    """agy's conversation file: `steps` are (step_type, metadata[, status]) in order, done unless a status is given."""
     import sqlite3
     folder = Path(os.environ["MESH_AGY_CONVERSATIONS"])
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{session}.db").unlink(missing_ok=True)
     db = sqlite3.connect(folder / f"{session}.db")
-    db.execute("CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer NOT NULL DEFAULT 0, metadata blob, "
-               "step_payload blob)")
-    db.executemany("INSERT INTO steps (idx, step_type, metadata) VALUES (?, ?, ?)",
-                   [(i, t, m) for i, (t, m) in enumerate(steps)])
+    db.execute("CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer NOT NULL DEFAULT 0, "
+               "status integer NOT NULL DEFAULT 0, metadata blob, step_payload blob)")
+    db.executemany("INSERT INTO steps (idx, step_type, status, metadata) VALUES (?, ?, ?, ?)",
+                   [(i, step[0], step[2] if len(step) > 2 else 3, step[1]) for i, step in enumerate(steps)])
     db.commit()
     db.close()
 
@@ -2661,6 +2661,10 @@ def test_agy_context_is_the_last_calls_prompt_since_its_last_compaction(mesh):
     assert mesh.context_tokens({"kind": "agy"}, "c1") == 0  # compacted (by `/compact`, or by agy itself)
     agy_conversation_file(mesh, "c1", [(15, agy_call(248_334)), (23, b""), user, (15, agy_call(18_134))])
     assert mesh.agy_context_tokens("c1") == 18_134
+    agy_conversation_file(mesh, "c1", [(15, agy_call(248_334)), (23, b"", 2)])
+    assert mesh.agy_context_tokens("c1") == 248_334  # a compaction that didn't finish compacted nothing
+    agy_conversation_file(mesh, "c1", [(15, agy_call(20_000)), (15, "not bytes"), (15, 7)])
+    assert mesh.agy_context_tokens("c1") == 20_000  # metadata that isn't a blob is skipped, not a crash
     agy_conversation_file(mesh, "c1", [user])
     assert mesh.agy_context_tokens("c1") is None  # no model call yet
     assert mesh.agy_context_tokens("missing") is None
