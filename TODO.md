@@ -23,8 +23,8 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Reports and reviews
 
-- [ ] Read-only Claude askers and reviewers are held only by the prompt: pass `COPILOT_DENY`'s list as `--disallowedTools` (an asker turned into a changer is reopened without it). *Live check*: deny rules win under `--dangerously-skip-permissions`. agy has no deny list; say so in design §10 (ccswarm)
-- [ ] Tie a review to the head commit it read (`Reviewing <pr> at <sha>` in the task, `head` in `reviews`), cap review→fix rounds at two in ORCHESTRATE, and have `REVIEW_PREFIX` mark each finding blocking (with its failing input) or advisory (ccswarm)
+- [ ] A review task's embedded diff comes from `gh pr diff` at ask time, which can be newer than the head the task names if the author pushes in between: build it with `git diff <merge-base>..<head>` from the fetched head instead
+- [ ] A fresh reviewer asked again after a fix still has the old head checked out (it reads the new one through `git diff`/`git show`): move its worktree to the new head when it's clean, so it can run the fixed tests
 - [ ] `mesh resume` onto a merged or closed PR pushes to a dead branch: check `gh pr view --json state` and start a new branch from the default one (Gas Town)
 - [ ] Find a PR's author by its head branch (`gh pr view --json headRefName` against recorded branches) before the message-link regex, which needed the `reviews` exclusion (Rove)
 - [ ] A killed `mesh ask` can orphan its Copilot child, and `live_holder` then lets a second process open the same session: start it in its own session, record the child pid, and identify pids by pid plus start time (ccswarm, Cyclops)

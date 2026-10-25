@@ -131,16 +131,21 @@ GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?
 # `mesh ask` tasks: read-only, answered with one `done` (PROTOCOL.md rule 7, ORCHESTRATE.md "Read-only tasks").
 ASK_PREFIX = ("Question (read-only): answer it from the code. Change no files, make no commits, push nothing "
               "and send no plan; reply with one `done` that holds the answer, or `failed`.")
-REVIEW_PREFIX = ("Review (read-only) of {pr}: review this pull request. Change no files, make no commits, push "
+REVIEW_PREFIX = ("Review (read-only) of {pr}{at}: review this pull request. Change no files, make no commits, push "
                  "nothing, send no plan and post nothing on GitHub. {where} Reply with one `done` that lists your "
                  "findings, most severe first, each with file:line, the concrete failure (input or state, and what "
-                 "goes wrong), why it matters and a suggested fix; report only what you confirmed in the code and "
-                 "mark the rest unverified. Or reply `failed`.")
-# What a Copilot asker may not run, on top of its read-only prompt: file edits, and what would publish
-# or merge (its shell stays open so it can run tests). A shell rule needs `:*` to match the command with
-# any arguments; Copilot ignores a bare three-word `shell(gh pr comment)`.
-COPILOT_DENY = ("write", *(f"shell({cmd}:*)" for cmd in (
-    "git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close", "gh issue comment")))
+                 "goes wrong), why it matters and a suggested fix. Mark each one **blocking** (a defect you "
+                 "reproduced or traced, with the input that makes it fail) or **advisory** (everything else). "
+                 "Report only what you confirmed in the code and mark the rest unverified. Or reply `failed`.")
+REVIEW_AGAIN = ("You last reviewed it at {last}: say which of your earlier findings are fixed, and review what "
+                "changed since (`git diff {last} {head}`).")
+# What a read-only asker may not run, on top of its prompt: what would publish or merge (its shell stays
+# open so it can run tests), and file edits (below).
+PUBLISH_COMMANDS = ("git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close",
+                    "gh issue comment")
+# Copilot: a shell rule needs `:*` to match the command with any arguments; Copilot ignores a bare
+# three-word `shell(gh pr comment)`.
+COPILOT_DENY = ("write", *(f"shell({cmd}:*)" for cmd in PUBLISH_COMMANDS))
 # Appended to a Copilot asker's prompt, which never reads PROTOCOL.md (see copilot_ask).
 COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` to run. Your final message is your "
                 "answer (your `done`).")
@@ -989,7 +994,7 @@ def settings_argv(kind: str, env: dict[str, str]) -> list[str]:
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
-              resume: str | None = None) -> tuple[str, str]:
+              resume: str | None = None, extra: list[str] | tuple[str, ...] = ()) -> tuple[str, str]:
     """Start a background Claude session and return (short id, session id).
 
     `--bg` picks its own session id. With `resume`, the flags make it start a *copy* of that conversation under
@@ -997,7 +1002,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     `worker_settings`), while continuing the old id would bring back the options it was first started with.
     """
     argv = [claude_bin(), "--bg", *(["--resume", resume] if resume else []), "-n", name, "--model", model,
-            "--effort", effort, "--settings", worker_settings(env, bg=True), "--dangerously-skip-permissions", prompt]
+            "--effort", effort, *extra, "--settings", worker_settings(env, bg=True), "--dangerously-skip-permissions", prompt]
     # No MESH_* in the process itself, so a daemon this launch starts, and its spares, carry none.
     proc = run_cli(argv, cwd=cwd, env=claude_env(strip_mesh=True), timeout=120)
     out = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -1200,6 +1205,20 @@ def log_argv(log: str | None) -> list[str]:
 def resolve_model(kind: str, model: str, effort: str) -> str:
     """The id to start an agent of this kind with: agy families are resolved, Claude aliases pass through."""
     return resolve_agy_model(model, effort) if kind == "agy" else model
+
+
+def claude_deny(entry: dict) -> list[str]:
+    """`--disallowedTools` for a Claude worker on a read-only task (`read_only`), else nothing.
+
+    Edits are denied by path, its worktree and the main checkout, so it can still write its report under
+    `$(mesh dir)`; an `Edit` rule stops Write too. Deny rules win over `--dangerously-skip-permissions`, in
+    a pane and in `--bg`, and aren't kept in the conversation: a reopen without them can edit (design §10).
+    The flag takes several values, so callers put another flag after it.
+    """
+    if entry.get("kind") != "claude" or not entry.get("read_only"):
+        return []
+    paths = dict.fromkeys(str(Path(p).resolve()) for p in (entry.get("cwd"), entry.get("repo")) if p)
+    return ["--disallowedTools", *(f"Edit(/{p}/**)" for p in paths), *(f"Bash({cmd}:*)" for cmd in PUBLISH_COMMANDS)]
 
 
 def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
@@ -1932,11 +1951,13 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     task = read_body(args.task, args.task_file)
     if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
         task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
+    read_only = args.kind == "claude" and read_only_task(task)
+    deny = claude_deny({"kind": args.kind, "read_only": read_only, "cwd": cwd, "repo": repo_top})
     env = mesh_env(run_id, name, parent, args.role)
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
-            "plan_review": "user" if user_review else None, "pinned": pinned,
+            "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
             "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
             "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
@@ -1951,7 +1972,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         task_path = record(run_id, me, name, "task", task) if task else None
         prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
         try:
-            bg_id, session = launch_bg(name, cwd, model, effort, env, prompt)
+            bg_id, session = launch_bg(name, cwd, model, effort, env, prompt, extra=deny)
         except MeshError as exc:  # untrusted folder, or a launch that didn't take
             notes.append(f"{exc}; starting a pane instead")
             view = "pane"
@@ -1970,7 +1991,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
 
-    start_agent(name, args.kind, pane, [*argv, *settings_argv(args.kind, env)])
+    start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
@@ -1990,7 +2011,7 @@ def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
 
 
 def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effort: str, why: str,
-            wait_ms: int, strict: bool, message: tuple[str, str, str]) -> dict:
+            wait_ms: int, strict: bool, message: tuple[str, str, str], read_only: bool) -> dict:
     """swap_model for a background worker: stop it, then start a copy of its conversation on the new model.
 
     The message goes into its mailbox first, since the copy's opening prompt is the doorbell for it.
@@ -2000,17 +2021,19 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     path = record(run_id, sender, name, mtype, body)
     with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
-        e.update(model=model, effort=effort, status="starting", swapped=True)
+        e.update(model=model, effort=effort, status="starting", swapped=True, read_only=read_only)
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
     stop_bg(entry)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
-                                       mesh_env(run_id, name, entry["parent"], entry["role"]), prompt, resume=session)
+                                       mesh_env(run_id, name, entry["parent"], entry["role"]), prompt, resume=session,
+                                       extra=claude_deny({**entry, "read_only": read_only}))
     except MeshError as exc:
         with editing_run(run_id) as run:
             e = run["agents"][name]
-            e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed")
+            e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
+                     read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
@@ -2026,13 +2049,15 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
 
 
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
-               strict: bool = True, message: tuple[str, str, str] | None = None) -> dict:
+               strict: bool = True, message: tuple[str, str, str] | None = None,
+               read_only: bool | None = None) -> dict:
     """Restart a worker on another model or effort in the same conversation, pane by pane, keeping its name.
 
     Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
     hit a quota is not strict, since its turn is already dead whatever herdr shows. A background worker
     gets `message` (sender, type, body) as its opening prompt (the result's `delivery`); for a pane the
-    caller delivers it once the pane is back.
+    caller delivers it once the pane is back. `read_only` (default: as it was) says whether it reopens with
+    its deny list (claude_deny).
     """
     entry = agent_entry(load_run(run_id), name)
     refuse_headless(name, entry, "a model swap")
@@ -2040,9 +2065,10 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
                              f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
+    read_only = bool(entry.get("read_only")) if read_only is None else read_only
     if entry.get("view") == "bg":
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
-                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."))
+                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."), read_only)
     try:  # never cut a turn short: the conversation is only safe to reopen between turns
         herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
               timeout=wait_ms / 1000 + 10)
@@ -2064,10 +2090,11 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                 status="starting", swapped=True)
+                 status="starting", swapped=True, read_only=read_only)
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
-            "--dangerously-skip-permissions", *settings_argv(entry["kind"], env)]
+    argv = [*log_argv(entry.get("log")), *claude_deny({**entry, "read_only": read_only}),
+            *resume_argv(entry["kind"], session, model, effort), "--dangerously-skip-permissions",
+            *settings_argv(entry["kind"], env)]
     try:
         try:
             herdr("pane", "close", entry["pane"])
@@ -2079,7 +2106,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     except MeshError as exc:
         with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
             e = run["agents"][name]
-            e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed")
+            e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
+                     read_only=entry.get("read_only"))
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, error=str(exc))
@@ -2188,6 +2216,30 @@ def read_body(body: str | None, file: str | None) -> str | None:
     return body
 
 
+def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict | None:
+    """A change task for a read-only Claude asker: reopen its conversation without its deny list, then deliver.
+
+    The same model and effort, by `swap_model`, as `mesh approve` reopens a worker; None when there's
+    nothing to lift (not a task, a question or a review again, or no deny list).
+    """
+    if mtype != "task" or read_only_task(body):
+        return None
+    entry = agent_entry(load_run(run_id), to)
+    if entry.get("role") != "worker" or not claude_deny(entry):
+        return None
+    try:
+        swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted",
+                          message=(me, "task", body), read_only=False)
+    except SwapNotStarted as exc:
+        raise MeshError(f"{exc}. Nothing was sent: {to} is a read-only asker, which a change task reopens "
+                        f"without its deny list once its turn has ended; send it again then") from exc
+    log_event(run_id, "read_only_lifted", name=to)
+    print(f"mesh: {to} was a read-only asker; reopened it in the same conversation without its deny list, "
+          "so it can now edit and push", file=sys.stderr)
+    return {**(swap.pop("delivery", None) or deliver(run_id, me, to, "task", body, first=True)),
+            "read_only_lifted": True, "reopened": swap}
+
+
 def cmd_send(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     body = read_body(args.body, args.file)
@@ -2201,13 +2253,14 @@ def cmd_send(args: argparse.Namespace) -> int:
         if args.type == "plan":
             enter_plan_phase(run_id, me, to)
 
-    result = deliver(run_id, me, to, args.type, body, stored=stored)
+    result = lift_read_only(run_id, me, to, args.type, body) or deliver(run_id, me, to, args.type, body,
+                                                                        stored=stored)
     emit(result)
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
               file=sys.stderr)
         return 0
-    if not result["rung"]:
+    if not delivered(result):
         print(f"warning: stored, but the doorbell did not ring ({result['error']}); "
               f"{to} will see it on its next `mesh inbox`", file=sys.stderr)
         return 2
@@ -3375,6 +3428,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
 READ_ONLY_STARTS = ("Question (read-only)", "Review (read-only)")
 
 
+def read_only_task(task: str | None) -> bool:
+    """A question or a review from `mesh ask` (PROTOCOL.md rule 7)."""
+    return bool(task) and task.lstrip().startswith(READ_ONLY_STARTS)
+
+
 def first_line(text: str | None, limit: int = 160) -> str:
     line = next((ln.strip() for ln in (text or "").splitlines() if ln.strip()), "")
     return line[:limit]
@@ -3404,7 +3462,7 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
                   cross_run: bool) -> dict:
     """`--compact`: compact the conversation before it is reopened, if it's worth it (see should_compact)."""
     mode = getattr(args, "compact", None) or "auto"
-    read_only = getattr(args, "read_only", False) or bool(task and task.startswith(READ_ONLY_STARTS))
+    read_only = getattr(args, "read_only", False) or read_only_task(task)
     tokens = context_tokens(entry, session)
     report: dict = {"context_tokens": tokens, "compacted": False}
     if not should_compact(mode, entry, tokens, read_only, cross_run):
@@ -3474,12 +3532,16 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     env = mesh_env(run_id, name, me, "worker")
+    # A question or a review is held by the deny list too; anything else reopens it without one.
+    read_only = old["kind"] == "claude" and (getattr(args, "read_only", False) or read_only_task(task))
+    deny = claude_deny({**old, "read_only": read_only})
     exec_model = (old.get("exec_model") or EXEC_MODEL[old["kind"]]) if planned else None
     exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": old.get("base"),
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
+            "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only,
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
             "workspace": None, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
@@ -3496,7 +3558,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         path = record(run_id, me, name, "task", task) if task else None
         prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
         try:
-            bg_id, new_session = launch_bg(name, cwd, model, effort, env, prompt, resume=session)
+            bg_id, new_session = launch_bg(name, cwd, model, effort, env, prompt, resume=session, extra=deny)
         except MeshError as exc:  # as in spawn_worker: the conversation reopens in a pane instead
             notes.append(f"{exc}; reopening in a pane instead")
         else:
@@ -3518,7 +3580,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
 
-    start_agent(name, old["kind"], pane, [*log_argv(log), *resume_argv(old["kind"], session, model, effort),
+    start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
                                           "--dangerously-skip-permissions", *settings_argv(old["kind"], env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
@@ -3659,14 +3721,30 @@ def pr_diff(pr: str) -> str:
     return f"The change (`gh pr diff {pr}`):\n\n````diff\n{result.stdout.rstrip()}\n````"
 
 
-def ask_task(body: str, pr: str | None, number: int | None, fresh: bool) -> str:
+def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
+             last: str | None = None) -> str:
+    """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before."""
     if pr:
         where = (REVIEW_FRESH if fresh else REVIEW_OWN).format(pr=pr, n=number)
-        task = REVIEW_PREFIX.format(pr=pr, where=where)
+        if last and head and last != head:
+            where += " " + REVIEW_AGAIN.format(last=last, head=head)
+        task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
     else:
         task = ASK_PREFIX
     diff = pr_diff(pr) if pr else ""
     return task + "".join(f"\n\n{part}" for part in (body, diff) if part)
+
+
+def record_review(run_id: str, name: str, pr: str, head: str | None) -> None:
+    """The PR in `reviews`, so `mesh resume <pr>` still finds the author, not the reviewer, and the head it
+    read in `review_heads`, so asking it again names what changed since."""
+    with editing_run(run_id) as run:
+        entry = run["agents"][name]
+        reviews = entry.setdefault("reviews", [])
+        if pr not in reviews:
+            reviews.append(pr)
+        if head:
+            entry.setdefault("review_heads", {})[pr] = head
 
 
 def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:
@@ -3788,7 +3866,7 @@ def close_peek(run_id: str, name: str, pane: str) -> None:
 
 
 def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
-                pr: str | None, number: int | None, base: str | None, body: str) -> int:
+                pr: str | None, number: int | None, base: str | None, body: str, head: str | None = None) -> int:
     """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot` prints (copilot_ask)."""
     ignored = [flag for flag, on in (("--keep", args.keep), ("--no-wait", args.no_wait), ("--wait", args.wait),
                                      ("--view", args.view), ("--compact", args.compact != "auto"),
@@ -3840,10 +3918,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         log_event(run_id, "spawn", name=name, kind="copilot", role="worker", model=model, view="headless", parent=me)
         how = "started"
     if pr:
-        with editing_run(run_id) as run:
-            reviews = run["agents"][name].setdefault("reviews", [])
-            if pr not in reviews:
-                reviews.append(pr)
+        record_review(run_id, name, pr, head)
     peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
     follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
     print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
@@ -3938,8 +4013,17 @@ def cmd_ask(args: argparse.Namespace) -> int:
         repo = Path(target[3]["repo"]) if target[3].get("repo") else Path.cwd()
         copilot = target[3].get("kind") == "copilot"
     pr, number = pr_ref(args.review, repo) if args.review else (None, None)
-    task = ask_task(body, pr, number, fresh=bool(args.repo))
-    base = pr_head(repo, pr, number) if pr and args.repo else None
+    head = last = None
+    if pr and args.repo:
+        head = pr_head(repo, pr, number)  # what the fresh reviewer's worktree starts at
+    elif pr:
+        try:  # into the shared object store, so the worker can read it; a review without it still goes out
+            head = pr_head(repo, pr, number) if target[3].get("repo") else None
+        except (MeshError, OSError):
+            pass
+        last = (target[3].get("review_heads") or {}).get(pr)
+    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last)
+    base = head if args.repo else None
 
     try:
         run_id, me = identity(args)
@@ -3953,7 +4037,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if agent_entry(load_run(run_id), me)["role"] != "root":
         raise MeshError("only the root asks: a worker sends its parent a `question` instead")
     if copilot:
-        return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body)
+        return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)
 
     if args.repo:
         kind = args.kind or load_run(run_id)["mode"]
@@ -3996,10 +4080,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         result = {"name": name, "delivery": deliver(run_id, me, name, "task", task)}
     name = result["name"]
     if pr:
-        with editing_run(run_id) as run:
-            reviews = run["agents"][name].setdefault("reviews", [])
-            if pr not in reviews:
-                reviews.append(pr)  # so `mesh resume <pr>` still finds the author, not the reviewer
+        record_review(run_id, name, pr, head)
 
     delivery = result.get("delivery") or {}
     if "send_message" in delivery:

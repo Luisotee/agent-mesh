@@ -119,7 +119,7 @@ Not every cross-repo need is a change. To ask another repo something, use the sa
 /delegate-review  all 88          # PR #88, by Claude, agy and Copilot
 ```
 
-`/delegate-review` checks every finding against the code before it shows you, merges the ones several reviewers found (saying who found each), gives its verdict on each, and fixes nothing unless you ask.
+`/delegate-review` checks every finding against the code before it shows you, merges the ones several reviewers found (saying who found each), gives its verdict on each, and fixes nothing unless you ask. Reviewers mark each finding blocking (with the input that makes it fail) or advisory, and every review names the commit it read, so a reviewer asked again after a fix reviews what changed since. A run's own PRs get at most two review→fix rounds; what's still open after that comes to you.
 
 The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
 
@@ -289,7 +289,7 @@ mesh watch --any [--alerts]  # one watchdog for every worker of the run
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
 - **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved`. A `Direct task (no plan)` goes straight to the change.
 - **`send_message`:** when `mesh send` prints one, pass it on with `SendMessage`, exactly as printed.
-- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer.
+- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a change; agy has no deny list, so its askers are held by the prompt.
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
