@@ -1372,12 +1372,14 @@ def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake,
     assert "You are proj-ui (worker) in agent-mesh run mtest" in fake.called("agent", "prompt")[-1][3]
 
 
-def test_small_agy_task_is_flash_at_high_effort_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
+def test_small_and_trivial_agy_tasks_are_flash_at_high_and_low_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
     stub_new_pane(fake)
     monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
     assert mesh.main(["spawn", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-3.8-flash-high", None)
+    assert mesh.main(["spawn", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-low"
     assert mesh.main(["spawn", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
     assert "for Claude workers" in capsys.readouterr().err
 
