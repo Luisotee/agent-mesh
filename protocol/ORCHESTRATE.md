@@ -81,9 +81,11 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
      --task-file "$(mesh dir)/tasks/<repo>.md"      # plus --model/--effort only if the user named them
    ```
    The slug names both the branch (`mesh/<run>/<slug>`) and the agent (`<repo>-<slug>`), so make it short and descriptive: `fix-reactions`, not `task1`. The task file contains:
-   - that repo's slice of the request
+   - that repo's slice of the request, with the user's own words quoted where the wording matters
    - what you know from your own work that it needs: the contract your repo expects (field names, API shapes, error cases), with file paths in your repo it can read for reference
    - dependencies on other repos (what to wait for, and what the other workers will need from this one)
+   - what you know about that repo and what you only assume, with the assumptions marked so the worker checks them
+   - what is out of scope: files, behaviour or other repos it should leave alone
    - for a large task: "send your plan for review before changing anything"; for every task: "report `done` with the PR link"
 
    Tell the user, in one line per worker, its size, model and where it runs (pane or background). When the spawn output has `notes` (for example "gemini-4-argon-high has 0% left"), add that in a few words.
@@ -112,6 +114,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - **agy root:** rely on the doorbell, and check `mesh status` each time you wake.
    - **Keep working** on your own repo while workers run; their reports queue until your current turn ends. If your work depends on a worker's change, build against the contract you gave it, or wait for its `done` (its branch is `mesh/<run>/<slug>`) when you can't.
    - **Keep your own context lean:** you live longest, so your context costs the most. Read plans and reports, not workers' transcripts. Look at diffs only where the plan says the risk is.
+   - **Blocked on a dialog** (exit 4): a stray menu (a picker, a `/` command the worker opened) you may dismiss yourself with `herdr agent send-keys <name> esc`, then read the pane again. A real question, a permission prompt or a startup screen goes to the user.
 6. **Review every plan** (`plan` messages; large tasks only). Read the plan file and check it against the request, the repo and the other workers' plans:
    - Does it solve what was asked, and only that? Are the files and functions real (spot-check the code)?
    - Is the *done when* a real check (tests, lint, build), not "looks right"?
@@ -244,7 +247,7 @@ Then end your turn. A later task may ask more, or ask you to make a change, whic
 
 1. **Follow the repo's rules.** The repo's `CLAUDE.md` / `AGENTS.md` apply to everything repo-specific: task tracking, branch and commit conventions, contract checks, the PR process. **Never edit files or switch branches in the main checkout**, and never touch another agent's worktree.
 2. **Set up:** a fresh worktree has no installed dependencies and no untracked files such as `.env`. Install what the repo needs. Don't copy secrets in unless the task says to.
-3. **Research** until you know exactly what to change: read the code, run the existing tests, reproduce the bug if there is one. **Change nothing yet.**
+3. **Research** until you know exactly what to change: read the code, run the existing tests, reproduce the bug if there is one. Check every assumption the task marks before you rely on it. **Change nothing yet.**
 4. **Plan:** write `$(mesh dir)/plans/<your-name>.md` from `~/.config/agent-mesh/PLAN_TEMPLATE.md`. It is written for a reviewer who hasn't read the code: say what you found and where, name the exact files and functions, the invariants, the steps, the done-when command, and your open questions.
 5. **Ask for review:** `mesh send parent --type plan --file "$(mesh dir)/plans/<your-name>.md"`, then **end your turn**. Don't start implementing while you wait.
 6. **On the answer:**

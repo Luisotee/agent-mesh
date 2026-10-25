@@ -37,9 +37,8 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Protocol wording and tests
 
-- [ ] PROTOCOL: never type into another agent's pane (`herdr agent prompt`, `send-keys`); never `git stash` (the stash is shared across worktrees); send the report before any memory notes or tidying; say what goes wrong when a worker `cd`s into the main checkout. ORCHESTRATE task files: quote the user's words where they matter, mark which claims about the repo are assumptions, list what's out of scope. Strip quotes, backticks and `$` from the doorbell preview (Cyclops, Rove, tmux-orchestrator, Gas Town, Orca, firstmate)
+- [ ] Strip quotes, backticks and `$` from the doorbell preview (done in PR #23; drop this line when it merges)
 - [ ] Real captured panes (`herdr agent read --ansi`: Claude and agy idle, busy, with a draft, a queued doorbell, a trust dialog, the usage-limit screen) as test fixtures for `above_input_box`, `trust_keys` and the needle, re-captured when a CLI changes; point the `mesh` fixture's herdr at a missing binary so no test can type into a real pane; maybe an opt-in live suite in a separate herdr session (Orca, Cyclops, Gas Town, firstmate, Rove)
-- [ ] Record in `docs/design.md` what the survey argues against, with the projects' incidents: a queue that holds doorbells until the composer is clear, file leases, auto-restarting workers, pane-hash staleness checks, merging by the orchestrator, a second store next to the mailbox
 
 ## Other
 
