@@ -1171,6 +1171,24 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
 
 
+def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "high"
+    assert fake.called("agent", "start")[-1][-5:-1] == ("--model", "opus", "--effort", "high")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+                      "--effort", "medium", "--name", "review-again", "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a named effort wins
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--body", "Where is auth?",
+                      "--no-wait"]) == 0
+    assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a question keeps its size's effort
+
+
 def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"
@@ -1336,10 +1354,10 @@ def test_small_claude_task_runs_in_the_background_with_no_plan(mesh, fake, cli, 
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix the typo in the footer."]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "sonnet", "medium", None)
+    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "opus", "medium", None)
     launch = cli.called("--bg")[0]
     argv = launch["argv"]
-    assert argv[:9] == ["claude", "--bg", "-n", "proj-copy", "--model", "sonnet", "--effort", "medium",
+    assert argv[:9] == ["claude", "--bg", "-n", "proj-copy", "--model", "opus", "--effort", "medium",
                         "--dangerously-skip-permissions"]
     assert argv[9].startswith("📬 [mesh] You are proj-copy (worker) in agent-mesh run mtest")
     assert launch["cwd"] == mesh.worktree_root() / "mtest" / "proj-copy"
@@ -1357,7 +1375,7 @@ def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, 
     assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "starting a pane" in out["notes"][0]
-    assert fake.called("agent", "start")[-1][-5:] == ("--model", "sonnet", "--effort", "low",
+    assert fake.called("agent", "start")[-1][-5:] == ("--model", "opus", "--effort", "medium",
                                                       "--dangerously-skip-permissions")
     assert not cli.called("--bg")
 
@@ -1394,12 +1412,12 @@ def test_a_size_has_no_execution_phase_to_override(mesh, fake, run, repo, capsys
     assert "no execution phase" in capsys.readouterr().err
 
 
-def test_user_reviewed_plan_runs_opusplan_in_plan_mode(mesh, fake, run, repo, capsys):
+def test_user_reviewed_plan_runs_opus_in_plan_mode(mesh, fake, run, repo, capsys):
     stub_new_pane(fake)
     assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Build it."]) == 0
     start = fake.called("agent", "start")[-1]
-    assert "opusplan" in start and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
+    assert start[start.index("--model") + 1] == "opus" and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
     assert "--dangerously-skip-permissions" not in start
     entry = mesh.load_run(run)["agents"]["proj-feat"]
     assert (entry["plan_review"], entry["phase"], entry["view"]) == ("user", None, "pane")
@@ -1558,9 +1576,10 @@ def test_context_tokens_counts_the_last_prompt_since_compaction(mesh, monkeypatc
 
 def test_when_auto_compaction_compacts(mesh, monkeypatch):
     claude, agy = {"kind": "claude"}, {"kind": "agy"}
-    assert mesh.should_compact("auto", claude, 150_000, False, True)
-    assert not mesh.should_compact("auto", claude, 150_000, True, True)  # a question doesn't repay it
-    assert mesh.should_compact("auto", claude, 250_000, True, False)
+    assert mesh.should_compact("auto", claude, 450_000, False, True)
+    assert not mesh.should_compact("auto", claude, 250_000, False, True)
+    assert not mesh.should_compact("auto", claude, 450_000, True, True)  # a question doesn't repay it
+    assert mesh.should_compact("auto", claude, 650_000, True, False)
     assert not mesh.should_compact("auto", claude, None, False, True)
     assert mesh.should_compact("yes", claude, 10, False, False) and not mesh.should_compact("no", claude, 10**6, False, True)
     assert mesh.should_compact("auto", agy, None, False, True)
@@ -1572,7 +1591,7 @@ def test_when_auto_compaction_compacts(mesh, monkeypatch):
 def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cli, run, repo, monkeypatch,
                                                                   tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     started = []
     cli.on("-p", effect=lambda argv: started.append(bool(fake.called("agent", "start"))))
@@ -1584,12 +1603,12 @@ def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cl
     assert argv[7].startswith("/compact Keep what the next task needs: Apply the review.")
     assert started == [False]  # compacted before the pane opens
     assert "MESH_SELF" not in cli.called("-p")[0]["env"]
-    assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 150_012
+    assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 450_012
 
 
 def test_a_failed_compaction_still_resumes(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     cli.on("-p", returncode=1, stderr="boom")
     capsys.readouterr()
@@ -1803,7 +1822,7 @@ def test_the_compaction_focus_skips_the_prefixes(mesh):
 
 def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(150_000)])
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage(450_000)])
     stub_new_pane(fake)
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")  # the root's pane, which by-pane maps to the root
     capsys.readouterr()
@@ -1819,8 +1838,8 @@ def test_model_auto_on_a_small_task_means_its_default(mesh, fake, cli, run, repo
     bg_cli(cli)
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--repo", str(repo),
                       "--worktree", "copy"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "sonnet"
-    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "sonnet"]
+    assert json.loads(capsys.readouterr().out)["model"] == "opus"
+    assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "opus"]
 
 
 def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsys):

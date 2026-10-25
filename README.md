@@ -32,9 +32,9 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
 - **The right context in each repo:** a worker running *inside* `shop-api` follows that repo's rules and hooks, so it's faster and more precise than an agent editing a repo whose conventions it never loaded.
 - **You don't lose your place:** the session you're working in keeps its context and keeps going on its own repo.
 - **No lost research:** the agent that wrote the plan is the one that carries it out.
-- **Cheap where it can be:**
-  - Every task is sized. A translation or a small fix goes to Sonnet at low or medium effort (or Flash), with no plan, and a feature plans on the strongest model with quota left.
-  - Most tokens go to reading files, typing code and running tests, so agy workers execute on Gemini Flash and Claude workers drop to medium effort.
+- **Effort where it pays:**
+  - Every task is sized. A translation or a small fix goes straight to the change with no plan (Opus at medium effort, or Flash), and a feature plans at high effort on the strongest model with quota left.
+  - Most tokens go to reading files, typing code and running tests, so agy workers execute on Gemini Flash and Claude workers on Opus at medium effort. Reviews run at high effort, and a fix the review found gets high effort too.
   - Your root session spends its tokens on reviewing plans and answering questions, not on reading every worker's transcript.
 - **Oversight without babysitting:**
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
@@ -53,7 +53,7 @@ Both commands work from Claude Code and from agy:
 
 - **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
 - **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
-- **Overrides:** naming a model in the request ("use Argon", "with Claude") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. If a worker *fails*, the root tells you and suggests a stronger model; it doesn't pick one on its own.
+- **Overrides:** naming a model in the request ("use Argon", "with Claude", "with Fable") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. Claude Fable 5.1 is never a default, since it draws on a capped share of your Claude limits: name it for an ambiguous root-cause hunt or an architecture decision. If a worker *fails*, the root tells you and suggests a stronger model or more effort; it doesn't pick a model on its own.
 
 ### Sizes
 
@@ -61,13 +61,14 @@ The root sizes every task before it starts a worker:
 
 | Size | For | Claude worker | agy worker | Plan reviewed? |
 |---|---|---|---|---|
-| trivial | translations, copy, config | Sonnet, low effort, background | Flash, low | no |
-| small | a bug fix, a UI tweak, a test | Sonnet, medium effort, background | Flash, high | no |
+| trivial | translations, copy, config | Opus, medium effort, background | Flash, low | no |
+| small | a bug fix, a UI tweak, a test | Opus, medium effort, background | Flash, high | no |
 | large | a feature, a cross-repo contract | the table above, in a pane | the table above, in a pane | yes |
 
 - **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
-- **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans with Opus in plan mode (`opusplan`) and executes on Sonnet.
-- **Routing:** the root may propose sending a small task to the other CLI, to spare your Claude limits or agy quota, and sends reviews to the other vendor for a second opinion. It proposes; you confirm.
+- **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans with Opus in plan mode and, once you approve, executes on Opus in the same conversation.
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, and sends reviews to the other vendor for a second opinion. It proposes; you confirm.
+- **Reviews and fixes:** a fresh reviewer runs at high effort whatever the PR's size. When a review finding is real, or a worker fails, the root resumes the worker at high effort for the fix instead of starting every task high.
 
 ### Background workers
 
@@ -177,7 +178,7 @@ mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flag
 
 An old conversation has lost its prompt cache, so every turn of a follow-up would pay for all of it again. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
 
-- a Claude conversation over 100k tokens (200k for a read-only question), or an agy one coming back from an earlier run;
+- a Claude conversation over 300k tokens (600k for a read-only question), or an agy one coming back from an earlier run;
 - the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
 - `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` moves the threshold.
 

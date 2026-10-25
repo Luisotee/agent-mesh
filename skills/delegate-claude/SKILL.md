@@ -2,9 +2,9 @@
 name: delegate-claude
 description: >-
   agent-mesh, mode `claude`: hands each repo's part of a change, or a whole task list, to a Claude agent running inside that repo, and supervises them.
-  Work is sized to save tokens: trivial and small tasks go to Sonnet in the background with no plan, large ones plan on Opus in a visible herdr pane,
-  get their plan reviewed, execute at medium effort and open a PR, and each PR gets a review. Workers report back by SendMessage. Also answers questions about another repo,
-  with agents you can ask again, resume (compacted when large) or hand the change to; can route cheap tasks to agy.
+  Work is sized: trivial and small tasks run on Opus in the background with no plan, large ones plan on Opus at high effort in a visible herdr pane,
+  get their plan reviewed, execute at medium effort and open a PR, and each PR gets a high-effort review. Workers report back by SendMessage. Also answers questions about another repo,
+  with agents you can ask again, resume (compacted when large) or hand the change to.
   Use it, whether the user types /delegate-claude or not, when the user wants another repo's part of a change, a question about another repo,
   or a task list handed to agents that work inside those repos ("have Claude do it", "delegate this", "ask the shop-api agent"), and they don't name the other CLI (agy, Gemini, Argon, Flash); with neither named, use this one when you are Claude Code.
   Not for a PR review the user asks for (that's /delegate-review), not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).

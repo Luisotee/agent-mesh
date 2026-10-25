@@ -18,7 +18,7 @@ Get a review for the user's request: `$ARGUMENTS` when the user typed the comman
 
 1. **The PR:** the link or number given. Otherwise the current branch's PR (`gh pr view --json url -q .url`). If there is none, ask the user which PR.
 2. **The reviewers:** every CLI named, in any order (vendor words as in the description), or all three for `all`. With none named, the other vendor from you: agy if you are Claude Code, claude if you are agy. Copilot reviews only when the user names it (or says `all`).
-3. **The size:** `small` for a PR of up to a few hundred lines in a few files (`gh pr view <PR> --json additions,deletions,changedFiles`), `large` for anything bigger or riskier (auth, money, data migrations). Every reviewer gets the same size.
+3. **The size:** `small` for a PR of up to a few hundred lines in a few files (`gh pr view <PR> --json additions,deletions,changedFiles`), `large` for anything bigger or riskier (auth, money, data migrations). Every reviewer gets the same size. The size picks the plan phase and view; Claude and agy reviewers run at high effort either way.
 4. **Run them** from the local checkout of the PR's repo (the current one, or ask the user where it is), one `mesh ask` per reviewer:
 
    ```bash

@@ -39,18 +39,21 @@ ASK_KINDS = (*KINDS, "copilot")
 COPILOT_MODEL = "auto"  # the only model some plans (Copilot Student) may pick; MESH_COPILOT_MODEL overrides it
 COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
 COPILOT_EFFORT = {"trivial": "low", "small": "medium", "large": "high"}
-# `--size`: trivial and small tasks run on one cheap model with no plan phase; large is `auto` (below).
+# `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
+# Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
 SIZE_DEFAULTS = {
-    ("claude", "trivial"): {"model": "sonnet", "effort": "low", "view": "bg"},
-    ("claude", "small"): {"model": "sonnet", "effort": "medium", "view": "bg"},
+    ("claude", "trivial"): {"model": "opus", "effort": "medium", "view": "bg"},
+    ("claude", "small"): {"model": "opus", "effort": "medium", "view": "bg"},
     ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
 }
-# A Claude worker whose plan the user approves in its own pane: Opus plans, Sonnet executes.
-USER_REVIEW_MODEL = "opusplan"
+# A Claude worker whose plan the user approves in its own pane: Opus plans and executes, in plan mode first.
+USER_REVIEW_MODEL = "opus"
+# A review is verification, which is where effort pays: a reviewer gets high effort at any size.
+REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
-COMPACT_AT = 100_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
+COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
 # `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
 # then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
 # the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
@@ -1286,12 +1289,12 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         raise MeshError(f"a {'user-reviewed' if user_review else size} task has no execution phase: "
                         "drop --exec-model / --exec-effort")
     if user_review and (args.kind != "claude" or sized):
-        raise MeshError("--plan-review user is for a large Claude task (opusplan in plan mode, in a pane)")
+        raise MeshError("--plan-review user is for a large Claude task (Opus in plan mode, in a pane)")
     named = args.model if args.model != "auto" else None  # `auto` names the plan chain, which these tasks skip
-    if sized:  # one cheap model for the whole task, and no plan phase
+    if sized:  # one model for the whole task, and no plan phase
         auto, exec_model, exec_effort = False, None, None
         model, effort, notes = named or sized["model"], args.effort or sized["effort"], []
-    elif user_review:  # Claude Code switches opusplan from Opus to Sonnet when the user approves the plan
+    elif user_review:  # Claude Code leaves plan mode when the user approves the plan, on the same model
         auto, exec_model, exec_effort = False, None, None
         model, effort, notes = named or USER_REVIEW_MODEL, args.effort or DEFAULT_EFFORT, []
     else:
@@ -2485,7 +2488,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
         slug = args.name or (f"review-{number}" if pr else ask_slug(body))
         spawn = argparse.Namespace(
             kind=args.kind or load_run(run_id)["mode"], role="worker", repo=str(repo), model=args.model,
-            exec_model=None, effort=args.effort, exec_effort=None, name=args.name, worktree=slugify(slug, 24),
+            exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr else None), exec_effort=None,
+            name=args.name, worktree=slugify(slug, 24),
             cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size, view=args.view,
             plan_review=None)
         finals, how = 0, "started"
@@ -2783,11 +2787,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", help="parent agent (default: you)")
     p.add_argument("--task", help="first task message")
     p.add_argument("--task-file", help="first task message from a file (- for stdin)")
-    p.add_argument("--size", choices=SIZES, help="trivial / small: one cheap model, no plan phase (claude: sonnet, "
+    p.add_argument("--size", choices=SIZES, help="trivial / small: one model, no plan phase (claude: opus, "
                                                   "in the background); large (default): plan, review, execute")
     p.add_argument("--view", choices=VIEWS, help="pane (herdr) or bg (`claude --bg`, Claude only; default by size)")
     p.add_argument("--plan-review", choices=("user",),
-                   help="user: the user approves the plan in the worker's pane (claude, opusplan in plan mode)")
+                   help="user: the user approves the plan in the worker's pane (claude, opus in plan mode)")
     p.set_defaults(func=cmd_spawn)
 
     p = ident(sub.add_parser("send", help="send a message (mailbox first, then the doorbell)"))
@@ -2879,7 +2883,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", choices=ASK_KINDS,
                    help="a fresh agent's CLI (default: the run's mode, or agy); copilot runs headless, read-only")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
-    p.add_argument("--effort", choices=EFFORTS)
+    p.add_argument("--effort", choices=EFFORTS,
+                   help=f"default: the size's, or {REVIEW_EFFORT} for a fresh reviewer (not Copilot)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")
