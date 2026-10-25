@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -217,6 +218,36 @@ def test_without_a_group_leader_the_foreground_members_decide(mesh, fake, run, m
     assert mesh.main(["whoami"]) == 1
     fake.on("pane", "process-info", "--pane", "w1:p1", result={"process_info": {"foreground_processes": [{"pid": 4000}]}})
     assert mesh.main(["whoami"]) == 0
+
+def test_agent_binary_reads_the_command_not_the_path(mesh):
+    assert mesh.agent_binary(["claude", "--resume", "s1"]) == "claude"
+    assert mesh.agent_binary(["/home/u/.local/share/claude/versions/2.1.310/claude"]) == "claude"  # auto-updated
+    assert mesh.agent_binary(["node", "/home/u/.nvm/versions/node/v24/bin/claude"]) == "claude"
+    assert mesh.agent_binary(["agy", "--dangerously-skip-permissions"]) == "agy"
+    assert mesh.agent_binary(["/bin/bash", "-c", "claude -p hi"]) is None  # a shell tool's command
+    assert mesh.agent_binary([]) is None and mesh.agent_binary(None) is None
+
+
+def test_a_worker_herdr_lost_is_gone_only_if_its_pane_runs_no_cli(mesh, fake, run):
+    # after a Claude Code auto-update herdr can show no agent for a live one
+    fake.on("agent", "get", errors=["agent_not_found"] * 10)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")  # agy, in pane w2:p5
+
+    def pane_runs(*argv):
+        fake.on("pane", "process-info", "--pane", "w2:p5", result={"process_info": {
+            "foreground_process_group_id": 9, "shell_pid": 8, "foreground_processes": [{"pid": 9, "argv": list(argv)}]}})
+
+    pane_runs("agy", "--dangerously-skip-permissions")
+    assert mesh.agent_status("repo-fix-typo", entry) == "unknown"
+    pane_runs("-bash")
+    assert mesh.agent_status("repo-fix-typo", entry) == "gone"
+    pane_runs("claude")  # not its CLI
+    assert mesh.agent_status("repo-fix-typo", entry) == "gone"
+    for code in ("pane_not_found", "cli_error"):  # closed, or herdr can't say: its registration stands
+        fake.on("pane", "process-info", "--pane", "w2:p5", error=code)
+        assert mesh.agent_status("repo-fix-typo", entry) == "gone"
+        assert fake.calls[-1][:2] == ("pane", "process-info")
+    assert mesh.agent_status("repo-fix-typo") == "gone"  # no entry, no pane to look at
 
 
 def test_a_claude_session_in_an_agy_roots_pane_is_not_the_root(mesh, fake, run, monkeypatch, capsys):
@@ -600,11 +631,42 @@ def test_idle_time_while_the_worker_is_reopened_does_not_count(mesh, fake, run, 
 def test_a_report_sent_before_the_watch_started_is_not_a_silent_stop(mesh, fake, run, monkeypatch):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review PR 6.")
     mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "No findings.")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)  # an unread one would end the watch at once (see the unread-report tests)
     states = iter(["working", *["idle"] * 10, "gone"])
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: next(states))
     # the watch starts after the done, sees the end of that turn, and neither nudges nor alerts 3
     assert mesh.main(["watch", "--any", "--alerts"]) == 5
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+
+def test_watch_returns_at_once_on_a_report_its_parent_has_not_read(mesh, fake, run, monkeypatch, capsys):
+    # sent while no watch ran (or its doorbell was lost): the baseline would hide it
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "info", "Tests take a while.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "plan", "My plan.")
+    states_then(mesh, monkeypatch, "idle")
+    for argv in (["repo-fix-typo"], ["--any", "--alerts"]):  # a lost SendMessage too
+        assert mesh.main(["watch", *argv]) == 0
+        assert capsys.readouterr().out.startswith("repo-fix-typo sent a plan you haven't read yet")
+    # `mesh ask` counts its own baseline and reads the reply itself
+    assert mesh.Watch(run, "repo-fix-typo", 30.0, finals_at_start=0).unread_report is None
+    # once read, a plan is only where its turn ended: the watch waits for the answer
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+    assert all(watch.tick(5) is None for _ in range(40))
+
+
+def test_watch_any_reports_a_gone_workers_unread_report(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    states_then(mesh, monkeypatch, "gone")  # it reported, then its pane closed: no live worker is left
+    assert mesh.main(["watch", "--any", "--alerts"]) == 0
+    assert capsys.readouterr().out.startswith("repo-fix-typo sent a done you haven't read yet")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert capsys.readouterr().out.startswith("no live workers to watch")
 
 
 def test_watch_ignores_an_idle_blip_mid_turn(mesh, fake, run, monkeypatch):
@@ -817,6 +879,217 @@ def repo(tmp_path):
                 ["commit", "-q", "--allow-empty", "-m", "init"]):
         subprocess.run(["git", *cmd], cwd=path, check=True)
     return path
+
+def claude_worker(mesh, run, **extra):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", **extra)
+
+
+LIMIT_SCREEN = "\n".join(["older"] * 30 + ["  ⎿  You've hit your limit · resets 7pm (America/Los_Angeles)", "",
+                                           "─" * 20, "❯ ", "─" * 20])
+
+
+def test_usage_limit_reads_only_the_last_lines_of_the_pane(mesh):
+    lines = LIMIT_SCREEN.splitlines()
+    assert mesh.usage_limit(lines) == "7pm (America/Los_Angeles)"
+    assert mesh.usage_limit(["  ❯ 1. Stop and wait for limit to reset", "    2. Add funds"]) == ""  # no reset shown
+    assert mesh.usage_limit(["5-hour limit reached · resets 3pm"]) == "3pm"
+    assert mesh.usage_limit(lines + ["● Carrying on."] * 20) is None  # it has scrolled up: resolved
+    assert mesh.usage_limit(["We discussed the rate limit in the API docs."]) is None
+    assert mesh.usage_limit(["  ⎿  API Error: Rate limit reached"]) is None  # a transient rate limit, not the usage one
+    # the agent's own output quoting one (a test fixture, a grep) isn't the screen
+    assert mesh.usage_limit(['● Added LIMIT = "You\'ve hit your limit · resets 7pm" to the fixtures.',
+                             "  ⎿  tests/test_quota.py:12: msg = \"You've hit your limit · resets 9pm\""]) is None
+    assert mesh.usage_limit(None) is None
+
+
+def test_a_claude_worker_at_its_usage_limit_is_exit_7_once_per_task(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")  # its rate-limit options menu
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    out = capsys.readouterr().out
+    assert out.startswith("ALERT repo-fix-typo hit Claude's usage limit (resets 7pm (America/Los_Angeles)); ")
+    assert "--type task --body" in out and "mesh switch" not in out
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)  # a restarted watch waits quietly
+    assert all(watch.tick(5) is None for _ in range(10))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "The usage limit has reset: continue.")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7  # the new task re-arms it
+    assert [e["kind"] for e in mesh.read_log(run) if e["event"] == "alert"] == ["limit", "limit"]
+
+
+def test_a_claude_worker_stopped_by_its_usage_limit_is_not_nudged(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+    assert not [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
+
+
+def test_an_agy_pane_showing_limit_text_is_not_a_claude_limit(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 4
+
+
+def write_transcript(mesh, cwd, session, *events):
+    path = mesh.claude_sessions_dir(cwd) / f"{session}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(e) + "\n" for e in events))
+    return path
+
+
+def api_error(code, text):
+    return {"type": "assistant", "isApiErrorMessage": True, "error": code,
+            "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]}}
+
+
+REPLY = {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done."}]}}
+
+
+def test_a_background_worker_at_its_usage_limit_is_read_from_its_transcript(mesh, fake, run, monkeypatch, tmp_path,
+                                                                            capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    claude_worker(mesh, run, view="bg", cwd=cwd, session="s1", bg_id="ab12")
+    write_transcript(mesh, cwd, "s1", REPLY, {"type": "user"}, api_error("rate_limit", "You've hit your limit · resets 3am (UTC)"))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    out = capsys.readouterr().out
+    assert "usage limit (resets 3am (UTC))" in out and "pass its send_message on" in out
+
+
+def test_transcript_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    entry = {"kind": "claude", "cwd": str(tmp_path / "wt")}
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"))
+    assert mesh.transcript_limit(entry, "s1") == ""
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "API Error: Rate limit reached"))
+    assert mesh.transcript_limit(entry, "s1") is None  # the code alone isn't enough: a plain rate limit
+    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY)
+    assert mesh.transcript_limit(entry, "s1") is None  # it went on after the reset
+    write_transcript(mesh, entry["cwd"], "s1", api_error("authentication_failed", "Login expired · Please run /login"))
+    assert mesh.transcript_limit(entry, "s1") is None
+    assert mesh.transcript_limit(entry, "missing") is None and mesh.transcript_limit({**entry, "kind": "agy"}, "s1") is None
+
+
+def claude_in_pane(fake, pane, *argv):
+    fake.on("pane", "process-info", "--pane", pane, result={"process_info": {
+        "foreground_process_group_id": 9, "shell_pid": 8,
+        "foreground_processes": [{"pid": 9, "argv": list(argv or ["claude", "--resume", "s1"])}]}})
+
+
+def stale_transcript(mesh, monkeypatch, tmp_path, minutes=50):
+    """A Claude worker whose session file last changed `minutes` ago, with its task delivered long before."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    path = write_transcript(mesh, cwd, "s1", REPLY)
+    then = time.time() - minutes * 60
+    os.utime(path, (then, then))
+    monkeypatch.setattr(mesh, "epoch", lambda stamp: 0.0)
+    return cwd, path
+
+
+def test_a_worker_working_with_a_still_transcript_is_exit_8_once_per_task(mesh, fake, run, monkeypatch, tmp_path,
+                                                                         capsys):
+    cwd, path = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    claude_in_pane(fake, "w2:p5")
+    fake.screen("repo-fix-typo", "● Bash(npm test -- --watch)\n  ⎿  Running…\n✻ Working… (51m 3s)")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 8
+    out = capsys.readouterr().out
+    assert out.startswith("ALERT repo-fix-typo may be hung: it reads working, and its transcript hasn't changed "
+                          "for 50 min")
+    assert "last lines of its pane:\n    ● Bash(npm test -- --watch)" in out
+    assert not fake.called("pane", "close") and not fake.called("agent", "send-keys")
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)  # restarted: not again for this task
+    assert all(watch.tick(5) is None for _ in range(5))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Kill the watcher and go on.")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8  # a new answer re-arms it
+    assert mesh.Watch(run, "repo-fix-typo", 30.0, hang=0).tick(5) is None
+    os.utime(path)  # it writes again: progress
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next.")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
+
+
+def test_a_working_registration_over_a_bare_shell_is_gone(mesh, fake, run, monkeypatch, tmp_path, capsys):
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    claude_in_pane(fake, "w2:p5", "-bash")  # herdr kept the registration after Claude died
+    assert mesh.main(["watch", "repo-fix-typo"]) == 5
+    assert "herdr still reads it working, but its pane runs no claude process" in capsys.readouterr().out
+
+
+def test_a_worker_that_reported_is_never_hung_or_gone_over_a_stale_working(mesh, fake, run, monkeypatch, tmp_path):
+    # it sent `done` (and the root read it), but herdr kept reading it working
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    for argv in (["claude"], ["-bash"]):
+        claude_in_pane(fake, "w2:p5", *argv)
+        watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+        assert all(watch.tick(5) is None for _ in range(5))
+    # reported during this watch, then a new task, and its CLI died: as the gone branch, it's finished
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+    watch.reported = True
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "One more thing.")
+    assert watch.tick(5, alerts_only=True) is None and watch.finished
+
+
+def test_hung_skips_a_task_already_alerted_for_its_usage_limit(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.record_alert(run, "repo-fix-typo", 1, "limit")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
+    assert not fake.called("pane", "process-info")  # no probing every poll
+
+
+def test_a_hung_agy_worker_is_judged_by_its_conversation_and_log(mesh, fake, run, monkeypatch, tmp_path):
+    log = tmp_path / "agy.log"
+    log.write_text("step\n")
+    then = time.time() - 3000
+    os.utime(log, (then, then))
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["log"] = str(log)
+    monkeypatch.setattr(mesh, "epoch", lambda stamp: 0.0)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8
+    # its conversation db took a row a minute ago: not hung (a new task, so the alert above doesn't excuse it)
+    db = Path(os.environ["MESH_AGY_CONVERSATIONS"]) / "c1.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["session"] = "c1"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Next.")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
+
+
+def test_a_lost_registration_waiting_on_its_plan_is_not_hung(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "unknown")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8  # nothing reported: it may be hung
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Plan this.")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "plan", "My plan.")
+    for path in mesh.unread(run, "repo-lead"):
+        mesh.mark_read(path)
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
 
 
 def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, capsys):
@@ -1391,6 +1664,56 @@ def test_resume_refuses_a_worker_that_is_still_running(mesh, fake, run, repo, ca
     assert mesh.main(["resume", "proj-fix", "--from-run", "mold"]) == 1
     assert "still running in pane w5:p2" in capsys.readouterr().err
     assert not fake.called("agent", "start") and not path.exists()
+
+def test_resume_refuses_while_a_claude_process_works_in_the_worktree(mesh, fake, run, repo, monkeypatch, capsys):
+    # herdr lists no agent there (it lost the registration), but the process table shows one
+    path, _ = archived_worker(mesh, repo, kind="claude", session="c1")
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 4242, "argv": ["claude", "-c"], "cwd": str(path / "src")}])
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--from-run", "mold"]) == 1
+    err = capsys.readouterr().err
+    assert "may still be open in process 4242" in err and "ps -o pid,args -p 4242" in err
+    assert not fake.called("agent", "start")
+
+
+def test_process_holder_matches_the_worktree_or_the_session(mesh, tmp_path):
+    wt, repo = tmp_path / "wt", tmp_path / "repo"
+    entry = {"kind": "claude", "cwd": str(wt), "repo": str(repo), "session": "s1"}
+    procs = [{"pid": 1, "argv": ["agy"], "cwd": str(wt)}, {"pid": 2, "argv": ["claude"], "cwd": str(repo)}]
+    assert mesh.live_holder("w", entry, agents=[], procs=procs) is None  # an agy there, a Claude elsewhere
+    procs.append({"pid": 3, "argv": ["claude"], "cwd": str(wt / "src")})
+    assert mesh.live_holder("w", entry, agents=[], procs=procs)["process"] == 3
+    # a main checkout is shared with the user's own sessions: only one naming its session counts
+    shared = {**entry, "cwd": str(repo)}
+    assert mesh.live_holder("w", shared, agents=[], procs=procs) is None
+    procs.append({"pid": 4, "argv": ["claude", "--resume", "s1"], "cwd": str(repo)})
+    assert mesh.live_holder("w", shared, agents=[], procs=procs)["process"] == 4
+    # a Copilot asker holds its session through its pid claim, never through some process in its worktree
+    assert mesh.live_holder("w", {**entry, "kind": "copilot"}, agents=[], procs=procs) is None
+
+
+def test_live_holder_outside_herdr_still_reads_the_processes(mesh, monkeypatch, tmp_path):
+    def no_herdr(*args, timeout=None):
+        raise mesh.MeshError("herdr not found (herdr); mesh must run inside herdr")
+
+    monkeypatch.setattr(mesh, "herdr", no_herdr)
+    entry = {"kind": "claude", "cwd": str(tmp_path / "wt"), "repo": str(tmp_path / "repo"), "session": "s1"}
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 7, "argv": ["claude"], "cwd": entry["cwd"]}])
+    assert mesh.live_holder("w", entry)["process"] == 7
+    monkeypatch.setattr(mesh, "herdr", lambda *a, timeout=None: (_ for _ in ()).throw(mesh.HerdrError("timeout", "x")))
+    with pytest.raises(mesh.HerdrError):  # herdr is there but failed: no guessing
+        mesh.live_holder("w", entry)
+
+
+def test_agent_processes_leaves_out_this_commands_ancestors():
+    real = load_mesh()
+    mine, pid = set(), os.getpid()
+    while pid > 1:
+        mine.add(pid)
+        pid = real.parent_pid(pid)
+    procs = real.agent_processes()
+    assert not {p["pid"] for p in procs} & mine
+    assert all(real.agent_binary(p["argv"]) for p in procs)
 
 
 def test_resume_without_a_conversation_suggests_a_fresh_worker(mesh, fake, run, repo, monkeypatch, capsys):

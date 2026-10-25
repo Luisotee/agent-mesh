@@ -210,17 +210,20 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Watchdog
 
-The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended. A worker you `mesh retire` while a watch runs is let go, report or not, rather than reported gone:
+The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended. A worker you `mesh retire` while a watch runs is let go, report or not, rather than reported gone. A report from a watched worker that's still unread in your mailbox (sent while no watch ran, its doorbell lost) makes the watch exit 0 at once:
 
 | Status | Meaning |
 |---|---|
 | 3 | the worker stopped without reporting, and stayed silent after one nudge |
 | 4 | the worker is blocked on a dialog |
-| 5 | the worker's pane is gone (or a model switch failed to reopen it) |
+| 5 | the worker's pane is gone, its CLI has exited (or a model switch failed to reopen it) |
 | 6 | timeout |
-| 7 | the worker hit a quota (`mesh switch` moves it on) |
+| 7 | the worker hit a quota (`mesh switch` moves it on), or a Claude worker hit its usage limit (wait for the reset) |
+| 8 | the worker may be hung: it reads working, but its transcript hasn't changed for 40 minutes |
 
-A worker counts as stopped once it has read idle for `--grace` seconds (30) with no `plan`, `question`, `done` or `failed` since its last task or answer (an `info` isn't a report); a short idle reading mid-turn doesn't count. A worker the watch never saw working (a turn shorter than one poll, a task it never picked up, a watch started after the turn ended) counts as stopped the same way once that last task or answer is 4 × `--grace` old (2 minutes, never under 30 s), measured from the log, so a late watch still judges it; once a watch has alerted on that task, a restarted watch doesn't alert on it again until the worker works or gets a new task or answer. A pane worker then gets one nudge (an `info` asking it to report with `mesh send`), once per task even with several watches running, and the watch exits 3 only if it stays silent; the line says whether the nudge's doorbell rang, and whether its task (or answer) is still unread. A background worker can't be reached from the watch, so its exit-3 line says how to nudge it. The blocked (4) and stopped (3) alerts end with the pane's last lines, so you can tell a stray menu from a real question.
+A worker counts as stopped once it has read idle for `--grace` seconds (30) with no `plan`, `question`, `done` or `failed` since its last task or answer (an `info` isn't a report); a short idle reading mid-turn doesn't count. A worker the watch never saw working (a turn shorter than one poll, a task it never picked up, a watch started after the turn ended) counts as stopped the same way once that last task or answer is 4 × `--grace` old (2 minutes, never under 30 s), measured from the log, so a late watch still judges it; once a watch has alerted on that task, a restarted watch doesn't alert on it again until the worker works or gets a new task or answer. A pane worker then gets one nudge (an `info` asking it to report with `mesh send`), once per task even with several watches running, and the watch exits 3 only if it stays silent; the line says whether the nudge's doorbell rang, and whether its task (or answer) is still unread. A background worker can't be reached from the watch, so its exit-3 line says how to nudge it. The blocked (4), stopped (3) and hung (8) alerts end with the pane's last lines, so you can tell a stray menu from a real question.
+
+A Claude worker at its usage limit is told by the pane's last 20 lines or by its session file's last reply (a background worker has only that one), and gets exit 7 with the reset time instead of a nudge, a 3 or a 4; there's no model to move it to, so the root waits for the reset and sends it a task to continue. A worker that reads working, with nothing reported since its last task or answer, while its transcript (Claude's session file; agy's conversation file and log) stays unchanged for `--hang` seconds (`MESH_HANG_AFTER`, 2400; 0 turns it off) gets exit 8: a hung test, a server in watch mode, or a registration herdr kept after the agent died (then it's exit 5, once the pane shows only a shell). The watch never stops it. Exits 7 and 8, like 3, come once per task. herdr can also lose a live agent (seen after a Claude Code auto-update): a worker herdr doesn't list counts as gone only when its pane no longer runs its `claude`/`agy`; otherwise it reads `unknown`.
 
 A Claude root gets notified the moment the watch exits.
 
@@ -233,7 +236,7 @@ A Claude root gets notified the moment the watch exits.
 - **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
 - **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself, and refuses any other startup prompt.
 - **Cleanup:** `mesh stop` stops background workers (their conversations are kept), removes only *clean* worktrees and never touches your own checkout. It keeps every branch that has a commit or was pushed; an asker's branch that got neither is deleted, and resuming that worker starts it again.
-- **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice.
+- **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice. "Running" means herdr lists an agent in its worktree, or, should herdr have lost it, a `claude`/`agy` process works there (in a shared main checkout, one naming its session).
 
 ## Install
 
