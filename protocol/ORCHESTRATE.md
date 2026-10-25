@@ -168,6 +168,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
 4. **Supervise** as in the Root steps, which start each `done`'s two reviewers (Root step 8). After each `done`, also run `mesh conflicts`.
 5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. A PR is done when its reviews have nothing left that you agree with, or after two review→fix rounds.
 6. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
+   - Below them it warns about workers that change the same files, committed or not (in `--json`, rows with `"kind": "overlap"`; real conflicts are `"kind": "conflict"`). Overlap isn't a conflict yet: stack or sequence the later worker, or tell the two which files they share.
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
 7. **The board is the plan, `mesh status` the state:** change `board.md` only when the plan changes (a task re-sized, split, re-ordered, or given a worker). After your context is compacted, rebuild your picture from `board.md`, `mesh status --json` and `mesh inbox --all`, not from memory.

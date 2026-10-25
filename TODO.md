@@ -21,7 +21,7 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Status and UX
 
-- [ ] `mesh conflicts` skips a branch whose tip is its base, so uncommitted overlap stays invisible until the first commit: intersect each live worktree's changed files too (mcp_agent_mail)
+- [ ] Maybe: `mesh watch --any --alerts` raises one `overlap` alert per new pair of workers `mesh conflicts` finds touching the same files, logged under the run lock like `record_alert` (mcp_agent_mail)
 - [ ] `mesh status` doesn't show a worker `held` at a startup screen (its task stored, its doorbell waiting for the watch); show the screen and since when
 - [ ] Maybe: `mesh slot <name> -- <cmd>` (an `flock`, released when the process dies) for test suites that share a port or database, and the four-worker cap enforced in `spawn` (mcp_agent_mail, firstmate)
 

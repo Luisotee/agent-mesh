@@ -150,7 +150,7 @@ Hand the root a whole list, and it supervises instead of coding:
 1. **Triage:** the root sizes each task, checks which ones touch the same files, writes a board (`$(mesh dir)/board.md`), and asks you to confirm it once.
 2. **Workers:** one per task, in its own worktree, with at most four working at a time. Overlapping tasks are stacked on each other's branch, or run one after the other. The root writes no code itself, in its own repo too.
 3. **Reviewers per PR:** each PR gets two read-only reviews by default, as every PR a run makes does: Claude and agy, or Claude and Copilot for a large or risky PR. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
-4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
+4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. It also warns when two workers change the same files, committed or not, before their branches can conflict. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
 5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
 
 ## Follow-ups: resuming a worker
@@ -285,7 +285,8 @@ mesh approve <worker>      # (root) approve the plan it sent; an auto worker mov
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
                            #   approve, switch, retire and stop refuse a worker (the user: --run <id> --as <root>)
 mesh usage                 # agy quotas and the models auto would pick
-mesh conflicts             # which run branches conflict with the default branch or each other
+mesh conflicts             # which run branches conflict with the default branch or each other,
+                           #   and which workers change the same files (uncommitted too)
 mesh watch --any [--alerts]  # one watchdog for every worker of the run
 ```
 

@@ -4843,9 +4843,38 @@ def test_conflicts_finds_overlapping_branches_and_skips_stacked_ones(mesh, fake,
     rows = json.loads(capsys.readouterr().out)
     pairs = {frozenset((r["branch"].rsplit("/", 1)[1], r["against"].rsplit("/", 1)[1])) for r in rows}
     assert pairs == {frozenset(("b1", "b2")), frozenset(("b2", "b4"))}
-    assert all(r["files"] == ["a.txt"] for r in rows)
+    assert all(r["files"] == ["a.txt"] and r["kind"] == "conflict" for r in rows)
     assert mesh.main(["conflicts"]) == 0
-    assert "mesh/mtest/b2" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "mesh/mtest/b2" in out and "Warning" not in out
+
+
+def test_conflicts_warns_about_overlapping_work_before_it_is_committed(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    commit_file(repo, "r.txt", "r\n", "base")
+    b1, _, _ = mesh.add_worktree(run, repo, "b1", None)
+    (b1 / "a.txt").write_text("2\n")  # unstaged
+    (b1 / "new.txt").write_text("n\n")  # untracked
+    b2, _, _ = mesh.add_worktree(run, repo, "b2", None)
+    commit_file(b2, "a.txt", "3\n", "b2")  # committed, so merge-tree has nothing to compare it with
+    b3, _, _ = mesh.add_worktree(run, repo, "b3", None)
+    (b3 / "new.txt").write_text("m\n")
+    subprocess.run(["git", "mv", "r.txt", "s.txt"], cwd=b3, check=True)  # staged rename
+    b4, _, _ = mesh.add_worktree(run, repo, "b4", None)
+    (b4 / "r.txt").write_text("changed\n")
+    b5, _, _ = mesh.add_worktree(run, repo, "b5", "mesh/mtest/b2")  # stacked on b2
+    (b5 / "a.txt").write_text("5\n")
+    capsys.readouterr()
+    assert mesh.main(["conflicts", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert all(r["kind"] == "overlap" for r in rows)
+    found = {frozenset((r["branch"].rsplit("/", 1)[1], r["against"].rsplit("/", 1)[1])): r["files"] for r in rows}
+    assert found == {frozenset(("b1", "b2")): ["a.txt"], frozenset(("b1", "b3")): ["new.txt"],
+                     frozenset(("b3", "b4")): ["r.txt"], frozenset(("b1", "b5")): ["a.txt"]}
+    assert mesh.main(["conflicts"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("No conflicts among 1 branch(es) with commits.")
+    assert "Warning" in out and "new.txt" in out
 
 
 def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
