@@ -454,7 +454,7 @@ def inherited_identity(run_id: str, name: str, run: dict | None) -> str | None:
     """Why the MESH_RUN / MESH_SELF in the environment aren't this session's, or None if they may be.
 
     A process can inherit another agent's identity: a background session runs in a spare process forked with
-    whatever environment started Claude Code's daemon (see `bg_settings`), and the daemon can outlive the run.
+    whatever environment started Claude Code's daemon (see `worker_settings`), and the daemon can outlive the run.
     Claude Code tells its tools which session they run in, and a Claude worker's entry records its session, so
     a mismatch gives it away, except while a launch is recording a new one (`starting`). A pane worker's
     session can change legitimately (`/clear`, plan mode's "clear context"): when this session's process is the
@@ -941,16 +941,48 @@ def claude_env(strip_mesh: bool = False) -> dict[str, str]:
             if k not in CLAUDE_SESSION_VARS and not (strip_mesh and k.startswith("MESH_"))}
 
 
-def bg_settings(env: dict[str, str]) -> str:
-    """`--settings` JSON that gives a background worker its environment.
+HOOK_TIMEOUT = 30  # seconds Claude Code gives a worker's hook
+REMINDER_SOURCES = ("compact", "clear", "resume")  # SessionStart sources that get `mesh whoami --reminder`
+
+
+def hook_command(*args: str) -> str:
+    """A shell command running this script, by its absolute path, so a hook works whatever PATH the session has."""
+    return shlex.join([str(Path(__file__).absolute()), *args])
+
+
+def worker_hooks(run_id: str, name: str) -> dict:
+    """The hooks a Claude worker is started with (design, "The turn-end guard"). The command names the worker,
+    as only the sessions mesh starts for it carry these hooks: nothing has to be read from the hook's
+    environment. Claude Code adds them to the user's and the repo's own hooks."""
+    ident = ("--run", run_id, "--as", name)
+
+    def group(command: str, matcher: str | None = None) -> dict:
+        hook = {"type": "command", "command": command, "timeout": HOOK_TIMEOUT}
+        return {**({"matcher": matcher} if matcher else {}), "hooks": [hook]}
+
+    return {"Stop": [group(hook_command("hook", "stop", *ident))],
+            "SessionStart": [group(hook_command("whoami", "--reminder", source, *ident), source)
+                             for source in REMINDER_SOURCES]}
+
+
+def worker_settings(env: dict[str, str], bg: bool) -> str:
+    """`--settings` JSON for a Claude worker: its hooks, and for a background one its environment.
 
     `claude --bg` runs the session in a spare process the daemon forked from its own environment, which is
     whoever's call started the daemon (an earlier worker, say), so the launch's own environment never reaches
     it. Settings `env` does, and overrides the spare's values, but can only set a variable: so every config
     key is set, empty when this launch has none, and the herdr ids are set empty, or a spare's stale values
-    would stay (a pane id that `identity()` maps to its owner, another MESH_HOME).
+    would stay (a pane id that `identity()` maps to its owner, another MESH_HOME). A pane has its environment.
     """
-    return json.dumps({"env": {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}})
+    settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"])}
+    if bg:
+        settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
+    return json.dumps(settings)
+
+
+def settings_argv(kind: str, env: dict[str, str]) -> list[str]:
+    """The `--settings` a pane worker of this kind starts with: Claude's hooks; agy has none."""
+    return ["--settings", worker_settings(env, bg=False)] if kind == "claude" else []
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -959,10 +991,10 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
 
     `--bg` picks its own session id. With `resume`, the flags make it start a *copy* of that conversation under
     a new id, which is what a resume needs: a copy gets this launch's model and settings (the identity, see
-    `bg_settings`), while continuing the old id would bring back the options it was first started with.
+    `worker_settings`), while continuing the old id would bring back the options it was first started with.
     """
     argv = [claude_bin(), "--bg", *(["--resume", resume] if resume else []), "-n", name, "--model", model,
-            "--effort", effort, "--settings", bg_settings(env), "--dangerously-skip-permissions", prompt]
+            "--effort", effort, "--settings", worker_settings(env, bg=True), "--dangerously-skip-permissions", prompt]
     # No MESH_* in the process itself, so a daemon this launch starts, and its spares, carry none.
     proc = run_cli(argv, cwd=cwd, env=claude_env(strip_mesh=True), timeout=120)
     out = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -1933,7 +1965,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
 
-    start_agent(name, args.kind, pane, argv)
+    start_agent(name, args.kind, pane, [*argv, *settings_argv(args.kind, env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
@@ -2030,7 +2062,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                  status="starting", swapped=True)
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
     argv = [*log_argv(entry.get("log")), *resume_argv(entry["kind"], session, model, effort),
-            "--dangerously-skip-permissions"]
+            "--dangerously-skip-permissions", *settings_argv(entry["kind"], env)]
     try:
         try:
             herdr("pane", "close", entry["pane"])
@@ -2234,13 +2266,51 @@ def me_parent(run_id: str, me: str) -> str:
     return parent
 
 
+RESET_SOURCES = ("clear", "compact")  # session starts that may have lost the task (`mesh inbox` shows it again)
+
+
+def current_task(run_id: str, name: str, events: list[dict]) -> list[Path]:
+    """The message files of `name`'s current task: the last `task` sent to it, and every `answer` since."""
+    files: list[str] = []
+    for e in events:
+        if e.get("event") == "send" and e.get("to") == name and e.get("file"):
+            if e.get("type") == "task":
+                files = [e["file"]]
+            elif e.get("type") == "answer" and files:
+                files.append(e["file"])
+    folder = inbox_dir(run_id, name)
+    found = (next((f for f in (folder / file, folder / "read" / file) if f.exists()), None) for file in files)
+    return [f for f in found if f]
+
+
+def session_reset(events: list[dict], name: str) -> bool:
+    """Whether `name`'s session was cleared or compacted (a `rebind`, or a `reminder` from one of those) since
+    its last task or answer, and `mesh inbox` hasn't shown that task again since."""
+    reset = False
+    for e in events:
+        if e.get("name") == name and (e.get("event") == "rebind" and e.get("session")
+                                      or e.get("event") == "reminder" and e.get("source") in RESET_SOURCES):
+            reset = True
+        elif e.get("name") == name and e.get("event") == "inbox_again" \
+                or e.get("event") == "send" and e.get("to") == name and e.get("type") in RECEIVED_TYPES:
+            reset = False
+    return reset
+
+
 def cmd_inbox(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     folder = inbox_dir(run_id, me)
     paths = unread(run_id, me)
+    again: list[Path] = []
     if args.all and (folder / "read").exists():
         paths = sorted((folder / "read").glob("*.md")) + paths
+    elif not args.peek and session_reset(events := read_log(run_id), me):
+        again = [p for p in current_task(run_id, me, events) if p.name not in {q.name for q in paths}]
+        log_event(run_id, "inbox_again", name=me, files=[p.name for p in again])
     messages = []
+    for path in again:
+        meta, body = parse_message(path)
+        messages.append({"file": str(path), **meta, "body": body.strip(), "again": True})
     for path in paths:
         meta, body = parse_message(path)
         messages.append({"file": str(path), **meta, "body": body.strip()})
@@ -2252,7 +2322,8 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         print("No unread messages.")
     else:
         for msg in messages:
-            print(f"── {msg.get('type')} from {msg.get('from')} at {msg.get('time')} ──")
+            note = " (again: your session was cleared or compacted since you read it)" if msg.get("again") else ""
+            print(f"── {msg.get('type')} from {msg.get('from')} at {msg.get('time')}{note} ──")
             print(msg["body"], end="\n\n")
     return 0
 
@@ -2375,13 +2446,68 @@ def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
     return found
 
 
-def claim_nudge(run_id: str, name: str, received: int) -> bool:
-    """Log the nudge for this task unless a watch already did (checked and logged under the run lock)."""
+def claim_nudge(run_id: str, name: str, received: int, via: str | None = None) -> bool:
+    """Log the nudge for this task unless a watch or the worker's Stop hook already did (checked and logged
+    under the run lock). A hook's nudge (`via`) is delivered as it is claimed."""
     with run_lock(run_id):
         if nudge_of(read_log(run_id), name, received):
             return False
-        log_event(run_id, "nudge", name=name, received=received)
+        log_event(run_id, "nudge", name=name, received=received, **({"via": via, "rung": True} if via else {}))
         return True
+
+
+HOOK_NUDGE = ("agent-mesh: you're ending your turn without a `mesh send` since your last task or answer. If the "
+              "task is finished, run `mesh inbox`, then report `done` or `failed` with `mesh send parent`; if you're "
+              "stuck, send a `question`. If you're deliberately waiting (a background command you started will "
+              "wake you), just end your turn again: this reminder comes once per task.")
+
+
+def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
+    """The reason a Claude worker's Stop hook keeps its turn going, or None to let it end.
+
+    Once per task (the task's nudge, shared with the watch), never while the turn already continues because
+    of a hook (`stop_hook_active`) or in plan mode (a plan the user approves in the pane, or a talk with the
+    user), and only for a worker that got a task and has unread mail or hasn't reported since its last one.
+    """
+    if payload.get("stop_hook_active") or payload.get("permission_mode") == "plan":
+        return None
+    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name)
+    if not entry or entry.get("role") != "worker" or entry.get("status") in ("retiring", "retired"):
+        return None
+    if entry.get("plan_review") == "user" and "permission_mode" not in payload:
+        return None  # can't tell whether it is still in plan mode: the watch judges it
+    received, sent, _ = since_last_task(read_log(run_id), name)
+    mail = [parse_message(p)[0].get("type") or "message" for p in unread(run_id, name)]
+    if not received or (sent and not mail):
+        return None
+    if not claim_nudge(run_id, name, received, via="stop-hook"):
+        return None
+    reasons = []
+    if mail:
+        kinds = ", ".join(dict.fromkeys(mail))
+        reasons.append(f"agent-mesh: you have {len(mail)} unread mesh message{'s' if len(mail) > 1 else ''} "
+                       f"({kinds}): run `mesh inbox` and handle {'them' if len(mail) > 1 else 'it'} before ending "
+                       "your turn.")
+    if not sent:
+        reasons.append(HOOK_NUDGE)
+    return "\n\n".join(reasons)
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    """A Claude worker's hook (`worker_hooks`). It always exits 0: a hook must never break a session."""
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+        payload = payload if isinstance(payload, dict) else {}
+    except (ValueError, OSError):
+        payload = {}
+    try:
+        reason = stop_hook(*identity(args), payload)
+    except Exception as exc:  # noqa: BLE001 - anything else would show up in the worker's session as a hook error
+        print(f"mesh hook {args.event}: {exc}", file=sys.stderr)
+        return 0
+    if reason:
+        print(json.dumps({"decision": "block", "reason": reason}))
+    return 0
 
 
 def alerted(events: list[dict], name: str, received: int, kind: str = "stopped") -> bool:
@@ -2620,8 +2746,11 @@ class Watch:
         reset = self.limited(entry, bg)
         if reset is not None:  # nothing to nudge: it can't go on until the reset
             return self.limit_alert(entry, bg, reset, events)
-        if bg:
+        if bg:  # the watch can't reach a background session: only its Stop hook nudges it
             record_alert(run_id, name, received)
+            if (nudge_of(events, name, received) or {}).get("via"):
+                return 3, (f"ALERT {name} stopped working without sending a message (its Stop hook nudged it once"
+                           f"{self.unread_note()}); inspect it with `claude logs {entry['bg_id']}`")
             return 3, (f"ALERT {name} stopped working without sending a message{self.unread_note(' (', ')')}; "
                        f"inspect it with `claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
                        f"--body \"Report with mesh send\"` and pass its send_message on")
@@ -2635,7 +2764,8 @@ class Watch:
             # another watch just nudged it: give it the same time the nudger gives it
             self.worked, self.idle_for = True, 0.0
             return None
-        how = "nudged once" if done.get("rung") else "its nudge was not delivered"
+        how = ("nudged once by its Stop hook" if done.get("via") else "nudged once" if done.get("rung")
+               else "its nudge was not delivered")
         how += self.unread_note()
         line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
                 f"`herdr agent read {name} --source recent-unwrapped --lines 80`")
@@ -3071,7 +3201,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
               from_run=old_run["id"], from_name=old_name, session=session)
 
     start_agent(name, old["kind"], pane, [*log_argv(log), *resume_argv(old["kind"], session, model, effort),
-                                          "--dangerously-skip-permissions"])
+                                          "--dangerously-skip-permissions", *settings_argv(old["kind"], env)])
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
@@ -3724,7 +3854,60 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -> str:
+    """Where a worker stands on its current task, in a line it can act on."""
+    _, sent, _ = since_last_task(events, name)
+    if sent:
+        last = [e["type"] for e in events if e.get("event") == "send" and e.get("sender") == name
+                and e.get("type") in REPORT_TYPES][-1]
+        return {"plan": "your plan is waiting for its answer: change nothing until it says approved",
+                "question": "your question is waiting for its answer"}.get(
+            last, f"you reported `{last}` on it: wait for a new task or answer")
+    if (task or "").startswith(READ_ONLY_STARTS):
+        return "a read-only task: change nothing, and report one `done` with the answer"
+    if (task or "").startswith(DIRECT_STARTS):
+        return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
+    if entry.get("phase") == "plan":
+        return "planning: research, then send a `plan`, and change nothing until it is approved"
+    if entry.get("phase") == "exec":
+        return "executing your approved plan: finish, verify, open the PR, then report `done`"
+    return "working on it: report `done` or `failed` with `mesh send parent` when it's finished"
+
+
+def reminder(run_id: str, me: str, source: str) -> str:
+    """What `mesh whoami --reminder` prints, for a session that may have lost its context (SessionStart hook).
+    Its wording must not match `first_doorbell`, which agy's conversation lookup searches for."""
+    run = load_run(run_id)
+    entry = agent_entry(run, me)
+    events = read_log(run_id)
+    files = current_task(run_id, me, events)
+    task = parse_message(files[0])[1].strip() if files else None
+    lines = [f"agent-mesh reminder ({source}): you are {me}, a {entry['role']} in run {run_id}, and your parent is "
+             f"{entry.get('parent')}. Run dir: {run_dir(run_id)}. Protocol: {PROTOCOL_PATH}."]
+    if files:
+        meta = parse_message(files[-1])[0]
+        lines.append(f"Current task: {task_gist(task) or '(see the file)'} ({files[0]}"
+                     + (f"; latest answer {files[-1]}, from {meta.get('from')} at {meta.get('time')}" if len(files) > 1
+                        else f", from {meta.get('from')} at {meta.get('time')}") + ").")
+        lines.append(f"Phase: {worker_phase(entry, events, me, task)}.")
+    else:
+        lines.append("No task yet.")
+    again = " (it shows your current task again)" if source in RESET_SOURCES else ""
+    lines.append(f"Report with `mesh send parent`. Run `mesh inbox` now{again}.")
+    return "\n".join(lines)
+
+
 def cmd_whoami(args: argparse.Namespace) -> int:
+    if args.reminder:  # a SessionStart hook: never an error that would break the session
+        try:
+            run_id, me = identity(args)
+            text = reminder(run_id, me, args.reminder)
+            log_event(run_id, "reminder", name=me, source=args.reminder)
+        except Exception as exc:  # noqa: BLE001
+            print(f"mesh whoami --reminder: {exc}", file=sys.stderr)
+            return 0
+        print(text)
+        return 0
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), me)
     run = load_run(run_id)
@@ -3951,8 +4134,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-worktrees", action="store_true")
     p.set_defaults(func=cmd_stop)
 
-    sub.add_parser("whoami", help="this agent's run, name, role and parent").set_defaults(func=cmd_whoami)
-    ident(sub.choices["whoami"])
+    p = ident(sub.add_parser("whoami", help="this agent's run, name, role and parent"))
+    p.add_argument("--reminder", nargs="?", const="manual", metavar="SOURCE",
+                   help="print a reminder of who you are, your phase and your task instead (a SessionStart hook "
+                        "passes compact, clear or resume)")
+    p.set_defaults(func=cmd_whoami)
+    p = ident(sub.add_parser("hook", help="a Claude worker's hook (Claude Code runs it)"))
+    p.add_argument("event", choices=("stop",))
+    p.set_defaults(func=cmd_hook)
     ident(sub.add_parser("dir", help="print the run directory")).set_defaults(func=cmd_dir)
 
     p = sub.add_parser("model", help="resolve the model a spawn would use")
