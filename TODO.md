@@ -10,4 +10,3 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 - [ ] Live-test `--plan-review user` on plain `opus` (was `opusplan`): the plan dialog still shows `blocked` in herdr, and after approval the worker executes on Opus in the same pane
 - [ ] `mesh agents` lists a PR twice when one `done` mentions it twice (`worker_prs` dedupes only against earlier messages, not within one findall)
 - [ ] herdr's agy manifest counts working only on the `esc to cancel` footer or a spinner, so a busy agy can read idle; report it upstream with a pane capture (mesh now works around it in `ring()` and the watch's grace)
-- [ ] `mesh watch` judges a turn only after seeing `working`, so a worker idle from the start (a turn shorter than one poll that ended without a report, or a task it never picked up) is never nudged or alerted; treat sustained idle a longer grace after its last task/answer, with nothing reported, as a stopped turn
