@@ -2465,6 +2465,83 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     assert mesh.unread(run, "proj-fix")
 
 
+def github_origin(tmp_path, repo):
+    """`repo` with a local origin (whose HEAD is origin/main) and a GitHub remote naming acme/proj."""
+    pr_origin(tmp_path, repo)
+    for cmd in (["fetch", "-q", "origin"], ["remote", "set-head", "origin", "main"],
+                ["remote", "add", "github", "git@github.com:acme/proj.git"]):
+        subprocess.run(["git", *cmd], cwd=repo, check=True)
+    return tmp_path / "origin"
+
+
+def test_resume_onto_a_merged_pr_starts_a_new_branch_from_the_default_one(mesh, fake, cli, run, repo, tmp_path,
+                                                                           capsys):
+    origin = github_origin(tmp_path, repo)
+    path, branch = archived_worker(mesh, repo, session="c1")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "squash-merged PR 7"], cwd=origin, check=True)
+    merged = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": pr, "state": "MERGED"}]))
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Direct task (no plan)\n\nAdd the follow-up."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["branch"], out["left_pr"]) == ("mesh/mtest/fix", pr)
+    assert f"PR #7 ({pr}) from `{branch}` is merged" in out["notes"][0]
+    [call] = cli.called("pr", "list")
+    assert call["cwd"] == str(repo) and call["argv"][3:5] == ["--head", branch]
+    git_out = lambda *a: subprocess.run(["git", *a], cwd=path, capture_output=True, text=True).stdout.strip()
+    assert (git_out("branch", "--show-current"), git_out("rev-parse", "HEAD")) == ("mesh/mtest/fix", merged)
+    assert git_out("rev-parse", "--verify", branch)  # the old branch is kept
+    data = mesh.load_run(run)
+    assert (data["agents"]["proj-fix"]["branch"], data["agents"]["proj-fix"]["base"]) == ("mesh/mtest/fix", merged)
+    assert {"path": str(path), "repo": str(repo), "branch": "mesh/mtest/fix", "base": merged} in data["worktrees"]
+    task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
+    assert task.startswith("Direct task (no plan)")  # the note goes last, so the task keeps its kind
+    assert "now on a new branch, `mesh/mtest/fix`, started from `origin/main`" in task.rstrip().splitlines()[-1]
+
+
+def test_resume_keeps_the_branch_for_an_open_pr_a_question_or_a_failing_gh(mesh, fake, cli, run, repo, tmp_path,
+                                                                            capsys):
+    github_origin(tmp_path, repo)
+    path, branch = archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    cases = [
+        ("Fix it.", json.dumps([{"number": 7, "url": "u7", "state": "MERGED"}, {"number": 8, "url": "u8", "state": "OPEN"}]), 0, None),
+        ("Question (read-only)\n\nWhy?", "[]", 0, None),
+        ("Direct task (no plan)\n\nFix it.", "", 1, "couldn't check whether mesh/mold/fix has a merged or closed PR (gh: gh: not logged in)"),
+    ]
+    for n, (task, stdout, code, note) in enumerate(cases):
+        cli.calls.clear()
+        cli.on("pr", "list", stdout=stdout, returncode=code, stderr="gh: not logged in" if code else "")
+        if n:
+            mesh.main(["retire", out["name"]])
+        capsys.readouterr()
+        assert mesh.main(["resume", "proj-fix", "--from-run", "mold", "--task", task]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["branch"] == branch and "left_pr" not in out
+        assert bool(cli.called("pr", "list")) == (not task.startswith("Question"))
+        assert (note in out["notes"][-1]) if note else not any("PR" in n for n in out["notes"])
+
+
+def test_resume_onto_a_closed_pr_with_uncommitted_work_tells_the_worker(mesh, fake, cli, run, repo, tmp_path,
+                                                                         capsys):
+    github_origin(tmp_path, repo)
+    path, branch = archived_worker(mesh, repo, session="c1")
+    mesh.ensure_worktree({"cwd": str(path), "repo": str(repo)}, branch)
+    (path / "wip.txt").write_text("unfinished")
+    cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "CLOSED"}]))
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["branch"] == branch and "the worktree has uncommitted changes, so it stays" in out["notes"][-1]
+    head = subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip()
+    assert head == branch
+    task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
+    assert "is closed. Don't push to that branch: start a new one" in task
+
+
 def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_moves_on(mesh, fake, run, repo,
                                                                                      monkeypatch, capsys):
     with_quotas(mesh, monkeypatch)
@@ -3623,6 +3700,32 @@ def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, caps
     rows = {r["name"]: r for r in json.loads(capsys.readouterr().out)}
     assert (rows["proj-review-7"]["prs"], rows["proj-review-7"]["reviews"]) == ("", pr)
     assert rows["proj-fix"]["prs"] == pr
+
+
+def test_a_pr_link_finds_its_author_by_the_prs_head_branch(mesh, fake, cli, run, repo, capsys):
+    archived_worker(mesh, repo, session="c1")  # its report quotes PR 7, never PR 9
+    pr = "https://github.com/acme/proj/pull/9"
+    cli.on("pr", "view", stdout='{"headRefName": "mesh/mold/fix"}')
+    assert mesh.find_worker(f"{pr}/files")[2] == "proj-fix"
+    assert cli.called("pr", "view", pr)
+    capsys.readouterr()
+    assert mesh.main(["agents", pr, "--json"]) == 0
+    assert [r["prs"] for r in json.loads(capsys.readouterr().out)] == [f"https://github.com/acme/proj/pull/7 {pr}"]
+    # the branch its worktree is on counts too: a worker may follow its repo's branch naming
+    path, _, _ = mesh.add_worktree(run, repo, "own", None)
+    subprocess.run(["git", "switch", "-q", "-c", "feat/own"], cwd=path, check=True)
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-own"] = {"role": "worker", "kind": "agy", "repo": str(repo), "cwd": str(path),
+                                      "branch": "mesh/mtest/own", "pane": "w2:p9"}
+    cli.on("pr", "view", stdout='{"headRefName": "feat/own"}')
+    assert mesh.find_worker(pr)[2] == "proj-own"
+    # another repo's branch of the same name isn't the author; the message links are the fallback
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:acme/other.git"], cwd=repo, check=True)
+    cli.on("pr", "view", stdout='{"headRefName": "mesh/mold/fix"}')
+    with pytest.raises(mesh.MeshError, match="no worker matches"):
+        mesh.find_worker(pr)
+    cli.on("pr", "view", returncode=1, stderr="gh: not logged in")
+    assert mesh.find_worker("https://github.com/acme/proj/pull/7")[2] == "proj-fix"
 
 
 def test_ask_reports_a_worker_that_stops_without_answering(mesh, fake, run, monkeypatch, capsys):

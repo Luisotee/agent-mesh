@@ -3886,17 +3886,73 @@ def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
     return [url for url in dict.fromkeys(prs) if url not in reviewed]
 
 
+def gh_json(argv: list[str], cwd: str | Path | None = None) -> tuple[object, str | None]:
+    """`gh <argv>` with `--json` fields: what it printed, parsed, or None and why gh couldn't answer."""
+    result = run_cli(["gh", *argv], cwd=cwd, timeout=30)
+    if result.returncode:
+        return None, (result.stderr.strip().splitlines() or [f"gh exited {result.returncode}"])[-1]
+    try:
+        return json.loads(result.stdout), None
+    except ValueError:
+        return None, "gh printed no JSON"
+
+
+def github_repos(repo: str | Path) -> set[str] | None:
+    """`owner/name` of each GitHub remote of `repo` (lowercase); None when git can't read them (the repo is gone)."""
+    try:
+        remotes = git("remote", cwd=repo).split()
+        urls = [git("remote", "get-url", remote, cwd=repo) for remote in remotes]
+    except MeshError:
+        return None
+    return {f"{m.group(1)}/{m.group(2)}".lower() for m in map(GITHUB_REMOTE_RE.search, urls) if m}
+
+
+def pr_head_branch(pr: str) -> str | None:
+    """The branch a PR was opened from (`gh pr view`), or None when gh can't say."""
+    data, _ = gh_json(["pr", "view", pr, "--json", "headRefName"])
+    return data.get("headRefName") if isinstance(data, dict) else None
+
+
+def worktree_branch(entry: dict) -> str | None:
+    """The branch a worker's own worktree is on now (it may follow its repo's naming), not a main checkout's."""
+    cwd, repo = entry.get("cwd"), entry.get("repo")
+    if not cwd or not Path(cwd).is_dir() or (repo and Path(cwd).resolve() == Path(repo).resolve()):
+        return None
+    try:
+        return git("branch", "--show-current", cwd=cwd) or None
+    except MeshError:
+        return None
+
+
+def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
+    """Whether this worker's branch is the PR's head, in the PR's repo (when the worker's repo has GitHub remotes)."""
+    branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
+    if not branch or branch != head:
+        return False
+    repos = github_repos(entry["repo"]) if entry.get("repo") else None
+    owner_repo = pr.split("github.com/", 1)[1].rsplit("/pull/", 1)[0].lower()
+    return not repos or owner_repo in repos
+
+
 def find_worker(ref: str, from_run: str | None = None) -> tuple[dict, Path, str, dict]:
-    """The newest worker whose name, branch or PR link is `ref`."""
+    """The newest worker whose name, branch or PR link is `ref`.
+
+    A PR link names the worker whose branch is the PR's head (asked of `gh`): its recorded branch first, then
+    the branch its worktree is on. Only when gh can't answer, or no branch matches, do the PR links in the
+    workers' own messages count.
+    """
     pr = PR_RE.search(ref)
-    for run, folder in all_runs():
-        if from_run and run["id"] != from_run:
-            continue
-        for name, entry in reversed(run["agents"].items()):  # a restart beats the agent it replaced
-            if entry.get("role") == "root":
-                continue
-            if ref in (name, entry_branch(run, entry)) or (pr and pr.group(0) in worker_prs(folder, name, entry)):
-                return run, folder, name, entry
+    workers = [(run, folder, name, entry) for run, folder in all_runs() if not from_run or run["id"] == from_run
+               for name, entry in reversed(run["agents"].items())  # a restart beats the agent it replaced
+               if entry.get("role") != "root"]
+    found = next((w for w in workers if ref in (w[2], entry_branch(w[0], w[3]))), None)
+    head = pr_head_branch(pr.group(0)) if pr and not found else None
+    for live_branch in (False, True) if head else ():
+        found = found or next((w for w in workers if opened_pr(pr.group(0), head, w[0], w[3], live_branch)), None)
+    if pr and not found:
+        found = next((w for w in workers if pr.group(0) in worker_prs(w[1], w[2], w[3])), None)
+    if found:
+        return found
     raise MeshError(f"no worker matches {ref}" + (f" in run {from_run}" if from_run else "") + "; see `mesh agents`")
 
 
@@ -3998,6 +4054,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
     except MeshError:
         live = []  # outside herdr: every agent shows as gone
     query = (args.query or "").lower()
+    pr = PR_RE.search(args.query or "")
+    head = pr_head_branch(pr.group(0)) if pr else None  # a PR link also finds its author by the PR's branch
     rows = []
     runs = all_runs()
     bg_rows = claude_agents() if any(e.get("view") == "bg" for r, _ in runs for e in r["agents"].values()) else []
@@ -4009,8 +4067,12 @@ def cmd_agents(args: argparse.Namespace) -> int:
             if entry.get("role") == "root":
                 continue
             cwd, branch, prs = entry.get("cwd") or "", entry_branch(run, entry) or "", worker_prs(folder, name, entry)
+            if head and pr.group(0) not in prs and any(opened_pr(pr.group(0), head, run, entry, live)
+                                                       for live in (False, True)):
+                prs.append(pr.group(0))
             reviews = entry.get("reviews") or []
-            if query and not any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs, *reviews)):
+            if query and not (any(query in str(v).lower() for v in (name, entry.get("repo"), branch, *prs, *reviews))
+                              or (pr and pr.group(0) in prs)):
                 continue
             rows.append({
                 "name": name, "run": run["id"], "archived": folder.parent.name == "archive",
@@ -4117,6 +4179,75 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     return report
 
 
+def finished_pr(repo: str | Path, branch: str) -> tuple[dict | None, str | None]:
+    """The newest PR from `branch` once none from it is open (merged or closed), and why gh couldn't say."""
+    data, error = gh_json(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state"], cwd=repo)
+    if error or not isinstance(data, list):
+        return None, error or "gh printed no list"
+    if not data or any(pr.get("state") == "OPEN" for pr in data):
+        return None, None
+    return max(data, key=lambda pr: pr.get("number") or 0), None
+
+
+def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch: str | None,
+                      task: str | None) -> dict:
+    """A change task for a worker whose PR is merged or closed goes on a new branch from the default one.
+
+    Pushing to the old branch would update a dead PR (or recreate a branch deleted on merge). The worktree
+    moves to `mesh/<run>/<slug>` at the freshly fetched default branch when it's clean and is the worker's own;
+    otherwise the task tells the worker to do it. Returns {} when there's nothing to say, else a `note` for the
+    resume output, `task_note` for the task, and `branch` / `base` when the worktree moved. gh missing or failing
+    never blocks a resume: it goes on as before, with a note.
+    """
+    read_only = getattr(args, "read_only", False) or bool(task and task.startswith(READ_ONLY_STARTS))
+    current = worktree_branch(entry) or branch
+    if read_only or not current or not entry.get("repo") or not github_repos(entry["repo"]):
+        return {}  # a question or review stays put; a repo off GitHub has no PR to check
+    pr, error = finished_pr(entry["repo"], current)
+    if error:
+        return {"note": f"couldn't check whether {current} has a merged or closed PR (gh: {error}); "
+                        f"resuming on it as before"}
+    if not pr:
+        return {}
+    what = f"PR #{pr.get('number')} ({pr.get('url')}) from `{current}` is {str(pr.get('state')).lower()}"
+    cwd, repo = Path(entry["cwd"]), Path(entry["repo"])
+    try:
+        dirty = cwd.resolve() != repo.resolve() and bool(git("status", "--porcelain", cwd=cwd))
+    except MeshError:
+        dirty = True
+    if cwd.resolve() == repo.resolve() or dirty:
+        why = "the worktree has uncommitted changes" if dirty else "it runs in the main checkout"
+        return {"note": f"{what}, but {why}, so it stays on {current}"
+                        + ("; the task tells the worker to start a new branch" if task else
+                           "; tell the worker to start a new branch from the default one"),
+                "task_note": f"Note from mesh: {what}. Don't push to that branch: start a new one from the repo's "
+                             f"default branch (fetch it first) and open a new PR for this task"
+                             + (", and decide what to do with the uncommitted changes." if dirty else ".")}
+    try:
+        git("fetch", "-q", "origin", cwd=repo)
+    except MeshError:
+        pass  # offline: the local copy of the default branch will do
+    base_ref = default_base(repo)
+    sha = git("rev-parse", "--verify", f"{base_ref}^{{commit}}", cwd=repo)
+    def taken(name: str) -> bool:
+        try:
+            git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}", cwd=repo)
+            return True
+        except MeshError:
+            return False
+    slug, n = slugify(current.rsplit("/", 1)[-1], 24), 2
+    new = f"mesh/{run_id}/{slug}"
+    while new == current or taken(new):
+        new, n = f"mesh/{run_id}/{slug}-{n}", n + 1
+    git("switch", "-q", "-c", new, sha, cwd=cwd)
+    log_event(run_id, "branch", path=str(cwd), branch=new, left=current, pr=pr.get("url"))
+    return {"branch": new, "base": sha, "pr": pr.get("url"),
+            "note": f"{what}: {cwd} is now on a new branch, {new}, from {base_ref}; {current} is kept",
+            "task_note": f"Note from mesh: {what}, so this worktree is now on a new branch, `{new}`, started from "
+                         f"`{base_ref}`. Push that branch and open a new PR for this task; don't push to "
+                         f"`{current}` (its commits are still there if you need them)."}
+
+
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     current = load_run(run_id)
 
@@ -4159,11 +4290,20 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     cwd, repo_top = old["cwd"], Path(old["repo"])
     recreated = ensure_worktree(old, branch)
+    moved = leave_finished_pr(args, run_id, old, branch, task)
+    if moved.get("note"):
+        notes.append(moved["note"])
+    if moved.get("task_note") and task:
+        task = f"{task.rstrip()}\n\n{moved['task_note']}"
+    branch, base_sha = moved.get("branch") or branch, moved.get("base") or old.get("base")
     with editing_run(run_id) as run:
         worktrees = run.setdefault("worktrees", [])
-        if branch and Path(cwd).resolve() != repo_top.resolve() and not any(Path(w["path"]) == Path(cwd) for w in worktrees):
+        known = next((w for w in worktrees if Path(w["path"]) == Path(cwd)), None)
+        if known and moved.get("branch"):
+            known.update(branch=branch, base=base_sha)
+        elif branch and Path(cwd).resolve() != repo_top.resolve() and not known:
             # so this run's stop cleans it up (and drops the branch if it still has no commits)
-            base = {"base": old["base"]} if old.get("base") else {}
+            base = {"base": base_sha} if base_sha else {}
             worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch, **base})
     compaction = maybe_compact(args, old, session, model, task, cross_run=old_run["id"] != run_id)
     if compaction.get("note"):
@@ -4178,7 +4318,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
-            "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": old.get("base"),
+            "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
             "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only,
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
@@ -4190,7 +4330,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         }
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
               "resumed_from": {"run": old_run["id"], "name": old_name}, "worktree_recreated": recreated,
-              "compaction": compaction, "notes": notes}
+              "compaction": compaction, "notes": notes, **({"left_pr": moved["pr"]} if moved.get("pr") else {})}
 
     if view == "bg":
         # A copy of the conversation, so it gets this run's identity (see launch_bg); the task waits in its mailbox.

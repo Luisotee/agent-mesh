@@ -189,7 +189,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
 - **A fresh agent** follows the mode table and `--size`, like a spawn, except that a fresh reviewer opens in a pane at any size and runs at high effort when it is trivial or small ("Sizes"). Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
 - **Copilot** (`--kind copilot`: a default reviewer of large PRs, otherwise only when the user names it) answers questions and reviews, nothing else. It runs headless inside the `ask` call, with no agent pane of its own: `--size` sets only its effort, and on a plan that offers only `auto` (Copilot Student), Copilot picks the model. `ask` waits for it and prints its answer, so a Claude root still runs it with `run_in_background`; while it works, a pane beside yours follows it (`mesh peek <name> --follow`) and closes once it has answered, and `mesh stop` waits until it has answered. Ask it again with `mesh ask <name>`, which resumes its session; it can't be resumed into a change.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
-  - A PR link names the worker that opened the PR; a reviewer is found by its name.
+  - A PR link names the worker that opened the PR (the one on its head branch); a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.
   - A past worker is resumed, and its conversation is compacted first when it's large (see "Follow-ups").
 - **The question:** give it what you know, as you would in a task file (use `--file` for anything long): what you're working on, what you need back, and in what form.
@@ -223,7 +223,7 @@ When the request is about something a worker already built, in this run or an ea
    ```bash
    mesh resume <name | branch | PR link> --task-file "$(mesh dir)/tasks/<repo>.md"
    ```
-   It reopens the worker's own conversation (on the planning model when the task has a plan phase, see below), in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. A background worker comes back in the background. The task file contains:
+   It reopens the worker's own conversation (on the planning model when the task has a plan phase, see below), in its old worktree and branch (recreated if `mesh stop` removed it), as your worker. A background worker comes back in the background. If the worker's PR was merged or closed, a change task gets a new branch from the default one instead, and a note at its end saying so (see `notes` in the output). The task file contains:
    - what to change: for a review, the comments themselves (`gh pr view <url> --comments`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`) and **your opinion on each one**: agree, disagree and why, or what to do instead. Ask it to check each finding itself before fixing it (`PROTOCOL.md` rule 9) and to say in its plan which it fixes, how, and which it declines and why
    - "plan first; push to the same branch so the PR updates; report `done`" (for a small follow-up: start it with `Direct task (no plan)`)
 4. **Compaction:** an old conversation has lost its prompt cache, so every turn of the follow-up would pay for all of its context again. `resume` (and `ask`) compact it first, headless, keeping what the new task needs:
@@ -263,7 +263,7 @@ Then end your turn. A later task may ask more, or ask you to make a change, whic
 7. **Execute** the approved plan (or the direct task) yourself, in your worktree. Commit on your branch with clear messages. If the code turns out different from the plan in a way that changes its scope, stop, send a `question` and end your turn. Small corrections you can just note in the report.
 8. **Verify:** run the plan's done-when command and the repo's lint, test and build. Fix what fails. After two honest attempts at the same failure, send a `question` instead of guessing.
 9. **Publish:** push your branch and open the PR with `gh pr create`, following the repo's own PR rules (title, body, attribution, base branch). The PR body includes what changed, the commands that passed, and anything the reviewer should look at. Then do whatever the repo's rules require after a PR.
-   - **A follow-up** to work you already published goes on the **same branch**, so the existing PR updates. Open a new PR only if the task asks for one.
+   - **A follow-up** to work you already published goes on the **same branch**, so the existing PR updates. Open a new PR only if the task asks for one, or a note from mesh at its end says your PR was merged or closed.
    - **A stacked task** (your worktree started from another worker's branch) opens its PR against that branch.
 10. **Report:** run `mesh inbox` once more, then send **one** `done` to your parent (`--file` under `$(mesh dir)/reports/`) with the PR link, a summary, the checks that passed, and any deviations from the plan. If you can't finish, send `failed` with what blocked you and what you tried. Don't run `mesh stop`: the root does that.
 
