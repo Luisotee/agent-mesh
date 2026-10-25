@@ -2314,6 +2314,100 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
     assert "hook stop --run mtest --as repo-fix-typo" in hooks["Stop"][0]["hooks"][0]["command"]
 
 
+def read_only_asker(mesh, run, **extra):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update({
+            "kind": "claude", "model": "opus", "effort": "high", "repo": "/repo", "cwd": "/wt/fix", "session": "s-1",
+            "workspace": "w9", "read_only": True, "models": [{"model": "opus", "at": "t", "why": "spawn"}], **extra})
+
+
+def test_a_change_task_reopens_a_read_only_asker_without_its_deny_list(mesh, fake, run, capsys):
+    read_only_asker(mesh, run)
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Direct task (no plan)\n\nFix it."]) == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert out["read_only_lifted"] is True and out["rung"] is True
+    assert "without its deny list" in captured.err
+    argv = started(fake)
+    assert argv[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    assert not deny_rules(argv)
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["read_only"], entry["models"][-1]["why"]) == (False, "read-only lifted")
+    assert "again in agent-mesh run mtest" in fake.called("agent", "prompt")[-1][3]
+    # Once lifted, the next task is an ordinary send.
+    starts = len(fake.called("agent", "start"))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Also the footer."]) == 0
+    assert len(fake.called("agent", "start")) == starts
+
+
+def test_a_read_only_follow_up_leaves_the_asker_as_it_is(mesh, fake, run, capsys):
+    read_only_asker(mesh, run)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Question (read-only): and why?"]) == 0
+    assert not fake.called("agent", "start") and mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"]
+
+
+def test_a_busy_read_only_asker_is_sent_no_change(mesh, fake, run, capsys):
+    read_only_asker(mesh, run)
+    fake.on("agent", "wait", error="timeout")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert "Nothing was sent" in capsys.readouterr().err
+    assert not mesh.unread(run, "repo-fix-typo")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is True
+
+
+def test_a_background_asker_is_lifted_by_a_copy_launched_without_the_deny_list(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None)
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5},
+                      {"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["launched"] is True and out["read_only_lifted"] is True
+    launch = cli.called("--bg")[-1]
+    assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
+
+
+def test_a_retired_asker_is_given_a_change_by_resume_not_send(mesh, fake, run, repo, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
+    assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
+    # `mesh resume` with the change reopens it without its deny list.
+    fake.on("agent", "get", error="agent_not_found")
+    assert mesh.main(["resume", "repo-fix-typo", "--task", "Direct task (no plan)\n\nFix it."]) == 0
+    argv = fake.called("agent", "start")[-1]
+    assert "--resume" in argv and not deny_rules(argv)
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
+
+
+def test_a_failed_background_lift_keeps_one_task_and_points_to_resume(mesh, fake, cli, run, tmp_path, capsys):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
+    cli.on("--bg", returncode=1, stdout="boom")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    err = capsys.readouterr().err
+    assert "don't send it again" in err and "`mesh resume repo-fix-typo` (no task)" in err
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+    # The resume it points to reopens it without its deny list, and adds no second task.
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["resume", "repo-fix-typo"]) == 0
+    launch = cli.called("--bg")[-1]
+    assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+
+
+def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys):
+    read_only_asker(mesh, run)
+    stub_new_pane(fake)
+    mesh.swap_model(run, "repo-fix-typo", "sonnet", "high", "quota")
+    assert "Edit(//wt/fix/**)" in deny_rules(fake.called("agent", "start")[-1])
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is True
+
+
 def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, capsys):
     planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
     with mesh.editing_run(run) as data:  # `spawn --kind claude --effort high`: both phases match
@@ -2869,6 +2963,21 @@ def test_ask_a_past_worker_resumes_its_conversation(mesh, fake, run, repo, monke
     assert mesh.load_run(run)["agents"]["proj-fix"]["resumed_from"] == {"run": "mold", "name": "proj-fix"}
 
 
+def test_a_past_claude_worker_is_held_read_only_for_a_question_but_not_for_a_change(mesh, fake, run, repo,
+                                                                                      monkeypatch, capsys):
+    archived_worker(mesh, repo, kind="claude", session="c1")
+    stub_new_pane(fake)
+    assert mesh.main(["ask", "proj-fix", "--body", "Why ISO dates?", "--no-wait"]) == 0
+    assert "Bash(git push:*)" in deny_rules(fake.called("agent", "start")[-1])
+    assert mesh.load_run(run)["agents"]["proj-fix"]["read_only"] is True
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-fix"]["status"] = "retired"
+    fake.on("agent", "get", error="agent_not_found")
+    assert mesh.main(["resume", "proj-fix", "--task", "Direct task (no plan)\n\nUse ISO dates."]) == 0
+    assert not deny_rules(fake.called("agent", "start")[-1])
+    assert mesh.load_run(run)["agents"]["proj-fix"]["read_only"] is False
+
+
 def test_ask_without_a_run_starts_one(mesh, fake, repo, monkeypatch, capsys):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
@@ -2922,7 +3031,9 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     assert (entry["reviews"], entry["base"]) == ([pr], head)
     [task] = mesh.unread(run, "proj-review-7-agy")
     body = mesh.parse_message(task)[1]
-    assert body.startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in body
+    assert body.startswith(f"Review (read-only) of {pr} at {head}:") and "checked out in your worktree" in body
+    assert "**blocking**" in body and "**advisory**" in body
+    assert entry["review_heads"] == {pr: head}
 
 
 def test_a_second_fresh_reviewer_of_a_pr_gets_its_own_branch(mesh, fake, run, repo, tmp_path, capsys):
@@ -3055,6 +3166,31 @@ def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, mon
     body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
     assert "Don't switch your branch" in body and "pull/3/head" in body and body.rstrip().endswith("Focus on auth.")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["reviews"] == [pr]
+
+
+def test_a_reviewer_asked_again_reviews_what_changed_since_the_head_it_read(mesh, fake, run, repo, tmp_path,
+                                                                             monkeypatch, capsys):
+    head = pr_origin(tmp_path, repo)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(repo=str(repo), reviews=[pr], review_heads={pr: "0ld"})
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert body.startswith(f"Review (read-only) of {pr} at {head}:")
+    assert "You last reviewed it at 0ld" in body and f"`git diff 0ld {head}`" in body
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["review_heads"] == {pr: head}
+
+
+def test_a_review_whose_head_cant_be_fetched_still_goes_out(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/other/pull/3"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["repo"] = "/nowhere"
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert body.startswith(f"Review (read-only) of {pr}:") and "You last reviewed" not in body
+    assert "review_heads" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
 
 def test_a_pr_link_finds_its_author_not_its_reviewer(mesh, fake, run, repo, capsys):
@@ -3668,6 +3804,46 @@ def test_a_small_fresh_asker_gets_the_question_not_a_direct_task(mesh, fake, cli
     assert task.startswith("Question (read-only)") and "Direct task" not in task
 
 
+def deny_rules(argv):
+    """The rules after `--disallowedTools`, up to the next flag."""
+    argv = list(argv)
+    if "--disallowedTools" not in argv:
+        return []
+    rest = argv[argv.index("--disallowedTools") + 1:]
+    return rest[:next((i for i, a in enumerate(rest) if a.startswith("--")), len(rest))]
+
+
+def test_a_claude_asker_can_neither_edit_nor_publish(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small",
+                      "--body", "How is restockedAt computed?", "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    rules = deny_rules(cli.called("--bg")[0]["argv"])
+    assert rules == [f"Edit(/{Path(out['cwd']).resolve()}/**)", f"Edit(/{repo.resolve()}/**)",
+                     *(f"Bash({cmd}:*)" for cmd in mesh.PUBLISH_COMMANDS)]
+    assert "Bash(git push:*)" in rules and rules[0].startswith("Edit(//")
+    assert mesh.load_run(run)["agents"][out["name"]]["read_only"] is True
+    # A change task gets no deny list.
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+                      "--task", "Fix the typo in the footer."]) == 0
+    assert not deny_rules(cli.called("--bg")[-1]["argv"])
+    assert mesh.load_run(run)["agents"]["proj-copy"]["read_only"] is False
+
+
+def test_a_claude_reviewer_in_a_pane_gets_the_deny_list_and_agy_none(mesh, fake, cli, run, repo, tmp_path,
+                                                                             monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    argv = started(fake)
+    assert "Bash(gh pr comment:*)" in deny_rules(argv) and argv[-1] == "--dangerously-skip-permissions"
+    # agy has no deny list: its askers are held by the prompt alone.
+    assert mesh.claude_deny({"kind": "agy", "read_only": True, "cwd": "/wt"}) == []
+
+
 def test_a_fresh_reviewer_opens_in_a_pane_where_a_question_would_not(mesh, fake, cli, run, repo, tmp_path, capsys):
     pr_origin(tmp_path, repo)
     claude_root(mesh, run)
@@ -3994,7 +4170,8 @@ def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cl
     [call] = cli.called("--output-format")
     argv = call["argv"]
     assert "-p" not in argv  # the prompt goes on stdin, since a diff can outgrow one argument
-    assert call["input"].startswith(f"Review (read-only) of {pr}:") and "checked out in your worktree" in call["input"]
+    assert call["input"].startswith(f"Review (read-only) of {pr} at {head}:") and "checked out in your worktree" in call["input"]
+    assert entry["review_heads"] == {pr: head}
     assert call["input"].endswith(mesh.COPILOT_NOTE)
     assert call["cwd"] == entry["cwd"] and "MESH_RUN" not in call["env"] and "pid" not in entry
     denied = argv[argv.index("--deny-tool") + 1: argv.index("--no-ask-user")]
