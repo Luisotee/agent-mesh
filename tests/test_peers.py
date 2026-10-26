@@ -1,6 +1,10 @@
 """Standing peer askers: the registry, the upstream note, and `mesh ask` to one peer or many (design §14)."""
 import json
+import os
 import subprocess
+from pathlib import Path
+
+import pytest
 
 from test_mesh import SETTINGS_WARNING, WELCOME, repo, stub_new_pane  # noqa: F401 (repo is a fixture)
 
@@ -457,6 +461,77 @@ def test_ask_peers_fans_out_and_collects_one_file(mesh, fake, cli, run, repo, tm
     assert mesh.load_peers()["answers"] == str(path)
     assert mesh.main(["peers"]) == 0
     assert f"newest answers: {path}" in capsys.readouterr().out
+
+
+def two_peers_one_answering(mesh, fake, cli, run, repo, tmp_path, monkeypatch):
+    """swarm-research and town-research in group orch; swarm answers on the first wait, town never does."""
+    for project in ("swarm", "town"):
+        _, clone = upstream_and_clone(tmp_path, project)
+        archived_peer_worker(mesh, clone, f"{project}-research", f"s-{project}")
+        monkeypatch.chdir(repo)
+        assert mesh.main(["peers", "add", str(clone), "--group", "orch"]) == 0
+    stub_new_pane(fake)
+    fake.on("workspace", "create", result={"workspace": {"workspace_id": "w9"}})
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+
+
+def archive(mesh, run):
+    """What `mesh stop` does to the run's folder last."""
+    (mesh.mesh_home() / "archive").mkdir(exist_ok=True)
+    os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)
+
+
+@pytest.mark.parametrize("closing", [False, True])
+def test_ask_peers_survives_mesh_stop(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys, closing):
+    """A stop archives the run mid-fan-out (`closing`: after first closing the panes, which read gone): the
+    answer that came in is kept, the rest are named, and nothing brings the live folder back."""
+    two_peers_one_answering(mesh, fake, cli, run, repo, tmp_path, monkeypatch)
+    waits = {"n": 0}
+
+    def sleep(_):
+        waits["n"] += 1
+        if waits["n"] == 1:
+            mesh.deliver(run, "swarm-research", "repo-lead", "done", "Swarm keeps a ledger.")
+        elif waits["n"] == 2 and closing:
+            mesh.log_event(run, "stopping", pid=os.getpid(), start=mesh.proc_start(os.getpid()))
+            monkeypatch.setattr(mesh, "agent_status", lambda *_a, **_k: "gone")
+        elif waits["n"] == (4 if closing else 2):
+            archive(mesh, run)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "orch", "--body", "How?", "--no-refresh"]) == 1
+    captured = capsys.readouterr()
+    assert not mesh.run_dir(run).exists()
+    assert captured.out.startswith("1 of 2 peers answered") and f"run {run} stopped before town-research" in captured.out
+    assert "retired before" not in captured.out + captured.err and f"run {run} stopped" in captured.err
+    path = Path(captured.out.splitlines()[-2].removeprefix("answers: "))
+    assert path.parent == mesh.mesh_home() / "archive" / run / "reports"
+    assert "Swarm keeps a ledger." in path.read_text() and "No answer: run" in path.read_text()
+    assert "`mesh ask <peer> --body …` reopens it" in captured.out
+
+
+def test_ask_peers_keeps_an_answer_that_lands_just_before_a_stop(mesh, fake, cli, run, repo, tmp_path,
+                                                                   monkeypatch, capsys):
+    """The answer and the stop's `stopping` in one poll: no tick credits it, the archive does (PR #66 review)."""
+    two_peers_one_answering(mesh, fake, cli, run, repo, tmp_path, monkeypatch)
+    waits = {"n": 0}
+
+    def sleep(_):
+        waits["n"] += 1
+        if waits["n"] == 1:
+            mesh.deliver(run, "swarm-research", "repo-lead", "done", "Swarm keeps a ledger.")
+            mesh.log_event(run, "stopping", pid=os.getpid(), start=mesh.proc_start(os.getpid()))
+        elif waits["n"] == 2:
+            archive(mesh, run)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "orch", "--body", "How?", "--no-refresh"]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("1 of 2 peers answered") and "Swarm keeps a ledger." in Path(
+        out.splitlines()[-2].removeprefix("answers: ")).read_text()
+    assert not mesh.run_dir(run).exists()
 
 
 def test_ask_peers_reports_a_peer_that_asks_back_instead(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):

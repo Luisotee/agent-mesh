@@ -9,11 +9,9 @@ From the run `m6f06` research (2026-10-26): prompt-cache keepalive (don't build 
 From run `md64d` (2026-10-26): the root's own observations, PR #63's review, and the new peers' first answers (`reports/peers-20261026T083537929156Z.md` in the run, archived under `~/.local/state/agent-mesh/archive/md64d/` after `mesh stop`; "ACC" is its agents-can-communica-research section, "repowire" its repowire-research one).
 
 - [ ] `CLAUDE.md` is ~27.5 KB, over agy's 24,000-byte rule-file limit ("AGENTS.md truncated by 5714 bytes"), so agy workers here never read its last sections. Trim it under 24,000 (move detail to design.md) and keep it there, once PR #63 has merged.
-- [ ] `ask --peers` (`watch_each`) dies with "unknown run" when `mesh stop` archives its run mid-fan-out, and writes no peers report; handle it as `poll_watches` does (`stop_under_way`, `run_stopped`).
 - [ ] Claude Code holds cross-session messages across permission classes (ACC §1): a root in a prompting mode gets every bypass worker's report behind a dialog, and root → `--bg` worker doorbells expire unseen. Pass `"crossSessionInbound": "accept"` in `worker_settings` (first check `--settings` may loosen it), and warn at `mesh init` / `status` on a mismatch.
 - [ ] Find and trust a Claude socket as Claude does (ACC §5): `CLAUDE_CODE_MESSAGING_SOCKET`, or `messagingSocketPath` in `sessions/<pid>.json`, not a rebuilt path (wrong without `XDG_RUNTIME_DIR`); and check the root's pid start time in `native_route` (pid reuse).
 - [ ] Write the doorbell straight into a Claude recipient's inbox socket from `mesh` itself (repowire §1, ACC §2): any sender, no `SendMessage` step, no pane typing for Claude recipients. Medium; after the two above.
 - [ ] Maybe: agy delivery without typing, through `agy agentapi send-message` (ACC §3). It needs agy's session CSRF token recorded on disk: the user decides before it's built.
-- [ ] The Stop hook's nudge names the task's first line (repowire §5), for a worker compacted mid-task.
-- [ ] `mesh inbox`: a body line starting with `── ` reads as a second message's header (repowire §6); escape or indent it.
 - [ ] Design §11: one line that `CLAUDE_CODE_HARBOR_KITE=0` turns Claude's inbox off (ACC, "Lessons").
+- [ ] The root starts no work until the user says go (unless told to run autonomously): for any request, not only task lists, it first proposes the work (groups, sizes, workers, routing) and waits.
