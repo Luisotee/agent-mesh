@@ -2,7 +2,7 @@
 
 Open work, kept short on purpose: whoever picks a task up works out the details.
 
-From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Town, Rove, Cyclops, mcp_agent_mail, ccswarm, Orca, tmux-orchestrator, Claude Code agent teams). The full reports, with file:line references into each project, are in `~/.local/state/agent-mesh/archive/mac82/reports/`, the clones in `~/research/orchestrators/`, and each `<project>-research` worker can be asked again (`mesh ask <name>`). Items marked *live check* depend on behaviour nobody has measured yet.
+From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Town, Rove, Cyclops, mcp_agent_mail, ccswarm, Orca, tmux-orchestrator, Claude Code agent teams). The full reports, with file:line references into each project, are in `~/.local/state/agent-mesh/archive/mac82/reports/`, the clones in `~/research/orchestrators/`, and the askers are the `orchestrators` peers: `mesh peers` lists them, `mesh ask <name>` or `mesh ask --peers orchestrators` asks them. Items marked *live check* depend on behaviour nobody has measured yet.
 
 ## Watchdog
 
@@ -31,6 +31,12 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 ## Protocol wording and tests
 
 - [ ] Real captured panes (`herdr agent read --ansi`: Claude and agy idle, busy, with a draft, a queued doorbell, a trust dialog, the usage-limit screen) as test fixtures for `above_input_box`, `trust_keys` and the needle, re-captured when a CLI changes; maybe an opt-in live suite in a separate herdr session (Orca, Cyclops, Gas Town, firstmate, Rove)
+
+## Peers
+
+- [ ] Live-check `mesh ask --peers orchestrators`: eight panes at once, ccswarm past its Settings Warning on its own, one answers file
+- [ ] A peer held at a startup screen other than the Settings Warning keeps the fan-out waiting until `--timeout`: maybe give a held peer its own shorter deadline
+- [ ] Maybe: `mesh peers` shows each peer's newest answer time from the runs' logs, and `peers refresh --all` runs on a schedule
 
 ## Other
 
