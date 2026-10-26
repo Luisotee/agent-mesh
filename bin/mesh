@@ -372,11 +372,16 @@ def parent_pid(pid: int) -> int:
         return 0
 
 
+def has_proc() -> bool:
+    """Whether the process table can be read (/proc: Linux, not macOS)."""
+    return Path("/proc").is_dir()
+
+
 def agent_processes() -> list[dict]:
     """Every running `claude` / `agy` process this user can see ({pid, argv, cwd}), from /proc ([] without it),
     leaving out this command's own ancestors (the agent that runs it isn't some worker's holder)."""
     proc = Path("/proc")
-    if not proc.is_dir():
+    if not has_proc():
         return []
     mine, pid = set(), os.getpid()
     while pid > 1 and pid not in mine:
@@ -4506,6 +4511,8 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
     may have reopened it with `mesh open`); in a main checkout, which other sessions share, only an agent
     still carrying its name. herdr can lose a live agent's registration, so then any process that may hold
     it (`process_holder`). `procs` is one `agent_processes()` read, shared by a caller checking many workers.
+    When herdr can't be asked (not installed, its server down, any failure), the process table alone answers;
+    without one (no /proc) the herdr error is raised, since nothing could tell.
     """
     if entry.get("view") == "bg":
         row = bg_row(entry, bg_rows)
@@ -4520,19 +4527,23 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
             if pid_alive(entry.get(key), entry.get(f"{key}_start")):
                 return {"name": name, "pane_id": None, "pid": entry[key], "answering": answering}
         return None
-    cwd = entry.get("cwd")
+    cwd, unasked = entry.get("cwd"), None
     if agents is None:
         try:
             agents = herdr("agent", "list").get("agents", [])
-        except HerdrError:
-            raise  # herdr is there but failed: don't guess
-        except MeshError:
-            agents = []  # outside herdr (`mesh open` from a plain terminal): only the processes can tell
+        except MeshError as exc:
+            if not has_proc():
+                raise  # neither herdr nor a process table can say: don't guess
+            agents, unasked = [], exc  # outside herdr (`mesh open` from a plain terminal): only the processes can tell
     if not cwd or (entry.get("repo") and Path(cwd).resolve() == Path(entry["repo"]).resolve()):
-        return next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
-    top = Path(cwd).resolve()
-    return (next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
-            or process_holder(name, entry, top, procs))
+        holder = next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
+    else:
+        top = Path(cwd).resolve()
+        holder = (next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
+                  or process_holder(name, entry, top, procs))
+    if holder and unasked:
+        holder["herdr_error"] = str(unasked)  # so a refusal doesn't claim herdr left it out
+    return holder
 
 
 def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] | None = None) -> dict | None:
@@ -4550,7 +4561,7 @@ def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] |
             continue
         if (inside(proc.get("cwd"), top) if top else bool(session) and session in proc.get("argv", [])):
             return {"name": name, "pane_id": None, "process": proc["pid"], "cwd": proc.get("cwd")}
-    if top and not Path("/proc").is_dir() and pane_probe(entry.get("pane"), kind) == "alive":
+    if top and not has_proc() and pane_probe(entry.get("pane"), kind) == "alive":
         return {"name": name, "pane_id": entry["pane"]}
     return None
 
@@ -4623,7 +4634,10 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
                         "ask it again once that finishes")
     if holder and holder.get("process"):
         raise MeshError(f"{name}'s conversation may still be open in process {holder['process']} (a {entry.get('kind')} "
-                        f"running in {holder.get('cwd')}, which herdr doesn't list); see it with "
+                        f"running in {holder.get('cwd')}, "
+                        + (f"while herdr can't be asked: {holder['herdr_error']}" if holder.get("herdr_error")
+                           else "which herdr doesn't list")
+                        + "); see it with "
                         f"`ps -o pid,args -p {holder['process']}`, and resume once it has ended")
     if holder:
         where = (f"background session {holder['bg_id']}" if holder.get("bg_id")
@@ -5020,8 +5034,10 @@ def cmd_open(args: argparse.Namespace) -> int:
     def live_hint(name, entry):
         try:
             holder = live_holder(name, entry)
-        except MeshError:
-            return None  # outside herdr: nothing to check against
+        except MeshError as exc:  # herdr can't be asked and there's no /proc (macOS outside herdr)
+            print(f"mesh: can't tell whether {name} is still running ({exc}); make sure it isn't, or its "
+                  "conversation will be open twice", file=sys.stderr)
+            return None
         if holder:
             holder["hint"] = f"go there with `herdr agent focus {holder.get('name') or holder.get('pane_id')}`"
         return holder
