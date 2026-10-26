@@ -166,6 +166,8 @@ COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` t
                 "answer (your `done`).")
 # What a Copilot asker's entry records of the processes answering for it, while it runs (live_holder).
 PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
+# ...and of the session events its answer is written to, from the end they had then (claim_copilot, copilot_turn).
+CLAIM_KEYS = (*PROCESS_KEYS, "events", "events_from")
 # `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
 REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `{show}` shows the change."
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
@@ -3472,7 +3474,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
             if retired:
                 text, needs = "retired before reporting", None
             elif entry.get("view") == "headless" and entry.get("status") == "running" and row["state"] == "gone":
-                text, needs = "answer waiting: `mesh inbox` files it", "root"  # a killed `mesh ask` (file_orphan)
+                text, needs = "report waiting: `mesh inbox` files it", "root"  # a killed `mesh ask` (file_orphan)
             elif (inbox_dir(run_id, name) / str(received.get("file"))).exists():
                 text, needs = f"{mtype} unread {ago(age_seconds(since))}", "worker"
                 if doorbell_failed(events, name, received.get("file")):
@@ -5470,20 +5472,32 @@ def copilot_model_argv(model: str, effort: str) -> list[str]:
     return ["--model", model, *(["--auto-tier", COPILOT_TIER] if model == "auto" else ["--reasoning-effort", effort])]
 
 
-def copilot_answer(stdout: str) -> tuple[str, str | None]:
-    """The last thing Copilot said and the model it said it on, from its `--output-format json` lines."""
-    text, model = "", None
-    for line in stdout.splitlines():
+def json_events(lines: list[str]) -> list[dict]:
+    """The events among Copilot's JSON lines (its output, or its session's events file), skipping any other line."""
+    events = []
+    for line in lines:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(event, dict):
-            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def turn_answer(events: list[dict]) -> tuple[str, str | None]:
+    """The last thing Copilot said in these events and the model it said it on."""
+    text, model = "", None
+    for event in events:
         data = event.get("data")
         if event.get("type") == "assistant.message" and isinstance(data, dict) and (data.get("content") or "").strip():
             text, model = data["content"].strip(), data.get("model") or model
     return text, model
+
+
+def copilot_answer(stdout: str) -> tuple[str, str | None]:
+    """The last thing Copilot said and the model it said it on, from its `--output-format json` lines."""
+    return turn_answer(json_events(stdout.splitlines()))
 
 
 @contextmanager
@@ -5523,56 +5537,77 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
         with editing_run(run_id) as run:
             run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
 
-    # No mesh identity: it answers through its output, never with `mesh send`.
-    with signals_raise(signal.SIGTERM, signal.SIGHUP):  # so a killed or hung-up `mesh ask` takes copilot with it
-        result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False),
-                         timeout=timeout or None, input=f"{task}\n\n{COPILOT_NOTE}", started=started)
-    text, model = copilot_answer(result.stdout)
-    answered = bool(text) and result.returncode == 0
-    # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
-    if answered:
-        record(run_id, name, me, "done", text)
-    elif result.returncode == 0:
-        record(run_id, name, me, "failed", "copilot gave no answer (exit 0)")
-    else:
-        error = result.stderr.strip().splitlines()[-1:] or [f"exit {result.returncode}"]
-        record(run_id, name, me, "failed", f"copilot exited {result.returncode}: {error[0]}")
-    with editing_run(run_id) as run:
-        agent = run["agents"][name]
-        agent["status"] = "retired"
-        for key in PROCESS_KEYS:
-            agent.pop(key, None)
-        if answered:
-            agent["model"] = model or agent["model"]
+    report = None
+    try:
+        # No mesh identity: it answers through its output, never with `mesh send`.
+        with signals_raise(signal.SIGTERM, signal.SIGHUP):  # so a killed or hung-up `mesh ask` takes copilot with it
+            result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False),
+                             timeout=timeout or None, input=f"{task}\n\n{COPILOT_NOTE}", started=started)
+        text, model = copilot_answer(result.stdout)
+        if text and result.returncode == 0:
+            report = ("done", text, model)
+        elif result.returncode == 0:
+            report = ("failed", "copilot gave no answer (exit 0)", None)
+        else:
+            error = result.stderr.strip().splitlines()[-1:] or [f"exit {result.returncode}"]
+            report = ("failed", f"copilot exited {result.returncode}: {error[0]}", None)
+    finally:
+        # Ctrl-C, a SIGTERM or a hang-up stopped it (run_cli killed copilot): say so now, not as an orphan later.
+        report = report or ("failed", "interrupted: its `mesh ask` was stopped before copilot answered", None)
+        # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
+        with editing_run(run_id) as run:
+            release_copilot(run_id, run, name, lambda agent, asked: report)
+
+
+def release_copilot(run_id: str, run: dict, name: str,
+                    report: Callable[[dict, str], tuple[str, str, str | None]]) -> str | None:
+    """Release a Copilot asker (`run` held with editing_run), filing first the report it owes on its last task:
+    `report(entry, task)` gives it as (type, body, model). Nothing is filed when that task has its report already
+    (a `mesh ask` killed between filing and releasing), or when there is none (killed before recording it).
+    The type filed, or None."""
+    agent = run["agents"][name]
+    last, received = last_report(read_log(run_id), name)
+    filed = None
+    if received and received.get("type") == "task" and not (last and last.get("type") in FINAL_TYPES):
+        filed, body, model = report(agent, message_body(run_id, received))
+        record(run_id, name, received["sender"], filed, body)
+        agent["model"] = model or agent["model"]
+    agent["status"] = "retired"
+    for key in CLAIM_KEYS:
+        agent.pop(key, None)
+    return filed
 
 
 def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
     """The report copilot_ask would have filed for `task`, read back from the asker's session events once copilot
     has exited: (type, body, model). Copilot writes each ask there as a `user.message` holding the prompt mesh
-    piped in, then the turn's events, then `session.shutdown` when it exits on its own (none when it is killed)."""
+    piped in, then the turn's events, then `session.shutdown` when it exits on its own (none when it is killed).
+    Only what it wrote since the claim counts (`events`, `events_from`), and only its last ask, so an earlier
+    turn asking the same is never taken for this one."""
+    path = Path(entry["events"]) if entry.get("events") else copilot_events(entry)
     try:
-        lines = copilot_events(entry).read_text().splitlines()
+        with path.open("rb") as f:
+            f.seek(entry.get("events_from") or 0)
+            events = json_events(f.read().decode(errors="replace").splitlines())
     except OSError:
-        lines = []
-    events = []
-    for line in lines:
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict):
-            events.append(event)
-    asked = [i for i, e in enumerate(events) if e.get("type") == "user.message" and isinstance(e.get("data"), dict)
-             and str(e["data"].get("content") or "").lstrip().startswith(task.strip())]
-    if not asked:
+        events = []
+    asked = [i for i, e in enumerate(events) if e.get("type") == "user.message"]
+    data = events[asked[-1]].get("data") if asked else None
+    if not (isinstance(data, dict) and str(data.get("content") or "").lstrip().startswith(task.strip())):
         return "failed", "copilot never got the task: its `mesh ask` was killed", None
     turn = events[asked[-1] + 1:]
-    if not any(e.get("type") == "session.shutdown" for e in turn):
+    end = next((i for i, e in enumerate(turn) if e.get("type") == "session.shutdown"), None)
+    if end is None:
         return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
-    text, model = copilot_answer("\n".join(json.dumps(e) for e in turn))
+    text, model = turn_answer(turn[:end])
     if not text:
         return "failed", "copilot gave no answer (exit 0)", None
     return "done", text, model
+
+
+def orphaned(name: str, entry: dict) -> bool:
+    """A Copilot asker still marked `running` whose `mesh ask` and copilot are both gone."""
+    return entry.get("view") == "headless" and entry.get("status") == "running" and not live_holder(name, entry)
 
 
 def file_orphan(run_id: str, name: str) -> str | None:
@@ -5580,25 +5615,15 @@ def file_orphan(run_id: str, name: str) -> str | None:
     exited since (copilot_turn), and release the asker as copilot_ask would. Under the run lock, and only while the
     entry is still `running` with neither process alive, so whoever finds it first (the next ask, a watch, the
     root's inbox, stop) files it, once. The type filed, or None."""
-    if not maybe_run(run_id):
-        return None  # archived
+    entry = (maybe_run(run_id) or {}).get("agents", {}).get(name)  # None once archived
+    if not entry or not orphaned(name, entry):
+        return None  # checked without the lock first: a watch asks on every poll
     with editing_run(run_id) as run:
-        agent = run["agents"].get(name)
-        if not agent or agent.get("view") != "headless" or agent.get("status") != "running" \
-                or live_holder(name, agent):
+        if not orphaned(name, run["agents"][name]):
             return None
-        report, received = last_report(read_log(run_id), name)
-        filed = None
-        # None when its `mesh ask` died before recording the task, or after filing the answer.
-        if received and received.get("type") == "task" and not (report and report.get("type") in FINAL_TYPES):
-            filed, body, model = copilot_turn(agent, message_body(run_id, received))
-            record(run_id, name, received["sender"], filed, body)
-            log_event(run_id, "copilot_filed", name=name, type=filed)
-            agent["model"] = model or agent["model"]
-        agent["status"] = "retired"
-        for key in PROCESS_KEYS:
-            agent.pop(key, None)
+        filed = release_copilot(run_id, run, name, copilot_turn)
     if filed:
+        log_event(run_id, "copilot_filed", name=name, type=filed)
         print(f"mesh: filed {name}'s `{filed}` from its Copilot session, which a killed `mesh ask` left answering "
               "(`mesh inbox` shows it)", file=sys.stderr)
     return filed
@@ -5620,10 +5645,18 @@ def refuse_busy(name: str, entry: dict) -> None:
 
 
 def claim_copilot(entry: dict) -> None:
-    """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it."""
-    for key in PROCESS_KEYS:
+    """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it. Its session's
+    events file and where it ends now are recorded too, so whoever files the answer of a copilot this `mesh ask`
+    leaves (file_orphan) reads the file it writes, and only this ask in it (copilot_turn)."""
+    for key in CLAIM_KEYS:
         entry.pop(key, None)  # a copilot a killed `mesh ask` left is gone by now (refuse_busy), its answer filed
-    entry.update(status="running", pid=os.getpid(), pid_start=proc_start(os.getpid()))
+    events = copilot_events(entry)
+    try:
+        size = events.stat().st_size
+    except OSError:
+        size = 0  # a session copilot hasn't started yet
+    entry.update(status="running", pid=os.getpid(), pid_start=proc_start(os.getpid()), events=str(events),
+                 events_from=size)
 
 
 def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
@@ -5671,8 +5704,8 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
     if target:
         old_run, _, old_name, old = target
-        if file_orphan(old_run["id"], old_name):  # its last answer first, so this one isn't taken for it
-            old = agent_entry(load_run(old_run["id"]), old_name)
+        file_orphan(old_run["id"], old_name)  # its last answer first, so this one isn't taken for it
+        old = agent_entry(load_run(old_run["id"]), old_name)
         if old_run["id"] != run_id:
             refuse_busy(old_name, old)
         branch = entry_branch(old_run, old)
