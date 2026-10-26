@@ -1898,6 +1898,50 @@ def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, cap
     assert out["branches_deleted"] == []
 
 
+ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
+             ["worktree", "--slug", "x"], ["ring", "repo-lead"], ["peers", "add", "/nowhere"],
+             ["peers", "remove", "p"], ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"])
+
+
+def test_a_worker_is_refused_the_commands_only_a_root_runs(mesh, fake, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    runs, renames = {p.name for p in mesh.mesh_home().iterdir()}, len(fake.called("agent", "rename"))
+    for argv in ROOT_ONLY:
+        capsys.readouterr()
+        assert mesh.main(argv) == 1, argv
+        err = capsys.readouterr().err
+        assert f"only a root runs `mesh {' '.join(argv[:2]) if argv[0] == 'peers' else argv[0]}`" in err
+        assert "MESH_HOME" in err and "MESH_HERDR" in err  # how to try it out instead
+    refused = [e["command"] for e in mesh.read_log(run) if e["event"] == "refused"]
+    assert refused == ["init", "spawn", "resume", "open", "worktree", "ring", "peers add", "peers remove",
+                       "peers edit", "peers refresh"]
+    assert {p.name for p in mesh.mesh_home().iterdir()} == runs and not mesh.peers_path().exists()
+    assert len(fake.called("agent", "rename")) == renames and not fake.called("pane", "split")
+    # what a worker runs itself still works, reading the peers included
+    for argv in (["whoami"], ["inbox"], ["dir"], ["peers", "list"]):
+        assert mesh.main(argv) == 0, argv
+    # --as names someone else: the user's choice, as for `mesh stop`
+    assert mesh.worker_caller(mesh.build_parser().parse_args(["ring", "x", "--as", "repo-lead"])) is None
+
+
+def test_a_worker_trying_mesh_out_under_a_temp_home_isnt_refused(mesh, fake, run, monkeypatch, tmp_path):
+    as_worker(monkeypatch, run)
+    monkeypatch.setenv("MESH_HOME", str(tmp_path / "sandbox"))
+    args = mesh.build_parser().parse_args(["peers", "add", "x"])
+    assert mesh.worker_caller(args) is None  # its run isn't in this MESH_HOME (test_peers.py runs `peers add` so)
+
+
+def test_a_claude_session_that_inherited_a_workers_variables_isnt_refused(mesh, fake, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", session="worker-session")
+    as_worker(monkeypatch, run)
+    args = mesh.build_parser().parse_args(["spawn"])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "worker-session")
+    assert mesh.worker_caller(args) == (run, "repo-fix-typo")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-session")  # e.g. forked by the --bg daemon
+    assert mesh.worker_caller(args) is None
+
+
 def test_only_a_root_stops_a_run(mesh, fake, run, monkeypatch, capsys):
     as_worker(monkeypatch, run)
     for argv in (["stop"], ["stop", run]):

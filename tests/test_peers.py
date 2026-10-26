@@ -1018,3 +1018,15 @@ def test_stop_removes_a_removed_peers_recreated_worktree_but_never_a_registered_
     assert not cwd.exists() and clone.exists() and {"path": str(cwd), "branch": None} in out["worktrees_removed"]
     assert peer_cwd.exists() and other.exists() and len(out["worktrees_removed"]) == 1
     assert None not in out["branches_kept"]
+def test_a_worker_adds_a_peer_only_under_a_temp_home(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("MESH_RUN", run)
+    monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
+    assert mesh.main(["peers", "add", str(clone)]) == 1  # the run's MESH_HOME is the real state
+    assert "only a root runs `mesh peers add`" in capsys.readouterr().err and not mesh.peers_path().exists()
+    real = mesh.mesh_home()
+    monkeypatch.setenv("MESH_HOME", str(tmp_path / "sandbox"))
+    monkeypatch.setenv("MESH_WORKTREES", str(tmp_path / "sandbox-worktrees"))
+    assert mesh.main(["peers", "add", str(clone)]) == 0  # trying it out in a sandbox
+    assert "swarm-research" in mesh.load_peers()["peers"] and not (real / "peers.json").exists()

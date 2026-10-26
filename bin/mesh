@@ -2631,6 +2631,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
 
 
 def cmd_init(args: argparse.Namespace) -> int:
+    refuse_worker(args, "init")
     emit(init_run(args.mode, args.request, args.run_id))
     return 0
 
@@ -2664,6 +2665,7 @@ def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
+    refuse_worker(args, "spawn")
     run_id, me = identity(args)
     result = spawn_worker(args, run_id, me)
     emit(result)
@@ -3401,6 +3403,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
 
 
 def cmd_ring(args: argparse.Namespace) -> int:
+    refuse_worker(args, "ring")
     run_id, me = identity(args)
     run = load_run(run_id)
     entry = agent_entry(run, args.agent)
@@ -5012,6 +5015,7 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
 
 def cmd_resume(args: argparse.Namespace) -> int:
     """Bring a past worker back, conversation and all, as a worker of this run."""
+    refuse_worker(args, "resume")
     run_id, me = identity(args)
     result = resume_worker(args, run_id, me)
     emit(result)
@@ -5423,6 +5427,7 @@ def cmd_open(args: argparse.Namespace) -> int:
     A background worker that is still running is attached to instead (`claude attach`): that is how the
     user watches one, or types into it, from any herdr pane.
     """
+    refuse_worker(args, "open")
     _, _, name, entry = find_worker(args.ref, args.from_run)
     holder = live_holder(name, entry, agents=[]) if entry.get("view") == "bg" else None
     if holder and holder.get("bg_id"):
@@ -7001,11 +7006,14 @@ def peers_list(args: argparse.Namespace) -> int:
 
 
 def cmd_peers(args: argparse.Namespace) -> int:
+    if args.action != "list":
+        refuse_worker(args, f"peers {args.action}")
     return {"list": peers_list, "add": peers_add, "edit": peers_edit, "remove": peers_remove,
             "refresh": peers_refresh}[args.action](args)
 
 
 def cmd_worktree(args: argparse.Namespace) -> int:
+    refuse_worker(args, "worktree")
     run_id, _ = identity(args)
     repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
     path, branch, _ = add_worktree(run_id, repo_top, slugify(args.slug, 24), args.base)
@@ -7160,6 +7168,40 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
 def is_worker(run_id: str | None, name: str | None) -> bool:
     return bool(run_id and name) and (((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}).get(
         "role") == "worker"
+
+
+# What a worker refused a root-only command is told: trying mesh out goes in a sandbox, never the real state.
+SANDBOX_HINT = ("To try mesh commands out (reviewing agent-mesh itself, say), point MESH_HOME, MESH_WORKTREES and "
+                "MESH_PEERS_DIR at temp dirs and MESH_HERDR at a missing binary: the defaults are this machine's "
+                "real state, which every agent uses.")
+
+
+def worker_caller(args: argparse.Namespace) -> tuple[str, str] | None:
+    """(run, name) when the caller is a worker of a live run in this MESH_HOME, else None.
+
+    Read from the flags and the environment, like `stopping_worker`, without `identity`'s fallbacks: the pane
+    map names only roots. An environment identity `inherited_identity` rejects (a Claude session that inherited
+    a worker's variables) isn't that worker. Under a temp MESH_HOME the run isn't there, so a worker trying mesh
+    out in a sandbox isn't one.
+    """
+    flag_name = getattr(args, "as_", None)
+    name = flag_name or os.environ.get("MESH_SELF")
+    for run_id in dict.fromkeys(r for r in (getattr(args, "run", None), os.environ.get("MESH_RUN")) if r):
+        if not is_worker(run_id, name):
+            continue
+        if flag_name or not inherited_identity(run_id, name, maybe_run(run_id)):
+            return run_id, name
+    return None
+
+
+def refuse_worker(args: argparse.Namespace, command: str) -> None:
+    """Refuse a worker a command only a root (or the user) runs: one that starts agents or changes another
+    agent's or the machine's mesh state (design §10, "Read-only by more than the prompt")."""
+    if found := worker_caller(args):
+        run_id, name = found
+        log_event(run_id, "refused", name=name, command=command)
+        raise MeshError(f"{name} is a worker of run {run_id}, and only a root runs `mesh {command}`: send your "
+                        f"parent a `question` instead. {SANDBOX_HINT}")
 
 
 def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:

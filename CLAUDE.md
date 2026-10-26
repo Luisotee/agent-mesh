@@ -32,6 +32,8 @@ uvx pytest -q tests/test_mesh.py::test_name      # one test
 ./install.sh            # symlink into place (--uninstall reverses it); safe to re-run
 ```
 
+To try `bin/mesh` by hand (reviewing a change, say), point `MESH_HOME`, `MESH_WORKTREES` and `MESH_PEERS_DIR` at temp dirs and `MESH_HERDR` at a missing binary, as `tests/conftest.py` does: the defaults are the machine's real run state and herdr's real panes, which every agent uses. A worker that forgets is refused the root-only commands (`refuse_worker`).
+
 There is no build or lint step: `bin/mesh` is one stdlib-only Python 3.10+ script with no dependencies. Keep it stdlib-only.
 
 The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to this checkout**, so whatever branch is checked out is what every agent on the machine runs.
