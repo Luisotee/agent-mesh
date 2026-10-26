@@ -1629,6 +1629,23 @@ def test_usage_limit_reads_only_the_last_lines_of_the_pane(mesh):
     assert mesh.usage_limit(None) is None
 
 
+QUOTED = ('"{}"', "'{}'", "“{}”", "‘{}’", "`{}`", "  ⎿  \"{}\"", "    '{}',", "> `{}`", "- “{}”",
+          "● Added '{}' to the fixtures")
+
+
+def test_a_quoted_limit_or_login_message_is_not_the_screen(mesh):
+    for text in ("You've hit your limit · resets 7pm (America/Los_Angeles)", "Stop and wait for limit to reset",
+                 "5-hour limit reached · resets 3pm"):
+        assert mesh.usage_limit([text]) is not None  # the screen itself still matches
+        for quote in QUOTED:
+            assert mesh.usage_limit([quote.format(text)]) is None, quote
+    assert mesh.usage_limit(["  ⎿  You've hit your limit · resets 7pm"]) == "7pm"
+    assert mesh.usage_limit(["  ❯ 1. Stop and wait for limit to reset"]) == ""
+    for quote in QUOTED:
+        assert not mesh.login_expired([quote.format("Login expired · Please run /login")]), quote
+    assert mesh.login_expired(["  ⎿  Login expired · Please run /login"])
+
+
 def test_a_claude_worker_at_its_usage_limit_is_exit_7_once_per_task(mesh, fake, run, monkeypatch, capsys):
     claude_worker(mesh, run)
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
@@ -1666,6 +1683,43 @@ def test_a_usage_limit_during_a_declared_wait_is_still_exit_7(mesh, fake, run, m
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
+LOGIN_SCREEN = "\n".join(["older"] * 30 + ["> Fix the typo.", "  ⎿  Login expired · Please run /login", "",
+                                           "─" * 20, "❯ ", "─" * 20])
+
+
+def test_login_expired_reads_only_the_last_lines_of_the_pane(mesh):
+    lines = LOGIN_SCREEN.splitlines()
+    assert mesh.login_expired(lines) and mesh.usage_limit(lines) is None
+    assert mesh.login_expired(["  ⎿  Invalid API key · Please run /login"])
+    assert mesh.login_expired(["  ⎿  Error: Login expired · Please run /login"])
+    assert mesh.login_expired(['  ⎿  API Error: 401 {"type":"error","error":{"type":"authentication_error",'
+                               '"message":"OAuth token has expired."}} · Please run /login'])
+    assert mesh.login_expired(["  ⎿  Your session has been signed out on this device · Please run /login"])
+    assert not mesh.login_expired(lines + ["● Carrying on."] * 20)  # it has scrolled up: logged in again
+    # the agent's own output quoting it isn't the screen
+    assert not mesh.login_expired(['● Added "Login expired · Please run /login" to the fixtures.',
+                                   '  ⎿  tests/test_mesh.py:9: "Login expired · Please run /login"',
+                                   '    "Login expired · Please run /login",'])
+    assert not mesh.login_expired(None)
+
+
+def test_a_claude_worker_whose_login_expired_is_exit_7_once_per_task(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    fake.screen("repo-fix-typo", LOGIN_SCREEN)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    out = capsys.readouterr().out
+    assert out.startswith("ALERT repo-fix-typo's Claude login expired; ")
+    assert "run `/login` in its pane" in out and "continue where you stopped" in out and "send_message" not in out
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)  # a restarted watch waits quietly
+    assert all(watch.tick(5) is None for _ in range(10))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "You're logged in again: continue.")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7  # the new task re-arms it
+    assert [e["kind"] for e in mesh.read_log(run) if e["event"] == "alert"] == ["login", "login"]
+
+
 def test_an_agy_pane_showing_limit_text_is_not_a_claude_limit(mesh, fake, run, monkeypatch):
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
     fake.screen("repo-fix-typo", LIMIT_SCREEN)
@@ -1684,6 +1738,15 @@ def api_error(code, text):
             "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]}}
 
 
+def limit_note(note="wrap_up"):
+    """Claude Code's usage-limit notice (`wrap_up`) or its all-clear after the reset (`release`), trimmed."""
+    text = {"wrap_up": "[Usage limit reached; a short grace allowance remains, then this turn is cut off without "
+                       "warning. …]",
+            "release": "[Earlier usage-limit notes no longer apply. Continue working normally. …]"}[note]
+    return {"type": "user", "isMeta": True, "turnCompanion": True, "usageLimitNote": note,
+            "message": {"role": "user", "content": text}}
+
+
 REPLY = {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done."}]}}
 
 
@@ -1700,18 +1763,95 @@ def test_a_background_worker_at_its_usage_limit_is_read_from_its_transcript(mesh
     assert "usage limit (resets 3am (UTC))" in out and "pass its send_message on" in out
 
 
-def test_transcript_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
+def test_a_background_worker_whose_login_expired_is_read_from_its_transcript(mesh, fake, run, monkeypatch, tmp_path,
+                                                                             capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    claude_worker(mesh, run, view="bg", cwd=cwd, session="s1", bg_id="ab12")
+    write_transcript(mesh, cwd, "s1", REPLY, {"type": "user"},
+                     api_error("authentication_failed", "Login expired · Please run /login"))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    out = capsys.readouterr().out
+    assert "login expired" in out and "`mesh open repo-fix-typo`" in out and "pass its send_message on" in out
+
+
+def test_error_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
     entry = {"kind": "claude", "cwd": str(tmp_path / "wt")}
-    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"))
-    assert mesh.transcript_limit(entry, "s1") == ""
-    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "API Error: Rate limit reached"))
-    assert mesh.transcript_limit(entry, "s1") is None  # the code alone isn't enough: a plain rate limit
-    write_transcript(mesh, entry["cwd"], "s1", api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY)
-    assert mesh.transcript_limit(entry, "s1") is None  # it went on after the reset
-    write_transcript(mesh, entry["cwd"], "s1", api_error("authentication_failed", "Login expired · Please run /login"))
-    assert mesh.transcript_limit(entry, "s1") is None
-    assert mesh.transcript_limit(entry, "missing") is None and mesh.transcript_limit({**entry, "kind": "agy"}, "s1") is None
+
+    def last(*events):
+        write_transcript(mesh, entry["cwd"], "s1", *events)
+        return mesh.error_limit(mesh.transcript_stop(entry, "s1"))
+
+    assert last(api_error("authentication_failed", "Login expired · Please run /login")) == ("login", "")
+    assert last(api_error("authentication_failed", "Something else")) == ("login", "")  # the code is enough
+    assert last(api_error("rate_limit", "You've hit your limit · resets 3am (UTC)")) == ("limit", "3am (UTC)")
+    assert last(api_error("rate_limit", "You've hit your limit")) == ("limit", "")
+    assert last(api_error("rate_limit", "API Error: Rate limit reached")) is None  # a plain rate limit: the text decides
+    assert last(api_error("server_error", "API Error: 500")) is None
+    # it went on after a new login, or the reset
+    assert last(api_error("authentication_failed", "Login expired · Please run /login"), {"type": "user"}, REPLY) is None
+    assert last(api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY) is None
+    assert mesh.transcript_stop(entry, "s1") == (mesh.LIMIT_OVER, "")  # read: a limit it went on after
+    assert last(api_error("server_error", "API Error: 500"), {"type": "user"}, REPLY) is None
+    assert mesh.transcript_stop(entry, "s1") == ("", "")  # read, and no usage-limit record
+    # a usage limit reached mid-turn: the notice, a few more steps, the turn ends
+    tool_result = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 200_000}]}}
+    assert last(REPLY, limit_note(), REPLY, tool_result, REPLY) == ("limit", "")  # far past a 64 KB tail
+    assert last(limit_note(), REPLY, {"type": "user"}, limit_note("release"), REPLY) is None  # it reset
+    assert mesh.transcript_stop(entry, "s1") == (mesh.LIMIT_OVER, "")
+    assert last(limit_note(), REPLY, api_error("authentication_failed", "Login expired")) == ("login", "")  # newer
+    assert last(api_error("rate_limit", "You've hit your session limit · resets 2:20am (America/Sao_Paulo)"),
+                limit_note("release"), REPLY) is None
+    # a reply quoting the field isn't the note
+    assert last({"type": "assistant", "message": {"content": [{"type": "text", "text": '"usageLimitNote"'}]}}) is None
+    assert last({"type": "user"}) is None and mesh.transcript_stop(entry, "s1") == ("", "")
+    assert mesh.transcript_stop(entry, "missing") is None and mesh.transcript_stop({**entry, "kind": "agy"}, "s1") is None
+
+
+def test_a_readable_session_file_decides_an_old_login_line_on_the_pane(mesh, fake, run, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    fake.screen("repo-fix-typo", LOGIN_SCREEN)
+    watch = mesh.Watch(run, "repo-fix-typo", 30.0)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")
+    write_transcript(mesh, cwd, "s1", REPLY, api_error("authentication_failed", "Login expired · Please run /login"))
+    assert watch.limited(entry, False) == ("login", "")
+    # the user logged in and it replied since: the line left on the screen is over
+    write_transcript(mesh, cwd, "s1", api_error("authentication_failed", "Login expired · Please run /login"),
+                     {"type": "user"}, REPLY)
+    assert watch.limited(entry, False) is None
+    # a limit screen with no usage-limit record in the file (a menu that writes none) still counts
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert watch.limited(entry, False) == ("limit", "7pm (America/Los_Angeles)")
+    # ...but not once the file records the limit as over
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY, limit_note("release"), REPLY)
+    assert watch.limited(entry, False) is None
+    write_transcript(mesh, cwd, "s1", api_error("rate_limit", "You've hit your session limit · resets 2am"),
+                     {"type": "user"}, REPLY)
+    assert watch.limited(entry, False) is None
+    write_transcript(mesh, cwd, "s1", REPLY, limit_note(), REPLY)
+    assert watch.limited(entry, False) == ("limit", "")
+    claude_worker(mesh, run, session="gone")  # no readable session file: the pane decides
+    assert watch.limited(mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"), False) == \
+        ("limit", "7pm (America/Los_Angeles)")
+
+
+def test_a_worker_told_of_its_usage_limit_is_exit_7_once_its_turn_ends(mesh, fake, run, monkeypatch, tmp_path,
+                                                                       capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    write_transcript(mesh, cwd, "s1", REPLY, limit_note(), REPLY)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    fake.screen("repo-fix-typo", "● I hit the usage limit; task 2 isn't finished.\n❯ ")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    assert capsys.readouterr().out.startswith("ALERT repo-fix-typo hit Claude's usage limit; ")
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
 def mesh_argv(run="mtest", name="repo-fix-typo", session="s1", deny=(), script=None):
@@ -1830,15 +1970,39 @@ def test_a_worker_that_reported_is_never_hung_or_gone_over_a_stale_working(mesh,
     assert watch.tick(5, alerts_only=True) is None and watch.finished
 
 
-def test_hung_skips_a_task_already_alerted_for_its_usage_limit(mesh, fake, run, monkeypatch, tmp_path):
-    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+def test_hung_waits_only_while_the_alerted_usage_limit_lasts(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, path = stale_transcript(mesh, monkeypatch, tmp_path)
     claude_worker(mesh, run, cwd=cwd, session="s1")
+    then = time.time() - 3000
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY)
+    os.utime(path, (then, then))
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     mesh.record_alert(run, "repo-fix-typo", 1, "limit")
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
     fake.calls.clear()  # the delivery looked at its pane once (relaunched_outside_mesh)
     assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
-    assert not fake.called("pane", "process-info")  # no probing every poll
+    assert not fake.called("pane", "process-info")  # no probing while it lasts
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY, limit_note("release"), REPLY)  # it reset, went on
+    os.utime(path, (then, then))
+    claude_in_pane(fake, "w2:p5")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8
+
+
+def test_hung_waits_only_while_the_alerted_expired_login_lasts(mesh, fake, run, monkeypatch, tmp_path):
+    cwd, path = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    write_transcript(mesh, cwd, "s1", api_error("authentication_failed", "Login expired · Please run /login"))
+    then = time.time() - 3000
+    os.utime(path, (then, then))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.record_alert(run, "repo-fix-typo", 1, "login")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    claude_in_pane(fake, "w2:p5")
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
+    # the user logged in and typed "continue" in its pane, and it hung after that, on the same task
+    write_transcript(mesh, cwd, "s1", api_error("authentication_failed", "Login expired"), {"type": "user"}, REPLY)
+    os.utime(path, (then, then))
+    assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8
 
 
 def test_a_hung_agy_worker_is_judged_by_its_conversation_and_log(mesh, fake, run, monkeypatch, tmp_path):
