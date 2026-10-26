@@ -6508,3 +6508,13 @@ def test_root_context_reads_the_log_only_when_the_roots_process_cant_say(mesh, f
     claude_process(mesh, monkeypatch, 4000, "root-s")
     monkeypatch.setattr(mesh, "reset_session", lambda *a: pytest.fail("read the log"))
     assert mesh.root_context(mesh.load_run(run))["session"] == "root-s"
+
+
+@pytest.mark.parametrize("process, reset", [("idle", True), ("shell", True), ("busy", False), (None, False)])
+def test_autoreset_judges_a_root_herdr_lost_by_its_own_process(mesh, fake, run, monkeypatch, process, reset):
+    started = autoreset_root(mesh, fake, monkeypatch, status="unknown")
+    if process:  # its Claude leads the pane and says how its turn stands; None: nothing can tell
+        in_pane(fake, "w1:p1", 4000)
+        claude_process(mesh, monkeypatch, 4000, "root-s", status=process)
+    assert mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) is reset
+    assert bool(started) is reset

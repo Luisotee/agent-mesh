@@ -7110,7 +7110,9 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     """The root's own watch, with MESH_ROOT_AUTORESET=1: reset a root that is over the threshold, idle, cold and
-    owed nothing. Stricter than `mesh reset`: any unread report holds it, since it acts without the root's say."""
+    owed nothing. Stricter than `mesh reset`: any unread report holds it, since it acts without the root's say.
+    A Claude root herdr reads `unknown` counts as idle when its own process says its turn is over
+    (`lost_root_quiet`); when that can't be told, nothing starts, and the next poll looks again."""
     root = run.get("root")
     entry = run["agents"].get(root) or {}
     if entry.get("kind") not in KINDS or not entry.get("pane") or reset_pending(run_id):
@@ -7121,7 +7123,14 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     context = root_context(run)
     if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
         return False
-    if pane_agent(entry["pane"]).get("agent_status") not in QUIET_STATES:
+    status = pane_agent(entry["pane"]).get("agent_status")
+    if status == "unknown" and entry.get("kind") == "claude":
+        try:
+            if not lost_root_quiet(entry)[0]:
+                return False
+        except LostRoot:
+            return False
+    elif status not in QUIET_STATES:
         return False
     start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle with a cold cache",
                 None, via="watch")
