@@ -849,7 +849,7 @@ def test_open_on_a_registered_peer_recreates_its_own_worktree(mesh, fake, run, r
 
 
 def test_a_removed_peer_asked_again_is_still_a_peer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
-    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    _, clone = peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
     assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
     mesh.deliver(run, "swarm-research", "repo-lead", "done", "A1.")
     with mesh.editing_run(run) as data:
@@ -866,7 +866,8 @@ def test_a_removed_peer_asked_again_is_still_a_peer(mesh, fake, cli, run, repo, 
     assert "Keep what you learned about swarm" in compact  # PEER_FOCUS, not the next task
     assert started and started[-1].get("peer") is True  # a Settings Warning still takes Continue
     out = json.loads(capsys.readouterr().out)
-    assert out["worktree_recreated"] and f"remove it with `git worktree remove {cwd}`" in " ".join(out["notes"])
+    assert out["worktree_recreated"]  # and this run owns it now, with no branch, so its `mesh stop` removes it
+    assert {"path": cwd, "repo": str(clone.resolve()), "branch": None} in mesh.load_run(run)["worktrees"]
     task = sorted(mesh.inbox_dir(run, "swarm-research").glob("**/*-task.md"))[-1].read_text()
     assert mesh.UNANSWERED_NOTE not in task  # Q1 was answered
 
@@ -993,3 +994,27 @@ def test_adopting_from_a_live_run_with_its_worktree_gone_deletes_the_untouched_b
     assert mesh.main(["peers", "add", str(clone)]) == 0  # recreated detached before it is released
     assert path.exists() and not mesh.load_run(run)["worktrees"]
     assert not git("branch", "--list", "mesh/mtest/research", cwd=clone)
+
+
+def test_stop_removes_a_removed_peers_recreated_worktree_but_never_a_registered_one(mesh, fake, cli, run, repo,
+                                                                                    tmp_path, monkeypatch, capsys):
+    _, clone = peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["status"] = "retired"
+    cwd = mesh.Path(mesh.load_peers()["peers"]["swarm-research"]["cwd"])
+    assert mesh.main(["peers", "remove", "swarm-research"]) == 0
+    assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-wait"]) == 0
+    assert cwd.exists()
+    _, other = upstream_and_clone(tmp_path / "more", "town")
+    assert mesh.main(["peers", "add", str(other)]) == 0
+    peer_cwd = mesh.Path(mesh.load_peers()["peers"]["town-research"]["cwd"])
+    with mesh.editing_run(run) as data:  # a list that names a registered peer's worktree, or a clone itself
+        data["worktrees"] += [{"path": str(peer_cwd), "repo": str(other), "branch": None},
+                              {"path": str(other), "repo": str(other), "branch": None}]
+    capsys.readouterr()
+    assert mesh.main(["stop"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert not cwd.exists() and clone.exists() and {"path": str(cwd), "branch": None} in out["worktrees_removed"]
+    assert peer_cwd.exists() and other.exists() and len(out["worktrees_removed"]) == 1
+    assert None not in out["branches_kept"]

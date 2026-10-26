@@ -2465,7 +2465,7 @@ def spawn_suffix(args: argparse.Namespace, run: dict) -> str:
     if args.cwd:  # a restart in an earlier worker's worktree: reuse its slug (agent_name adds -2)
         cwd = Path(args.cwd).expanduser().resolve()
         for wt in run.get("worktrees", []):
-            if Path(wt["path"]).resolve() == cwd:
+            if Path(wt["path"]).resolve() == cwd and wt.get("branch"):
                 return wt["branch"].rsplit("/", 1)[-1]
     return f"worker{sum(a['role'] == 'worker' for a in run['agents'].values()) + 1}"
 
@@ -4991,8 +4991,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         recreated = ensure_worktree(old, branch)
         moved = leave_finished_pr(args, run_id, old, branch, task)
-    if recreated and peer_name and not peer:  # a removed peer's: no run lists it, and no registry entry keeps it
-        notes.append(f"no run owns {cwd}: remove it with `git worktree remove {cwd}` when done")
+    orphan = recreated and peer_name and not peer  # a removed peer's: no registry entry keeps it, so this run does
     if moved.get("note"):
         notes.append(moved["note"])
     if moved.get("task_note") and task:
@@ -5007,6 +5006,8 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             # so this run's stop cleans it up (and drops the branch if it still has no commits)
             base = {"base": base_sha} if base_sha else {}
             worktrees.append({"path": cwd, "repo": str(repo_top), "branch": branch, **base})
+        elif orphan and not known and Path(cwd).resolve() != repo_top.resolve():
+            worktrees.append({"path": cwd, "repo": str(repo_top), "branch": None})  # detached: no branch to keep
     compaction = maybe_compact(args, old, session, model, task, cross_run=old_run["id"] != run_id,
                                peer=bool(peer_name))
     if compaction.get("note"):
@@ -6672,6 +6673,8 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
     run_id = args.run_id or identity(args)[0]
     by_repo: dict[str, dict[str, dict]] = {}  # repo -> branch -> its worktree record
     for wt in load_run(run_id).get("worktrees", []):
+        if not wt.get("branch"):
+            continue  # a removed peer's detached worktree
         try:
             tip = git("rev-parse", f"refs/heads/{wt['branch']}", cwd=wt["repo"])
         except MeshError:
@@ -6786,9 +6789,11 @@ def cmd_stop(args: argparse.Namespace) -> int:
             herdr("tab", "close", tab)
         except HerdrError:
             pass
+    # A registered peer's worktree outlives runs, and a clone's own checkout is never removed.
+    keep = {Path(p["cwd"]).resolve() for p in load_peers()["peers"].values() if not peer_problem(p)}
     for wt in run.get("worktrees", []):
         path = Path(wt["path"])
-        if not path.exists():
+        if not path.exists() or path.resolve() in keep or path.resolve() == Path(wt["repo"]).resolve():
             continue
         dirty = subprocess.run(["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True).stdout.strip()
         if dirty or args.keep_worktrees:
@@ -6796,7 +6801,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
             continue
         git("worktree", "remove", str(path), cwd=wt["repo"])
         removed.append({"path": str(path), "branch": wt["branch"]})
-        if untouched_branch(wt):
+        if wt.get("branch") and untouched_branch(wt):
             git("branch", "-D", wt["branch"], cwd=wt["repo"])
             deleted.append(wt["branch"])
     run_worktrees = worktree_root() / run_id
@@ -6815,7 +6820,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
     os.replace(run_dir(run_id), archive)
     emit({"run": run_id, "closed": closed, "worktrees_removed": removed, "worktrees_kept": kept,
           "archive": str(archive), "branches_deleted": deleted,
-          "branches_kept": [w["branch"] for w in run.get("worktrees", []) if w["branch"] not in deleted]})
+          "branches_kept": [w["branch"] for w in run.get("worktrees", [])
+                            if w.get("branch") and w["branch"] not in deleted]})
     return 0
 
 
