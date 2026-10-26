@@ -6551,7 +6551,7 @@ def reset_pending(run_id: str) -> bool:
 
 
 def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, bool]:
-    """The hint a root command prints about the root's own context, or None (design §14).
+    """The hint a root command prints about the root's own context, or None (design §15).
 
     A `/clear` never re-reads the old context, so a reset costs the fresh session's small prefix whenever it
     happens; what it saves is the next turns of the big one: all of it at full price once the cache is cold,
@@ -6650,7 +6650,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
 def quiet_box(pane: str) -> tuple[bool, str]:
     """Whether the pane's agent has ended its turn with an empty input box, and if not, why not.
 
-    Claude runs a typed /clear at once even mid-turn, throwing the turn away (live test, design §14), so the
+    Claude runs a typed /clear at once even mid-turn, throwing the turn away (live test, design §15), so the
     check is positive: herdr reads idle or done, and the box reads empty (ghost text is dim, not typed). A
     draft, or a box that can't be read, holds it.
     """
@@ -6839,7 +6839,7 @@ def capped_list(items: list[str], limit: int, more: str) -> list[str]:
 
 
 def brief(run_id: str, me: str) -> dict:
-    """What a fresh root needs, in one bounded read (design §14): the run's request and procedure, the notes and
+    """What a fresh root needs, in one bounded read (design §15): the run's request and procedure, the notes and
     board it kept, each worker's derived state, what waits on it, its PRs, unread mail headers and the last
     reset. Each part is capped, and says where the rest is."""
     run = load_run(run_id)
