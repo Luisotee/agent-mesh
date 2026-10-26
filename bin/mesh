@@ -25,6 +25,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.parse
 import uuid
@@ -176,6 +177,7 @@ COMPACT_FOCUS = ("Keep what the next task needs: {task}. Keep the repo facts, th
 PEER_FOCUS = ("Keep what you learned about {repo}: its architecture and mechanisms with file:line references, "
               "the answers you gave and the upstream commit you last read; drop tool output and dead ends.")
 PEER_LOG_LINES = 30  # upstream commits listed in an asker's upstream note; the rest are counted
+ABOUT_MAX = 400  # characters of a peer's or a group's `about`: what it is, and whom to ask about what
 PEER_THREADS = 8  # peers a fan-out prepares and opens at once
 FETCH_TIMEOUT = 60
 CLONE_TIMEOUT = 900
@@ -5204,6 +5206,9 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
             # Its next `done` would be for the task it's on, not this question.
             print(f"mesh: {name} is busy, so its answer will come after its current task", file=sys.stderr)
             args.no_wait = True
+        if not collect and collecting(entry, me):
+            raise MeshError(f"{name} is answering a `mesh ask --peers` (process {entry['collect']['pid']}), which "
+                            "collects its answer: ask it again once that has finished")
         with editing_run(run_id) as run:  # a single ask clears a stale mark, so its answer rings as usual
             if collect:
                 run["agents"][name]["collect"] = collect
@@ -5413,6 +5418,15 @@ def ask_peers(args: argparse.Namespace) -> int:
                 run["agents"][asker].pop("collect", None)
 
 
+def owes_answer(run_id: str, name: str, entry: dict) -> bool:
+    """A worker of this run still on its last task: it got one and has reported nothing since (by the log,
+    which a stale pane state can't fool), or it reads working."""
+    if entry.get("status") == "retired":
+        return False
+    received, sent, _ = since_last_task(read_log(run_id), name)
+    return bool(received and not sent) or agent_status(name, entry) == "working"
+
+
 def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
             mark: dict, asked: dict[str, str]) -> int:
     """ask_peers' work; `asked` is filled in as peers are reached, for its caller to clear their marks."""
@@ -5429,8 +5443,7 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         try:
             task = ask_task(f"{body}\n\n{prep['note']}", None, None, fresh=False)
             target = peer_worker(name, peer)
-            if (target and target[0]["id"] == run_id and target[3].get("status") != "retired"
-                    and agent_status(target[2], target[3]) == "working"):
+            if target and target[0]["id"] == run_id and owes_answer(run_id, target[2], target[3]):
                 # Its next `done` answers the question it's on: filing that as this one's would be wrong.
                 return None, 0, "busy with its previous question; ask again once it answers"
             ask = argparse.Namespace(**{**vars(args), "no_wait": True})  # the fan-out watches them all
@@ -5488,9 +5501,13 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     folder = run_dir(run_id) / "reports"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"peers-{stamp()}.md"
+    asked_groups = {registry[n].get("group") for n in names}
+    group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
+        if len(asked_groups) == 1 else None
     parts = [f"# Peer answers: {first_line(body, 120)}", "",
              f"Asked {now_iso()} in run {run_id}, of {len(names)} peer{'s' if len(names) > 1 else ''}: "
-             f"{', '.join(names)}.", "", "## Question", "", body, ""]
+             f"{', '.join(names)}.", *(["", f"{next(iter(asked_groups))}: {group_about}"] if group_about else []),
+             "", "## Question", "", body, ""]
     lines = []
     for name in names:
         prep, reply = preps[name], replies[name]
@@ -5498,7 +5515,8 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         where = f"{Path(registry[name]['repo']).name}"
         if prep.get("head"):
             where += f" at {prep['head'][:9]}" + (f", upstream +{prep['new']} since last asked" if prep.get("new") else "")
-        parts += [f"## {name}", "", f"*{where}*", ""]
+        about = registry[name].get("about")
+        parts += [f"## {name}", "", f"*{where}*", *(["", f"*{about}*"] if about else []), ""]
         if reply:
             meta, text = reply
             parts += [text if meta.get("type") == "done" else f"**{meta.get('type')}:** {text}", ""]
@@ -5683,6 +5701,29 @@ def record_peer_ask(name: str, prep: dict, run_id: str, as_name: str) -> None:
 NO_PEERS = "no peers yet: add one with `mesh peers add <git-url | path>`"
 
 
+def about_text(text: str | None) -> str:
+    """A peer's or group's description, one paragraph, at most ABOUT_MAX characters."""
+    text = " ".join((text or "").split())
+    if len(text) > ABOUT_MAX:
+        raise MeshError(f"--about is {len(text)} characters; keep it to {ABOUT_MAX}: what the project is, its shape in "
+                        "a line, and what it's worth asking about")
+    return text
+
+
+def github_about(url: str | None) -> str | None:
+    """The upstream's GitHub description, as a peer's default `about`; None off GitHub or when gh can't say."""
+    github = GITHUB_REMOTE_RE.search(url or "")
+    if not github:
+        return None
+    data, _ = gh_json(["repo", "view", f"{github.group(1)}/{github.group(2)}", "--json", "description"])
+    text = " ".join(((data or {}).get("description") or "").split()) if isinstance(data, dict) else ""
+    return text[:ABOUT_MAX] or None
+
+
+def peer_groups(data: dict) -> set[str]:
+    return {p.get("group") for p in data["peers"].values()} | set(data.get("groups") or {})
+
+
 def select_peers(registry: dict, spec: str) -> list[str]:
     """`all`, or a comma list of peer names and groups, in registry order."""
     if not registry:
@@ -5698,14 +5739,27 @@ def select_peers(registry: dict, spec: str) -> list[str]:
 
 def same_url(a: str | None, b: str) -> bool:
     """Whether two remote URLs name the same repo, ignoring a trailing `/` or `.git`."""
-    def norm(url: str) -> str:
-        return re.sub(r"(\.git)?/*$", "", url.strip())
+    def norm(url: str) -> str:  # git@github.com:o/r and https://github.com/o/r are the same repo
+        github = GITHUB_REMOTE_RE.search(url.strip())
+        return f"github:{github.group(1)}/{github.group(2)}".lower() if github else re.sub(r"(\.git)?/*$", "", url.strip())
     return bool(a) and norm(a) == norm(b)
 
 
 def clone_target(url: str, group: str) -> Path:
     stem = re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]) or "repo"
     return peers_dir() / group / stem
+
+
+def release_worktree(run_id: str, cwd: Path) -> None:
+    """Take an adopted asker's worktree off its live run's `mesh stop` list. Its run branch goes too when
+    untouched, as `mesh stop` would delete it: the peer's worktree is detached from now on."""
+    with editing_run(run_id) as run:
+        mine = [w for w in run.get("worktrees", []) if Path(w["path"]).resolve() == cwd.resolve()]
+        run["worktrees"] = [w for w in run.get("worktrees", []) if w not in mine]
+    for wt in mine:
+        if wt.get("branch") and untouched_branch(wt) and cwd.exists():
+            git("checkout", "--quiet", "--detach", cwd=cwd)
+            git("branch", "-D", wt["branch"], cwd=wt["repo"])
 
 
 def peers_add(args: argparse.Namespace) -> int:
@@ -5737,20 +5791,28 @@ def peers_add(args: argparse.Namespace) -> int:
         raise MeshError(f"{name} is a peer already; see `mesh peers`")
     peer = {"repo": str(repo), "group": group, "upstream": peer_upstream(repo), "added": now_iso()}
     try:
-        source, folder, _, entry = find_worker(name)
+        old_run, folder, _, entry = find_worker(name)
     except MeshError:
         entry = None
     adopted = bool(entry and entry.get("repo") and Path(entry["repo"]).resolve() == repo and entry.get("cwd"))
+    live_run = adopted and folder.parent.name != "archive"
+    if live_run and entry.get("status") != "retired":
+        # prepare_peer would move its worktree under it, and its run would lose track of it
+        raise MeshError(f"{name} is still open in run {old_run['id']}: `mesh retire {name}` there first, then add it")
     if adopted:  # its conversation is the valuable part: keep it, at the path Claude keys it by
         peer.update(kind=entry.get("kind"), cwd=entry["cwd"], seen=entry.get("base"))
         if Path(entry["cwd"]).resolve() == repo:  # it ran in the clone itself: never a worktree to move or remove
             peer["in_clone"] = True
-        elif folder.parent.name != "archive":  # a live run's `mesh stop` would remove the worktree it now keeps
-            with editing_run(source["id"]) as run:
-                run["worktrees"] = [w for w in run.get("worktrees", [])
-                                    if Path(w["path"]).resolve() != Path(entry["cwd"]).resolve()]
+        elif live_run:  # a live run's `mesh stop` would remove the worktree it now keeps
+            release_worktree(old_run["id"], Path(entry["cwd"]))
     else:
         peer.update(kind=args.kind or "claude", cwd=str(worktree_root() / "peers" / name), seen=upstream_head(peer))
+    if args.about:
+        peer["about"] = about_text(args.about)
+    else:
+        about = github_about(peer["upstream"].get("url"))
+        if about:  # a project's own pitch: `mesh peers edit` replaces it with what its asker found
+            peer.update(about=about, about_from="github")
     ensure_peer_worktree(peer)
     peer["seen"] = peer.get("seen") or git("rev-parse", "HEAD", cwd=peer["cwd"])
     with editing_peers() as data:
@@ -5792,6 +5854,36 @@ def peers_remove(args: argparse.Namespace) -> int:
     return 0
 
 
+def peers_edit(args: argparse.Namespace) -> int:
+    """`mesh peers edit <peer|group> [--about] [--group]`: a peer's description or group, or a group's description."""
+    if len(args.targets) != 1:
+        raise MeshError("edit what? `mesh peers edit <peer | group> --about TEXT`")
+    target = args.targets[0]
+    if args.about is None and not args.group:
+        raise MeshError("nothing to change: pass --about TEXT, or --group G for a peer")
+    with editing_peers() as data:
+        is_peer, is_group = target in data["peers"], target in peer_groups(data)
+        if is_peer and is_group:
+            raise MeshError(f"{target} is both a peer and a group; rename one with `mesh peers edit <peer> --group`")
+        if is_peer:
+            peer = data["peers"][target]
+            if args.about is not None:
+                peer["about"] = about_text(args.about)
+                peer.pop("about_from", None)
+            if args.group:
+                peer["group"] = args.group
+            changed = {k: peer.get(k) for k in ("group", "about")}
+        elif is_group:
+            if args.group:
+                raise MeshError(f"{target} is a group: --group moves a peer, not a group")
+            data.setdefault("groups", {}).setdefault(target, {})["about"] = about_text(args.about)
+            changed = {"about": data["groups"][target]["about"]}
+        else:
+            raise MeshError(f"no peer or group named {target}; see `mesh peers`")
+    emit({"name": target, "kind": "peer" if is_peer else "group", **changed})
+    return 0
+
+
 def peers_refresh(args: argparse.Namespace) -> int:
     registry = load_peers()["peers"]
     names = select_peers(registry, ",".join(args.targets) or "all")
@@ -5823,22 +5915,33 @@ def peers_list(args: argparse.Namespace) -> int:
             "seen": (peer.get("seen") or "")[:9], "new": commits_between(peer["repo"], peer.get("seen"), head),
             "context": f"{tokens // 1000}k" if tokens else "", "session": "found" if session else "none yet",
             "worktree": "present" if Path(peer["cwd"]).exists() else "removed", "asked": (peer.get("asked") or "")[:16],
-            "repo": peer["repo"], "cwd": peer["cwd"],
+            "about": peer.get("about") or "", "repo": peer["repo"], "cwd": peer["cwd"],
         })
+    groups = data.get("groups") or {}
     if args.json:
-        emit({"peers": rows, "answers": data.get("answers")})
+        emit({"peers": rows, "groups": groups, "answers": data.get("answers")})
         return 0
     if not rows:
         print(f"{NO_PEERS[0].upper()}{NO_PEERS[1:]}.")
         return 0
-    print_table(rows, ("name", "group", "kind", "upstream", "seen", "new", "context", "session", "worktree", "asked"))
+    for n, group in enumerate(dict.fromkeys(r["group"] for r in rows)):
+        about = (groups.get(group) or {}).get("about")
+        print(("\n" if n else "") + f"{group or '(no group)'}" + (f": {about}" if about else ""))
+        mine = [r for r in rows if r["group"] == group]
+        print_table(mine, ("name", "kind", "upstream", "seen", "new", "context", "session", "worktree", "asked"))
+        described = [r for r in mine if r["about"]]
+        if described:
+            print("\nAbout:")
+            for row in described:
+                print(textwrap.fill(row["about"], 116, initial_indent=f"  {row['name']}: ", subsequent_indent="    "))
     if data.get("answers"):
         print(f"\nnewest answers: {data['answers']}")
     return 0
 
 
 def cmd_peers(args: argparse.Namespace) -> int:
-    return {"list": peers_list, "add": peers_add, "remove": peers_remove, "refresh": peers_refresh}[args.action](args)
+    return {"list": peers_list, "add": peers_add, "edit": peers_edit, "remove": peers_remove,
+            "refresh": peers_refresh}[args.action](args)
 
 
 def cmd_worktree(args: argparse.Namespace) -> int:
@@ -6367,10 +6470,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_ask)
 
     p = ident(sub.add_parser("peers", help="the standing peer askers: list, add, refresh, remove"))
-    p.add_argument("action", nargs="?", choices=("list", "add", "refresh", "remove"), default="list")
-    p.add_argument("targets", nargs="*", help="add: a git URL or a clone's path; refresh, remove: peer names")
+    p.add_argument("action", nargs="?", choices=("list", "add", "edit", "refresh", "remove"), default="list")
+    p.add_argument("targets", nargs="*", help="add: a git URL or a clone's path; edit: a peer or a group; "
+                                              "refresh, remove: peer names")
+    p.add_argument("--about", help=f"add, edit: what the project (or group) is and what to ask it, at most "
+                                   f"{ABOUT_MAX} characters (add's default: its GitHub description)")
     p.add_argument("--name", help="add: the asker's name (default: <repo>-research)")
-    p.add_argument("--group", help="add: a group to ask together (`mesh ask --peers <group>`; default: peers); "
+    p.add_argument("--group", help="add, edit: a group to ask together (`mesh ask --peers <group>`; default: peers); "
                                    "a URL is cloned into $MESH_PEERS_DIR/<group> (default ~/research)")
     p.add_argument("--kind", choices=KINDS, help="add: a new asker's CLI (default: claude)")
     p.add_argument("--body", help="add: its first research brief, asked at once")

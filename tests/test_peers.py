@@ -270,9 +270,16 @@ def test_an_interrupted_fan_out_clears_its_marks(mesh, fake, cli, run, repo, tmp
 def test_a_single_ask_clears_a_stale_mark(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
     assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
-    with mesh.editing_run(run) as data:
-        data["agents"]["swarm-research"]["collect"] = mesh.collector("repo-lead")
+    mesh.deliver(run, "swarm-research", "repo-lead", "done", "A1")
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    with mesh.editing_run(run) as data:  # a live fan-out's mark: a single ask leaves it and refuses
+        data["agents"]["swarm-research"]["collect"] = mesh.collector("repo-lead")
+    capsys.readouterr()
+    assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-refresh", "--no-wait"]) == 1
+    assert "is answering a `mesh ask --peers`" in capsys.readouterr().err
+    assert mesh.load_run(run)["agents"]["swarm-research"]["collect"]["to"] == "repo-lead"
+    with mesh.editing_run(run) as data:  # a killed one's: cleared, so the answer rings
+        data["agents"]["swarm-research"]["collect"] = {"to": "repo-lead", "pid": 2 ** 22 + 9, "start": "1"}
     assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-refresh", "--no-wait"]) == 0
     assert "collect" not in mesh.load_run(run)["agents"]["swarm-research"]
 
@@ -319,13 +326,41 @@ def test_adopting_from_a_live_run_takes_the_worktree_off_its_stop_list(mesh, fak
                                                                        monkeypatch, capsys):
     _, clone = upstream_and_clone(tmp_path)
     path = mesh.worktree_root() / run / "swarm-research"
+    base = git("rev-parse", "HEAD", cwd=clone)
+    git("worktree", "add", "-q", "-b", "mesh/mtest/research", str(path), base, cwd=clone)
     with mesh.editing_run(run) as data:
         data["agents"]["swarm-research"] = {"role": "worker", "kind": "claude", "repo": str(clone), "cwd": str(path),
-                                            "base": git("rev-parse", "HEAD", cwd=clone), "status": "retired"}
-        data.setdefault("worktrees", []).append({"path": str(path), "repo": str(clone), "branch": "mesh/mtest/r"})
+                                            "base": base, "status": "running"}
+        data.setdefault("worktrees", []).append({"path": str(path), "repo": str(clone),
+                                                 "branch": "mesh/mtest/research", "base": base})
     monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 1  # still open: retire it first
+    assert "`mesh retire swarm-research` there first" in capsys.readouterr().err
+    assert not mesh.load_peers()["peers"] and mesh.load_run(run)["worktrees"]
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["status"] = "retired"
     assert mesh.main(["peers", "add", str(clone)]) == 0
     assert not any(w["path"] == str(path) for w in mesh.load_run(run)["worktrees"])
+    # its untouched run branch goes, as `mesh stop` would have deleted it; the worktree is detached at the same commit
+    assert not git("branch", "--list", "mesh/mtest/research", cwd=clone)
+    assert git("rev-parse", "HEAD", cwd=path) == base
+
+
+def test_ask_peers_skips_a_peer_that_owes_a_report_by_the_log(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                               capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})  # a blip: it reads idle mid-turn
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q2?", "--no-refresh"]) == 1
+    assert "busy with its previous question" in capsys.readouterr().out
+
+
+def test_same_url_takes_the_two_github_forms_as_one(mesh):
+    assert mesh.same_url("git@github.com:Acme/swarm.git", "https://github.com/acme/swarm")
+    assert mesh.same_url("https://example.com/a/b.git/", "https://example.com/a/b")
+    assert not mesh.same_url("https://github.com/acme/swarm", "https://github.com/other/swarm")
+    assert not mesh.same_url(None, "https://github.com/acme/swarm")
 
 
 def test_add_refuses_a_url_whose_clone_path_holds_another_repo(mesh, fake, cli, tmp_path, monkeypatch, capsys):
@@ -409,3 +444,55 @@ def test_ask_peers_needs_peers_and_no_other_target(mesh, fake, run, repo, capsys
     assert "no peers yet" in capsys.readouterr().err
     assert mesh.main(["ask", "--peers", "all", "--repo", str(repo), "--body", "How?"]) == 1
     assert "drop the worker, --repo" in capsys.readouterr().err
+
+
+def test_peers_and_groups_say_what_they_are(mesh, fake, cli, repo, tmp_path, monkeypatch, capsys):
+    _, swarm = upstream_and_clone(tmp_path, "swarm")
+    _, town = upstream_and_clone(tmp_path, "town")
+    git("remote", "set-url", "origin", "https://github.com/acme/town.git", cwd=town)
+    cli.on("repo", "view", stdout=json.dumps({"description": "The  best\norchestrator ever"}))
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(swarm), "--group", "orch", "--about", "A Rust daemon.\nAsk about delivery."]) == 0
+    assert mesh.main(["peers", "add", str(town), "--group", "orch"]) == 0
+    peers = mesh.load_peers()["peers"]
+    assert peers["swarm-research"]["about"] == "A Rust daemon. Ask about delivery."
+    assert "about_from" not in peers["swarm-research"]  # swarm's upstream isn't on GitHub: gh isn't asked
+    assert (peers["town-research"]["about"], peers["town-research"]["about_from"]) == ("The best orchestrator ever",
+                                                                                        "github")
+    assert cli.called("repo", "view", "acme/town", "--json", "description")
+
+    assert mesh.main(["peers", "edit", "town-research", "--about", "Dropped for Gas City."]) == 0
+    assert mesh.main(["peers", "edit", "orch", "--about", "Tools like agent-mesh."]) == 0
+    data = mesh.load_peers()
+    assert data["peers"]["town-research"]["about"] == "Dropped for Gas City."
+    assert "about_from" not in data["peers"]["town-research"]
+    assert data["groups"]["orch"]["about"] == "Tools like agent-mesh."
+    capsys.readouterr()
+    assert mesh.main(["peers", "edit", "orch", "--about", "x" * 401]) == 1
+    assert "keep it to 400" in capsys.readouterr().err
+    assert mesh.main(["peers", "edit", "nobody", "--about", "x"]) == 1
+    assert mesh.main(["peers", "edit", "orch", "--group", "other"]) == 1
+
+    assert mesh.main(["peers"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("orch: Tools like agent-mesh.\n")
+    assert "About:\n  swarm-research: A Rust daemon. Ask about delivery.\n  town-research: Dropped for Gas City." in out
+    assert mesh.main(["peers", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["groups"] == {"orch": {"about": "Tools like agent-mesh."}}
+    assert {r["name"]: r["about"] for r in listed["peers"]}["swarm-research"] == "A Rust daemon. Ask about delivery."
+
+    assert mesh.main(["peers", "edit", "swarm-research", "--group", "later"]) == 0
+    assert mesh.load_peers()["peers"]["swarm-research"]["group"] == "later"
+
+
+def test_the_answers_file_says_who_answered(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["peers", "edit", "swarm-research", "--about", "A Rust daemon."]) == 0
+    assert mesh.main(["peers", "edit", "peers", "--about", "Tools like agent-mesh."]) == 0
+    answer_all_on_sleep(mesh, monkeypatch, run, {"swarm-research": "In a ledger."})
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "all", "--body", "How?", "--no-refresh"]) == 0
+    text = mesh.Path(capsys.readouterr().out.splitlines()[-1].removeprefix("answers: ")).read_text()
+    assert "\npeers: Tools like agent-mesh.\n" in text and "## swarm-research\n\n*swarm at" in text
+    assert "*A Rust daemon.*" in text

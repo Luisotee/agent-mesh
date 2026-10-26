@@ -146,7 +146,8 @@ Some repos are worth asking again and again: projects similar to yours that you 
 ```bash
 mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into ~/research/orchestrators/swarm
 mesh ask swarm-research --size large --file brief.md                 # its first research brief
-mesh peers                                                           # who they are, what they last read, their size
+mesh peers                                                           # what each is, what it last read, its size
+mesh peers edit swarm-research --about "A Rust daemon…; ask about delivery"   # whom to ask about what
 mesh ask swarm-research --body "How do they merge?"                  # one of them
 mesh ask --peers orchestrators --file question.md                    # all of a group (or all, or a,b,c) at once
 mesh peers refresh                                                   # what changed upstream, without asking
@@ -156,6 +157,7 @@ mesh peers refresh                                                   # what chan
 - **One result:** `mesh ask --peers` asks them all at once and blocks until every one has answered. It writes their answers into one file (`$(mesh dir)/reports/peers-<time>.md`) and prints a line per peer and the file's path, which `mesh peers` keeps showing as the newest answers. Run it in the background.
 - **Read-only for good:** a peer asker only answers. A change to that project goes to an ordinary worker there. Its checkout stays in place between runs, and its conversation is compacted over 300k tokens to what it learned about the project.
 - **Someone else's settings:** a peer's repo isn't yours to fix, so when its `.claude/settings.json` has a rule Claude Code rejects, mesh takes the warning's default "Continue", which skips just those rules. Your own repos still stop there for you.
+- **What each one is:** every peer and group has an `about` (at most 400 characters), which `mesh peers` shows and the answers file repeats. Write what the project is and what it's worth asking about. A new peer starts from its GitHub description; `mesh peers edit <peer | group> --about …` replaces it.
 - `mesh peers add <path>` registers a clone you already have. It adopts the asker that already researched it when one has the default name (`<repo>-research`, or `--name`). `mesh peers remove <name>` drops a peer and keeps its clone.
 
 ## Task lists
