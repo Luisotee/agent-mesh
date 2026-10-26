@@ -3731,7 +3731,8 @@ def test_an_askers_planned_task_keeps_its_deny_list_until_approval(mesh, fake, r
     stub_new_pane(fake)
     assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
     assert json.loads(capsys.readouterr().out)["deny_lifted"] is True
-    assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert not deny_rules(started(fake)) and (entry["planning"], entry["phase"]) == (False, None)
 
 
 def test_resume_plans_under_the_deny_list_and_a_direct_task_gets_none(mesh, fake, run, repo, capsys):
@@ -3750,6 +3751,52 @@ def test_resume_plans_under_the_deny_list_and_a_direct_task_gets_none(mesh, fake
         data["agents"][name]["status"] = "retired"
     assert mesh.main(["resume", name, "--task", DIRECT_FIX]) == 0
     assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"][name]["planning"] is False
+
+
+def test_a_finished_worker_plans_a_sent_task_unguarded_and_a_resume_mid_plan_guards_it(mesh, fake, run, repo,
+                                                                                       monkeypatch, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", DIRECT_FIX]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    starts = len(fake.called("agent", "start"))
+    # Finished, then sent a task it plans: `send` never reopens it to add the list (ORCHESTRATE: retire + resume).
+    assert mesh.main(["send", name, "--type", "task", "--body", "# Task: add retries"]) == 0
+    assert len(fake.called("agent", "start")) == starts
+    monkeypatch.setenv("MESH_RUN", run)
+    monkeypatch.setenv("MESH_SELF", name)
+    assert mesh.main(["inbox"]) == 0
+    assert mesh.main(["send", "parent", "--type", "plan", "--body", "# Plan: retries"]) == 0
+    entry = mesh.load_run(run)["agents"][name]
+    assert (entry["phase"], entry["planning"]) == ("plan", False)
+    monkeypatch.delenv("MESH_RUN")
+    monkeypatch.delenv("MESH_SELF")
+    # Retired mid-plan and resumed with no task: it comes back a planner, under the list, on its model.
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name]) == 0
+    assert "Bash(git push:*)" in deny_rules(started(fake))
+    entry = mesh.load_run(run)["agents"][name]
+    assert (entry["planning"], entry["phase"], entry["exec_effort"], entry["effort"]) == (
+        True, "plan", "medium", "high")
+    sent_plan(mesh, run, name)
+    capsys.readouterr()
+    assert mesh.main(["approve", name]) == 0  # lifts it, and moves it to its execution effort
+    assert not deny_rules(started(fake)) and started(fake)[-6:-1] == ("s-1", "--model", "opus", "--effort", "medium")
+    entry = mesh.load_run(run)["agents"][name]
+    assert (entry["planning"], entry["phase"]) == (False, "exec")
+
+
+def test_a_named_model_on_a_resume_mid_plan_keeps_the_list_but_not_the_phase(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    with mesh.editing_run(run) as data:
+        data["agents"][name].update(status="retired", planning=False)  # its plan phase came from a sent plan
+    assert mesh.main(["resume", name, "--model", "sonnet"]) == 0
+    entry = mesh.load_run(run)["agents"][name]
+    assert deny_rules(started(fake)) and (entry["planning"], entry["phase"], entry["pinned"]) == (True, None, True)
 
 
 def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys):
