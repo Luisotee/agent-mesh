@@ -7550,7 +7550,7 @@ def peers_add(args: argparse.Namespace) -> int:
                 *(["--as", args.as_] if args.as_ else [])]
         return cmd_ask(build_parser().parse_args(argv))
     if not adopted:
-        print(f"mesh: give {name} its first research brief with `mesh ask {name} --size large --file brief.md`",
+        print(f"mesh: {name} isn't briefed yet: `/harvest-peers` gives it its first research round when you want",
               file=sys.stderr)
     return 0
 

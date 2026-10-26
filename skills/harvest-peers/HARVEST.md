@@ -1,6 +1,6 @@
 # Harvest briefs
 
-The templates for step 4 of `harvest-peers`. Pick the variant: **First round** for peers never asked, **Follow-up** for the rest (one brief per variant when a round mixes both). Fill every `<…>`, keep the sections, cut what doesn't apply, and copy only the chosen variant, from its heading down to the next `---` line (this note is for you, not the peers). One brief goes to every peer it names at once, so the per-project focus is a list at the end.
+The templates for step 4 of `harvest-peers`. Pick the variant: **First round** for peers with no conversation yet (`session`: `none yet`), **Follow-up** for the rest (one brief per variant when a round mixes both). Fill every `<…>`, keep the sections, cut what doesn't apply, and copy only the chosen variant, from its heading down to the next `---` line (this note is for you, not the peers). One brief goes to every peer it names at once, so the per-project focus is a list at the end.
 
 ---
 
