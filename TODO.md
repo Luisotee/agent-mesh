@@ -16,6 +16,9 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Reports and reviews
 
+- [ ] Test `fix_commits`' merge-in arm: a merge commit between `last` and `head` (`rev-list --merges`) makes a re-review whole
+- [ ] In a fork clone, `/code-review`'s bare PR number may resolve against `origin` rather than `upstream` (where `pr_head` found it): pass the PR URL or repo once `/code-review` is known to accept one
+- [ ] Live-check where `/code-review` keeps its remembered level and `--max-findings` (user settings? per project?), and whether a mesh reviewer's typed `high` changes the user's
 - [ ] Live-check, on the first real Claude review, that the `/code-review` fork keeps the reviewer's `--disallowedTools` deny list (documented for subagents, not for forked skills)
 - [ ] If Claude reviewers report `done` before `/code-review`'s background result arrives, set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` for read-only Claude workers (pane and `--bg` launch env) so the skill runs in the foreground
 - [ ] A review task's embedded diff comes from `gh pr diff` at ask time, which can be newer than the head the task names if the author pushes in between: build it with `git diff <merge-base>..<head>` from the fetched head instead
