@@ -58,9 +58,9 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Other
 
-- [ ] Research: in task lists, have the root group tasks onto one worker instead of one worker per task (8 tasks needn't mean 8 agents): tasks that touch the same files or build on each other go to the same worker in sequence, which keeps its context and avoids the stacking and rebases. Weigh it against parallelism, the four-worker cap, per-task PRs and reviews, and the worker's growing context (what peers like Gas Town's convoys or Orca do)
+- [ ] Live-check a task-list group: two tasks on one worker, the second by `mesh retire` + `mesh resume` on the same branch, `mesh status` reading `done …: 1 commit(s), no PR` in between, then one PR and its reviewers
 
-- [ ] A worker that finished (exec phase) and is sent a new task it plans by `mesh send` plans without the deny list (prompt only): `send` never reopens to add it, since such a task can't be told from a fix request it just does. Maybe add it when the worker sends its `plan` (`enter_plan_phase`), or tell the root to `retire` + `resume --task-file` for a guarded plan
+- [ ] A worker that finished (exec phase) and is sent a new task it plans by `mesh send` plans without the deny list (prompt only): `send` never reopens to add it, since such a task can't be told from a fix request it just does. Maybe add it when the worker sends its `plan` (`enter_plan_phase`), or tell the root to `retire` + `resume --task-file` for a guarded plan (a task-list group's next task already goes that way)
 - [ ] Live-check that a Claude planner under the deny list doesn't route around a denied Edit with shell writes (`sed -i`, heredocs); if it does, sharpen the doorbell or `worker_phase` wording
 - [ ] Live-test `--plan-review user` on plain `opus` (was `opusplan`): the plan dialog still shows `blocked` in herdr, and after approval the worker executes on Opus in the same pane
 - [ ] Maybe: pre-register trust for worktrees mesh created (Claude's `~/.claude.json` project entry, agy's `trustedWorkspaces`, both the logical and resolved path), as an explicit opt-in since it writes the user's settings, so no trust dialog shows at all (firstmate)

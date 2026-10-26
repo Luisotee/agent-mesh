@@ -174,27 +174,35 @@ Every turn re-reads your whole context: at a twentieth of the price while the pr
 
 ## Task lists
 
-When the request is a list of tasks ("work through TODO.md", "fix these five issues"), you supervise and **write no code yourself**, in your own repo too. Each task gets its own worker in a worktree.
+When the request is a list of tasks ("work through TODO.md", "fix these five issues"), you supervise and **write no code yourself**, in your own repo too. Each task, or each group of related tasks (step 3), gets its own worker in a worktree.
 
 1. **Triage:**
    - Read each task, and just enough of the code to size it.
-   - Write the board to `$(mesh dir)/board.md`, with one row per task: task, repo, size, CLI and model, pane or background, depends on, overlaps with, and later the worker's name. Its PR and status aren't kept there: `mesh status` derives them.
-   - Show it to the user and get **one** confirmation, including any routing you propose. Don't start before that.
+   - Write the board to `$(mesh dir)/board.md`, with one row per task: task, repo, size, CLI and model, pane or background, group (its worker's slug, and the task's place in it), depends on, overlaps with, and later the worker's name. Its PR and status aren't kept there: `mesh status` derives them.
+   - Show it to the user and get **one** confirmation, including any routing and groups you propose. Don't start before that.
 2. **Order:** tasks that touch the same files in one repo don't run side by side.
+   - **Group** them (step 3) when they build on each other or change the same code.
    - **Stack** the later one on the earlier one's branch (`--base mesh/<run>/<earlier slug>`; its PR then targets that branch).
    - **Or** start it after the earlier one's `done`.
-   - A dependency between repos follows step 4's contract rules.
-3. **Cap:** keep at most **4** workers working at once. Start the next one when one reports.
-4. **Supervise** as in the Root steps, which start each `done`'s reviewers (Root step 8). After each `done`, also run `mesh conflicts`.
-5. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. Re-reviews after a fix go to Claude and agy only (see "Routing"). A PR is done when its reviews have nothing left that you agree with, or after two review→fix rounds.
-6. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
+   - A dependency between repos follows Root step 4's contract rules.
+3. **Groups:** one worker does a group's tasks one after another, in one worktree, on one branch, with **one PR** for all of them. It keeps what it learnt on the earlier tasks, and nothing needs stacking or rebasing.
+   - **What to group:** tasks in one repo that build on each other's change or change the same code. One file that both touch isn't enough on its own. Keep independent tasks on their own workers, where running side by side wins, and a task the request wants merged on its own (an urgent fix) out of any group.
+   - **Size:** at most **4** tasks, and a PR a reviewer can read in one sitting. Split a bigger set into two groups, the second stacked on the first.
+   - **Spawn** the worker with the first task, its slug naming the group (`export-features`). Use `--view pane` if any task in the group is large, so it doesn't move between the background and a pane. Its task file adds a `Group` section: the slug, this task's place (`task 1 of 3`), the later tasks for awareness only (don't start them), and that the PR opens with the last task.
+   - **Each next task:** once you've checked the last `done` (a large task's diff against its plan: `git diff <previous tip>..<tip>` in its worktree), run `mesh retire <worker>`, then `mesh resume <worker> --task-file … --focus "<the group's earlier tasks, and what this one needs>"`. Don't use `mesh send` here. Resuming plans a large task on the planning model under the deny list, compacts a big conversation, and keeps its worktree and branch. Each task file names its place (`task 2 of 3`) and says to start from a clean worktree at the branch tip.
+   - **Reviews** start once, after the last task's `done` brings the PR, sized by the whole PR. A `done` before that reads `done …: 2 commit(s), no PR` in `mesh status`, which is right: you owe it its next task.
+   - **A failed task** in a group: retry it as Root step 10 says. If it stays failed, the worker leaves nothing of it committed. Go on with the tasks that don't depend on it, and leave the rest for the Finish report. A group cut short gets a `task` to open the PR with what's done.
+4. **Cap:** keep at most **4** workers working at once, a group counting as one. Start the next one when one reports.
+5. **Supervise** as in the Root steps, which start each `done`'s reviewers (Root step 8; a group's after its last task). After each `done`, also run `mesh conflicts`.
+6. **Reviews:** check each finding before you act on it (see "Questions and reviews", step 2), then send the findings you agree with to the author (see "Follow-ups": `mesh ask <author> …` or a `task`), not to the reviewer. Re-reviews after a fix go to Claude and agy only (see "Routing"). A PR is done when its reviews have nothing left that you agree with, or after two review→fix rounds.
+7. **Conflicts:** `mesh conflicts` lists the run's branches that conflict with their default branch or with each other.
    - Below them it warns about workers that change the same files, committed or not (in `--json`, rows with `"kind": "overlap"`; real conflicts are `"kind": "conflict"`). Overlap isn't a conflict yet: stack or sequence the later worker, or tell the two which files they share.
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
-7. **The board is the plan, `mesh status` the state:** change `board.md` only when the plan changes (a task re-sized, split, re-ordered, or given a worker). After your context is reset or compacted, rebuild your picture with `mesh brief`, not from memory.
+8. **The board is the plan, `mesh status` the state:** change `board.md` only when the plan changes (a task re-sized, split, re-ordered, or given a worker). After your context is reset or compacted, rebuild your picture with `mesh brief`, not from memory.
    - Read `mesh status`, `mesh agents` and `mesh inbox` with `--json` rather than parsing their tables.
    - `mesh agents --run <run> --json` lists the run's workers and reviewers with their PRs, resumed ones included: gather PRs there, not by looping `gh pr list` over the repos.
-8. **Report:** the board as a table, with each task's PR, worker name, size, status (from `mesh status`) and review outcome. Then the suggested merge order, and what's left for the user.
+9. **Report:** the board as a table, with each task's PR, worker name, size, status (from `mesh status`) and review outcome; a group's tasks share one PR and worker. Then the suggested merge order, and what's left for the user.
 
 ## Questions and reviews
 
@@ -301,7 +309,8 @@ Then end your turn. A later task may ask more, or ask you to make a change, whic
 9. **Publish:** push your branch and open the PR with `gh pr create`, following the repo's own PR rules (title, body, attribution, base branch). The PR body includes what changed, the commands that passed, and anything the reviewer should look at. Then do whatever the repo's rules require after a PR.
    - **A follow-up** to work you already published goes on the **same branch**, so the existing PR updates. Open a new PR only if the task asks for one, or a note from mesh at its end says your PR was merged or closed.
    - **A stacked task** (your worktree started from another worker's branch) opens its PR against that branch.
-10. **Report:** run `mesh inbox` once more, then send **one** `done` to your parent (`--file` under `$(mesh dir)/reports/`) with the PR link, a summary, the checks that passed, and any deviations from the plan. If you can't finish, send `failed` with what blocked you and what you tried. Don't run `mesh stop`: the root does that.
+   - **A grouped task** (its task file's `Group` section says `task 2 of 3`) is one of several you do on this branch for one PR. Start from a clean worktree at the branch tip. Commit this task's work as its own commit(s) and push, but open the PR only with the group's last task: one title for the group, and a body with one section per task (what changed, the check that passed, the issue it closes).
+10. **Report:** run `mesh inbox` once more, then send **one** `done` to your parent (`--file` under `$(mesh dir)/reports/`) with the PR link (for a grouped task before the last, the branch and its new commits), a summary, the checks that passed, and any deviations from the plan. If you can't finish, send `failed` with what blocked you and what you tried. Don't run `mesh stop`: the root does that.
 
 ## Rules for everyone
 
