@@ -5490,7 +5490,7 @@ def test_code_review_targets_the_range_from_the_merge_base_in_a_fork_too(mesh, f
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
     merge_base = real_git("merge-base", "main", head, cwd=repo)
     assert f"`/code-review high {merge_base}..{head}`" in body and f"`git diff {merge_base}..{head}`" in body
-    assert "/code-review high 7" not in body
+    assert "`/code-review high 7`" not in body  # backticked: a range whose merge base starts with 7 isn't the number
     cli.on("pr", "view", returncode=1)  # no base: the PR's link, since a fork's bare number may name `origin`'s
     task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo)
     assert f"`/code-review high {pr}`" in task
