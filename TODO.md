@@ -14,3 +14,4 @@ From run `md64d` (2026-10-26): the root's own observations, PR #63's review, and
 - [ ] Write the doorbell straight into a Claude recipient's inbox socket from `mesh` itself (repowire §1, ACC §2): any sender, no `SendMessage` step, no pane typing for Claude recipients. Medium; after the two above.
 - [ ] Maybe: agy delivery without typing, through `agy agentapi send-message` (ACC §3). It needs agy's session CSRF token recorded on disk: the user decides before it's built.
 - [ ] Design §11: one line that `CLAUDE_CODE_HARBOR_KITE=0` turns Claude's inbox off (ACC, "Lessons").
+- [ ] The root starts no work until the user says go (unless told to run autonomously): for any request, not only task lists, it first proposes the work (groups, sizes, workers, routing) and waits.
