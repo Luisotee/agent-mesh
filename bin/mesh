@@ -2962,10 +2962,7 @@ def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str
     if ahead > MAX_WAIT:
         raise MeshError(f"--until {args.until} is more than {MAX_WAIT // 3600} h away: wait at most that long, and "
                         "send another wait then if you still need one")
-    received = unread_received(run_id, me)
-    if received:  # it would be the wait of a task it hasn't read
-        raise MeshError(f"not sent: your mailbox has {len(received)} unread task/answer message(s); run "
-                        "`mesh inbox` and act on them first")
+    refuse_stale_report(run_id, me, "wait")  # it would be the wait of a task it hasn't read
     stamp_iso = until.isoformat(timespec="seconds")
     text = f"Waiting until {until.astimezone():%H:%M} ({stamp_iso}): {body.strip()}"
     path = store_message(run_id, me, to, "wait", text)
@@ -2980,7 +2977,8 @@ def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str
 def refuse_stale_report(run_id: str, me: str, mtype: str) -> None:
     """A report sent while a task or answer is unread would count as the reply to it (`since_last_task`), so
     the worker's next silent stop would go unnoticed. PROTOCOL rule 2 (read your mailbox right before
-    reporting), in code."""
+    reporting), in code. A wait (`send_wait`) is refused the same way, as it would hold off the watch for a
+    task the worker hasn't read; only a report may pass with --unread-ok."""
     waiting = unread_received(run_id, me)
     if not waiting:
         return
@@ -2988,8 +2986,8 @@ def refuse_stale_report(run_id: str, me: str, mtype: str) -> None:
     raise MeshError(
         f"not sent: your mailbox has {len(waiting)} unread task/answer message(s), and a {mtype} sent now would "
         f"count as your reply to them:\n{lines}\nRun `mesh inbox` (not --peek) and act on them, then send one "
-        f"{mtype} that covers them too. Send anything that can't wait as `--type info`; pass --unread-ok to send "
-        "this as it is anyway")
+        f"{mtype} that covers them too. Send anything that can't wait as `--type info`"
+        + ("; pass --unread-ok to send this as it is anyway" if mtype in REPORT_TYPES else ""))
 
 
 def pinned(entry: dict) -> bool:

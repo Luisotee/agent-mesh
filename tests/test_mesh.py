@@ -538,7 +538,11 @@ def test_a_wait_is_stored_and_logged_without_a_doorbell(mesh, fake, run, monkeyp
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     as_worker(monkeypatch, run)
     assert wait(mesh) == 1  # its task is still unread: the wait would belong to a task it hasn't read
-    assert "unread task/answer" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "not sent" in err and "task from repo-lead at " in err and "Fix the typo." in err
+    assert "send one wait that covers them too" in err and "--unread-ok" not in err  # a report's way out only
+    assert mesh.main(["send", "parent", "--type", "wait", "--until", "30m", "--body", "Tests.", "--unread-ok"]) == 1
+    assert mesh.unread(run, "repo-lead") == []
     mesh.main(["inbox"])
     rings = len(fake.called("agent", "prompt"))
     capsys.readouterr()
