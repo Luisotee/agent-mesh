@@ -868,8 +868,8 @@ def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> 
             try:
                 return split_at(max(herdr("pane", "layout", "--pane", anchor)["layout"]["panes"], key=area),
                                 cwd, env), tab_id
-            except HerdrError:
-                pass  # the tab is gone or unusable: open a new one below
+            except (HerdrError, KeyError, ValueError):
+                pass  # the tab is gone or unusable (as in _beside_root): open a new one below
     created = herdr(
         "tab", "create", "--workspace", workspace_id, "--cwd", str(cwd),
         "--label", tab_label(run), *env_flags(env), "--no-focus",
