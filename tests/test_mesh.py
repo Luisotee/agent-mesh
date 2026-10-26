@@ -6984,3 +6984,206 @@ def test_root_session_prefers_the_file_written_last_when_herdr_and_the_command_d
     herdr_root_session(fake, "new-s")
     assert mesh.root_session(entry, as_root=True) == "new-s"
     assert mesh.root_session(entry) == "new-s"  # not the root's own command: herdr's word
+
+
+def claude_process(mesh, monkeypatch, pid, session, started="77", status="idle", since=60):
+    """The file Claude Code keeps for a running process (`sessions/<pid>.json`); the process started at `77`,
+    and its `status` was last set `since` seconds ago."""
+    import time
+    monkeypatch.setattr(mesh, "proc_start", lambda p: "77")
+    path = mesh.Path(mesh.os.environ["CLAUDE_CONFIG_DIR"]) / "sessions" / f"{pid}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"pid": pid, "sessionId": session, "procStart": started, "kind": "interactive",
+                                "status": status, "statusUpdatedAt": int((time.time() - since) * 1000)}))
+
+
+def test_root_session_is_the_session_of_the_process_leading_the_pane(mesh, fake, run, monkeypatch):
+    # A nested `claude -p` in the root's pane is writing its transcript right now, and made herdr report it.
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=30, session="root-s")
+    root_transcript_file(mesh, monkeypatch, 20_000, idle=0, session="nested-s")
+    in_pane(fake, "w1:p1", 4000, 4001, session="nested-s")
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    claude_process(mesh, monkeypatch, 4100, "nested-s")  # its own process, in a group of its own
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-s")
+    assert mesh.root_session(entry, as_root=True) == "root-s"  # the newest file isn't the root's
+    assert mesh.root_session(entry) == "root-s"  # nor is herdr's word, for the watch or a reset
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "old-s")  # a watch that outlived a /clear: the process moved on
+    assert mesh.root_session(entry, as_root=True) == "root-s"
+    # A file an earlier process with the same pid left says nothing: herdr's word again.
+    claude_process(mesh, monkeypatch, 4000, "gone-s", started="12")
+    assert mesh.root_session(entry) == "nested-s"
+
+
+def test_a_nested_claude_doesnt_fool_the_watch_into_a_reset(mesh, fake, run, monkeypatch):
+    # The root's last reset confirmed root-s; since then a nested `claude -c -p` in its pane made herdr report
+    # its big, cold session, while the root's own (small) had a turn after it.
+    started = autoreset_root(mesh, fake, monkeypatch)
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {"agent": "claude", "agent_status": "idle",
+                                                          "agent_session": {"value": "nested-s"}})
+    root_transcript_file(mesh, monkeypatch, 450_000, idle=5000, session="nested-s")
+    root_transcript_file(mesh, monkeypatch, 30_000, idle=4000, session="root-s")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    mesh.log_event(run, "reset", name="repo-lead", via="command", old_session="older-s", new_session="root-s")
+    assert mesh.root_context(mesh.load_run(run))["session"] == "root-s"
+    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) and not started
+    # The user cleared the root by hand since: herdr's session is the one written last, and is measured.
+    root_transcript_file(mesh, monkeypatch, 450_000, idle=4000, session="nested-s")
+    root_transcript_file(mesh, monkeypatch, 30_000, idle=5000, session="root-s")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    assert mesh.root_context(mesh.load_run(run))["session"] == "nested-s"
+
+
+def test_reset_root_confirms_the_clear_by_the_roots_own_process(mesh, fake, run, monkeypatch):
+    # herdr keeps reporting a nested Claude's session; the root's process moves from root-s to fresh-s.
+    scripted_root(mesh, fake, monkeypatch, clears=False)
+    in_pane(fake, "w1:p1", 4000)
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    real = fake.__call__
+
+    def herdr(*args, timeout=None):
+        result = real(*args, timeout=timeout)
+        if args[:4] == ("agent", "prompt", "w1:p1", "/clear"):
+            claude_process(mesh, monkeypatch, 4000, "fresh-s")
+        return result
+
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["old_session"], event["new_session"]) == ("reset", "root-s", "fresh-s")
+
+
+def test_reset_root_takes_herdrs_clear_when_the_process_file_is_slow_to_follow(mesh, fake, run, monkeypatch):
+    # The root's process file keeps root-s; herdr reports the clear (scripted_root: old → new).
+    scripted_root(mesh, fake, monkeypatch)
+    in_pane(fake, "w1:p1", 4000)
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    slept = []
+    monkeypatch.setattr(mesh.time, "sleep", slept.append)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["old_session"], event["new_session"]) == ("reset", "root-s", "new")
+    # The file had its chance first: herdr's word counts only CLEAR_FILE_GRACE seconds after it showed.
+    assert sum(1 for s in slept if s == 1) >= mesh.CLEAR_FILE_GRACE
+    assert prompts(fake)[1].startswith("📬 [mesh] (ref ")
+
+
+def lost_root(mesh, fake, monkeypatch, status="idle", since=60, leader=True):
+    """A root herdr reads `unknown`; its Claude (pid 4000, session root-s, its own `status`) leads the pane
+    when `leader`, and moves to fresh-s once /clear is typed."""
+    reads = scripted_root(mesh, fake, monkeypatch, status="unknown", clears=False)
+    if leader:
+        in_pane(fake, "w1:p1", 4000)
+        claude_process(mesh, monkeypatch, 4000, "root-s", status=status, since=since)
+        real = fake.__call__
+
+        def herdr(*args, timeout=None):
+            result = real(*args, timeout=timeout)
+            if args[:4] == ("agent", "prompt", "w1:p1", "/clear"):
+                claude_process(mesh, monkeypatch, 4000, "fresh-s")
+            return result
+
+        monkeypatch.setattr(mesh, "herdr", herdr)
+    return reads
+
+
+def clock(mesh, monkeypatch):
+    """A monotonic clock that `time.sleep` moves on, so waits in seconds pass at once."""
+    now = [1000.0]
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(mesh.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    return now
+
+
+@pytest.mark.parametrize("status", ["idle", "shell"])  # shell: idle, with a background task (its watch)
+def test_reset_root_resets_a_root_herdr_lost_once_its_process_reads_the_turn_over(mesh, fake, run, monkeypatch,
+                                                                                   status):
+    lost_root(mesh, fake, monkeypatch, status=status)
+    assert mesh.reset_root(run, "repo-lead", "review PR 31", None) == 0
+    assert prompts(fake)[0] == "/clear" and prompts(fake)[1].endswith("Then: review PR 31")
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["old_session"], event["new_session"]) == ("reset", "root-s", "fresh-s")
+
+
+@pytest.mark.parametrize("status, since", [("busy", 60), ("waiting", 60), ("idle", 1)])
+def test_reset_root_never_clears_a_lost_root_mid_turn(mesh, fake, run, monkeypatch, status, since):
+    # busy: a turn (a foreground tool call too); waiting: a dialog the /clear would answer; idle a moment ago:
+    # the next step may be on its way.
+    monkeypatch.setenv("MESH_RESET_WAIT", "0")
+    lost_root(mesh, fake, monkeypatch, status=status, since=since)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == []
+    assert f"its process reads {status}" in mesh.read_log(run)[-1]["reason"]
+
+
+@pytest.mark.parametrize("case", ["no leader", "compact"])
+def test_reset_root_gives_up_on_a_lost_root_it_cant_judge_once_herdr_stays_lost(mesh, fake, run, monkeypatch,
+                                                                                 case):
+    lost_root(mesh, fake, monkeypatch, leader=case != "no leader")
+    now = clock(mesh, monkeypatch)
+    start = now[0]
+    assert mesh.reset_root(run, "repo-lead", None, "keep it" if case == "compact" else None) == 1
+    assert prompts(fake) == []
+    assert mesh.LOST_AFTER <= now[0] - start < mesh.LOST_AFTER + 2 * mesh.RESET_POLL  # not MESH_RESET_WAIT
+    event = mesh.read_log(run)[-1]
+    assert event["event"] == "reset_failed" and "herdr has lost track of this root's pane" in event["reason"]
+    assert "/clear by hand" in event["reason"]
+
+
+def test_reset_root_waits_out_a_passing_unknown(mesh, fake, run, monkeypatch):
+    # herdr reads the root unknown for a few polls (re-detecting it), then idle again.
+    reads = scripted_root(mesh, fake, monkeypatch)
+    real = mesh.pane_agent
+
+    def agent(pane):
+        result = real(pane)
+        return {**result, "agent_status": "unknown"} if reads["n"] <= 5 else result
+
+    monkeypatch.setattr(mesh, "pane_agent", agent)
+    clock(mesh, monkeypatch)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert prompts(fake)[0] == "/clear"
+
+
+def test_cleared_session_keeps_herdrs_first_report_while_it_flickers(mesh, fake, run, monkeypatch):
+    # The process file stays on root-s; herdr reports the new session once, then loses it.
+    in_pane(fake, "w1:p1", 4000)
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    answers = iter([{"agent_session": {"value": "nested-s"}}, {"agent_session": {"value": "new-s"}}])
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: next(answers, {}))
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    assert mesh.cleared_session(entry, "root-s", set(), "nested-s") == {"new-s"}
+    # Never anything new: it gives up after CLEAR_CONFIRM, with herdr flickering or not.
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {})
+    assert mesh.cleared_session(entry, "root-s", set(), "nested-s") == set()
+
+
+def test_cleared_session_never_takes_the_old_session_for_a_new_one(mesh, fake, run, monkeypatch):
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    # Before the clear, the process file couldn't be read: herdr reported a nested Claude's session. After it,
+    # the file reads the root's unchanged session: that is no clear.
+    in_pane(fake, "w1:p1", 4000)
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {"agent_session": {"value": "nested-s"}})
+    assert mesh.cleared_session(entry, None, set(), "nested-s") == set()
+    # herdr's report moving back to the root's old session isn't a clear either.
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {"agent_session": {"value": "root-s"}})
+    assert mesh.cleared_session(entry, "root-s", set(), "nested-s") == set()
+
+
+def test_root_context_reads_the_log_only_when_the_roots_process_cant_say(mesh, fake, run, monkeypatch):
+    root_transcript_file(mesh, monkeypatch, 40_000, session="root-s")
+    in_pane(fake, "w1:p1", 4000)
+    claude_process(mesh, monkeypatch, 4000, "root-s")
+    monkeypatch.setattr(mesh, "reset_session", lambda *a: pytest.fail("read the log"))
+    assert mesh.root_context(mesh.load_run(run))["session"] == "root-s"
+
+
+@pytest.mark.parametrize("process, reset", [("idle", True), ("shell", True), ("busy", False), (None, False)])
+def test_autoreset_judges_a_root_herdr_lost_by_its_own_process(mesh, fake, run, monkeypatch, process, reset):
+    started = autoreset_root(mesh, fake, monkeypatch, status="unknown")
+    if process:  # its Claude leads the pane and says how its turn stands; None: nothing can tell
+        in_pane(fake, "w1:p1", 4000)
+        claude_process(mesh, monkeypatch, 4000, "root-s", status=process)
+    assert mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) is reset
+    assert bool(started) is reset
