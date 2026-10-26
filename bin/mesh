@@ -4037,7 +4037,8 @@ HOOK_NUDGE = ("agent-mesh: you're ending your turn without a `mesh send` since y
 WAIT_OVER_BODY = ("You woke during your declared wait and are ending your turn again without a `mesh send`. A "
                   "wait covers only the turn end that declared it. If you're still waiting, send a fresh one with "
                   "`mesh send parent --type wait --until <time> --body …` and end your turn; if the task is "
-                  "finished, run `mesh inbox`, then report `done` or `failed` with `mesh send parent`.")
+                  "finished, run `mesh inbox`, then report `done` or `failed` with `mesh send parent`; if you're stuck, "
+                  "send a `question`.")
 WAIT_OVER = "agent-mesh: " + WAIT_OVER_BODY  # the Stop hook's reason; the body is the agy watch's doorbell
 
 
@@ -7340,8 +7341,8 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
         checked = sum(wt["committed"] for wts in by_repo.values() for wt in wts.values())
         print(f"No conflicts among {checked} branch(es) with commits.")
     if overlaps:
-        print("\nWarning: these workers change the same files (committed or not), so their branches may "
-              "conflict once they commit or merge:")
+        print("\nNote: these workers change the same files (committed or not); nothing to do now; after a merge, the "
+              "root has each affected worker rebase:")
         print_table([{**r, "files": " ".join(r["files"])} for r in overlaps], ("repo", "branch", "against", "files"))
     return 0
 
@@ -7528,7 +7529,7 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
             "work around)" if claude_deny(entry) else "")
     if entry.get("phase") == "exec":
         return "executing your approved plan: finish, verify, open the PR, then report `done`"
-    return "working on it: report `done` or `failed` with `mesh send parent` when it's finished"
+    return "working on it: report `done` or `failed` with `mesh send parent` when it's finished (stuck: send a `question`)"
 
 
 def reminder(run_id: str, me: str, source: str) -> str:

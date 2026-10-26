@@ -47,7 +47,7 @@ A doorbell (or, in Claude Code, a Stop hook message) saying your turn ended with
    - **Run `mesh inbox` once more right before reporting.** Doorbells that arrive while you're working are queued, not lost. Handle any late message first, so you don't report on stale instructions.
    - `mesh send` holds you to it: while a `task` or `answer` is unread in your mailbox, it refuses a `plan`, `question`, `done` or `failed` (exit 1, nothing sent) and lists what's waiting, since a report sent then counts as your reply to that message. Read it (`mesh inbox`, not `--peek`), act on it, then send one report that covers it too. Something that can't wait goes as an `info`. `--unread-ok` sends the report anyway, only when you're sure the unread message doesn't change it.
    - `done`: what changed, branch and commits, the commands you ran and their results, and anything the parent should check.
-   - `failed`: what blocked you and what you tried.
+   - `failed`: what blocked you and what you tried. Only for what nobody in the run can fix (missing credentials or access, a decision only the user can make); stuck on the work itself, send a `question` instead.
    - A fix request after `done` is a new task: do it, then report again.
    - **Don't stop between steps.** A turn that ends with a summary announcing your next step, instead of taking it, leaves your parent watching an idle worker that sent nothing. End a turn only by sending a message (`plan`, `question`, `done`, `failed`), or carry on with the work.
    - **Report first.** Send `done` or `failed` before any memory notes or tidying, and end your turn with it.
