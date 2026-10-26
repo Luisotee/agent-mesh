@@ -509,8 +509,32 @@ def test_mesh_peers_lists_a_broken_entry_instead_of_failing(mesh, fake, repo, tm
     capsys.readouterr()
     assert mesh.main(["peers"]) == 0
     out = capsys.readouterr().out
-    assert "swarm-research" in out and "broken (MeshError: clone gone" in out and "broken (KeyError" in out
-    assert "junk-peer" in out and "broken (TypeError" in out
+    assert "swarm-research" in out and "half-peer" in out and "no-cwd-peer" in out
+    assert "broken (MeshError: no cwd, upstream branch recorded)" in out and "broken (MeshError: no cwd recorded)" in out
+    assert "junk-peer" in out and "broken (MeshError: not an entry but str 'oops')" in out
+
+    # every other command copes with them too
+    assert mesh.main(["peers", "refresh"]) == 0
+    out = capsys.readouterr().out
+    assert "half-peer: broken entry (no cwd, upstream branch recorded)" in out and "swarm-research: unchanged" in out
+    run_root(mesh, fake, monkeypatch)
+    assert mesh.main(["ask", "--peers", "no-cwd-peer", "--body", "Q?", "--no-refresh"]) == 1
+    assert "no-cwd-peer's registry entry is broken (no cwd recorded)" in capsys.readouterr().out
+    for name in ("junk-peer", "half-peer", "no-cwd-peer"):
+        assert mesh.main(["peers", "remove", name]) == 0
+    out = capsys.readouterr().out
+    assert "junk-peer: removed its broken entry (not an entry" in out
+    assert "no-cwd-peer: removed its broken entry (no cwd recorded)" in out
+    assert list(mesh.load_peers()["peers"]) == ["swarm-research"]
+
+
+def run_root(mesh, fake, monkeypatch):
+    """A run whose root is this pane, for a test that didn't take the `run` fixture."""
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "tab_id": "w1:t1",
+                                                  "workspace_id": "w1", "cwd": "/repo"}]})
+    assert mesh.main(["init", "--mode", "claude", "--run-id", "mtest"]) == 0
 
 
 def test_a_refused_add_releases_nothing(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
@@ -610,3 +634,76 @@ def test_a_remote_without_a_url_still_registers(mesh, tmp_path, monkeypatch):
     monkeypatch.setattr(mesh, "git", git_without_url)
     up = mesh.peer_upstream(clone)
     assert up["remote"] == "origin" and up["url"] is None
+
+
+def test_a_removed_fresh_peer_comes_back_at_the_code_it_last_read(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                                   capsys):
+    up, clone = upstream_and_clone(tmp_path)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0  # fresh: no past worker to adopt
+    real_fetch(cli)
+    stub_new_pane(fake)
+    fake.on("workspace", "create", result={"workspace": {"workspace_id": "w9"}})
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    commit(up, "two")
+    new = commit(up, "three")
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-wait"]) == 0
+    assert mesh.load_run(run)["agents"]["swarm-research"]["base"] == new
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["status"] = "retired"
+    cwd = mesh.Path(mesh.load_peers()["peers"]["swarm-research"]["cwd"])
+    assert mesh.main(["peers", "remove", "swarm-research"]) == 0
+    capsys.readouterr()
+    assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-wait"]) == 0
+    assert git("rev-parse", "HEAD", cwd=cwd) == new != git("rev-parse", "HEAD", cwd=clone)
+    # and its conversation is still a peer's: no change task, and the hint says so
+    entry = mesh.load_run(run)["agents"]["swarm-research"]
+    assert entry["peer"] == "swarm-research" and entry["read_only"] is True
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["status"] = "retired"
+    assert mesh.main(["resume", "swarm-research", "--task", "Direct task (no plan)\n\nAdd a feature."]) == 1
+    err = capsys.readouterr().err
+    assert "only answers questions" in err and f"mesh spawn --repo {clone}" in err
+
+
+def test_set_worker_base_writes_an_archived_run(mesh, tmp_path):
+    folder = mesh.mesh_home() / "archive" / "mold"
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text(json.dumps({"id": "mold", "agents": {"a": {"base": "old"}}}))
+    mesh.set_worker_base(folder, "a", "new")
+    mesh.set_worker_base(folder, "missing", "x")
+    assert json.loads((folder / "run.json").read_text())["agents"] == {"a": {"base": "new"}}
+
+
+def test_a_racing_add_of_the_same_name_is_refused_under_the_lock(mesh, fake, repo, tmp_path, monkeypatch, capsys):
+    _, one = upstream_and_clone(tmp_path, "swarm")
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    _, two = upstream_and_clone(other, "swarm")
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(one)]) == 0
+    real_load = mesh.load_peers
+    calls = {"n": 0}
+
+    def stale_first_read():  # the second add's early check reads the registry before the first add wrote it
+        calls["n"] += 1
+        return {"peers": {}} if calls["n"] == 1 else real_load()
+
+    monkeypatch.setattr(mesh, "load_peers", stale_first_read)
+    capsys.readouterr()
+    assert mesh.main(["peers", "add", str(two)]) == 1
+    assert "a peer already" in capsys.readouterr().err
+    monkeypatch.setattr(mesh, "load_peers", real_load)
+    assert mesh.load_peers()["peers"]["swarm-research"]["repo"] == str(one.resolve())
+
+
+def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, run, monkeypatch):
+    entry = {"role": "worker", "kind": "claude", "view": "bg", "bg_id": "abc123", "status": "running"}
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"] = entry
+    mesh.deliver(run, "repo-lead", "swarm-research", "task", "Q1?")
+    monkeypatch.setattr(mesh, "agent_status", lambda name, entry, rows=None: "gone")
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [])  # `claude agents` failed: gone means nothing
+    assert mesh.owes_answer(run, "swarm-research", entry) is True
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"id": "other"}])
+    assert mesh.owes_answer(run, "swarm-research", entry) is False
