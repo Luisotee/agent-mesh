@@ -561,6 +561,12 @@ def test_a_socket_comes_from_claude_codes_own_records(mesh, monkeypatch, tmp_pat
     monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", str(own))
     monkeypatch.setenv("CLAUDE_PID", "4100")
     assert mesh.claude_process() == {"address": f"uds:{own}", "pid": 4100, "start": "78"}
+    # Without CLAUDE_PID: the ancestor whose record names that socket, or no address at all.
+    monkeypatch.delenv("CLAUDE_PID")
+    assert mesh.claude_process() == {"address": None, "pid": None, "start": None}
+    mine = mesh.claude_home() / "sessions" / f"{os.getpid()}.json"
+    mine.write_text(json.dumps({"pid": os.getpid(), "procStart": "78", "messagingSocketPath": str(own)}))
+    assert mesh.claude_process() == {"address": f"uds:{own}", "pid": os.getpid(), "start": "78"}
 
 
 def test_a_root_socket_at_a_reused_pid_is_not_the_roots(mesh, fake, run, monkeypatch):
@@ -1945,13 +1951,15 @@ def test_a_worker_told_of_its_usage_limit_is_exit_7_once_its_turn_ends(mesh, fak
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
-def mesh_argv(run="mtest", name="repo-fix-typo", session="s1", deny=(), script=None):
+def mesh_argv(run="mtest", name="repo-fix-typo", session="s1", deny=(), script=None, inbound=None):
     """A Claude command line as mesh starts a pane worker: its deny list, and `--settings` carrying the worker's
-    Stop hook, which runs this mesh (`script`: another path)."""
+    Stop hook, which runs this mesh (`script`: another path), and `crossSessionInbound` (`inbound`; none before
+    mesh passed it)."""
     command = shlex.join([script or str(MESH_SCRIPT), "hook", "stop", "--run", run, "--as", name])
     hooks = {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}
+    settings = {"hooks": hooks, **({"crossSessionInbound": inbound} if inbound else {})}
     return ["claude", *(["--disallowedTools", *deny] if deny else []), "--resume", session,
-            "--settings", json.dumps({"hooks": hooks})]
+            "--settings", json.dumps(settings)]
 
 
 def claude_in_pane(fake, pane, *argv):
@@ -5987,9 +5995,22 @@ def test_inbound_setting_ranks_sources_as_claude_code_does(mesh, tmp_path):
     assert mesh.inbound_setting(repo, "accept") == ("refuse", "repo")  # but it can tighten it
     write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "10-x.json", "hold")
     assert mesh.inbound_setting(None, "accept") == ("hold", "managed")  # policy beats the flag
-    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "20-y.json", "nonsense")
-    assert mesh.inbound_setting(None, "accept") == ("hold", "managed")  # an unknown value holds
+    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "20-y.json", "accept")
+    assert mesh.inbound_setting(None) == ("accept", "managed")  # a later drop-in overrides an earlier one
+    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "20-y.json", ["hold"])
+    assert mesh.inbound_setting(None, "accept") == ("hold", "invalid")  # a value it doesn't know holds
     assert not mesh.worker_accepts(None)
+
+
+def test_an_unknown_inbound_value_anywhere_holds(mesh, tmp_path):
+    # Claude Code turns a settings warning on crossSessionInbound into a hold, whatever file it's in.
+    write_settings(mesh.claude_home() / "settings.json", "nonsense")
+    assert mesh.inbound_setting(tmp_path, "accept") == ("hold", "invalid")
+    write_settings(mesh.claude_home() / "settings.json", "accept")
+    write_settings(tmp_path / ".claude" / "settings.json", {"x": 1})
+    assert mesh.inbound_setting(tmp_path) == ("hold", "invalid")
+    write_settings(tmp_path / ".claude" / "settings.json", "refuse")
+    assert mesh.inbound_setting(tmp_path) == ("refuse", "repo")  # tighter still
 
 
 def test_transcript_mode_is_the_newest_prompts(mesh, tmp_path):
@@ -6021,11 +6042,27 @@ def test_init_and_status_warn_on_a_holding_inbound_policy(mesh, fake, run, monke
 def test_background_falls_back_to_a_pane_where_settings_hold_messages(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     stub_new_pane(fake)
+    write_settings(repo / ".claude" / "settings.local.json", "hold")  # untracked: not in the worker's worktree
     write_settings(repo / ".claude" / "settings.json", "hold")
+    subprocess.run(["git", "add", ".claude/settings.json"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "hold"], cwd=repo, check=True)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "named",
+                      "--view", "bg"]) == 1
+    assert "--view bg: Claude Code's settings there hold" in capsys.readouterr().err
     assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "crossSessionInbound" in out["notes"][0]
     assert not cli.called("--bg")
+
+
+def test_background_reads_the_worktrees_settings_not_the_checkouts(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    write_settings(repo / ".claude" / "settings.local.json", "hold")  # the user's untracked file, main checkout only
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+                      "--task", "Fix it."]) == 0
+    assert json.loads(capsys.readouterr().out)["view"] == "bg" and cli.called("--bg")
+    assert mesh.load_run(run)["agents"]["proj-copy"]["inbound"] == "accept"  # launched accepting
 
 
 def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, cli, run, repo, monkeypatch, capsys):
@@ -6257,7 +6294,7 @@ def test_a_reopened_root_in_its_own_pane_records_its_new_address(mesh, fake, run
 
 def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, inbox, capsys):
     claude_root(mesh, run)
-    bg_worker(mesh, run)
+    bg_worker(mesh, run, inbound="accept")
     rows = bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
     inbox.listen(777)
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
@@ -6275,7 +6312,7 @@ def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, ru
 
 def test_a_failed_inbox_write_never_hands_back_a_send_message(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
-    bg_worker(mesh, run)
+    bg_worker(mesh, run, inbound="accept")
     bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
     (Path(os.environ["MESH_CC_SOCKS"]) / "777.sock").write_text("")  # not a socket
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 2
@@ -6283,6 +6320,29 @@ def test_a_failed_inbox_write_never_hands_back_a_send_message(mesh, fake, cli, r
     assert "couldn't write into its inbox" in out["error"] and "send_message" not in out
     failed, = [e for e in mesh.read_log(run) if e["event"] == "inbox_failed"]
     assert failed["error"] == "not a socket of this user"
+    # `mesh ring` says the same, instead of typing by its name into no pane.
+    assert mesh.main(["ring", "repo-fix-typo"]) == 2
+    assert "couldn't write into its inbox" in json.loads(capsys.readouterr().out)["error"]
+    assert not fake.called("agent", "prompt")
+
+
+def test_a_background_worker_started_before_the_flag_keeps_send_message(mesh, fake, cli, run, inbox, capsys):
+    # It would hold a frame that asserts no mode, and has no dialog: a Claude sender's SendMessage, as before.
+    claude_root(mesh, run)
+    bg_worker(mesh, run)  # no `inbound`: launched by an older mesh
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
+    address = inbox.listen(777)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
+    assert json.loads(capsys.readouterr().out)["send_message"]["to"] == address and inbox.frames(777) == []
+
+
+def test_a_failed_claude_agents_read_says_so(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, inbound="accept")
+    cli.on("agents", returncode=1)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "x"]) == 2
+    assert "couldn't tell whether repo-fix-typo runs" in json.loads(capsys.readouterr().out)["error"]
+    assert len(cli.called("agents")) == 1  # read once
 
 
 def test_bg_status_speaks_herdr(mesh):
@@ -8856,8 +8916,10 @@ def test_a_claude_pane_worker_is_rung_through_its_socket(mesh, fake, run, inbox,
     with mesh.editing_run(run) as data:
         data["agents"]["repo-lead"]["kind"] = "agy"  # any sender: mesh writes it, not the sender's tool
         data["agents"]["repo-fix-typo"].update(kind="claude", cwd=str(tmp_path), status="running")
-    claude_in_pane(fake, "w2:p5")  # pid 9, started by mesh for this worker
+    claude_in_pane(fake, "w2:p5")  # pid 9, started for this worker by a mesh that didn't pass the flag yet
     inbox.listen(9)
+    assert mesh.native_route(mesh.load_run(run), "repo-lead", "repo-fix-typo") is None  # it would hold the frame
+    claude_in_pane(fake, "w2:p5", *mesh_argv(inbound="accept"))
     delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do it.")
     assert (delivery["rung"], delivery["via"]) == (True, "socket")
     assert inbox.frames(9)[0]["message"]["content"] == "📬 [mesh] task from repo-lead: Do it. (run `mesh inbox`)"
