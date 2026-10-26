@@ -1508,11 +1508,24 @@ def claude_env(strip_mesh: bool = False) -> dict[str, str]:
 
 HOOK_TIMEOUT = 30  # seconds Claude Code gives a worker's hook
 REMINDER_SOURCES = ("compact", "clear", "resume")  # SessionStart sources that get `mesh whoami --reminder`
+# Claude Code caps a hook's text (stdout, `additionalContext`, …) at 10,000 characters: past it, the session gets a
+# file path and a 2,000-character preview, and is never told to read the file. The Stop hook's `reason` is held to it
+# too. Hook text also carries no wall-clock time, so two renders of the same state match.
+HOOK_OUTPUT_MAX = 10_000
 
 
 def hook_command(*args: str) -> str:
     """A shell command running this script, by its absolute path, so a hook works whatever PATH the session has."""
     return shlex.join([str(Path(__file__).absolute()), *args])
+
+
+def hook_text(text: str, limit: int = HOOK_OUTPUT_MAX) -> str:
+    """`text` within Claude Code's hook-output cap: cut at a line end, saying where the rest is."""
+    more = "\n… (cut to fit a hook's output: run `mesh inbox` for the rest)"
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 0, limit - len(more))
+    return text[:cut if cut > 0 else limit - len(more)] + more
 
 
 def worker_hooks(run_id: str, name: str) -> dict:
@@ -4126,7 +4139,7 @@ def cmd_hook(args: argparse.Namespace) -> int:
         print(f"mesh hook {args.event}: {exc}", file=sys.stderr)
         return 0
     if reason:
-        print(json.dumps({"decision": "block", "reason": reason}))
+        print(json.dumps({"decision": "block", "reason": hook_text(reason)}))
     return 0
 
 
@@ -7581,7 +7594,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"mesh whoami --reminder: {exc}", file=sys.stderr)
             return 0
-        print(text)
+        print(hook_text(text))
         return 0
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), me)

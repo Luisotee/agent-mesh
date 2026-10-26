@@ -635,6 +635,35 @@ def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsy
     assert json.loads(capsys.readouterr().out)[0]["type"] == "question"
 
 
+def test_hook_output_stays_under_claude_codes_cap_and_renders_the_same_twice(mesh, fake, run, monkeypatch, capsys):
+    """Past HOOK_OUTPUT_MAX Claude Code swaps a hook's text for a file path and a preview: the largest realistic
+    reminder and Stop reason stay under it, and carry no wall-clock text."""
+    long = "Fix " + "everything " * 5000  # a task whose first line alone is ~55k characters
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", f"# {long}\n\n{long}")
+    for i in range(200):  # a pile of unread mail of every type a worker gets
+        mesh.deliver(run, "repo-lead", "repo-fix-typo", ("task", "answer", "info")[i % 3], f"{i} {long}")
+    capsys.readouterr()
+
+    def reminder():
+        assert mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"]) == 0
+        return capsys.readouterr().out
+
+    first = reminder()
+    real = mesh.time.time
+    monkeypatch.setattr(mesh.time, "time", lambda: real() + 7200)
+    assert reminder() == first  # nothing in it moves with the clock
+    assert len(first) <= mesh.HOOK_OUTPUT_MAX
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert reason and len(reason) <= mesh.HOOK_OUTPUT_MAX
+
+
+def test_hook_text_cuts_an_oversized_text_at_a_line_end(mesh):
+    text = "\n".join(f"line {i}" for i in range(5000))
+    cut = mesh.hook_text(text, limit=100)
+    assert len(cut) <= 100 and cut.startswith("line 0\nline 1\n") and cut.endswith("run `mesh inbox` for the rest)")
+    assert mesh.hook_text("short") == "short"
+
+
 def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, monkeypatch, capsys):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"]["phase"] = "plan"
