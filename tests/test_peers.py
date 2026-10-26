@@ -752,9 +752,9 @@ def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, r
     assert mesh.owes_answer(run, "swarm-research", entry) is True
     monkeypatch.setattr(mesh, "claude_agents", agents([{"id": "other"}]))
     assert mesh.owes_answer(run, "swarm-research", entry) is False
-    # one read per call, and the status is judged on those same rows
-    assert reads == [[], [{"id": "other"}]] and seen == reads
-    assert all(a is b for a, b in zip(seen, reads))
+    # no rows are read once more; the status is judged on the rows the guard saw
+    assert reads == [[], [], [{"id": "other"}]] and seen == [[], [{"id": "other"}]]
+    assert seen[0] is reads[1] and seen[1] is reads[2]
 
 
 def test_a_bg_askers_status_is_unknown_when_claude_agents_cant_answer(mesh, fake, cli, run, monkeypatch):
@@ -765,6 +765,29 @@ def test_a_bg_askers_status_is_unknown_when_claude_agents_cant_answer(mesh, fake
     assert mesh.asker_status("swarm-research", entry) == "gone"
     monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "s1", "status": "idle"}])
     assert mesh.asker_status("swarm-research", entry) == "idle"
+
+
+def test_a_fan_out_gives_up_on_a_peer_held_too_long(mesh, fake, run, monkeypatch):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})  # at a screen mesh doesn't answer
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Q?")
+    old = (mesh.datetime.now(mesh.timezone.utc) - mesh.timedelta(seconds=61)).isoformat()
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": "repo-lead", "type": "task", "screen": "Weird", "at": old}
+    monkeypatch.setattr(mesh.time, "sleep", lambda _: None)
+    out = mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=3600, interval=0.01, held_wait=60)
+    status, line = out["repo-fix-typo"]
+    assert status == 4 and "still waiting at a startup screen (Weird)" in line and "mesh ring repo-fix-typo" in line
+
+    with mesh.editing_run(run) as data:  # held just now: still waited for, until the fan-out's own timeout
+        data["agents"]["repo-fix-typo"]["held"]["at"] = mesh.now_iso()
+    assert mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=0.05, interval=0.01, held_wait=60)["repo-fix-typo"][0] == 6
+
+
+def test_a_bg_askers_status_retries_claude_agents_once(mesh, monkeypatch):
+    entry = {"role": "worker", "kind": "claude", "view": "bg", "session": "s1", "status": "running"}
+    answers = [[], [{"sessionId": "other"}]]  # a passing failure, then rows without it: gone
+    monkeypatch.setattr(mesh, "claude_agents", lambda: answers.pop(0))
+    assert mesh.asker_status("swarm-research", entry) == "gone" and not answers
 
 
 def test_junk_entries_are_reported_by_every_peers_command(mesh, fake, run, repo, monkeypatch, capsys):

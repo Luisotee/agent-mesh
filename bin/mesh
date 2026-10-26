@@ -235,6 +235,7 @@ SETTINGS_CONTINUE_RE = re.compile(r"^\s*[❯>]\s*(?:\d\.\s*)?Continue\s*$", re.M
 STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
 TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
 HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
+HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen before it gives up on it
 STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 
 
@@ -6140,11 +6141,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 
 def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval: float = 5.0,
-               grace: float = SETTLE_GRACE, on_outcome: Callable[[str, int, str], None] | None = None
-               ) -> dict[str, tuple[int, str]]:
+               grace: float = SETTLE_GRACE, on_outcome: Callable[[str, int, str], None] | None = None,
+               held_wait: float = HELD_WAIT) -> dict[str, tuple[int, str]]:
     """watch_agents for a fan-out: every name gets its own outcome, (0, …) for a done/failed or the watch's
     alert (3-8), and the rest are watched on. A plan or question it sends instead ends its watch too (3), as
-    does the timeout (6). `finals` is each one's count of final sends before its task was delivered."""
+    does the timeout (6). `finals` is each one's count of final sends before its task was delivered.
+
+    A watch stays quiet while its worker is held at a startup screen (`release_held`: the root was told at the
+    start), so one still held `held_wait` seconds after its hold gets its own exit 4 instead of keeping the
+    others' answers waiting until the timeout."""
     hang = hang_after()
     watches = {name: Watch(run_id, name, grace, count, hang) for name, count in finals.items()}
     outcomes: dict[str, tuple[int, str]] = {}
@@ -6164,6 +6169,11 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
             events = read_log(run_id)
             for name, watch in list(watches.items()):
                 event = watch.tick(interval, False, bg_rows, events)
+                at_screen = (load_run(run_id)["agents"].get(name) or {}).get("held")  # after the tick's release
+                if not event and at_screen and seconds_since(at_screen.get("at")) >= held_wait:
+                    event = 4, (f"ALERT {name} is still waiting at a startup screen ({at_screen.get('screen')}): the "
+                                f"user clears it in its pane (`herdr agent focus {name}`), then `mesh ring {name}`, "
+                                "and its answer comes to your inbox")
                 report, _ = last_report(events, name)
                 if not event and report and report.get("type") not in FINAL_TYPES:
                     event = 3, (f"ALERT {name} sent a {report['type']} instead of an answer: read it with "
@@ -6207,8 +6217,10 @@ def ask_peers(args: argparse.Namespace) -> int:
 
 def asker_status(name: str, entry: dict) -> str:
     """agent_status, but `unknown` for a background worker that reads gone only because `claude agents`
-    couldn't answer (no rows at all): the status and that guard read the same rows."""
+    couldn't answer (no rows at all, twice): the status and that guard read the same rows."""
     rows = claude_agents() if entry.get("view") == "bg" else None
+    if rows == []:  # once more: a passing failure shouldn't leave a gone worker unknown
+        rows = claude_agents()
     state = agent_status(name, entry, rows)
     return "unknown" if state == "gone" and rows == [] else state
 
