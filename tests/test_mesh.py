@@ -2961,6 +2961,7 @@ def test_resume_refuses_while_a_claude_process_works_in_the_worktree(mesh, fake,
     assert mesh.main(["resume", "proj-fix", "--from-run", "mold"]) == 1
     err = capsys.readouterr().err
     assert "may still be open in process 4242" in err and "ps -o pid,args -p 4242" in err
+    assert "which herdr doesn't list" in err
     assert not fake.called("agent", "start")
 
 
@@ -3041,7 +3042,9 @@ def test_open_without_herdr_refuses_a_conversation_a_process_holds(mesh, fake, r
     monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 4242, "argv": ["claude"], "cwd": str(path / "src")}])
     capsys.readouterr()
     assert mesh.main(["open", "proj-fix"]) == 1
-    assert "may still be open in process 4242" in capsys.readouterr().err and not opened
+    err = capsys.readouterr().err
+    assert "may still be open in process 4242" in err and not opened
+    assert "while herdr can't be asked: herdr cli_error" in err and "which herdr doesn't list" not in err
     monkeypatch.setattr(mesh, "agent_processes", lambda: [])
     assert mesh.main(["open", "proj-fix"]) == 0
     assert opened == [["claude", "--resume", "s-1", "--model", "opus", "--effort", "high"]]

@@ -4399,19 +4399,23 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
             if pid_alive(entry.get(key), entry.get(f"{key}_start")):
                 return {"name": name, "pane_id": None, "pid": entry[key], "answering": answering}
         return None
-    cwd = entry.get("cwd")
+    cwd, unasked = entry.get("cwd"), None
     if agents is None:
         try:
             agents = herdr("agent", "list").get("agents", [])
-        except MeshError:
+        except MeshError as exc:
             if not has_proc():
                 raise  # neither herdr nor a process table can say: don't guess
-            agents = []  # outside herdr (`mesh open` from a plain terminal): only the processes can tell
+            agents, unasked = [], exc  # outside herdr (`mesh open` from a plain terminal): only the processes can tell
     if not cwd or (entry.get("repo") and Path(cwd).resolve() == Path(entry["repo"]).resolve()):
-        return next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
-    top = Path(cwd).resolve()
-    return (next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
-            or process_holder(name, entry, top, procs))
+        holder = next((a for a in agents if a.get("name") == name), None) or process_holder(name, entry, None, procs)
+    else:
+        top = Path(cwd).resolve()
+        holder = (next((a for a in agents if inside(a.get("cwd"), top) or inside(a.get("foreground_cwd"), top)), None)
+                  or process_holder(name, entry, top, procs))
+    if holder and unasked:
+        holder["herdr_error"] = str(unasked)  # so a refusal doesn't claim herdr left it out
+    return holder
 
 
 def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] | None = None) -> dict | None:
@@ -4502,7 +4506,10 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
                         "ask it again once that finishes")
     if holder and holder.get("process"):
         raise MeshError(f"{name}'s conversation may still be open in process {holder['process']} (a {entry.get('kind')} "
-                        f"running in {holder.get('cwd')}, which herdr doesn't list); see it with "
+                        f"running in {holder.get('cwd')}, "
+                        + (f"while herdr can't be asked: {holder['herdr_error']}" if holder.get("herdr_error")
+                           else "which herdr doesn't list")
+                        + "); see it with "
                         f"`ps -o pid,args -p {holder['process']}`, and resume once it has ended")
     if holder:
         where = (f"background session {holder['bg_id']}" if holder.get("bg_id")
