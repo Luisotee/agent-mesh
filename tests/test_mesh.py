@@ -350,6 +350,20 @@ def test_a_pane_worker_herdr_restored_still_cant_stop_its_run(mesh, fake, run, m
     assert (mesh.run_dir(run) / "run.json").exists()
 
 
+def test_a_pane_worker_on_two_runs_cant_stop_either(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    worker = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    mesh.run_dir("mother").mkdir()
+    (mesh.run_dir("mother") / "run.json").write_text(json.dumps({"id": "mother", "root": "x",
+                                                                 "agents": {"repo-old": worker}}))
+    capsys.readouterr()
+    for target in ("mother", run):
+        assert mesh.main(["stop", target, "--run", target]) == 1
+        err = capsys.readouterr().err
+        assert "repo-old is a worker of run mother" in err and "pass --run and --as" not in err
+    assert (mesh.run_dir("mother") / "run.json").exists() and (mesh.run_dir(run) / "run.json").exists()
+
+
 def test_a_pane_worker_herdr_restored_cant_stop_another_run_by_naming_it(mesh, fake, run, monkeypatch, capsys):
     restored(mesh, run, monkeypatch, fake)
     mesh.run_dir("mother").mkdir()
@@ -3738,7 +3752,7 @@ def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, f
     name = json.loads(capsys.readouterr().out)["name"]
 
     def launched(run_id, who):
-        return mesh.mesh_launched(launch_argv(fake), run_id, mesh.load_run(run)["agents"][who], who)
+        return mesh.mesh_launched(launch_argv(fake), run_id, who)
 
     assert launched(run, name) and mesh.load_run(run)["agents"][name]["planning"]  # with its deny list
     assert not launched(run, "repo-fix-typo")  # names this worker of this run
@@ -3754,12 +3768,10 @@ def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, f
     archived_worker(mesh, repo, kind="claude", session="c1")  # a resume (a peer's ask spawns or resumes too)
     assert mesh.main(["resume", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
     assert launched(run, "proj-fix")
-    entry = mesh.load_run(run)["agents"]["proj-fix"]
-    assert not mesh.mesh_launched(["claude", "--resume", "c1"], run, entry, "proj-fix")  # what a herdr restore runs
+    assert not mesh.mesh_launched(["claude", "--resume", "c1"], run, "proj-fix")  # what a herdr restore runs
     link = repo.parent / "mesh-link"
     link.symlink_to(MESH_SCRIPT)  # the installed `mesh` is a symlink to the checkout
-    argv = mesh_argv(run, "proj-fix", "c1", deny=mesh.claude_deny(entry)[1:], script=str(link))
-    assert mesh.mesh_launched(argv, run, entry, "proj-fix")
+    assert mesh.mesh_launched(mesh_argv(run, "proj-fix", "c1", script=str(link)), run, "proj-fix")
 
 
 def test_a_pane_worker_herdr_relaunched_is_reopened_with_its_flags_before_its_doorbell(mesh, fake, run, capsys):
@@ -3768,8 +3780,7 @@ def test_a_pane_worker_herdr_relaunched_is_reopened_with_its_flags_before_its_do
     stub_new_pane(fake)
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
     argv = launch_argv(fake)
-    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
-    assert mesh.mesh_launched(argv, run, entry, "repo-fix-typo") and "Bash(git push:*)" in deny_rules(argv)
+    assert mesh.mesh_launched(argv, run, "repo-fix-typo") and "Bash(git push:*)" in deny_rules(argv)
     assert started(fake)[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high",
                                   "--dangerously-skip-permissions")
     assert fake.called("pane", "close", "w2:p5")
@@ -3782,8 +3793,9 @@ def test_a_pane_worker_herdr_relaunched_is_reopened_with_its_flags_before_its_do
     assert "relaunching" not in entry  # its claim is released
 
 
-@pytest.mark.parametrize("case", ["mesh's own", "herdr can't say", "no claude there", "no leader named", "agy", "bg",
-                                  "another worker's", "another run's", "another script's hook", "no deny list"])
+@pytest.mark.parametrize("case", ["mesh's own", "herdr can't say", "no claude there", "no leader, one claude",
+                                  "no leader, two claudes", "agy", "bg", "another worker's", "another run's",
+                                  "a prompt hook", "another checkout's mesh", "an older deny list"])
 def test_only_a_claude_mesh_didnt_start_in_a_workers_pane_is_reopened(mesh, fake, run, capsys, case):
     claude_planner(mesh, run)
     if case in ("agy", "bg"):
@@ -3791,20 +3803,24 @@ def test_only_a_claude_mesh_didnt_start_in_a_workers_pane_is_reopened(mesh, fake
             data["agents"]["repo-fix-typo"].update(kind="agy") if case == "agy" else \
                 data["agents"]["repo-fix-typo"].update(view="bg", bg_id="ab12")
     deny = mesh.claude_deny(mesh.load_run(run)["agents"]["repo-fix-typo"])[1:]
+    prompt_hook = {"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "Check your work."}]}]}}
     argv = {"mesh's own": mesh_argv(session="s-1", deny=deny), "another worker's": mesh_argv(name="repo-other"),
             "another run's": mesh_argv(run="mold"), "no claude there": ["bash"],
-            "another script's hook": mesh_argv(session="s-1", deny=deny, script="/tmp/fake"),
-            "no deny list": mesh_argv(session="s-1")}.get(case, ["claude", "--resume", "s-1"])
+            "a prompt hook": ["claude", "--resume", "s-1", "--settings", json.dumps(prompt_hook)],
+            # Neither an upgrade nor another checkout's `bin/mesh` delivering takes it for a relaunched one.
+            "another checkout's mesh": mesh_argv(session="s-1", deny=deny, script="/elsewhere/bin/mesh"),
+            "an older deny list": mesh_argv(session="s-1", deny=deny[:-1])}.get(case, ["claude", "--resume", "s-1"])
     claude_in_pane(fake, "w2:p5", *argv)
     if case == "herdr can't say":
         fake.on("pane", "process-info", "--pane", "w2:p5", error="cli_error")
-    if case == "no leader named":  # herdr gives the processes but no group: nothing to tell the agent by
-        fake.on("pane", "process-info", "--pane", "w2:p5", result={"process_info": {
-            "foreground_processes": [{"pid": 9, "argv": ["claude", "--resume", "s-1"]}]}})
+    if case.startswith("no leader"):  # herdr gives the processes but no group: the pane's one Claude, if one
+        restore = {"pid": 9, "argv": ["claude", "--resume", "s-1"]}
+        fake.on("pane", "process-info", "--pane", "w2:p5", result={"process_info": {"foreground_processes": [
+            restore, *([{"pid": 12, "argv": ["claude", "-p", "x"]}] if case.endswith("two claudes") else [])]}})
     stub_new_pane(fake)
     mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."])
     reopened = bool(fake.called("agent", "start"))
-    assert reopened == (case in ("another worker's", "another run's", "another script's hook", "no deny list"))
+    assert reopened == (case in ("another worker's", "another run's", "a prompt hook", "no leader, one claude"))
     if case in ("agy", "bg"):
         assert not fake.called("pane", "process-info")
 
@@ -3840,10 +3856,28 @@ def test_one_delivery_at_a_time_reopens_a_relaunched_worker(mesh, fake, run, cap
     out = json.loads(capsys.readouterr().out)
     if claim == "live":  # stored for the doorbell of the reopen in progress, never a second `claude --resume`
         assert code == 2 and "being reopened" in out["error"] and not fake.called("agent", "start")
+        assert "if that fails, the next message retries" in out["error"]
         assert mesh.load_run(run)["agents"]["repo-fix-typo"]["relaunching"] == mark
     else:
         assert code == 0 and fake.called("agent", "start")
         assert "relaunching" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+@pytest.mark.parametrize("state", ["starting", "held", "running"])
+def test_a_delivery_that_finds_the_worker_already_reopened_rings_it_once_it_runs(mesh, fake, run, state):
+    claude_planner(mesh, run)
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]  # as this delivery saw it: relaunched in w2:p5
+    path = mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "Use ISO dates.")
+    with mesh.editing_run(run) as data:  # meanwhile another delivery's reopen moved it, and released its claim
+        data["agents"]["repo-fix-typo"].update(pane="w9:p10", status="starting" if state == "starting" else "running",
+                                               **({"held": {"screen": "trust"}} if state == "held" else {}))
+    out = mesh.reopen_relaunched(run, "repo-lead", "repo-fix-typo", "answer", "Use ISO dates.", entry, path)
+    if state == "running":
+        assert out is None  # the caller rings the new pane
+    else:  # never typed into a pane at a startup screen: the reopen's own doorbell covers it
+        assert not out["rung"] and "being reopened" in out["error"]
+        assert "relaunching" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert not fake.called("agent", "start") and not fake.called("agent", "prompt")
 
 
 def test_a_relaunched_worker_herdr_lost_is_not_reopened_blind(mesh, fake, run, capsys):
@@ -5743,19 +5777,28 @@ def test_a_session_acting_as_the_root_leaves_its_address(mesh, fake, run, monkey
     assert not [e for e in mesh.read_log(run) if e["event"] == "rebind"]
 
 
-@pytest.mark.parametrize("session", ["root-s", "other-s"])
-def test_a_root_reopened_in_another_pane_is_known_by_its_conversation(mesh, fake, run, monkeypatch, capsys, session):
+@pytest.mark.parametrize("case", ["its pane gone", "its pane's Claude exited", "a `claude -c` beside it",
+                                  "another session"])
+def test_a_root_reopened_in_another_pane_is_known_by_its_conversation(mesh, fake, run, monkeypatch, capsys, case):
     import os
     from pathlib import Path
     old = claude_root(mesh, run)
     with mesh.editing_run(run) as data:
         data["agents"]["repo-lead"]["session"] = "root-s"  # as `mesh init` records it
-    as_claude(monkeypatch, session, 5000)  # `claude --resume root-s` in a new pane, then `--as` (or another session)
+    # `claude --resume root-s` in a new pane, then `--as`; or another session
+    as_claude(monkeypatch, "other-s" if case == "another session" else "root-s", 5000)
     (Path(os.environ["MESH_CC_SOCKS"]) / "5000.sock").write_text("")
     monkeypatch.setenv("HERDR_PANE_ID", "w3:p9")
+    if case == "its pane gone":
+        fake.on("pane", "process-info", "--pane", "w1:p1", error="pane_not_found")
+    elif case == "its pane's Claude exited":
+        claude_in_pane(fake, "w1:p1", "bash")
+    else:  # the root still runs in its pane
+        claude_in_pane(fake, "w1:p1", "claude")
     assert mesh.main(["inbox", "--run", run, "--as", "repo-lead"]) == 0
     address = mesh.load_run(run)["agents"]["repo-lead"]["address"]
-    assert (address == mesh.claude_address() != old) if session == "root-s" else address == old
+    healed = case in ("its pane gone", "its pane's Claude exited")
+    assert (address == mesh.claude_address() != old) if healed else address == old
 
 
 def test_the_root_keeps_its_recorded_conversation_current_from_its_pane(mesh, fake, run, monkeypatch, capsys):
@@ -5784,6 +5827,8 @@ def test_a_reopened_root_in_its_own_pane_records_its_new_address(mesh, fake, run
     address = mesh.load_run(run)["agents"]["repo-lead"]["address"]
     assert address == mesh.claude_address() != old and address.endswith("/5000.sock")
     assert [e["address"] for e in mesh.read_log(run) if e["event"] == "rebind"] == [address]
+    # its session too, so the next command doesn't ask herdr again for it
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "root-s"
 
 
 def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, capsys):

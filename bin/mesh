@@ -676,9 +676,21 @@ def pane_worker(pane: str, run_id: str | None = None) -> tuple[str, str] | None:
     stale entry, and a session resumed into another run is recorded in both. Unlike the pane map, a pane herdr
     can't vouch for is refused: this is only a fallback, and `--run`/`--as` stays the way past it.
     """
+    found = pane_worker_entries(pane, run_id)
+    if len(found) > 1:
+        print(f"mesh: pane {pane} and session {os.environ.get('CLAUDE_CODE_SESSION_ID')} match several workers "
+              f"({', '.join(f'{n} of run {r}' for r, n in found)}); pass --run and --as", file=sys.stderr)
+    if len(found) != 1 or pane_runs_this_claude(pane) is not True:
+        return None
+    return found[0]
+
+
+def pane_worker_entries(pane: str, run_id: str | None = None) -> list[tuple[str, str]]:
+    """(run, name) of every live Claude worker entry recorded with this pane and this session, unconfirmed
+    (`pane_worker`): in `run_id`, else in every live run."""
     current = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not (current and pane):
-        return None
+        return []
     found = []
     for path in [run_dir(run_id) / "run.json"] if run_id else sorted(mesh_home().glob("*/run.json")):
         try:
@@ -689,12 +701,7 @@ def pane_worker(pane: str, run_id: str | None = None) -> tuple[str, str] | None:
                       and entry.get("status") not in ("retiring", "retired")]
         except (OSError, ValueError, AttributeError):
             continue  # unreadable, or not a run
-    if len(found) > 1:
-        print(f"mesh: pane {pane} and session {current} match several workers "
-              f"({', '.join(f'{n} of run {r}' for r, n in found)}); pass --run and --as", file=sys.stderr)
-    if len(found) != 1 or pane_runs_this_claude(pane) is not True:
-        return None
-    return found[0]
+    return found
 
 
 # Why a root's own Claude can fail `pane_runs_this_claude`: it doesn't lead the pane's foreground group.
@@ -794,8 +801,10 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
     process leading it (a nested `claude -p`), and would point the workers at a socket that isn't the root's.
     In its pane, the root is the process leading it (when herdr can't say, the pane is trusted, as the pane map
     does: `foreign_to_pane`), which also keeps its recorded `session` current after a `/clear`. Outside it,
-    only the root's own conversation counts: a root reopened in another pane (`claude --resume`, then `--as`)
-    still runs under its recorded session. A root inside tmux/zellij in its pane is neither, and isn't healed.
+    only the root's own conversation counts, once its pane runs no Claude (`pane_probe`): a root reopened in
+    another pane (`claude --resume`, then `--as`) still runs under its recorded session, but so does a
+    `claude -c` the user starts beside a live root. A root inside tmux/zellij in its pane is neither, and isn't
+    healed.
     """
     run = run or maybe_run(run_id)
     entry = (run or {}).get("agents", {}).get(name, {})
@@ -812,8 +821,8 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
         leads = pane_runs_this_claude(pane)
         if leads is False:
             return
-        update = {**({"address": address} if moved else {}), **({"session": current} if cleared and leads else {})}
-    elif moved and current and current == entry.get("session"):
+        update = {**({"address": address} if moved else {}), **({"session": current} if cleared else {})}
+    elif moved and current and current == entry.get("session") and pane_probe(pane, "claude") in ("missing", "dead"):
         update = {"address": address}
     if update:
         with editing_run(run_id) as data:
@@ -1491,27 +1500,22 @@ def settings_argv(kind: str, env: dict[str, str]) -> list[str]:
     return ["--settings", worker_settings(env, bg=False)] if kind == "claude" else []
 
 
-def mesh_launched(argv: list[str], run_id: str, entry: dict, name: str) -> bool:
+def mesh_launched(argv: list[str], run_id: str, name: str) -> bool:
     """Whether a Claude command line is one mesh started for this worker of this run: its `--settings` carry the
-    worker's own Stop hook (`worker_hooks`: this script, by any path to it, naming the run and the worker), and
-    its `--disallowedTools` hold every rule the entry calls for (`claude_deny`). Every pane launch has both
-    (spawn, resume, swaps)."""
-    deny = claude_deny(entry)[1:]
-    if deny:
-        rules = argv[argv.index("--disallowedTools") + 1:] if "--disallowedTools" in argv else []
-        if not set(deny) <= set(rules[:next((i for i, a in enumerate(rules) if a.startswith("--")), len(rules))]):
-            return False
+    worker's own Stop hook (`worker_hooks`: a mesh script, by whatever path, naming the run and the worker).
+    Every pane launch has it (spawn, resume, swaps), with the deny list the entry called for then; a herdr
+    restore drops the settings with the list. The script's path and today's list aren't compared: either
+    changes with an upgrade or another checkout's `bin/mesh`, which would take every running worker for a
+    relaunched one."""
     want = ["hook", "stop", "--run", run_id, "--as", name]
     for flag, value in zip(argv, argv[1:]):
         if flag != "--settings":
             continue
         try:
             groups = (json.loads(value).get("hooks") or {}).get("Stop") or []
-            for command in (h.get("command") for g in groups for h in g.get("hooks") or []):
-                parts = shlex.split(command)
-                if parts[1:] == want and Path(parts[0]).resolve() == Path(__file__).resolve():
-                    return True
-        except (ValueError, AttributeError, TypeError, IndexError):
+            if any(shlex.split(str(h.get("command") or ""))[1:] == want for g in groups for h in g.get("hooks") or []):
+                return True
+        except (ValueError, AttributeError, TypeError):
             continue
     return False
 
@@ -1529,9 +1533,12 @@ def relaunched_outside_mesh(run_id: str, name: str, entry: dict) -> bool | None:
         return None  # a root's Claude is the user's own, never started by mesh
     info = pane_process_info(entry["pane"])
     leader = foreground_leader(info) if info else None
+    if leader is None and info:  # herdr names no leader: the pane's one Claude, if it has exactly one
+        claudes = [p for p in info.get("foreground_processes") or [] if agent_binary(p.get("argv")) == "claude"]
+        leader = claudes[0] if len(claudes) == 1 else None
     if leader is None or agent_binary(leader.get("argv")) != "claude":
-        return None  # no leader named, or no Claude leads the pane: nothing to tell by
-    return not mesh_launched(leader.get("argv") or [], run_id, entry, name)
+        return None  # no Claude leads the pane, or several and no leader named: nothing to tell by
+    return not mesh_launched(leader.get("argv") or [], run_id, name)
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -2406,22 +2413,26 @@ def reopen_relaunched(run_id: str, sender: str, to: str, mtype: str, body: str, 
     deny list, before its doorbell rings: None when the caller may ring it now, else the delivery to return.
 
     One reopen per worker: the delivery that claims it (`relaunching`, honoured while its process lives) reopens
-    it; another one meanwhile stores its message for the reopened worker's doorbell, and one that finds it
-    already moved to a new pane rings that. A reopen that can't be done (a turn going on, herdr lost the agent)
-    leaves the message unrung: ringing would hand it a turn without its list.
+    it; another one meanwhile, or while the new pane is still starting or held at a startup screen, stores its
+    message for the reopened worker's doorbell, and one that finds it already moved to a new pane and running
+    rings that. A reopen that can't be done (a turn going on, herdr lost the agent) leaves the message unrung:
+    ringing would hand it a turn without its list.
     """
     with editing_run(run_id) as data:
         e = data["agents"][to]
         mark = e.get("relaunching") or {}
-        if e.get("pane") != entry.get("pane"):
+        moved = e.get("pane") != entry.get("pane")
+        busy = pid_alive(mark.get("pid"), mark.get("start")) or (
+            moved and (e.get("status") == "starting" or bool(e.get("held"))))
+        if moved and not busy:
             return None  # another delivery reopened it already
-        busy = pid_alive(mark.get("pid"), mark.get("start"))
         if not busy:
             e["relaunching"] = {"pid": os.getpid(), "start": proc_start(os.getpid())}
     if busy:
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error="being reopened")
         return {"stored": str(path), "rung": False,
-                "error": f"{to} is being reopened with mesh's flags by another delivery, whose doorbell covers this"}
+                "error": f"{to} is being reopened with mesh's flags by another delivery, whose doorbell covers "
+                         "this; if that fails, the next message retries"}
     try:
         swap = swap_model(run_id, to, entry.get("model") or PLAN_CHAIN["claude"][0],
                           entry.get("effort") or DEFAULT_EFFORT, "relaunched", wait_ms=RELAUNCH_WAIT * 1000,
@@ -6949,9 +6960,9 @@ def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
     With a run id to stop, the caller only has to be told apart from a worker, so it's read from the flags and
     the environment, without `identity`'s side effects: the pane map names only roots, so a caller found
     there is never a worker, but a pane worker with no identity in its environment is found by its pane
-    (`pane_worker`). It is refused as a worker of any run it names (`--run`, `MESH_RUN`) or of the
-    target. With neither a name nor a run, it's the user in a plain shell. Without a run id, the caller's
-    identity is the run.
+    (`pane_worker`, in any run; matching several, it's refused as the first). It is refused as a worker of any
+    run it names (`--run`, `MESH_RUN`) or of the target. With neither a name nor a run, it's the user in a plain
+    shell. Without a run id, the caller's identity is the run.
     """
     if not args.run_id:
         run_id, me = identity(args)
@@ -6961,8 +6972,9 @@ def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
         raise MeshError(f"--run {flag_run} names another run than the one to stop ({args.run_id})")
     name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
     runs = dict.fromkeys(r for r in (flag_run, os.environ.get("MESH_RUN"), args.run_id) if r)
-    if not name and (found := pane_worker(os.environ.get("HERDR_PANE_ID") or "")):  # in any run, not just --run
-        runs, name = {found[0]: None, **runs}, found[1]  # a worker herdr restored without its variables
+    pane = os.environ.get("HERDR_PANE_ID") or ""
+    if not name and (found := pane_worker_entries(pane)) and pane_runs_this_claude(pane) is True:
+        runs, name = {found[0][0]: None, **runs}, found[0][1]  # a worker herdr restored without its variables
     return args.run_id, next((r for r in runs if is_worker(r, name)), ""), name or ""
 
 
