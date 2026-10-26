@@ -7340,8 +7340,8 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
         checked = sum(wt["committed"] for wts in by_repo.values() for wt in wts.values())
         print(f"No conflicts among {checked} branch(es) with commits.")
     if overlaps:
-        print("\nWarning: these workers change the same files (committed or not), so their branches may "
-              "conflict once they commit or merge:")
+        print("\nNote: these workers change the same files (committed or not); nothing to do, a conflict this "
+              "turns into is rebased when the PRs merge:")
         print_table([{**r, "files": " ".join(r["files"])} for r in overlaps], ("repo", "branch", "against", "files"))
     return 0
 

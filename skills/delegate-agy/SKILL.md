@@ -3,7 +3,7 @@ name: delegate-agy
 description: >-
   agent-mesh, mode `agy`: hands each repo's part of a change, or a whole task list, to an agy agent running inside that repo, in a visible herdr pane, and supervises them.
   Work is sized to save quota: trivial and small tasks run on Flash with no plan, large ones plan on the strongest model with quota left (Argon → Opus → Flash),
-  get their plan reviewed, then execute on Flash and open a PR, and each PR gets two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a small one of up to 150 lines, which the root reviews itself. Also answers questions about another repo, with agents you can ask again,
+  get their plan reviewed, then execute on Flash and open a PR, and each PR gets two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a single small task's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also answers questions about another repo, with agents you can ask again,
   resume (compacted when large) or hand the change to; asks the registered peer projects' standing askers ("ask the peer projects / the researched projects"); can route large tasks to Claude.
   Use it, whether the user types /delegate-agy or not, when the user wants another repo's part of a change, a question about another repo,
   or a task list handed to agents that work inside those repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), and they don't name the other CLI (Claude, Opus, Sonnet, Fable); with neither named, use this one when you are agy.

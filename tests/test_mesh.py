@@ -6564,7 +6564,7 @@ def test_conflicts_warns_about_overlapping_work_before_it_is_committed(mesh, fak
     assert mesh.main(["conflicts"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("No conflicts among 1 branch(es) with commits.")
-    assert "Warning" in out and "new.txt" in out
+    assert "Note: these workers change the same files" in out and "new.txt" in out
 
 
 def overlap_pairs(mesh, capsys):
