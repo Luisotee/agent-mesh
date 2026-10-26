@@ -2524,6 +2524,26 @@ def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
     assert row["waiting"].endswith(f", waiting until {until.astimezone():%H:%M}") and row["needs"] == "worker"
 
 
+def test_status_shows_a_worker_held_at_a_startup_screen_until_it_is_past_it(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    held_worker(mesh, run)
+    at = mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["at"]
+    data, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("held at a startup screen (Settings Warning) since "
+                                     f"{mesh.datetime.fromisoformat(at).astimezone():%H:%M} (")
+    assert row["waiting"].endswith(", task stored") and row["needs"] == "root" and row["since"] == at
+    assert data["needs_root"] == ["repo-fix-typo"]
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # the user cleared it and prompted it
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].startswith("task unread ") and rows["repo-fix-typo"]["needs"] == "worker"
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    with mesh.editing_run(run) as data:  # its doorbell rang (`release_held`, `mesh ring`): the hold is gone
+        data["agents"]["repo-fix-typo"].pop("held")
+    _, rows = status_rows(mesh, run, capsys)
+    assert not rows["repo-fix-typo"]["waiting"].startswith("held")
+
+
 def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
     fake.on("agent", "get", errors=["agent_not_found"] * 4)
     fake.on("agent", "get", "w1:p1", result={})  # the root's own pane, read for its session: herdr names none
