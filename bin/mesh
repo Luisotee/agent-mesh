@@ -7201,28 +7201,35 @@ def merge_conflicts(repo: str, ours: str, theirs: str) -> list[str] | None:
 
 class Ancestry:
     """`git merge-base --is-ancestor` for one repo within one `mesh conflicts` call. `stacked` asks it of every pair
-    of branches both ways, which repeats the same questions (4,297 asked, 845 distinct, on a run with 46 branches),
+    of branches both ways, which repeats the same questions (4,175 asked, 870 distinct, on a run with 49 worktrees),
     so each ref is resolved to its commit once and each pair of commits asked once. A ref that names no commit
-    contains nothing and is in nothing."""
+    contains nothing and is in nothing; any other git error raises."""
 
     def __init__(self, repo: str, tips: dict[str, str]):
-        self.repo, self.commits = repo, dict(tips)  # ref -> its commit, None if it names none
+        # ref -> its commit, None if it names none; a tip's own id needs no lookup either
+        self.repo, self.commits = repo, {**{tip: tip for tip in tips.values()}, **tips}
         self.known: dict[tuple[str, str], bool] = {}
 
     def commit(self, ref: str) -> str | None:
         if ref not in self.commits:
-            proc = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=self.repo,
-                                  capture_output=True, text=True, env=git_env())
-            self.commits[ref] = proc.stdout.strip() if proc.returncode == 0 else None
+            try:
+                self.commits[ref] = git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", cwd=self.repo)
+            except MeshError:
+                self.commits[ref] = None
         return self.commits[ref]
 
     def contains(self, ancestor: str, ref: str) -> bool:
         pair = (self.commit(ancestor), self.commit(ref))
         if None in pair:
             return False
+        if pair[0] == pair[1]:
+            return True
         if pair not in self.known:
-            self.known[pair] = subprocess.run(["git", "merge-base", "--is-ancestor", *pair], cwd=self.repo,
-                                              capture_output=True, env=git_env()).returncode == 0
+            proc = subprocess.run(["git", "merge-base", "--is-ancestor", *pair], cwd=self.repo, capture_output=True,
+                                  text=True, env=git_env())
+            if proc.returncode not in (0, 1):
+                raise MeshError(f"git merge-base --is-ancestor {' '.join(pair)}: {proc.stderr.strip()}")
+            self.known[pair] = proc.returncode == 0
         return self.known[pair]
 
 
@@ -7230,18 +7237,19 @@ def changed_files(ancestry: Ancestry, wt: dict, target: str) -> set[str]:
     """Paths a worker has touched: its own commits, plus, while its worktree exists, what is staged,
     unstaged or untracked there. Its commits start at its recorded base, so a stacked worker doesn't
     claim its parent's files, or the commits of a base it shares with others; a branch since rebased
-    onto a newer `target` starts there instead."""
-    repo, branch = ancestry.repo, wt["branch"]
-    start = git("merge-base", target, branch, cwd=repo)
+    onto a newer `target` starts there instead. Its commits are read at `wt["tip"]`, the tip `mesh conflicts`
+    read once for every check."""
+    repo, tip = ancestry.repo, wt["tip"]
+    start = git("merge-base", target, tip, cwd=repo)
     if wt.get("base"):
-        own = git("merge-base", wt["base"], branch, cwd=repo)
+        own = git("merge-base", wt["base"], tip, cwd=repo)
         if not ancestry.contains(own, start):
             start = own
     # Raw NUL-separated paths, as `status -z` gives them, and both sides of a rename.
-    diff = subprocess.run(["git", "diff", "--name-only", "-z", "--no-renames", start, branch],
+    diff = subprocess.run(["git", "diff", "--name-only", "-z", "--no-renames", start, tip],
                           cwd=repo, capture_output=True, text=True, env=git_env())
     if diff.returncode != 0:
-        raise MeshError(f"git diff {start} {branch}: {diff.stderr.strip()}")
+        raise MeshError(f"git diff {start} {tip}: {diff.stderr.strip()}")
     files = set(diff.stdout.split("\0"))
     if Path(wt["path"]).is_dir():
         out = subprocess.run(["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
@@ -7305,7 +7313,7 @@ def cmd_conflicts(args: argparse.Namespace) -> int:
                   if not ancestry.contains(a, b) and not ancestry.contains(b, a)]
         conflicting: dict[tuple[str, str], list[str]] = {}
         for branch, against in pairs:
-            files = merge_conflicts(repo, against, branch)
+            files = merge_conflicts(repo, wts[against]["tip"] if against in wts else against, wts[branch]["tip"])
             if files is not None:
                 rows.append({"repo": Path(repo).name, "branch": branch, "against": against, "files": files})
                 conflicting[(branch, against)] = files

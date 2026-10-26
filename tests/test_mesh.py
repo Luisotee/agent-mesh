@@ -6644,7 +6644,8 @@ def test_conflicts_matches_committed_renames_and_non_ascii_paths(mesh, fake, run
     assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["café.txt", "r.txt"]}
 
 
-def test_mesh_reads_a_workers_worktree_without_writing_its_index(mesh, fake, run, repo, capsys):
+def test_mesh_reads_a_workers_worktree_without_writing_its_index(mesh, fake, run, repo, capsys, monkeypatch):
+    monkeypatch.delenv("GIT_OPTIONAL_LOCKS", raising=False)  # the control `git status` below takes git's default
     commit_file(repo, "a.txt", "1\n", "base")
     b1, branch, base = mesh.add_worktree(run, repo, "b1", None)
     index = Path(subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-path", "index"], cwd=b1,
@@ -6686,12 +6687,37 @@ def test_ancestry_asks_once_per_pair_of_commits_and_a_missing_ref_is_in_nothing(
     side = subprocess.run(["git", "rev-parse", "side"], cwd=repo, check=True, capture_output=True,
                           text=True).stdout.strip()
     commit_file(repo, "b.txt", "2\n", "main moves on")
-    ancestry = mesh.Ancestry(str(repo), {})
+    ancestry = mesh.Ancestry(str(repo), {"side": side})
+    assert ancestry.commits[side] == side  # a tip's own id needs no lookup
     assert ancestry.contains("side", "main") and ancestry.contains(side, "main")
     assert len(ancestry.known) == 1  # two names for one commit
     assert not ancestry.contains("main", "side")
     assert not ancestry.contains("0" * 40, "main") and not ancestry.contains("main", "gone")
+    assert ancestry.contains("main", "main") and ancestry.contains(side, "side")  # one commit: no git call
     assert len(ancestry.known) == 2
+
+
+def test_ancestry_raises_on_a_git_error_other_than_no(mesh, repo):
+    commit_file(repo, "a.txt", "1\n", "base")
+    subprocess.run(["git", "branch", "side"], cwd=repo, check=True)
+    commit_file(repo, "a.txt", "2\n", "middle")
+    commit_file(repo, "a.txt", "3\n", "tip")
+    middle = subprocess.run(["git", "rev-parse", "main~1"], cwd=repo, check=True, capture_output=True,
+                            text=True).stdout.strip()
+    (repo / ".git" / "objects" / middle[:2] / middle[2:]).unlink()  # a corrupt history between side and main
+    with pytest.raises(mesh.MeshError, match="is-ancestor"):
+        mesh.Ancestry(str(repo), {}).contains("side", "main")
+
+
+def test_conflicts_reads_each_branch_at_the_tip_it_read_first(mesh, fake, run, repo):
+    commit_file(repo, "a.txt", "1\n", "base")
+    b1, branch, base = mesh.add_worktree(run, repo, "b1", None)
+    commit_file(b1, "x.txt", "x\n", "first")
+    tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=b1, check=True, capture_output=True,
+                         text=True).stdout.strip()
+    commit_file(b1, "y.txt", "y\n", "committed while the check runs")
+    wt = {"repo": str(repo), "branch": branch, "base": base, "path": str(repo / "gone"), "tip": tip}
+    assert mesh.changed_files(mesh.Ancestry(str(repo), {branch: tip}), wt, "main") == {"x.txt"}
 
 
 def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
