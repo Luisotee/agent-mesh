@@ -40,6 +40,7 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Peers
 
+- [ ] Removed peers and deleted clones, left after PR #37's two review rounds (its last Claude re-review has repros): `peers remove` skips the running check when the clone is gone, and says the clone "stays"; `mesh open` on a removed peer recreates its old run branch; a re-asked removed peer compacts with the task focus, not `PEER_FOCUS`; a removed peer's recreated worktree has no owner; a failed `release_worktree` in `peers add` still drops the worktree from its run; a clone-gone single ask can start a stray run first; a numeric `repo` in a hand-edited entry crashes the fan-out; a gone peer with an unanswered question can have its old answer filed under a new one; `set_worker_base` re-implements `editing_run`
 - [ ] `owes_answer` reads `claude agents` twice for a bg peer (`agent_status` and its gone guard), so the two can disagree: read the rows once and pass them to `agent_status` (PR #37 re-review)
 - [ ] Parallel `new_pane` calls (a fan-out's threads) can each create the run's tab, the second overwriting the record: hold `.panes.lock` around the tab lookup, create and record (pre-existing, PR #37 re-review)
 - [ ] An agy read-only asker has no deny list, so nothing stops it writing mesh state or files: the PR #33 agy reviewer seemingly ran `mesh peers add` against the real `~/.local/state/agent-mesh` (`test-peer` / `missing-repo-peer` appeared, then went). Consider a `MESH_HOME` sandbox for askers, or a prompt line for agy reviewers to use a temp `MESH_HOME`
@@ -49,6 +50,8 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Root context
 
+- [ ] A nested `claude -c -p` in the root's pane can still fool the herdr-only callers of `root_session` (`maybe_autoreset`, `reset_root`): prefer the root's last recorded `reset.new_session` when herdr's session has the older transcript; and the newest-transcript pick can misfire while a nested Claude writes concurrently (PR #34 re-review, low)
+- [ ] After a power outage, herdr restored the Claude worker panes without their `MESH_*` environment, so `mesh inbox` said "not in a mesh run" and workers had to pass `--run … --as …`; let a pane worker be found by its pane (as roots are, through `by-pane`) when its process is the recorded session's
 - [ ] Measure an agy root before its first `mesh reset`: nothing ties an agy conversation to a pane yet (no herdr agy integration reports a session), so it has no hint line until a reset records its conversation
 - [ ] `--as <root>` from another Claude session (the user acting for the root, or a test) makes `refresh_root_address` record that session's socket as the root's address, until the root's own next command records it back: only refresh when the caller's process is the root's (`pane_runs_this_claude`)
 - [ ] Maybe: `mesh reset` for a root in a pane herdr reads `unknown` (an agent herdr lost): today it waits until `MESH_RESET_WAIT` and fails
