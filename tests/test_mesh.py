@@ -2592,7 +2592,35 @@ def test_in_review_counts_only_the_pr_a_reviewer_reviews_now(mesh, fake, cli, ru
     assert rows["repo-fix-typo"]["needs"] == "root" and "in review" not in rows["repo-fix-typo"]["waiting"]
     mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): how does X work?"))
     _, rows = status_rows(mesh, run, capsys)
-    assert rows["repo-fix-typo"]["needs"] == "root"  # a question isn't a review
+    assert rows["repo-fix-typo"]["needs"] == "root"  # a follow-up is about #8, the review it follows
+
+
+def test_a_follow_up_question_to_a_reviewer_keeps_the_pr_in_review(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {pr}")
+    add_worker(mesh, run, "proj-review", reviews=[pr])
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Review (read-only) of {pr}: review it."))
+    mesh.record(run, "proj-review", "repo-lead", "done", "One finding.")
+    _, rows = status_rows(mesh, run, capsys)
+    assert "in review" not in rows["repo-fix-typo"]["waiting"]
+    for question in ("Why is the finding blocking?", "And the other file?"):  # each follow-up, without --review
+        mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Question (read-only): {question}"))
+        _, rows = status_rows(mesh, run, capsys)
+        assert rows["repo-fix-typo"]["waiting"].endswith("in review (proj-review)")
+        assert rows["repo-fix-typo"]["needs"] == "worker"
+        mesh.record(run, "proj-review", "repo-lead", "done", "Because …")
+        _, rows = status_rows(mesh, run, capsys)
+        assert "in review" not in rows["repo-fix-typo"]["waiting"]
+    assert mesh.load_run(run)["agents"]["proj-review"]["reviews"] == [pr]  # nothing new recorded
+    # Turned into a change worker, a later question is about that change, not the old review.
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Fix the finding."))
+    mesh.record(run, "proj-review", "repo-lead", "done", "Fixed.")
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): why so?"))
+    _, rows = status_rows(mesh, run, capsys)
+    assert "in review" not in rows["repo-fix-typo"]["waiting"]
 
 
 def test_a_done_without_a_link_takes_only_an_earlier_dones_prs(mesh, fake, cli, run, capsys):

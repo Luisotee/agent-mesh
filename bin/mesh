@@ -3278,9 +3278,16 @@ def report_prs(run_id: str, name: str, entry: dict, report: dict, events: list[d
 
 
 def reviewing_pr(run_id: str, entry: dict, events: list[dict], name: str) -> str | None:
-    """The PR a reviewer's current task reviews: the one its last task names, or its newest review; None
-    when that task isn't a review. `reviews` keeps every PR it ever reviewed."""
-    body = message_body(run_id, last_task(events, name)).lstrip()
+    """The PR a reviewer's current task reviews: the one its last review task names, or its newest review; None
+    when that task isn't a review. A follow-up question (`mesh ask <reviewer> --body …`, no `--review`) is still
+    about the review it follows, so questions are skipped back to that review, but never past a change task.
+    `reviews` keeps every PR it ever reviewed."""
+    tasks = [e for e in events if e.get("event") == "send" and e.get("to") == name and e.get("type") == "task"]
+    body = ""
+    for task in reversed(tasks):
+        body = message_body(run_id, task).lstrip()
+        if not body.startswith("Question (read-only)"):
+            break
     if not body.startswith("Review (read-only)"):
         return None
     named = REVIEW_GIST_RE.match(body)
