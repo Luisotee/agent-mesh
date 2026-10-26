@@ -88,16 +88,18 @@ RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # Claude Code's usage-limit screens (Gas Town's patterns, from real panes), matched on the pane's last LIMIT_LINES
 # lines only, so a limit that has scrolled up doesn't count: "  ⎿  You've hit your limit · resets 7pm (America/…)",
 # or its options menu ("❯ 1. Stop and wait for limit to reset"). Each must start its line, after glyphs, numbers and
-# spaces, so the agent's own output quoting one doesn't count. A plain rate limit (`API Error: Rate limit reached`)
-# is a transient error, not a usage limit, as for agy's QUOTA_RE.
-LIMIT_RE = re.compile(r"^[^A-Za-z'\n]*(?:You've hit your .*limit|(?:[\w'-]+\s+){0,4}limit(?:\s+reached)?\s*·\s*resets "
-                      r"\d+[:\d]*\s*(?:am|pm)\b|Stop and wait for limit to reset|Add funds to continue with extra usage)",
+# spaces, so the agent's own output quoting one doesn't count (a quote mark or backtick before it, straight or curly,
+# ends the prefix: SCREEN_START). A plain rate limit (`API Error: Rate limit reached`) is a transient error, not a
+# usage limit, as for agy's QUOTA_RE.
+SCREEN_START = "^[^A-Za-z'\"`\u2018\u2019\u201c\u201d\\n]*"
+LIMIT_RE = re.compile(SCREEN_START + r"(?:You've hit your .*limit|(?:[\w'-]+\s+){0,4}limit(?:\s+reached)?\s*·\s*"
+                      r"resets \d+[:\d]*\s*(?:am|pm)\b|Stop and wait for limit to reset|Add funds to continue with extra usage)",
                       re.IGNORECASE | re.MULTILINE)
 LIMIT_RESET_RE = re.compile(r"\bresets\s+(.+)", re.IGNORECASE)
 LIMIT_LINES = 20
 # Claude Code's expired-login error, in the pane ("  ⎿  Login expired · Please run /login") and as the text of its
 # session file's `authentication_failed` reply; started as LIMIT_RE is, so the agent quoting it doesn't count.
-LOGIN_RE = re.compile(r"^[^A-Za-z'\"\n]*(?:[\w'-]+\s+){1,4}·\s*Please run /login\b", re.IGNORECASE | re.MULTILINE)
+LOGIN_RE = re.compile(SCREEN_START + r"(?:[\w'-]+\s+){1,4}·\s*Please run /login\b", re.IGNORECASE | re.MULTILINE)
 LOGIN_ERROR = "authentication_failed"
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)

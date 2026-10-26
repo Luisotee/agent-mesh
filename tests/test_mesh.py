@@ -1629,6 +1629,22 @@ def test_usage_limit_reads_only_the_last_lines_of_the_pane(mesh):
     assert mesh.usage_limit(None) is None
 
 
+QUOTED = ('"{}', "“{}”", "‘{}’", "`{}`", "  ⎿  \"{}\"", "> `{}`", "- “{}”")
+
+
+def test_a_quoted_limit_or_login_message_is_not_the_screen(mesh):
+    for text in ("You've hit your limit · resets 7pm (America/Los_Angeles)", "Stop and wait for limit to reset",
+                 "5-hour limit reached · resets 3pm"):
+        assert mesh.usage_limit([text]) is not None  # the screen itself still matches
+        for quote in QUOTED:
+            assert mesh.usage_limit([quote.format(text)]) is None, quote
+    assert mesh.usage_limit(["  ⎿  You've hit your limit · resets 7pm"]) == "7pm"
+    assert mesh.usage_limit(["  ❯ 1. Stop and wait for limit to reset"]) == ""
+    for quote in QUOTED:
+        assert not mesh.login_expired([quote.format("Login expired · Please run /login")]), quote
+    assert mesh.login_expired(["  ⎿  Login expired · Please run /login"])
+
+
 def test_a_claude_worker_at_its_usage_limit_is_exit_7_once_per_task(mesh, fake, run, monkeypatch, capsys):
     claude_worker(mesh, run)
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
