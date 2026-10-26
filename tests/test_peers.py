@@ -496,3 +496,15 @@ def test_the_answers_file_says_who_answered(mesh, fake, cli, run, repo, tmp_path
     text = mesh.Path(capsys.readouterr().out.splitlines()[-1].removeprefix("answers: ")).read_text()
     assert "\npeers: Tools like agent-mesh.\n" in text and "## swarm-research\n\n*swarm at" in text
     assert "*A Rust daemon.*" in text
+
+
+def test_mesh_peers_lists_a_broken_entry_instead_of_failing(mesh, fake, repo, tmp_path, monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0
+    with mesh.editing_peers() as data:  # hand-edited: no cwd, a repo that's gone
+        data["peers"]["half-peer"] = {"group": "peers", "repo": str(tmp_path / "gone"), "upstream": {}}
+    capsys.readouterr()
+    assert mesh.main(["peers"]) == 0
+    out = capsys.readouterr().out
+    assert "swarm-research" in out and "half-peer" in out and "broken (KeyError" in out

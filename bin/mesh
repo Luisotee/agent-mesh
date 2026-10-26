@@ -5901,22 +5901,33 @@ def peers_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def peer_row(name: str, peer: dict) -> dict:
+    """One `mesh peers` row: the registry entry, with what its conversation and upstream say now."""
+    found = peer_worker(name, peer)
+    session = find_session(found[0]["id"], found[2], found[3]) if found else None
+    tokens = context_tokens(found[3], session) if session else None
+    head, up = upstream_head(peer), peer["upstream"]
+    return {
+        "name": name, "group": peer.get("group") or "", "kind": peer.get("kind") or "",
+        "upstream": f"{up['remote']}/{up['branch']}" if up.get("remote") else up["branch"],
+        "seen": (peer.get("seen") or "")[:9], "new": commits_between(peer["repo"], peer.get("seen"), head),
+        "context": f"{tokens // 1000}k" if tokens else "", "session": "found" if session else "none yet",
+        "worktree": "present" if Path(peer["cwd"]).exists() else "removed", "asked": (peer.get("asked") or "")[:16],
+        "about": peer.get("about") or "", "repo": peer["repo"], "cwd": peer["cwd"],
+    }
+
+
 def peers_list(args: argparse.Namespace) -> int:
     data = load_peers()
     rows = []
     for name, peer in data["peers"].items():
-        found = peer_worker(name, peer)
-        session = find_session(found[0]["id"], found[2], found[3]) if found else None
-        tokens = context_tokens(found[3], session) if session else None
-        head, up = upstream_head(peer), peer["upstream"]
-        rows.append({
-            "name": name, "group": peer.get("group") or "", "kind": peer.get("kind") or "",
-            "upstream": f"{up['remote']}/{up['branch']}" if up.get("remote") else up["branch"],
-            "seen": (peer.get("seen") or "")[:9], "new": commits_between(peer["repo"], peer.get("seen"), head),
-            "context": f"{tokens // 1000}k" if tokens else "", "session": "found" if session else "none yet",
-            "worktree": "present" if Path(peer["cwd"]).exists() else "removed", "asked": (peer.get("asked") or "")[:16],
-            "about": peer.get("about") or "", "repo": peer["repo"], "cwd": peer["cwd"],
-        })
+        try:
+            rows.append(peer_row(name, peer))
+        except (MeshError, OSError, KeyError, TypeError, AttributeError) as exc:  # a hand-edited or torn entry
+            rows.append({"name": name, "group": peer.get("group") or "", "kind": peer.get("kind") or "",
+                         "upstream": "", "seen": "", "new": "", "context": "", "session": "",
+                         "worktree": f"broken ({type(exc).__name__}: {exc})"[:60], "asked": "",
+                         "about": peer.get("about") or "", "repo": peer.get("repo"), "cwd": peer.get("cwd")})
     groups = data.get("groups") or {}
     if args.json:
         emit({"peers": rows, "groups": groups, "answers": data.get("answers")})
