@@ -2005,6 +2005,8 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
     if path.exists():
         return False
     if not branch and entry.get("peer") and entry.get("repo"):  # a peer's detached worktree, as `peers remove` left it
+        if not Path(entry["repo"]).is_dir():
+            raise MeshError(f"{path} is gone and so is its clone {entry['repo']}: clone it there again to ask it")
         git("worktree", "prune", cwd=entry["repo"])
         path.parent.mkdir(parents=True, exist_ok=True)
         at = entry.get("base")
@@ -2014,6 +2016,8 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
                 break
             except MeshError:
                 continue
+        if not at:
+            raise MeshError(f"{path} is gone, and its clone {entry['repo']} has no commit to recreate it at")
         git("worktree", "add", "--detach", str(path), at, cwd=entry["repo"])
         return True
     if not branch or not entry.get("repo"):
@@ -4747,7 +4751,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     task = read_body(args.task, args.task_file)
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
         raise MeshError(f"{old_name} is a peer asker, which only answers questions about its project: ask it with "
-                        f"`mesh ask {old_name}`, and give a change to a worker in that repo "
+                        f"`mesh ask {peer_name if peer else old_name}`, and give a change to a worker in that repo "
                         f"(`mesh spawn --repo {old.get('repo')}`)")
     # A task it plans first plans where a spawn on `auto` would, whatever it last ran on, and gets the
     # execution phase, so `mesh approve` moves it on; a named model or effort covers the whole task, as in spawn.
@@ -4766,7 +4770,8 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             raise MeshError("a background worker needs a Claude root it can message (see `mesh init`)")
         notes.append("background needs a Claude root that background workers can message; reopening in a pane")
         view = "pane"
-    branch = entry_branch(old_run, old)
+    # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
+    branch = None if peer_name else entry_branch(old_run, old)
     taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
     name, n = old_name, 2
     while name in taken:
@@ -5397,6 +5402,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
         repo = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
     elif args.ref in load_peers()["peers"]:
         peer = load_peers()["peers"][args.ref]
+        problem = peer_problem(peer)
+        if problem:
+            raise MeshError(f"{args.ref}'s registry entry is broken ({problem}): `mesh peers remove {args.ref}` and add "
+                            "it again")
         if args.review:
             raise MeshError(f"{args.ref} is a peer asker, which answers questions about its project; a review goes "
                             "to a reviewer (`mesh ask --repo <path> --review <PR>`)")
@@ -5653,7 +5662,7 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     folder = run_dir(run_id) / "reports"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"peers-{stamp()}.md"
-    asked_groups = {registry[n].get("group") for n in names}
+    asked_groups = {registry[n].get("group") if isinstance(registry[n], dict) else None for n in names}
     group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
         if len(asked_groups) == 1 else None
     parts = [f"# Peer answers: {first_line(body, 120)}", "",
@@ -5664,10 +5673,11 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     for name in names:
         prep, reply = preps[name], replies[name]
         status, line = outcomes[name]
-        where = f"{Path(registry[name]['repo']).name}"
+        entry = registry[name] if isinstance(registry[name], dict) else {}
+        where = Path(entry.get("repo") or name).name
         if prep.get("head"):
             where += f" at {prep['head'][:9]}" + (f", upstream +{prep['new']} since last asked" if prep.get("new") else "")
-        about = registry[name].get("about")
+        about = entry.get("about")
         parts += [f"## {name}", "", f"*{where}*", *(["", f"*{about}*"] if about else []), ""]
         if reply:
             meta, text = reply
@@ -5844,7 +5854,8 @@ def peer_problem(peer) -> str | None:
 def peer_of(name: str, entry: dict) -> dict | None:
     """The registry entry of the peer this worker is, if it is one (same name, same clone)."""
     peer = load_peers()["peers"].get(name)
-    if peer and entry.get("repo") and Path(entry["repo"]).resolve() == Path(peer["repo"]).resolve():
+    if peer and not peer_problem(peer) and entry.get("repo") \
+            and Path(entry["repo"]).resolve() == Path(peer["repo"]).resolve():
         return peer
     return None
 
@@ -5908,13 +5919,14 @@ def select_peers(registry: dict, spec: str) -> list[str]:
     wanted = {part.strip() for part in spec.split(",") if part.strip()}
     if not wanted:
         raise MeshError("which peers? pass `all`, a group or peer names (comma-separated); see `mesh peers`")
-    registry = {n: p for n, p in registry.items() if isinstance(p, dict)}  # `mesh peers` shows a broken one
+    # A broken entry stays in: whoever asks reports it (peer_problem), rather than it vanishing silently.
+    groups = {n: p.get("group") if isinstance(p, dict) else None for n, p in registry.items()}
     if "all" in wanted:
         return list(registry)
-    unknown = wanted - set(registry) - {p.get("group") for p in registry.values()}
+    unknown = wanted - set(registry) - set(groups.values())
     if unknown:
         raise MeshError(f"no peer or group named {', '.join(sorted(unknown))}; see `mesh peers`")
-    return [n for n, p in registry.items() if n in wanted or p.get("group") in wanted]
+    return [n for n in registry if n in wanted or groups[n] in wanted]
 
 
 def same_url(a: str | None, b: str) -> bool:
@@ -6011,13 +6023,15 @@ def peers_add(args: argparse.Namespace) -> int:
     return 0
 
 
-def set_worker_base(folder: Path, name: str, base: str) -> None:
-    """Record `base` on a worker entry in a run's folder, live or archived (`editing_run` takes only live ones)."""
+def set_worker_base(folder: Path, name: str, base: str, peer: str) -> None:
+    """Mark a removed peer's newest worker entry, in a run's folder live or archived (`editing_run` takes only
+    live ones): its `base` is the code it last read, `peer` keeps it refusing a change task once the registry
+    forgets it, and no `branch`, since its worktree is detached (an adopted one's run branch is long gone)."""
     with file_lock(folder / ".lock"):
         path = folder / "run.json"
         data = json.loads(path.read_text())
         if name in data.get("agents", {}):
-            data["agents"][name]["base"] = base
+            data["agents"][name].update(base=base, peer=peer, branch=None)
             write_atomic(path, json.dumps(data, indent=2) + "\n")
 
 
@@ -6044,13 +6058,15 @@ def peers_remove(args: argparse.Namespace) -> int:
                             f"`mesh retire {found[2]}` in run {found[0]['id']} first, then remove it")
         if peer.get("in_clone"):
             kept = "it is the clone's own checkout"
+        elif cwd.exists() and not Path(peer["repo"]).is_dir():
+            kept = "its clone is gone, so git can't remove it: delete it by hand"
         elif cwd.exists():
             if git("status", "--porcelain", cwd=cwd):
                 kept = "it has local changes"
             else:
                 git("worktree", "remove", str(cwd), cwd=peer["repo"])
         if found and peer.get("seen"):  # its conversation, asked again, comes back at the code it last read
-            set_worker_base(found[1], found[2], peer["seen"])
+            set_worker_base(found[1], found[2], peer["seen"], name)
         with editing_peers() as data:
             data["peers"].pop(name, None)
         print(f"{name}: removed; its clone stays at {peer['repo']}"
@@ -6072,6 +6088,9 @@ def peers_edit(args: argparse.Namespace) -> int:
             raise MeshError(f"{target} is both a peer and a group; rename one with `mesh peers edit <peer> --group`")
         if is_peer:
             peer = data["peers"][target]
+            if not isinstance(peer, dict):
+                raise MeshError(f"{target}'s registry entry is broken ({peer_problem(peer)}): `mesh peers remove "
+                                f"{target}` and add it again")
             if args.about is not None:
                 peer["about"] = about_text(args.about)
                 peer.pop("about_from", None)

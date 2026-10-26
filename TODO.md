@@ -40,6 +40,8 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Peers
 
+- [ ] `owes_answer` reads `claude agents` twice for a bg peer (`agent_status` and its gone guard), so the two can disagree: read the rows once and pass them to `agent_status` (PR #37 re-review)
+- [ ] Parallel `new_pane` calls (a fan-out's threads) can each create the run's tab, the second overwriting the record: hold `.panes.lock` around the tab lookup, create and record (pre-existing, PR #37 re-review)
 - [ ] An agy read-only asker has no deny list, so nothing stops it writing mesh state or files: the PR #33 agy reviewer seemingly ran `mesh peers add` against the real `~/.local/state/agent-mesh` (`test-peer` / `missing-repo-peer` appeared, then went). Consider a `MESH_HOME` sandbox for askers, or a prompt line for agy reviewers to use a temp `MESH_HOME`
 - [ ] Live-check `mesh ask --peers orchestrators`: eight panes at once, ccswarm past its Settings Warning on its own, one answers file
 - [ ] A peer held at a startup screen other than the Settings Warning keeps the fan-out waiting until `--timeout`: maybe give a held peer its own shorter deadline
