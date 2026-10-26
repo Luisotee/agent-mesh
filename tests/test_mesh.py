@@ -1794,11 +1794,14 @@ def test_error_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
     # it went on after a new login, or the reset
     assert last(api_error("authentication_failed", "Login expired · Please run /login"), {"type": "user"}, REPLY) is None
     assert last(api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY) is None
-    assert mesh.transcript_stop(entry, "s1") == ("", "")  # read, and fine
+    assert mesh.transcript_stop(entry, "s1") == (mesh.LIMIT_OVER, "")  # read: a limit it went on after
+    assert last(api_error("server_error", "API Error: 500"), {"type": "user"}, REPLY) is None
+    assert mesh.transcript_stop(entry, "s1") == ("", "")  # read, and no usage-limit record
     # a usage limit reached mid-turn: the notice, a few more steps, the turn ends
     tool_result = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 200_000}]}}
     assert last(REPLY, limit_note(), REPLY, tool_result, REPLY) == ("limit", "")  # far past a 64 KB tail
     assert last(limit_note(), REPLY, {"type": "user"}, limit_note("release"), REPLY) is None  # it reset
+    assert mesh.transcript_stop(entry, "s1") == (mesh.LIMIT_OVER, "")
     assert last(limit_note(), REPLY, api_error("authentication_failed", "Login expired")) == ("login", "")  # newer
     assert last(api_error("rate_limit", "You've hit your session limit · resets 2:20am (America/Sao_Paulo)"),
                 limit_note("release"), REPLY) is None
@@ -1821,7 +1824,14 @@ def test_a_readable_session_file_decides_an_old_login_line_on_the_pane(mesh, fak
     write_transcript(mesh, cwd, "s1", api_error("authentication_failed", "Login expired · Please run /login"),
                      {"type": "user"}, REPLY)
     assert watch.limited(entry, False) is None
-    fake.screen("repo-fix-typo", LIMIT_SCREEN)  # so is a usage-limit screen: the file records the limit too
+    # a limit screen with no usage-limit record in the file (a menu that writes none) still counts
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    assert watch.limited(entry, False) == ("limit", "7pm (America/Los_Angeles)")
+    # ...but not once the file records the limit as over
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY, limit_note("release"), REPLY)
+    assert watch.limited(entry, False) is None
+    write_transcript(mesh, cwd, "s1", api_error("rate_limit", "You've hit your session limit · resets 2am"),
+                     {"type": "user"}, REPLY)
     assert watch.limited(entry, False) is None
     write_transcript(mesh, cwd, "s1", REPLY, limit_note(), REPLY)
     assert watch.limited(entry, False) == ("limit", "")

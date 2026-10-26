@@ -1984,12 +1984,14 @@ def last_progress(entry: dict, session: str | None) -> float | None:
 
 
 LIMIT_NOTE = "usage_limit_note"  # transcript_stop's code for Claude Code's usage-limit notice
+LIMIT_OVER = "usage_limit_over"  # ...and for a usage limit it records as over (a `release`, a reply after the error)
 
 
 def transcript_stop(entry: dict, session: str | None, tail: int = 1 << 20) -> tuple[str, str] | None:
     """What stopped a Claude worker, by its session file: the error code and text when its last reply is an API
-    error, (LIMIT_NOTE, the notice) when it was told its usage limit was reached and that still holds, ("", "") when
-    neither (or no reply yet), None when the file can't be read.
+    error, (LIMIT_NOTE, the notice) when it was told its usage limit was reached and that still holds, (LIMIT_OVER,
+    "") when its newest usage-limit record says the limit is over, ("", "") when it holds none (or no reply yet),
+    None when the file can't be read.
 
     Claude Code records an API error as a synthetic assistant entry (`isApiErrorMessage`, an `error` code such as
     `authentication_failed`, `rate_limit` or `server_error`, the text it showed). A usage limit reached mid-turn
@@ -2010,7 +2012,8 @@ def transcript_stop(entry: dict, session: str | None, tail: int = 1 << 20) -> tu
         return None
     replied = False
     for line in reversed(lines):
-        if '"usageLimitNote"' not in line and (replied or '"assistant"' not in line):
+        if '"usageLimitNote"' not in line and ('"assistant"' not in line
+                                                or replied and '"isApiErrorMessage"' not in line):
             continue
         try:
             event = json.loads(line)
@@ -2020,8 +2023,12 @@ def transcript_stop(entry: dict, session: str | None, tail: int = 1 << 20) -> tu
         text = " ".join(c.get("text") or "" for c in content if isinstance(c, dict)) if isinstance(content, list) \
             else str(content or "")
         if event.get("usageLimitNote"):
-            return (LIMIT_NOTE, text) if event["usageLimitNote"] == "wrap_up" else ("", "")
-        if replied or event.get("type") != "assistant":
+            return (LIMIT_NOTE, text) if event["usageLimitNote"] == "wrap_up" else (LIMIT_OVER, "")
+        if event.get("type") != "assistant":
+            continue
+        if replied:
+            if event.get("isApiErrorMessage") and LIMIT_RE.search(text):
+                return LIMIT_OVER, ""  # a usage limit it went on after
             continue
         if event.get("isApiErrorMessage"):
             return str(event.get("error") or ""), text
@@ -4369,18 +4376,20 @@ class Watch:
     def limited(self, entry: dict, bg: bool) -> tuple[str, str] | None:
         """("limit", the reset time or "") when a Claude worker is at its usage limit, ("login", "") when its login
         expired, else None: from its session file (`transcript_stop`, which a background worker has too), or, only
-        when that can't be read, the pane's last lines. A login line or limit screen still on the pane after the
-        file says it's over (a later reply, a `release` note) is stale.
+        when that can't be read, the pane's last lines. A readable file decides the login (a login line on the pane
+        after a later reply is stale), and the usage limit when it holds a usage-limit record: a limit screen left
+        on the pane after a `release` is stale, but with no record the screen counts (a limit menu may write none).
         """
         if entry.get("kind") != "claude":
             return None
         stop = transcript_stop(entry, self.conversation(entry))
-        if stop is not None or bg:
-            return error_limit(stop)
+        found = error_limit(stop)
+        if found or bg or (stop and stop[0] == LIMIT_OVER):
+            return found
         lines = pane_lines(self.name)
         if lines is None and entry.get("pane"):
             lines = pane_lines(entry["pane"])
-        if login_expired(lines):
+        if stop is None and login_expired(lines):
             return "login", ""
         reset = usage_limit(lines)
         return ("limit", reset) if reset is not None else None
