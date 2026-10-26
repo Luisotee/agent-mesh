@@ -1738,6 +1738,15 @@ def api_error(code, text):
             "message": {"model": "<synthetic>", "content": [{"type": "text", "text": text}]}}
 
 
+def limit_note(note="wrap_up"):
+    """Claude Code's usage-limit notice (`wrap_up`) or its all-clear after the reset (`release`), trimmed."""
+    text = {"wrap_up": "[Usage limit reached; a short grace allowance remains, then this turn is cut off without "
+                       "warning. …]",
+            "release": "[Earlier usage-limit notes no longer apply. Continue working normally. …]"}[note]
+    return {"type": "user", "isMeta": True, "turnCompanion": True, "usageLimitNote": note,
+            "message": {"role": "user", "content": text}}
+
+
 REPLY = {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done."}]}}
 
 
@@ -1774,7 +1783,7 @@ def test_error_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
 
     def last(*events):
         write_transcript(mesh, entry["cwd"], "s1", *events)
-        return mesh.error_limit(mesh.transcript_error(entry, "s1"))
+        return mesh.error_limit(mesh.transcript_stop(entry, "s1"))
 
     assert last(api_error("authentication_failed", "Login expired · Please run /login")) == ("login", "")
     assert last(api_error("authentication_failed", "Something else")) == ("login", "")  # the code is enough
@@ -1785,9 +1794,18 @@ def test_error_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
     # it went on after a new login, or the reset
     assert last(api_error("authentication_failed", "Login expired · Please run /login"), {"type": "user"}, REPLY) is None
     assert last(api_error("rate_limit", "You've hit your limit"), {"type": "user"}, REPLY) is None
-    assert mesh.transcript_error(entry, "s1") == ("", "")  # read, and fine
-    assert last({"type": "user"}) is None and mesh.transcript_error(entry, "s1") == ("", "")
-    assert mesh.transcript_error(entry, "missing") is None and mesh.transcript_error({**entry, "kind": "agy"}, "s1") is None
+    assert mesh.transcript_stop(entry, "s1") == ("", "")  # read, and fine
+    # a usage limit reached mid-turn: the notice, a few more steps, the turn ends
+    tool_result = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 200_000}]}}
+    assert last(REPLY, limit_note(), REPLY, tool_result, REPLY) == ("limit", "")  # far past a 64 KB tail
+    assert last(limit_note(), REPLY, {"type": "user"}, limit_note("release"), REPLY) is None  # it reset
+    assert last(limit_note(), REPLY, api_error("authentication_failed", "Login expired")) == ("login", "")  # newer
+    assert last(api_error("rate_limit", "You've hit your session limit · resets 2:20am (America/Sao_Paulo)"),
+                limit_note("release"), REPLY) is None
+    # a reply quoting the field isn't the note
+    assert last({"type": "assistant", "message": {"content": [{"type": "text", "text": '"usageLimitNote"'}]}}) is None
+    assert last({"type": "user"}) is None and mesh.transcript_stop(entry, "s1") == ("", "")
+    assert mesh.transcript_stop(entry, "missing") is None and mesh.transcript_stop({**entry, "kind": "agy"}, "s1") is None
 
 
 def test_a_readable_session_file_decides_an_old_login_line_on_the_pane(mesh, fake, run, monkeypatch, tmp_path):
@@ -1803,8 +1821,27 @@ def test_a_readable_session_file_decides_an_old_login_line_on_the_pane(mesh, fak
     write_transcript(mesh, cwd, "s1", api_error("authentication_failed", "Login expired · Please run /login"),
                      {"type": "user"}, REPLY)
     assert watch.limited(entry, False) is None
-    fake.screen("repo-fix-typo", LIMIT_SCREEN)  # the usage-limit screen still counts: it may not reach the file
-    assert watch.limited(entry, False) == ("limit", "7pm (America/Los_Angeles)")
+    fake.screen("repo-fix-typo", LIMIT_SCREEN)  # so is a usage-limit screen: the file records the limit too
+    assert watch.limited(entry, False) is None
+    write_transcript(mesh, cwd, "s1", REPLY, limit_note(), REPLY)
+    assert watch.limited(entry, False) == ("limit", "")
+    claude_worker(mesh, run, session="gone")  # no readable session file: the pane decides
+    assert watch.limited(mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"), False) == \
+        ("limit", "7pm (America/Los_Angeles)")
+
+
+def test_a_worker_told_of_its_usage_limit_is_exit_7_once_its_turn_ends(mesh, fake, run, monkeypatch, tmp_path,
+                                                                       capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
+    cwd = str(tmp_path / "wt")
+    claude_worker(mesh, run, cwd=cwd, session="s1")
+    write_transcript(mesh, cwd, "s1", REPLY, limit_note(), REPLY)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    states_then(mesh, monkeypatch, "working", "idle")
+    fake.screen("repo-fix-typo", "● I hit the usage limit; task 2 isn't finished.\n❯ ")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 7
+    assert capsys.readouterr().out.startswith("ALERT repo-fix-typo hit Claude's usage limit; ")
+    assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]
 
 
 def mesh_argv(run="mtest", name="repo-fix-typo", session="s1", deny=(), script=None):
@@ -1924,16 +1961,19 @@ def test_a_worker_that_reported_is_never_hung_or_gone_over_a_stale_working(mesh,
 
 
 def test_hung_waits_only_while_the_alerted_usage_limit_lasts(mesh, fake, run, monkeypatch, tmp_path):
-    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    cwd, path = stale_transcript(mesh, monkeypatch, tmp_path)
     claude_worker(mesh, run, cwd=cwd, session="s1")
+    then = time.time() - 3000
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY)
+    os.utime(path, (then, then))
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     mesh.record_alert(run, "repo-fix-typo", 1, "limit")
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
     fake.calls.clear()  # the delivery looked at its pane once (relaunched_outside_mesh)
-    fake.screen("repo-fix-typo", LIMIT_SCREEN)
     assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
     assert not fake.called("pane", "process-info")  # no probing while it lasts
-    fake.screen("repo-fix-typo", "● Bash(npm test -- --watch)\n  ⎿  Running…")  # it reset, the worker went on
+    write_transcript(mesh, cwd, "s1", limit_note(), REPLY, limit_note("release"), REPLY)  # it reset, went on
+    os.utime(path, (then, then))
     claude_in_pane(fake, "w2:p5")
     assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5)[0] == 8
 

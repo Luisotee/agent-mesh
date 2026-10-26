@@ -1983,12 +1983,21 @@ def last_progress(entry: dict, session: str | None) -> float | None:
     return max(times, default=None)
 
 
-def transcript_error(entry: dict, session: str | None, tail: int = 65536) -> tuple[str, str] | None:
-    """The error code and text when a Claude worker's last reply is an API error, ("", "") when it isn't (or there
-    is none yet), None when its session file can't be read.
+LIMIT_NOTE = "usage_limit_note"  # transcript_stop's code for Claude Code's usage-limit notice
+
+
+def transcript_stop(entry: dict, session: str | None, tail: int = 1 << 20) -> tuple[str, str] | None:
+    """What stopped a Claude worker, by its session file: the error code and text when its last reply is an API
+    error, (LIMIT_NOTE, the notice) when it was told its usage limit was reached and that still holds, ("", "") when
+    neither (or no reply yet), None when the file can't be read.
 
     Claude Code records an API error as a synthetic assistant entry (`isApiErrorMessage`, an `error` code such as
-    `authentication_failed` or `server_error`, the text it showed).
+    `authentication_failed`, `rate_limit` or `server_error`, the text it showed). A usage limit reached mid-turn
+    is instead a meta user entry, `usageLimitNote: "wrap_up"` ("[Usage limit reached; a short grace allowance
+    remains…"): the worker goes on for a few steps, its turn ends, and the next turn after the reset opens with
+    `usageLimitNote: "release"`. So the last reply decides an error, and the newest note a limit; the turn after
+    the notice is judged only once the worker reads idle, which is when the watch asks. The tail is large because
+    that grace turn can write a few hundred KB after the notice.
     """
     path = claude_transcript(entry, session) if session and entry.get("kind") == "claude" else None
     if not path:
@@ -1999,32 +2008,37 @@ def transcript_error(entry: dict, session: str | None, tail: int = 65536) -> tup
             lines = fh.read().decode(errors="replace").splitlines()
     except OSError:
         return None
+    replied = False
     for line in reversed(lines):
-        if '"assistant"' not in line:
+        if '"usageLimitNote"' not in line and (replied or '"assistant"' not in line):
             continue
         try:
             event = json.loads(line)
         except ValueError:
             continue  # the first line of the tail is usually cut
-        if event.get("type") != "assistant":
-            continue
-        if not event.get("isApiErrorMessage"):
-            return "", ""
         content = (event.get("message") or {}).get("content")
         text = " ".join(c.get("text") or "" for c in content if isinstance(c, dict)) if isinstance(content, list) \
             else str(content or "")
-        return str(event.get("error") or ""), text
+        if event.get("usageLimitNote"):
+            return (LIMIT_NOTE, text) if event["usageLimitNote"] == "wrap_up" else ("", "")
+        if replied or event.get("type") != "assistant":
+            continue
+        if event.get("isApiErrorMessage"):
+            return str(event.get("error") or ""), text
+        replied = True  # an ordinary reply: only a usage-limit notice before it still counts
     return "", ""
 
 
 def error_limit(error: tuple[str, str] | None) -> tuple[str, str] | None:
-    """What a `transcript_error` stops on: ("login", "") for an expired login (`authentication_failed`, or its
-    text), ("limit", the reset time or "") for a usage limit, else None.
+    """What a `transcript_stop` reads as: ("login", "") for an expired login (`authentication_failed`, or its
+    text), ("limit", the reset time or "") for a usage limit (its notice names none), else None.
 
-    The code of a usage limit isn't known (no sample seen yet) and a plain rate limit may share it, so the text
-    decides: it must match LIMIT_RE.
+    A usage limit's error code is `rate_limit` ("You've hit your session limit · resets 2:20am (…)"), but a plain
+    rate limit may share it, so the text decides: it must match LIMIT_RE.
     """
     code, text = error or ("", "")
+    if code == LIMIT_NOTE:
+        return "limit", ""
     if code == LOGIN_ERROR or LOGIN_RE.search(text):
         return "login", ""
     if not LIMIT_RE.search(text):
@@ -4354,22 +4368,19 @@ class Watch:
 
     def limited(self, entry: dict, bg: bool) -> tuple[str, str] | None:
         """("limit", the reset time or "") when a Claude worker is at its usage limit, ("login", "") when its login
-        expired, else None: from its session file's last reply (which a background worker has too), or the pane's
-        last lines.
-
-        A readable session file decides the login: a login line still on the screen after a later reply is over.
-        The pane's usage-limit screen still counts then, since it isn't known to reach the session file.
+        expired, else None: from its session file (`transcript_stop`, which a background worker has too), or, only
+        when that can't be read, the pane's last lines. A login line or limit screen still on the pane after the
+        file says it's over (a later reply, a `release` note) is stale.
         """
         if entry.get("kind") != "claude":
             return None
-        error = transcript_error(entry, self.conversation(entry))
-        found = error_limit(error)
-        if found or bg:
-            return found
+        stop = transcript_stop(entry, self.conversation(entry))
+        if stop is not None or bg:
+            return error_limit(stop)
         lines = pane_lines(self.name)
         if lines is None and entry.get("pane"):
             lines = pane_lines(entry["pane"])
-        if error is None and login_expired(lines):
+        if login_expired(lines):
             return "login", ""
         reset = usage_limit(lines)
         return ("limit", reset) if reset is not None else None
