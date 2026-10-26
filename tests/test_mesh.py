@@ -828,9 +828,20 @@ def test_a_nudge_that_did_not_ring_says_so(mesh, fake, run, monkeypatch, capsys)
     fake.on("agent", "prompt", errors=["agent_blocked"] * 10)
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 3
-    assert "(its nudge was not delivered" in capsys.readouterr().out
+    assert "(its nudge was not delivered (agent_blocked)" in capsys.readouterr().out
     nudges = [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
     assert len(nudges) == 3  # the short schedule: one try and two retries
+
+
+def test_a_nudge_held_by_a_draft_says_someone_is_typing_there(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    fake.screen("repo-fix-typo", "\n".join(claude_pane("❯\xa0half a sentence")))
+    states_then(mesh, monkeypatch, "working", "idle")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 3
+    assert "its nudge was not delivered: someone has a draft typed in its pane" in capsys.readouterr().out
+    assert not [c for c in fake.called("agent", "prompt") if "turn ended" in c[3]]
+    rung = [e for e in mesh.read_log(run) if e["event"] == "nudge_rung"]
+    assert rung[0]["rung"] is False and rung[0]["error"] == "human_draft"
 
 
 def test_an_info_from_the_worker_is_not_a_report(mesh, fake, run, monkeypatch, capsys):

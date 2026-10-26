@@ -3588,14 +3588,15 @@ def waiting_until(events: list[dict], name: str) -> float | None:
 
 
 def nudge_of(events: list[dict], name: str, received: int) -> dict | None:
-    """The logged nudge for `name`'s current task, with `rung` once its doorbell was tried."""
+    """The logged nudge for `name`'s current task, with `rung` (and `error` when it didn't ring) once its
+    doorbell was tried."""
     found = None
     for e in events:
         if e.get("name") == name and e.get("received") == received:
             if e.get("event") == "nudge":
                 found = dict(e)
             elif e.get("event") == "nudge_rung" and found:
-                found["rung"] = e.get("rung")
+                found.update(rung=e.get("rung"), error=e.get("error"))
     return found
 
 
@@ -3706,7 +3707,8 @@ def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
     delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", NUDGE_BODY,
                        delays=NUDGE_RING_DELAYS)
     rung = bool(delivery.get("rung"))
-    log_event(run_id, "nudge_rung", name=name, received=received, rung=rung)
+    log_event(run_id, "nudge_rung", name=name, received=received, rung=rung,
+              **({} if rung else {"error": delivery.get("error")}))
     return rung
 
 
@@ -4035,12 +4037,18 @@ class Watch:
             self.worked, self.idle_for = True, 0.0
             return None
         how = ("nudged once by its Stop hook" if done.get("via") else "nudged once" if done.get("rung")
-               else "its nudge was not delivered")
+               else self.undelivered_nudge(done.get("error")))
         how += self.unread_note()
         line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
                 f"`herdr agent read {name} --source recent-unwrapped --lines 80`{work()}")
         record_alert(run_id, name, received)
         return 3, self.with_tail(line, bg, entry)
+
+    @staticmethod
+    def undelivered_nudge(error: str | None) -> str:
+        if error == "human_draft":  # `ring` doesn't type into a draft: the user is typing there
+            return "its nudge was not delivered: someone has a draft typed in its pane, so mesh didn't type over it"
+        return f"its nudge was not delivered ({error})" if error else "its nudge was not delivered"
 
     def unread_note(self, before: str = ", ", after: str = "") -> str:
         """Says so when a task or answer is still in its mailbox: it never picked it up."""
