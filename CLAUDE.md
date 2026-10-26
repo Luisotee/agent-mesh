@@ -44,6 +44,7 @@ The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to th
 - `protocol/`: Markdown the agents themselves follow, installed as `~/.config/agent-mesh`. `ORCHESTRATE.md` is the root/worker procedure (and the mode table), `PROTOCOL.md` the messaging rules every mesh agent reads, `PLAN_TEMPLATE.md` the plan format. The orchestration is done by agents following these files, not by code, so a behaviour change usually needs both a `bin/mesh` change and a protocol/doc change.
 - `skills/delegate-agy`, `skills/delegate-claude`: the `/delegate-*` entry points. The user can type them, and agents invoke them on their own when a request fits the description (never a worker). They point the root at `ORCHESTRATE.md`.
 - `skills/delegate-review`: a PR review the user asks for, by any mix of Claude, agy and Copilot (or `all`), run in parallel with one `mesh ask` each. It reads only ORCHESTRATE's "Questions and reviews".
+- `skills/find-peers`: finds projects that share a repo's core mechanisms, ranks them by overlap, and on the user's yes registers them as peers (`mesh peers add`) and sends one first brief (`BRIEF.md`, from run mac82's). Root only, any repo.
 - `skills/check-plan`: a worker's self-check of its own draft plan (ORCHESTRATE Worker step 4): verify its claims in the code, attack it, fix the plan. Edits only the plan file, so it runs under the planning deny list; usable by hand in any session.
 - `rules/global-snippet.md`: the block `install.sh` writes between markers into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`.
 
