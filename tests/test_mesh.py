@@ -256,6 +256,78 @@ def as_claude(monkeypatch, session, pid):
     monkeypatch.setenv("CLAUDE_PID", str(pid))
 
 
+def restored(mesh, run, monkeypatch, fake, leader=5000, **entry):
+    """The worker as Claude session `rec-s` in pane w2:p5, and this process as that session, relaunched there by
+    a herdr restore: herdr's variables, none of mesh's. `leader` leads the pane's foreground group."""
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update({"kind": "claude", "view": "pane", "session": "rec-s", **entry})
+    monkeypatch.setenv("HERDR_PANE_ID", "w2:p5")
+    as_claude(monkeypatch, "rec-s", 5000)
+    if leader:
+        in_pane(fake, "w2:p5", leader)
+
+
+def test_a_pane_worker_herdr_restored_without_its_identity_is_found_by_its_pane(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+    assert mesh.main(["whoami", "--run", run]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+
+
+@pytest.mark.parametrize("case", ["other session", "other pane", "nested", "herdr can't say", "retired", "agy",
+                                  "other run", "archived"])
+def test_a_pane_worker_is_found_by_its_pane_only_as_its_own_process(mesh, fake, run, monkeypatch, capsys, case):
+    entry = {"retired": {"status": "retired"}, "agy": {"kind": "agy"}}.get(case, {})
+    leader = {"nested": 7000, "herdr can't say": None}.get(case, 5000)  # nested: a `claude -c -p` of its tool
+    restored(mesh, run, monkeypatch, fake, leader=leader, **entry)
+    if case == "other session":
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-s")
+    if case == "other pane":  # a pane id reused after herdr lost its session
+        monkeypatch.setenv("HERDR_PANE_ID", "w2:p6")
+        in_pane(fake, "w2:p6", 5000)
+    if case == "herdr can't say":
+        fake.on("pane", "process-info", "--pane", "w2:p5", error=("pane_not_found", "gone"))
+    if case == "archived":
+        (mesh.mesh_home() / "archive").mkdir()
+        mesh.run_dir(run).rename(mesh.mesh_home() / "archive" / run)
+    capsys.readouterr()
+    assert mesh.main(["whoami", *(["--run", "mother"] if case == "other run" else [])]) == 1
+    assert "not in a mesh run" in capsys.readouterr().err
+
+
+def test_a_session_on_two_workers_of_a_pane_is_found_by_neither(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    worker = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    (mesh.run_dir("mother")).mkdir()
+    (mesh.run_dir("mother") / "run.json").write_text(json.dumps({"id": "mother", "agents": {"repo-old": worker}}))
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 1
+    assert "match several workers (repo-old of run mother, repo-fix-typo of run mtest)" in capsys.readouterr().err
+    assert mesh.main(["whoami", "--run", run]) == 0  # its run tells them apart
+    assert json.loads(capsys.readouterr().out)["name"] == "repo-fix-typo"
+
+
+def test_an_inherited_identity_falls_back_to_the_pane_worker(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    monkeypatch.setenv("MESH_RUN", "mold")  # a stopped run's identity, from the daemon that relaunched it
+    monkeypatch.setenv("MESH_SELF", "proj-review")
+    capsys.readouterr()
+    assert mesh.main(["whoami"]) == 0
+    out, err = capsys.readouterr()
+    assert json.loads(out)["name"] == "repo-fix-typo" and "acting as repo-fix-typo, this pane's worker" in err
+    assert [e["name"] for e in mesh.read_log(run) if e["event"] == "identity_ignored"] == ["repo-fix-typo"]
+
+
+def test_a_pane_worker_herdr_restored_still_cant_stop_its_run(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    capsys.readouterr()
+    assert mesh.main(["stop", run]) == 1
+    assert "repo-fix-typo is a worker of run mtest" in capsys.readouterr().err
+    assert (mesh.run_dir(run) / "run.json").exists()
+
+
 @pytest.mark.parametrize("herdr_says", ["root-s", "child-s", None])
 def test_the_root_in_its_own_pane_is_the_root(mesh, fake, run, monkeypatch, capsys, herdr_says):
     # A mesh command from the root's own tool. herdr's session report may name a `claude -c -p` the root ran
