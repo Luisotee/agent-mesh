@@ -476,12 +476,13 @@ def claude_process() -> dict:
         # Its process, for the pid-reuse check: CLAUDE_PID, else the ancestor whose record names this socket.
         pid = pid or next((p for p in ancestors() if (process_record(p) or {}).get("messagingSocketPath") == own),
                           None)
-        address = f"uds:{own}" if pid else None
+        address = f"uds:{own}"  # no such ancestor (no /proc): the path alone is checked (`root_reachable`)
     elif pid:
         address = socket_address(pid)
     else:
         pid, address = next(((p, a) for p in ancestors() if (a := socket_address(p))), (None, None))
-    return {"address": address, "pid": pid if address else None, "start": proc_start(pid) if address and pid else None}
+    return {"address": address, "pid": pid if address else None,
+            "start": proc_start(pid) if address and pid else None}
 
 
 def ancestors(depth: int = 16):
@@ -852,40 +853,40 @@ def inbound_setting(cwd: str | Path | None, flag: str | None = None) -> tuple[st
     know, in any of them, holds whatever else is set (its `N()`: the settings warning). Managed drop-ins are
     merged over the base file in name order, so the last that sets it wins. (None, None): unset, so the session's
     permission mode decides. Server-managed policy isn't read."""
-    value = source = None
-    found_all = []
     drop_ins = sorted((CLAUDE_MANAGED / "managed-settings.d").glob("*.json"))
-    managed = (CLAUDE_MANAGED / "managed-settings.json", *drop_ins)
-    for path in managed:
-        if found := settings_inbound(path):
+    managed = [settings_inbound(path) for path in (CLAUDE_MANAGED / "managed-settings.json", *drop_ins)]
+    user = settings_inbound(claude_home() / "settings.json")
+    repo = [settings_inbound(Path(cwd) / ".claude" / name) for name in ("settings.local.json", "settings.json")] \
+        if cwd else []
+    invalid = "invalid" in (*managed, user, *repo)  # settled first: ranked below, only known values are
+    managed, repo = [v for v in managed if v != "invalid"], [v for v in repo if v != "invalid"]
+    user = None if user == "invalid" else user
+    value = source = None
+    for found in managed:
+        if found:
             value, source = found, "managed"
-            found_all.append(found)
     if value is None and flag:
         value, source = flag, "flag"
-    user = settings_inbound(claude_home() / "settings.json")
-    found_all.append(user)
     if value is None and user:
         value, source = user, "user"
-    for name in ("settings.local.json", "settings.json") if cwd else ():
-        found = settings_inbound(Path(cwd) / ".claude" / name)
-        found_all.append(found)
-        if found in INBOUND_RANK and INBOUND_RANK[found] > INBOUND_RANK.get(value or "accept", 1):
+    for found in repo:
+        if found and INBOUND_RANK[found] > INBOUND_RANK[value or "accept"]:
             value, source = found, "repo"
-    if "invalid" in found_all and INBOUND_RANK.get(value or "accept", 0) < INBOUND_RANK["hold"]:
+    if invalid and INBOUND_RANK[value or "accept"] < INBOUND_RANK["hold"]:  # the settings warning holds
         return "hold", "invalid"
     return value, source
 
 
-def background_view(view: str, named: bool, root: dict, cwd: str | Path | None, notes: list[str],
-                    doing: str) -> str:
+def background_view(view: str, named: bool, root: dict, cwd, notes: list[str], doing: str) -> str:
     """`view`, or "pane" (with a note) where a background worker in `cwd` couldn't be messaged: no Claude root
-    it can report to, or settings there that hold cross-session messages (`worker_accepts`). A `--view bg` the
-    caller `named` is refused instead."""
+    it can report to, or settings there that hold cross-session messages (`worker_accepts`; `cwd` UNREAD skips
+    them, for a caller that checks the root before making the worktree). A `--view bg` the caller `named` is
+    refused instead."""
     if view != "bg":
         return view
     if not root_reachable(root):
         why = "a background worker needs a Claude root it can message (see `mesh init`)"
-    elif not worker_accepts(cwd):
+    elif cwd is not UNREAD and not worker_accepts(cwd):
         why = ("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
                "background worker would never see")
     else:
@@ -1727,16 +1728,27 @@ def mesh_launched(argv: list[str], run_id: str, name: str) -> bool:
     changes with an upgrade or another checkout's `bin/mesh`, which would take every running worker for a
     relaunched one."""
     want = ["hook", "stop", "--run", run_id, "--as", name]
-    for flag, value in zip(argv, argv[1:]):
-        if flag != "--settings":
-            continue
+    for settings in launch_settings(argv):
         try:
-            groups = (json.loads(value).get("hooks") or {}).get("Stop") or []
+            groups = (settings.get("hooks") or {}).get("Stop") or []
             if any(shlex.split(str(h.get("command") or ""))[1:] == want for g in groups for h in g.get("hooks") or []):
                 return True
         except (ValueError, AttributeError, TypeError):
             continue
     return False
+
+
+def launch_settings(argv: list[str]):
+    """Each `--settings` JSON object on a command line (one that doesn't parse, or isn't an object, is skipped)."""
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--settings":
+            continue
+        try:
+            settings = json.loads(value)
+        except ValueError:
+            continue
+        if isinstance(settings, dict):
+            yield settings
 
 
 UNREAD = object()  # a `pane_claude` the caller hasn't read yet
@@ -1772,15 +1784,7 @@ def relaunched_outside_mesh(run_id: str, name: str, entry: dict, claude=UNREAD) 
 def launched_accepting(argv: list[str]) -> bool:
     """Whether a Claude command line's `--settings` accept cross-session messages (`worker_settings` since mesh
     passes it): a worker started before then holds a doorbell written into its inbox (design §11)."""
-    for flag, value in zip(argv, argv[1:]):
-        if flag != "--settings":
-            continue
-        try:
-            if json.loads(value).get("crossSessionInbound") == WORKER_INBOUND:
-                return True
-        except (ValueError, AttributeError):
-            continue
-    return False
+    return any(settings.get("crossSessionInbound") == WORKER_INBOUND for settings in launch_settings(argv))
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -2473,6 +2477,15 @@ def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tu
     return path, branch, sha
 
 
+def undo_worktree(run_id: str, repo_top: Path, path: Path, branch: str) -> None:
+    """Take back a worktree `add_worktree` just made (nothing in it yet): the worktree, its branch and its row."""
+    quietly(git, "worktree", "remove", "--force", str(path), cwd=repo_top)
+    quietly(git, "branch", "-D", branch, cwd=repo_top)
+    with editing_run(run_id) as run:
+        run["worktrees"] = [w for w in run.get("worktrees", []) if Path(w["path"]) != Path(path)]
+    log_event(run_id, "worktree_undone", path=str(path), branch=branch)
+
+
 def entry_branch(run: dict, entry: dict) -> str | None:
     """An agent's branch; a restart with --cwd records none, so look its worktree up."""
     if entry.get("branch"):
@@ -2715,8 +2728,8 @@ def native_route(run: dict, sender: str, to: str, claude=UNREAD, rows=UNREAD) ->
         if not (row and row.get("status")):
             return None
         address = socket_address(row.get("pid"))
-        if address and entry.get("inbound") == WORKER_INBOUND and worker_accepts(entry.get("cwd")):
-            return {"socket": address}
+        if entry.get("inbound"):  # launched accepting: by its socket, or not at all (SendMessage is held too)
+            return {"socket": address} if address and worker_accepts(entry.get("cwd")) else None
         return {"send_message": address or to} if claude_sender else None
     claude = pane_claude(entry) if claude is UNREAD else claude
     argv = (claude or {}).get("argv") or []
@@ -2741,6 +2754,10 @@ def bg_unreached(name: str, entry: dict, rows: list[dict] | None) -> str:
                 f"`mesh inbox`, or `mesh ring {name}` once that works again")
     if bg_status(entry, rows) == "gone":
         return f"{name} is not running; `mesh resume {name}` brings it back to read it"
+    if not entry.get("inbound"):
+        return (f"{name} was launched before mesh started workers accepting cross-session messages, so mesh can't "
+                f"write into its inbox, and a background session has no pane to ring: `mesh retire {name}` then "
+                f"`mesh resume {name}` relaunches it accepting them")
     return (f"{name} runs, but mesh couldn't write into its inbox (no socket, a failed write, or settings that "
             "hold cross-session messages), and a background session has no pane to ring; it sees the message at "
             "its next `mesh inbox`")
@@ -3149,6 +3166,8 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if user_review:
         argv = [a for a in argv if a != "--dangerously-skip-permissions"]
         argv += ["--permission-mode", "plan", "--allow-dangerously-skip-permissions"]
+    named_bg, root = bool(getattr(args, "view", None)), run["agents"][run["root"]]
+    view = background_view(view, named_bg, root, UNREAD, notes, "starting")  # refused before any side effect
     branch = base = None
     if args.worktree:
         cwd, branch, base = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -3157,9 +3176,14 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         cwd = repo_top
     # The worktree's own settings decide whether its worker hears from mesh (`.claude/settings.local.json` is
-    # untracked, so the main checkout's may differ).
-    view = background_view(view, bool(getattr(args, "view", None)), run["agents"][run["root"]], cwd, notes,
-                           "starting")
+    # untracked, so the main checkout's may differ); a refusal takes the fresh worktree back, so a retry under
+    # the same name works.
+    try:
+        view = background_view(view, named_bg, root, cwd, notes, "starting")
+    except MeshError:
+        if branch:
+            undo_worktree(run_id, repo_top, cwd, branch)
+        raise
 
     parent = args.parent or me
     if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
@@ -5817,8 +5841,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = getattr(args, "view", None) or old.get("view") or "pane"
     if view == "bg" and old["kind"] != "claude":
         raise MeshError("--view bg is for Claude workers; agy has no background sessions")
-    view = background_view(view, bool(getattr(args, "view", None)), current["agents"][current["root"]],
-                           old.get("cwd"), notes, "reopening in")
+    named_bg, root = bool(getattr(args, "view", None)), current["agents"][current["root"]]
+    view = background_view(view, named_bg, root, UNREAD, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
     taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
@@ -5832,8 +5856,11 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     cwd, repo_top = old["cwd"], Path(old["repo"])
     if peer:  # its own detached worktree, which outlives runs: no branch, and no run's `mesh stop` removes it
         branch, recreated, moved = None, ensure_peer_worktree({**peer, "cwd": cwd}), {}
+        view = background_view(view, named_bg, root, cwd, notes, "reopening in")
     else:
         recreated = ensure_worktree(old, branch)
+        # Its worktree's settings, now that it's back (a retry reuses it), before a move to a new branch.
+        view = background_view(view, named_bg, root, cwd, notes, "reopening in")
         moved = leave_finished_pr(args, run_id, old, branch, task)
     orphan = recreated and peer_name and not peer  # a removed peer's: no registry entry keeps it, so this run does
     if moved.get("note"):
@@ -6788,6 +6815,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
         record_peer_ask(args.ref, prep, run_id, name)
 
     delivery = result.get("delivery") or {}
+    if "send_message" in delivery:  # a background worker launched before mesh started workers accepting
+        emit(result)
+        warn_unwatched(run_id)
+        print(f"mesh: stored; now send it to {name} with SendMessage (`to` and `message` as in send_message). "
+              "Its answer comes back as a cross-session message.", file=sys.stderr)
+        return 0
     if delivery.get("held"):  # only the user can clear it: say so now rather than wait silently
         emit(result)
         status = report_held(name, delivery)

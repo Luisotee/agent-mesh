@@ -327,7 +327,7 @@ mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
 - **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). Before sending it, the worker runs the `check-plan` skill, which checks the plan's claims in the code, attacks it and fixes it. A `Direct task (no plan)` goes straight to the change.
-- **`send_message`:** when `mesh send` prints one (a report to a root in bypass mode), pass it on with `SendMessage`, exactly as printed.
+- **`send_message`:** when `mesh send` prints one (a report to a root in bypass mode, or a message to a background worker launched before workers accepted cross-session messages, until it's retired and resumed), pass it on with `SendMessage`, exactly as printed.
 - **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt. Any worker is refused every `mesh` command but its own (`send` to its parent, `inbox`, `whoami`, `dir`, the readings).
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.
