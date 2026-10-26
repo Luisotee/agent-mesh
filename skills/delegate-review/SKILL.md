@@ -27,7 +27,7 @@ Get a review for the user's request: `$ARGUMENTS` when the user typed the comman
    ```
 
    - **Several reviewers:** they run at the same time, so first make sure there is one run for them all. If `mesh whoami` fails, start one with `mesh init --mode <claude | agy: your own CLI> --request "review <PR>"`. The `--name` keeps their names and worktrees apart.
-   - **You are Claude Code:** run each `mesh ask` with `run_in_background`, all in the same turn; each answer arrives as its notification. A Claude reviewer under a Claude root returns once its task is delivered, and its answer comes back by `SendMessage`; if that `mesh ask` prints a `send_message`, pass it on with `SendMessage` exactly as printed first. `mesh retire <name>` that reviewer once you have no follow-up.
+   - **You are Claude Code:** run each `mesh ask` with `run_in_background`, all in the same turn; each answer arrives as its notification. A Claude reviewer under a Claude root returns once its task is delivered, and its answer comes back as a cross-session message. `mesh retire <name>` that reviewer once you have no follow-up.
    - **You are agy:** start the Claude and agy reviewers with `--no-wait`, then run the Copilot one (if any) in the foreground, then `mesh watch <name>` each pane reviewer that hasn't answered and read the answers with `mesh inbox`. `mesh retire <name>` each pane reviewer once you have no follow-up.
    - **Copilot** runs headless inside its `mesh ask` call, and its findings are what that call prints. While it works, a pane beside you shows what it's doing (`mesh peek --follow`) and closes when it's done.
    - Any other exit code is `mesh watch`'s (see "Questions and reviews" in `~/.config/agent-mesh/ORCHESTRATE.md`, the only section you need).

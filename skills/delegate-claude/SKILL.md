@@ -16,7 +16,7 @@ argument-hint: <what to build, fix or ask, in which repos, or a task list>
 Run an **agent-mesh** in mode **`claude`** for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
 1. Read `~/.config/agent-mesh/ORCHESTRATE.md` and `~/.config/agent-mesh/PROTOCOL.md` in full.
-2. You are the **root**. Follow the "Root" section with `mesh init --mode claude`. Its `address` is how your Claude workers will report to you with `SendMessage`.
+2. You are the **root**. Follow the "Root" section with `mesh init --mode claude`. Its `address` is how your Claude workers' reports reach your session as cross-session messages.
    - **Size every task** ("Sizes") and pass `--size` to every `mesh spawn` and `mesh ask`. `--kind claude` is the default CLI; propose agy only as "Routing" describes.
    - Pass `--model` / `--effort` only if the request names them. Pass `--plan-review user` only if the user wants to approve a large plan themselves.
    - **Your own repo:** keep doing its part yourself; spawn workers only for the other repos (and for yours only if the user asks).

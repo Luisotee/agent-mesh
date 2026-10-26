@@ -54,7 +54,7 @@ Size every task, and pass `--size` on every `mesh spawn` and `mesh ask`. Only la
   - `mesh open <name>` attaches to one from any pane.
   - `--view pane|bg` overrides the default.
   - A fresh reviewer (`mesh ask --review`) gets a pane at any size, so the user sees the review.
-- **When background falls back to a pane:** it needs a Claude root (it reports to you by `SendMessage`) and a repo Claude Code already trusts. When either is missing, the worker opens in a pane instead, and the spawn output says why in `notes`.
+- **When background falls back to a pane:** it needs a Claude root (it reports to you as a cross-session message), a repo Claude Code already trusts, and settings there that don't hold cross-session messages (`crossSessionInbound`). When one is missing, the worker opens in a pane instead, and the spawn output says why in `notes`.
 
 ### Routing
 
@@ -68,8 +68,8 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
 ## Root
 
 1. **Start the run:** `mesh init --mode <mode> --request "<one-line summary>"`.
-   - Under Claude Code, `init` records your session's address (`address` in its output). Claude workers then report to you with `SendMessage`, so nothing is typed into the pane the user works in, and background workers become possible. If your session is reopened, your next mesh command records its new address.
-   - Cross-session messages reach you without the user's approval only when your session and the worker's run in the same permission mode. Workers bypass permissions, so in any other mode the user has to approve each report. If `address` is null (an agy root), every worker uses doorbells.
+   - Under Claude Code, `init` records your session's address (`address` in its output). Claude workers' reports then arrive in your session as cross-session messages, so nothing is typed into the pane the user works in, and background workers become possible. If your session is reopened, your next mesh command records its new address.
+   - How a report reaches you depends on what your session takes without the user's approval (design §11). Under a `crossSessionInbound: accept` setting, or in a mode that asks for permissions, `mesh` writes every report into your session itself, an agy worker's too. In bypass mode, a Claude worker passes it on with `SendMessage`, and an agy worker's doorbell is typed into your pane. A `hold` or `refuse` setting sends every report to your pane, and `init` and `status` warn about it (your settings are yours: mesh never changes them). If `address` is null (an agy root), every worker uses doorbells.
 2. **Find the scope:** which repos the request touches (usually under `~/projects/`). Ask the user only if that's genuinely ambiguous.
    - **Your own repo** (the one you're running in) stays **yours**: you do its part yourself, in your current checkout and branch, exactly as you would without a mesh. Its rules are already loaded in your session. Spawn a worker for it only when the user explicitly asks to delegate it too.
    - **Every other repo** gets a worker.
@@ -95,7 +95,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    Tell the user, in one line per worker, its size, model and where it runs (pane or background). When the spawn output has `notes` (for example "gemini-4-argon-high has 0% left"), add that in a few words.
 5. **Supervise:**
    - **How reports reach you:**
-     - Claude workers under a Claude root report with `SendMessage`. Their message arrives as a cross-session message from the worker and wakes you if you're idle.
+     - Under a Claude root, a report arrives as a cross-session message (from `mesh`, or a Claude worker's `SendMessage`) and wakes you if you're idle.
      - agy workers ring a doorbell in your pane.
      - Either way, the full text is in your mailbox: run `mesh inbox`.
    - **Claude root:** start one `mesh watch --any --alerts --timeout 7200` with `run_in_background` after spawning. It ignores reports, which reach you anyway, and takes on each worker you spawn, resume or ask after it started (from its next poll), and lets a retired one go. It exits with 0 once every worker it watches has reported and ended or been retired (nothing to do; not while a worker is retiring, within 2 minutes of a retire it wasn't resumed from, nor while a `mesh resume` is still compacting, so a group's retire and resume don't end it; started while that's under way, it waits too), with 0 once `mesh stop` starts (`run <run> stopped`, not alerts on the panes it closes; a `mesh watch <worker>` does the same, and a `mesh ask` stopped before its answer exits 1), with 0 at once when a watched worker's `plan`, `question`, `done` or `failed` is still unread in your mailbox (its doorbell was lost: read it with `mesh inbox`), or on an alert:
@@ -173,7 +173,7 @@ Every turn re-reads your whole context: at a twentieth of the input price while 
 
 **Root-only commands:** `mesh reset` resets only the root itself. `mesh approve`, `switch` and `retire` act only for the worker's parent (you), and `mesh stop` refuses any worker. They find you by your pane, as every command does; the user acting for you from another terminal passes `--run <run> --as <your name>`.
 
-**Messages to a worker:** always send them with `mesh send` (or `mesh approve`). If the output has a `send_message` (a background worker has no pane to ring), pass it on with the `SendMessage` tool, with `to` and `message` exactly as printed. A Claude pane worker that something other than mesh relaunched (a herdr restore after a power outage runs plain `claude --resume`, without its hooks or deny list) is first reopened in the same conversation with them: you see a new pane and a `swap` with `why: relaunched`. If it can't be (its turn goes on), the message is stored, not rung, and `mesh send` exits 2 saying so; the next message tries again (`mesh ring` won't ring it), or `mesh retire` then `mesh resume` it.
+**Messages to a worker:** always send them with `mesh send` (or `mesh approve`). A Claude worker's doorbell is written into its session by `mesh` itself (`via: socket`), so nothing is typed into its pane; an agy worker's is typed. A Claude pane worker that something other than mesh relaunched (a herdr restore after a power outage runs plain `claude --resume`, without its hooks or deny list) is first reopened in the same conversation with them: you see a new pane and a `swap` with `why: relaunched`. If it can't be (its turn goes on), the message is stored, not rung, and `mesh send` exits 2 saying so; the next message tries again (`mesh ring` won't ring it), or `mesh retire` then `mesh resume` it.
 
 ## Task lists
 
@@ -224,7 +224,7 @@ mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR 
   - A past worker is resumed, and its conversation is compacted first when it's large (see "Follow-ups").
 - **The question:** give it what you know, as you would in a task file (use `--file` for anything long): what you're working on, what you need back, and in what form.
 - **Waiting:**
-  - **A Claude worker under a Claude root:** `ask` returns once the question is delivered (pass `--wait` to block anyway), and the answer arrives as the worker's `SendMessage`. If the output has a `send_message`, pass it on with `SendMessage` first.
+  - **A Claude worker under a Claude root:** `ask` returns once the question is delivered (pass `--wait` to block anyway), and the answer arrives as a cross-session message.
   - **An agy worker, Claude root:** run `ask` with `run_in_background`, and the answer arrives as the notification.
   - **agy root:** run it in the foreground, or pass `--no-wait` and wait for the doorbell.
   - Exit codes are those of `mesh watch`; on 7 (an agy quota), `mesh switch` the worker and `mesh watch` it; on a Claude usage limit, wait for the reset, and on an expired login, have the user log in, as in "Supervise".

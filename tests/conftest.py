@@ -131,6 +131,52 @@ def mesh(tmp_path, monkeypatch):
     return module
 
 
+class Inboxes:
+    """Real Claude inbox sockets, `<pid>.sock` in a short folder set as MESH_CC_SOCKS (a unix socket's path holds
+    about 108 bytes, more than a test's tmp_path can leave): `listen(pid)` binds one, `frames(pid)` reads back the
+    frames written to it so far, as mesh writes them."""
+
+    def __init__(self, folder):
+        self.folder, self.servers, self.read = folder, {}, {}
+
+    def listen(self, pid):
+        import socket
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(self.folder / f"{pid}.sock"))
+        server.listen(16)
+        server.setblocking(False)
+        self.servers[pid] = server
+        return f"uds:{self.folder / f'{pid}.sock'}"
+
+    def frames(self, pid):
+        server, found = self.servers[pid], self.read.setdefault(pid, [])
+        while True:
+            try:
+                conn, _ = server.accept()
+            except BlockingIOError:
+                return found
+            conn.setblocking(True)
+            with conn:
+                data = b"".join(iter(lambda: conn.recv(65536), b""))
+            found.extend(json.loads(line) for line in data.decode().splitlines() if line)
+
+    def close(self):
+        for server in self.servers.values():
+            server.close()
+
+
+@pytest.fixture
+def inbox(mesh, monkeypatch):
+    import shutil
+    import tempfile
+    folder = Path(tempfile.mkdtemp(prefix="cc", dir="/tmp"))
+    monkeypatch.setenv("MESH_CC_SOCKS", str(folder))
+    inboxes = Inboxes(folder)
+    yield inboxes
+    inboxes.close()
+    shutil.rmtree(folder, ignore_errors=True)
+
+
 @pytest.fixture
 def cli(mesh):
     return mesh.run_cli

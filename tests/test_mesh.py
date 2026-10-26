@@ -572,7 +572,7 @@ def test_a_root_socket_at_a_reused_pid_is_not_the_roots(mesh, fake, run, monkeyp
     monkeypatch.setattr(mesh, "proc_start", lambda p: "now")
     assert mesh.native_route(data, "repo-fix-typo", "repo-lead") is None  # the socket exists, but isn't the root's
     monkeypatch.setattr(mesh, "proc_start", lambda p: "then")
-    assert mesh.native_route(data, "repo-fix-typo", "repo-lead") == address
+    assert mesh.native_route(data, "repo-fix-typo", "repo-lead") == {"send_message": address}
 
 
 def test_a_bg_worker_keeps_its_identity_wherever_it_runs(mesh, fake, cli, run, monkeypatch, capsys):
@@ -1851,7 +1851,7 @@ def test_a_background_worker_at_its_usage_limit_is_read_from_its_transcript(mesh
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     out = capsys.readouterr().out
-    assert "usage limit (resets 3am (UTC))" in out and "pass its send_message on" in out
+    assert "usage limit (resets 3am (UTC))" in out
 
 
 def test_a_background_worker_whose_login_expired_is_read_from_its_transcript(mesh, fake, run, monkeypatch, tmp_path,
@@ -1865,7 +1865,7 @@ def test_a_background_worker_whose_login_expired_is_read_from_its_transcript(mes
     states_then(mesh, monkeypatch, "working", "idle")
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     out = capsys.readouterr().out
-    assert "login expired" in out and "`mesh open repo-fix-typo`" in out and "pass its send_message on" in out
+    assert "login expired" in out and "`mesh open repo-fix-typo`" in out
 
 
 def test_error_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path):
@@ -6255,19 +6255,34 @@ def test_a_reopened_root_in_its_own_pane_records_its_new_address(mesh, fake, run
     assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "root-s"
 
 
-def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, capsys):
-    import os
-    from pathlib import Path
+def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, inbox, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run)
     rows = bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
-    (Path(os.environ["MESH_CC_SOCKS"]) / "777.sock").write_text("")
+    inbox.listen(777)
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
-    assert json.loads(capsys.readouterr().out)["send_message"]["to"].endswith("/777.sock")
+    out = json.loads(capsys.readouterr().out)
+    assert (out["rung"], out["via"]) == (True, "socket") and "send_message" not in out  # mesh wrote it itself
+    frame, = inbox.frames(777)
+    assert frame == {"type": "user", "message": {"role": "user", "content":
+                     "📬 [mesh] answer from repo-lead: Use ISO dates. (run `mesh inbox`)"}}
+    assert [e["via"] for e in mesh.read_log(run) if e["event"] == "rung"] == ["socket"]
     rows[0].pop("status")  # it exited
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Again."]) == 2
     assert "is not running" in json.loads(capsys.readouterr().out)["error"]
-    assert not fake.called("agent", "prompt")
+    assert inbox.frames(777) == [frame] and not fake.called("agent", "prompt")
+
+
+def test_a_failed_inbox_write_never_hands_back_a_send_message(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run)
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
+    (Path(os.environ["MESH_CC_SOCKS"]) / "777.sock").write_text("")  # not a socket
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert "couldn't write into its inbox" in out["error"] and "send_message" not in out
+    failed, = [e for e in mesh.read_log(run) if e["event"] == "inbox_failed"]
+    assert failed["error"] == "not a socket of this user"
 
 
 def test_bg_status_speaks_herdr(mesh):
@@ -8803,3 +8818,64 @@ def test_autoreset_judges_a_root_herdr_lost_by_its_own_process(mesh, fake, run, 
         claude_process(mesh, monkeypatch, 4000, "root-s", status=process)
     assert mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) is reset
     assert bool(started) is reset
+
+
+def root_mode(mesh, mode, session="root-s"):
+    """The root's session file, whose newest prompt ran in `mode`."""
+    path = mesh.claude_sessions_dir("/repo") / f"{session}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"type": "user", "permissionMode": mode}) + "\n")
+
+
+def test_the_root_lane_follows_its_inbound_setting_and_mode(mesh, fake, run, inbox):
+    address = inbox.listen(4242)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"].update(address=address, session="root-s")
+    data = mesh.load_run(run)
+    route = lambda sender_kind: mesh.native_route(  # noqa: E731
+        {**data, "agents": {**data["agents"], "repo-fix-typo": {**data["agents"]["repo-fix-typo"],
+                                                                "kind": sender_kind}}}, "repo-fix-typo", "repo-lead")
+    # Its mode unknown: what a bypass root takes, a Claude worker's SendMessage (same class), else its pane.
+    assert (route("claude"), route("agy")) == ({"send_message": address}, None)
+    root_mode(mesh, "bypassPermissions")
+    assert (route("claude"), route("agy")) == ({"send_message": address}, None)
+    root_mode(mesh, "acceptEdits")  # a prompting root takes a frame that asserts no mode, from anyone
+    assert route("claude") == route("agy") == {"socket": address}
+    write_settings(mesh.claude_home() / "settings.json", "hold")  # held whatever the mode: its pane
+    assert route("claude") is None and route("agy") is None
+    root_mode(mesh, "bypassPermissions")
+    write_settings(mesh.claude_home() / "settings.json", "accept")
+    assert route("agy") == {"socket": address}
+    # An agy worker's report lands in the root's session, not in what the user types in its pane.
+    delivery = mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    assert (delivery["rung"], delivery["via"]) == (True, "socket") and not fake.called("agent", "prompt")
+    assert inbox.frames(4242)[0]["message"]["content"].startswith("📬 [mesh] done from repo-fix-typo: Fixed.")
+
+
+def test_a_claude_pane_worker_is_rung_through_its_socket(mesh, fake, run, inbox, tmp_path, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "agy"  # any sender: mesh writes it, not the sender's tool
+        data["agents"]["repo-fix-typo"].update(kind="claude", cwd=str(tmp_path), status="running")
+    claude_in_pane(fake, "w2:p5")  # pid 9, started by mesh for this worker
+    inbox.listen(9)
+    delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Do it.")
+    assert (delivery["rung"], delivery["via"]) == (True, "socket")
+    assert inbox.frames(9)[0]["message"]["content"] == "📬 [mesh] task from repo-lead: Do it. (run `mesh inbox`)"
+    assert not fake.called("agent", "prompt")
+    # `mesh ring` goes the same way.
+    monkeypatch.setenv("MESH_SELF", "repo-lead")
+    monkeypatch.setenv("MESH_RUN", run)
+    assert mesh.main(["ring", "repo-fix-typo", "--as", "repo-lead"]) == 0
+    assert json.loads(capsys.readouterr().out)["via"] == "socket"
+    assert inbox.frames(9)[1]["message"]["content"] == "📬 [mesh] you have 1 unread message(s) (run `mesh inbox`)"
+    # Settings that hold cross-session messages there: typed into its pane as before.
+    write_settings(tmp_path / ".claude" / "settings.json", "hold")
+    assert mesh.native_route(mesh.load_run(run), "repo-lead", "repo-fix-typo") is None
+
+
+def test_a_failed_write_to_the_root_rings_its_pane(mesh, fake, run):
+    claude_root(mesh, run)  # a plain file where its socket was
+    write_settings(mesh.claude_home() / "settings.json", "accept")
+    mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    assert [e["event"] for e in mesh.read_log(run) if e["event"] in ("inbox_failed", "native")] == ["inbox_failed"]
+    assert fake.called("agent", "prompt")
