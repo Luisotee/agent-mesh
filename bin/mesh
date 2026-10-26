@@ -6578,6 +6578,7 @@ RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its in
 RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
 CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
+CLEAR_FILE_GRACE = 5  # seconds the root's process file gets to follow a /clear herdr has already reported
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
@@ -6632,11 +6633,6 @@ def pane_agent(pane: str) -> dict:
         return herdr("agent", "get", pane).get("agent") or {}
     except HerdrError:
         return {}
-
-
-def pane_session(pane: str) -> str | None:
-    """The session of a Claude pane's own process (`leader_session`), else what herdr reports for it."""
-    return leader_session(pane) or (pane_agent(pane).get("agent_session") or {}).get("value")
 
 
 def root_session(entry: dict, as_root: bool = False, recorded: str | None = None) -> str | None:
@@ -6866,18 +6862,84 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
-def quiet_box(pane: str) -> tuple[bool, str]:
+# Transcript entries Claude Code also writes while it waits for input: they say nothing about a turn.
+IDLE_ENTRIES = ("cost-state", "ai-title", "custom-title", "last-prompt", "mode", "permission-mode", "atis-latch",
+                "file-history-snapshot", "summary", "agent-name", "pr-link")
+IDLE_SYSTEM = ("away_summary",)  # `system` entries of that kind (the recap Claude writes while it waits)
+TRANSCRIPT_STILL = 5  # seconds a lost root's transcript must have been still before its turn counts as ended
+LOST_ROOT = "herdr has lost track of this root's pane: restart herdr's agent detection or /clear by hand"
+
+
+class LostRoot(MeshError):
+    """herdr reads the root `unknown` and nothing else can tell whether its turn has ended."""
+
+
+def turn_ended(path: Path, tail: int = 1 << 20) -> bool:
+    """Whether a Claude session file shows its last turn over: its last telling entry is the turn's
+    `turn_duration`, or an assistant message that ended the turn (`end_turn`) with no tool call. A prompt, a
+    tool result, a queued message, an API request or anything unknown says it isn't (or can't be sure)."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, fh.seek(0, os.SEEK_END) - tail))
+            lines = fh.read().decode(errors="replace").splitlines()
+    except OSError:
+        return False
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue  # the first line of the tail is usually cut
+        kind = event.get("type") if isinstance(event, dict) else None
+        if kind in IDLE_ENTRIES or kind == "system" and event.get("subtype") in IDLE_SYSTEM:
+            continue
+        if kind == "system" and event.get("subtype") == "turn_duration":
+            return True
+        message = event.get("message") if kind == "assistant" else None
+        if not isinstance(message, dict) or message.get("stop_reason") != "end_turn":
+            return False
+        content = message.get("content")
+        return not any(isinstance(c, dict) and c.get("type") == "tool_use"
+                       for c in (content if isinstance(content, list) else []))
+    return False
+
+
+def lost_root_quiet(entry: dict) -> tuple[bool, str]:
+    """For a Claude root herdr reads `unknown` (an agent it lost): whether its turn has ended, from the session
+    file of the Claude still leading its pane, which must have been still for TRANSCRIPT_STILL seconds. Raises
+    LostRoot when that can't be told: no such Claude, or no session file to read."""
+    session = leader_session(entry["pane"]) if entry.get("kind") == "claude" else None
+    path = root_transcript(entry, session) if session else None
+    if not path:
+        raise LostRoot(LOST_ROOT)
+    try:
+        still = time.time() - path.stat().st_mtime
+    except OSError:
+        raise LostRoot(LOST_ROOT)
+    if still < TRANSCRIPT_STILL or not turn_ended(path):
+        return False, "herdr has lost track of it, and its session file shows a turn in progress"
+    return True, ""
+
+
+def quiet_box(pane: str, entry: dict | None = None, lost_ok: bool = True) -> tuple[bool, str]:
     """Whether the pane's agent has ended its turn with an empty input box, and if not, why not.
 
     Claude runs a typed /clear at once even mid-turn, throwing the turn away (live test, design §15), so the
     check is positive: herdr reads idle or done, and the box reads empty (ghost text is dim, not typed). A
-    draft, or a box that can't be read, holds it.
+    draft, or a box that can't be read, holds it. A Claude root herdr reads `unknown` is judged by its session
+    file instead (`lost_root_quiet`, given its `entry`), unless `lost_ok` is false (a compaction, which waits
+    on herdr's status): then, as when the file can't tell, it raises LostRoot rather than wait for herdr.
     """
     agent = pane_agent(pane)
     status = agent.get("agent_status")
     if not agent:
         return False, "its pane has no agent"
-    if status not in QUIET_STATES:
+    if status == "unknown" and entry is not None:
+        if not lost_ok:
+            raise LostRoot(f"{LOST_ROOT} (a --compact needs herdr to see the compaction run)")
+        ok, why = lost_root_quiet(entry)
+        if not ok:
+            return ok, why
+    elif status not in QUIET_STATES:
         return False, f"it reads {status}"
     lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
     typed = typed_text(lines) if lines is not None else None
@@ -6893,19 +6955,32 @@ def agy_conversations() -> set[str]:
     return {p.stem for p in folder.glob("*.db")} if folder.is_dir() else set()
 
 
-def cleared_session(entry: dict, before: str | None, agy_before: set[str]) -> set[str]:
-    """The new conversation(s) a typed /clear started, once one shows: Claude's from `pane_session`,
-    agy's as conversation files that weren't there before (another agy may have started one meanwhile:
-    `agy_root_conversation` tells them apart); empty if none showed in time."""
-    for _ in range(CLEAR_CONFIRM):
+def cleared_session(entry: dict, before: str | None, agy_before: set[str],
+                    reported_before: str | None = None) -> set[str]:
+    """The new conversation(s) a typed /clear started, once one shows; empty if none showed in time.
+
+    Claude: the root's process file (`leader_session`) moving off `before`, which a nested Claude can't fake.
+    herdr's report moving off `reported_before` counts too, as it did before the file was read: at once when
+    there is no file, else once the file has had CLEAR_FILE_GRACE more seconds to follow, so a file that is
+    slow to follow never fails a reset that worked. agy: conversation files that weren't there before (another
+    agy may have started one meanwhile: `agy_root_conversation` tells them apart)."""
+    seen = None  # the second herdr first reported a new session
+    second = 0
+    while second < CLEAR_CONFIRM or seen is not None:
         if entry.get("kind") == "agy":
             if new := agy_conversations() - agy_before:
                 return new
         else:
-            current = pane_session(entry["pane"])
+            current = leader_session(entry["pane"])
             if current and current != before:
                 return {current}
+            reported = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value")
+            if reported and reported != reported_before:
+                seen = second if seen is None else seen
+                if current is None or second - seen >= CLEAR_FILE_GRACE:
+                    return {reported}
         time.sleep(1)
+        second += 1
     return set()
 
 
@@ -6958,16 +7033,26 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         print(f"mesh reset: {event}: {reason}", flush=True)
         return 1
 
+    def quiet_now() -> tuple[bool, str]:
+        return quiet_box(pane, entry, lost_ok=compact is None)
+
     while True:
-        ok, why = quiet_box(pane)
+        try:
+            ok, why = quiet_now()
+        except LostRoot as exc:
+            return failed("reset_failed", str(exc))
         quiet = quiet + 1 if ok else 0
         if quiet >= RESET_QUIET_READS:
             with ring_lock(pane) as locked:  # nothing else types into the pane meanwhile
-                ok, why = quiet_box(pane) if locked else (False, "another ring holds its pane")
+                try:
+                    ok, why = quiet_now() if locked else (False, "another ring holds its pane")
+                except LostRoot as exc:
+                    return failed("reset_failed", str(exc))
                 if ok:
                     if waits := root_mail(run_id, root, BLOCKING_TYPES):  # a report on its way rings after this
                         return failed("reset_cancelled", f"{mail_text(waits)} arrived")
-                    before = entry.get("session") if kind == "agy" else pane_session(pane)
+                    reported_before = (pane_agent(pane).get("agent_session") or {}).get("value")
+                    before = entry.get("session") if kind == "agy" else leader_session(pane) or reported_before
                     agy_before = agy_conversations() if kind == "agy" else set()
                     command = f"/compact {compact}".strip() if compact is not None else "/clear"
                     try:
@@ -6992,7 +7077,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
             return failed("reset_failed", f"the compaction didn't finish: {exc.code}")
         candidates = {before} if before else set()  # a compaction keeps the conversation
     else:
-        candidates = cleared_session(entry, before, agy_before)
+        candidates = cleared_session(entry, before, agy_before, reported_before)
         if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
     token = ring_token()
