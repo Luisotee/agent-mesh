@@ -4934,8 +4934,8 @@ def pr_ref(review: str, repo: Path) -> tuple[str, int]:
     return f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}", number
 
 
-def pr_head(repo: Path, pr: str, number: int) -> str:
-    """Fetch a PR's head commit from the remote it belongs to (`upstream` in a fork), refusing another repo's PR."""
+def review_remote(repo: Path, pr: str) -> str:
+    """The remote of `repo` a PR under review belongs to (`upstream` in a fork), refusing another repo's PR."""
     github_remotes = {}
     for remote in git("remote", cwd=repo).split():
         github = GITHUB_REMOTE_RE.search(git("remote", "get-url", remote, cwd=repo))
@@ -4947,7 +4947,12 @@ def pr_head(repo: Path, pr: str, number: int) -> str:
             raise MeshError(f"{pr} is not a PR of {repo.name} (remotes: {', '.join(github_remotes)}); "
                             f"pass that PR's repo")
         remote = "origin"  # not on GitHub (a mirror, say): trust that it serves pull/<n>/head
-    git("fetch", "-q", remote, f"pull/{number}/head", cwd=repo)
+    return remote
+
+
+def pr_head(repo: Path, pr: str, number: int) -> str:
+    """Fetch a PR's head commit from the remote it belongs to (`review_remote`)."""
+    git("fetch", "-q", review_remote(repo, pr), f"pull/{number}/head", cwd=repo)
     return git("rev-parse", "FETCH_HEAD", cwd=repo)
 
 
@@ -4993,21 +4998,48 @@ def ask_slug(body: str) -> str:
     return slug
 
 
-def pr_diff(pr: str) -> str:
-    """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit."""
-    result = run_cli(["gh", "pr", "diff", pr], timeout=60)
-    if result.returncode or not result.stdout.strip():
+def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
+    """`git diff` from the merge base with the PR's base branch (fetched from the PR's remote) to `head`, and that
+    command; None when gh can't name the base branch or git can't fetch or diff it."""
+    data, _ = gh_json(["pr", "view", pr, "--json", "baseRefName"])
+    base_ref = data.get("baseRefName") if isinstance(data, dict) else None
+    if not base_ref:
+        return None
+    try:
+        git("fetch", "-q", review_remote(repo, pr), f"refs/heads/{base_ref}", cwd=repo)
+        merge_base = git("merge-base", git("rev-parse", "FETCH_HEAD", cwd=repo), head, cwd=repo)
+        return git("diff", "--no-color", "--no-ext-diff", merge_base, head, cwd=repo), f"git diff {merge_base} {head}"
+    except (MeshError, OSError):
+        return None
+
+
+def pr_diff(pr: str, repo: Path | None = None, head: str | None = None) -> str:
+    """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit.
+
+    With the head the task names, from git (`head_diff`), since `gh pr diff` shows the PR as it is now, which an
+    author's push since may have moved past `head`; from `gh pr diff` without the head, or when git can't build it."""
+    built = head_diff(repo, pr, head) if repo and head else None
+    note = ""
+    if built:
+        diff, command = built
+    else:
+        result = run_cli(["gh", "pr", "diff", pr], timeout=60)
+        if result.returncode:
+            return ""
+        diff, command = result.stdout, f"gh pr diff {pr}"
+        note = f", the PR as it is now, which may be past {head}" if head else ""
+    if not diff.strip():
         return ""
-    if len(result.stdout) > REVIEW_DIFF_MAX:
-        return f"The diff is too long to include here ({len(result.stdout):,} characters): read it with `gh pr diff {pr}`."
-    return f"The change (`gh pr diff {pr}`):\n\n````diff\n{result.stdout.rstrip()}\n````"
+    if len(diff) > REVIEW_DIFF_MAX:
+        return f"The diff is too long to include here ({len(diff):,} characters): read it with `{command}`."
+    return f"The change (`{command}`{note}):\n\n````diff\n{diff.rstrip()}\n````"
 
 
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
-             last: str | None = None, kind: str | None = None, narrow: bool = True) -> str:
+             last: str | None = None, kind: str | None = None, narrow: bool = True, repo: Path | None = None) -> str:
     """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
     (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
-    to run `/code-review`."""
+    to run `/code-review`. The embedded diff is of `head`, built in `repo` (`pr_diff`)."""
     skill = ""
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
@@ -5022,7 +5054,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
         task = ASK_PREFIX
-    diff = pr_diff(pr) if pr else ""
+    diff = pr_diff(pr, repo, head) if pr else ""
     return task + "".join(f"\n\n{part}" for part in (skill, body, diff) if part)
 
 
@@ -5434,7 +5466,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
                                       or load_run(run_id)["mode"])
     narrow = not (last and head and last != head) or fix_commits(repo, last, head)
-    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last, kind=kind, narrow=narrow)
+    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last, kind=kind, narrow=narrow,
+                    repo=repo)
     base = head if args.repo else None
     if copilot:
         return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)

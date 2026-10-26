@@ -4211,6 +4211,82 @@ def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, c
     assert "too long to include" in body and "+x" not in body
 
 
+def pr_on_a_branch(tmp_path, repo):
+    """An origin for `repo` whose PR 7 changes fix.txt on a branch, while main has moved on (other.txt) since."""
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "clone", "-q", str(repo), str(origin)], check=True)
+
+    def run_git(*cmd):
+        return subprocess.run(["git", *cmd], cwd=origin, check=True, capture_output=True, text=True).stdout.strip()
+    run_git("config", "user.email", "t@t")
+    run_git("config", "user.name", "t")
+    run_git("checkout", "-q", "-b", "fix")
+    (origin / "fix.txt").write_text("fixed\n")
+    run_git("add", "fix.txt")
+    run_git("commit", "-q", "-m", "the change under review")
+    head = run_git("rev-parse", "HEAD")
+    run_git("update-ref", "refs/pull/7/head", head)
+    run_git("checkout", "-q", "main")
+    (origin / "other.txt").write_text("not this PR's\n")
+    run_git("add", "other.txt")
+    run_git("commit", "-q", "-m", "main moves on")
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo, check=True)
+    return origin, head
+
+
+def test_a_review_diff_is_of_the_head_the_task_names(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    cli.on("pr", "diff", stdout="+a newer push\n")  # gh shows the PR as it is now
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    body = mesh.parse_message(mesh.unread(run, name)[-1])[1]
+    base = subprocess.run(["git", "rev-parse", "main"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    assert f"The change (`git diff {base} {head}`):" in body  # from the merge base, not main's tip
+    assert "+fixed" in body and "other.txt" not in body and "newer push" not in body
+    assert not cli.called("pr", "diff")
+
+
+def test_a_review_diff_falls_back_to_gh_when_git_cannot_build_it(mesh, cli, repo, tmp_path, monkeypatch):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.pr_head(repo, pr, 7) == head
+    cli.on("pr", "diff", stdout="+from gh\n")
+    for view in ({"stdout": json.dumps({"baseRefName": "gone"})}, {"returncode": 1, "stderr": "not logged in"}):
+        cli.on("pr", "view", **view)  # a base branch that can't be fetched, then gh can't name it
+        diff = mesh.pr_diff(pr, repo, head)
+        assert diff.startswith(f"The change (`gh pr diff {pr}`, the PR as it is now, which may be past {head}):")
+        assert diff.rstrip().endswith("+from gh\n````")
+    assert mesh.pr_diff(pr).startswith(f"The change (`gh pr diff {pr}`):")  # no head: gh, as before
+
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    monkeypatch.setattr(mesh, "REVIEW_DIFF_MAX", 3)  # the cap holds for a diff from git too
+    diff, merge_base = mesh.pr_diff(pr, repo, head), mesh.git("merge-base", "main", head, cwd=repo)
+    assert "too long to include" in diff and diff.endswith(f"read it with `git diff {merge_base} {head}`.")
+
+
+def test_a_fork_review_diff_fetches_the_base_from_upstream(mesh, cli, repo, tmp_path, monkeypatch):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.pr_head(repo, pr, 7) == head
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    diff, command = mesh.head_diff(repo, pr, head)
+    assert "+fixed" in diff and "other.txt" not in diff and command.endswith(head)
+
+
 def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, monkeypatch, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"
