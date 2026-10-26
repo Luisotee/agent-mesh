@@ -3644,14 +3644,13 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 print(unread_line(name, kind))
                 return 0
         bg_rows = claude_agents() if any(e.get("view") == "bg" for e in workers.values()) else []
+        # The rest join on the first poll if they owe a report or are starting (Roster.refresh); with none, the
+        # watch still waits out a retire or resume under way before it says there's nothing to watch.
         names = [name for name, e in workers.items() if agent_status(name, e, bg_rows) != "gone"]
-        if not names:
-            print("no live workers to watch")
-            return 0
     else:
-        names = [args.agent]
+        names, run = [args.agent], None
     status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
-                                hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=every)
+                                hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run)
     print(line)
     if root:
         root_hint(run_id)
@@ -4278,7 +4277,7 @@ class Watch:
 
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False,
-                 hang: float | None = None, autoreset: bool = False, every: bool = False) -> tuple[int, str]:
+                 hang: float | None = None, autoreset: bool = False, every: dict | None = None) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
@@ -4286,13 +4285,14 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
     the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
     `autoreset` (the root's own watch, with MESH_ROOT_AUTORESET=1) resets an idle root whose cache went cold.
-    `every` (`--any`) also watches workers spawned or resumed later, and lets retired ones go (see Roster).
+    `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
+    report or come later, and lets retired ones go (see Roster).
     """
     hang = hang_after() if hang is None else hang
     watches = [Watch(run_id, name, grace, finals_at_start, hang) for name in names]
     deadline = time.monotonic() + timeout if timeout else None
     held = dict(zip(names, hold_watch(run_id, names)))
-    roster = Roster(run_id, grace, hang, held) if every else None
+    roster = Roster(run_id, grace, hang, held, every, names) if every is not None else None
     try:
         return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster)
     finally:
@@ -4301,50 +4301,77 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
 
 
 class Roster:
-    """What `mesh watch --any` re-reads each poll: a worker spawned or resumed after the watch started (a new
-    `spawned` on its entry) gets its own Watch and lock, and a retired one leaves. Holds `ANY_WATCH`'s lock, so
-    root commands know new workers are covered."""
+    """What `mesh watch --any` re-reads each poll. Holds `ANY_WATCH`'s lock, so root commands know an unwatched
+    worker is taken on at the next poll."""
 
-    def __init__(self, run_id: str, grace: float, hang: float, held: dict):
+    def __init__(self, run_id: str, grace: float, hang: float, held: dict, run: dict, names: list[str]):
         self.run_id, self.grace, self.hang, self.held = run_id, grace, hang, held
-        self.seen = {name: e.get("spawned") for name, e in load_run(run_id)["agents"].items() if e["role"] != "root"}
+        # `spawned` as the watch found it: a new one means spawned or resumed since
+        self.seen = {name: e.get("spawned") for name, e in run["agents"].items() if e["role"] != "root"}
+        self.ever = set(names)  # every worker it has watched
         self.left: list[str] = []  # retired without a report since the watch started
+        self.ended: list[str] = []  # retired after its report
         held[ANY_WATCH] = hold_watch(run_id, [ANY_WATCH])[0]
 
-    def refresh(self, run: dict, watches: list["Watch"]) -> None:
-        """Update `watches` in place from this poll's read of the run."""
+    def refresh(self, run: dict, watches: list["Watch"], events: list[dict]) -> None:
+        """Update `watches` in place from this poll's read of the run: a retired worker leaves, and a worker that
+        isn't watched joins when it owes a report (one gone without it, and not yet alerted on, is then raised as
+        gone), is starting (a spawn, resume or swap the watch's start may have read as gone) or has a new
+        `spawned`. One retired and resumed between two polls gets a fresh Watch."""
         for watch in list(watches):
             entry = run["agents"].get(watch.name) or {}
             if entry.get("status") == "retired" or entry.get("spawned") != self.seen.get(watch.name):
-                watches.remove(watch)  # retired, or retired and resumed since the last poll: a fresh Watch below
+                watches.remove(watch)
                 self.held.pop(watch.name).close()
-                if entry.get("status") == "retired" and not watch.reported:
-                    self.left.append(watch.name)
+                if entry.get("status") == "retired":
+                    (self.ended if watch.reported else self.left).append(watch.name)
         watching = {w.name for w in watches}
         for name, entry in run["agents"].items():
             if (entry["role"] == "root" or name in watching or entry.get("status") in ("retiring", "retired")
-                    or (name in self.seen and entry.get("spawned") == self.seen[name])):
+                    or not self.joins(name, entry, events)):
                 continue
             self.seen[name] = entry.get("spawned")
             self.held[name] = hold_watch(self.run_id, [name])[0]
             watches.append(Watch(self.run_id, name, self.grace, hang=self.hang))
-            if name in self.left:
-                self.left.remove(name)
+            self.ever.add(name)
+            for past in (self.left, self.ended):
+                if name in past:
+                    past.remove(name)
 
-    def settling(self) -> bool:
-        """Whether a worker may be about to come back: retired in the last RETIRE_SETTLE seconds (the root
-        resumes a group's worker right after retiring it), or being resumed (compaction can take minutes). Reads
-        the log afresh: the poll's read can predate a retire its ticks saw."""
-        events = read_log(self.run_id)
-        if any(e.get("event") == "retire" and age_seconds(e.get("time")) < RETIRE_SETTLE for e in events):
+    def joins(self, name: str, entry: dict, events: list[dict]) -> bool:
+        if entry.get("status") == "starting" or name not in self.seen or entry.get("spawned") != self.seen[name]:
             return True
+        received, sent, _ = since_last_task(events, name)
+        return bool(received) and not sent and not alerted(events, name, received, "gone")
+
+    def settling(self, watches: list["Watch"]) -> bool:
+        """Whether a worker may be about to come back: one retiring now (`retire_worker` waits for its turn to
+        end before the `retire` event), one the next refresh takes on, retired in the last RETIRE_SETTLE seconds
+        and not resumed since (the root resumes a group's worker right after retiring it), or being resumed
+        (compaction can take minutes). Reads the run and log afresh: this poll's reads can predate a retire its
+        ticks saw, or a resume that ended meanwhile."""
+        run, events = load_run(self.run_id), read_log(self.run_id)
+        watching = {w.name for w in watches}
+        for name, entry in run["agents"].items():
+            if entry["role"] == "root":
+                continue
+            if entry.get("status") == "retiring" or (name not in watching and entry.get("status") != "retired"
+                                                     and self.joins(name, entry, events)):
+                return True
+        retired: dict[str, float] = {}
         pending: dict[tuple, float] = {}
         for e in events:
-            if e.get("event") == "resuming":
+            kind = e.get("event")
+            if kind == "retire":
+                retired[e.get("name")] = age_seconds(e.get("time"))
+            elif kind == "resuming":
                 pending[(e.get("from_run"), e.get("name"))] = age_seconds(e.get("time"))
-            elif e.get("event") == "resume":
+                if e.get("from_run") == self.run_id:
+                    retired.pop(e.get("name"), None)
+            elif kind in ("resume", "resume_failed"):
                 pending.pop((e.get("from_run"), e.get("from_name")), None)
-        return any(age < COMPACT_TIMEOUT + RETIRE_SETTLE for age in pending.values())
+        return (any(age < RETIRE_SETTLE for age in retired.values())
+                or any(age < COMPACT_TIMEOUT + RETIRE_SETTLE for age in pending.values()))
 
 
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
@@ -4352,11 +4379,11 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
     checked = float("-inf")  # when the root was last checked for an idle reset
     while True:
         run = load_run(run_id)
+        events = read_log(run_id)  # one read per poll, shared by every watch
         if roster:
-            roster.refresh(run, watches)
+            roster.refresh(run, watches, events)
         # One `claude agents` call per poll, shared by every background worker.
         bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
-        events = read_log(run_id)  # one read per poll, shared by every watch
         if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
             checked = time.monotonic()
             quietly(maybe_autoreset, run_id, run, events)
@@ -4364,19 +4391,21 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             event = watch.tick(interval, alerts_only, bg_rows, events)
             if event:
                 return event
-        if all(w.finished for w in watches) and not (roster and roster.settling()):
+        if all(w.finished for w in watches) and not (roster and roster.settling(watches)):
             # without --alerts only a retired worker finishes without returning
-            left = roster.left if roster else []
+            left, ended = (roster.left, roster.ended) if roster else ([], [])
+            if roster and not roster.ever:
+                return 0, "no live workers to watch"
             retired = [*left, *(w.name for w in watches if w.retired and not w.reported)]
             if not retired:
                 return 0, "every watched worker reported and has ended; nothing left to watch"
-            rest = "" if len(retired) == len(watches) + len(left) else "; the rest reported and have ended"
+            rest = "" if len(retired) == len(watches) + len(left) + len(ended) else "; the rest reported and have ended"
             return 0, f"retired {', '.join(retired)}{rest}; nothing left to watch"
         if deadline and time.monotonic() > deadline:
             waiting = [w for w in watches if not w.reported and not w.retired]
             if not waiting:
-                return 0, (f"every watched worker reported{' or was retired' if any(w.retired for w in watches) else ''} "
-                           f"within {timeout}s")
+                retired = any(w.retired for w in watches) or bool(roster and roster.left)
+                return 0, f"every watched worker reported{' or was retired' if retired else ''} within {timeout}s"
             states = ", ".join(f"{w.name}: {w.prev}" for w in waiting)
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
@@ -4459,7 +4488,8 @@ def warn_unwatched(run_id: str, skip: tuple[str, ...] = ()) -> None:
     except Exception:  # noqa: BLE001
         bg_rows = []
     gone = [n for n in names if looks_gone(n, agents[n], bg_rows)]
-    # A running --any watch takes a new or resumed worker on its next poll: only a gone one stays uncovered.
+    # A running --any watch takes on every worker `unwatched` names at its next poll (Roster.joins: it owes a
+    # report and wasn't raised as gone), a gone one to raise it (exit 5): no need to start another.
     live = [] if watched(run_id, ANY_WATCH) else [n for n in names if n not in gone]
     if live:
         each = "each owes" if len(live) > 1 else "it owes"
@@ -5023,6 +5053,16 @@ def owes_plan(run_id: str, name: str) -> bool:
 
 
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
+    started: list[dict] = []  # its `resuming` event, once logged
+    try:
+        return reopen_worker(args, run_id, me, started)
+    except BaseException:
+        for event in started:  # so a `mesh watch --any` stops waiting for it
+            quietly(log_event, run_id, "resume_failed", from_name=event["name"], from_run=event["from_run"])
+        raise
+
+
+def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[dict]) -> dict:
     current = load_run(run_id)
     task = read_body(args.task, args.task_file)
 
@@ -5079,6 +5119,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     # Before the worktree and compaction steps, which can take minutes: a `mesh watch --any` waits for it.
     log_event(run_id, "resuming", name=old_name, from_run=old_run["id"])
+    started.append({"name": old_name, "from_run": old_run["id"]})
     cwd, repo_top = old["cwd"], Path(old["repo"])
     if peer:  # its own detached worktree, which outlives runs: no branch, and no run's `mesh stop` removes it
         branch, recreated, moved = None, ensure_peer_worktree({**peer, "cwd": cwd}), {}
@@ -7679,8 +7720,8 @@ def render_brief(b: dict) -> str:
         out += ["", "## PRs", *(f"- {line}" for line in b["prs"])]
     out += ["", "## your unread mail (headers; `mesh inbox` reads it)", *(f"- {m}" for m in b["unread"] or ["none"])]
     if b["unwatched"] and b["any_watch"]:
-        out += ["", f"no `mesh watch` covers {', '.join(b['unwatched'])}, which the running `mesh watch --any` "
-                    "left out as gone: `mesh watch <name>` (exit 5), or `mesh resume` / `mesh retire` it"]
+        out += ["", f"not watched yet: {', '.join(b['unwatched'])}; the running `mesh watch --any` takes them on at "
+                    "its next poll (one that's gone raises exit 5)"]
     elif b["unwatched"]:
         out += ["", f"no `mesh watch` covers {', '.join(b['unwatched'])}: start `mesh watch --any --alerts` in the "
                     "background"]
