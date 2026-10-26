@@ -5007,7 +5007,7 @@ def ask_slug(body: str) -> str:
 
 def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
     """`git diff` from the merge base with the PR's base branch (fetched from the PR's remote) to `head`, and that
-    command; None when gh can't name the base branch or git can't fetch or diff it."""
+    merge base; None when gh can't name the base branch or git can't fetch or diff it."""
     data, _ = gh_json(["pr", "view", pr, "--json", "baseRefName"])
     base_ref = data.get("baseRefName") if isinstance(data, dict) else None
     if not base_ref:
@@ -5015,20 +5015,19 @@ def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
     try:
         git("fetch", "-q", review_remote(repo, pr), f"refs/heads/{base_ref}", cwd=repo)
         merge_base = git("merge-base", git("rev-parse", "FETCH_HEAD", cwd=repo), head, cwd=repo)
-        return git("diff", "--no-color", "--no-ext-diff", merge_base, head, cwd=repo), f"git diff {merge_base} {head}"
+        return git("diff", "--no-color", "--no-ext-diff", merge_base, head, cwd=repo), merge_base
     except (MeshError, OSError):
         return None
 
 
-def pr_diff(pr: str, repo: Path | None = None, head: str | None = None) -> str:
+def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = None) -> str:
     """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit.
 
-    With the head the task names, from git (`head_diff`), since `gh pr diff` shows the PR as it is now, which an
-    author's push since may have moved past `head`; from `gh pr diff` without the head, or when git can't build it."""
-    built = head_diff(repo, pr, head) if repo and head else None
+    With the head the task names, from git (`built`, by `head_diff`), since `gh pr diff` shows the PR as it is now,
+    which an author's push since may have moved past `head`; from `gh pr diff` without it."""
     note = ""
     if built:
-        diff, command = built
+        diff, command = built[0], f"git diff {built[1]} {head}"
     else:
         result = run_cli(["gh", "pr", "diff", pr], timeout=60)
         if result.returncode:
@@ -5046,8 +5045,10 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
              last: str | None = None, kind: str | None = None, narrow: bool = True, repo: Path | None = None) -> str:
     """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
     (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
-    to run `/code-review`. The embedded diff is of `head`, built in `repo` (`pr_diff`)."""
+    to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
+    PR number is gh's guess at the repo). The embedded diff is of `head`, built in `repo` (`pr_diff`)."""
     skill = ""
+    built = head_diff(repo, pr, head) if pr and repo and head else None
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
         where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head)
@@ -5056,12 +5057,13 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
             where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if kind == "claude" and head:
-            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again and narrow else number)
+            whole = f"{built[1]}..{head}" if built else pr  # the PR's link when git can't give the merge base
+            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
         task = ASK_PREFIX
-    diff = pr_diff(pr, repo, head) if pr else ""
+    diff = pr_diff(pr, head, built) if pr else ""
     return task + "".join(f"\n\n{part}" for part in (skill, body, diff) if part)
 
 

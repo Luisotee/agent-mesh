@@ -4285,14 +4285,15 @@ def test_a_review_diff_falls_back_to_gh_when_git_cannot_build_it(mesh, cli, repo
     cli.on("pr", "diff", stdout="+from gh\n")
     for view in ({"stdout": json.dumps({"baseRefName": "gone"})}, {"returncode": 1, "stderr": "not logged in"}):
         cli.on("pr", "view", **view)  # a base branch that can't be fetched, then gh can't name it
-        diff = mesh.pr_diff(pr, repo, head)
+        diff = mesh.pr_diff(pr, head, mesh.head_diff(repo, pr, head))
         assert diff.startswith(f"The change (`gh pr diff {pr}`, the PR as it is now, which may be past {head}):")
         assert diff.rstrip().endswith("+from gh\n````")
     assert mesh.pr_diff(pr).startswith(f"The change (`gh pr diff {pr}`):")  # no head: gh, as before
 
     cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
     monkeypatch.setattr(mesh, "REVIEW_DIFF_MAX", 3)  # the cap holds for a diff from git too
-    diff, merge_base = mesh.pr_diff(pr, repo, head), mesh.git("merge-base", "main", head, cwd=repo)
+    diff = mesh.pr_diff(pr, head, mesh.head_diff(repo, pr, head))
+    merge_base = mesh.git("merge-base", "main", head, cwd=repo)
     assert "too long to include" in diff and diff.endswith(f"read it with `git diff {merge_base} {head}`.")
 
 
@@ -4311,8 +4312,9 @@ def test_a_fork_review_diff_fetches_the_base_from_upstream(mesh, cli, repo, tmp_
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.pr_head(repo, pr, 7) == head
     cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
-    diff, command = mesh.head_diff(repo, pr, head)
-    assert "+fixed" in diff and "other.txt" not in diff and command.endswith(head)
+    diff, merge_base = mesh.head_diff(repo, pr, head)
+    assert "+fixed" in diff and "other.txt" not in diff
+    assert merge_base == mesh.git("merge-base", "upstream/main", head, cwd=repo)
 
 
 def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, monkeypatch, capsys):
@@ -4431,9 +4433,34 @@ def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, r
     assert mesh.main(argv + (["--size", size] if size else [])) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
-    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body
+    assert body.startswith(f"Review (read-only) of {pr} at ") and f"`/code-review high {pr}`" in body  # no base
     assert "never with `--fix`, `--comment` or `ultra`" in body and "--type wait" in body
     assert "commits since your last review" not in body and "FETCH_HEAD" not in body
+
+
+def test_code_review_targets_the_range_from_the_merge_base_in_a_fork_too(mesh, fake, cli, run, repo, tmp_path,
+                                                                         monkeypatch, capsys):
+    # A bare number is resolved by gh against the worktree's default repo, which in a fork may be `origin`.
+    _, head = pr_on_a_branch(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    stub_new_pane(fake)
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    body = mesh.parse_message(mesh.unread(run, name)[0])[1]
+    merge_base = real_git("merge-base", "main", head, cwd=repo)
+    assert f"`/code-review high {merge_base}..{head}`" in body and f"`git diff {merge_base} {head}`" in body
+    assert "/code-review high 7" not in body
 
 
 def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo, tmp_path, capsys):
@@ -4444,7 +4471,7 @@ def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
-    assert "`/code-review high 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]
+    assert f"`/code-review high {pr}`" in mesh.parse_message(mesh.unread(run, name)[0])[1]
 
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
@@ -4474,7 +4501,7 @@ def test_a_rebased_pr_is_reviewed_again_whole(mesh, fake, run, repo, tmp_path, c
         data["agents"]["repo-fix-typo"].update(kind="claude", repo=str(repo), reviews=[pr], review_heads={pr: last})
     assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
     body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
-    assert "`/code-review high 7`" in body and f"{last}..{head}" not in body
+    assert f"`/code-review high {pr}`" in body and f"{last}..{head}" not in body
     assert "review the whole PR again" in body and "commits since your last review" not in body
 
 
