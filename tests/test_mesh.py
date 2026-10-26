@@ -2988,8 +2988,14 @@ def test_live_holder_outside_herdr_still_reads_the_processes(mesh, monkeypatch, 
     entry = {"kind": "claude", "cwd": str(tmp_path / "wt"), "repo": str(tmp_path / "repo"), "session": "s1"}
     monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 7, "argv": ["claude"], "cwd": entry["cwd"]}])
     assert mesh.live_holder("w", entry)["process"] == 7
-    monkeypatch.setattr(mesh, "herdr", lambda *a, timeout=None: (_ for _ in ()).throw(mesh.HerdrError("timeout", "x")))
-    with pytest.raises(mesh.HerdrError):  # herdr is there but failed: no guessing
+    # herdr is there but failed (its server down): the process table still answers
+    monkeypatch.setattr(mesh, "herdr", lambda *a, timeout=None: (_ for _ in ()).throw(mesh.HerdrError("cli_error", "x")))
+    assert mesh.live_holder("w", entry)["process"] == 7
+    monkeypatch.setattr(mesh, "has_proc", lambda: False)
+    with pytest.raises(mesh.HerdrError):  # no process table either (macOS): no guessing
+        mesh.live_holder("w", entry)
+    monkeypatch.setattr(mesh, "herdr", no_herdr)
+    with pytest.raises(mesh.MeshError, match="herdr not found"):
         mesh.live_holder("w", entry)
 
 
@@ -3028,7 +3034,7 @@ def test_open_reopens_the_conversation_here_outside_the_mesh(mesh, fake, repo, m
 def test_open_without_herdr_refuses_a_conversation_a_process_holds(mesh, fake, repo, monkeypatch, capsys):
     # herdr is installed but its server isn't running, so only the process table can show the worker live
     path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
-    fake.on("agent", "list", error="cli_error")
+    fake.on("agent", "list", errors=["cli_error"] * 9)
     opened = []
     monkeypatch.setattr(mesh.os, "chdir", lambda p: None)
     monkeypatch.setattr(mesh.os, "execvpe", lambda f, argv, env: opened.append(argv))
@@ -3039,6 +3045,36 @@ def test_open_without_herdr_refuses_a_conversation_a_process_holds(mesh, fake, r
     monkeypatch.setattr(mesh, "agent_processes", lambda: [])
     assert mesh.main(["open", "proj-fix"]) == 0
     assert opened == [["claude", "--resume", "s-1", "--model", "opus", "--effort", "high"]]
+    assert len(fake.called("agent", "list")) == 2  # herdr failed both times, asked once per open
+
+
+def test_open_without_herdr_refuses_a_process_naming_the_session_in_a_shared_checkout(mesh, fake, repo, monkeypatch,
+                                                                                      capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    path = mesh.mesh_home() / "archive" / "mold" / "run.json"
+    data = json.loads(path.read_text())
+    data["agents"]["proj-fix"]["cwd"] = str(repo)  # it worked in the main checkout, shared with other sessions
+    path.write_text(json.dumps(data))
+    fake.on("agent", "list", errors=["cli_error"] * 9)
+    monkeypatch.setattr(mesh.os, "execvpe", lambda f, argv, env: pytest.fail("opened a held conversation"))
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [
+        {"pid": 5, "argv": ["claude"], "cwd": str(repo)},  # the user's own session there: not the worker's
+        {"pid": 6, "argv": ["claude", "--resume", "s-1"], "cwd": str(repo)}])
+    capsys.readouterr()
+    assert mesh.main(["open", "proj-fix"]) == 1
+    assert "may still be open in process 6" in capsys.readouterr().err
+
+
+def test_open_without_herdr_or_proc_warns_it_cant_tell(mesh, fake, repo, monkeypatch, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    fake.on("agent", "list", errors=["cli_error"] * 9)
+    monkeypatch.setattr(mesh, "has_proc", lambda: False)
+    opened = []
+    monkeypatch.setattr(mesh.os, "chdir", lambda p: None)
+    monkeypatch.setattr(mesh.os, "execvpe", lambda f, argv, env: opened.append(argv))
+    capsys.readouterr()
+    assert mesh.main(["open", "proj-fix"]) == 0 and opened
+    assert "can't tell whether proj-fix is still running" in capsys.readouterr().err
 
 
 # ── models per phase: approve, quota hits, switch ────────────────────────
