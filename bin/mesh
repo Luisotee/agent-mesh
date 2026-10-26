@@ -2671,12 +2671,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
     model, effort = entry.get("model"), entry.get("effort")
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         if args.keep_model:  # asked for, never a fallback: it executes on what it planned on
-            if not denied:  # else the reopen below records it
+            if not denied:  # else the reopen below records it, and logs this once it has started
                 with editing_run(run_id) as run:
                     run["agents"][args.agent].setdefault("models", []).append(
                         {"model": entry.get("model"), "effort": entry.get("effort"), "at": now_iso(),
                          "why": "plan approved", "kept": True})
-            log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
+                log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
             result["kept_model"] = True
         else:
             effort = entry.get("exec_effort") or EXEC_EFFORT
@@ -2694,6 +2694,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
                             f"`mesh approve {args.agent} --keep-model`: it is then recorded as executing, so a "
                             f"later `mesh switch` moves it to {entry['exec_model']}") from exc
         result["model"] = model
+        if result.get("kept_model"):
+            log_event(run_id, "approve_kept_model", name=args.agent, model=model)
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         with editing_run(run_id) as run:
             run["agents"][args.agent]["phase"] = "exec"
@@ -2785,9 +2787,10 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
     if entry.get("role") != "worker" or not claude_deny(entry):
         return None
     asker = bool(entry.get("read_only"))
-    if asker and entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way
-        raise MeshError(f"{to} is a retired read-only asker. Nothing was sent: give it the change with "
-                        f"`mesh resume {to} --task-file …`, which compacts it if it's large and reopens it "
+    what = "a read-only asker" if asker else "planning"
+    if entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way, not by a swap
+        raise MeshError(f"{to} is retired, and was {what} under a deny list. Nothing was sent: give it the change "
+                        f"with `mesh resume {to} --task-file …`, which compacts it if it's large and reopens it "
                         "with its deny list only while it plans")
     if planned_task(body):
         if asker:
@@ -2797,7 +2800,6 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
             print(f"mesh: {to} was a read-only asker; it plans this task under the same deny list, which "
                   "`mesh approve` lifts", file=sys.stderr)
         return None
-    what = "a read-only asker" if asker else "planning"
     try:
         swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted" if asker else "deny lifted",
                           message=(me, "task", body), lift=True)
@@ -2807,7 +2809,10 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
     except MeshError as exc:
         if entry.get("view") != "bg":
             raise  # a pane is given its task only once it's back, so nothing was stored
-        # A background worker's task went into its mailbox first, as the copy's opening prompt.
+        # A background worker's task went into its mailbox first, as the copy's opening prompt. That task is a
+        # direct one, so neither reason holds any more: the resume this points to reopens it without the list.
+        with editing_run(run_id) as run:
+            run["agents"][to].update(read_only=False, planning=False)
         raise MeshError(f"{exc}. The task is stored, so don't send it again: `mesh resume {to}` (no task) "
                         "reopens it without its deny list to read it") from exc
     log_event(run_id, "read_only_lifted" if asker else "deny_lifted", name=to)

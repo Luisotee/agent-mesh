@@ -3244,7 +3244,17 @@ def test_approve_keep_model_reopens_a_claude_planner_on_the_same_model(mesh, fak
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     assert (entry["planning"], entry["phase"], entry["effort"]) == (False, "exec", "high")
     assert [m["why"] for m in entry["models"]].count("plan approved") == 1
+    assert [e["model"] for e in mesh.read_log(run) if e["event"] == "approve_kept_model"] == ["opus"]
     assert "approved" in mesh.unread(run, "repo-fix-typo")[0].read_text()
+
+
+def test_approve_keep_model_logs_nothing_when_a_planners_reopen_cannot_start(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    fake.on("agent", "wait", error="timeout")
+    assert mesh.main(["approve", "repo-fix-typo", "--keep-model"]) == 1
+    assert "only reopening its conversation lifts that" in capsys.readouterr().err
+    assert not [e for e in mesh.read_log(run) if e["event"] == "approve_kept_model"]
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "plan"
 
 
 def test_approve_lifts_a_pinned_claude_planner_and_a_busy_one_is_told_to_retry(mesh, fake, run, capsys):
@@ -3275,6 +3285,32 @@ def test_a_failed_approval_of_a_pinned_planner_can_be_retried(mesh, fake, cli, r
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not deny_rules(cli.called("--bg")[-1]["argv"])
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+
+
+def test_a_failed_background_lift_of_a_planner_points_to_a_resume_without_the_list(mesh, fake, cli, run, tmp_path,
+                                                                                    capsys):
+    claude_root(mesh, run)
+    claude_planner(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
+    cli.on("--bg", returncode=1, stdout="boom")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
+    assert "`mesh resume repo-fix-typo` (no task)" in capsys.readouterr().err
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["resume", "repo-fix-typo"]) == 0
+    assert not deny_rules(cli.called("--bg")[-1]["argv"])
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+
+
+def test_a_retired_planner_is_given_a_direct_task_by_resume_not_send(mesh, fake, cli, run, tmp_path, capsys):
+    claude_root(mesh, run)
+    claude_planner(mesh, run, view="bg", bg_id="old1", pane=None, status="retired", cwd=str(tmp_path),
+                   repo=str(tmp_path))
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
+    assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
+    assert not cli.called("--bg") and not mesh.unread(run, "repo-fix-typo")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
 
 
 def test_an_askers_planned_task_keeps_its_deny_list_until_approval(mesh, fake, run, capsys):
@@ -3320,7 +3356,9 @@ def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is True
 
 
-def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, capsys):
+def test_approve_with_the_same_model_and_effort_keeps_the_pane_of_a_worker_with_no_deny_list(mesh, fake, run,
+                                                                                           capsys):
+    # An entry from before planners got the deny list (or one whose list is off): nothing to lift, no reopen.
     planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
     with mesh.editing_run(run) as data:  # `spawn --kind claude --effort high`: both phases match
         data["agents"]["repo-fix-typo"]["exec_effort"] = "high"
@@ -3328,6 +3366,17 @@ def test_approve_with_the_same_model_and_effort_keeps_the_pane(mesh, fake, run, 
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
     assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
+
+
+def test_approve_with_the_same_model_and_effort_still_reopens_a_planner_to_lift_its_list(mesh, fake, run, capsys):
+    claude_planner(mesh, run, exec_effort="high")  # `spawn --kind claude --effort high`: both phases match
+    stub_new_pane(fake)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    argv = started(fake)
+    assert fake.called("pane", "close") and not deny_rules(argv)
+    assert argv[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["phase"], entry["planning"]) == ("exec", False)
 
 
 def test_approve_without_an_exec_model_is_a_plain_answer(mesh, fake, run, capsys):
