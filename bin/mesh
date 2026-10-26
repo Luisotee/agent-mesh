@@ -2326,6 +2326,15 @@ def emit(data, as_json: bool = True) -> None:
     print(json.dumps(data, indent=2) if as_json else data)
 
 
+# The folders PROTOCOL.md and ORCHESTRATE.md tell agents to write into (`$(mesh dir)/<folder>/…`).
+RUN_FOLDERS = ("plans", "reports", "tasks")
+
+
+def make_run_folders(run_id: str) -> None:
+    for folder in RUN_FOLDERS:
+        (run_dir(run_id) / folder).mkdir(parents=True, exist_ok=True)
+
+
 def init_run(mode: str | None, request: str | None, run_id: str | None = None) -> dict:
     """Start a run with this pane's agent as its root (mode None: the root's own CLI)."""
     pane = os.environ.get("HERDR_PANE_ID")
@@ -2375,6 +2384,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
     }
     with run_lock(run_id):
         save_run(run_id, run)
+    make_run_folders(run_id)
     write_atomic(mesh_home() / "by-pane" / f"{pane_key(pane)}.json", json.dumps({"run": run_id, "name": name}))
     log_event(run_id, "init", name=name, mode=mode)
     return {"run": run_id, "name": name, "dir": str(run_dir(run_id)), "mode": mode,
@@ -2431,6 +2441,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if getattr(args, "agent", None) and name in taken:
         raise MeshError(f"{name} is taken in this run or by a live agent")
     peer = getattr(args, "peer", None)
+    task = read_body(args.task, args.task_file)  # a missing file fails here, before any side effect
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
     size = getattr(args, "size", None) or "large"
@@ -2487,7 +2498,6 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         cwd = repo_top
 
     parent = args.parent or me
-    task = read_body(args.task, args.task_file)
     if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
         task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
     read_only = args.kind == "claude" and read_only_task(task)
@@ -2829,7 +2839,10 @@ def read_body(body: str | None, file: str | None) -> str | None:
     if file == "-":
         return sys.stdin.read()
     if file:
-        return Path(file).expanduser().read_text()
+        try:
+            return Path(file).expanduser().read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            raise MeshError(f"can't read {file}: {getattr(e, 'strerror', None) or e}") from None
     return body
 
 
@@ -6505,7 +6518,9 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 
 
 def cmd_dir(args: argparse.Namespace) -> int:
-    print(run_dir(identity(args)[0]))
+    run_id = identity(args)[0]
+    make_run_folders(run_id)  # a run started before init_run made them
+    print(run_dir(run_id))
     return 0
 
 
