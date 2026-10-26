@@ -4084,7 +4084,7 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     [task] = mesh.unread(run, "proj-review-7-agy")
     body = mesh.parse_message(task)[1]
     assert body.startswith(f"Review (read-only) of {pr} at {head}:") and "checked out in your worktree" in body
-    assert "**blocking**" in body and "**advisory**" in body
+    assert "**blocking**" in body and "**advisory**" in body and "/code-review" not in body  # an agy reviewer
     assert entry["review_heads"] == {pr: head}
 
 
@@ -4232,6 +4232,44 @@ def test_a_reviewer_asked_again_reviews_what_changed_since_the_head_it_read(mesh
     assert body.startswith(f"Review (read-only) of {pr} at {head}:")
     assert "You last reviewed it at 0ld" in body and f"`git diff 0ld {head}`" in body
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["review_heads"] == {pr: head}
+
+
+@pytest.mark.parametrize("size", ["small", "large", None])
+def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, run, repo, tmp_path, capsys, size):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    argv = ["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]
+    assert mesh.main(argv + (["--size", size] if size else [])) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    body = mesh.parse_message(mesh.unread(run, name)[0])[1]
+    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body
+    assert "never with `--fix`, `--comment` or `ultra`" in body and "--type wait" in body
+    assert "commits since your last review" not in body and "FETCH_HEAD" not in body
+
+
+def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo, tmp_path, capsys):
+    pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with mesh.editing_run(run) as data:
+        data["mode"] = "claude"  # no --kind: the reviewer is of the run's mode
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    assert "`/code-review high 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]
+
+
+def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
+    head = pr_origin(tmp_path, repo)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", size="large", repo=str(repo), reviews=[pr],
+                                               review_heads={pr: "0ld"})
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert f"`/code-review high 0ld..{head}`" in body and "commits since your last review" in body
+    assert "`git show FETCH_HEAD:<path>`" in body  # an existing worker isn't on the PR's branch
 
 
 def test_a_review_whose_head_cant_be_fetched_still_goes_out(mesh, fake, run, monkeypatch, capsys):
@@ -5377,7 +5415,7 @@ def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cl
     assert "-p" not in argv  # the prompt goes on stdin, since a diff can outgrow one argument
     assert call["input"].startswith(f"Review (read-only) of {pr} at {head}:") and "checked out in your worktree" in call["input"]
     assert entry["review_heads"] == {pr: head}
-    assert call["input"].endswith(mesh.COPILOT_NOTE)
+    assert call["input"].endswith(mesh.COPILOT_NOTE) and "/code-review" not in call["input"]
     assert call["cwd"] == entry["cwd"] and "MESH_RUN" not in call["env"] and "pid" not in entry
     denied = argv[argv.index("--deny-tool") + 1: argv.index("--no-ask-user")]
     assert denied[0] == "write" and "shell(git push:*)" in denied and "shell(gh pr comment:*)" in denied

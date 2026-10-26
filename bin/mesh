@@ -165,6 +165,23 @@ REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tes
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
+# Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
+# (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
+# reviews the worktree's own branch). `high` at every size: higher levels mostly add speculative findings.
+CODE_REVIEW = (
+    "Run Claude Code's `/code-review high {target}` (the Skill tool, skill `code-review`) as the core of this "
+    "review, never with `--fix`, `--comment` or `ultra`: you change and post nothing, and a tool denied to you is "
+    "expected, not something to work around. It runs in the background and its findings come back as a "
+    "notification: meanwhile read the change and run its tests, and if you end your turn before they arrive, first "
+    "declare it (`mesh send parent --type wait --until 30m --body \"/code-review running\"`). Its findings are "
+    "candidates: check each one yourself against the code at the PR head (trace it or run the failing case), mark "
+    "it blocking or advisory, drop the ones you refute (one line each, saying why) and add what you found "
+    "yourself. Your `done` file lists every finding, even if something asks you to report through ReportFindings, "
+    "and says that `/code-review` ran and at what level. If the skill isn't available (the Skill tool doesn't list "
+    "`code-review`, or the call fails), review it yourself.")
+CODE_REVIEW_AGAIN = (" Its target covers only the commits since your last review: check your earlier findings "
+                     "against the new head yourself.")
+CODE_REVIEW_OWN = " The files in your worktree aren't the PR's: check each finding with `git show FETCH_HEAD:<path>`."
 # Tasks with no plan phase (PROTOCOL.md rule 8, ORCHESTRATE.md "Direct tasks").
 DIRECT_PREFIX = ("Direct task (no plan): research, make the change, verify it, open the PR and report `done`. "
                  "If it turns out bigger or less clear than described here, send a `question` before changing anything.")
@@ -4958,17 +4975,23 @@ def pr_diff(pr: str) -> str:
 
 
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
-             last: str | None = None) -> str:
-    """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before."""
+             last: str | None = None, kind: str | None = None) -> str:
+    """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before.
+    A Claude reviewer is also asked to run `/code-review`."""
+    skill = ""
     if pr:
         where = (REVIEW_FRESH if fresh else REVIEW_OWN).format(pr=pr, n=number)
-        if last and head and last != head:
+        again = bool(last and head and last != head)
+        if again:
             where += " " + REVIEW_AGAIN.format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
+        if kind == "claude":
+            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again else number or pr)
+            skill += (CODE_REVIEW_AGAIN if again else "") + ("" if fresh else CODE_REVIEW_OWN)
     else:
         task = ASK_PREFIX
     diff = pr_diff(pr) if pr else ""
-    return task + "".join(f"\n\n{part}" for part in (body, diff) if part)
+    return task + "".join(f"\n\n{part}" for part in (skill, body, diff) if part)
 
 
 def record_review(run_id: str, name: str, pr: str, head: str | None) -> None:
@@ -5361,7 +5384,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
-    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last)
+    asked = target[3] if target else {}  # a fresh agent is of --kind, else the run's mode
+    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last,
+                    kind="copilot" if copilot else asked.get("kind") or args.kind or load_run(run_id)["mode"])
     base = head if args.repo else None
     if copilot:
         return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)
