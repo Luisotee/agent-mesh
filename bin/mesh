@@ -3224,6 +3224,7 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not body or not body.strip():
         raise MeshError("empty message: pass --body TEXT or --file PATH (- for stdin)")
     to = me_parent(run_id, me) if args.to == "parent" else args.to
+    refuse_foreign_send(run_id, me, to)
     if args.type == "wait" or getattr(args, "until", None):
         return send_wait(args, run_id, me, to, body)
     if args.type in REPORT_TYPES and not args.unread_ok:
@@ -7310,15 +7311,78 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
         "role") == "worker"
 
 
+# What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
+# agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
+WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
+                             "peek", "brief", "model", "usage", "peers list"})
+# Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
+OWN_WORKER_CHECK = frozenset({"stop"})
+# What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
+SANDBOX_HINT = ("To try mesh commands out (reviewing agent-mesh itself, say), point MESH_HOME, MESH_WORKTREES and "
+                "MESH_PEERS_DIR at temp dirs, and MESH_HERDR and MESH_CLAUDE at a missing binary: the defaults are "
+                "this machine's real state, which every agent uses. The user in a shell left with a worker's "
+                "variables runs `env -u MESH_RUN -u MESH_SELF -u MESH_PARENT -u MESH_ROLE mesh …`.")
+
+
+def command_name(args: argparse.Namespace) -> str:
+    name = args.func.__name__.removeprefix("cmd_")
+    return f"peers {args.action}" if name == "peers" else name
+
+
+def worker_caller(args: argparse.Namespace, *runs: str) -> tuple[str, str] | None:
+    """(run, name) when the caller is a worker of a live run in this MESH_HOME, else None.
+
+    Read from the flags and the environment, without `identity`'s side effects: the pane map names only roots,
+    but a pane worker herdr restored without its variables is found by its pane (`pane_worker_entries`, in any
+    run, confirmed as the pane's process; matching several, it's taken as the first). It is a worker of any run
+    named (`--run`, `MESH_RUN`, then `runs`). An environment identity `inherited_identity` rejects (a Claude
+    session that inherited a worker's variables) isn't that worker. Under a temp MESH_HOME the run isn't there,
+    so a worker trying mesh out in a sandbox isn't one.
+    """
+    flag_name = getattr(args, "as_", None)
+    name, vouched = flag_name or os.environ.get("MESH_SELF"), bool(flag_name)
+    candidates = dict.fromkeys(r for r in (getattr(args, "run", None), os.environ.get("MESH_RUN"), *runs) if r)
+    pane = os.environ.get("HERDR_PANE_ID") or ""
+    if not name and (found := pane_worker_entries(pane)) and pane_runs_this_claude(pane) is True:
+        candidates, name, vouched = {found[0][0]: None, **candidates}, found[0][1], True
+    for run_id in candidates:
+        run = maybe_run(run_id)
+        if (((run or {}).get("agents") or {}).get(name) or {}).get("role") != "worker":
+            continue
+        if vouched or not inherited_identity(run_id, name, run):
+            return run_id, name
+    return None
+
+
+def check_worker(args: argparse.Namespace) -> None:
+    """Refuse a worker every command not in WORKER_COMMANDS (design §10, "Mesh state is guarded by `mesh`
+    itself"): one check for all, so a command added later is the root's until it is listed."""
+    command = command_name(args)
+    if command in WORKER_COMMANDS or command in OWN_WORKER_CHECK:
+        return
+    if found := worker_caller(args):
+        run_id, name = found
+        log_event(run_id, "refused", name=name, command=command)
+        raise MeshError(f"{name} is a worker of run {run_id}, and only a root runs `mesh {command}`: send your "
+                        f"parent a `question` instead. {SANDBOX_HINT}")
+
+
+def refuse_foreign_send(run_id: str, me: str, to: str) -> None:
+    """A worker sends only to its parent: a task to itself or a sibling would reopen it without its deny list
+    (`lift_read_only`), and nothing else a worker sends is for anyone else."""
+    entry = agent_entry(load_run(run_id), me)
+    if entry.get("role") == "worker" and to != entry.get("parent"):
+        log_event(run_id, "refused", name=me, command="send", to=to)
+        raise MeshError(f"{me} is a worker of run {run_id}, and a worker sends only to its parent "
+                        f"({entry.get('parent')}): `mesh send parent …`")
+
+
 def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
     """(run to stop, caller's run, caller's name): a worker never stops a run (its root does).
 
-    With a run id to stop, the caller only has to be told apart from a worker, so it's read from the flags and
-    the environment, without `identity`'s side effects: the pane map names only roots, so a caller found
-    there is never a worker, but a pane worker with no identity in its environment is found by its pane
-    (`pane_worker`, in any run; matching several, it's refused as the first). It is refused as a worker of any
-    run it names (`--run`, `MESH_RUN`) or of the target. With neither a name nor a run, it's the user in a plain
-    shell. Without a run id, the caller's identity is the run.
+    With a run id to stop, the caller only has to be told apart from a worker (`worker_caller`, as at dispatch),
+    and is refused as a worker of any run it names (`--run`, `MESH_RUN`) or of the target. With neither a name
+    nor a run, it's the user in a plain shell. Without a run id, the caller's identity is the run.
     """
     if not args.run_id:
         run_id, me = identity(args)
@@ -7326,12 +7390,8 @@ def stopping_worker(args: argparse.Namespace) -> tuple[str, str, str]:
     flag_run = getattr(args, "run", None)
     if flag_run and flag_run != args.run_id:
         raise MeshError(f"--run {flag_run} names another run than the one to stop ({args.run_id})")
-    name = getattr(args, "as_", None) or os.environ.get("MESH_SELF")
-    runs = dict.fromkeys(r for r in (flag_run, os.environ.get("MESH_RUN"), args.run_id) if r)
-    pane = os.environ.get("HERDR_PANE_ID") or ""
-    if not name and (found := pane_worker_entries(pane)) and pane_runs_this_claude(pane) is True:
-        runs, name = {found[0][0]: None, **runs}, found[0][1]  # a worker herdr restored without its variables
-    return args.run_id, next((r for r in runs if is_worker(r, name)), ""), name or ""
+    found = worker_caller(args, args.run_id)
+    return args.run_id, *(found or ("", getattr(args, "as_", None) or os.environ.get("MESH_SELF") or ""))
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
@@ -8441,6 +8501,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        check_worker(args)
         return args.func(args)
     except MeshError as exc:
         print(f"mesh: {exc}", file=sys.stderr)
