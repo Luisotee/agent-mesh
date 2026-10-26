@@ -365,6 +365,28 @@ def test_ask_peers_skips_a_peer_that_owes_a_report_by_the_log(mesh, fake, cli, r
     assert "busy with its previous question" in capsys.readouterr().out
 
 
+def test_ask_peers_reads_the_log_once_per_peer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    mesh.deliver(run, "swarm-research", "repo-lead", "done", "ANSWER TO Q1")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    got = {}
+    owes, reach = mesh.owes_answer, mesh.reach_worker
+
+    def owes_spy(run_id, name, entry, events=None):
+        got["owes"] = events
+        return owes(run_id, name, entry, events)
+
+    def reach_spy(*a, events=None, **kw):
+        got["reach"] = events
+        return reach(*a, events=events, **kw)
+
+    monkeypatch.setattr(mesh, "owes_answer", owes_spy)
+    monkeypatch.setattr(mesh, "reach_worker", reach_spy)
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q2?", "--no-refresh", "--timeout", "1"]) in (0, 6)
+    assert got["owes"] is got["reach"] and any(e.get("type") == "done" for e in got["owes"])
+
+
 def test_same_url_takes_the_two_github_forms_as_one(mesh):
     assert mesh.same_url("git@github.com:Acme/swarm.git", "https://github.com/acme/swarm")
     assert mesh.same_url("https://example.com/a/b.git/", "https://example.com/a/b")
@@ -712,11 +734,20 @@ def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, r
     with mesh.editing_run(run) as data:
         data["agents"]["swarm-research"] = entry
     mesh.deliver(run, "repo-lead", "swarm-research", "task", "Q1?")
-    monkeypatch.setattr(mesh, "agent_status", lambda name, entry, rows=None: "gone")
-    monkeypatch.setattr(mesh, "claude_agents", lambda: [])  # `claude agents` failed: gone means nothing
+    seen = []
+    monkeypatch.setattr(mesh, "agent_status", lambda name, entry, rows=None: seen.append(rows) or "gone")
+    reads = []
+
+    def agents(rows):
+        return lambda: reads.append(rows) or rows
+
+    monkeypatch.setattr(mesh, "claude_agents", agents([]))  # `claude agents` failed: gone means nothing
     assert mesh.owes_answer(run, "swarm-research", entry) is True
-    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"id": "other"}])
+    monkeypatch.setattr(mesh, "claude_agents", agents([{"id": "other"}]))
     assert mesh.owes_answer(run, "swarm-research", entry) is False
+    # one read per call, and the status is judged on those same rows
+    assert reads == [[], [{"id": "other"}]] and seen == reads
+    assert all(a is b for a, b in zip(seen, reads))
 
 
 def test_junk_entries_are_reported_by_every_peers_command(mesh, fake, run, repo, monkeypatch, capsys):

@@ -5940,14 +5940,17 @@ def ask_identity(args: argparse.Namespace, body: str, mode: str | None) -> tuple
 
 
 def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, task: str, gist: str,
-                 peer: str | None = None, collect: dict | None = None) -> tuple[dict, int, str]:
+                 peer: str | None = None, collect: dict | None = None,
+                 events: list[dict] | None = None) -> tuple[dict, int, str]:
     """Give a worker `ask` found its read-only task: send it to a live one, else resume it. (result, its count of
-    final sends before the task, how: "asked" or "resumed")."""
+    final sends before the task, how: "asked" or "resumed"). `events`: the target's run log, when the caller
+    has read it."""
     old_run, folder, name, entry = target
     state = (agent_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
              else "gone")
+    events = read_log(old_run["id"], folder) if events is None else events
     # It owes a reply to an earlier task: its next `done` must be this answer. Not while it works on that one.
-    if state != "working" and owes_report(read_log(old_run["id"], folder), name):
+    if state != "working" and owes_report(events, name):
         task = f"{task.rstrip()}\n\n{UNANSWERED_NOTE}"
     if state != "gone":
         finals = sends_from(run_id, name, FINAL_TYPES)
@@ -6185,17 +6188,20 @@ def ask_peers(args: argparse.Namespace) -> int:
                 run["agents"][asker].pop("collect", None)
 
 
-def owes_answer(run_id: str, name: str, entry: dict) -> bool:
+def owes_answer(run_id: str, name: str, entry: dict, events: list[dict] | None = None) -> bool:
     """A worker of this run still on its last task: it got one and has reported nothing since (by the log,
     since an idle blip in its pane doesn't mean it's done), or it reads working. One that is gone owes
-    nothing: it will never answer, and asking reopens its conversation."""
+    nothing: it will never answer, and asking reopens its conversation. `events`: the run's log, when the
+    caller has read it."""
     if entry.get("status") == "retired":
         return False
-    state = agent_status(name, entry)
+    # Read once, so the status and the guard below see the same `claude agents` answer.
+    rows = claude_agents() if entry.get("view") == "bg" else None
+    state = agent_status(name, entry, rows)
     # A background worker reads gone whenever `claude agents` can't answer too: trust that only with rows.
-    if state == "gone" and (entry.get("view") != "bg" or claude_agents()):
+    if state == "gone" and (rows is None or rows):
         return False
-    return owes_report(read_log(run_id), name) or state == "working"
+    return owes_report(read_log(run_id) if events is None else events, name) or state == "working"
 
 
 def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
@@ -6214,13 +6220,14 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         try:
             task = ask_task(f"{body}\n\n{prep['note']}", None, None, fresh=False)
             target = peer_worker(name, peer)
-            if target and target[0]["id"] == run_id and owes_answer(run_id, target[2], target[3]):
+            events = read_log(target[0]["id"], target[1]) if target else None  # once, for both checks
+            if target and target[0]["id"] == run_id and owes_answer(run_id, target[2], target[3], events):
                 # Its next `done` answers the question it's on: filing that as this one's would be wrong.
                 return None, 0, "busy with its previous question; ask again once it answers"
             ask = argparse.Namespace(**{**vars(args), "no_wait": True})  # the fan-out watches them all
             if target:
                 result, finals, how = reach_worker(ask, run_id, me, target, task, first_line(body), peer=name,
-                                                   collect=mark)
+                                                   collect=mark, events=events)
             else:
                 result, finals, how = spawn_peer(ask, run_id, me, name, peer, task, collect=mark), 0, "started"
         except MeshError as exc:
