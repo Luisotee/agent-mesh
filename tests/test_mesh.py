@@ -1002,6 +1002,7 @@ def test_watch_nudges_a_silent_stop_once_then_alerts(mesh, fake, run, monkeypatc
     assert [(e["name"], e["received"]) for e in nudges] == [("repo-fix-typo", 1)]
     assert "turn ended without a mesh send" in fake.called("agent", "prompt")[-1][3]
     assert "Your turn ended" in mesh.unread(run, "repo-fix-typo")[-1].read_text()
+    assert "Your current task starts: “Fix the typo.”" in mesh.unread(run, "repo-fix-typo")[-1].read_text()
 
 
 def test_a_nudged_worker_that_reports_is_not_an_alert(mesh, fake, run, monkeypatch):
@@ -1237,19 +1238,30 @@ def test_a_wait_covers_one_turn_end_and_a_wake_ends_it_with_the_nudge(mesh, fake
     assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # the nudge is spent
 
 
+def test_the_hook_nudge_names_the_task_by_its_first_line(mesh, fake, run, monkeypatch, capsys):
+    """A worker compacted mid-task is told which task it owes a report on (repowire's compaction lesson)."""
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "# Group: typos\n\nFix every typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert reason == mesh.HOOK_NUDGE + " Your current task starts: “Group: typos”."
+    for path in (mesh.inbox_dir(run, "repo-fix-typo") / "read").glob("*.md"):
+        path.unlink()  # its file is gone: the plain text
+    assert mesh.task_line(run, "repo-fix-typo", mesh.read_log(run)) == ""
+
+
 def test_a_wake_after_the_nudge_was_spent_gets_one_wait_reminder(mesh, fake, run, monkeypatch, capsys):
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
     assert mesh.HOOK_NUDGE in stop_hook(mesh, monkeypatch, capsys, run)  # nudged, so it declares a wait
     declare_wait(mesh, run, 30)
     assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
-    assert stop_hook(mesh, monkeypatch, capsys, run) == mesh.WAIT_OVER  # woke, stops again: one reminder
+    assert stop_hook(mesh, monkeypatch, capsys, run).startswith(mesh.WAIT_OVER)  # woke, stops again: one reminder
     assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # then the watch's turn
     # a fresh wait covers its next turn end again, and the wake after it gets its own reminder
     mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w2.md",
                    until=(mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=30)).isoformat())
     assert stop_hook(mesh, monkeypatch, capsys, run) is None
-    assert stop_hook(mesh, monkeypatch, capsys, run) == mesh.WAIT_OVER
+    assert stop_hook(mesh, monkeypatch, capsys, run).startswith(mesh.WAIT_OVER)
     assert wait_events(mesh, run) == ["wait_turn", "wait_over"] * 2
 
 

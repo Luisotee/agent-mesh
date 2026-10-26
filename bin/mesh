@@ -4120,6 +4120,14 @@ WAIT_OVER_BODY = ("You woke during your declared wait and are ending your turn a
 WAIT_OVER = "agent-mesh: " + WAIT_OVER_BODY  # the Stop hook's reason; the body is the agy watch's doorbell
 
 
+def task_line(run_id: str, name: str, events: list[dict]) -> str:
+    """A sentence naming `name`'s current task by its first line, for a nudge to a worker that may have been
+    compacted since it read it; empty when its file is gone."""
+    files = current_task(run_id, name, events)
+    line = first_line(parse_message(files[0])[1].lstrip("# ")) if files else ""
+    return f" Your current task starts: “{line}”." if line else ""
+
+
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     """The reason a Claude worker's Stop hook keeps its turn going, or None to let it end.
 
@@ -4169,7 +4177,7 @@ def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     if not claimed and not woke:
         return None
     reasons = [mail_reason(mail)] if mail else []
-    reasons.append(HOOK_NUDGE if claimed else WAIT_OVER)
+    reasons.append((HOOK_NUDGE if claimed else WAIT_OVER) + task_line(run_id, name, events))
     return "\n\n".join(reasons)
 
 
@@ -4220,7 +4228,8 @@ def record_alert(run_id: str, name: str, received: int, kind: str = "stopped") -
 
 def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
     """Remind a worker whose turn ended silently to report, through `deliver`, with a short ring schedule."""
-    delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", NUDGE_BODY,
+    body = NUDGE_BODY + task_line(run_id, name, read_log(run_id))
+    delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", body,
                        delays=NUDGE_RING_DELAYS)
     rung = bool(delivery.get("rung"))
     log_event(run_id, "nudge_rung", name=name, received=received, rung=rung,
