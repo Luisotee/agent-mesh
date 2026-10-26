@@ -974,8 +974,102 @@ def test_the_stop_hook_lets_a_waiting_worker_stop_but_not_over_unread_mail(mesh,
     assert stop_hook(mesh, monkeypatch, capsys, run) is None
     assert not [e for e in mesh.read_log(run) if e["event"] == "nudge"]  # kept for after the wait
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    # a later turn end (the doorbell woke it) ends the wait: the mail, and the nudge as after no wait
     reason = stop_hook(mesh, monkeypatch, capsys, run)
-    assert "1 unread mesh message (info)" in reason and "without a `mesh send`" not in reason
+    assert "1 unread mesh message (info)" in reason and "without a `mesh send`" in reason
+
+
+def test_mail_at_the_turn_end_that_declares_a_wait_blocks_and_the_wait_still_covers_one(
+        mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    declare_wait(mesh, run, 30)
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "info", "FYI.")
+    assert "without a `mesh send`" not in stop_hook(mesh, monkeypatch, capsys, run)  # the mail block alone
+    assert not [e for e in mesh.read_log(run) if e["event"] == "wait_turn"]  # that turn didn't end
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # now it does
+    assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("wait_")] == ["wait_turn"]
+
+
+def wait_events(mesh, run):
+    return [e["event"] for e in mesh.read_log(run) if e["event"] in ("wait_turn", "wait_over")]
+
+
+def test_a_wait_covers_one_turn_end_and_a_wake_ends_it_with_the_nudge(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    declare_wait(mesh, run, 30)
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None  # the turn end that declared it
+    assert wait_events(mesh, run) == ["wait_turn"]
+    assert mesh.waiting_until(mesh.read_log(run), "repo-fix-typo")
+    # it woke (its background job finished) and stops again without a report
+    assert mesh.HOOK_NUDGE in stop_hook(mesh, monkeypatch, capsys, run)
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over"]
+    assert mesh.waiting_until(mesh.read_log(run), "repo-fix-typo") is None
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # the nudge is spent
+
+
+def test_a_wake_after_the_nudge_was_spent_gets_one_wait_reminder(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert mesh.HOOK_NUDGE in stop_hook(mesh, monkeypatch, capsys, run)  # nudged, so it declares a wait
+    declare_wait(mesh, run, 30)
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None
+    assert stop_hook(mesh, monkeypatch, capsys, run) == mesh.WAIT_OVER  # woke, stops again: one reminder
+    assert stop_hook(mesh, monkeypatch, capsys, run, stop_hook_active=True) is None  # then the watch's turn
+    # a fresh wait covers its next turn end again, and the wake after it gets its own reminder
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w2.md",
+                   until=(mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=30)).isoformat())
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+    assert stop_hook(mesh, monkeypatch, capsys, run) == mesh.WAIT_OVER
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over"] * 2
+
+
+def test_the_watch_ends_an_agy_wait_when_the_worker_wakes_and_stops_again(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    declare_wait(mesh, run, 30)
+    state = {"now": "idle"}
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: state["now"])
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(4))  # the turn end that declared it
+    assert wait_events(mesh, run) == ["wait_turn"]
+    state["now"] = "working"  # it woke
+    assert watch.tick(5) is None
+    state["now"] = "idle"
+    assert watch.tick(5) is None and watch.tick(5) is None  # idle for --grace: the wait is over, nudged
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over"]
+    assert [e["event"] for e in mesh.read_log(run) if e["event"].startswith("nudge")] == ["nudge", "nudge_rung"]
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)
+    events = [watch.tick(5) for _ in range(3)]
+    status, line = next(e for e in events if e)
+    assert status == 3 and "(nudged once" in line and "ended when it woke" in line
+
+
+def test_an_agy_wake_with_the_nudge_spent_gets_the_wait_reminder_then_an_alert(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert mesh.claim_nudge(run, "repo-fix-typo", 1)
+    declare_wait(mesh, run, 30)
+    states_then(mesh, monkeypatch, "idle", "idle", "working", "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(5))
+    reminders = [c for c in fake.called("agent", "prompt") if "woke during your declared wait" in c[3]]
+    assert len(reminders) == 1
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)
+    assert next(e for e in (watch.tick(5) for _ in range(3)) if e)[0] == 3
+
+
+def test_a_claude_workers_wait_is_not_ended_by_the_watch(mesh, fake, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    declare_wait(mesh, run, 30)
+    states_then(mesh, monkeypatch, "idle", "idle", "idle", "working", "idle")
+    monkeypatch.setattr(mesh.Watch, "limited", lambda *_: None)
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(10))  # its Stop hook sees its turn ends, not the watch
+    assert wait_events(mesh, run) == []
 
 
 def test_a_watch_after_the_stop_hook_nudged_alerts_without_nudging_again(mesh, fake, run, monkeypatch, capsys):
@@ -2537,6 +2631,8 @@ def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
     _, rows = status_rows(mesh, run, capsys)
     row = rows["repo-fix-typo"]
     assert row["waiting"].endswith(f", waiting until {until.astimezone():%H:%M}") and row["needs"] == "worker"
+    mesh.log_event(run, "wait_over", name="repo-fix-typo", file="w.md")  # it woke and stopped again
+    assert "waiting until" not in status_rows(mesh, run, capsys)[1]["repo-fix-typo"]["waiting"]
 
 
 def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
