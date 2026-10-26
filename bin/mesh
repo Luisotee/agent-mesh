@@ -235,7 +235,7 @@ SETTINGS_CONTINUE_RE = re.compile(r"^\s*[❯>]\s*(?:\d\.\s*)?Continue\s*$", re.M
 STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
 TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
 HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
-HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen before it gives up on it
+HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen (MESH_HELD_WAIT)
 STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 
 
@@ -364,13 +364,21 @@ def claude_bin() -> str:
 
 def claude_agents() -> list[dict]:
     """Claude Code's own session list (`claude agents --json --all`): background sessions carry a `status`
-    (busy / idle / waiting) while their process runs, and keep their entry after they exit."""
+    (busy / idle / waiting) while their process runs, and keep their entry after they exit. No rows when the
+    call fails (see read_claude_agents)."""
+    rows = read_claude_agents()
+    return [] if rows is None else rows
+
+
+def read_claude_agents() -> list[dict] | None:
+    """claude_agents, but None when the call fails (an error, a timeout, output that isn't a list), so a
+    caller can tell that from no sessions."""
     proc = run_cli([claude_bin(), "agents", "--json", "--all"], env=claude_env(), timeout=30)
     try:
-        rows = json.loads(proc.stdout) if proc.returncode == 0 else []
+        rows = json.loads(proc.stdout) if proc.returncode == 0 else None
     except ValueError:
-        return []
-    return rows if isinstance(rows, list) else []
+        return None
+    return rows if isinstance(rows, list) else None
 
 
 def parent_pid(pid: int) -> int:
@@ -1378,7 +1386,7 @@ HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
                "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
-               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER",
+               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
@@ -4015,6 +4023,7 @@ class Watch:
         self.session: str | None = None  # its conversation, once found (see conversation)
         self.session_tried: float | None = None
         self.prev: str | None = None
+        self.state: str | None = None  # the last tick's reading, held or not (prev skips a held worker's)
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
         self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit or agy's turn end is looked for
@@ -4038,7 +4047,7 @@ class Watch:
         if event:
             return event
         entry = agent_entry(load_run(run_id), name)
-        state = agent_status(name, entry, bg_rows)
+        state = self.state = agent_status(name, entry, bg_rows)
         if agent_entry(load_run(run_id), name).get("status") in ("retiring", "retired"):  # read after the state
             self.retired = self.finished = True  # the root is closing it on purpose, report or not
             return None
@@ -4531,6 +4540,13 @@ def hang_after() -> float:
         return float(os.environ.get("MESH_HANG_AFTER") or HANG_AFTER)
     except ValueError:
         return HANG_AFTER
+
+
+def held_wait() -> float:
+    try:
+        return float(os.environ.get("MESH_HELD_WAIT") or HELD_WAIT)
+    except ValueError:
+        return HELD_WAIT
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -5961,10 +5977,10 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
                  events: list[dict] | None = None, state: str | None = None) -> tuple[dict, int, str]:
     """Give a worker `ask` found its read-only task: send it to a live one, else resume it. (result, its count of
     final sends before the task, how: "asked" or "resumed"). `events` (the target's run log) and `state` (its
-    status, for a worker open in this run), when the caller has read them."""
+    asker_status, given only for a worker open in this run), when the caller has read them."""
     old_run, folder, name, entry = target
-    if state is None or old_run["id"] != run_id or entry.get("status") == "retired":
-        state = (agent_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
+    if state is None:
+        state = (asker_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
                  else "gone")
     events = read_log(old_run["id"], folder) if events is None else events
     # It owes a reply to an earlier task: its next `done` must be this answer. Not while it works on that one.
@@ -6142,15 +6158,18 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval: float = 5.0,
                grace: float = SETTLE_GRACE, on_outcome: Callable[[str, int, str], None] | None = None,
-               held_wait: float = HELD_WAIT) -> dict[str, tuple[int, str]]:
+               held_for: float | None = None) -> dict[str, tuple[int, str]]:
     """watch_agents for a fan-out: every name gets its own outcome, (0, …) for a done/failed or the watch's
     alert (3-8), and the rest are watched on. A plan or question it sends instead ends its watch too (3), as
     does the timeout (6). `finals` is each one's count of final sends before its task was delivered.
 
     A watch stays quiet while its worker is held at a startup screen (`release_held`: the root was told at the
-    start), so one still held `held_wait` seconds after its hold gets its own exit 4 instead of keeping the
-    others' answers waiting until the timeout."""
+    start), so one still at it `held_for` seconds (held_wait()) after its hold gets its own exit 4 instead of
+    keeping the others' answers waiting until the timeout. A worker given up on (any outcome but an answer) is
+    let go at once: its watch lock closes and its `collect` mark goes, so what it sends later rings as usual
+    and the root is told it's unwatched."""
     hang = hang_after()
+    held_for = held_wait() if held_for is None else held_for
     watches = {name: Watch(run_id, name, grace, count, hang) for name, count in finals.items()}
     outcomes: dict[str, tuple[int, str]] = {}
     deadline = time.monotonic() + timeout if timeout else None
@@ -6158,19 +6177,28 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
     def decide(name: str, outcome: tuple[int, str]) -> None:
         outcomes[name] = outcome
         watches.pop(name)
+        if outcome[0]:
+            held.pop(name).close()
+            with editing_run(run_id) as data:
+                if name in data["agents"]:
+                    data["agents"][name].pop("collect", None)
         if on_outcome:
             on_outcome(name, *outcome)
 
-    held = hold_watch(run_id, list(watches))
+    held = dict(zip(watches, hold_watch(run_id, list(watches))))
     try:
         while watches:
             run = load_run(run_id)
             bg_rows = claude_agents() if any(run["agents"].get(n, {}).get("view") == "bg" for n in watches) else None
             events = read_log(run_id)
-            for name, watch in list(watches.items()):
-                event = watch.tick(interval, False, bg_rows, events)
-                at_screen = (load_run(run_id)["agents"].get(name) or {}).get("held")  # after the tick's release
-                if not event and at_screen and seconds_since(at_screen.get("at")) >= held_wait:
+            ticked = {name: watch.tick(interval, False, bg_rows, events) for name, watch in watches.items()}
+            agents = load_run(run_id)["agents"]  # after the ticks, which may release a hold
+            for name, event in ticked.items():
+                watch = watches[name]
+                at_screen = (agents.get(name) or {}).get("held")
+                # Still at the screen: not retired, not past it (reading working, or idle with a ring to retry)
+                if (not event and not watch.finished and at_screen and not at_screen.get("tries")
+                        and watch.state in ("blocked", "unknown") and seconds_since(at_screen.get("at")) >= held_for):
                     event = 4, (f"ALERT {name} is still waiting at a startup screen ({at_screen.get('screen')}): the "
                                 f"user clears it in its pane (`herdr agent focus {name}`), then `mesh ring {name}`, "
                                 "and its answer comes to your inbox")
@@ -6188,7 +6216,7 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
             if watches:
                 time.sleep(interval)
     finally:
-        for handle in held:
+        for handle in held.values():
             handle.close()
     return outcomes
 
@@ -6215,14 +6243,19 @@ def ask_peers(args: argparse.Namespace) -> int:
                 run["agents"][asker].pop("collect", None)
 
 
+CLAUDE_AGENTS_RETRY = 1.0  # seconds before asker_status asks `claude agents` again after a failed call
+
+
 def asker_status(name: str, entry: dict) -> str:
-    """agent_status, but `unknown` for a background worker that reads gone only because `claude agents`
-    couldn't answer (no rows at all, twice): the status and that guard read the same rows."""
-    rows = claude_agents() if entry.get("view") == "bg" else None
-    if rows == []:  # once more: a passing failure shouldn't leave a gone worker unknown
-        rows = claude_agents()
-    state = agent_status(name, entry, rows)
-    return "unknown" if state == "gone" and rows == [] else state
+    """agent_status, but `unknown` for a background worker whose `claude agents` call failed twice, a second
+    apart: it can't be told gone, and resuming a live one would run two processes on one conversation."""
+    if entry.get("view") != "bg":
+        return agent_status(name, entry)
+    rows = read_claude_agents()
+    if rows is None:  # once more: a passing failure shouldn't leave a gone worker unknown
+        time.sleep(CLAUDE_AGENTS_RETRY)
+        rows = read_claude_agents()
+    return "unknown" if rows is None else agent_status(name, entry, rows)
 
 
 def owes_answer(run_id: str, name: str, entry: dict, events: list[dict] | None = None,
@@ -6511,6 +6544,8 @@ def peer_problem(peer) -> str | None:
     problems = [f"no {', '.join(missing)} recorded"] if missing else []
     problems += [f"{key} {peer[key]!r} is not a path" for key in ("repo", "cwd")
                  if peer.get(key) and not isinstance(peer[key], str)]
+    if isinstance(up, dict) and up.get("branch") and not isinstance(up["branch"], str):
+        problems.append(f"upstream branch {up['branch']!r} is not a branch name")
     return "; ".join(problems) or None
 
 

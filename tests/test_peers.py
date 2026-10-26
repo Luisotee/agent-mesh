@@ -736,6 +736,19 @@ def test_a_racing_add_of_the_same_name_is_refused_under_the_lock(mesh, fake, rep
     assert mesh.load_peers()["peers"]["swarm-research"]["repo"] == str(one.resolve())
 
 
+def claude_agents_calls(mesh, monkeypatch, *answers):
+    """Stub `claude agents`: one answer per call (None for a failed call), the last repeated; returns the calls."""
+    calls, queue = [], list(answers)
+
+    def read():
+        calls.append(queue[0])
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr(mesh, "read_claude_agents", read)
+    monkeypatch.setattr(mesh.time, "sleep", lambda _: None)
+    return calls
+
+
 def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, run, monkeypatch):
     entry = {"role": "worker", "kind": "claude", "view": "bg", "bg_id": "abc123", "status": "running"}
     with mesh.editing_run(run) as data:
@@ -743,51 +756,121 @@ def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, r
     mesh.deliver(run, "repo-lead", "swarm-research", "task", "Q1?")
     seen = []
     monkeypatch.setattr(mesh, "agent_status", lambda name, entry, rows=None: seen.append(rows) or "gone")
-    reads = []
-
-    def agents(rows):
-        return lambda: reads.append(rows) or rows
-
-    monkeypatch.setattr(mesh, "claude_agents", agents([]))  # `claude agents` failed: gone means nothing
-    assert mesh.owes_answer(run, "swarm-research", entry) is True
-    monkeypatch.setattr(mesh, "claude_agents", agents([{"id": "other"}]))
+    claude_agents_calls(mesh, monkeypatch, None)  # `claude agents` fails: gone means nothing
+    assert mesh.owes_answer(run, "swarm-research", entry) is True and seen == []
+    rows = [{"id": "other"}]
+    calls = claude_agents_calls(mesh, monkeypatch, rows)
     assert mesh.owes_answer(run, "swarm-research", entry) is False
-    # no rows are read once more; the status is judged on the rows the guard saw
-    assert reads == [[], [], [{"id": "other"}]] and seen == [[], [{"id": "other"}]]
-    assert seen[0] is reads[1] and seen[1] is reads[2]
+    assert calls == [rows] and seen == [rows] and seen[0] is rows  # read once, and judged on those rows
 
 
-def test_a_bg_askers_status_is_unknown_when_claude_agents_cant_answer(mesh, fake, cli, run, monkeypatch):
+def test_a_bg_askers_status_retries_a_failed_claude_agents_once(mesh, cli, monkeypatch):
     entry = {"role": "worker", "kind": "claude", "view": "bg", "session": "s1", "status": "running"}
-    monkeypatch.setattr(mesh, "claude_agents", lambda: [])
+    sleeps = []
+    calls = claude_agents_calls(mesh, monkeypatch, None)
+    monkeypatch.setattr(mesh.time, "sleep", sleeps.append)
     assert mesh.asker_status("swarm-research", entry) == "unknown"
-    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "other"}])
-    assert mesh.asker_status("swarm-research", entry) == "gone"
-    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "s1", "status": "idle"}])
+    assert len(calls) == 2 and sleeps == [mesh.CLAUDE_AGENTS_RETRY]  # a second apart, not back to back
+    calls = claude_agents_calls(mesh, monkeypatch, None, [{"sessionId": "other"}])  # a passing failure
+    assert mesh.asker_status("swarm-research", entry) == "gone" and len(calls) == 2
+    calls = claude_agents_calls(mesh, monkeypatch, [])  # it answered: no sessions at all is gone, not unknown
+    assert mesh.asker_status("swarm-research", entry) == "gone" and len(calls) == 1
+    claude_agents_calls(mesh, monkeypatch, [{"sessionId": "s1", "status": "idle"}])
     assert mesh.asker_status("swarm-research", entry) == "idle"
+
+
+def test_claude_agents_tells_a_failed_call_from_no_sessions(mesh, cli):
+    cli.on("agents", returncode=1, stderr="boom")
+    assert mesh.read_claude_agents() is None and mesh.claude_agents() == []
+    cli.on("agents", stdout="not json")
+    assert mesh.read_claude_agents() is None
+    cli.on("agents", stdout="[]")
+    assert mesh.read_claude_agents() == []
+
+
+def test_a_single_ask_of_a_bg_worker_retries_claude_agents_too(mesh, run, monkeypatch):
+    entry = {"role": "worker", "kind": "claude", "view": "bg", "session": "s1", "status": "running", "parent": "repo-lead"}
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"] = entry
+    claude_agents_calls(mesh, monkeypatch, None, [{"sessionId": "s1", "status": "idle"}])
+    monkeypatch.setattr(mesh, "deliver", lambda *a, **kw: {"stored": "x"})
+    args = mesh.argparse.Namespace(no_wait=True)
+    _, _, how = mesh.reach_worker(args, run, "repo-lead", (mesh.load_run(run), None, "swarm-research", entry),
+                                  "Q?", "Q?")
+    assert how == "asked"  # idle on the retry, so delivered to, not resumed
+
+
+def held_peer(mesh, run, at, **hold):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": "repo-lead", "type": "task", "screen": "Weird",
+                                                   "at": at, **hold}
+
+
+def ago_iso(mesh, seconds):
+    return (mesh.datetime.now(mesh.timezone.utc) - mesh.timedelta(seconds=seconds)).isoformat()
 
 
 def test_a_fan_out_gives_up_on_a_peer_held_too_long(mesh, fake, run, monkeypatch):
     fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})  # at a screen mesh doesn't answer
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Q?")
-    old = (mesh.datetime.now(mesh.timezone.utc) - mesh.timedelta(seconds=61)).isoformat()
-    with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"]["held"] = {"sender": "repo-lead", "type": "task", "screen": "Weird", "at": old}
+    held_peer(mesh, run, ago_iso(mesh, 61))
     monkeypatch.setattr(mesh.time, "sleep", lambda _: None)
-    out = mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=3600, interval=0.01, held_wait=60)
+    out = mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=3600, interval=0.01, held_for=60)
     status, line = out["repo-fix-typo"]
     assert status == 4 and "still waiting at a startup screen (Weird)" in line and "mesh ring repo-fix-typo" in line
 
-    with mesh.editing_run(run) as data:  # held just now: still waited for, until the fan-out's own timeout
-        data["agents"]["repo-fix-typo"]["held"]["at"] = mesh.now_iso()
-    assert mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=0.05, interval=0.01, held_wait=60)["repo-fix-typo"][0] == 6
+    held_peer(mesh, run, mesh.now_iso())  # held just now: still waited for, until the fan-out's own timeout
+    assert mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=0.05, interval=0.01, held_for=60)["repo-fix-typo"][0] == 6
+
+    monkeypatch.setenv("MESH_HELD_WAIT", "10")  # the default comes from MESH_HELD_WAIT
+    held_peer(mesh, run, ago_iso(mesh, 11))
+    assert mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=3600, interval=0.01)["repo-fix-typo"][0] == 4
 
 
-def test_a_bg_askers_status_retries_claude_agents_once(mesh, monkeypatch):
-    entry = {"role": "worker", "kind": "claude", "view": "bg", "session": "s1", "status": "running"}
-    answers = [[], [{"sessionId": "other"}]]  # a passing failure, then rows without it: gone
-    monkeypatch.setattr(mesh, "claude_agents", lambda: answers.pop(0))
-    assert mesh.asker_status("swarm-research", entry) == "gone" and not answers
+def test_the_held_deadline_is_only_for_a_peer_still_at_its_screen(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Q?")
+    monkeypatch.setattr(mesh.time, "sleep", lambda _: None)
+    old = ago_iso(mesh, 61)
+
+    def watch(timeout=0.05):
+        return mesh.watch_each(run, {"repo-fix-typo": 0}, timeout=timeout, interval=0.01, held_for=60)["repo-fix-typo"]
+
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # past its screen, at work
+    held_peer(mesh, run, old)
+    assert watch()[0] == 6
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    held_peer(mesh, run, old, tries=1)  # its screen cleared and its first ring failed: the watch retries it
+    assert watch()[0] == 6
+    held_peer(mesh, run, old)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    status, line = watch(3600)
+    assert status == 5 and "retired before it answered" in line
+
+
+def test_a_peer_given_up_on_is_let_go_at_once(mesh, fake, run, monkeypatch):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    with mesh.editing_run(run) as data:  # a second peer, still answering, keeps the fan-out going
+        data["agents"]["repo-two"] = {**data["agents"]["repo-fix-typo"], "view": "bg", "session": "s2"}
+        for name in ("repo-fix-typo", "repo-two"):
+            data["agents"][name]["collect"] = mesh.collector("repo-lead")
+    for name in ("repo-fix-typo", "repo-two"):
+        mesh.deliver(run, "repo-lead", name, "task", "Q?")
+    held_peer(mesh, run, ago_iso(mesh, 61))
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "s2", "status": "busy"}])
+    monkeypatch.setattr(mesh.time, "sleep", lambda _: None)
+    seen = {}
+
+    def on_outcome(name, status, line):
+        entry = mesh.load_run(run)["agents"][name]
+        seen[name] = status, mesh.collecting(entry, "repo-lead"), mesh.watched(run, name)
+        seen.setdefault("other", mesh.watched(run, "repo-two"))
+
+    mesh.watch_each(run, {"repo-fix-typo": 0, "repo-two": 0}, timeout=0.05, interval=0.01, held_for=60,
+                    on_outcome=on_outcome)
+    # its answer, when the user clears the screen, rings the root; the other one is still watched and collected
+    assert seen["repo-fix-typo"] == (4, False, False) and seen["other"] is True
+    assert seen["repo-two"][0] == 6
 
 
 def test_junk_entries_are_reported_by_every_peers_command(mesh, fake, run, repo, monkeypatch, capsys):
@@ -984,6 +1067,15 @@ def test_an_ask_whose_clone_is_gone_starts_nothing(mesh, fake, cli, run, repo, t
     assert mesh.main(["ask", "swarm-research", "--body", "Q?"]) == 1
     assert "and so is its clone" in capsys.readouterr().err
     assert not started
+
+
+def test_a_non_string_upstream_branch_is_a_broken_entry(mesh, fake, run, repo, monkeypatch, capsys):
+    with mesh.editing_peers() as data:
+        data["peers"]["num-peer"] = {"repo": "/x", "cwd": "/x", "upstream": {"remote": "origin", "branch": 123}}
+    assert mesh.peer_problem(mesh.load_peers()["peers"]["num-peer"]) == "upstream branch 123 is not a branch name"
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q?"]) == 1  # reported, not a TypeError from git
+    assert "num-peer's registry entry is broken (upstream branch 123" in capsys.readouterr().out
 
 
 def test_a_non_string_repo_is_a_broken_entry(mesh, fake, run, repo, monkeypatch, capsys):
