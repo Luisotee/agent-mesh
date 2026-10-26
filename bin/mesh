@@ -1557,14 +1557,16 @@ def resolve_model(kind: str, model: str, effort: str) -> str:
 
 
 def claude_deny(entry: dict) -> list[str]:
-    """`--disallowedTools` for a Claude worker on a read-only task (`read_only`), else nothing.
+    """`--disallowedTools` for a Claude worker on a read-only task (`read_only`) or planning one that `mesh approve`
+    hasn't approved yet (`planning`), else nothing. The list is the same for both, so moving between the two
+    reasons needs no reopen.
 
     Edits are denied by path, its worktree and the main checkout, so it can still write its report under
     `$(mesh dir)`; an `Edit` rule stops Write too. Deny rules win over `--dangerously-skip-permissions`, in
     a pane and in `--bg`, and aren't kept in the conversation: a reopen without them can edit (design §10).
     The flag takes several values, so callers put another flag after it.
     """
-    if entry.get("kind") != "claude" or not entry.get("read_only"):
+    if entry.get("kind") != "claude" or not (entry.get("read_only") or entry.get("planning")):
         return []
     paths = dict.fromkeys(str(Path(p).resolve()) for p in (entry.get("cwd"), entry.get("repo")) if p)
     return ["--disallowedTools", *(f"Edit(/{p}/**)" for p in paths), *(f"Bash({cmd}:*)" for cmd in PUBLISH_COMMANDS)]
@@ -2426,12 +2428,15 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
         task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
     read_only = args.kind == "claude" and read_only_task(task)
-    deny = claude_deny({"kind": args.kind, "read_only": read_only, "cwd": cwd, "repo": repo_top})
+    # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
+    planning = args.kind == "claude" and not (sized or user_review or read_only) and (not task or planned_task(task))
+    deny = claude_deny({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
     env = mesh_env(run_id, name, parent, args.role)
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
             "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
+            "planning": planning,
             "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
             "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
             "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
@@ -2491,7 +2496,7 @@ def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
 
 
 def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effort: str, why: str,
-            wait_ms: int, strict: bool, message: tuple[str, str, str], read_only: bool) -> dict:
+            wait_ms: int, strict: bool, message: tuple[str, str, str], lift: bool) -> dict:
     """swap_model for a background worker: stop it, then start a copy of its conversation on the new model.
 
     The message goes into its mailbox first, since the copy's opening prompt is the doorbell for it.
@@ -2501,19 +2506,19 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     path = record(run_id, sender, name, mtype, body)
     with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
-        e.update(model=model, effort=effort, status="starting", swapped=True, read_only=read_only)
+        e.update(model=model, effort=effort, status="starting", swapped=True, **lifted(entry, lift))
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
     stop_bg(entry)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
                                        mesh_env(run_id, name, entry["parent"], entry["role"]), prompt, resume=session,
-                                       extra=claude_deny({**entry, "read_only": read_only}))
+                                       extra=claude_deny({**entry, **lifted(entry, lift)}))
     except MeshError as exc:
         with editing_run(run_id) as run:
             e = run["agents"][name]
             e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
-                     read_only=entry.get("read_only"))
+                     **lifted(entry, False))
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
@@ -2528,16 +2533,21 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
             "delivery": {"stored": str(path), "rung": False, "error": None, "launched": True}}
 
 
+def lifted(entry: dict, lift: bool) -> dict:
+    """The deny-list reasons (claude_deny) a reopen records: none when it lifts the list, else the entry's own."""
+    return {key: False if lift else bool(entry.get(key)) for key in ("read_only", "planning")}
+
+
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
                strict: bool = True, message: tuple[str, str, str] | None = None,
-               read_only: bool | None = None) -> dict:
+               lift: bool = False) -> dict:
     """Restart a worker on another model or effort in the same conversation, pane by pane, keeping its name.
 
     Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
     hit a quota is not strict, since its turn is already dead whatever herdr shows. A background worker
     gets `message` (sender, type, body) as its opening prompt (the result's `delivery`); for a pane the
-    caller delivers it once the pane is back. `read_only` (default: as it was) says whether it reopens with
-    its deny list (claude_deny).
+    caller delivers it once the pane is back. `lift` reopens it without its deny list (claude_deny), clearing
+    both of its reasons; otherwise it keeps whatever it had.
     """
     entry = agent_entry(load_run(run_id), name)
     refuse_headless(name, entry, "a model swap")
@@ -2545,10 +2555,9 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
                              f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
-    read_only = bool(entry.get("read_only")) if read_only is None else read_only
     if entry.get("view") == "bg":
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
-                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."), read_only)
+                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift)
     try:  # never cut a turn short: the conversation is only safe to reopen between turns
         herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
               timeout=wait_ms / 1000 + 10)
@@ -2570,9 +2579,9 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                 status="starting", swapped=True, read_only=read_only)
+                 status="starting", swapped=True, **lifted(entry, lift))
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    argv = [*log_argv(entry.get("log")), *claude_deny({**entry, "read_only": read_only}),
+    argv = [*log_argv(entry.get("log")), *claude_deny({**entry, **lifted(entry, lift)}),
             *resume_argv(entry["kind"], session, model, effort), "--dangerously-skip-permissions",
             *settings_argv(entry["kind"], env)]
     try:
@@ -2587,7 +2596,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         with editing_run(run_id) as run:  # the old model is still the recorded one, so a retry swaps again
             e = run["agents"][name]
             e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
-                     read_only=entry.get("read_only"))
+                     **lifted(entry, False))
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
@@ -2625,10 +2634,10 @@ def refuse_no_plan(run_id: str, name: str, entry: dict) -> None:
 
     A worker whose bg swap failed at approval was already sent its approval, before the launch (`swap_bg`):
     the retry that ORCHESTRATE offers approves it again. Only that swap: a failed `mesh switch` while planning
-    leaves the same status, with nothing approved.
+    leaves the same status, with nothing approved. A pinned planner has no phase, but its `planning` says it.
     """
     events = read_log(run_id)
-    if entry.get("status") == "swap_failed" and entry.get("phase") == "plan":
+    if entry.get("status") == "swap_failed" and (entry.get("phase") == "plan" or entry.get("planning")):
         failed = [e for e in events if e.get("event") == "swap_failed" and e.get("name") == name]
         if failed and failed[-1].get("why") == "plan approved":
             return
@@ -2657,25 +2666,35 @@ def cmd_approve(args: argparse.Namespace) -> int:
     result: dict = {"name": args.agent, "model": entry.get("model")}
     extra = read_body(args.body, args.file)
     body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
+    # A Claude planner runs with its deny list until now: whatever else happens, the reopen lifts it (design §9).
+    denied = bool(entry.get("planning") and claude_deny(entry))
+    model, effort = entry.get("model"), entry.get("effort")
     if entry.get("phase") == "plan" and entry.get("exec_model"):
-        effort = entry.get("exec_effort") or EXEC_EFFORT
-        model = resolve_model(entry["kind"], entry["exec_model"], effort)
         if args.keep_model:  # asked for, never a fallback: it executes on what it planned on
-            with editing_run(run_id) as run:
-                run["agents"][args.agent].setdefault("models", []).append(
-                    {"model": entry.get("model"), "effort": entry.get("effort"), "at": now_iso(),
-                     "why": "plan approved", "kept": True})
+            if not denied:  # else the reopen below records it
+                with editing_run(run_id) as run:
+                    run["agents"][args.agent].setdefault("models", []).append(
+                        {"model": entry.get("model"), "effort": entry.get("effort"), "at": now_iso(),
+                         "why": "plan approved", "kept": True})
             log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
             result["kept_model"] = True
-        elif (model, effort) != (entry.get("model"), entry.get("effort")):
-            try:
-                result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved",
-                                            message=(me, "answer", body))
-            except SwapNotStarted as exc:
-                raise MeshError(f"{exc}. Nothing was sent. To approve it on {entry.get('model')} instead, run "
-                                f"`mesh approve {args.agent} --keep-model`: it is then recorded as executing, so a "
-                                f"later `mesh switch` moves it to {entry['exec_model']}") from exc
-            result["model"] = model
+        else:
+            effort = entry.get("exec_effort") or EXEC_EFFORT
+            model = resolve_model(entry["kind"], entry["exec_model"], effort)
+    if denied or (model, effort) != (entry.get("model"), entry.get("effort")):
+        try:
+            result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved",
+                                        message=(me, "answer", body), lift=True)
+        except SwapNotStarted as exc:
+            if denied:  # --keep-model reopens it too: nothing gets its edits back but a reopen
+                raise MeshError(f"{exc}. Nothing was sent. {args.agent} plans with its edits denied, and only "
+                                f"reopening its conversation lifts that: run `mesh approve {args.agent}` again once "
+                                "its turn has ended") from exc
+            raise MeshError(f"{exc}. Nothing was sent. To approve it on {entry.get('model')} instead, run "
+                            f"`mesh approve {args.agent} --keep-model`: it is then recorded as executing, so a "
+                            f"later `mesh switch` moves it to {entry['exec_model']}") from exc
+        result["model"] = model
+    if entry.get("phase") == "plan" and entry.get("exec_model"):
         with editing_run(run_id) as run:
             run["agents"][args.agent]["phase"] = "exec"
     result["delivery"] = (result.get("swap") or {}).pop("delivery", None) or deliver(
@@ -2750,10 +2769,12 @@ def read_body(body: str | None, file: str | None) -> str | None:
 
 
 def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict | None:
-    """A change task for a read-only Claude asker: reopen its conversation without its deny list, then deliver.
+    """A change task for a Claude worker under its deny list (claude_deny): the list follows the task.
 
-    The same model and effort, by `swap_model`, as `mesh approve` reopens a worker; None when there's
-    nothing to lift (not a task, a question or a review again, or no deny list).
+    A task it plans first keeps the list until `mesh approve` lifts it: a read-only asker's reason just becomes
+    `planning`, with no reopen. A direct task reopens its conversation without the list, on the same model and
+    effort, by `swap_model` as `mesh approve` does, then delivers. None when it delivers as usual: not a task,
+    a question or a review again, no deny list, or a planned task. `send` never reopens a worker to add the list.
     """
     if mtype != "task" or read_only_task(body):
         return None
@@ -2763,27 +2784,37 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
                         f"ask it with `mesh ask {entry['peer']}`, and give a change to a worker in that repo")
     if entry.get("role") != "worker" or not claude_deny(entry):
         return None
-    if entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way
+    asker = bool(entry.get("read_only"))
+    if asker and entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way
         raise MeshError(f"{to} is a retired read-only asker. Nothing was sent: give it the change with "
                         f"`mesh resume {to} --task-file …`, which compacts it if it's large and reopens it "
-                        "without its deny list")
+                        "with its deny list only while it plans")
+    if planned_task(body):
+        if asker:
+            with editing_run(run_id) as run:
+                run["agents"][to].update(read_only=False, planning=True)
+            log_event(run_id, "deny_reason", name=to, reason="planning")
+            print(f"mesh: {to} was a read-only asker; it plans this task under the same deny list, which "
+                  "`mesh approve` lifts", file=sys.stderr)
+        return None
+    what = "a read-only asker" if asker else "planning"
     try:
-        swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted",
-                          message=(me, "task", body), read_only=False)
+        swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted" if asker else "deny lifted",
+                          message=(me, "task", body), lift=True)
     except SwapNotStarted as exc:
-        raise MeshError(f"{exc}. Nothing was sent: {to} is a read-only asker, which a change task reopens "
-                        f"without its deny list once its turn has ended; send it again then") from exc
+        raise MeshError(f"{exc}. Nothing was sent: {to} is {what}, under a deny list that a direct task "
+                        f"reopens it without once its turn has ended; send it again then") from exc
     except MeshError as exc:
         if entry.get("view") != "bg":
             raise  # a pane is given its task only once it's back, so nothing was stored
         # A background worker's task went into its mailbox first, as the copy's opening prompt.
         raise MeshError(f"{exc}. The task is stored, so don't send it again: `mesh resume {to}` (no task) "
                         "reopens it without its deny list to read it") from exc
-    log_event(run_id, "read_only_lifted", name=to)
-    print(f"mesh: {to} was a read-only asker; reopened it in the same conversation without its deny list, "
+    log_event(run_id, "read_only_lifted" if asker else "deny_lifted", name=to)
+    print(f"mesh: {to} was {what}; reopened it in the same conversation without its deny list, "
           "so it can now edit and push", file=sys.stderr)
     return {**(swap.pop("delivery", None) or deliver(run_id, me, to, "task", body, first=True)),
-            "read_only_lifted": True, "reopened": swap}
+            "read_only_lifted" if asker else "deny_lifted": True, "reopened": swap}
 
 
 def cmd_send(args: argparse.Namespace) -> int:
@@ -4681,16 +4712,18 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     env = mesh_env(run_id, name, me, "worker")
-    # A question or a review is held by the deny list too; anything else reopens it without one.
+    # A question or a review is held by the deny list, and so is a task it plans first (a named model doesn't
+    # skip the plan), until `mesh approve`; with no task, it carries on as it was. A direct task gets no list.
     read_only = old["kind"] == "claude" and (getattr(args, "read_only", False) or read_only_task(task) or bool(peer))
-    deny = claude_deny({**old, "read_only": read_only})
+    planning = old["kind"] == "claude" and not read_only and (planned_task(task) if task else bool(old.get("planning")))
+    deny = claude_deny({**old, "read_only": read_only, "planning": planning})
     exec_model = (old.get("exec_model") or EXEC_MODEL[old["kind"]]) if planned else None
     exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
-            "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only,
+            "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only, "planning": planning,
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
             "workspace": None, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
@@ -6213,8 +6246,10 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
                 "`done`")
     if (task or "").startswith(DIRECT_STARTS):
         return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
-    if entry.get("phase") == "plan":
-        return "planning: research, then send a `plan`, and change nothing until it is approved"
+    if entry.get("phase") == "plan" or entry.get("planning"):
+        return "planning: research, then send a `plan`, and change nothing until it is approved" + (
+            " (until then mesh denies edits to your worktree and `git push`: a denial is expected, not something to "
+            "work around)" if claude_deny(entry) else "")
     if entry.get("phase") == "exec":
         return "executing your approved plan: finish, verify, open the PR, then report `done`"
     return "working on it: report `done` or `failed` with `mesh send parent` when it's finished"

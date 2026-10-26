@@ -3080,6 +3080,9 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
     assert "hook stop --run mtest --as repo-fix-typo" in hooks["Stop"][0]["hooks"][0]["command"]
 
 
+DIRECT_FIX = "Direct task (no plan)\n\nFix it."
+
+
 def read_only_asker(mesh, run, **extra):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update({
@@ -3116,7 +3119,7 @@ def test_a_read_only_follow_up_leaves_the_asker_as_it_is(mesh, fake, run, capsys
 def test_a_busy_read_only_asker_is_sent_no_change(mesh, fake, run, capsys):
     read_only_asker(mesh, run)
     fake.on("agent", "wait", error="timeout")
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
     assert "Nothing was sent" in capsys.readouterr().err
     assert not mesh.unread(run, "repo-fix-typo")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is True
@@ -3127,7 +3130,7 @@ def test_a_background_asker_is_lifted_by_a_copy_launched_without_the_deny_list(m
     read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None)
     bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5},
                       {"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 0
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["launched"] is True and out["read_only_lifted"] is True
     launch = cli.called("--bg")[-1]
@@ -3138,7 +3141,7 @@ def test_a_background_asker_is_lifted_by_a_copy_launched_without_the_deny_list(m
 def test_a_retired_asker_is_given_a_change_by_resume_not_send(mesh, fake, run, repo, capsys):
     read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
     stub_new_pane(fake)
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
     assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
     assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
     # `mesh resume` with the change reopens it without its deny list.
@@ -3154,7 +3157,7 @@ def test_a_failed_background_lift_keeps_one_task_and_points_to_resume(mesh, fake
     read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
     bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
     cli.on("--bg", returncode=1, stdout="boom")
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Fix it."]) == 1
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
     err = capsys.readouterr().err
     assert "don't send it again" in err and "`mesh resume repo-fix-typo` (no task)" in err
     assert len(mesh.unread(run, "repo-fix-typo")) == 1
@@ -3164,6 +3167,149 @@ def test_a_failed_background_lift_keeps_one_task_and_points_to_resume(mesh, fake
     launch = cli.called("--bg")[-1]
     assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
     assert len(mesh.unread(run, "repo-fix-typo")) == 1
+
+
+def stub_panes(fake):
+    """New panes for several starts: the first opens a tab, the rest split it."""
+    stub_new_pane(fake)
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+
+
+def claude_planner(mesh, run, **extra):
+    """A Claude worker planning under its deny list, with its plan waiting."""
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(planning=True, **extra)
+
+
+def test_a_large_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, repo, capsys):
+    stub_panes(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
+                      "--task", "Add the feature."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    rules = deny_rules(started(fake))
+    assert f"Edit(/{Path(out['cwd']).resolve()}/**)" in rules and "Bash(git push:*)" in rules
+    assert not any(r.startswith("Bash(uv") or r.startswith("Bash(pnpm") for r in rules)  # set-up still runs
+    entry = mesh.load_run(run)["agents"]["proj-feat"]
+    assert (entry["planning"], entry["read_only"], entry["phase"]) == (True, False, "plan")
+    # One with a named model has no exec phase but plans all the same; one with no task yet will plan.
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "pinned", "--model", "opus",
+                      "--task", "Add another."]) == 0
+    assert deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-pinned"]["planning"] is True
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "later"]) == 0
+    assert deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-later"]["planning"] is True
+    # A user-reviewed plan is in plan mode already, and a direct task has no plan: no list.
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
+                      "--task", "Add a third."]) == 0
+    assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-user"]["planning"] is False
+    # agy has no deny list: its planner is held by the prompt alone.
+    assert mesh.claude_deny({"kind": "agy", "planning": True, "cwd": "/wt"}) == []
+
+
+def test_a_large_background_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
+                      "--task", "Add the feature."]) == 0
+    assert "Bash(git push:*)" in deny_rules(cli.called("--bg")[-1]["argv"])
+    assert mesh.load_run(run)["agents"]["proj-feat"]["planning"] is True
+
+
+def test_approve_reopens_a_claude_planner_without_its_deny_list(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    stub_panes(fake)
+    mesh.swap_model(run, "repo-fix-typo", "opus", "high", "quota")  # a switch keeps it
+    assert "Edit(//wt/fix/**)" in deny_rules(started(fake))
+    starts = len(fake.called("agent", "start"))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "changes: also X"]) == 0
+    assert len(fake.called("agent", "start")) == starts  # an answer never reopens it
+    sent_plan(mesh, run)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    argv = started(fake)
+    assert not deny_rules(argv) and argv[-7:] == (
+        "--resume", "s-1", "--model", "opus", "--effort", "medium", "--dangerously-skip-permissions")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["planning"], entry["phase"]) == (False, "exec")
+
+
+def test_approve_keep_model_reopens_a_claude_planner_on_the_same_model(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    stub_new_pane(fake)
+    assert mesh.main(["approve", "repo-fix-typo", "--keep-model"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    argv = started(fake)
+    assert out["kept_model"] is True and not deny_rules(argv)
+    assert argv[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high", "--dangerously-skip-permissions")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["planning"], entry["phase"], entry["effort"]) == (False, "exec", "high")
+    assert [m["why"] for m in entry["models"]].count("plan approved") == 1
+    assert "approved" in mesh.unread(run, "repo-fix-typo")[0].read_text()
+
+
+def test_approve_lifts_a_pinned_claude_planner_and_a_busy_one_is_told_to_retry(mesh, fake, run, capsys):
+    claude_planner(mesh, run, phase=None, exec_model=None, pinned=True)
+    fake.on("agent", "wait", error="timeout")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    err = capsys.readouterr().err
+    assert "only reopening its conversation lifts that" in err and "--keep-model" not in err
+    assert mesh.unread(run, "repo-fix-typo") == []
+    fake.on("agent", "wait", result={})
+    stub_new_pane(fake)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    argv = started(fake)
+    assert not deny_rules(argv) and argv[-3:] == ("--effort", "high", "--dangerously-skip-permissions")
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+
+
+def test_a_failed_approval_of_a_pinned_planner_can_be_retried(mesh, fake, cli, run, capsys):
+    claude_root(mesh, run)
+    claude_planner(mesh, run, phase=None, exec_model=None, pinned=True, view="bg", bg_id="old1", pane=None)
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
+    cli.on("--bg", returncode=1, stdout="boom")
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["status"], entry["planning"]) == ("swap_failed", True)
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5},
+                      {"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert not deny_rules(cli.called("--bg")[-1]["argv"])
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+
+
+def test_an_askers_planned_task_keeps_its_deny_list_until_approval(mesh, fake, run, capsys):
+    read_only_asker(mesh, run, phase="plan", exec_model="opus")
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Add the feature."]) == 0
+    captured = capsys.readouterr()
+    assert not fake.called("agent", "start") and "deny_lifted" not in captured.out
+    assert "plans this task under the same deny list" in captured.err
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["read_only"], entry["planning"]) == (False, True)
+    assert "Edit(//wt/fix/**)" in mesh.claude_deny(entry)
+    assert "mesh denies edits" in mesh.worker_phase(entry, mesh.read_log(run), "repo-fix-typo", "Add the feature.")
+    # A planner re-scoped to a direct task is reopened without the list.
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+    assert json.loads(capsys.readouterr().out)["deny_lifted"] is True
+    assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"]["repo-fix-typo"]["planning"] is False
+
+
+def test_resume_plans_under_the_deny_list_and_a_direct_task_gets_none(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    assert "Bash(git push:*)" in deny_rules(started(fake))
+    assert mesh.load_run(run)["agents"][name]["planning"] is True
+    # Retired mid-plan and resumed with no task: it is still planning.
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name]) == 0
+    assert deny_rules(started(fake)) and mesh.load_run(run)["agents"][name]["planning"] is True
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name, "--task", DIRECT_FIX]) == 0
+    assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"][name]["planning"] is False
 
 
 def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys):

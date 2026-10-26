@@ -87,7 +87,7 @@ Background workers report to a Claude root with `SendMessage`, so the root has t
 A worker on the default (`--model auto`) has two phases in one conversation:
 
 - **Planning** runs on the first model in the chain with at least 10% quota left. For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model. A Claude worker plans with file edits and `git push` denied (its shell still runs set-up and tests), and the reopen is what lifts that, so approve reopens it even with `--keep-model`; agy is held by the prompt.
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
 
 ```bash
@@ -314,9 +314,9 @@ mesh watch --any [--alerts]  # one watchdog for every worker of the run
 ## The protocol in one screen
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
-- **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved`. A `Direct task (no plan)` goes straight to the change.
+- **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). A `Direct task (no plan)` goes straight to the change.
 - **`send_message`:** when `mesh send` prints one, pass it on with `SendMessage`, exactly as printed.
-- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a change; agy has no deny list, so its askers are held by the prompt.
+- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt.
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
