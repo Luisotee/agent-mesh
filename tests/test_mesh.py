@@ -2896,7 +2896,51 @@ def test_in_review_counts_only_the_pr_a_reviewer_reviews_now(mesh, fake, cli, ru
     assert rows["repo-fix-typo"]["needs"] == "root" and "in review" not in rows["repo-fix-typo"]["waiting"]
     mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): how does X work?"))
     _, rows = status_rows(mesh, run, capsys)
-    assert rows["repo-fix-typo"]["needs"] == "root"  # a question isn't a review
+    assert rows["repo-fix-typo"]["needs"] == "root"  # a follow-up is about #8, the review it follows
+
+
+def test_in_review_reads_the_pr_from_a_task_that_names_its_head(mesh, fake, cli, run, capsys):
+    # Every review task names its head ("… of <pr> at <sha>:"); a reviewer of two PRs asked about the first.
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    first, second = "https://github.com/acme/proj/pull/7", "https://github.com/acme/proj/pull/8"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {first}")
+    add_worker(mesh, run, "proj-review", reviews=[first, second])
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task",
+                               f"Review (read-only) of {first} at 0123abc: review this pull request."))
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].endswith("in review (proj-review)")
+    assert mesh.REVIEW_GIST_RE.match(f"Review (read-only) of {first} at 0123abc: x").group(1) == (
+        f"Review (read-only) of {first} at 0123abc")  # the log's gist keeps the head
+
+
+def test_a_follow_up_question_to_a_reviewer_keeps_the_pr_in_review(mesh, fake, cli, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"state": "OPEN", "isDraft": False, "statusCheckRollup": []}))
+    mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
+    mesh.record(run, "repo-fix-typo", "repo-lead", "done", f"Fixed: {pr}")
+    add_worker(mesh, run, "proj-review", reviews=[pr])
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Review (read-only) of {pr}: review it."))
+    mesh.record(run, "proj-review", "repo-lead", "done", "One finding.")
+    _, rows = status_rows(mesh, run, capsys)
+    assert "in review" not in rows["repo-fix-typo"]["waiting"]
+    for question in ("Why is the finding blocking?", "And the other file?"):  # each follow-up, without --review
+        mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", f"Question (read-only): {question}"))
+        _, rows = status_rows(mesh, run, capsys)
+        assert rows["repo-fix-typo"]["waiting"].endswith("in review (proj-review)")
+        assert rows["repo-fix-typo"]["needs"] == "worker"
+        mesh.record(run, "proj-review", "repo-lead", "done", "Because …")
+        _, rows = status_rows(mesh, run, capsys)
+        assert "in review" not in rows["repo-fix-typo"]["waiting"]
+    assert mesh.load_run(run)["agents"]["proj-review"]["reviews"] == [pr]  # nothing new recorded
+    # Turned into a change worker, a later question is about that change, not the old review.
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Fix the finding."))
+    mesh.record(run, "proj-review", "repo-lead", "done", "Fixed.")
+    mesh.mark_read(mesh.record(run, "repo-lead", "proj-review", "task", "Question (read-only): why so?"))
+    _, rows = status_rows(mesh, run, capsys)
+    assert "in review" not in rows["repo-fix-typo"]["waiting"]
 
 
 def test_a_done_without_a_link_takes_only_an_earlier_dones_prs(mesh, fake, cli, run, capsys):
@@ -4570,6 +4614,107 @@ def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, c
     assert "too long to include" in body and "+x" not in body
 
 
+def pr_on_a_branch(tmp_path, repo):
+    """An origin for `repo` whose PR 7 changes fix.txt on a branch, while main has moved on (other.txt) since."""
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "clone", "-q", str(repo), str(origin)], check=True)
+
+    def run_git(*cmd):
+        return subprocess.run(["git", *cmd], cwd=origin, check=True, capture_output=True, text=True).stdout.strip()
+    run_git("config", "user.email", "t@t")
+    run_git("config", "user.name", "t")
+    run_git("checkout", "-q", "-b", "fix")
+    (origin / "fix.txt").write_text("fixed\n")
+    run_git("add", "fix.txt")
+    run_git("commit", "-q", "-m", "the change under review")
+    head = run_git("rev-parse", "HEAD")
+    run_git("update-ref", "refs/pull/7/head", head)
+    run_git("checkout", "-q", "main")
+    (origin / "other.txt").write_text("not this PR's\n")
+    run_git("add", "other.txt")
+    run_git("commit", "-q", "-m", "main moves on")
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo, check=True)
+    return origin, head
+
+
+def test_a_review_diff_is_of_the_head_the_task_names(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    cli.on("pr", "diff", stdout="+a newer push\n")  # gh shows the PR as it is now
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    body = mesh.parse_message(mesh.unread(run, name)[-1])[1]
+    base = subprocess.run(["git", "rev-parse", "main"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    assert f"The change (`git diff {base}..{head}`):" in body  # from the merge base, not main's tip
+    assert f"`git diff {base}..{head}` shows the change" in body  # the task's own words name it too
+    assert "+fixed" in body and "other.txt" not in body and "newer push" not in body
+    assert not cli.called("pr", "diff")
+
+
+def test_a_review_diff_falls_back_to_gh_when_git_cannot_build_it(mesh, cli, repo, tmp_path, monkeypatch):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.pr_head(repo, pr, 7) == head
+    cli.on("pr", "diff", stdout="+from gh\n")
+    for view in ({"stdout": json.dumps({"baseRefName": "gone"})}, {"returncode": 1, "stderr": "not logged in"}):
+        cli.on("pr", "view", **view)  # a base branch that can't be fetched, then gh can't name it
+        diff = mesh.pr_diff(pr, head, mesh.head_diff(repo, pr, head))
+        assert diff.startswith(f"The change (`gh pr diff {pr}`, the PR as it is now, which may be past {head}):")
+        assert diff.rstrip().endswith("+from gh\n````")
+    assert mesh.pr_diff(pr).startswith(f"The change (`gh pr diff {pr}`):")  # no head: gh, as before
+
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    monkeypatch.setattr(mesh, "REVIEW_DIFF_MAX", 3)  # the cap holds for a diff from git too
+    diff = mesh.pr_diff(pr, head, mesh.head_diff(repo, pr, head))
+    merge_base = mesh.git("merge-base", "main", head, cwd=repo)
+    assert "too long to include" in diff and diff.endswith(f"read it with `git diff {merge_base}..{head}`.")
+
+
+def test_a_merged_pr_falls_back_to_gh_for_its_diff(mesh, cli, repo, tmp_path):
+    # A merge commit puts the head in its base: the merge base is the head itself, and git's diff is empty.
+    origin, head = pr_on_a_branch(tmp_path, repo)
+    subprocess.run(["git", "merge", "-q", "--no-ff", "-m", "merge the PR", "fix"], cwd=origin, check=True)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.pr_head(repo, pr, 7) == head
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    cli.on("pr", "diff", stdout="+fixed\n")
+    assert mesh.head_diff(repo, pr, head) is None
+    task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo)
+    assert f"The change (`gh pr diff {pr}`, the PR as it is now" in task and task.rstrip().endswith("+fixed\n````")
+    assert "`/code-review high 7`" in task and f"{head}..{head}" not in task  # its remote is origin: the number
+
+
+def test_fetching_a_pr_leaves_fetch_head_and_no_refs_behind(mesh, repo, tmp_path):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    fetch_head = repo / ".git" / "FETCH_HEAD"
+    fetch_head.write_text("the user's own\n")
+    assert mesh.pr_head(repo, "https://github.com/acme/proj/pull/7", 7) == head
+    assert fetch_head.read_text() == "the user's own\n"  # parallel asks can't read each other's fetch either
+    assert not mesh.git("for-each-ref", "refs/mesh", cwd=repo)
+
+def test_a_fork_review_diff_fetches_the_base_from_upstream(mesh, cli, repo, tmp_path, monkeypatch):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.pr_head(repo, pr, 7) == head
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    diff, span = mesh.head_diff(repo, pr, head)
+    assert "+fixed" in diff and "other.txt" not in diff
+    assert span == f"{mesh.git('merge-base', 'main', head, cwd=repo)}..{head}"
+
+
 def test_a_live_worker_reviews_without_switching_its_branch(mesh, fake, run, monkeypatch, capsys):
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/other/pull/3"
@@ -4593,6 +4738,143 @@ def test_a_reviewer_asked_again_reviews_what_changed_since_the_head_it_read(mesh
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["review_heads"] == {pr: head}
 
 
+def fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    """A fresh reviewer of PR 7, then a fix pushed to the PR: (its name, its worktree, the old head, the new one)."""
+    last = pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    with_quotas(mesh, monkeypatch)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/pull/7/head", head], cwd=origin, check=True)
+    for path in mesh.unread(run, out["name"]):
+        mesh.mark_read(path)
+    return out["name"], Path(out["cwd"]), last, head
+
+
+def worktree_head(cwd):
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True).stdout.strip()
+
+
+def live_in_its_worktree(fake, name, cwd, status):
+    """herdr shows the reviewer running in its worktree, in `status`."""
+    fake.on("agent", "list", result={"agents": [{"name": name, "cwd": str(cwd)}]})
+    fake.on("agent", "get", result={"agent": {"agent_status": status}})
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_a_fresh_reviewer_asked_again_moves_to_the_new_head(mesh, fake, run, repo, tmp_path, monkeypatch, capsys,
+                                                            live):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})  # herdr lists no agent there: none runs
+    if live:  # idle, and its last task answered
+        live_in_its_worktree(fake, name, cwd, "idle")
+        mesh.record(run, name, "repo-lead", "done", "No findings.")
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0
+    assert worktree_head(cwd) == head
+    entry = mesh.load_run(run)["agents"][name]
+    assert entry["base"] == head and entry["review_heads"] == {pr: head} and entry["review_checkout"] == pr
+    assert next(w for w in mesh.load_run(run)["worktrees"] if w["path"] == str(cwd))["base"] == head
+    body = mesh.parse_message(mesh.unread(run, name)[-1])[1]
+    assert "checked out in your worktree" in body and f"You last reviewed it at {last}" in body
+    assert "Don't switch your branch" not in body and "still at" not in body
+
+
+@pytest.mark.parametrize("why", ["dirty", "busy", "owes", "committed"])
+def test_a_fresh_reviewer_asked_again_stays_when_moving_isnt_safe(mesh, fake, run, repo, tmp_path, monkeypatch,
+                                                                   capsys, why):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    if why in ("busy", "owes"):  # working, or idle with its review not reported (a declared wait, say)
+        live_in_its_worktree(fake, name, cwd, "working" if why == "busy" else "idle")
+    if why == "dirty":
+        (cwd / "notes.txt").write_text("the reviewer's scratch")
+    if why == "committed":
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "its own"], cwd=cwd, check=True)
+    at = worktree_head(cwd)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0
+    assert worktree_head(cwd) == at and mesh.load_run(run)["agents"][name]["base"] == last
+    assert (cwd / "notes.txt").exists() == (why == "dirty")
+    body = mesh.parse_message(mesh.unread(run, name)[-1])[1]
+    reason = {"dirty": "uncommitted changes", "busy": "you were busy", "owes": "hadn't reported",
+              "committed": "moved off the head"}[why]
+    assert f"Your worktree is still at {last}, not the new head, because" in body and reason in body
+    assert "Don't switch your branch" in body and f"`git show {head}:<path>`" in body
+    assert f"stays at {last}" in capsys.readouterr().err
+
+
+def test_a_reviewer_that_couldnt_move_moves_on_a_later_ask(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    (cwd / "notes.txt").write_text("the reviewer's scratch")
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0
+    entry = mesh.load_run(run)["agents"][name]
+    assert (entry["base"], entry["review_heads"][pr]) == (last, head)  # it read the new head without moving
+    (cwd / "notes.txt").unlink()
+    capsys.readouterr()
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0  # same head: still moved, from its base
+    assert worktree_head(cwd) == head and mesh.load_run(run)["agents"][name]["base"] == head
+    assert "checked out in your worktree" in mesh.parse_message(mesh.unread(run, name)[-1])[1]
+
+
+def test_a_failed_ask_moves_the_reviewer_back(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+
+    def refuse(*args, **kwargs):
+        assert worktree_head(cwd) == head  # moved before the reach, which may reopen it
+        raise mesh.MeshError("it is still running")
+
+    monkeypatch.setattr(mesh, "reach_worker", refuse)
+    assert mesh.main(["ask", name, "--review", "https://github.com/acme/proj/pull/7", "--no-wait"]) == 1
+    assert worktree_head(cwd) == last and mesh.load_run(run)["agents"][name]["base"] == last
+
+
+def test_a_reviewer_running_in_another_run_never_moves(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    live_in_its_worktree(fake, name, cwd, "idle")
+    data = mesh.load_run(run)
+    target = ({**data, "id": "other"}, None, name, data["agents"][name])  # found in a run that was never stopped
+    assert mesh.plan_move(run, target, "https://github.com/acme/proj/pull/7", head) == (
+        None, f"you were still running in run other")
+
+
+def test_a_stopped_fresh_reviewer_comes_back_at_the_new_head(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    pr = "https://github.com/acme/proj/pull/7"
+    entry = {**mesh.load_run(run)["agents"][name], "status": "retired"}
+    mesh.pr_head(repo, pr, 7)
+    subprocess.run(["git", "worktree", "remove", str(cwd)], cwd=repo, check=True)  # as `mesh stop` leaves it
+    target = (mesh.load_run(run), None, name, entry)
+    move, why = mesh.plan_move(run, target, pr, head)
+    assert move and not why
+    mesh.apply_move(move)  # the branch kept: moved to the head
+    assert mesh.git("rev-parse", entry["branch"], cwd=repo) == head and entry["base"] == head
+    mesh.apply_move(move, undo=True)
+    mesh.git("branch", "-D", entry["branch"], cwd=repo)  # untouched, so `mesh stop` deleted it
+    move, why = mesh.plan_move(run, target, pr, head)
+    mesh.apply_move(move)
+    assert mesh.load_run(run)["agents"][name]["base"] == head  # where a resume recreates it
+    assert mesh.ensure_worktree(entry, entry["branch"]) and worktree_head(cwd) == head
+
+
+def test_an_author_reviewing_another_pr_never_moves(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    pr_origin(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    entry = {"repo": str(repo), "cwd": str(repo), "base": "0ld", "branch": "main", "review_heads": {pr: "0ld"}}
+    target = (mesh.load_run(run), None, "repo-fix-typo", entry)
+    assert mesh.plan_move(run, target, pr, "new") == (None, "")  # its own checkout
+    entry.update(cwd=str(tmp_path / "wt"), base="abc")
+    assert mesh.plan_move(run, target, pr, "new") == (None, "")  # its base isn't a head it reviewed
+    entry.update(base="0ld", peer="proj")
+    assert mesh.plan_move(run, target, pr, "new") == (None, "")
+
+
 @pytest.mark.parametrize("size", ["small", "large", None])
 def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, run, repo, tmp_path, capsys, size):
     pr_origin(tmp_path, repo)
@@ -4602,9 +4884,37 @@ def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, r
     assert mesh.main(argv + (["--size", size] if size else [])) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
-    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body
+    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body  # no base: origin's
     assert "never with `--fix`, `--comment` or `ultra`" in body and "--type wait" in body
     assert "commits since your last review" not in body and "FETCH_HEAD" not in body
+
+
+def test_code_review_targets_the_range_from_the_merge_base_in_a_fork_too(mesh, fake, cli, run, repo, tmp_path,
+                                                                         monkeypatch, capsys):
+    # A bare number is resolved by gh against the worktree's default repo, which in a fork may be `origin`.
+    _, head = pr_on_a_branch(tmp_path, repo)
+    subprocess.run(["git", "remote", "rename", "origin", "upstream"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/proj.git"], cwd=repo, check=True)
+    real_git = mesh.git
+
+    def git(*args, cwd):  # upstream is a local stand-in for github.com/acme/proj
+        if args == ("remote", "get-url", "upstream"):
+            return "https://github.com/acme/proj.git"
+        return real_git(*args, cwd=cwd)
+
+    monkeypatch.setattr(mesh, "git", git)
+    stub_new_pane(fake)
+    cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    body = mesh.parse_message(mesh.unread(run, name)[0])[1]
+    merge_base = real_git("merge-base", "main", head, cwd=repo)
+    assert f"`/code-review high {merge_base}..{head}`" in body and f"`git diff {merge_base}..{head}`" in body
+    assert "/code-review high 7" not in body
+    cli.on("pr", "view", returncode=1)  # no base: the PR's link, since a fork's bare number may name `origin`'s
+    task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo)
+    assert f"`/code-review high {pr}`" in task
 
 
 def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo, tmp_path, capsys):
