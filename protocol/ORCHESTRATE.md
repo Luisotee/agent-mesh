@@ -155,7 +155,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
 
 ### Your own context
 
-Every turn re-reads your whole context: at a twentieth of the price while the prompt cache is warm, at full price once it has expired (an hour on a Claude subscription within its plan usage, five minutes on usage credits or an API key; mesh reads which from your session file). A big root woken cold by a report pays for all of it. `mesh reset` gives you a fresh session that rebuilds its picture from the run's files, and costs only the fresh session's small start, whenever you run it.
+Every turn re-reads your whole context: at a twentieth of the price while the prompt cache is warm, at full price (bar the system prompt's ~25k, cached across sessions) once it has expired (an hour on a Claude subscription within its plan usage, five minutes on usage credits or an API key; mesh reads which from your session file). A big root woken cold by a report pays for all of it. `mesh reset` gives you a fresh session that rebuilds its picture from the run's files, and costs only the fresh session's small start, whenever you run it.
 
 - **The signal:** root commands (`status`, `inbox`, `spawn`, `approve`, `switch`, `resume`, `ask`, `watch`) print a `mesh: root context …` line when a reset pays: you're over 300k tokens (`MESH_ROOT_RESET_AT`) and your cache is cold, or you're about to wait on workers; or you're over twice that while still warm. `mesh status` shows your size and cache state in its header.
 - **Act on it without asking the user**, at a quiet point:

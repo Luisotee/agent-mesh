@@ -7804,7 +7804,8 @@ def root_transcript(entry: dict, session: str) -> Path | None:
 def root_context(run: dict, as_root: bool = False) -> dict | None:
     """The root's context size and cache state, or None when it can't be read (an agy root before its first
     reset, a session file not found). The cache is cold once the conversation has been still for its TTL: its
-    next turn then re-reads every token at full price, where a warm one pays a twentieth."""
+    next turn then rewrites every token but the ~25k static prefix (system prompt and tools, cached machine-wide)
+    at the cache-write price, where a warm one reads them all at a twentieth of the input price."""
     entry = run["agents"].get(run.get("root")) or {}
     session = root_session(entry, as_root, lambda: reset_session(run["id"], run.get("root"))) \
         if entry.get("pane") else None
@@ -7894,8 +7895,9 @@ def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, boo
     """The hint a root command prints about the root's own context, or None (design §15).
 
     A `/clear` never re-reads the old context, so a reset costs the fresh session's small prefix whenever it
-    happens; what it saves is the next turns of the big one: all of it at full price once the cache is cold,
-    a twentieth of it while warm. Hence: reset now when cold, or when about to wait (the next report may well
+    happens; what it saves is the next turns of the big one: all but its static prefix rewritten at the
+    cache-write price once the cache is cold, all of it at a twentieth while warm (design §15 says why the
+    threshold compares the whole size). Hence: reset now when cold, or when about to wait (the next report may well
     come after the cache expired); while warm, only when very big, at a quiet point. The second value says
     whether the line reports a failed or cancelled reset, which it does once.
     """
