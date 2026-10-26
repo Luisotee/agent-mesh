@@ -662,14 +662,43 @@ def pane_runs_this_claude(pane: str) -> bool | None:
     pid = claude_pid()
     if not pid:
         return None
-    try:
-        info = herdr("pane", "process-info", "--pane", pane, timeout=10).get("process_info") or {}
-    except MeshError:
+    info = pane_process_info(pane)
+    if info is None:
         return None
     if leader := info.get("foreground_process_group_id"):
         return leader == pid
     members = {p.get("pid") for p in info.get("foreground_processes") or []}
     return pid in members if members else None
+
+
+def pane_process_info(pane: str) -> dict | None:
+    """herdr's view of the pane's foreground processes, or None if it can't say."""
+    try:
+        return herdr("pane", "process-info", "--pane", pane, timeout=10).get("process_info") or {}
+    except MeshError:
+        return None
+
+
+def process_session(pid: int) -> str | None:
+    """The session a Claude Code process is in now, from the file it keeps per process (`sessions/<pid>.json`
+    under its config folder, which follows a /clear or a /resume), or None: no such file, or one an earlier
+    process with the same pid left (its `procStart` is that process's start)."""
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    try:
+        data = json.loads((base / "sessions" / f"{pid}.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("pid") != pid or not data.get("procStart") \
+            or str(data["procStart"]) != proc_start(pid):
+        return None
+    return data.get("sessionId") or None
+
+
+def leader_session(pane: str) -> str | None:
+    """The session of the Claude process leading the pane's foreground group, or None if that can't be told.
+    Unlike herdr's `agent_session`, nothing else started in the pane (a nested `claude -c -p`) can change it."""
+    leader = (pane_process_info(pane) or {}).get("foreground_process_group_id")
+    return process_session(leader) if leader else None
 
 
 def last_launch(entry: dict) -> str | None:
@@ -6605,20 +6634,36 @@ def pane_agent(pane: str) -> dict:
         return {}
 
 
-def root_session(entry: dict, as_root: bool = False) -> str | None:
-    """The root's current conversation. Claude: what herdr's Claude integration reports for the root's pane (it
-    follows a /clear: seen live); a command the root itself runs (`as_root`) may use the session it runs under
-    when herdr agrees or can't say. When they disagree, either can be stale: a root watch that outlived a
-    reset runs under the old session, and herdr takes a session report from anything in the pane (a nested
-    `claude -c -p`). The root's is then the one whose session file was written last: a root command runs inside
-    a live turn, which has just written its own. Never the caller's session otherwise: a worker's isn't the
-    root's. agy: the one its last `mesh reset` recorded, as nothing ties an agy conversation to a pane before."""
+def pane_session(pane: str) -> str | None:
+    """The session of a Claude pane's own process (`leader_session`), else what herdr reports for it."""
+    return leader_session(pane) or (pane_agent(pane).get("agent_session") or {}).get("value")
+
+
+def root_session(entry: dict, as_root: bool = False, recorded: str | None = None) -> str | None:
+    """The root's current conversation. Claude: the session of the Claude process leading the root's pane
+    (`leader_session`), which nothing else in the pane can change. When that can't be told, what herdr's
+    Claude integration reports for the pane (it follows a /clear: seen live); a command the root itself runs
+    (`as_root`) may use the session it runs under when herdr agrees or can't say. When they disagree, either
+    can be stale: a root watch that outlived a reset runs under the old session, and herdr takes a session
+    report from anything in the pane (a nested `claude -c -p`). `recorded`, the session the root's last reset
+    confirmed, joins them, so a caller with no session of its own (the watch, a detached reset) doesn't have
+    herdr's word alone. The root's is then the one whose session file was written last: a root command runs inside a live
+    turn, which has just written its own, and an idle root's last turn came after a nested run it started.
+    Never the caller's session otherwise: a worker's isn't the root's. agy: the one its last `mesh reset`
+    recorded, as nothing ties an agy conversation to a pane before."""
     if entry.get("kind") == "agy":
         return entry.get("session")
-    reported = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value") if entry.get("pane") else None
+    if not entry.get("pane"):
+        return os.environ.get("CLAUDE_CODE_SESSION_ID") if as_root else None
+    if current := leader_session(entry["pane"]):
+        return current
+    reported = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value")
     own = os.environ.get("CLAUDE_CODE_SESSION_ID") if as_root else None
-    if not own or reported in (None, own):
-        return own or reported
+    if own and reported in (None, own):
+        return own
+    if not own and not reported:
+        return None
+    choices = [s for s in dict.fromkeys((own, reported, recorded)) if s]  # ties go to the first
 
     def written(session: str) -> float:
         path = root_transcript(entry, session)
@@ -6627,7 +6672,7 @@ def root_session(entry: dict, as_root: bool = False) -> str | None:
         except OSError:
             return float("-inf")
 
-    return max((own, reported), key=written)
+    return max(choices, key=written)
 
 
 def root_transcript(entry: dict, session: str) -> Path | None:
@@ -6643,7 +6688,8 @@ def root_context(run: dict, as_root: bool = False) -> dict | None:
     reset, a session file not found). The cache is cold once the conversation has been still for its TTL: its
     next turn then re-reads every token at full price, where a warm one pays a twentieth."""
     entry = run["agents"].get(run.get("root")) or {}
-    session = root_session(entry, as_root) if entry.get("pane") else None
+    recorded = reset_session(run["id"], run.get("root")) if entry.get("kind") == "claude" else None
+    session = root_session(entry, as_root, recorded) if entry.get("pane") else None
     if not session:
         return None
     if entry.get("kind") == "agy":
@@ -6697,6 +6743,12 @@ RESET_EVENTS = ("reset_requested", "reset", "reset_failed", "reset_cancelled", "
 
 def last_reset(events: list[dict]) -> dict | None:
     return next((e for e in reversed(events) if e.get("event") in RESET_EVENTS), None)
+
+
+def reset_session(run_id: str, root: str | None) -> str | None:
+    """The session the root's last reset confirmed (`root_session` weighs it against herdr's report)."""
+    return next((e.get("new_session") for e in reversed(read_log(run_id))
+                 if e.get("event") == "reset" and e.get("name") == root), None)
 
 
 def reset_lock_path(run_id: str) -> Path:
@@ -6842,15 +6894,15 @@ def agy_conversations() -> set[str]:
 
 
 def cleared_session(entry: dict, before: str | None, agy_before: set[str]) -> set[str]:
-    """The new conversation(s) a typed /clear started, once one shows: Claude's from herdr (its integration
-    reports the clear), agy's as conversation files that weren't there before (another agy may have started one
-    meanwhile: `agy_root_conversation` tells them apart); empty if none showed in time."""
+    """The new conversation(s) a typed /clear started, once one shows: Claude's from `pane_session`,
+    agy's as conversation files that weren't there before (another agy may have started one meanwhile:
+    `agy_root_conversation` tells them apart); empty if none showed in time."""
     for _ in range(CLEAR_CONFIRM):
         if entry.get("kind") == "agy":
             if new := agy_conversations() - agy_before:
                 return new
         else:
-            current = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value")
+            current = pane_session(entry["pane"])
             if current and current != before:
                 return {current}
         time.sleep(1)
@@ -6915,8 +6967,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                 if ok:
                     if waits := root_mail(run_id, root, BLOCKING_TYPES):  # a report on its way rings after this
                         return failed("reset_cancelled", f"{mail_text(waits)} arrived")
-                    before = entry.get("session") if kind == "agy" else \
-                        (pane_agent(pane).get("agent_session") or {}).get("value")
+                    before = entry.get("session") if kind == "agy" else pane_session(pane)
                     agy_before = agy_conversations() if kind == "agy" else set()
                     command = f"/compact {compact}".strip() if compact is not None else "/clear"
                     try:
