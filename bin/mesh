@@ -91,15 +91,19 @@ RESET_RE = re.compile(r"Resets in ([\dhms]+)")
 # spaces, so the agent's own output quoting one doesn't count (a quote mark or backtick before it, straight or curly,
 # ends the prefix: SCREEN_START). A plain rate limit (`API Error: Rate limit reached`) is a transient error, not a
 # usage limit, as for agy's QUOTA_RE.
-SCREEN_START = "^[^A-Za-z'\"`\u2018\u2019\u201c\u201d\\n]*"
-LIMIT_RE = re.compile(SCREEN_START + r"(?:You've hit your .*limit|(?:[\w'-]+\s+){0,4}limit(?:\s+reached)?\s*·\s*"
-                      r"resets \d+[:\d]*\s*(?:am|pm)\b|Stop and wait for limit to reset|Add funds to continue with extra usage)",
+QUOTES = "'\"`\u2018\u2019\u201c\u201d"
+SCREEN_START = f"^[^A-Za-z{QUOTES}\\n]*"
+LIMIT_RE = re.compile(SCREEN_START + r"(?:You've hit your .*limit|(?:\w[\w'-]*\s+){0,4}limit(?:\s+reached)?"
+                      r"\s*·\s*resets \d+[:\d]*\s*(?:am|pm)\b|Stop and wait for limit to reset"
+                      r"|Add funds to continue with extra usage)",
                       re.IGNORECASE | re.MULTILINE)
 LIMIT_RESET_RE = re.compile(r"\bresets\s+(.+)", re.IGNORECASE)
 LIMIT_LINES = 20
-# Claude Code's expired-login error, in the pane ("  ⎿  Login expired · Please run /login") and as the text of its
-# session file's `authentication_failed` reply; started as LIMIT_RE is, so the agent quoting it doesn't count.
-LOGIN_RE = re.compile(SCREEN_START + r"(?:[\w'-]+\s+){1,4}·\s*Please run /login\b", re.IGNORECASE | re.MULTILINE)
+# Claude Code's login errors, in the pane ("  ⎿  Login expired · Please run /login", "  ⎿  API Error: 401 {…} · Please
+# run /login") and as the text of its session file's `authentication_failed` reply. Started as LIMIT_RE is, and its
+# words (but for an API error's JSON) hold no quote mark, so the agent quoting one doesn't count.
+LOGIN_RE = re.compile(SCREEN_START + f"(?:\\w[^·\\n{QUOTES}]*|API Error: 40[13]\\b[^\\n]*?)"
+                      + r"·\s*Please run /login\b", re.IGNORECASE | re.MULTILINE)
 LOGIN_ERROR = "authentication_failed"
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
@@ -1980,7 +1984,8 @@ def last_progress(entry: dict, session: str | None) -> float | None:
 
 
 def transcript_error(entry: dict, session: str | None, tail: int = 65536) -> tuple[str, str] | None:
-    """The error code and text when a Claude worker's last reply is an API error, else None.
+    """The error code and text when a Claude worker's last reply is an API error, ("", "") when it isn't (or there
+    is none yet), None when its session file can't be read.
 
     Claude Code records an API error as a synthetic assistant entry (`isApiErrorMessage`, an `error` code such as
     `authentication_failed` or `server_error`, the text it showed).
@@ -2004,31 +2009,28 @@ def transcript_error(entry: dict, session: str | None, tail: int = 65536) -> tup
         if event.get("type") != "assistant":
             continue
         if not event.get("isApiErrorMessage"):
-            return None
+            return "", ""
         content = (event.get("message") or {}).get("content")
         text = " ".join(c.get("text") or "" for c in content if isinstance(c, dict)) if isinstance(content, list) \
             else str(content or "")
         return str(event.get("error") or ""), text
-    return None
+    return "", ""
 
 
-def transcript_limit(entry: dict, session: str | None) -> str | None:
-    """The reset time ("" if not shown) when a Claude worker's last reply is a usage-limit error, else None.
+def error_limit(error: tuple[str, str] | None) -> tuple[str, str] | None:
+    """What a `transcript_error` stops on: ("login", "") for an expired login (`authentication_failed`, or its
+    text), ("limit", the reset time or "") for a usage limit, else None.
 
     The code of a usage limit isn't known (no sample seen yet) and a plain rate limit may share it, so the text
     decides: it must match LIMIT_RE.
     """
-    error = transcript_error(entry, session)
-    if not error or not LIMIT_RE.search(error[1]):
+    code, text = error or ("", "")
+    if code == LOGIN_ERROR or LOGIN_RE.search(text):
+        return "login", ""
+    if not LIMIT_RE.search(text):
         return None
-    reset = LIMIT_RESET_RE.search(error[1])
-    return reset.group(1).strip() if reset else ""
-
-
-def transcript_login(entry: dict, session: str | None) -> bool:
-    """Whether a Claude worker's last reply is its expired-login error (`authentication_failed`)."""
-    error = transcript_error(entry, session)
-    return bool(error) and (error[0] == LOGIN_ERROR or bool(LOGIN_RE.search(error[1])))
+    reset = LIMIT_RESET_RE.search(text)
+    return "limit", reset.group(1).strip() if reset else ""
 
 
 def context_tokens(entry: dict, session: str) -> int | None:
@@ -4095,7 +4097,8 @@ def cmd_hook(args: argparse.Namespace) -> int:
 
 def alerted(events: list[dict], name: str, received: int, kind: str = "stopped") -> bool:
     """Whether a watch already raised this alert for `name`'s current task: `stopped` (exit 3, the kind of an
-    alert logged without one), `gone` (exit 5), `limit` (a Claude usage limit, exit 7), `login` (an expired Claude login, exit 7) or `hung` (exit 8)."""
+    alert logged without one), `gone` (exit 5), `limit` (a Claude usage limit, exit 7), `login` (an expired Claude
+    login, exit 7) or `hung` (exit 8)."""
     return any(e.get("event") == "alert" and e.get("name") == name and e.get("received") == received
                and e.get("kind", "stopped") == kind for e in events)
 
@@ -4235,7 +4238,8 @@ class Watch:
         self.state: str | None = None  # the last tick's reading, held or not (prev skips a held worker's)
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
-        self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit or agy's turn end is looked for
+        self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit, an expired login or agy's
+        # turn end is looked for
         self.woke: str | None = None  # the wait (its file) during which this watch saw an agy worker working again
         self.wait_file: str | None = None  # the wait `wait_idle` counts for
         self.blocked_polls = 0
@@ -4281,7 +4285,7 @@ class Watch:
         self.blocked_polls = self.blocked_polls + 1 if state == "blocked" else 0
         if self.blocked_polls >= 2 and entry.get("plan_review") != "user":  # that one waits for the user's approval
             limit = self.limited(entry, bg)
-            if limit:  # Claude's usage-limit menu
+            if limit:  # Claude's usage-limit menu, or a login prompt
                 return self.limit_alert(entry, bg, limit, events)
             look = f"`claude attach {entry['bg_id']}`" if bg else f"`herdr agent read {name}`"
             return 4, self.with_tail(f"ALERT {name} is blocked on a UI prompt; inspect it with {look}", bg, entry)
@@ -4295,7 +4299,7 @@ class Watch:
             if state not in ("idle", "done"):
                 self.wait_idle = 0.0
                 return None
-            self.wait_idle += interval  # ...but not a usage limit: look once per `grace` of idle
+            self.wait_idle += interval  # ...but not a usage limit or expired login: look once per `grace` of idle
             if self.wait_idle < self.grace:
                 return None
             self.wait_idle = 0.0
@@ -4350,23 +4354,24 @@ class Watch:
 
     def limited(self, entry: dict, bg: bool) -> tuple[str, str] | None:
         """("limit", the reset time or "") when a Claude worker is at its usage limit, ("login", "") when its login
-        expired, else None: from the pane's last lines, or its session file's last reply (which a background
-        worker has too)."""
+        expired, else None: from its session file's last reply (which a background worker has too), or the pane's
+        last lines.
+
+        A readable session file decides the login: a login line still on the screen after a later reply is over.
+        The pane's usage-limit screen still counts then, since it isn't known to reach the session file.
+        """
         if entry.get("kind") != "claude":
             return None
-        if not bg:
-            lines = pane_lines(self.name)
-            if lines is None and entry.get("pane"):
-                lines = pane_lines(entry["pane"])
-            if login_expired(lines):
-                return "login", ""
-            reset = usage_limit(lines)
-            if reset is not None:
-                return "limit", reset
-        session = self.conversation(entry)
-        if transcript_login(entry, session):
+        error = transcript_error(entry, self.conversation(entry))
+        found = error_limit(error)
+        if found or bg:
+            return found
+        lines = pane_lines(self.name)
+        if lines is None and entry.get("pane"):
+            lines = pane_lines(entry["pane"])
+        if error is None and login_expired(lines):
             return "login", ""
-        reset = transcript_limit(entry, session)
+        reset = usage_limit(lines)
         return ("limit", reset) if reset is not None else None
 
     def limit_alert(self, entry: dict, bg: bool, limit: tuple[str, str], events: list[dict]) -> tuple[int, str] | None:
@@ -4379,9 +4384,9 @@ class Watch:
         record_alert(self.run_id, self.name, received, kind)
         relay = " and pass its send_message on" if bg else ""
         if kind == "login":
-            where = "its session (`mesh open {0}` attaches to it)" if bg else "its pane"
+            where = f"its session (`mesh open {self.name}` attaches to it)" if bg else "its pane"
             return 7, (f"ALERT {self.name}'s Claude login expired; it can't go on until the user logs in: ask the "
-                       f"user to run `/login` in {where.format(self.name)}, then `mesh send {self.name} --type task "
+                       f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
                        f"--body \"You're logged in again: continue where you stopped.\"`{relay}")
         when = f" (resets {reset})" if reset else ""
         return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; it can't go on until then: wait for the "
@@ -4395,7 +4400,7 @@ class Watch:
             return None
         run_id, name = self.run_id, self.name
         received, sent, at = since_last_task(events, name)
-        if sent or any(alerted(events, name, received, kind) for kind in ("hung", "limit", "login")):
+        if sent or alerted(events, name, received, "hung"):
             return None  # it reported (herdr's `working` may be stale); or this task was already alerted on
         progress = last_progress(entry, self.conversation(entry))
         if progress is None:
@@ -4403,6 +4408,10 @@ class Watch:
         quiet = time.time() - max(progress, epoch(at))
         if quiet < self.hang:
             return None
+        if any(alerted(events, name, received, kind) for kind in ("limit", "login")):
+            limit = self.limited(entry, bg)
+            if limit and alerted(events, name, received, limit[0]):
+                return None  # still stopped by what this task was alerted on; once over, a hang counts again
         if not bg and pane_probe(entry.get("pane"), entry.get("kind")) in ("missing", "dead"):
             if self.reported:
                 self.finished = True  # as in tick's gone branch: nothing to alert
