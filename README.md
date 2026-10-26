@@ -242,7 +242,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 
 ### Watchdog
 
-The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended. A worker you `mesh retire` while a watch runs is let go, report or not, rather than reported gone. A report from a watched worker that's still unread in your mailbox (sent while no watch ran, its doorbell lost) makes the watch exit 0 at once:
+The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise. A Claude root whose workers report by `SendMessage` runs `mesh watch --any --alerts`, which keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended. An `--any` watch also takes on workers spawned or resumed after it started, so it needn't be restarted for them. A worker you `mesh retire` while a watch runs is let go, report or not, rather than reported gone. A report from a watched worker that's still unread in your mailbox (sent while no watch ran, its doorbell lost) makes the watch exit 0 at once:
 
 | Status | Meaning |
 |---|---|
