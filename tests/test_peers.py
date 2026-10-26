@@ -390,7 +390,7 @@ def test_a_worker_asking_a_peer_moves_nothing(mesh, fake, cli, run, repo, tmp_pa
     monkeypatch.setenv("MESH_RUN", run)
     monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
     assert mesh.main(["ask", "swarm-research", "--body", "Q?"]) == 1
-    assert "only the root asks" in capsys.readouterr().err
+    assert "only a root runs `mesh ask`" in capsys.readouterr().err
     assert not cli.called("fetch")
 
 

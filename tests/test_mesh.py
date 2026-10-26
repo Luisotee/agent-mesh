@@ -942,7 +942,6 @@ def test_claude_argv_keeps_alias_and_picks_the_session_id(mesh):
 
 def test_watch_returns_when_child_reports_done(mesh, fake, run, monkeypatch):
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
-    as_worker(monkeypatch, run)
 
     def sleep(_):
         if not mesh.sends_from(run, "repo-fix-typo", ("done",)):
@@ -1898,30 +1897,74 @@ def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, cap
     assert out["branches_deleted"] == []
 
 
-ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
-             ["worktree", "--slug", "x"], ["ring", "repo-lead"], ["peers", "add", "/nowhere"],
-             ["peers", "remove", "p"], ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"])
+ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo-lead"], ["watch", "--any"],
+             ["approve", "repo-fix-typo"], ["switch", "repo-fix-typo"], ["retire", "repo-fix-typo"],
+             ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"], ["ask", "--repo", ".", "--body", "x"],
+             ["peers", "add", "/nowhere"], ["peers", "remove", "p"], ["peers", "edit", "p", "--about", "x"],
+             ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"])
+WORKER_RUNS = (["whoami"], ["whoami", "--reminder", "clear"], ["inbox"], ["dir"], ["peers", "list"], ["status"],
+               ["log"], ["agents"], ["send", "parent", "--type", "info", "--body", "FYI."])
 
 
-def test_a_worker_is_refused_the_commands_only_a_root_runs(mesh, fake, run, monkeypatch, capsys):
+def command_of(mesh, argv):
+    return mesh.command_name(mesh.build_parser().parse_args(argv))
+
+
+def test_every_command_is_either_a_workers_or_the_roots(mesh):
+    parser = mesh.build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, mesh.argparse._SubParsersAction))
+    peers = next(a for a in sub.choices["peers"]._actions if a.dest == "action").choices
+    names = {f"peers {a}" for a in peers} | set(sub.choices) - {"peers"}
+    root_only = {command_of(mesh, argv) for argv in ROOT_ONLY}
+    assert names == mesh.WORKER_COMMANDS | mesh.OWN_WORKER_CHECK | root_only  # a new command is listed somewhere
+    assert not root_only & mesh.WORKER_COMMANDS
+
+
+def test_a_worker_is_refused_every_command_but_its_own(mesh, fake, run, monkeypatch, capsys):
     as_worker(monkeypatch, run)
     runs, renames = {p.name for p in mesh.mesh_home().iterdir()}, len(fake.called("agent", "rename"))
     for argv in ROOT_ONLY:
         capsys.readouterr()
         assert mesh.main(argv) == 1, argv
         err = capsys.readouterr().err
-        assert f"only a root runs `mesh {' '.join(argv[:2]) if argv[0] == 'peers' else argv[0]}`" in err
-        assert "MESH_HOME" in err and "MESH_HERDR" in err  # how to try it out instead
+        assert f"only a root runs `mesh {command_of(mesh, argv)}`" in err
+        assert "MESH_HOME" in err and "MESH_CLAUDE" in err and "env -u MESH_RUN" in err  # the ways out
     refused = [e["command"] for e in mesh.read_log(run) if e["event"] == "refused"]
-    assert refused == ["init", "spawn", "resume", "open", "worktree", "ring", "peers add", "peers remove",
-                       "peers edit", "peers refresh"]
+    assert refused == [command_of(mesh, argv) for argv in ROOT_ONLY]
     assert {p.name for p in mesh.mesh_home().iterdir()} == runs and not mesh.peers_path().exists()
     assert len(fake.called("agent", "rename")) == renames and not fake.called("pane", "split")
-    # what a worker runs itself still works, reading the peers included
-    for argv in (["whoami"], ["inbox"], ["dir"], ["peers", "list"]):
-        assert mesh.main(argv) == 0, argv
+    assert not [e for e in mesh.read_log(run) if e["event"] in ("nudge", "alert")]
     # --as names someone else: the user's choice, as for `mesh stop`
     assert mesh.worker_caller(mesh.build_parser().parse_args(["ring", "x", "--as", "repo-lead"])) is None
+
+
+@pytest.mark.parametrize("kind", ["agy", "claude"])
+def test_a_worker_still_runs_its_own_commands(mesh, fake, run, monkeypatch, capsys, kind):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind=kind, session="s-1")
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    as_worker(monkeypatch, run)
+    if kind == "claude":
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s-1")
+    for argv in WORKER_RUNS:
+        assert mesh.main(argv) in (0, 2), argv  # 2: stored, the doorbell didn't ring
+    assert stop_hook(mesh, monkeypatch, capsys, run) is None
+    assert not [e for e in mesh.read_log(run) if e["event"] == "refused"]
+
+
+def test_the_root_and_a_plain_shell_keep_every_command(mesh, fake, run, monkeypatch):
+    for argv in ROOT_ONLY + WORKER_RUNS:
+        mesh.check_worker(mesh.build_parser().parse_args(argv))  # the root, by its pane
+    monkeypatch.delenv("HERDR_PANE_ID")
+    for argv in ROOT_ONLY + WORKER_RUNS:
+        mesh.check_worker(mesh.build_parser().parse_args(argv))
+
+
+def test_a_pane_worker_herdr_restored_is_refused_too(mesh, fake, run, monkeypatch, capsys):
+    restored(mesh, run, monkeypatch, fake)
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", "."]) == 1
+    assert "repo-fix-typo is a worker of run mtest, and only a root runs `mesh spawn`" in capsys.readouterr().err
 
 
 def test_a_worker_trying_mesh_out_under_a_temp_home_isnt_refused(mesh, fake, run, monkeypatch, tmp_path):
@@ -1940,6 +1983,8 @@ def test_a_claude_session_that_inherited_a_workers_variables_isnt_refused(mesh, 
     assert mesh.worker_caller(args) == (run, "repo-fix-typo")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-session")  # e.g. forked by the --bg daemon
     assert mesh.worker_caller(args) is None
+    stopping = mesh.build_parser().parse_args(["stop", run])
+    assert mesh.stopping_worker(stopping)[1] == ""  # nor is it refused `stop`, which asks the same
 
 
 def test_only_a_root_stops_a_run(mesh, fake, run, monkeypatch, capsys):
@@ -3686,6 +3731,24 @@ def test_a_change_task_reopens_a_read_only_asker_without_its_deny_list(mesh, fak
     assert len(fake.called("agent", "start")) == starts
 
 
+def test_a_worker_sends_only_to_its_parent(mesh, fake, run, monkeypatch, capsys):
+    read_only_asker(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-other"] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                        "status": "running"}
+    as_worker(monkeypatch, run)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s-1")
+    for to in ("repo-fix-typo", "repo-other"):  # a direct task to itself would lift its own deny list
+        capsys.readouterr()
+        assert mesh.main(["send", to, "--type", "task", "--body", "Direct task (no plan)\n\nFix it."]) == 1
+        assert "a worker sends only to its parent (repo-lead)" in capsys.readouterr().err
+    assert not fake.called("agent", "start") and mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"]
+    assert not mesh.unread(run, "repo-other") and not mesh.unread(run, "repo-fix-typo")
+    refused = [(e["command"], e["to"]) for e in mesh.read_log(run) if e["event"] == "refused"]
+    assert refused == [("send", "repo-fix-typo"), ("send", "repo-other")]
+    assert mesh.main(["send", "repo-lead", "--type", "info", "--body", "FYI."]) in (0, 2)  # by name too
+
+
 def test_a_read_only_follow_up_leaves_the_asker_as_it_is(mesh, fake, run, capsys):
     read_only_asker(mesh, run)
     assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Question (read-only): and why?"]) == 0
@@ -4254,10 +4317,10 @@ def test_a_worker_never_approves_itself(mesh, fake, run, monkeypatch, capsys):
     as_worker(monkeypatch, run)
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo"]) == 1
-    assert "is for your parent (repo-lead), not for you" in capsys.readouterr().err
+    assert "only a root runs `mesh approve`" in capsys.readouterr().err
     assert mesh.unread(run, "repo-fix-typo") == []
     [refused] = [e for e in mesh.read_log(run) if e["event"] == "refused"]
-    assert (refused["name"], refused["command"], refused["agent"]) == ("repo-fix-typo", "approve", "repo-fix-typo")
+    assert (refused["name"], refused["command"]) == ("repo-fix-typo", "approve")
     # the user, from another terminal, acts for the parent
     monkeypatch.delenv("MESH_RUN")
     monkeypatch.delenv("MESH_SELF")
@@ -4275,7 +4338,7 @@ def test_another_worker_cannot_approve_switch_or_retire(mesh, fake, run, monkeyp
     for command in (["approve"], ["switch", "--model", "flash"], ["retire"]):
         capsys.readouterr()
         assert mesh.main([command[0], "repo-fix-typo", *command[1:]]) == 1
-        assert f"only repo-fix-typo's parent (repo-lead) runs `mesh {command[0]}`" in capsys.readouterr().err
+        assert f"repo-other is a worker of run {run}, and only a root runs `mesh {command[0]}`" in capsys.readouterr().err
     assert not fake.called("pane", "close") and not fake.called("agent", "start")
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
     # nor does the root aim them at itself
@@ -5544,7 +5607,7 @@ def test_ask_prints_the_answer_even_if_the_root_already_read_it(mesh, fake, run,
 def test_only_the_root_asks(mesh, fake, run, repo, monkeypatch, capsys):
     as_worker(monkeypatch, run)
     assert mesh.main(["ask", "--repo", str(repo), "--body", "x"]) == 1
-    assert "only the root asks" in capsys.readouterr().err
+    assert "only a root runs `mesh ask`" in capsys.readouterr().err
     assert not fake.called("agent", "start")
 
 
