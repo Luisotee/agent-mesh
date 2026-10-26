@@ -235,6 +235,7 @@ SETTINGS_CONTINUE_RE = re.compile(r"^\s*[❯>]\s*(?:\d\.\s*)?Continue\s*$", re.M
 STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
 TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
 HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
+HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen (MESH_HELD_WAIT)
 STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 
 
@@ -363,13 +364,21 @@ def claude_bin() -> str:
 
 def claude_agents() -> list[dict]:
     """Claude Code's own session list (`claude agents --json --all`): background sessions carry a `status`
-    (busy / idle / waiting) while their process runs, and keep their entry after they exit."""
+    (busy / idle / waiting) while their process runs, and keep their entry after they exit. No rows when the
+    call fails (see read_claude_agents)."""
+    rows = read_claude_agents()
+    return [] if rows is None else rows
+
+
+def read_claude_agents() -> list[dict] | None:
+    """claude_agents, but None when the call fails (an error, a timeout, output that isn't a list), so a
+    caller can tell that from no sessions."""
     proc = run_cli([claude_bin(), "agents", "--json", "--all"], env=claude_env(), timeout=30)
     try:
-        rows = json.loads(proc.stdout) if proc.returncode == 0 else []
+        rows = json.loads(proc.stdout) if proc.returncode == 0 else None
     except ValueError:
-        return []
-    return rows if isinstance(rows, list) else []
+        return None
+    return rows if isinstance(rows, list) else None
 
 
 def parent_pid(pid: int) -> int:
@@ -944,12 +953,17 @@ def beside_root(run_id: str, name: str, cwd: Path, env: dict[str, str],
     with file_lock(run_dir(run_id) / ".panes.lock"):
         beside = _beside_root(run_id, cwd, env, replacing)
         if beside:
-            with editing_run(run_id) as run:
-                entry = run["agents"][name]
-                entry.update(pane=beside[0], tab=beside[1], workspace=beside[2])
-                if entry.get("view") == "bg":  # a background launch that fell back to a pane
-                    entry["view"] = "pane"
+            record_pane(run_id, name, *beside)
         return beside
+
+
+def record_pane(run_id: str, name: str, pane: str, tab: str, workspace_id: str) -> None:
+    """Record agent `name`'s new pane, under `.panes.lock`, so the next caller counts it."""
+    with editing_run(run_id) as run:
+        entry = run["agents"][name]
+        entry.update(pane=pane, tab=tab, workspace=workspace_id)
+        if entry.get("view") == "bg":  # a background launch that fell back to a pane
+            entry["view"] = "pane"
 
 
 def _beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | None) -> tuple[str, str, str] | None:
@@ -986,11 +1000,22 @@ def place_pane(run_id: str, name: str, repo_top: Path, cwd: Path,
     if beside := beside_root(run_id, name, cwd, env):
         return *beside, False
     workspace_id, created_ws = find_or_create_workspace(repo_top)
-    return *new_pane(run_id, workspace_id, cwd, env), workspace_id, created_ws
+    return *new_pane(run_id, name, workspace_id, cwd, env), workspace_id, created_ws
 
 
-def new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
-    """A fresh shell pane for an agent, in this run's tab of the workspace."""
+def new_pane(run_id: str, name: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
+    """A fresh shell pane for agent `name`, in this run's tab of the workspace.
+
+    Parallel calls (a fan-out's threads) would each find no tab and create one, the second overwriting the
+    first's record, so the lookup, the create and recording the tab and the pane on `name` happen under one lock.
+    """
+    with file_lock(run_dir(run_id) / ".panes.lock"):
+        pane, tab_id = _new_pane(run_id, workspace_id, cwd, env)
+        record_pane(run_id, name, pane, tab_id, workspace_id)
+        return pane, tab_id
+
+
+def _new_pane(run_id: str, workspace_id: str, cwd: Path, env: dict[str, str]) -> tuple[str, str]:
     run = load_run(run_id)
     tab_id = run.get("tabs", {}).get(workspace_id)
     if tab_id:
@@ -1435,7 +1460,7 @@ HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
                "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
-               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER",
+               "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
@@ -2890,7 +2915,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         pane, tab, workspace_id = beside
     else:  # a side worker's recorded workspace is the root's, so it goes to its project's
         workspace_id = (not side and entry.get("workspace")) or find_or_create_workspace(Path(entry["repo"]))[0]
-        pane, tab = new_pane(run_id, workspace_id, Path(entry["cwd"]), env)
+        pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
@@ -4181,6 +4206,7 @@ class Watch:
         self.session: str | None = None  # its conversation, once found (see conversation)
         self.session_tried: float | None = None
         self.prev: str | None = None
+        self.state: str | None = None  # the last tick's reading, held or not (prev skips a held worker's)
         self.worked = False  # seen working since it last reported (or since it was nudged)
         self.idle_for: float | None = None  # seconds it has read idle in a row
         self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit or agy's turn end is looked for
@@ -4204,7 +4230,7 @@ class Watch:
         if event:
             return event
         entry = agent_entry(load_run(run_id), name)
-        state = agent_status(name, entry, bg_rows)
+        state = self.state = agent_status(name, entry, bg_rows)
         if agent_entry(load_run(run_id), name).get("status") in ("retiring", "retired"):  # read after the state
             self.retired = self.finished = True  # the root is closing it on purpose, report or not
             return None
@@ -4697,6 +4723,13 @@ def hang_after() -> float:
         return float(os.environ.get("MESH_HANG_AFTER") or HANG_AFTER)
     except ValueError:
         return HANG_AFTER
+
+
+def held_wait() -> float:
+    try:
+        return float(os.environ.get("MESH_HELD_WAIT") or HELD_WAIT)
+    except ValueError:
+        return HELD_WAIT
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -6123,14 +6156,18 @@ def ask_identity(args: argparse.Namespace, body: str, mode: str | None) -> tuple
 
 
 def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, task: str, gist: str,
-                 peer: str | None = None, collect: dict | None = None) -> tuple[dict, int, str]:
+                 peer: str | None = None, collect: dict | None = None,
+                 events: list[dict] | None = None, state: str | None = None) -> tuple[dict, int, str]:
     """Give a worker `ask` found its read-only task: send it to a live one, else resume it. (result, its count of
-    final sends before the task, how: "asked" or "resumed")."""
+    final sends before the task, how: "asked" or "resumed"). `events` (the target's run log) and `state` (its
+    asker_status, given only for a worker open in this run), when the caller has read them."""
     old_run, folder, name, entry = target
-    state = (agent_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
-             else "gone")
+    if state is None:
+        state = (asker_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
+                 else "gone")
+    events = read_log(old_run["id"], folder) if events is None else events
     # It owes a reply to an earlier task: its next `done` must be this answer. Not while it works on that one.
-    if state != "working" and owes_report(read_log(old_run["id"], folder), name):
+    if state != "working" and owes_report(events, name):
         task = f"{task.rstrip()}\n\n{UNANSWERED_NOTE}"
     if state != "gone":
         finals = sends_from(run_id, name, FINAL_TYPES)
@@ -6303,12 +6340,19 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 
 def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval: float = 5.0,
-               grace: float = SETTLE_GRACE, on_outcome: Callable[[str, int, str], None] | None = None
-               ) -> dict[str, tuple[int, str]]:
+               grace: float = SETTLE_GRACE, on_outcome: Callable[[str, int, str], None] | None = None,
+               held_for: float | None = None) -> dict[str, tuple[int, str]]:
     """watch_agents for a fan-out: every name gets its own outcome, (0, …) for a done/failed or the watch's
     alert (3-8), and the rest are watched on. A plan or question it sends instead ends its watch too (3), as
-    does the timeout (6). `finals` is each one's count of final sends before its task was delivered."""
+    does the timeout (6). `finals` is each one's count of final sends before its task was delivered.
+
+    A watch stays quiet while its worker is held at a startup screen (`release_held`: the root was told at the
+    start), so one still at it `held_for` seconds (held_wait()) after its hold gets its own exit 4 instead of
+    keeping the others' answers waiting until the timeout. A worker given up on (any outcome but an answer) is
+    let go at once: its watch lock closes and its `collect` mark goes, so what it sends later rings as usual
+    and the root is told it's unwatched."""
     hang = hang_after()
+    held_for = held_wait() if held_for is None else held_for
     watches = {name: Watch(run_id, name, grace, count, hang) for name, count in finals.items()}
     outcomes: dict[str, tuple[int, str]] = {}
     deadline = time.monotonic() + timeout if timeout else None
@@ -6316,17 +6360,31 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
     def decide(name: str, outcome: tuple[int, str]) -> None:
         outcomes[name] = outcome
         watches.pop(name)
+        if outcome[0]:
+            held.pop(name).close()
+            with editing_run(run_id) as data:
+                if name in data["agents"]:
+                    data["agents"][name].pop("collect", None)
         if on_outcome:
             on_outcome(name, *outcome)
 
-    held = hold_watch(run_id, list(watches))
+    held = dict(zip(watches, hold_watch(run_id, list(watches))))
     try:
         while watches:
             run = load_run(run_id)
             bg_rows = claude_agents() if any(run["agents"].get(n, {}).get("view") == "bg" for n in watches) else None
             events = read_log(run_id)
-            for name, watch in list(watches.items()):
-                event = watch.tick(interval, False, bg_rows, events)
+            ticked = {name: watch.tick(interval, False, bg_rows, events) for name, watch in watches.items()}
+            agents = load_run(run_id)["agents"]  # after the ticks, which may release a hold
+            for name, event in ticked.items():
+                watch = watches[name]
+                at_screen = (agents.get(name) or {}).get("held")
+                # Still at the screen: not retired, not past it (reading working, or idle with a ring to retry)
+                if (not event and not watch.finished and at_screen and not at_screen.get("tries")
+                        and watch.state in ("blocked", "unknown") and seconds_since(at_screen.get("at")) >= held_for):
+                    event = 4, (f"ALERT {name} is still waiting at a startup screen ({at_screen.get('screen')}): the "
+                                f"user clears it in its pane (`herdr agent focus {name}`), then `mesh ring {name}`, "
+                                "and its answer comes to your inbox")
                 report, _ = last_report(events, name)
                 if not event and report and report.get("type") not in FINAL_TYPES:
                     event = 3, (f"ALERT {name} sent a {report['type']} instead of an answer: read it with "
@@ -6341,7 +6399,7 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
             if watches:
                 time.sleep(interval)
     finally:
-        for handle in held:
+        for handle in held.values():
             handle.close()
     return outcomes
 
@@ -6368,17 +6426,33 @@ def ask_peers(args: argparse.Namespace) -> int:
                 run["agents"][asker].pop("collect", None)
 
 
-def owes_answer(run_id: str, name: str, entry: dict) -> bool:
+CLAUDE_AGENTS_RETRY = 1.0  # seconds before asker_status asks `claude agents` again after a failed call
+
+
+def asker_status(name: str, entry: dict) -> str:
+    """agent_status, but `unknown` for a background worker whose `claude agents` call failed twice, a second
+    apart: it can't be told gone, and resuming a live one would run two processes on one conversation."""
+    if entry.get("view") != "bg":
+        return agent_status(name, entry)
+    rows = read_claude_agents()
+    if rows is None:  # once more: a passing failure shouldn't leave a gone worker unknown
+        time.sleep(CLAUDE_AGENTS_RETRY)
+        rows = read_claude_agents()
+    return "unknown" if rows is None else agent_status(name, entry, rows)
+
+
+def owes_answer(run_id: str, name: str, entry: dict, events: list[dict] | None = None,
+                state: str | None = None) -> bool:
     """A worker of this run still on its last task: it got one and has reported nothing since (by the log,
     since an idle blip in its pane doesn't mean it's done), or it reads working. One that is gone owes
-    nothing: it will never answer, and asking reopens its conversation."""
+    nothing: it will never answer, and asking reopens its conversation. `events` (the run's log) and `state`
+    (asker_status), when the caller has read them."""
     if entry.get("status") == "retired":
         return False
-    state = agent_status(name, entry)
-    # A background worker reads gone whenever `claude agents` can't answer too: trust that only with rows.
-    if state == "gone" and (entry.get("view") != "bg" or claude_agents()):
+    state = asker_status(name, entry) if state is None else state
+    if state == "gone":
         return False
-    return owes_report(read_log(run_id), name) or state == "working"
+    return owes_report(read_log(run_id) if events is None else events, name) or state == "working"
 
 
 def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
@@ -6397,13 +6471,16 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         try:
             task = ask_task(f"{body}\n\n{prep['note']}", None, None, fresh=False)
             target = peer_worker(name, peer)
-            if target and target[0]["id"] == run_id and owes_answer(run_id, target[2], target[3]):
+            events = read_log(target[0]["id"], target[1]) if target else None  # once, for both checks
+            live = target and target[0]["id"] == run_id and target[3].get("status") != "retired"
+            state = asker_status(target[2], target[3]) if live else None  # one reading, as for the log
+            if live and owes_answer(run_id, target[2], target[3], events, state):
                 # Its next `done` answers the question it's on: filing that as this one's would be wrong.
                 return None, 0, "busy with its previous question; ask again once it answers"
             ask = argparse.Namespace(**{**vars(args), "no_wait": True})  # the fan-out watches them all
             if target:
                 result, finals, how = reach_worker(ask, run_id, me, target, task, first_line(body), peer=name,
-                                                   collect=mark)
+                                                   collect=mark, events=events, state=state)
             else:
                 result, finals, how = spawn_peer(ask, run_id, me, name, peer, task, collect=mark), 0, "started"
         except MeshError as exc:
@@ -6650,6 +6727,8 @@ def peer_problem(peer) -> str | None:
     problems = [f"no {', '.join(missing)} recorded"] if missing else []
     problems += [f"{key} {peer[key]!r} is not a path" for key in ("repo", "cwd")
                  if peer.get(key) and not isinstance(peer[key], str)]
+    if isinstance(up, dict) and up.get("branch") and not isinstance(up["branch"], str):
+        problems.append(f"upstream branch {up['branch']!r} is not a branch name")
     return "; ".join(problems) or None
 
 
