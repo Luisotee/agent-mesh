@@ -1668,10 +1668,16 @@ def test_transcript_limit_reads_only_the_last_reply(mesh, monkeypatch, tmp_path)
     assert mesh.transcript_limit(entry, "missing") is None and mesh.transcript_limit({**entry, "kind": "agy"}, "s1") is None
 
 
+def mesh_argv(run="mtest", name="repo-fix-typo", session="s1"):
+    """A Claude command line as mesh starts a pane worker: its `--settings` carry the worker's Stop hook."""
+    hooks = {"Stop": [{"hooks": [{"type": "command", "command": f"/x/mesh hook stop --run {run} --as {name}"}]}]}
+    return ["claude", "--resume", session, "--settings", json.dumps({"hooks": hooks})]
+
+
 def claude_in_pane(fake, pane, *argv):
     fake.on("pane", "process-info", "--pane", pane, result={"process_info": {
         "foreground_process_group_id": 9, "shell_pid": 8,
-        "foreground_processes": [{"pid": 9, "argv": list(argv or ["claude", "--resume", "s1"])}]}})
+        "foreground_processes": [{"pid": 9, "argv": list(argv or mesh_argv())}]}})
 
 
 def stale_transcript(mesh, monkeypatch, tmp_path, minutes=50):
@@ -1781,6 +1787,7 @@ def test_hung_skips_a_task_already_alerted_for_its_usage_limit(mesh, fake, run, 
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     mesh.record_alert(run, "repo-fix-typo", 1, "limit")
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "working")
+    fake.calls.clear()  # the delivery looked at its pane once (relaunched_outside_mesh)
     assert mesh.Watch(run, "repo-fix-typo", 30.0).tick(5) is None
     assert not fake.called("pane", "process-info")  # no probing every poll
 
@@ -3681,6 +3688,86 @@ def test_a_large_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, r
     assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-user"]["planning"] is False
     # agy has no deny list: its planner is held by the prompt alone.
     assert mesh.claude_deny({"kind": "agy", "planning": True, "cwd": "/wt"}) == []
+
+
+def launch_argv(fake):
+    """The command line the last `herdr agent start` runs: `claude` and everything after `--`."""
+    call = list(fake.called("agent", "start")[-1])
+    return ["claude", *call[call.index("--") + 1:]]
+
+
+def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, fake, cli, run, repo, capsys):
+    stub_panes(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
+                      "--task", "Add the feature."]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    assert mesh.mesh_launched(launch_argv(fake), run, name)
+    assert not mesh.mesh_launched(launch_argv(fake), run, "repo-fix-typo")  # names this worker of this run
+    assert not mesh.mesh_launched(launch_argv(fake), "mold", name)
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
+                      "--task", "Add a third."]) == 0
+    assert mesh.mesh_launched(launch_argv(fake), run, "proj-user")
+    with mesh.editing_run(run) as data:  # a swap: `approve` reopening a planner (and `switch`, which shares it)
+        data["agents"][name].update(planning=True, phase="plan", exec_model="opus", exec_effort="medium")
+    sent_plan(mesh, run, name)
+    assert mesh.main(["approve", name]) == 0
+    assert fake.called("pane", "close") and mesh.mesh_launched(launch_argv(fake), run, name)
+    archived_worker(mesh, repo, kind="claude", session="c1")  # a resume (a peer's ask spawns or resumes too)
+    assert mesh.main(["resume", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
+    assert mesh.mesh_launched(launch_argv(fake), run, "proj-fix")
+    assert not mesh.mesh_launched(["claude", "--resume", "c1"], run, "proj-fix")  # what a herdr restore runs
+
+
+def test_a_pane_worker_herdr_relaunched_is_reopened_with_its_flags_before_its_doorbell(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    claude_in_pane(fake, "w2:p5", "claude", "--resume", "s-1")  # a herdr restore: none of mesh's flags
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
+    argv = launch_argv(fake)
+    assert mesh.mesh_launched(argv, run, "repo-fix-typo") and "Bash(git push:*)" in deny_rules(argv)
+    assert started(fake)[-7:] == ("--resume", "s-1", "--model", "opus", "--effort", "high",
+                                  "--dangerously-skip-permissions")
+    assert fake.called("pane", "close", "w2:p5")
+    assert bare(fake.called("agent", "prompt")[-1][3]).startswith(
+        "📬 [mesh] You are repo-fix-typo (worker) again in agent-mesh run mtest, now on opus at high effort")
+    [swap] = [e for e in mesh.read_log(run) if e["event"] == "swap"]
+    assert swap["why"] == "relaunched"
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["pane"], entry["planning"], entry["model"]) == ("w9:p10", True, "opus")
+
+
+@pytest.mark.parametrize("case", ["mesh's own", "herdr can't say", "no claude there", "agy", "bg",
+                                  "another worker's", "another run's"])
+def test_only_a_claude_mesh_didnt_start_in_a_workers_pane_is_reopened(mesh, fake, run, capsys, case):
+    claude_planner(mesh, run)
+    if case in ("agy", "bg"):
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"].update(kind="agy") if case == "agy" else \
+                data["agents"]["repo-fix-typo"].update(view="bg", bg_id="ab12")
+    argv = {"mesh's own": mesh_argv(session="s-1"), "another worker's": mesh_argv(name="repo-other"),
+            "another run's": mesh_argv(run="mold"), "no claude there": ["bash"]}.get(case, ["claude", "--resume", "s-1"])
+    claude_in_pane(fake, "w2:p5", *argv)
+    if case == "herdr can't say":
+        fake.on("pane", "process-info", "--pane", "w2:p5", error="cli_error")
+    stub_new_pane(fake)
+    mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."])
+    reopened = bool(fake.called("agent", "start"))
+    assert reopened == (case in ("another worker's", "another run's"))
+    if case in ("agy", "bg"):
+        assert not fake.called("pane", "process-info")
+
+
+def test_a_relaunched_worker_in_a_turn_is_not_rung_without_its_flags(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    claude_in_pane(fake, "w2:p5", "claude", "--resume", "s-1")
+    fake.on("agent", "wait", error="timeout")  # the user typed into it, and its turn goes on
+    capsys.readouterr()
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert not out["rung"] and "runs a Claude mesh didn't start" in out["error"] and "mesh retire" in out["error"]
+    assert not fake.called("agent", "prompt") and not fake.called("pane", "close")
+    assert [m.name for m in mesh.unread(run, "repo-fix-typo")]  # stored: the next message retries the reopen
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w2:p5"
 
 
 def test_a_large_background_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, repo, capsys):

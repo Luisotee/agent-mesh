@@ -170,7 +170,7 @@ Every turn re-reads your whole context: at a twentieth of the price while the pr
 
 **Root-only commands:** `mesh reset` resets only the root itself. `mesh approve`, `switch` and `retire` act only for the worker's parent (you), and `mesh stop` refuses any worker. They find you by your pane, as every command does; the user acting for you from another terminal passes `--run <run> --as <your name>`.
 
-**Messages to a worker:** always send them with `mesh send` (or `mesh approve`). If the output has a `send_message` (a background worker has no pane to ring), pass it on with the `SendMessage` tool, with `to` and `message` exactly as printed.
+**Messages to a worker:** always send them with `mesh send` (or `mesh approve`). If the output has a `send_message` (a background worker has no pane to ring), pass it on with the `SendMessage` tool, with `to` and `message` exactly as printed. A Claude pane worker that something other than mesh relaunched (a herdr restore after a power outage runs plain `claude --resume`, without its hooks or deny list) is first reopened in the same conversation with them: you see a new pane and a `swap` with `why: relaunched`. If it can't be (its turn goes on), the message is stored, not rung, and `mesh send` exits 2 saying so; the next message tries again, or `mesh retire` then `mesh resume` it.
 
 ## Task lists
 

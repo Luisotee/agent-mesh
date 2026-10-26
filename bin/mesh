@@ -1471,6 +1471,44 @@ def settings_argv(kind: str, env: dict[str, str]) -> list[str]:
     return ["--settings", worker_settings(env, bg=False)] if kind == "claude" else []
 
 
+def mesh_launched(argv: list[str], run_id: str, name: str) -> bool:
+    """Whether a Claude command line is one mesh started for this worker of this run: its `--settings` carry the
+    worker's Stop hook (`worker_hooks`), which names both. Every pane launch has them (spawn, resume, swaps)."""
+    stop = shlex.join(["hook", "stop", "--run", run_id, "--as", name])
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--settings":
+            continue
+        try:
+            groups = (json.loads(value).get("hooks") or {}).get("Stop") or []
+            if any(str(h.get("command", "")).endswith(stop) for g in groups for h in g.get("hooks") or []):
+                return True
+        except (ValueError, AttributeError, TypeError):
+            continue
+    return False
+
+
+def relaunched_outside_mesh(run_id: str, name: str, entry: dict) -> bool | None:
+    """Whether the Claude in a pane worker's pane was started by something other than mesh, None if herdr can't
+    say (or no Claude runs there).
+
+    A herdr restore relaunches a pane's agent as plain `claude --resume <session>`: same pane, same conversation,
+    none of mesh's flags, so no hooks, no deny list (`claude_deny`), no model or effort (design §11). The pane's
+    foreground leader's command line tells (`mesh_launched`).
+    """
+    if (entry.get("kind") != "claude" or entry.get("view") in ("bg", "headless") or not entry.get("pane")
+            or entry.get("status") == "starting"):
+        return None
+    try:
+        info = herdr("pane", "process-info", "--pane", entry["pane"], timeout=10).get("process_info") or {}
+    except MeshError:
+        return None
+    procs = info.get("foreground_processes") or []
+    leader = info.get("foreground_process_group_id")
+    lead = [p for p in procs if leader and p.get("pid") == leader] or procs
+    claude = next((p for p in lead if agent_binary(p.get("argv")) == "claude"), None)
+    return None if claude is None else not mesh_launched(claude.get("argv") or [], run_id, name)
+
+
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
               resume: str | None = None, extra: list[str] | tuple[str, ...] = ()) -> tuple[str, str]:
     """Start a background Claude session and return (short id, session id).
@@ -2328,11 +2366,16 @@ def refuse_headless(name: str, entry: dict, what: str) -> None:
                         f"ask it again with `mesh ask {name} --body …`")
 
 
+RELAUNCH_WAIT = 60  # seconds deliver waits for a relaunched pane worker's turn to end before reopening it
+
+
 def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False,
             stored=None, delays: tuple[int, ...] = RING_DELAYS) -> dict:
     """Store the message, then ring `to`'s doorbell, or hand back the SendMessage that tells it (`send_message`).
 
-    `stored()` runs between the two: what the recipient may act on must be recorded before it hears.
+    `stored()` runs between the two: what the recipient may act on must be recorded before it hears. A Claude
+    pane worker that something other than mesh relaunched (`relaunched_outside_mesh`) is first reopened with
+    its flags (`swap_model`, keeping its deny list), or not rung at all.
     """
     run = load_run(run_id)
     entry = agent_entry(run, to)
@@ -2358,6 +2401,20 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
             return {"stored": str(path), "rung": False, "type": mtype, "held": held["screen"],
                     "error": f"waiting at a startup screen ({held['screen']})"}
         first = first or bool(held)  # the screen is gone but its first doorbell never rang
+    if relaunched_outside_mesh(run_id, to, entry):  # before it gets a turn without its deny list and hooks
+        try:
+            swap = swap_model(run_id, to, entry.get("model") or PLAN_CHAIN["claude"][0],
+                              entry.get("effort") or DEFAULT_EFFORT, "relaunched", wait_ms=RELAUNCH_WAIT * 1000,
+                              message=(sender, mtype, body), stored=path)
+        except MeshError as exc:
+            error = (f"{to} runs a Claude mesh didn't start (a herdr restore?), without its hooks and deny list, and "
+                     f"wasn't reopened with them ({exc}); the next message retries, or `mesh retire {to}` then "
+                     f"`mesh resume {to}`")
+            log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
+            return {"stored": str(path), "rung": False, "error": error}
+        if swap.get("delivery"):  # reopened at a startup screen: held, rung once it's gone
+            return swap["delivery"]
+        run, entry = load_run(run_id), agent_entry(load_run(run_id), to)
     first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
     route = native_route(run, sender, to)
     if route:  # no token: nothing reads a pane for it
@@ -2718,13 +2775,13 @@ def lifted(entry: dict, lift: bool) -> dict:
 
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
                strict: bool = True, message: tuple[str, str, str] | None = None,
-               lift: bool = False) -> dict:
+               lift: bool = False, stored: Path | None = None) -> dict:
     """Restart a worker on another model or effort in the same conversation, pane by pane, keeping its name.
 
     Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
     hit a quota is not strict, since its turn is already dead whatever herdr shows. A background worker
     gets `message` (sender, type, body) as its opening prompt (the result's `delivery`); for a pane the
-    caller delivers it once the pane is back. `lift` reopens it without its deny list (claude_deny), clearing
+    caller delivers it once the pane is back (`stored`: already in its mailbox). `lift` reopens it without its deny list (claude_deny), clearing
     both of its reasons; otherwise it keeps whatever it had.
     """
     entry = agent_entry(load_run(run_id), name)
@@ -2784,7 +2841,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         run["agents"][name]["status"] = "running"
     result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
     if started.get("held") and message:  # the caller would ring a pane at a startup screen: hold it instead
-        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started)
+        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=stored)
     return result
 
 
