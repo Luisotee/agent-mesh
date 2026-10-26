@@ -4,8 +4,9 @@
 Every message is written to the recipient's mailbox first, then a one-line
 "doorbell" is typed into the recipient's herdr pane. A lost doorbell never
 loses the message: it waits in the mailbox until `mesh inbox` reads it.
-Between Claude sessions (a worker reporting to a Claude root, anyone writing to
-a background worker) the sender passes the doorbell on with SendMessage instead.
+A Claude recipient's doorbell is written into its cross-session inbox (its
+socket) instead, or, for a root that takes only messages from its own
+permission mode, handed back for a Claude sender to pass on with SendMessage.
 
 State:      $MESH_HOME      (default ~/.local/state/agent-mesh)
 Worktrees:  $MESH_WORKTREES (default ~/.local/share/agent-mesh/worktrees)
@@ -16,6 +17,7 @@ Identity:   $MESH_RUN / $MESH_SELF / $MESH_PARENT / $MESH_ROLE, injected by
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import json
 import os
@@ -23,6 +25,8 @@ import re
 import secrets
 import shlex
 import signal
+import socket
+import stat
 import subprocess
 import sys
 import textwrap
@@ -129,7 +133,7 @@ ALERT_TAIL_LINES = 8
 SETTLE_GRACE = 30.0
 # A worker the watch never saw working (a turn shorter than one poll, a task it never picked up, a watch started
 # after the turn) is judged once its last task or answer is this many `--grace` old (never under SETTLE_GRACE):
-# room for a pane to boot, the doorbell's retries, and the root passing a background worker's `send_message` on.
+# room for a pane to boot and the doorbell's retries.
 START_GRACE_FACTOR = 4
 # A worker that reads `working` while its transcript stays unchanged this long gets one exit-8 alert per task
 # (`--hang`, MESH_HANG_AFTER; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
@@ -435,11 +439,17 @@ def agent_processes() -> list[dict]:
 
 
 def socket_address(pid: int | None) -> str | None:
-    """The cross-session address (`uds:…/cc-socks/<pid>.sock`) of a running Claude Code process, if it has one."""
+    """The cross-session address (`uds:<socket>`) of a running Claude Code process, if it has one: the
+    `messagingSocketPath` its own `sessions/<pid>.json` names, never a path rebuilt from the layout (Claude Code
+    binds under `XDG_RUNTIME_DIR`, or a temp folder without it, or `/tmp/cc-socks-<uid>` past 103 bytes), and
+    never one an earlier process at a reused pid left (`process_record` checks its start). `MESH_CC_SOCKS`, a
+    folder of `<pid>.sock`, stands in for those files (tests)."""
     if not pid:
         return None
-    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    sock = Path(os.environ.get("MESH_CC_SOCKS") or Path(runtime) / "cc-socks") / f"{pid}.sock"
+    if folder := os.environ.get("MESH_CC_SOCKS"):
+        sock = Path(folder) / f"{pid}.sock"
+    else:
+        sock = Path((process_record(pid) or {}).get("messagingSocketPath") or "/nonexistent")
     return f"uds:{sock}" if sock.exists() else None
 
 
@@ -451,28 +461,53 @@ def claude_pid() -> int | None:
         return None
 
 
-def claude_address() -> str | None:
-    """The cross-session address of the Claude Code session this command runs under.
+def claude_process() -> dict:
+    """The Claude Code session this command runs under: its cross-session `address`, the `pid` of its process
+    and that process's `start` (each None when unknown).
 
-    Session names change as Claude retitles a conversation, so other sessions reach it by this socket, which
-    belongs to the process. That's `CLAUDE_PID`'s; without it, the first socket up the process tree, where a
-    stale one left at a reused pid could come first. None outside Claude Code (an agy root) or where /proc
-    can't be walked.
+    The socket is `CLAUDE_CODE_MESSAGING_SOCKET`, which Claude Code sets for its tools; else `CLAUDE_PID`'s; else
+    the first one up the process tree. Session names change as Claude retitles a conversation, so other
+    sessions reach it by this socket, which belongs to the process. None outside Claude Code (an agy root) or
+    where /proc can't be walked.
     """
-    if pid := claude_pid():
-        return socket_address(pid)
+    pid = claude_pid()
+    own = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET")
+    if own and not os.environ.get("MESH_CC_SOCKS") and Path(own).exists():
+        # Its process, for the pid-reuse check: CLAUDE_PID, else the ancestor whose record names this socket.
+        pid = pid or next((p for p in ancestors() if (process_record(p) or {}).get("messagingSocketPath") == own),
+                          None)
+        address = f"uds:{own}"  # no such ancestor (no /proc): the path alone is checked (`root_reachable`)
+    elif pid:
+        address = socket_address(pid)
+    else:
+        pid, address = next(((p, a) for p in ancestors() if (a := socket_address(p))), (None, None))
+    return {"address": address, "pid": pid if address else None,
+            "start": proc_start(pid) if address and pid else None}
+
+
+def ancestors(depth: int = 16):
+    """This process, its parent, theirs and so on, up to `depth` of them (none past init)."""
     pid = os.getpid()
-    for _ in range(16):
+    for _ in range(depth):
         if pid <= 1:
-            break
-        if address := socket_address(pid):
-            return address
+            return
+        yield pid
         pid = parent_pid(pid)
-    return None
+
+
+def claude_address() -> str | None:
+    """The cross-session address of the Claude Code session this command runs under (`claude_process`)."""
+    return claude_process()["address"]
 
 
 def address_alive(address: str | None) -> bool:
     return bool(address) and (not address.startswith("uds:") or Path(address[4:]).exists())
+
+
+def root_reachable(entry: dict) -> bool:
+    """Whether a Claude root's recorded socket is still its own: the path exists, and the process recorded with
+    it (an entry from before mesh recorded one has none) still runs, not a later one at the same pid."""
+    return address_alive(entry.get("address")) and (not entry.get("pid") or pid_alive(entry["pid"], entry.get("start")))
 
 
 # ── run state ────────────────────────────────────────────────────────────
@@ -795,6 +830,113 @@ def process_session(pid: int) -> str | None:
     return (process_record(pid) or {}).get("sessionId") or None
 
 
+# Claude Code's managed settings on Linux: `managed-settings.json`, then `managed-settings.d/*.json` in name order.
+CLAUDE_MANAGED = Path("/etc/claude-code")
+INBOUND_RANK = {"accept": 0, "hold": 1, "refuse": 2}  # `crossSessionInbound`, loosest first
+PROMPTING_MODES = ("default", "acceptEdits", "auto", "dontAsk")
+
+
+def settings_inbound(path: Path) -> str | None:
+    """A settings file's `crossSessionInbound`, or "invalid" for a value Claude Code doesn't know (a list, say)."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    value = data.get("crossSessionInbound") if isinstance(data, dict) else None
+    return None if value is None else value if isinstance(value, str) and value in INBOUND_RANK else "invalid"
+
+
+def inbound_setting(cwd: str | Path | None, flag: str | None = None) -> tuple[str | None, str | None]:
+    """(the `crossSessionInbound` a Claude session started in `cwd` with `--settings` `flag` runs with, where it
+    comes from), as Claude Code 2.1.310 decides it (design §11): managed policy, then the flag, then the user's
+    settings, the first that sets it; the repo's `.claude/settings*.json` may only tighten it. A value it doesn't
+    know, in any of them, holds whatever else is set (its `N()`: the settings warning). Managed drop-ins are
+    merged over the base file in name order, so the last that sets it wins. (None, None): unset, so the session's
+    permission mode decides. Server-managed policy isn't read."""
+    drop_ins = sorted((CLAUDE_MANAGED / "managed-settings.d").glob("*.json"))
+    managed = [settings_inbound(path) for path in (CLAUDE_MANAGED / "managed-settings.json", *drop_ins)]
+    user = settings_inbound(claude_home() / "settings.json")
+    repo = [settings_inbound(Path(cwd) / ".claude" / name) for name in ("settings.local.json", "settings.json")] \
+        if cwd else []
+    invalid = "invalid" in (*managed, user, *repo)  # settled first: ranked below, only known values are
+    managed, repo = [v for v in managed if v != "invalid"], [v for v in repo if v != "invalid"]
+    user = None if user == "invalid" else user
+    value = source = None
+    for found in managed:
+        if found:
+            value, source = found, "managed"
+    if value is None and flag:
+        value, source = flag, "flag"
+    if value is None and user:
+        value, source = user, "user"
+    for found in repo:
+        if found and INBOUND_RANK[found] > INBOUND_RANK[value or "accept"]:
+            value, source = found, "repo"
+    if invalid and INBOUND_RANK[value or "accept"] < INBOUND_RANK["hold"]:  # the settings warning holds
+        return "hold", "invalid"
+    return value, source
+
+
+def background_view(view: str, named: bool, root: dict, notes: list[str], doing: str) -> str:
+    """`view`, or "pane" (with a note) where a background worker couldn't report: no Claude root it can message.
+    A `--view bg` the caller `named` is refused instead. Checked before any side effect; `settings_view` checks
+    the worker's folder once it exists."""
+    if view != "bg" or root_reachable(root):
+        return view
+    return refuse_bg("a background worker needs a Claude root it can message (see `mesh init`)", named, notes, doing)
+
+
+def settings_view(view: str, named: bool, cwd, notes: list[str], doing: str) -> str:
+    """`view`, or "pane" (with a note, or refused when `named`) where Claude Code's settings in `cwd` hold
+    cross-session messages (`worker_accepts`), which a background worker there would never see."""
+    if view != "bg" or worker_accepts(cwd):
+        return view
+    return refuse_bg("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
+                     "background worker would never see", named, notes, doing)
+
+
+def refuse_bg(why: str, named: bool, notes: list[str], doing: str) -> str:
+    if named:
+        raise MeshError(f"--view bg: {why}; use a pane")
+    notes.append(f"{why}; {doing} a pane")
+    return "pane"
+
+
+def worker_accepts(cwd: str | Path | None) -> bool:
+    """Whether a Claude worker in `cwd` takes cross-session messages unprompted: mesh starts it with `accept`
+    (`worker_settings`), which only managed policy or a tightening repo overrides."""
+    return inbound_setting(cwd, "accept")[0] == "accept"
+
+
+def mode_class(mode: str | None) -> str | None:
+    """Claude Code's permission class for cross-session messages: "bypass", "prompting", or None when it can't
+    be told (`plan` counts as bypass only when bypass is available, which mesh can't see)."""
+    return "bypass" if mode == "bypassPermissions" else "prompting" if mode in PROMPTING_MODES else None
+
+
+def transcript_mode(path: Path | None, chunk: int = 1 << 20, most: int = 8 << 20) -> str | None:
+    """The permission mode of the newest prompt in a Claude session file (each carries `permissionMode`), read
+    backwards from its end, at most `most` bytes; None when not found."""
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            end, rest = fh.seek(0, os.SEEK_END), b""
+            stop = max(0, end - most)
+            while end > stop:
+                start = max(stop, end - chunk)
+                fh.seek(start)
+                lines = (fh.read(end - start) + rest).split(b"\n")
+                rest = lines.pop(0) if start else b""
+                for line in reversed(lines):
+                    if match := re.search(rb'"permissionMode":\s*"([A-Za-z]+)"', line):
+                        return match.group(1).decode()
+                end = start
+    except OSError:
+        return None
+    return None
+
+
 def leader_record(pane: str) -> dict | None:
     """The `process_record` of the Claude leading the pane's foreground group, or None if that can't be told.
     Unlike herdr's `agent_session`, nothing else started in the pane (a nested `claude -c -p`) can change it."""
@@ -844,8 +986,11 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
     entry = (run or {}).get("agents", {}).get(name, {})
     if entry.get("role") != "root" or entry.get("kind") != "claude":
         return
-    address, current = claude_address(), os.environ.get("CLAUDE_CODE_SESSION_ID")
-    moved = bool(address) and address != entry.get("address")
+    inbox, current = claude_process(), os.environ.get("CLAUDE_CODE_SESSION_ID")
+    address = inbox["address"]
+    # A command that can't name the process (no CLAUDE_PID) at the same socket hasn't moved it: keep its pid.
+    same = address == entry.get("address") and inbox["pid"] in (None, entry.get("pid"))
+    moved = bool(address) and not same
     cleared = bool(current) and current != entry.get("session")
     if not (moved or cleared):
         return
@@ -855,9 +1000,9 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
         leads = pane_runs_this_claude(pane)
         if leads is False:
             return
-        update = {**({"address": address} if moved else {}), **({"session": current} if cleared else {})}
+        update = {**(inbox if moved else {}), **({"session": current} if cleared else {})}
     elif moved and current and current == entry.get("session") and pane_probe(pane, "claude") in ("missing", "dead"):
-        update = {"address": address}
+        update = dict(inbox)
     if update:
         with editing_run(run_id) as data:
             data["agents"][name].update(update)
@@ -1553,8 +1698,17 @@ def worker_hooks(run_id: str, name: str) -> dict:
                              for source in REMINDER_SOURCES]}
 
 
+WORKER_INBOUND = "accept"  # the `crossSessionInbound` every Claude worker starts with (recorded as a bg one's `inbound`)
+
+
 def worker_settings(env: dict[str, str], bg: bool) -> str:
-    """`--settings` JSON for a Claude worker: its hooks, and for a background one its environment.
+    """`--settings` JSON for a Claude worker: its hooks, `crossSessionInbound: accept`, and for a background one
+    its environment.
+
+    A worker bypasses permissions, and Claude Code holds a cross-session message for a bypass session's approval
+    when its sender asserts no permission mode (mesh writing a doorbell into its inbox) or another one (a root
+    that prompts): a background session has no dialog, so the message expires. The flag accepts them, and beats
+    the user's own setting; managed policy or the repo's settings can still tighten it (design §11).
 
     `claude --bg` runs the session in a spare process the daemon forked from its own environment, which is
     whoever's call started the daemon (an earlier worker, say), so the launch's own environment never reaches
@@ -1562,7 +1716,7 @@ def worker_settings(env: dict[str, str], bg: bool) -> str:
     key is set, empty when this launch has none, and the herdr ids are set empty, or a spare's stale values
     would stay (a pane id that `identity()` maps to its owner, another MESH_HOME). A pane has its environment.
     """
-    settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"])}
+    settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"]), "crossSessionInbound": WORKER_INBOUND}
     if bg:
         settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
     return json.dumps(settings)
@@ -1581,11 +1735,9 @@ def mesh_launched(argv: list[str], run_id: str, name: str) -> bool:
     changes with an upgrade or another checkout's `bin/mesh`, which would take every running worker for a
     relaunched one."""
     want = ["hook", "stop", "--run", run_id, "--as", name]
-    for flag, value in zip(argv, argv[1:]):
-        if flag != "--settings":
-            continue
+    for settings in launch_settings(argv):
         try:
-            groups = (json.loads(value).get("hooks") or {}).get("Stop") or []
+            groups = (settings.get("hooks") or {}).get("Stop") or []
             if any(shlex.split(str(h.get("command") or ""))[1:] == want for g in groups for h in g.get("hooks") or []):
                 return True
         except (ValueError, AttributeError, TypeError):
@@ -1593,25 +1745,53 @@ def mesh_launched(argv: list[str], run_id: str, name: str) -> bool:
     return False
 
 
-def relaunched_outside_mesh(run_id: str, name: str, entry: dict) -> bool | None:
+def launch_settings(argv: list[str]):
+    """Each `--settings` JSON object on a command line (one that doesn't parse, or isn't an object, is skipped)."""
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--settings":
+            continue
+        try:
+            settings = json.loads(value)
+        except ValueError:
+            continue
+        if isinstance(settings, dict):
+            yield settings
+
+
+UNREAD = object()  # a reading (`pane_claude`, `read_claude_agents`) the caller hasn't made yet
+
+
+def pane_claude(entry: dict) -> dict | None:
+    """The Claude process running a Claude pane worker's pane (herdr's foreground leader, or the pane's one Claude
+    when herdr names no leader), or None: not such a worker (a root's Claude is the user's own, never started by
+    mesh), herdr can't say, or no Claude leads the pane (or several, and no leader is named)."""
+    if (entry.get("role") != "worker" or entry.get("kind") != "claude" or entry.get("view") in ("bg", "headless")
+            or not entry.get("pane") or entry.get("status") == "starting"):
+        return None
+    info = pane_process_info(entry["pane"])
+    leader = foreground_leader(info) if info else None
+    if leader is None and info:
+        claudes = [p for p in info.get("foreground_processes") or [] if agent_binary(p.get("argv")) == "claude"]
+        leader = claudes[0] if len(claudes) == 1 else None
+    return leader if leader is not None and agent_binary(leader.get("argv")) == "claude" else None
+
+
+def relaunched_outside_mesh(run_id: str, name: str, entry: dict, claude=UNREAD) -> bool | None:
     """Whether the Claude in a pane worker's pane was started by something other than mesh, None if herdr can't
-    say (or no Claude runs there).
+    say (or no Claude runs there). `claude`: its `pane_claude`, when the caller has read it already.
 
     A herdr restore relaunches a pane's agent as plain `claude --resume <session>`: same pane, same conversation,
     none of mesh's flags, so no hooks, no deny list (`claude_deny`), no model or effort (design §11). The pane's
     foreground leader's command line tells (`mesh_launched`).
     """
-    if (entry.get("role") != "worker" or entry.get("kind") != "claude" or entry.get("view") in ("bg", "headless")
-            or not entry.get("pane") or entry.get("status") == "starting"):
-        return None  # a root's Claude is the user's own, never started by mesh
-    info = pane_process_info(entry["pane"])
-    leader = foreground_leader(info) if info else None
-    if leader is None and info:  # herdr names no leader: the pane's one Claude, if it has exactly one
-        claudes = [p for p in info.get("foreground_processes") or [] if agent_binary(p.get("argv")) == "claude"]
-        leader = claudes[0] if len(claudes) == 1 else None
-    if leader is None or agent_binary(leader.get("argv")) != "claude":
-        return None  # no Claude leads the pane, or several and no leader named: nothing to tell by
-    return not mesh_launched(leader.get("argv") or [], run_id, name)
+    claude = pane_claude(entry) if claude is UNREAD else claude
+    return None if claude is None else not mesh_launched(claude.get("argv") or [], run_id, name)
+
+
+def launched_accepting(argv: list[str]) -> bool:
+    """Whether a Claude command line's `--settings` accept cross-session messages (`worker_settings` since mesh
+    passes it): a worker started before then holds a doorbell written into its inbox (design §11)."""
+    return any(settings.get("crossSessionInbound") == WORKER_INBOUND for settings in launch_settings(argv))
 
 
 def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str, str], prompt: str,
@@ -2304,6 +2484,28 @@ def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tu
     return path, branch, sha
 
 
+def undo_worktree(repo_top: Path, path: Path, branch: str | None, base: str | None, run_id: str | None = None) -> None:
+    """Take back a worktree just made or recreated, with nothing new in it: the worktree, its branch while it has
+    no commits (`untouched_branch`) and, once both are gone, `run_id`'s row for it. A git error surfaces and
+    keeps the row, so the run's `mesh stop` still sees the worktree."""
+    git("worktree", "remove", "--force", str(path), cwd=repo_top)
+    if branch and untouched_branch({"repo": str(repo_top), "branch": branch, "base": base}):
+        git("branch", "-D", branch, cwd=repo_top)
+    if run_id:
+        with editing_run(run_id) as run:
+            run["worktrees"] = [w for w in run.get("worktrees", []) if Path(w["path"]) != Path(path)]
+        log_event(run_id, "worktree_undone", path=str(path), branch=branch)
+
+
+def undoing_worktree(repo_top: Path, path: Path, branch: str | None, base: str | None, run_id: str | None = None):
+    """For an `except` that re-raises: `undo_worktree`, with its own failure printed rather than raised over the
+    error that made it."""
+    try:
+        undo_worktree(repo_top, path, branch, base, run_id)
+    except MeshError as exc:
+        print(f"warning: {path} was left in place: {exc}", file=sys.stderr)
+
+
 def entry_branch(run: dict, entry: dict) -> str | None:
     """An agent's branch; a restart with --cwd records none, so look its worktree up."""
     if entry.get("branch"):
@@ -2514,22 +2716,130 @@ def record(run_id: str, sender: str, to: str, mtype: str, body: str) -> Path:
     return path
 
 
-def native_route(run: dict, sender: str, to: str) -> str | None:
-    """The address a Claude sender passes to SendMessage instead of ringing `to`'s pane, or None to ring it.
+def native_route(run: dict, sender: str, to: str, claude=UNREAD, rows=UNREAD) -> dict | None:
+    """How `to` hears of a message without its pane being typed into (design §11): `{"socket": address}` for mesh
+    to write the doorbell into its inbox, `{"send_message": address}` for a Claude sender to pass on with
+    SendMessage, or None to ring its pane. `claude` (`pane_claude`) and `rows` (`read_claude_agents`, None when
+    it failed) are passed by a caller that has read them already.
 
-    Claude to Claude only: a worker reaches a Claude root by its socket, so nothing is typed into the pane the
-    user works in, and a background worker, which has no pane, is reached by its own socket while it runs.
+    A Claude worker whose process mesh started accepting cross-session messages (`worker_settings`: a pane
+    leader's `--settings`, a background one's recorded `inbound`) is written to at its socket while it runs:
+    a background one's process from `claude agents`, a pane one's the Claude leading its pane. One started
+    before mesh passed that flag would hold such a frame (its mode isn't asserted, and it bypasses
+    permissions): a background one takes a Claude sender's SendMessage, as before, and a pane one is typed to.
+    A Claude root is written to when it takes a frame that asserts no permission mode: its settings say
+    `accept`, or with none set the newest `permissionMode` in its session file is a prompting one. A root in
+    bypass mode (or one whose mode can't be read) holds such a frame, but takes a Claude worker's SendMessage,
+    which asserts the same class; a `hold` or `refuse` setting holds or refuses both. A background worker
+    launched accepting that has no socket (none yet, or its record unread) or whose settings now hold gets no
+    route, never a SendMessage, which it would hold too; its sender reports it unreached (`bg_unreached`).
     """
-    if run["agents"].get(sender, {}).get("kind") != "claude":
-        return None
     entry = run["agents"][to]
+    if entry.get("kind") != "claude":
+        return None
+    claude_sender = run["agents"].get(sender, {}).get("kind") == "claude"
     if entry.get("role") == "root":
-        return entry["address"] if address_alive(entry.get("address")) else None
+        if not root_reachable(entry):
+            return None
+        setting = inbound_setting(entry.get("cwd"))[0]
+        if setting == "accept" or (setting is None and root_class(entry) == "prompting"):
+            return {"socket": entry["address"]}
+        return {"send_message": entry["address"]} if setting is None and claude_sender else None
     if entry.get("view") == "bg":
-        row = bg_row(entry)
-        if row and row.get("status"):
-            return socket_address(row.get("pid")) or to
+        row = bg_row(entry, claude_agents() if rows is UNREAD else rows or [])
+        if not (row and row.get("status")):
+            return None
+        address = socket_address(row.get("pid"))
+        if entry.get("inbound"):  # launched accepting: by its socket, or not at all (SendMessage is held too)
+            return {"socket": address} if address and worker_accepts(entry.get("cwd")) else None
+        return {"send_message": address or to} if claude_sender else None
+    claude = pane_claude(entry) if claude is UNREAD else claude
+    argv = (claude or {}).get("argv") or []
+    if not (mesh_launched(argv, run["id"], to) and launched_accepting(argv) and worker_accepts(entry.get("cwd"))):
+        return None
+    address = socket_address(claude.get("pid"))
+    return {"socket": address} if address else None
+
+
+def root_class(entry: dict) -> str | None:
+    """A Claude root's permission class now, by the newest `permissionMode` in its session file (a prompt or a
+    mode change records one; `transcript_mode`), or None."""
+    session = entry.get("session")
+    return mode_class(transcript_mode(root_transcript(entry, session))) if session else None
+
+
+def bg_unreached(name: str, entry: dict, rows: list[dict] | None) -> str:
+    """Why a message to a background worker wasn't rung (it has no pane to fall back on), by `rows` (one read of
+    `claude agents`, None when it failed)."""
+    if rows is None:
+        return (f"mesh couldn't tell whether {name} runs (`claude agents` failed); it sees the message at its next "
+                f"`mesh inbox`, or `mesh ring {name}` once that works again")
+    if bg_status(entry, rows) == "gone":
+        return f"{name} is not running; `mesh resume {name}` brings it back to read it"
+    if not entry.get("inbound"):
+        return (f"{name} was launched before mesh started workers accepting cross-session messages, so mesh can't "
+                f"write into its inbox, and a background session has no pane to ring: `mesh retire {name}` then "
+                f"`mesh resume {name}` relaunches it accepting them")
+    return (f"{name} runs, but mesh couldn't write into its inbox (no socket yet, a failed write, or settings "
+            "that hold cross-session messages), and a background session has no pane to ring; it sees the message "
+            f"at its next `mesh inbox`, or `mesh ring {name}` retries")
+
+
+INBOX_TIMEOUT = 2.0  # seconds to connect to a Claude inbox socket and write one frame
+
+
+def write_inbox(address: str, text: str) -> str | None:
+    """Write `text` into a Claude session's inbox socket, as one user frame; None once it's written, else why not.
+
+    The socket never answers, so a write is all there is to go by. It is never retried: Claude Code delivers a
+    repeated frame again. No auth line: Claude Code 2.1.310 requires one only on Windows. A path that isn't a
+    socket owned by this user (a symlink, another user's) isn't written to.
+    """
+    path = address.removeprefix("uds:")
+    try:
+        found = os.lstat(path)
+        if not stat.S_ISSOCK(found.st_mode) or found.st_uid != os.getuid():
+            return "not a socket of this user"
+        frame = json.dumps({"type": "user", "message": {"role": "user", "content": text}}) + "\n"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(INBOX_TIMEOUT)
+            conn.connect(path)
+            conn.sendall(frame.encode())
+    except OSError as exc:  # EPERM/EACCES: a sandboxed sender, which the pane still reaches
+        return errno.errorcode.get(exc.errno, str(exc)) if exc.errno else str(exc) or type(exc).__name__
     return None
+
+
+def ring_inbox(run_id: str, sender: str, to: str, address: str, text: str, path: Path) -> dict | None:
+    """Ring `to` by writing the doorbell into its inbox socket, and log how it went: the delivery once written,
+    None (logged `inbox_failed`) when the caller should ring its pane instead."""
+    error = write_inbox(address, text)
+    if error:
+        log_event(run_id, "inbox_failed", sender=sender, to=to, file=path.name, address=address, error=error)
+        return None
+    log_event(run_id, "rung", sender=sender, to=to, file=path.name, via="socket", tries=1)
+    if load_run(run_id)["agents"][to].get("swapped"):
+        with editing_run(run_id) as data:  # the doorbell that says it was reopened has rung
+            data["agents"][to].pop("swapped", None)
+    return {"stored": str(path), "rung": True, "error": None, "via": "socket"}
+
+
+def inbound_warnings(run: dict) -> list[str]:
+    """What Claude Code's cross-session policy (`crossSessionInbound`) costs this run's delivery, for `init` and
+    `status` to say: never fixed by mesh, since the root's settings are the user's (design §11)."""
+    found = []
+    root = run["agents"].get(run.get("root")) or {}
+    if root.get("kind") == "claude":
+        value, source = inbound_setting(root.get("cwd"))
+        if value in ("hold", "refuse"):
+            fix = " (`accept` there changes that: your call)" if source == "user" else ""
+            found.append(f"warning: your session's crossSessionInbound is {value} ({source} settings{fix}), so "
+                         "workers' reports are typed into your pane instead of arriving as cross-session messages")
+    value, source = inbound_setting(None, "accept")
+    if value != "accept":
+        found.append(f"warning: {source} settings set crossSessionInbound to {value} for every Claude session, so "
+                     "Claude workers open in panes and their doorbells are typed into them")
+    return found
 
 
 def delivered(delivery: dict) -> bool:
@@ -2593,7 +2903,8 @@ def reopen_relaunched(run_id: str, sender: str, to: str, mtype: str, body: str, 
 
 def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False,
             stored=None, delays: tuple[int, ...] = RING_DELAYS) -> dict:
-    """Store the message, then ring `to`'s doorbell, or hand back the SendMessage that tells it (`send_message`).
+    """Store the message, then ring `to`'s doorbell: written into its inbox socket (`native_route`), else handed
+    back as the SendMessage that tells it (`send_message`), else typed into its pane.
 
     `stored()` runs between the two: what the recipient may act on must be recorded before it hears. A Claude
     pane worker that something other than mesh relaunched (`relaunched_outside_mesh`) is first reopened with
@@ -2623,20 +2934,28 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
             return {"stored": str(path), "rung": False, "type": mtype, "held": held["screen"],
                     "error": f"waiting at a startup screen ({held['screen']})"}
         first = first or bool(held)  # the screen is gone but its first doorbell never rang
-    if relaunched_outside_mesh(run_id, to, entry):  # before it gets a turn without its deny list and hooks
+    claude = pane_claude(entry)  # one read of its pane's process, for both checks below
+    if relaunched_outside_mesh(run_id, to, entry, claude):  # before it gets a turn without its deny list and hooks
         reopened = reopen_relaunched(run_id, sender, to, mtype, body, entry, path)
         if reopened is not None:
             return reopened
         run = load_run(run_id)
         entry = agent_entry(run, to)
+        claude = UNREAD  # a new pane, maybe
     first = first or bool(entry.get("swapped"))  # until a doorbell rings, the worker hasn't heard it was reopened
-    route = native_route(run, sender, to)
-    if route:  # no token: nothing reads a pane for it
-        log_event(run_id, "native", sender=sender, to=to, address=route, file=path.name)
+    rows = read_claude_agents() if entry.get("view") == "bg" else UNREAD
+    route = native_route(run, sender, to, claude, rows) or {}
+    if "socket" in route:  # no token: nothing reads a pane for it
+        rung = ring_inbox(run_id, sender, to, route["socket"], doorbell_text(run, sender, to, mtype, body, first), path)
+        if rung:
+            return rung
+    if "send_message" in route:
+        log_event(run_id, "native", sender=sender, to=to, address=route["send_message"], file=path.name)
         return {"stored": str(path), "rung": False, "error": None,
-                "send_message": {"to": route, "message": doorbell_text(run, sender, to, mtype, body, first)}}
+                "send_message": {"to": route["send_message"],
+                                 "message": doorbell_text(run, sender, to, mtype, body, first)}}
     if entry.get("view") == "bg":
-        error = f"{to} is not running; `mesh resume {to}` brings it back to read it"
+        error = bg_unreached(to, entry, rows)
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
         return {"stored": str(path), "rung": False, "error": error}
     token = ring_token()
@@ -2729,6 +3048,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
         raise MeshError(f"Claude session {os.environ['CLAUDE_CODE_SESSION_ID']} isn't the process running in pane "
                         f"{pane}, so it can't be its root ({NOT_LEADER_HINT})")
     mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
+    inbox = claude_process() if me.get("agent") == "claude" else {"address": None}
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
     if name != me.get("name"):
@@ -2751,8 +3071,9 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
                 "parent": None,
                 "status": "running",
                 "renamed": name != me.get("name"),
-                # Claude workers report to a Claude root with SendMessage, at this address (see native_route).
-                "address": claude_address() if me.get("agent") == "claude" else None,
+                # Claude workers reach a Claude root at this address (see native_route), while the process at
+                # this pid, started at `start`, still runs (a later one could reuse the pid and the socket path).
+                **inbox,
                 # Its conversation, by which a root reopened in another pane re-records its address.
                 **({"session": os.environ.get("CLAUDE_CODE_SESSION_ID")} if me.get("agent") == "claude" else {}),
             }
@@ -2770,7 +3091,10 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    emit(init_run(args.mode, args.request, args.run_id))
+    result = init_run(args.mode, args.request, args.run_id)
+    emit(result)
+    for line in inbound_warnings(load_run(result["run"])):
+        print(line, file=sys.stderr)
     return 0
 
 
@@ -2855,9 +3179,6 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             raise MeshError("--view bg is for Claude workers (agy has no background sessions; a user-reviewed "
                             "plan needs a pane)")
         view = "pane"
-    if view == "bg" and not address_alive(run["agents"][run["root"]].get("address")):
-        notes.append("background needs a Claude root that background workers can message; starting a pane")
-        view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
     # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
     pinned = getattr(args, "pinned", None)
@@ -2867,6 +3188,8 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if user_review:
         argv = [a for a in argv if a != "--dangerously-skip-permissions"]
         argv += ["--permission-mode", "plan", "--allow-dangerously-skip-permissions"]
+    named_bg, root = bool(getattr(args, "view", None)), run["agents"][run["root"]]
+    view = background_view(view, named_bg, root, notes, "starting")  # refused before any side effect
     branch = base = None
     if args.worktree:
         cwd, branch, base = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -2874,56 +3197,70 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         cwd = Path(args.cwd).expanduser().resolve()
     else:
         cwd = repo_top
+    # Until the worker runs, any failure takes the fresh worktree back, so a retry under the same name works.
+    launched = False
+    try:
+        # The worktree's own settings decide whether its worker hears from mesh (`.claude/settings.local.json`
+        # is untracked, so the main checkout's may differ).
+        view = settings_view(view, named_bg, cwd, notes, "starting")
 
-    parent = args.parent or me
-    if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
-        task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
-    read_only = args.kind == "claude" and read_only_task(task)
-    # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
-    planning = args.kind == "claude" and not (sized or user_review or read_only) and (not task or planned_task(task))
-    deny = claude_deny({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
-    env = mesh_env(run_id, name, parent, args.role)
-    with editing_run(run_id) as run:
-        run["agents"][name] = {
-            "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
-            "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
-            "planning": planning,
-            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
-            "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
-            "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
-            "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
-            **({"peer": peer} if peer else {}),
-            **({"collect": args.collect} if getattr(args, "collect", None) else {}),
-        }
-    result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
-              "exec_model": exec_model, "notes": notes}
+        parent = args.parent or me
+        if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
+            task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
+        read_only = args.kind == "claude" and read_only_task(task)
+        # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
+        planning = args.kind == "claude" and not (sized or user_review or read_only) and (not task or planned_task(task))
+        deny = claude_deny({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
+        env = mesh_env(run_id, name, parent, args.role)
+        with editing_run(run_id) as run:
+            run["agents"][name] = {
+                "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
+                "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
+                "planning": planning,
+                "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
+                "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
+                "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
+                "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
+                **({"peer": peer} if peer else {}),
+                **({"collect": args.collect} if getattr(args, "collect", None) else {}),
+            }
+        result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
+                  "exec_model": exec_model, "notes": notes}
 
-    task_path = None
-    if view == "bg":
-        # The task waits in the mailbox; the first doorbell is the session's opening prompt.
-        task_path = record(run_id, me, name, "task", task) if task else None
-        prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
-        try:
-            bg_id, session = launch_bg(name, cwd, model, effort, env, prompt, extra=deny)
-        except MeshError as exc:  # untrusted folder, or a launch that didn't take
-            notes.append(f"{exc}; starting a pane instead")
-            view = "pane"
-        else:
+        task_path = None
+        if view == "bg":
+            # The task waits in the mailbox; the first doorbell is the session's opening prompt.
+            task_path = record(run_id, me, name, "task", task) if task else None
+            prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
+            try:
+                bg_id, session = launch_bg(name, cwd, model, effort, env, prompt, extra=deny)
+            except MeshError as exc:  # untrusted folder, or a launch that didn't take
+                notes.append(f"{exc}; starting a pane instead")
+                view = "pane"
+            else:
+                with editing_run(run_id) as run:
+                    run["agents"][name].update(bg_id=bg_id, session=session, status="running", inbound=WORKER_INBOUND)
+                log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, view="bg",
+                          bg_id=bg_id, parent=parent)
+                result.update(view="bg", bg_id=bg_id, session=session)
+                if task_path:
+                    result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
+                launched = True
+
+        if not launched:
+            pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
             with editing_run(run_id) as run:
-                run["agents"][name].update(bg_id=bg_id, session=session, status="running")
-            log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, view="bg",
-                      bg_id=bg_id, parent=parent)
-            result.update(view="bg", bg_id=bg_id, session=session)
-            if task_path:
-                result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
-            return result
-
-    pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
-    with editing_run(run_id) as run:
-        run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
-    log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
-
-    started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)], peer=bool(peer))
+                run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
+            log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane,
+                      parent=parent)
+            started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)],
+                                  peer=bool(peer))
+    except BaseException:
+        if branch and not launched:
+            undoing_worktree(repo_top, cwd, branch, base, run_id)
+        raise
+    if launched:  # in the background
+        return result
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
@@ -2976,7 +3313,7 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
         raise MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry") from exc
     with editing_run(run_id) as run:
         e = run["agents"][name]
-        e.update(bg_id=bg_id, session=new_session, status="running")
+        e.update(bg_id=bg_id, session=new_session, status="running", inbound=WORKER_INBOUND)
         e.pop("swapped", None)
         e.setdefault("sessions", []).append(session)  # the conversation it was copied from
     log_event(run_id, "swap", name=name, model=model, effort=effort, why=why, bg_id=bg_id, session=new_session)
@@ -3559,18 +3896,32 @@ def cmd_ring(args: argparse.Namespace) -> int:
                 data["agents"][args.agent].pop("held", None)
         print(f"{args.agent} has no unread messages" + ("; its startup hold is cleared." if held else "."))
         return 0
-    if relaunched_outside_mesh(run_id, args.agent, entry):
+    claude = pane_claude(entry)
+    if relaunched_outside_mesh(run_id, args.agent, entry, claude):
         raise MeshError(f"{args.agent} runs a Claude mesh didn't start (a herdr restore?), without its hooks and "
                         f"deny list, so its doorbell isn't rung: `mesh send {args.agent} …` reopens it with them "
                         "first, then rings")
     text = f"you have {count} unread message(s) (run `mesh inbox`)"
-    route = native_route(run, me, args.agent)
-    if route:
-        emit({"rung": False, "unread": count, "send_message": {"to": route, "message": f"📬 [mesh] {text}"}})
+    rows = read_claude_agents() if entry.get("view") == "bg" else UNREAD
+    # A held worker's first doorbell is typed.
+    route = (native_route(run, me, args.agent, claude, rows) or {}) if not held else {}
+    paths = unread(run_id, args.agent)
+    if "socket" in route and (rung := ring_inbox(run_id, me, args.agent, route["socket"], f"📬 [mesh] {text}",
+                                                 paths[-1])):
+        emit({**rung, "unread": count})
         return 0
+    if "send_message" in route:
+        emit({"rung": False, "unread": count,
+              "send_message": {"to": route["send_message"], "message": f"📬 [mesh] {text}"}})
+        return 0
+    if entry.get("view") == "bg":  # no pane to type into
+        error = bg_unreached(args.agent, entry, rows)
+        log_event(run_id, "doorbell_failed", sender=me, to=args.agent, file=paths[-1].name, error=error)
+        emit({"rung": False, "unread": count, "error": error})
+        print(f"warning: {error}", file=sys.stderr)
+        return 2
     token = ring_token()
     targets = [args.agent] + ([entry["pane"]] if entry.get("pane") else [])
-    paths = unread(run_id, args.agent)
     # A held worker never heard its first doorbell, which says who it is.
     doorbell = held_doorbell(run, args.agent, held, token) if held else f"📬 [mesh] (ref {token}) {text}"
     result = ring_stored(run_id, me, args.agent, targets, doorbell, token, paths[-1], read=tuple(paths))
@@ -3866,6 +4217,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}" + (f" · {context_text(context)}" if context else ""))
         print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "waiting", "branch"))
     if me == run["root"]:
+        for line in inbound_warnings(run):
+            print(line, file=sys.stderr)
         root_hint(run_id)
     return 0
 
@@ -4507,16 +4860,15 @@ class Watch:
         if alerted(events, self.name, received, kind):
             return None  # the root knows, and sends a new task once it's solved, which re-arms this
         record_alert(self.run_id, self.name, received, kind)
-        relay = " and pass its send_message on" if bg else ""
         if kind == "login":
             where = f"its session (`mesh open {self.name}` attaches to it)" if bg else "its pane"
             return 7, (f"ALERT {self.name}'s Claude login expired; it can't go on until the user logs in: ask the "
                        f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
-                       f"--body \"You're logged in again: continue where you stopped.\"`{relay}")
+                       f"--body \"You're logged in again: continue where you stopped.\"`")
         when = f" (resets {reset})" if reset else ""
         return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; it can't go on until then: wait for the "
                    f"reset, then `mesh send {self.name} --type task --body \"The usage limit has reset: continue "
-                   f"where you stopped.\"`{relay}")
+                   f"where you stopped.\"`")
 
     def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
         """Exit 8, once per task, when it reads working (or herdr lost it) with nothing reported since its last task
@@ -4613,7 +4965,7 @@ class Watch:
                            f"{self.unread_note()}); inspect it with `claude logs {entry['bg_id']}`{work()}")
             return 3, (f"ALERT {name} stopped working without sending a message{self.unread_note(' (', ')')}; "
                        f"inspect it with `claude logs {entry['bg_id']}`, or nudge it once with `mesh send {name} --type info "
-                       f"--body \"Report with mesh send\"` and pass its send_message on{work()}")
+                       f"--body \"Report with mesh send\"`{work()}")
         if claim_nudge(run_id, name, received):
             self.nudged = received
             nudge(run_id, name, entry, received, events)
@@ -5516,11 +5868,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = getattr(args, "view", None) or old.get("view") or "pane"
     if view == "bg" and old["kind"] != "claude":
         raise MeshError("--view bg is for Claude workers; agy has no background sessions")
-    if view == "bg" and not address_alive(current["agents"][current["root"]].get("address")):
-        if getattr(args, "view", None):
-            raise MeshError("a background worker needs a Claude root it can message (see `mesh init`)")
-        notes.append("background needs a Claude root that background workers can message; reopening in a pane")
-        view = "pane"
+    named_bg, root = bool(getattr(args, "view", None)), current["agents"][current["root"]]
+    view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
     taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
@@ -5533,10 +5882,16 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     started.append({"name": old_name, "from_run": old_run["id"]})
     cwd, repo_top = old["cwd"], Path(old["repo"])
     if peer:  # its own detached worktree, which outlives runs: no branch, and no run's `mesh stop` removes it
-        branch, recreated, moved = None, ensure_peer_worktree({**peer, "cwd": cwd}), {}
+        branch, recreated = None, ensure_peer_worktree({**peer, "cwd": cwd})
     else:
         recreated = ensure_worktree(old, branch)
-        moved = leave_finished_pr(args, run_id, old, branch, task)
+    try:  # its worktree's settings, now that it's back, before a move to a new branch
+        view = settings_view(view, named_bg, cwd, notes, "reopening in")
+    except MeshError:
+        if recreated:  # nothing owns it yet: take it back, keeping a branch with commits
+            undoing_worktree(Path(peer["repo"]) if peer else repo_top, Path(cwd), branch, old.get("base"))
+        raise
+    moved = {} if peer else leave_finished_pr(args, run_id, old, branch, task)
     orphan = recreated and peer_name and not peer  # a removed peer's: no registry entry keeps it, so this run does
     if moved.get("note"):
         notes.append(moved["note"])
@@ -5600,7 +5955,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
             notes.append(f"{exc}; reopening in a pane instead")
         else:
             with editing_run(run_id) as run:
-                run["agents"][name].update(bg_id=bg_id, session=new_session, sessions=[session], status="running")
+                run["agents"][name].update(bg_id=bg_id, session=new_session, sessions=[session], status="running",
+                                           inbound=WORKER_INBOUND)
             log_event(run_id, "resume", name=name, kind=old["kind"], model=model, view="bg", bg_id=bg_id, parent=me,
                       from_run=old_run["id"], from_name=old_name, session=new_session)
             result.update(bg_id=bg_id, session=new_session)
@@ -6489,11 +6845,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
         record_peer_ask(args.ref, prep, run_id, name)
 
     delivery = result.get("delivery") or {}
-    if "send_message" in delivery:
+    if "send_message" in delivery:  # a background worker launched before mesh started workers accepting
         emit(result)
         warn_unwatched(run_id)
+        back = ("comes back as a cross-session message" if native_route(load_run(run_id), name, me)
+                else "is typed into your pane")
+        # Not even with --wait: a watch would block the caller, who has to pass the SendMessage on first.
         print(f"mesh: stored; now send it to {name} with SendMessage (`to` and `message` as in send_message). "
-              "Its answer comes back the same way.", file=sys.stderr)
+              f"Its answer {back}" + (f"; to wait for it, `mesh watch {name}` after that." if args.wait else "."),
+              file=sys.stderr)
         return 0
     if delivery.get("held"):  # only the user can clear it: say so now rather than wait silently
         emit(result)
@@ -6507,7 +6867,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return 2
     entry = agent_entry(load_run(run_id), name)
     if (not args.wait and entry.get("kind") == "claude"
-            and native_route(load_run(run_id), name, me)):  # the answer comes as a SendMessage from the worker
+            and native_route(load_run(run_id), name, me)):  # its answer reaches this session as a cross-session message
         args.no_wait = True
     warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
     if args.no_wait:
@@ -6744,8 +7104,14 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         if result is None:
             outcomes[name] = 1, f"{name}: not asked ({how})"
             continue
-        finals[result["name"]] = count
         delivery = result.get("delivery") or {}
+        if "send_message" in delivery:  # this call blocks its caller, who can't pass a SendMessage on
+            asker = result["name"]
+            outcomes[name] = 2, (f"{name}: not reached: {asker} was launched before mesh started workers accepting "
+                                 f"cross-session messages; `mesh retire {asker}` then `mesh resume {asker}` relaunches "
+                                 "it accepting them, then ask again")
+            continue
+        finals[result["name"]] = count
         if delivery.get("held"):  # only the user can clear it; the watch rings it once they have
             print(held_alert(result["name"], delivery), file=sys.stderr)
         elif not delivered(delivery):
@@ -7767,7 +8133,8 @@ def cmd_whoami(args: argparse.Namespace) -> int:
     to_parent = native_route(run, me, entry["parent"]) if entry.get("parent") in run["agents"] else None
     emit({"run": run_id, "name": me, "role": entry["role"], "parent": entry.get("parent"),
           "dir": str(run_dir(run_id)), "unread": len(unread(run_id, me)), "view": entry.get("view"),
-          "reports_by": "SendMessage" if to_parent else "doorbell"})
+          "reports_by": None if entry["role"] == "root" else "socket" if "socket" in (to_parent or {})
+                        else "SendMessage" if to_parent else "doorbell"})
     return 0
 
 
@@ -8583,7 +8950,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent", nargs="?")
     p.add_argument("--any", action="store_true", help="every live worker of the run: exit on the first event")
     p.add_argument("--alerts", action="store_true",
-                   help="alerts only: keep watching through done/failed (for workers that report by SendMessage)")
+                   help="alerts only: keep watching through done/failed (for cross-session reports)")
     p.add_argument("--run-id")
     p.add_argument("--timeout", type=int, default=0, help="seconds (0 = none)")
     p.add_argument("--interval", type=float, default=5.0)
@@ -8663,7 +9030,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep", action="store_true",
                    help="leave the agent open after its answer (default: an agent this call opened is closed)")
     p.add_argument("--wait", action="store_true",
-                   help="wait even for a Claude worker under a Claude root, whose answer comes by SendMessage")
+                   help="wait even for a Claude worker under a Claude root, answering by a cross-session message")
     p.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the answer (0 = none)")
     p.add_argument("--peers", metavar="all|GROUP|NAMES",
                    help="ask the peer askers at once (all, a group, or a comma list): one combined answer file")

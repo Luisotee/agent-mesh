@@ -80,7 +80,7 @@ mesh open <worker>         # attach to a running background worker from any pane
 claude agents              # Claude Code's own view of background sessions
 ```
 
-Background workers report to a Claude root with `SendMessage`, so the root has to run in Claude Code; under an agy root they open in panes. A repo Claude Code has never been trusted in also gets a pane, and so does a fresh reviewer (`mesh ask --review`), whatever its size.
+Background workers report to a Claude root as cross-session messages, so the root has to run in Claude Code; under an agy root they open in panes. A repo Claude Code has never been trusted in also gets a pane, and so does a fresh reviewer (`mesh ask --review`), whatever its size.
 
 ## Models
 
@@ -224,7 +224,7 @@ Typing into a terminal is not reliable delivery: the agent might be busy, stoppe
 ```
 
 - **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
-- **Between Claude sessions it goes by `SendMessage`.** A Claude worker reporting to a Claude root, or anyone writing to a background worker, gets a `send_message` back from `mesh send` and passes it on with Claude Code's own cross-session messaging. Nothing is typed into the pane you work in. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
+- **A Claude recipient's doorbell goes straight into its session.** `mesh` writes it into the session's cross-session inbox (its socket), from any sender, agy included, so nothing is typed into its pane. Workers are started to accept these messages. A Claude root takes them under a `crossSessionInbound: accept` setting or in a mode that asks for permissions; in bypass mode it takes only a message from a session in its own mode, so a Claude worker gets a `send_message` back from `mesh send` and passes it on with `SendMessage`, and an agy worker's doorbell is typed. `mesh init` and `mesh status` warn when your settings hold such messages. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
 - **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell whose `ref` showed up above the input box counts as delivered. The `ref` is new for every doorbell, so an older one never confirms it. A pane it couldn't read, or whose input box it can't find, never confirms one. Retrying also stops once the recipient has read the message, and every doorbell that got through is logged (`rung`, with how it was confirmed).
 - **Your draft is never sent for you.** herdr submits a doorbell fused to whatever is in the input box, so `mesh` doesn't type while you have a half-written prompt in an agent's pane: it waits through its retries (about a minute) and then gives up with exit 2 (`human_draft`), the message still in the mailbox. When the box can't be read, it types anyway. One doorbell at a time goes into a pane, since herdr merges prompts typed at once.
 - **The preview is plain text.** Backticks, `$` and quotes are dropped from the message preview, so it never reads as a shell command.
@@ -327,7 +327,7 @@ mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
 - **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). Before sending it, the worker runs the `check-plan` skill, which checks the plan's claims in the code, attacks it and fixes it. A `Direct task (no plan)` goes straight to the change.
-- **`send_message`:** when `mesh send` prints one, pass it on with `SendMessage`, exactly as printed.
+- **`send_message`:** when `mesh send` prints one (a report to a root in bypass mode, or a message to a background worker launched before workers accepted cross-session messages, until it's retired and resumed), pass it on with `SendMessage`, exactly as printed.
 - **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt. Any worker is refused every `mesh` command but its own (`send` to its parent, `inbox`, `whoami`, `dir`, the readings).
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.

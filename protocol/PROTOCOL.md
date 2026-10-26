@@ -12,7 +12,7 @@ mesh whoami        # run id, your name, role (worker), parent, run dir
 
 ## Reading messages
 
-A line starting with `📬 [mesh]` in your input is a **doorbell**. It is typed into your pane, or arrives as a cross-session message from your parent (`SendMessage`). The message itself is in your mailbox:
+A line starting with `📬 [mesh]` in your input is a **doorbell**. It is typed into your pane, or arrives as a cross-session message (Claude Code: `mesh` writes it into your session, or your parent passes it on with `SendMessage`). Either way, reply only with `mesh send`, never by `SendMessage` to the message's sender. The message itself is in your mailbox:
 
 ```bash
 mesh inbox         # prints unread messages and marks them read
@@ -30,7 +30,7 @@ mesh send parent --type done     --file "$(mesh dir)/reports/<your-name>.md"
 
 Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. While you plan, only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. Any message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
 
-If the output of `mesh send` has a `send_message`, the recipient is a Claude session you reach with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded): send it with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell.
+If the output of `mesh send` has a `send_message` (a report to a Claude root that only takes cross-session messages from a session in its own permission mode), the recipient is a Claude session you reach with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded): send it with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell.
 
 If `mesh send` exits 2, the message is stored but the doorbell didn't ring. Carry on: the recipient will see it.
 
