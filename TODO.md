@@ -16,6 +16,8 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 ## Reports and reviews
 
+- [ ] Enforce the review-round limit instead of leaving it to ORCHESTRATE's prose ("at most two review→fix rounds"): mesh counts a PR's rounds from the log (review tasks per PR head) and `mesh ask --review` refuses a third round's re-review (with an override flag), and `mesh status` shows the round. Also cap the chain: a follow-up PR made only of review leftovers (run mddd1: #33's leftovers became #37, which got two more rounds of new edge cases) counts toward its parent's rounds, or goes to the user's TODO instead
+
 - [ ] Test `fix_commits`' merge-in arm: a merge commit between `last` and `head` (`rev-list --merges`) makes a re-review whole
 - [ ] In a fork clone, `/code-review`'s bare PR number may resolve against `origin` rather than `upstream` (where `pr_head` found it): pass the PR URL or repo once `/code-review` is known to accept one
 - [ ] Live-check where `/code-review` keeps its remembered level and `--max-findings` (user settings? per project?), and whether a mesh reviewer's typed `high` changes the user's
