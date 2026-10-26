@@ -6175,6 +6175,8 @@ def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, 
     env = cli.called("-p")[0]["env"]
     assert "HERDR_PANE_ID" not in env and not any(k in env for k in mesh.MESH_IDS)
     assert env["MESH_HOME"] == str(mesh.mesh_home())  # configuration stays
+    events = [e["event"] for e in mesh.read_log(run) if e.get("event") in ("resuming", "resume")]
+    assert events == ["resuming", "resume"]  # logged before the compaction, for `mesh watch --any`
     capsys.readouterr()
 
 
@@ -6194,13 +6196,276 @@ def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsy
     rows = [{"id": "b1", "sessionId": "s1", "status": "busy"}, {"id": "b2", "sessionId": "s2", "status": "busy"}]
 
     def agents_call(argv):
-        if len(cli.called("agents")) == 3:
+        if len(cli.called("agents")) == 2:  # read by the next poll's log read, before its `claude agents`
             mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
 
     cli.on("agents", stdout=lambda: json.dumps(rows), effect=agents_call)
     assert mesh.main(["watch", "--any"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out
     assert len(cli.called("agents")) == 3  # one to list the live workers, then one per poll
+
+
+def put_worker(mesh, run, name, spawned, status="running"):
+    with mesh.editing_run(run) as data:
+        data["agents"][name] = {"role": "worker", "kind": "agy", "pane": "w2:p6", "parent": "repo-lead",
+                                "status": status, "spawned": spawned}
+
+
+def test_watch_any_takes_on_a_worker_spawned_after_it_started(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    polls, seen = {"n": 0}, {}
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        polls["n"] += 1
+        if polls["n"] == 2:
+            put_worker(mesh, run, "repo-two", "2026-10-26T00:00:00+00:00")
+        if self.name == "repo-two":
+            seen["covered"] = mesh.watched(run, "repo-two") and mesh.watched(run, mesh.ANY_WATCH)
+            mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-two reported done" in capsys.readouterr().out and seen["covered"]
+    assert not mesh.watched(run, "repo-two") and not mesh.watched(run, mesh.ANY_WATCH)
+
+
+def test_watch_any_lets_a_retired_worker_go_and_takes_it_back_when_resumed(mesh, fake, run, monkeypatch, capsys):
+    put_worker(mesh, run, "repo-two", "2026-10-26T00:00:00+00:00")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    polls, seen, watches = {"n": 0}, [], []
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        if self.name == "repo-fix-typo":
+            polls["n"] += 1
+            if polls["n"] == 2:
+                with mesh.editing_run(run) as data:
+                    data["agents"]["repo-two"]["status"] = "retired"
+                mesh.log_event(run, "retire", name="repo-two")
+            if polls["n"] == 3:
+                seen.append(mesh.watched(run, "repo-two"))
+                put_worker(mesh, run, "repo-two", "2026-10-26T01:00:00+00:00", status="starting")
+            if polls["n"] == 5:
+                mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
+        elif self not in watches:
+            watches.append(self)
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-two reported done" in capsys.readouterr().out
+    assert seen == [False]  # it left, its lock released
+    assert len(watches) == 2  # a fresh Watch once resumed
+
+
+def test_watch_any_waits_for_a_retired_workers_resume_before_saying_nothing_is_left(mesh, fake, run, monkeypatch):
+    state = {"now": "working"}
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: state["now"])
+    old = "2026-01-01T00:00:00+00:00"  # past RETIRE_SETTLE: only the pending resume holds the watch
+    polls, first = {"n": 0}, []
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        polls["n"] += 1
+        if polls["n"] == 1:  # a group's task 1 is done: the root retires the worker, and its resume compacts
+            mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+            with mesh.editing_run(run) as data:
+                data["agents"]["repo-fix-typo"]["status"] = "retired"
+            mesh.log_event(run, "retire", name="repo-fix-typo", time=old)
+            mesh.log_event(run, "resuming", name="repo-fix-typo", from_run=run)
+            first.append(self)
+        elif self not in first:  # the resumed worker reports task 2, then ends
+            if not self.reported:
+                mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="y.md")
+            else:
+                state["now"] = "gone"
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    calls = {"n": 0}
+    settling = mesh.Roster.settling
+
+    def settle(self, watches):
+        calls["n"] += 1
+        if calls["n"] == 4:  # compaction done: the entry comes back, and the task is delivered
+            put_worker(mesh, run, "repo-fix-typo", "2026-10-26T01:00:00+00:00")
+            mesh.log_event(run, "resume", name="repo-fix-typo", from_run=run, from_name="repo-fix-typo")
+            mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+            return True
+        return settling(self, watches)
+
+    monkeypatch.setattr(mesh.Roster, "settling", settle)
+    status, line = mesh.watch_agents(run, ["repo-fix-typo"], alerts_only=True, every=mesh.load_run(run))
+    assert (status, line) == (0, "every watched worker reported and has ended; nothing left to watch")
+    assert calls["n"] >= 4 and len(first) == 1  # it held through the resume instead of exiting after the retire
+
+
+def test_roster_settles_after_a_retire_and_during_a_resume(mesh, fake, run):
+    roster = mesh.Roster(run, 30, 0, {}, mesh.load_run(run), [])
+    old = "2026-01-01T00:00:00+00:00"
+    path = mesh.run_dir(run) / "log.jsonl"
+    mesh.log_event(run, "retire", name="a", time=old)
+    assert not roster.settling([])
+    mesh.log_event(run, "retire", name="a")
+    assert roster.settling([])
+    mesh.log_event(run, "resuming", name="a", from_run=run)
+    mesh.log_event(run, "resume", name="a", from_run=run, from_name="a")
+    assert not roster.settling([])  # a retire it was resumed from no longer holds it
+    path.write_text("")
+    mesh.log_event(run, "resuming", name="a", from_run=run, time=old)  # one that never ended holds it only so long
+    assert not roster.settling([])
+    mesh.log_event(run, "resuming", name="a", from_run=run)
+    assert roster.settling([])
+    mesh.log_event(run, "resume_failed", from_name="a", from_run=run)
+    assert not roster.settling([])
+    with mesh.editing_run(run) as data:  # retire_worker waits for its turn to end before the `retire` event
+        data["agents"]["repo-fix-typo"]["status"] = "retiring"
+    assert roster.settling([])
+    for handle in roster.held.values():
+        handle.close()
+
+
+def test_watch_any_holds_while_a_worker_is_retiring(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"]["status"] = "retiring"
+        monkeypatch.setattr(mesh.Watch, "tick", real)
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    calls = {"n": 0}
+    settling = mesh.Roster.settling
+
+    def settle(self, watches):
+        calls["n"] += 1
+        if calls["n"] == 3:  # the herdr wait is over: retired, and no resume follows
+            with mesh.editing_run(run) as data:
+                data["agents"]["repo-fix-typo"]["status"] = "retired"
+            mesh.log_event(run, "retire", name="repo-fix-typo", time="2026-01-01T00:00:00+00:00")
+        return settling(self, watches)
+
+    monkeypatch.setattr(mesh.Roster, "settling", settle)
+    status, line = mesh.watch_agents(run, ["repo-fix-typo"], alerts_only=True, every=mesh.load_run(run))
+    assert calls["n"] >= 3 and (status, line) == (0, "every watched worker reported and has ended; nothing left "
+                                                      "to watch")
+
+
+def test_watch_any_started_mid_resume_waits_for_the_worker(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(status="retired", spawned="2026-10-26T00:00:00+00:00")
+    mesh.log_event(run, "resuming", name="repo-fix-typo", from_run=run)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    calls = {"n": 0}
+    settling = mesh.Roster.settling
+
+    def settle(self, watches):
+        calls["n"] += 1
+        if calls["n"] == 2:  # compaction done: the entry is back, and its task delivered
+            put_worker(mesh, run, "repo-fix-typo", "2026-10-26T01:00:00+00:00")
+            mesh.log_event(run, "resume", name="repo-fix-typo", from_run=run, from_name="repo-fix-typo")
+        return settling(self, watches)
+
+    monkeypatch.setattr(mesh.Roster, "settling", settle)
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-fix-typo reported done" in capsys.readouterr().out
+
+
+def test_watch_any_takes_on_a_starting_worker_it_read_as_gone(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:  # mid-spawn or mid-swap: no pane yet
+        data["agents"]["repo-fix-typo"].update(status="starting", pane=None)
+    states = iter(["gone", "working"])
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: next(states, "working"))
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "--any"]) == 0
+    assert "repo-fix-typo reported done" in capsys.readouterr().out
+
+
+def test_watch_any_raises_a_gone_worker_that_owes_a_report_once(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
+    capsys.readouterr()
+    assert mesh.main(["watch", "--any", "--alerts"]) == 5
+    assert "ALERT repo-fix-typo is gone" in capsys.readouterr().out
+    assert mesh.main(["watch", "--any", "--alerts"]) == 0  # raised for this task already: a restart leaves it out
+    assert capsys.readouterr().out.startswith("no live workers to watch")
+
+
+def test_a_failed_resume_logs_resume_failed(mesh, fake, run, monkeypatch):
+    def reopen(args, run_id, me, started):
+        mesh.log_event(run_id, "resuming", name="proj-fix", from_run="old")
+        started.append({"name": "proj-fix", "from_run": "old"})
+        raise mesh.MeshError("compaction blew up")
+
+    monkeypatch.setattr(mesh, "reopen_worker", reopen)
+    with pytest.raises(mesh.MeshError):
+        mesh.resume_worker(None, run, "repo-lead")
+    assert [e for e in mesh.read_log(run) if e["event"] == "resume_failed"][0]["from_name"] == "proj-fix"
+    roster = mesh.Roster(run, 30, 0, {}, mesh.load_run(run), [])
+    assert not roster.settling([])
+    for handle in roster.held.values():
+        handle.close()
+
+
+def test_watch_any_exit_lines_count_retired_workers(mesh, fake, run, monkeypatch):
+    put_worker(mesh, run, "repo-two", "2026-10-26T00:00:00+00:00")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    monkeypatch.setattr(mesh.Roster, "settling", lambda self, watches: False)
+    real = mesh.Watch.tick
+
+    def scenario(retire_reporter):
+        def tick(self, *a):
+            with mesh.editing_run(run) as data:
+                if self.name == "repo-fix-typo":
+                    if not self.reported:
+                        mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="x.md")
+                    elif retire_reporter:
+                        data["agents"]["repo-fix-typo"]["status"] = "retired"
+                else:  # retired without a report
+                    data["agents"]["repo-two"]["status"] = "retired"
+            return real(self, *a)
+        monkeypatch.setattr(mesh.Watch, "tick", tick)
+        with mesh.editing_run(run) as data:
+            for name in ("repo-fix-typo", "repo-two"):
+                data["agents"][name]["status"] = "running"
+        return mesh.watch_agents(run, ["repo-fix-typo", "repo-two"], alerts_only=True, every=mesh.load_run(run),
+                                 timeout=150)
+
+    clock = iter(range(0, 10**6, 100))
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: next(clock))
+    assert scenario(False) == (0, "every watched worker reported or was retired within 150s")
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: 0)
+    assert scenario(True) == (0, "retired repo-two; the rest reported and have ended; nothing left to watch")
+
+
+def test_brief_says_a_running_any_watch_takes_on_an_unwatched_worker(mesh, fake, run, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    held = mesh.hold_watch(run, [mesh.ANY_WATCH])
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    capsys.readouterr()
+    assert mesh.main(["brief"]) == 0
+    out = capsys.readouterr().out
+    assert "not watched yet: repo-fix-typo; the running `mesh watch --any` takes them on" in out
+    for handle in held:
+        handle.close()
 
 
 def copilot_jsonl(text, model="gpt-5.6-luna"):
