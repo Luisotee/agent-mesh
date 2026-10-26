@@ -5530,6 +5530,38 @@ def test_a_reopened_claude_root_rebinds_its_socket_on_its_next_command(mesh, fak
     assert json.loads(capsys.readouterr().out)["send_message"]["to"] == mesh.claude_address()
 
 
+@pytest.mark.parametrize("where", ["another pane", "no pane", "nested in its pane"])
+def test_a_session_acting_as_the_root_leaves_its_address(mesh, fake, run, monkeypatch, capsys, where):
+    import os
+    from pathlib import Path
+    old = claude_root(mesh, run)
+    as_claude(monkeypatch, "other-s", 5000)
+    (Path(os.environ["MESH_CC_SOCKS"]) / "5000.sock").write_text("")
+    if where == "another pane":
+        monkeypatch.setenv("HERDR_PANE_ID", "w3:p9")
+    if where == "no pane":
+        monkeypatch.delenv("HERDR_PANE_ID")
+    in_pane(fake, "w1:p1", 4242)  # the root's own Claude leads its pane
+    assert mesh.main(["inbox", "--run", run, "--as", "repo-lead"]) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["address"] == old
+    assert not [e for e in mesh.read_log(run) if e["event"] == "rebind"]
+
+
+@pytest.mark.parametrize("herdr_says", ["leader", "can't say"])
+def test_a_reopened_root_in_its_own_pane_records_its_new_address(mesh, fake, run, monkeypatch, capsys, herdr_says):
+    import os
+    from pathlib import Path
+    old = claude_root(mesh, run)
+    as_claude(monkeypatch, "root-s", 5000)  # the root reopened: a new process, a new socket
+    (Path(os.environ["MESH_CC_SOCKS"]) / "5000.sock").write_text("")
+    if herdr_says == "leader":
+        in_pane(fake, "w1:p1", 5000)
+    assert mesh.main(["inbox"]) == 0
+    address = mesh.load_run(run)["agents"]["repo-lead"]["address"]
+    assert address == mesh.claude_address() != old and address.endswith("/5000.sock")
+    assert [e["address"] for e in mesh.read_log(run) if e["event"] == "rebind"] == [address]
+
+
 def test_a_message_to_a_background_worker_goes_by_its_socket(mesh, fake, cli, run, capsys):
     import os
     from pathlib import Path

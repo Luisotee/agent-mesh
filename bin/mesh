@@ -780,13 +780,22 @@ def seconds_since(iso: str | None) -> float:
 
 def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> None:
     """Re-record a Claude root's socket when it was reopened: the socket belongs to the process, not the
-    conversation, so a resumed root has a new one and its workers would otherwise ring its pane."""
+    conversation, so a resumed root has a new one and its workers would otherwise ring its pane.
+
+    Only the root's own process records it: a command run `--as` the root from another session (the user
+    acting for it, from another terminal or a Claude elsewhere) runs outside its pane, or in it but not as the
+    process leading it (a nested `claude -p`), and would point the workers at a socket that isn't the root's.
+    When herdr can't say, the root's pane is trusted, as the pane map does (`foreign_to_pane`).
+    """
     run = run or maybe_run(run_id)
     entry = (run or {}).get("agents", {}).get(name, {})
     if entry.get("role") != "root" or entry.get("kind") != "claude":
         return
     address = claude_address()
     if address and address != entry.get("address"):
+        pane = entry.get("pane")
+        if not pane or os.environ.get("HERDR_PANE_ID") != pane or pane_runs_this_claude(pane) is False:
+            return
         with editing_run(run_id) as data:
             data["agents"][name]["address"] = address
         log_event(run_id, "rebind", name=name, address=address)
