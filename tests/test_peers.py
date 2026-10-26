@@ -365,7 +365,8 @@ def test_ask_peers_skips_a_peer_that_owes_a_report_by_the_log(mesh, fake, cli, r
     assert "busy with its previous question" in capsys.readouterr().out
 
 
-def test_ask_peers_reads_the_log_once_per_peer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+def test_ask_peers_reads_the_log_and_the_status_once_per_peer(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                                capsys):
     peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
     assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
     mesh.deliver(run, "swarm-research", "repo-lead", "done", "ANSWER TO Q1")
@@ -373,18 +374,24 @@ def test_ask_peers_reads_the_log_once_per_peer(mesh, fake, cli, run, repo, tmp_p
     got = {}
     owes, reach = mesh.owes_answer, mesh.reach_worker
 
-    def owes_spy(run_id, name, entry, events=None):
-        got["owes"] = events
-        return owes(run_id, name, entry, events)
+    def owes_spy(run_id, name, entry, events=None, state=None):
+        got["owes"] = events, state
+        return owes(run_id, name, entry, events, state)
 
-    def reach_spy(*a, events=None, **kw):
-        got["reach"] = events
-        return reach(*a, events=events, **kw)
+    def reach_spy(*a, events=None, state=None, **kw):
+        got["reach"] = events, state
+        return reach(*a, events=events, state=state, **kw)
+
+    statuses = []
+    status = mesh.asker_status
+    monkeypatch.setattr(mesh, "asker_status", lambda *a: statuses.append(a[0]) or status(*a))
 
     monkeypatch.setattr(mesh, "owes_answer", owes_spy)
     monkeypatch.setattr(mesh, "reach_worker", reach_spy)
     assert mesh.main(["ask", "--peers", "all", "--body", "Q2?", "--no-refresh", "--timeout", "1"]) in (0, 6)
-    assert got["owes"] is got["reach"] and any(e.get("type") == "done" for e in got["owes"])
+    (events, state), (events2, state2) = got["owes"], got["reach"]
+    assert events is events2 and any(e.get("type") == "done" for e in events)
+    assert state == state2 == "idle" and statuses == ["swarm-research"]
 
 
 def test_same_url_takes_the_two_github_forms_as_one(mesh):
@@ -748,6 +755,16 @@ def test_a_bg_peer_reads_gone_only_when_claude_agents_answers(mesh, fake, cli, r
     # one read per call, and the status is judged on those same rows
     assert reads == [[], [{"id": "other"}]] and seen == reads
     assert all(a is b for a, b in zip(seen, reads))
+
+
+def test_a_bg_askers_status_is_unknown_when_claude_agents_cant_answer(mesh, fake, cli, run, monkeypatch):
+    entry = {"role": "worker", "kind": "claude", "view": "bg", "session": "s1", "status": "running"}
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [])
+    assert mesh.asker_status("swarm-research", entry) == "unknown"
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "other"}])
+    assert mesh.asker_status("swarm-research", entry) == "gone"
+    monkeypatch.setattr(mesh, "claude_agents", lambda: [{"sessionId": "s1", "status": "idle"}])
+    assert mesh.asker_status("swarm-research", entry) == "idle"
 
 
 def test_junk_entries_are_reported_by_every_peers_command(mesh, fake, run, repo, monkeypatch, capsys):

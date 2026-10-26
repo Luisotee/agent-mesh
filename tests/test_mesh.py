@@ -7002,6 +7002,39 @@ def test_panes_beside_the_root_are_counted_split_and_recorded_under_one_lock(mes
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w1:p2"
 
 
+def test_parallel_new_panes_make_the_runs_tab_once(mesh, fake, run, monkeypatch):
+    import threading
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {**data["agents"]["repo-fix-typo"], "pane": None}
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    both = threading.Barrier(2)
+
+    def herdr(*args, **kw):  # without the lock, both would be creating the tab at once
+        if args[:2] == ("tab", "create") and not both.broken:
+            try:
+                both.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+        return fake(*args, **kw)
+
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    got = {}
+    threads = [threading.Thread(target=lambda n=n: got.update({n: mesh.new_pane(run, n, "w9", Path("/x"), {})}))
+               for n in ("repo-fix-typo", "repo-two")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(fake.called("tab", "create")) == 1
+    assert sorted(got.values()) == [("w9:p10", "w9:t4"), ("w9:p11", "w9:t4")]
+    data = mesh.load_run(run)
+    assert data["tabs"] == {"w9": "w9:t4"}
+    assert {data["agents"][n]["pane"] for n in got} == {"w9:p10", "w9:p11"}  # each recorded under the lock
+    assert all(data["agents"][n]["tab"] == "w9:t4" for n in got)
+
+
 def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
     cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
