@@ -6398,6 +6398,9 @@ AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
 RESET_FAILED_SHOWN = 3600  # seconds a failed or cancelled reset stays in the root's hint line
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
+# herdr's `--lines N` is the screen's last N rows, blank ones under the content included: on a tall pane with
+# little on it (a root just cleared) the box sits higher than PANE_READ_LINES reaches.
+RESET_READ_LINES = 200
 
 
 def quietly(fn, *args, **kwargs):
@@ -6648,7 +6651,7 @@ def quiet_box(pane: str) -> tuple[bool, str]:
         return False, "its pane has no agent"
     if status not in QUIET_STATES:
         return False, f"it reads {status}"
-    lines = pane_lines(pane, ansi=True)
+    lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
     typed = typed_text(lines) if lines is not None else None
     if typed is None:
         return False, "its input box can't be read"

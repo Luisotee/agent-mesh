@@ -38,6 +38,12 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 - [ ] A peer held at a startup screen other than the Settings Warning keeps the fan-out waiting until `--timeout`: maybe give a held peer its own shorter deadline
 - [ ] Maybe: `mesh peers` shows each peer's newest answer time from the runs' logs, and `peers refresh --all` runs on a schedule
 
+## Root context
+
+- [ ] Measure an agy root before its first `mesh reset`: nothing ties an agy conversation to a pane yet (no herdr agy integration reports a session), so it has no hint line until a reset records its conversation
+- [ ] `--as <root>` from another Claude session (the user acting for the root, or a test) makes `refresh_root_address` record that session's socket as the root's address, until the root's own next command records it back: only refresh when the caller's process is the root's (`pane_runs_this_claude`)
+- [ ] Maybe: `mesh reset` for a root in a pane herdr reads `unknown` (an agent herdr lost): today it waits until `MESH_RESET_WAIT` and fails
+
 ## Other
 
 - [ ] Research: in task lists, have the root group tasks onto one worker instead of one worker per task (8 tasks needn't mean 8 agents): tasks that touch the same files or build on each other go to the same worker in sequence, which keeps its context and avoids the stacking and rebases. Weigh it against parallelism, the four-worker cap, per-task PRs and reviews, and the worker's growing context (what peers like Gas Town's convoys or Orca do)

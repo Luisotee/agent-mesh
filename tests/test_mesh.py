@@ -5930,9 +5930,10 @@ def test_reset_root_holds_on_a_draft_but_not_on_ghost_text(mesh, fake, run, monk
     fake.screen("w1:p1", "\n".join(claude_pane("❯\xa0hello draft")))
     assert mesh.reset_root(run, "repo-lead", None, None) == 1
     assert prompts(fake) == [] and "a draft is in its input box" in mesh.read_log(run)[-1]["reason"]
-    # Claude's prompt suggestion after a turn is dim ghost text, like its "Try …" placeholder: an empty box.
+    # Claude's prompt suggestion after a turn is dim ghost text, like its "Try …" placeholder: an empty box
+    # (the row as captured from a live root, Claude Code 2.1.310).
     monkeypatch.delenv("MESH_RESET_WAIT")
-    fake.screen("w1:p1", "\n".join(claude_pane("❯\xa0\x1b[0m\x1b[2myes add them and push\x1b[0m")))
+    fake.screen("w1:p1", "\n".join(claude_pane("❯\xa0\x1b[0m\x1b[2mrespawn repo-tw and ask for its report\x1b[0m")))
     assert mesh.reset_root(run, "repo-lead", None, None) == 0
     assert prompts(fake)[0] == "/clear"
 
