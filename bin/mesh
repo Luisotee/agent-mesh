@@ -2004,6 +2004,12 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
     path = Path(entry["cwd"])
     if path.exists():
         return False
+    if not branch and entry.get("peer") and entry.get("repo"):  # a peer's detached worktree, as `peers remove` left it
+        git("worktree", "prune", cwd=entry["repo"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        at = entry.get("base") or git("rev-parse", "HEAD", cwd=entry["repo"])
+        git("worktree", "add", "--detach", str(path), at, cwd=entry["repo"])
+        return True
     if not branch or not entry.get("repo"):
         raise MeshError(f"{path} is gone and no branch is recorded for it")
     try:
@@ -5471,12 +5477,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return status
     meta, text = reply
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
+    change = (f"a change to that project goes to a worker there (`mesh spawn --repo {repo}`)" if peer
+              else f"give it a change with `mesh resume {name} --task-file …`")
     if how != "asked" and not args.keep:  # an asker this call opened is done; one already at work stays
         retire_worker(run_id, name, agent_entry(load_run(run_id), name))
         print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
-              f"give it a change with `mesh resume {name} --task-file …`)")
+              f"{change})")
     else:
-        print(f"(ask again: `mesh ask {name} --body …`; give it a change to make: `mesh send {name} --type task`)")
+        print(f"(ask again: `mesh ask {name} --body …`; "
+              + (change if peer else f"give it a change to make: `mesh send {name} --type task`") + ")")
     return 0
 
 
@@ -5551,8 +5560,11 @@ def owes_answer(run_id: str, name: str, entry: dict) -> bool:
     which a stale pane state can't fool), or it reads working."""
     if entry.get("status") == "retired":
         return False
+    state = agent_status(name, entry)
+    if state == "gone":  # it will never answer: asking reopens its conversation
+        return False
     received, sent, _ = since_last_task(read_log(run_id), name)
-    return bool(received and not sent) or agent_status(name, entry) == "working"
+    return bool(received and not sent) or state == "working"
 
 
 def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
@@ -5705,7 +5717,10 @@ def peer_upstream(repo: Path) -> dict:
         except (MeshError, IndexError):
             pass
     branch = branch or git("branch", "--show-current", cwd=repo) or "main"
-    url = git("remote", "get-url", remote, cwd=repo) if remote else None
+    try:
+        url = git("remote", "get-url", remote, cwd=repo) if remote else None
+    except MeshError:  # a remote with no URL: nothing to fetch from, and no GitHub description
+        url = None
     return {"remote": remote, "branch": branch, "url": url}
 
 
@@ -5718,13 +5733,15 @@ def upstream_head(peer: dict) -> str | None:
     """The upstream commit as of the last fetch, from local refs only."""
     try:
         return git("rev-parse", "--verify", "--quiet", f"{upstream_ref(peer)}^{{commit}}", cwd=peer["repo"])
-    except MeshError:
+    except (MeshError, OSError):  # OSError: the clone is gone
         return None
 
 
 def fetch_peer(peer: dict) -> str | None:
     """`git fetch` the clone's upstream; None, or why it failed (which never stops an ask)."""
     remote = peer["upstream"].get("remote")
+    if not Path(peer["repo"]).is_dir():
+        return f"its clone {peer['repo']} is gone"
     if not remote:
         return None
     result = run_cli(["git", "fetch", "--quiet", remote], cwd=peer["repo"], timeout=FETCH_TIMEOUT)
@@ -5738,7 +5755,7 @@ def commits_between(repo: str, old: str | None, new: str | None) -> int:
         return 0
     try:
         return int(git("rev-list", "--count", f"{old}..{new}", cwd=repo))
-    except (MeshError, ValueError):
+    except (MeshError, OSError, ValueError):
         return 0
 
 
@@ -5759,6 +5776,8 @@ def prepare_peer(name: str, peer: dict, refresh: bool = True) -> dict:
     """Before a peer is asked: fetch its upstream, move its clean worktree to the new head, and write the note
     that tells it what changed since it last looked. Returns {note, head (what it reads), upstream, new, error}."""
     repo, seen = peer["repo"], peer.get("seen")
+    if not Path(repo).is_dir():
+        raise MeshError(f"{name}'s clone {repo} is gone: put it back, or `mesh peers remove {name}`")
     error = fetch_peer(peer) if refresh else None
     ensure_peer_worktree(peer)
     cwd = peer["cwd"]
@@ -5849,7 +5868,7 @@ def github_about(url: str | None) -> str | None:
 
 
 def peer_groups(data: dict) -> set[str]:
-    return {p.get("group") for p in data["peers"].values()} | set(data.get("groups") or {})
+    return {p.get("group") for p in data["peers"].values() if isinstance(p, dict)} | set(data.get("groups") or {})
 
 
 def select_peers(registry: dict, spec: str) -> list[str]:
@@ -5857,6 +5876,9 @@ def select_peers(registry: dict, spec: str) -> list[str]:
     if not registry:
         raise MeshError(NO_PEERS)
     wanted = {part.strip() for part in spec.split(",") if part.strip()}
+    if not wanted:
+        raise MeshError("which peers? pass `all`, a group or peer names (comma-separated); see `mesh peers`")
+    registry = {n: p for n, p in registry.items() if isinstance(p, dict)}  # `mesh peers` shows a broken one
     if "all" in wanted:
         return list(registry)
     unknown = wanted - set(registry) - {p.get("group") for p in registry.values()}
@@ -5931,8 +5953,6 @@ def peers_add(args: argparse.Namespace) -> int:
         peer.update(kind=entry.get("kind"), cwd=entry["cwd"], seen=entry.get("base"))
         if Path(entry["cwd"]).resolve() == repo:  # it ran in the clone itself: never a worktree to move or remove
             peer["in_clone"] = True
-        elif live_run:  # a live run's `mesh stop` would remove the worktree it now keeps
-            release_worktree(old_run["id"], Path(entry["cwd"]))
     else:
         peer.update(kind=args.kind or "claude", cwd=str(worktree_root() / "peers" / name), seen=upstream_head(peer))
     if args.about:
@@ -5943,9 +5963,9 @@ def peers_add(args: argparse.Namespace) -> int:
             peer.update(about=about, about_from="github")
     ensure_peer_worktree(peer)
     peer["seen"] = peer.get("seen") or git("rev-parse", "HEAD", cwd=peer["cwd"])
+    if live_run and not peer.get("in_clone"):  # last, once nothing can refuse the add any more
+        release_worktree(old_run["id"], Path(entry["cwd"]))  # its run's `mesh stop` would remove what it now keeps
     with editing_peers() as data:
-        if name in data["peers"]:
-            raise MeshError(f"{name} is a peer already; see `mesh peers`")
         data["peers"][name] = peer
     emit({"name": name, "adopted": adopted, **peer})
     if args.body or args.file:  # the first research brief
@@ -5967,6 +5987,11 @@ def peers_remove(args: argparse.Namespace) -> int:
         if not peer:
             raise MeshError(f"no peer named {name}; see `mesh peers`")
         cwd, kept = Path(peer["cwd"]), None
+        found = peer_worker(name, peer) if Path(peer["repo"]).is_dir() else None
+        holder = live_holder(found[2], found[3]) if found and found[3].get("status") != "retired" else None
+        if holder:
+            raise MeshError(f"{name} is still running ({holder.get('name') or holder.get('pane_id') or 'a process'}): "
+                            f"`mesh retire {found[2]}` in run {found[0]['id']} first, then remove it")
         if peer.get("in_clone"):
             kept = "it is the clone's own checkout"
         elif cwd.exists():
@@ -6031,6 +6056,8 @@ def peers_refresh(args: argparse.Namespace) -> int:
 
 def peer_row(name: str, peer: dict) -> dict:
     """One `mesh peers` row: the registry entry, with what its conversation and upstream say now."""
+    if not Path(peer["repo"]).is_dir():
+        raise MeshError(f"clone gone: {peer['repo']}")
     found = peer_worker(name, peer)
     session = find_session(found[0]["id"], found[2], found[3]) if found else None
     tokens = context_tokens(found[3], session) if session else None
@@ -6052,10 +6079,11 @@ def peers_list(args: argparse.Namespace) -> int:
         try:
             rows.append(peer_row(name, peer))
         except (MeshError, OSError, KeyError, TypeError, AttributeError) as exc:  # a hand-edited or torn entry
-            rows.append({"name": name, "group": peer.get("group") or "", "kind": peer.get("kind") or "",
+            entry = peer if isinstance(peer, dict) else {}
+            rows.append({"name": name, "group": entry.get("group") or "", "kind": entry.get("kind") or "",
                          "upstream": "", "seen": "", "new": "", "context": "", "session": "",
                          "worktree": f"broken ({type(exc).__name__}: {exc})"[:60], "asked": "",
-                         "about": peer.get("about") or "", "repo": peer.get("repo"), "cwd": peer.get("cwd")})
+                         "about": entry.get("about") or "", "repo": entry.get("repo"), "cwd": entry.get("cwd")})
     groups = data.get("groups") or {}
     if args.json:
         emit({"peers": rows, "groups": groups, "answers": data.get("answers")})
