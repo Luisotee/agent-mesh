@@ -12,7 +12,7 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 - [ ] Maybe: let the Stop hook pass only one turn end per declared wait (then nudge as usual), so a worker that wakes early and stops silently is caught before the deadline; the watch would need the same rule
 - [ ] Once #26 (status-log) and the declared wait both land: `waiting_rows` shows an active wait (`declared_wait`) as `on task 12m, waiting until 14:30`, and the duplicate `work_evidence` goes
 - [ ] A nudge held by a draft in the worker's pane ends in exit 3 as "its nudge was not delivered": say why (the `doorbell_failed` event has `error: human_draft`), so the root knows the user is typing there
-- [ ] A usage-limit message quoted after a `"` (a worker reporting or discussing one) still matches `LIMIT_RE`, so `usage_limit` reads it as a real limit: match only the line shapes Claude's limit screen prints
+- [ ] `LIMIT_RE`'s leading `[^A-Za-z'\n]*` lets a `"` through, so a usage-limit message quoted in a pane (`"You've hit your limit…`) still reads as a real limit: exclude `"` there too
 
 ## Reports and reviews
 
