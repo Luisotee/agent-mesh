@@ -64,6 +64,15 @@ def answer_all_on_sleep(mesh, monkeypatch, run, answers, mtype="done"):
     monkeypatch.setattr(mesh.time, "sleep", sleep)
 
 
+def test_add_with_a_missing_brief_registers_nothing(mesh, fake, repo, tmp_path, monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone), "--file", str(tmp_path / "nope.md")]) == 1
+    assert "can't read" in capsys.readouterr().err
+    assert not mesh.load_peers()["peers"]
+    assert not (mesh.worktree_root() / "peers").exists()
+
+
 def test_add_registers_a_peer_that_any_repo_sees(mesh, fake, repo, tmp_path, monkeypatch, capsys):
     _, clone = upstream_and_clone(tmp_path)
     monkeypatch.chdir(repo)

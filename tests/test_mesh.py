@@ -39,6 +39,81 @@ def test_init_names_root_and_maps_pane(mesh, fake, run, capsys):
     assert mesh.identity(argparse.Namespace()) == ("mtest", "repo-lead")
 
 
+def test_init_makes_the_folders_agents_write_into(mesh, run):
+    for folder in mesh.RUN_FOLDERS:
+        assert (mesh.run_dir(run) / folder).is_dir()
+
+
+def test_mesh_dir_makes_the_folders_of_an_older_run(mesh, run, monkeypatch, capsys):
+    for folder in mesh.RUN_FOLDERS:
+        (mesh.run_dir(run) / folder).rmdir()
+    as_worker(monkeypatch, run)
+    assert mesh.main(["dir"]) == 0
+    assert capsys.readouterr().out.strip() == str(mesh.run_dir(run))
+    assert all((mesh.run_dir(run) / folder).is_dir() for folder in mesh.RUN_FOLDERS)
+
+
+def test_mesh_dir_makes_nothing_for_a_run_that_isnt_live(mesh, run, capsys):
+    assert mesh.main(["dir", "--run", "mgone", "--as", "someone"]) == 0
+    assert capsys.readouterr().out.strip() == str(mesh.run_dir("mgone"))
+    assert not mesh.run_dir("mgone").exists()
+
+
+def test_mesh_dir_still_prints_the_path_when_it_cant_make_the_folders(mesh, run, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    def refuse(run_id):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(mesh, "make_run_folders", refuse)
+    capsys.readouterr()
+    assert mesh.main(["dir"]) == 0
+    out, err = capsys.readouterr()
+    assert out.strip() == str(mesh.run_dir(run))
+    assert "can't make the folders" in err and "Permission denied" in err
+
+
+def test_a_missing_file_is_a_mesh_error(mesh, run, tmp_path, monkeypatch, capsys):
+    as_worker(monkeypatch, run)
+    missing = tmp_path / "reports" / "nope.md"
+    capsys.readouterr()
+    assert mesh.main(["send", "parent", "--type", "done", "--file", str(missing)]) == 1
+    err = capsys.readouterr().err
+    assert f"can't read {missing}: No such file or directory" in err and "Traceback" not in err
+    assert mesh.main(["send", "parent", "--type", "done", "--file", str(tmp_path)]) == 1  # a folder
+    assert "can't read" in capsys.readouterr().err
+    assert not mesh.unread(run, "repo-lead")
+
+
+def test_undecodable_stdin_is_a_mesh_error(mesh, run, monkeypatch, capsys):
+    import io
+    as_worker(monkeypatch, run)
+    monkeypatch.setattr(mesh.sys, "stdin", io.TextIOWrapper(io.BytesIO(b"\xff\xfe bad"), encoding="utf-8"))
+    capsys.readouterr()
+    assert mesh.main(["send", "parent", "--type", "done", "--file", "-"]) == 1
+    err = capsys.readouterr().err
+    assert "can't read stdin" in err and "Traceback" not in err
+
+
+def test_spawn_with_a_missing_task_file_leaves_no_worktree(mesh, fake, run, repo, tmp_path, capsys):
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "flash", "--worktree", "Fix",
+                      "--task-file", str(tmp_path / "nope.md")]) == 1
+    assert "can't read" in capsys.readouterr().err
+    assert mesh.load_run(run)["worktrees"] == []
+    assert "repo-fix" not in mesh.load_run(run)["agents"]
+
+
+def test_resume_and_ask_with_a_missing_file_fail_cleanly(mesh, fake, run, repo, tmp_path, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    fake.on("agent", "get", error="agent_not_found")
+    capsys.readouterr()
+    assert mesh.main(["resume", "repo-fix-typo", "--task-file", str(tmp_path / "nope.md")]) == 1
+    assert mesh.main(["ask", "--repo", str(repo), "--file", str(tmp_path / "nope.md")]) == 1
+    err = capsys.readouterr().err
+    assert err.count("can't read") == 2 and "Traceback" not in err
+    assert not fake.called("agent", "start")
+
+
 def test_init_outside_herdr_fails(mesh, fake, monkeypatch, capsys):
     monkeypatch.delenv("HERDR_ENV", raising=False)
     assert mesh.main(["init", "--mode", "agy"]) == 1

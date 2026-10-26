@@ -2326,6 +2326,15 @@ def emit(data, as_json: bool = True) -> None:
     print(json.dumps(data, indent=2) if as_json else data)
 
 
+# The folders PROTOCOL.md and ORCHESTRATE.md tell agents to write into (`$(mesh dir)/<folder>/…`).
+RUN_FOLDERS = ("plans", "reports", "tasks")
+
+
+def make_run_folders(run_id: str) -> None:
+    for folder in RUN_FOLDERS:
+        (run_dir(run_id) / folder).mkdir(parents=True, exist_ok=True)
+
+
 def init_run(mode: str | None, request: str | None, run_id: str | None = None) -> dict:
     """Start a run with this pane's agent as its root (mode None: the root's own CLI)."""
     pane = os.environ.get("HERDR_PANE_ID")
@@ -2373,6 +2382,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
         "tabs": {},
         "worktrees": [],
     }
+    make_run_folders(run_id)  # before run.json, so whoever finds the run finds them too
     with run_lock(run_id):
         save_run(run_id, run)
     write_atomic(mesh_home() / "by-pane" / f"{pane_key(pane)}.json", json.dumps({"run": run_id, "name": name}))
@@ -2431,6 +2441,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if getattr(args, "agent", None) and name in taken:
         raise MeshError(f"{name} is taken in this run or by a live agent")
     peer = getattr(args, "peer", None)
+    task = read_body(args.task, args.task_file)  # a missing file fails here, before any side effect
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
     size = getattr(args, "size", None) or "large"
@@ -2487,7 +2498,6 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         cwd = repo_top
 
     parent = args.parent or me
-    task = read_body(args.task, args.task_file)
     if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
         task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
     read_only = args.kind == "claude" and read_only_task(task)
@@ -2826,11 +2836,12 @@ def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
-    if file == "-":
-        return sys.stdin.read()
-    if file:
-        return Path(file).expanduser().read_text()
-    return body
+    if not file:
+        return body
+    try:
+        return sys.stdin.read() if file == "-" else Path(file).expanduser().read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        raise MeshError(f"can't read {'stdin' if file == '-' else file}: {getattr(e, 'strerror', None) or e}") from None
 
 
 def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict | None:
@@ -5659,9 +5670,8 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         if replies[name] and asker in opened and not args.keep:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
 
-    folder = run_dir(run_id) / "reports"
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"peers-{stamp()}.md"
+    make_run_folders(run_id)
+    path = run_dir(run_id) / "reports" / f"peers-{stamp()}.md"
     asked_groups = {registry[n].get("group") if isinstance(registry[n], dict) else None for n in names}
     group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
         if len(asked_groups) == 1 else None
@@ -5958,6 +5968,7 @@ def peers_add(args: argparse.Namespace) -> int:
     if len(args.targets) != 1:
         raise MeshError("add what? `mesh peers add <git-url | path>`")
     source, group = args.targets[0], args.group or "peers"
+    brief = read_body(args.body, args.file)  # an unreadable brief fails here, before anything is registered
     path = Path(source).expanduser()
     if not path.exists():  # a URL: clone it, unless it was cloned there already
         path = clone_target(source, group)
@@ -6012,9 +6023,8 @@ def peers_add(args: argparse.Namespace) -> int:
             release_worktree(old_run["id"], Path(entry["cwd"]))  # its run's `mesh stop` would remove what it now keeps
         data["peers"][name] = peer
     emit({"name": name, "adopted": adopted, **peer})
-    if args.body or args.file:  # the first research brief
-        argv = ["ask", name, "--size", args.size or "large", *(["--body", args.body] if args.body else []),
-                *(["--file", args.file] if args.file else []), *(["--run", args.run] if args.run else []),
+    if brief:  # the first research brief
+        argv = ["ask", name, "--size", args.size or "large", "--body", brief, *(["--run", args.run] if args.run else []),
                 *(["--as", args.as_] if args.as_ else [])]
         return cmd_ask(build_parser().parse_args(argv))
     if not adopted:
@@ -6505,7 +6515,13 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 
 
 def cmd_dir(args: argparse.Namespace) -> int:
-    print(run_dir(identity(args)[0]))
+    run_id = identity(args)[0]
+    if (run_dir(run_id) / "run.json").exists():  # a live run started before init_run made them; never a stopped one
+        try:
+            make_run_folders(run_id)
+        except OSError as e:
+            print(f"mesh: can't make the folders in {run_dir(run_id)}: {e.strerror or e}", file=sys.stderr)
+    print(run_dir(run_id))
     return 0
 
 
