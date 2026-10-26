@@ -6,4 +6,3 @@ From the survey of similar projects (run `mac82`, 2026-10-25: firstmate, Gas Tow
 
 From the run `m6f06` research (2026-10-26): prompt-cache keepalive (don't build one: in-run waits stay warm, a blind ping over a month of this machine's sessions breaks even at best, and peers are retired between asks), memory tools (claude-mem and ai-memory, both skipped) and skills and plugins. The reports are `reports/agent-mesh-{cache-keepalive,memory-tools,skills}.md` in the run (archived under `~/.local/state/agent-mesh/archive/m6f06/` after `mesh stop`), and the askers are `agent-mesh-cache-keepalive`, `agent-mesh-memory-tools` and `agent-mesh-skills`.
 
-- [ ] Maybe: a PreToolUse gate that turns a whole-file Read of a big code file (`bin/mesh` is ~460 KB) into a targeted read. claude-mem's own eval cut cost about a third on a 49 KB file; only worth it with an outline step behind it.
