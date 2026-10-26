@@ -7877,6 +7877,42 @@ def test_transcript_tokens_reads_backwards_across_chunks(mesh, tmp_path):
     assert mesh.transcript_tokens(tmp_path / "missing.jsonl") is None
 
 
+def cached(n, h1=0, m5=0, **extra):
+    """A reply as Claude Code writes it, with what it wrote to the cache at each TTL."""
+    line = usage(n)
+    line["message"]["usage"]["cache_creation"] = {"ephemeral_1h_input_tokens": h1, "ephemeral_5m_input_tokens": m5}
+    return {**line, **extra}
+
+
+def test_transcript_usage_reads_the_ttl_of_the_newest_reply_that_wrote_to_the_cache(mesh, tmp_path):
+    path = tmp_path / "s.jsonl"
+    filler = {"type": "user", "message": {"content": "x" * 300}}
+
+    def read(*lines):
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        return mesh.transcript_usage(path, chunk=64)
+
+    assert read(cached(1000, h1=500), filler, cached(2000, m5=40)) == (2012, 300)  # on usage credits now
+    assert read(cached(1000, m5=500), filler, cached(2000)) == (2012, 300)  # all read from cache: an earlier one
+    assert read(cached(1000, h1=500), cached(2000, m5=99, isSidechain=True)) == (2012, 3600)  # a subagent's
+    assert read(usage(1000), filler) == (1012, None)  # no TTL recorded
+    assert read(cached(1000, m5=500), *[cached(2000)] * (mesh.TTL_LOOKBACK + 2)) == (2012, None)  # too far back
+    assert read(cached(1000, m5=500), {"type": "system", "subtype": "compact_boundary"}) == (0, 300)
+
+
+def test_root_context_goes_cold_on_the_ttl_its_session_file_records(mesh, run, monkeypatch):
+    path = root_transcript_file(mesh, monkeypatch, 400_000, idle=360)
+    assert not mesh.root_context(mesh.load_run(run), as_root=True)["cold"]  # 6 min: warm on the default hour
+    path.write_text(json.dumps(cached(399_988, m5=1000)) + "\n")
+    os.utime(path, (time.time() - 360, time.time() - 360))
+    context = mesh.root_context(mesh.load_run(run), as_root=True)
+    assert (context["ttl"], context["cold"]) == (300, True)
+    line = mesh.root_line(run)[0]
+    assert "cache cold since" in line
+    monkeypatch.setenv("MESH_CACHE_TTL", "3600")  # set explicitly, it wins
+    assert not mesh.root_context(mesh.load_run(run), as_root=True)["cold"]
+
+
 def test_root_context_finds_a_session_file_outside_its_cwd(mesh, run, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
     path = mesh.claude_sessions_dir("/somewhere/else") / "elsewhere.jsonl"

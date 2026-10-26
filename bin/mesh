@@ -2101,9 +2101,34 @@ def line_tokens(line: bytes) -> int | None:
     return None
 
 
-def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
-    """The newest reply's prompt in a Claude session file since its last compaction, read backwards from its
-    end (a root's file grows to tens of MB, and every root command measures it). None when it has neither."""
+TTL_LOOKBACK = 50  # replies past the newest that `transcript_usage` reads back for one that wrote to the cache
+CACHE_WRITES = {"ephemeral_1h_input_tokens": 3600, "ephemeral_5m_input_tokens": 300}
+
+
+def line_ttl(line: bytes) -> int | None:
+    """The cache lifetime a session file line's reply wrote at (3600 or 300 seconds): None for a reply that wrote
+    nothing (all of it read from cache), a subagent's (which gets 5 minutes whatever the session has), or any
+    other line. Claude Code picks the main conversation's TTL once per session: 1 h on a subscription within its
+    plan usage, 5 min on usage credits, an API key or a cloud provider."""
+    if b'"cache_creation"' not in line:
+        return None
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    if event.get("type") != "assistant" or event.get("isSidechain"):
+        return None
+    writes = ((event.get("message") or {}).get("usage") or {}).get("cache_creation") or {}
+    return max((ttl for key, ttl in CACHE_WRITES.items() if int(writes.get(key) or 0) > 0), default=None)
+
+
+def transcript_usage(path: Path, chunk: int = 1 << 20) -> tuple[int | None, int | None]:
+    """(the newest reply's prompt since the last compaction, the cache TTL the newest reply that wrote to the
+    cache used) in a Claude session file, read backwards from its end (a root's file grows to tens of MB, and
+    every root command measures it). The TTL is looked for up to TTL_LOOKBACK replies past the newest; either
+    is None when not found."""
+    tokens = ttl = None
+    replies = 0
     try:
         with open(path, "rb") as fh:
             end, rest = fh.seek(0, os.SEEK_END), b""
@@ -2113,12 +2138,22 @@ def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
                 lines = (fh.read(end - start) + rest).split(b"\n")
                 rest = lines.pop(0) if start else b""  # cut by the chunk: it's finished with the next one
                 for line in reversed(lines):
-                    if (tokens := line_tokens(line)) is not None:
-                        return tokens
+                    if tokens is None:
+                        tokens = line_tokens(line)
+                    if ttl is None:
+                        ttl = line_ttl(line)
+                        replies += b'"usage"' in line
+                    if tokens is not None and (ttl is not None or replies > TTL_LOOKBACK):
+                        return tokens, ttl
                 end = start
     except OSError:
-        return None
-    return None
+        return None, None
+    return tokens, ttl
+
+
+def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
+    """The newest reply's prompt in a Claude session file since its last compaction (`transcript_usage`)."""
+    return transcript_usage(path, chunk)[0]
 
 
 AGY_COMPACTION_STEP = 23  # a step holding a compaction's <summary>: a `/compact`, or agy's own
@@ -7651,7 +7686,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
 # ── root context: measuring, resetting and briefing the root ─────────────
 
 
-CACHE_TTL = 3600  # seconds a prompt cache lives (Claude Code subscriptions; API keys get 300: MESH_CACHE_TTL)
+CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
 ROOT_RESET_AT = 300_000  # root context tokens past which mesh suggests `mesh reset`
 RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
@@ -7694,8 +7729,12 @@ def env_int(key: str, default: int) -> int:
         return default
 
 
-def cache_ttl() -> int:
-    return env_int("MESH_CACHE_TTL", CACHE_TTL)
+def cache_ttl(session_ttl: int | None = None) -> int:
+    """The root's cache lifetime: MESH_CACHE_TTL when set (a live check fakes a short one), else what its session
+    file says Claude Code used (`line_ttl`), else CACHE_TTL."""
+    if os.environ.get("MESH_CACHE_TTL"):
+        return env_int("MESH_CACHE_TTL", CACHE_TTL)
+    return session_ttl or CACHE_TTL
 
 
 def root_reset_at() -> int:
@@ -7771,20 +7810,23 @@ def root_context(run: dict, as_root: bool = False) -> dict | None:
         if entry.get("pane") else None
     if not session:
         return None
+    session_ttl = None
     if entry.get("kind") == "agy":
         tokens, files = agy_context_tokens(session), progress_files({"kind": "agy"}, session)
         transcript = agy_conversation_file(session)
     else:
         transcript = root_transcript(entry, session)
-        tokens, files = (transcript_tokens(transcript), [transcript]) if transcript else (None, [])
+        tokens, session_ttl = transcript_usage(transcript) if transcript else (None, None)
+        files = [transcript] if transcript else []
     if tokens is None:
         return None
     last = max((f.stat().st_mtime for f in files if f.exists()), default=None)
     idle = time.time() - last if last else None
+    ttl = cache_ttl(session_ttl)
     return {"kind": entry.get("kind"), "session": session, "transcript": str(transcript), "tokens": tokens,
             "last_turn": datetime.fromtimestamp(last, timezone.utc).isoformat(timespec="seconds") if last else None,
-            "idle": round(idle) if idle is not None else None,
-            "cold": idle is not None and idle > cache_ttl(), "reset_at": root_reset_at()}
+            "idle": round(idle) if idle is not None else None, "ttl": ttl,
+            "cold": idle is not None and idle > ttl, "reset_at": root_reset_at()}
 
 
 def kilo(tokens: int) -> str:
@@ -7797,7 +7839,7 @@ def context_text(context: dict) -> str:
     if context.get("last_turn") is None:
         return text
     if context["cold"]:
-        since = datetime.fromisoformat(context["last_turn"]) + timedelta(seconds=cache_ttl())
+        since = datetime.fromisoformat(context["last_turn"]) + timedelta(seconds=context["ttl"])
         return f"{text}, cache cold since {since.astimezone():%H:%M}"
     return f"{text}, cache warm ({ago(context['idle'])} since its last turn)"
 
@@ -7877,7 +7919,7 @@ def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, boo
                          + (f", once you've handled {mail_text(waits)}" if waits else ""))
         elif about_to_wait and not waits:
             notes.append(f"{context_text(context)}, and you're about to wait on workers: a report that wakes you "
-                         f"after the cache expires ({ago(cache_ttl())}) re-reads all of it at full price; {reset}")
+                         f"after the cache expires ({ago(context['ttl'])}) re-reads all of it at full price; {reset}")
         elif context["tokens"] > 2 * at:
             notes.append(f"{context_text(context)}: at your next quiet point (a phase boundary, nothing waiting "
                          f"on you), {reset}")
@@ -8183,12 +8225,12 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     entry = run["agents"].get(root) or {}
     if entry.get("kind") not in KINDS or not entry.get("pane") or reset_pending(run_id):
         return False
-    last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
-    if last and age_seconds(last["time"]) < cache_ttl():
-        return False  # one try per cache lifetime: a failing one shouldn't repeat every minute
     context = root_context(run)
     if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
         return False
+    last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
+    if last and age_seconds(last["time"]) < context["ttl"]:
+        return False  # one try per cache lifetime: a failing one shouldn't repeat every minute
     status = pane_agent(entry["pane"]).get("agent_status")
     if status == "unknown" and entry.get("kind") == "claude":
         try:
