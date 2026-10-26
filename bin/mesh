@@ -3864,12 +3864,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def log_path(run_id: str) -> Path:
-    """A run's log, live or archived."""
+def run_folder(run_id: str) -> Path:
+    """A run's folder, live or archived."""
     for folder in (run_dir(run_id), mesh_home() / "archive" / run_id):
         if (folder / "run.json").exists():
-            return folder / "log.jsonl"
+            return folder
     raise MeshError(f"unknown run {run_id} (no {run_dir(run_id)}, nor one in {mesh_home() / 'archive'})")
+
+
+def log_path(run_id: str) -> Path:
+    """A run's log, live or archived."""
+    return run_folder(run_id) / "log.jsonl"
 
 
 def run_stopped(run_id: str) -> bool:
@@ -5929,14 +5934,14 @@ def record_review(run_id: str, name: str, pr: str, head: str | None, checkout: b
             entry.setdefault("review_heads", {})[pr] = head
 
 
-def take_reply(run_id: str, me: str, sender: str) -> tuple[dict, str] | None:
+def take_reply(run_id: str, me: str, sender: str, folder: Path | None = None) -> tuple[dict, str] | None:
     """The last done/failed `sender` sent me, marked read. Found through the log, since the doorbell
-    it rang may already have had me read it with `mesh inbox`."""
-    sends = [e for e in read_log(run_id) if e.get("event") == "send" and e.get("sender") == sender
+    it rang may already have had me read it with `mesh inbox`. `folder`: the run's, where it may be archived."""
+    sends = [e for e in read_log(run_id, folder) if e.get("event") == "send" and e.get("sender") == sender
              and e.get("to") == me and e.get("type") in FINAL_TYPES]
     if not sends:
         return None
-    folder = inbox_dir(run_id, me)
+    folder = (folder or run_dir(run_id)) / "inbox" / me
     path = next((p for p in (folder / sends[-1]["file"], folder / "read" / sends[-1]["file"]) if p.exists()), None)
     if not path:
         return None
@@ -6513,7 +6518,10 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
     start), so one still at it `held_for` seconds (held_wait()) after its hold gets its own exit 4 instead of
     keeping the others' answers waiting until the timeout. A worker given up on (any outcome but an answer) is
     let go at once: its watch lock closes and its `collect` mark goes, so what it sends later rings as usual
-    and the root is told it's unwatched."""
+    and the root is told it's unwatched.
+
+    A `mesh stop` under way holds the ticks (the panes it closes would read as alerts) until it ends: archived,
+    each one left gets (1, …) and the run is left alone (`fan_out` reads the archive); failed, watching goes on."""
     hang = hang_after()
     held_for = held_wait() if held_for is None else held_for
     watches = {name: Watch(run_id, name, grace, count, hang) for name, count in finals.items()}
@@ -6531,14 +6539,33 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
         if on_outcome:
             on_outcome(name, *outcome)
 
+    def stopped() -> None:
+        for name in list(watches):
+            outcomes[name] = 1, f"run {run_id} stopped before {name} answered"
+            watches.pop(name)
+
     held = dict(zip(watches, hold_watch(run_id, list(watches))))
     try:
         while watches:
-            run = load_run(run_id)
-            bg_rows = claude_agents() if any(run["agents"].get(n, {}).get("view") == "bg" for n in watches) else None
-            events = read_log(run_id)
-            ticked = {name: watch.tick(interval, False, bg_rows, events) for name, watch in watches.items()}
-            agents = load_run(run_id)["agents"]  # after the ticks, which may release a hold
+            if run_stopped(run_id):
+                stopped()
+                break
+            try:
+                run = load_run(run_id)
+                events = read_log(run_id)
+                ticked, agents = {}, {}
+                if not stop_under_way(events):
+                    bg_rows = claude_agents() if any(run["agents"].get(n, {}).get("view") == "bg" for n in watches) else None
+                    ticked = {name: watch.tick(interval, False, bg_rows, events) for name, watch in watches.items()}
+                    agents = load_run(run_id)["agents"]  # after the ticks, which may release a hold
+            except (MeshError, OSError):
+                if run_stopped(run_id):  # archived mid-poll
+                    stopped()
+                    break
+                raise
+            if any(event and event[0] for event in ticked.values()) and stop_under_way(read_log(run_id)):
+                # a stop that began during this poll: keep only the answers, and wait for how it ends
+                ticked = {name: event for name, event in ticked.items() if event and not event[0]}
             for name, event in ticked.items():
                 watch = watches[name]
                 at_screen = (agents.get(name) or {}).get("held")
@@ -6584,7 +6611,7 @@ def ask_peers(args: argparse.Namespace) -> int:
         with signals_raise(signal.SIGTERM, signal.SIGHUP):  # a killed fan-out still clears its marks
             return fan_out(args, run_id, me, body, registry, names, mark, asked)
     finally:
-        for asker in asked.values():
+        for asker in asked.values() if not run_stopped(run_id) else ():  # archived marks die with this pid
             with editing_run(run_id) as run:  # their next report rings as usual
                 run["agents"][asker].pop("collect", None)
 
@@ -6685,15 +6712,16 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     for asker, outcome in watched.items():
         outcomes[by_asker[asker]] = outcome
 
+    stopped = run_stopped(run_id)  # by `mesh stop`, which closed the askers: the answers are in its archive
+    if stopped:
+        print(stopped_line(run_id), file=sys.stderr)
+    folder = run_folder(run_id)
     replies: dict[str, tuple[dict, str] | None] = {}
     for name in names:
         asker = asked.get(name)
-        replies[name] = take_reply(run_id, me, asker) if asker and outcomes[name][0] == 0 else None
-        if replies[name] and asker in opened and not args.keep:
+        replies[name] = take_reply(run_id, me, asker, folder) if asker and outcomes[name][0] == 0 else None
+        if replies[name] and asker in opened and not args.keep and not stopped:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
-
-    make_run_folders(run_id)
-    path = run_dir(run_id) / "reports" / f"peers-{stamp()}.md"
     asked_groups = {registry[n].get("group") if isinstance(registry[n], dict) else None for n in names}
     group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
         if len(asked_groups) == 1 else None
@@ -6719,14 +6747,24 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
             parts += [f"No answer: {line}", ""]
             what = line.splitlines()[0]
         lines.append(f"  {name:<28} {what}" + (f"  (upstream +{prep['new']})" if prep.get("new") else ""))
-    write_atomic(path, "\n".join(parts))
+    for _ in range(2):
+        path = run_folder(run_id) / "reports" / f"peers-{stamp()}.md"
+        try:  # never with parents: a live folder `mesh stop` just archived must not come back half-made
+            path.parent.mkdir(exist_ok=True)
+            write_atomic(path, "\n".join(parts))
+            break
+        except FileNotFoundError:
+            if not run_stopped(run_id):
+                raise
     with editing_peers() as data:  # `mesh peers` names it, so it's found without remembering the run
         data["answers"] = str(path)
     answered = sum(1 for r in replies.values() if r)
     print(f"{answered} of {len(names)} peers answered: {first_line(body, 100)}")
     print("\n".join(lines))
     print(f"answers: {path}")
-    if answered < len(names):
+    if answered < len(names) and stopped:
+        print(f"(run {run_id} stopped, closing a peer that didn't answer: `mesh ask <peer> --body …` reopens it)")
+    elif answered < len(names):
         print("(a peer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
     failed = [outcomes[n][0] for n in names if not replies[n]]
     return failed[0] if failed else 0
