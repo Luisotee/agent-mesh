@@ -104,6 +104,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_CC_SOCKS", str(tmp_path / "socks"))
     # Most tests check the run-tab placement; the side-pane tests turn it back on.
     monkeypatch.setenv("MESH_SIDE_PANES", "0")
+    # Never Copilot's real session events: a test that wants some writes them here (see copilot_events).
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
     # Never agy's real conversation index, prompt history or conversations: a test that wants one writes its own.
     monkeypatch.setenv("MESH_AGY_SUMMARIES", str(tmp_path / "agy" / "conversation_summaries.db"))
     monkeypatch.setenv("MESH_AGY_HISTORY", str(tmp_path / "agy" / "history.jsonl"))

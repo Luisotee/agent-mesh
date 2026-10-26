@@ -6390,6 +6390,178 @@ def test_a_copilot_left_by_a_killed_ask_keeps_its_asker_busy(mesh, fake, cli, ru
     assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
 
 
+def copilot_turn_events(task, answer="", shutdown=True, model="gpt-5.6-luna", content=None):
+    """One ask as Copilot writes it to its session's events.jsonl: the prompt, a tool turn, the answer, the exit."""
+    events = [{"type": "session.resume", "data": {}},
+              {"type": "user.message", "data": {"content": content or f"{task}\n\nYou are not in an agent-mesh session"}},
+              {"type": "assistant.message", "data": {"model": model, "content": "", "toolRequests": [{"name": "bash"}]}}]
+    if answer:
+        events.append({"type": "assistant.message", "data": {"model": model, "content": answer, "phase": "final_answer"}})
+    if shutdown:
+        events.append({"type": "session.shutdown", "data": {"shutdownType": "routine"}})
+    return events
+
+
+def write_events(path, events):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.writelines(json.dumps(e) + "\n" for e in events)
+
+
+def orphan_copilot(mesh, run, name, task, events, copilot_pid=2 ** 22 + 8, before=()):
+    """`name` as a SIGKILLed `mesh ask` leaves it: claimed after its session holds `before`, `task` recorded and
+    unanswered, the entry `running`, and its copilot (dead unless `copilot_pid` says otherwise) having written
+    `events` to its session since."""
+    write_events(mesh.copilot_events(mesh.load_run(run)["agents"][name]), before)
+    with mesh.editing_run(run) as data:
+        mesh.claim_copilot(data["agents"][name])
+        data["agents"][name].update(pid=2 ** 22 + 7, pid_start=None, copilot_pid=copilot_pid,
+                                    copilot_pid_start=mesh.proc_start(copilot_pid))
+    root = mesh.load_run(run)["root"]
+    mesh.mark_read(mesh.record(run, root, name, "task", task))
+    write_events(Path(mesh.load_run(run)["agents"][name]["events"]), events)
+
+
+def sends_of(mesh, run, name, mtype="done"):
+    return [mesh.message_body(run, e).strip() for e in mesh.read_log(run)
+            if e.get("event") == "send" and e.get("sender") == name and e.get("type") == mtype]
+
+
+def test_the_answer_of_a_copilot_left_by_a_killed_ask_is_filed_once(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?",
+                   copilot_turn_events("And sessions?", "In sessions.py.", model="gpt-9"))
+    capsys.readouterr()
+    # `mesh status` derives, never files: it says the answer waits.
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # repo-fix-typo's pane
+    assert mesh.main(["status", "--json"]) == 0
+    row = next(r for r in json.loads(capsys.readouterr().out)["agents"] if r["name"] == "proj-ask-auth")
+    assert row["waiting"] == "report waiting: `mesh inbox` files it" and row["needs"] == "root"
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py."]
+    # A watch on it files it and ends with the report instead of taking it for gone.
+    assert mesh.watch_agent(run, "proj-ask-auth", interval=0.01) == (
+        0, "proj-ask-auth reported done: read it with `mesh inbox`")
+    assert "filed proj-ask-auth's `done`" in capsys.readouterr().err
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert entry["status"] == "retired" and entry["model"] == "gpt-9"
+    assert not any(key in entry for key in mesh.CLAIM_KEYS)
+    # Whoever comes next finds nothing left to file.
+    assert mesh.file_orphan(run, "proj-ask-auth") is None and mesh.main(["inbox"]) == 0
+    assert "In sessions.py." in capsys.readouterr().out
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
+    assert [e["type"] for e in mesh.read_log(run) if e["event"] == "copilot_filed"] == ["done"]
+
+
+def test_the_roots_inbox_and_the_next_ask_file_an_orphaned_copilot_answer(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."))
+    capsys.readouterr()
+    assert mesh.main(["inbox", "--peek"]) == 0  # a peek changes nothing
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "running"
+    assert mesh.main(["inbox"]) == 0
+    assert "In sessions.py." in capsys.readouterr().out
+
+    orphan_copilot(mesh, run, "proj-ask-auth", "And tokens?", copilot_turn_events("And tokens?", "In tokens.py."))
+    cli.on("--output-format", stdout=copilot_jsonl("In cookies.py."))
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "And cookies?"]) == 0
+    captured = capsys.readouterr()
+    assert "filed proj-ask-auth's `done`" in captured.err and "── done from proj-ask-auth ──\nIn cookies.py." in captured.out
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py.", "In tokens.py.", "In cookies.py."]
+
+
+@pytest.mark.parametrize("before, events, failure", [
+    ([], copilot_turn_events("And sessions?", "In sessions.py.", shutdown=False), "stopped before it finished answering"),
+    ([], copilot_turn_events("And sessions?", shutdown=True), "gave no answer"),
+    ([], copilot_turn_events("Where is auth?", "In auth.py."), "never got the task"),  # another question only
+    ([], [], "never got the task"),
+    # The same question asked and answered before this ask's claim: not this ask's answer.
+    (copilot_turn_events("And sessions?", "In sessions.py."), [{"type": "session.resume", "data": {}}],
+     "never got the task"),
+    # ...nor when another ask followed it, whose answer isn't this ask's either.
+    (copilot_turn_events("And sessions?", "In sessions.py.") + copilot_turn_events("And tokens?", "In tokens.py."), [],
+     "never got the task"),
+])
+def test_an_orphaned_copilot_that_did_not_answer_files_failed(mesh, fake, cli, run, repo, before, events, failure):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", events, before=before)
+    assert mesh.file_orphan(run, "proj-ask-auth") == "failed"
+    assert failure in sends_of(mesh, run, "proj-ask-auth", "failed")[0]
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "retired"
+
+
+def test_an_orphaned_copilot_is_filed_only_once_dead_and_only_when_owed(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    # Still answering: busy as before, nothing filed.
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."),
+                   copilot_pid=os.getpid())
+    assert mesh.file_orphan(run, "proj-ask-auth") is None and mesh.main(["inbox"]) == 0
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "running"
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py."]
+    # Its `mesh ask` died after filing the answer: only released.
+    mesh.record(run, "proj-ask-auth", mesh.load_run(run)["root"], "done", "In sessions.py.")
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"]["copilot_pid_start"] = "1"
+    assert mesh.file_orphan(run, "proj-ask-auth") is None
+    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "retired"
+    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
+
+
+def test_an_orphaned_copilot_answer_is_read_where_its_ask_had_copilot_write_it(mesh, fake, cli, run, repo,
+                                                                               tmp_path, monkeypatch):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?",
+                   copilot_turn_events("And sessions?", "In sessions.py.")
+                   + [{"type": "session.resume", "data": {}},  # past its end: not part of the turn
+                      {"type": "assistant.message", "data": {"content": "Something later."}}])
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "elsewhere"))  # the root's inbox, run from another shell
+    assert mesh.file_orphan(run, "proj-ask-auth") == "done"
+    assert sends_of(mesh, run, "proj-ask-auth")[-1] == "In sessions.py."
+
+
+def test_looking_for_an_orphan_takes_no_lock_while_there_is_none(mesh, fake, cli, run, repo, monkeypatch):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    saves = []
+    save_run = mesh.save_run
+    monkeypatch.setattr(mesh, "save_run", lambda *a: (saves.append(a), save_run(*a)))
+    watch = mesh.Watch(run, "proj-ask-auth", grace=60)
+    watch.tick(0.01)  # retired
+    assert saves == []
+    with mesh.editing_run(run) as data:  # answering
+        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid(), pid_start=mesh.proc_start(os.getpid()))
+    saves.clear()
+    watch.tick(0.01)
+    assert mesh.file_orphan(run, "proj-ask-auth") is None and saves == []
+
+
+def test_an_interrupted_copilot_ask_files_failed_and_releases_its_asker(mesh, fake, cli, run, repo, capsys):
+    def interrupted(argv):
+        raise KeyboardInterrupt
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"])
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert entry["status"] == "retired" and not any(key in entry for key in mesh.CLAIM_KEYS)
+    assert sends_of(mesh, run, "proj-ask-auth", "failed") == [
+        "interrupted: its `mesh ask` was stopped before copilot answered"]
+    assert mesh.file_orphan(run, "proj-ask-auth") is None
+
+
+def test_stop_files_an_orphaned_copilot_answer_into_the_archived_run(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."))
+    assert mesh.main(["stop"]) == 0
+    archive = mesh.mesh_home() / "archive" / run
+    assert any("In sessions.py." in p.read_text() for p in archive.rglob("*-proj-ask-auth-done.md"))
+
+
 def test_pid_alive_tells_a_reused_pid_from_the_process_recorded(mesh):
     me = os.getpid()
     start = mesh.proc_start(me)
