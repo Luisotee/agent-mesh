@@ -6951,6 +6951,42 @@ def test_watch_any_takes_on_a_worker_spawned_after_it_started(mesh, fake, run, m
     assert not mesh.watched(run, "repo-two") and not mesh.watched(run, mesh.ANY_WATCH)
 
 
+def archive_run(mesh, run):
+    """What `mesh stop` does to the run's folder last."""
+    (mesh.mesh_home() / "archive").mkdir(exist_ok=True)
+    os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)
+
+
+@pytest.mark.parametrize("argv", [["watch", "--any"], ["watch", "repo-fix-typo"]])
+def test_a_watch_ends_cleanly_once_mesh_stop_archives_its_run(mesh, fake, run, monkeypatch, capsys, argv):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    polls = {"n": 0}
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        polls["n"] += 1
+        if polls["n"] == 2:
+            archive_run(mesh, run)  # mid-poll: this tick's reads of the live run fail
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(argv) == 0
+    assert f"run {run} stopped; nothing left to watch" in capsys.readouterr().out
+    assert not mesh.run_dir(run).exists()  # nothing recreated the live folder
+
+
+def test_a_watch_between_polls_of_a_stopped_run_ends_cleanly(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    monkeypatch.setattr(mesh.time, "sleep", lambda *_: archive_run(mesh, run))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert f"run {run} stopped" in capsys.readouterr().out
+
+
+def test_a_watch_on_a_run_that_never_existed_is_still_an_error(mesh, fake, run, capsys):
+    assert mesh.main(["watch", "--any", "--run-id", "nope"]) == 1
+    assert "unknown run nope" in capsys.readouterr().err
+
+
 def test_watch_any_lets_a_retired_worker_go_and_takes_it_back_when_resumed(mesh, fake, run, monkeypatch, capsys):
     put_worker(mesh, run, "repo-two", "2026-10-26T00:00:00+00:00")
     monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")

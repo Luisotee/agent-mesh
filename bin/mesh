@@ -3814,6 +3814,11 @@ def log_path(run_id: str) -> Path:
     raise MeshError(f"unknown run {run_id} (no {run_dir(run_id)}, nor one in {mesh_home() / 'archive'})")
 
 
+def run_stopped(run_id: str) -> bool:
+    """Whether `mesh stop` has archived the run: no live folder, an archived one."""
+    return not (run_dir(run_id) / "run.json").exists() and (mesh_home() / "archive" / run_id / "run.json").exists()
+
+
 REVIEW_GIST_RE = re.compile(r"^(Review \(read-only\) of (\S+?)(?: at \S+)?):\s")  # the PR, and the head it names
 LOG_SKIP = ("time", "event", "name", "sender", "to", "type", "file")
 
@@ -4673,21 +4678,30 @@ class Roster:
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
                  alerts_only: bool, autoreset: bool = False, roster: Roster | None = None) -> tuple[int, str]:
     checked = float("-inf")  # when the root was last checked for an idle reset
+    stopped = (0, f"run {run_id} stopped; nothing left to watch")
     while True:
-        run = load_run(run_id)
-        events = read_log(run_id)  # one read per poll, shared by every watch
-        if roster:
-            roster.refresh(run, watches, events)
-        # One `claude agents` call per poll, shared by every background worker.
-        bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
-        if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
-            checked = time.monotonic()
-            quietly(maybe_autoreset, run_id, run, events)
-        for watch in watches:
-            event = watch.tick(interval, alerts_only, bg_rows, events)
-            if event:
-                return event
-        if all(w.finished for w in watches) and not (roster and roster.settling(watches)):
+        if run_stopped(run_id):  # `mesh stop` archived it under the watch: nothing more comes
+            return stopped
+        try:
+            run = load_run(run_id)
+            events = read_log(run_id)  # one read per poll, shared by every watch
+            if roster:
+                roster.refresh(run, watches, events)
+            # One `claude agents` call per poll, shared by every background worker.
+            bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
+            if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
+                checked = time.monotonic()
+                quietly(maybe_autoreset, run_id, run, events)
+            for watch in watches:
+                event = watch.tick(interval, alerts_only, bg_rows, events)
+                if event:
+                    return event
+            over = all(w.finished for w in watches) and not (roster and roster.settling(watches))
+        except MeshError:
+            if run_stopped(run_id):  # archived mid-poll: a read of the live run failed
+                return stopped
+            raise
+        if over:
             # without --alerts only a retired worker finishes without returning
             left, ended = (roster.left, roster.ended) if roster else ([], [])
             if roster and not roster.ever:
