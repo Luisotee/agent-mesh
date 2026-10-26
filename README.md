@@ -139,6 +139,25 @@ mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a 
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
 ```
 
+### Standing peer askers
+
+Some repos are worth asking again and again: projects similar to yours that you cloned to learn from, say. `mesh peers` keeps a machine-wide list of them, each with one research asker whose conversation outlives every run:
+
+```bash
+mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into ~/research/orchestrators/swarm
+mesh ask swarm-research --size large --file brief.md                 # its first research brief
+mesh peers                                                           # who they are, what they last read, their size
+mesh ask swarm-research --body "How do they merge?"                  # one of them
+mesh ask --peers orchestrators --file question.md                    # all of a group (or all, or a,b,c) at once
+mesh peers refresh                                                   # what changed upstream, without asking
+```
+
+- **Current:** before each question mesh fetches the project, moves the asker's checkout to the new upstream head and tells it what changed since it last looked (the commits, capped), so its answer accounts for them.
+- **One result:** `mesh ask --peers` asks them all at once and blocks until every one has answered. It writes their answers into one file (`$(mesh dir)/reports/peers-<time>.md`) and prints a line per peer and the file's path, which `mesh peers` keeps showing as the newest answers. Run it in the background.
+- **Read-only for good:** a peer asker only answers. A change to that project goes to an ordinary worker there. Its checkout stays in place between runs, and its conversation is compacted over 300k tokens to what it learned about the project.
+- **Someone else's settings:** a peer's repo isn't yours to fix, so when its `.claude/settings.json` has a rule Claude Code rejects, mesh takes the warning's default "Continue", which skips just those rules. Your own repos still stop there for you.
+- `mesh peers add <path>` registers a clone you already have. It adopts the asker that already researched it when one has the default name (`<repo>-research`, or `--name`). `mesh peers remove <name>` drops a peer and keeps its clone.
+
 ## Task lists
 
 Hand the root a whole list, and it supervises instead of coding:

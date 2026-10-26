@@ -215,6 +215,17 @@ Then:
    - A large asker plans, you `mesh approve`, and it executes on its branch `mesh/<run>/<slug>` and opens a PR. Supervise it as in steps 5 to 11.
    - A small asker has no plan phase: make the task a `Direct task (no plan)` by starting it with that line.
 
+**Standing peer askers** (`mesh peers`): askers registered for good, one per cloned peer project, outside any run. The registry is machine-wide; groups (`orchestrators`) pick a subset. Ask one by name like any worker (`mesh ask <peer> --body …`), or several with one command:
+
+```bash
+mesh peers                                       # names, groups, what each last read, the newest answers file
+mesh ask --peers all|<group>|a,b --file q.md     # one question to all of them
+```
+
+- Each ask fetches the peer's upstream, moves its checkout to the new head and tells it what changed since it last looked. `--no-refresh` skips the fetch.
+- `ask --peers` blocks until every peer has answered or alerted, so a Claude root runs it with `run_in_background`. Their answers don't come to your mailbox one by one: read the **one file** whose path it prints (also shown by `mesh peers`), never N inboxes. Its stdout is one line per peer. A peer that didn't answer (held at a screen, asked back, stopped) stays open with its line saying what to do, then `mesh retire` it. Those that answered are closed.
+- A peer only answers; a change to that project goes to an ordinary worker there. Add one with `mesh peers add <git-url | path> --group <g>`, then give it its first research brief: `mesh ask <name> --size large --file brief.md`.
+
 `mesh stop` deletes a branch that never got a commit or a push, such as an asker's. Resuming that worker starts the branch again at the same commit.
 
 ## Follow-ups

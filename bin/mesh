@@ -6131,7 +6131,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
                    help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
-                        f"{AGY_COMPACT_AT:,} for agy, twice that for a question; an agy one whose size can't be "
+                        f"{AGY_COMPACT_AT:,} for agy, twice that for a question unless asked of a peer; an agy one whose size can't be "
                         "read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
 
