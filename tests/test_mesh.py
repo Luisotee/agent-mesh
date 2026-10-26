@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -633,6 +634,38 @@ def test_send_to_parent_and_inbox_marks_read(mesh, fake, run, monkeypatch, capsy
     assert "No unread messages." in capsys.readouterr().out
     mesh.main(["inbox", "--all", "--json"])
     assert json.loads(capsys.readouterr().out)[0]["type"] == "question"
+
+
+def test_hook_output_stays_under_claude_codes_cap_and_renders_the_same_twice(mesh, fake, run, monkeypatch, capsys):
+    """Past HOOK_OUTPUT_MAX Claude Code swaps a hook's text for a file path and a preview: the largest realistic
+    reminder and Stop reason stay under it, and carry no wall-clock text."""
+    long = "Fix " + "everything " * 5000  # a task whose first line alone is ~55k characters
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", f"# {long}\n\n{long}")
+    for i in range(200):  # a pile of unread mail of every type a worker gets
+        mesh.deliver(run, "repo-lead", "repo-fix-typo", ("task", "answer", "info")[i % 3], f"{i} {long}")
+    capsys.readouterr()
+
+    def reminder():
+        assert mesh.main(["whoami", "--reminder", "compact", "--run", run, "--as", "repo-fix-typo"]) == 0
+        return capsys.readouterr().out
+
+    first = reminder()
+    real = mesh.time.time
+    monkeypatch.setattr(mesh.time, "time", lambda: real() + 7200)
+    assert reminder() == first  # nothing in it moves with the clock
+    assert len(first) <= mesh.HOOK_OUTPUT_MAX  # what Claude Code reads, newline included
+    reason = stop_hook(mesh, monkeypatch, capsys, run)
+    assert reason and len(reason) <= mesh.HOOK_OUTPUT_MAX
+
+
+def test_hook_text_cuts_an_oversized_text_from_the_middle(mesh):
+    text = "\n".join(f"line {i}" for i in range(5000)) + "\nRun `mesh inbox --run r --as w` now."
+    cut = mesh.hook_text(text, limit=200)
+    assert len(cut) <= 200 and cut.startswith("line 0\nline 1\n") and "(cut to fit a hook's output)" in cut
+    assert cut.endswith("\nRun `mesh inbox --run r --as w` now.")  # the reminder's commands stay
+    assert len(mesh.hook_text("x" * 20_000)) == mesh.HOOK_OUTPUT_MAX - 1  # room for print's newline
+    assert all(len(mesh.hook_text(text, limit=n)) <= n for n in (0, 5, 10, 40, 61, 62, 63))
+    assert mesh.hook_text("short") == "short"
 
 
 def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, monkeypatch, capsys):
@@ -6951,6 +6984,103 @@ def test_watch_any_takes_on_a_worker_spawned_after_it_started(mesh, fake, run, m
     assert not mesh.watched(run, "repo-two") and not mesh.watched(run, mesh.ANY_WATCH)
 
 
+def archive_run(mesh, run):
+    """What `mesh stop` does to the run's folder last."""
+    (mesh.mesh_home() / "archive").mkdir(exist_ok=True)
+    os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)
+
+
+@pytest.mark.parametrize("argv", [["watch", "--any"], ["watch", "repo-fix-typo"]])
+def test_a_watch_ends_cleanly_once_mesh_stop_archives_its_run(mesh, fake, run, monkeypatch, capsys, argv):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    polls = {"n": 0}
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        polls["n"] += 1
+        if polls["n"] == 2:
+            archive_run(mesh, run)  # mid-poll: this tick's reads of the live run fail
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(argv) == 0
+    assert f"run {run} stopped; nothing left to watch" in capsys.readouterr().out
+    assert not mesh.run_dir(run).exists()  # nothing recreated the live folder
+
+
+def test_a_watch_ends_cleanly_while_mesh_stop_closes_the_panes(mesh, fake, run, monkeypatch, capsys):
+    """`mesh stop` closes panes before it archives: a worker reading gone then is the stop, not an alert."""
+    status = {"now": "working"}
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: status["now"])
+    polls = {"n": 0}
+    real = mesh.Watch.tick
+
+    def tick(self, *a):
+        polls["n"] += 1
+        if polls["n"] == 2:  # the stop starts during this poll and closes the pane
+            mesh.log_event(run, "stopping", pid=os.getpid(), start=mesh.proc_start(os.getpid()))
+            status["now"] = "gone"
+        return real(self, *a)
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert f"run {run} stopped" in capsys.readouterr().out  # not exit 5
+
+
+def test_a_failed_or_dead_stop_no_longer_holds_off_alerts(mesh, run):
+    mesh.log_event(run, "stopping", pid=os.getpid(), start=mesh.proc_start(os.getpid()))
+    assert mesh.stop_under_way(mesh.read_log(run))
+    mesh.log_event(run, "stop_failed", error="boom")
+    assert not mesh.stop_under_way(mesh.read_log(run))
+    mesh.log_event(run, "stopping", pid=os.getpid(), start="not this process")  # its process is gone
+    assert not mesh.stop_under_way(mesh.read_log(run))
+
+
+def test_a_stop_that_fails_midway_says_so(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "file_orphans", lambda *_: (_ for _ in ()).throw(mesh.MeshError("disk full")))
+    assert mesh.main(["stop"]) == 1
+    assert [e["event"] for e in mesh.read_log(run)][-2:] == ["stopping", "stop_failed"]
+    assert not mesh.stop_under_way(mesh.read_log(run))
+
+
+def test_a_watch_whose_run_is_archived_mid_read_ends_cleanly(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+
+    def tick(self, *a):  # archived between a read's exists() and read_text(), or before a write
+        archive_run(mesh, run)
+        raise FileNotFoundError(mesh.run_dir(run) / "run.json")
+
+    monkeypatch.setattr(mesh.Watch, "tick", tick)
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert f"run {run} stopped" in capsys.readouterr().out
+
+
+def test_a_write_to_an_archived_run_never_brings_its_folder_back(mesh, run):
+    archive_run(mesh, run)
+    with pytest.raises(FileNotFoundError):
+        mesh.record_alert(run, "repo-fix-typo", 1)
+    assert not mesh.run_dir(run).exists()
+
+
+def test_ask_fails_when_its_run_is_stopped_before_the_answer(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    monkeypatch.setattr(mesh, "watch_agent", lambda *a, **k: (archive_run(mesh, run), (0, mesh.stopped_line(run)))[1])
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 1
+    assert f"run {run} stopped" in capsys.readouterr().out
+
+
+def test_a_watch_between_polls_of_a_stopped_run_ends_cleanly(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    monkeypatch.setattr(mesh.time, "sleep", lambda *_: archive_run(mesh, run))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert f"run {run} stopped" in capsys.readouterr().out
+
+
+def test_a_watch_on_a_run_that_never_existed_is_still_an_error(mesh, fake, run, capsys):
+    assert mesh.main(["watch", "--any", "--run-id", "nope"]) == 1
+    assert "unknown run nope" in capsys.readouterr().err
+
+
 def test_watch_any_lets_a_retired_worker_go_and_takes_it_back_when_resumed(mesh, fake, run, monkeypatch, capsys):
     put_worker(mesh, run, "repo-two", "2026-10-26T00:00:00+00:00")
     monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
@@ -7812,6 +7942,44 @@ def test_transcript_tokens_reads_backwards_across_chunks(mesh, tmp_path):
     assert mesh.transcript_tokens(tmp_path / "missing.jsonl") is None
 
 
+def cached(n, h1=0, m5=0, **extra):
+    """A reply as Claude Code writes it, with what it wrote to the cache at each TTL."""
+    line = usage(n)
+    line["message"]["usage"]["cache_creation"] = {"ephemeral_1h_input_tokens": h1, "ephemeral_5m_input_tokens": m5}
+    return {**line, **extra}
+
+
+def test_transcript_usage_reads_the_ttl_of_the_newest_reply_that_wrote_to_the_cache(mesh, tmp_path):
+    path = tmp_path / "s.jsonl"
+    filler = {"type": "user", "message": {"content": "x" * 300}}
+
+    def read(*lines):
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        return mesh.transcript_usage(path, chunk=64)
+
+    assert read(cached(1000, h1=500), filler, cached(2000, m5=40)) == (2012, 300)  # on usage credits now
+    assert read(cached(1000, m5=500), filler, cached(2000)) == (2012, 300)  # all read from cache: an earlier one
+    assert read(cached(1000, h1=500), cached(2000, m5=99, isSidechain=True)) == (2012, 3600)  # a subagent's
+    assert read(usage(1000), filler) == (1012, None)  # no TTL recorded
+    assert read(cached(1000, m5=500), *[cached(2000)] * (mesh.TTL_LOOKBACK + 2)) == (2012, None)  # too far back
+    assert read(cached(1000, m5=500), {"type": "system", "subtype": "compact_boundary"}) == (0, 300)
+    talk = {"type": "user", "message": {"content": '"usage": shown by a tool'}}  # not a reply: doesn't count
+    assert read(cached(1000, m5=500), *[talk] * (mesh.TTL_LOOKBACK + 2), cached(2000)) == (2012, 300)
+
+
+def test_root_context_goes_cold_on_the_ttl_its_session_file_records(mesh, run, monkeypatch):
+    path = root_transcript_file(mesh, monkeypatch, 400_000, idle=360)
+    assert not mesh.root_context(mesh.load_run(run), as_root=True)["cold"]  # 6 min: warm on the default hour
+    path.write_text(json.dumps(cached(399_988, m5=1000)) + "\n")
+    os.utime(path, (time.time() - 360, time.time() - 360))
+    context = mesh.root_context(mesh.load_run(run), as_root=True)
+    assert (context["ttl"], context["cold"]) == (300, True)
+    line = mesh.root_line(run)[0]
+    assert "cache cold since" in line
+    monkeypatch.setenv("MESH_CACHE_TTL", "3600")  # set explicitly, it wins
+    assert not mesh.root_context(mesh.load_run(run), as_root=True)["cold"]
+
+
 def test_root_context_finds_a_session_file_outside_its_cwd(mesh, run, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
     path = mesh.claude_sessions_dir("/somewhere/else") / "elsewhere.jsonl"
@@ -8112,7 +8280,18 @@ def test_autoreset_resets_a_big_idle_cold_root_owed_nothing(mesh, fake, run, mon
     (args, kwargs), = started
     assert args[1] == "repo-lead" and kwargs["via"] == "watch"
     mesh.log_event(run, "reset_requested", name="repo-lead", via="watch")
-    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))  # once per cache lifetime
+    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))  # once per AUTORESET_BACKOFF
+
+
+def test_autoreset_backs_off_an_hour_even_on_a_five_minute_cache(mesh, fake, run, monkeypatch):
+    started = autoreset_root(mesh, fake, monkeypatch)
+    path = mesh.claude_sessions_dir("/repo") / "root-s.jsonl"
+    path.write_text(json.dumps(cached(399_988, m5=1000)) + "\n")
+    os.utime(path, (time.time() - 4000, time.time() - 4000))
+    ten_ago = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(timespec="seconds")
+    with open(mesh.run_dir(run) / "log.jsonl", "a") as log:
+        log.write(json.dumps({"time": ten_ago, "event": "reset_requested", "name": "repo-lead"}) + "\n")
+    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) and not started
 
 
 @pytest.mark.parametrize("change", ["warm", "small", "working", "mail"])

@@ -494,8 +494,11 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 @contextmanager
-def file_lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
+def file_lock(path: Path, create: bool = True):
+    """An exclusive lock on `path`, making its folder unless `create` is False (then a missing one raises
+    FileNotFoundError)."""
+    if create:
+        path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
@@ -509,7 +512,9 @@ def file_lock(path: Path):
 
 
 def run_lock(run_id: str, folder: Path | None = None):
-    return file_lock((folder or run_dir(run_id)) / ".lock")
+    """The run's lock. It never makes the run's folder: one `mesh stop` archived must not come back half-made
+    (a watch's write mid-poll), so a missing run raises FileNotFoundError."""
+    return file_lock((folder or run_dir(run_id)) / ".lock", create=False)
 
 
 def load_run(run_id: str, folder: Path | None = None) -> dict:
@@ -1508,11 +1513,29 @@ def claude_env(strip_mesh: bool = False) -> dict[str, str]:
 
 HOOK_TIMEOUT = 30  # seconds Claude Code gives a worker's hook
 REMINDER_SOURCES = ("compact", "clear", "resume")  # SessionStart sources that get `mesh whoami --reminder`
+# Claude Code caps a hook's text (stdout, `additionalContext`, …) at 10,000 characters: past it, the session gets a
+# file path and a 2,000-character preview, and is never told to read the file. The Stop hook's `reason` is held to it
+# too. Hook text also carries no wall-clock time, so two renders of the same state match.
+HOOK_OUTPUT_MAX = 10_000
 
 
 def hook_command(*args: str) -> str:
     """A shell command running this script, by its absolute path, so a hook works whatever PATH the session has."""
     return shlex.join([str(Path(__file__).absolute()), *args])
+
+
+def hook_text(text: str, limit: int = HOOK_OUTPUT_MAX - 1) -> str:
+    """`text` within Claude Code's hook-output cap (less the newline `print` adds): cut from the middle at a line
+    end, keeping the last line (the reminder's commands, which name the worker) when it fits."""
+    if len(text) <= limit:
+        return text
+    more = "\n… (cut to fit a hook's output)\n"
+    head, _, tail = text.rpartition("\n")
+    if not head or len(tail) + len(more) > limit // 2:
+        tail = ""
+    room = max(0, limit - len(more) - len(tail))
+    cut = text.rfind("\n", 0, room)
+    return (text[:cut if cut > 0 else room] + more + tail)[:limit]
 
 
 def worker_hooks(run_id: str, name: str) -> dict:
@@ -2088,9 +2111,34 @@ def line_tokens(line: bytes) -> int | None:
     return None
 
 
-def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
-    """The newest reply's prompt in a Claude session file since its last compaction, read backwards from its
-    end (a root's file grows to tens of MB, and every root command measures it). None when it has neither."""
+TTL_LOOKBACK = 50  # replies past the newest that `transcript_usage` reads back for one that wrote to the cache
+CACHE_WRITES = {"ephemeral_1h_input_tokens": 3600, "ephemeral_5m_input_tokens": 300}
+
+
+def line_ttl(line: bytes) -> int | None:
+    """The cache lifetime a session file line's reply wrote at (3600 or 300 seconds): None for a reply that wrote
+    nothing (all of it read from cache), a subagent's (which gets 5 minutes whatever the session has), or any
+    other line. Claude Code picks the main conversation's TTL once per session: 1 h on a subscription within its
+    plan usage, 5 min on usage credits, an API key or a cloud provider."""
+    if b'"cache_creation"' not in line:
+        return None
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    if event.get("type") != "assistant" or event.get("isSidechain"):
+        return None
+    writes = ((event.get("message") or {}).get("usage") or {}).get("cache_creation") or {}
+    return max((ttl for key, ttl in CACHE_WRITES.items() if int(writes.get(key) or 0) > 0), default=None)
+
+
+def transcript_usage(path: Path, chunk: int = 1 << 20) -> tuple[int | None, int | None]:
+    """(the newest reply's prompt since the last compaction, the cache TTL the newest reply that wrote to the
+    cache used) in a Claude session file, read backwards from its end (a root's file grows to tens of MB, and
+    every root command measures it). The TTL is looked for up to TTL_LOOKBACK replies past the newest; either
+    is None when not found."""
+    tokens = ttl = None
+    replies = 0
     try:
         with open(path, "rb") as fh:
             end, rest = fh.seek(0, os.SEEK_END), b""
@@ -2100,12 +2148,22 @@ def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
                 lines = (fh.read(end - start) + rest).split(b"\n")
                 rest = lines.pop(0) if start else b""  # cut by the chunk: it's finished with the next one
                 for line in reversed(lines):
-                    if (tokens := line_tokens(line)) is not None:
-                        return tokens
+                    if tokens is None:
+                        tokens = line_tokens(line)
+                    if ttl is None:
+                        ttl = line_ttl(line)
+                        replies += b'"assistant"' in line and line_tokens(line) is not None
+                    if tokens is not None and (ttl is not None or replies > TTL_LOOKBACK):
+                        return tokens, ttl
                 end = start
     except OSError:
-        return None
-    return None
+        return None, None
+    return tokens, ttl
+
+
+def transcript_tokens(path: Path, chunk: int = 1 << 20) -> int | None:
+    """The newest reply's prompt in a Claude session file since its last compaction (`transcript_usage`)."""
+    return transcript_usage(path, chunk)[0]
 
 
 AGY_COMPACTION_STEP = 23  # a step holding a compaction's <summary>: a `/compact`, or agy's own
@@ -3814,6 +3872,21 @@ def log_path(run_id: str) -> Path:
     raise MeshError(f"unknown run {run_id} (no {run_dir(run_id)}, nor one in {mesh_home() / 'archive'})")
 
 
+def run_stopped(run_id: str) -> bool:
+    """Whether `mesh stop` has archived the run: no live folder, an archived one."""
+    return not (run_dir(run_id) / "run.json").exists() and (mesh_home() / "archive" / run_id / "run.json").exists()
+
+
+def stop_under_way(events: list[dict]) -> bool:
+    """Whether a `mesh stop` is closing the run: its `stopping` is the newest of its kind and its process lives."""
+    last = next((e for e in reversed(events) if e.get("event") in ("stopping", "stop_failed")), None)
+    return bool(last and last["event"] == "stopping" and pid_alive(last.get("pid"), last.get("start")))
+
+
+def stopped_line(run_id: str) -> str:
+    return f"run {run_id} stopped; nothing left to watch"
+
+
 REVIEW_GIST_RE = re.compile(r"^(Review \(read-only\) of (\S+?)(?: at \S+)?):\s")  # the PR, and the head it names
 LOG_SKIP = ("time", "event", "name", "sender", "to", "type", "file")
 
@@ -4121,7 +4194,7 @@ def cmd_hook(args: argparse.Namespace) -> int:
         print(f"mesh hook {args.event}: {exc}", file=sys.stderr)
         return 0
     if reason:
-        print(json.dumps({"decision": "block", "reason": reason}))
+        print(json.dumps({"decision": "block", "reason": hook_text(reason)}))
     return 0
 
 
@@ -4673,21 +4746,33 @@ class Roster:
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
                  alerts_only: bool, autoreset: bool = False, roster: Roster | None = None) -> tuple[int, str]:
     checked = float("-inf")  # when the root was last checked for an idle reset
+    stopped = (0, stopped_line(run_id))
     while True:
-        run = load_run(run_id)
-        events = read_log(run_id)  # one read per poll, shared by every watch
-        if roster:
-            roster.refresh(run, watches, events)
-        # One `claude agents` call per poll, shared by every background worker.
-        bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
-        if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
-            checked = time.monotonic()
-            quietly(maybe_autoreset, run_id, run, events)
-        for watch in watches:
-            event = watch.tick(interval, alerts_only, bg_rows, events)
-            if event:
-                return event
-        if all(w.finished for w in watches) and not (roster and roster.settling(watches)):
+        if run_stopped(run_id):  # `mesh stop` archived it under the watch: nothing more comes
+            return stopped
+        try:
+            run = load_run(run_id)
+            events = read_log(run_id)  # one read per poll, shared by every watch
+            if stop_under_way(events):  # it's closing the panes: a worker reading gone now is no news
+                return stopped
+            if roster:
+                roster.refresh(run, watches, events)
+            # One `claude agents` call per poll, shared by every background worker.
+            bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
+            if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
+                checked = time.monotonic()
+                quietly(maybe_autoreset, run_id, run, events)
+            for watch in watches:
+                event = watch.tick(interval, alerts_only, bg_rows, events)
+                if event:
+                    # a stop that began during this poll: its closed panes read gone
+                    return stopped if event[0] and stop_under_way(read_log(run_id)) else event
+            over = all(w.finished for w in watches) and not (roster and roster.settling(watches))
+        except (MeshError, OSError):
+            if run_stopped(run_id):  # archived mid-poll: a read or write of the live run failed
+                return stopped
+            raise
+        if over:
             # without --alerts only a retired worker finishes without returning
             left, ended = (roster.left, roster.ended) if roster else ([], [])
             if roster and not roster.ever:
@@ -6401,7 +6486,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     reply = take_reply(run_id, me, name) if status == 0 else None
     if not reply:
         print(line)
-        return status
+        return 1 if status == 0 and line == stopped_line(run_id) else status  # stopped with no answer: no success
     meta, text = reply
     print(f"── {meta.get('type')} from {name} ──\n{text}\n")
     is_peer = bool(peer) or bool(entry.get("peer"))  # a removed peer's conversation is still a peer's
@@ -7450,6 +7535,19 @@ def cmd_stop(args: argparse.Namespace) -> int:
                 kill = "kill it" if holder["answering"] == "mesh process" else f"kill it with `kill -- -{holder['pid']}`"
                 raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; wait for "
                                 f"it to finish (or {kill}), then stop the run")
+    # Watches end with 0 from here (`stop_under_way`), not with alerts on the panes this closes; a stop that
+    # fails says so, and one killed outright stops counting with its process.
+    log_event(run_id, "stopping", pid=os.getpid(), start=proc_start(os.getpid()))
+    try:
+        return stop_run(args, run_id, run)
+    except BaseException as exc:
+        if not run_stopped(run_id):
+            quietly(log_event, run_id, "stop_failed", error=str(exc) or type(exc).__name__)
+        raise
+
+
+def stop_run(args: argparse.Namespace, run_id: str, run: dict) -> int:
+    """`mesh stop` past its checks: close the agents, remove clean worktrees, archive the run."""
     file_orphans(run_id)  # into the run's mailboxes, archived with it, rather than lost
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
@@ -7567,7 +7665,7 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"mesh whoami --reminder: {exc}", file=sys.stderr)
             return 0
-        print(text)
+        print(hook_text(text))
         return 0
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), me)
@@ -7624,7 +7722,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
 # ── root context: measuring, resetting and briefing the root ─────────────
 
 
-CACHE_TTL = 3600  # seconds a prompt cache lives (Claude Code subscriptions; API keys get 300: MESH_CACHE_TTL)
+CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
 ROOT_RESET_AT = 300_000  # root context tokens past which mesh suggests `mesh reset`
 RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
@@ -7632,6 +7730,7 @@ RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two to
 CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
 CLEAR_FILE_GRACE = 5  # seconds the root's process file gets to follow a /clear herdr has already reported
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
+AUTORESET_BACKOFF = 3600  # seconds before a root watch starts another idle reset (a failing one shouldn't repeat)
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
 # herdr's `--lines N` is the screen's last N rows, blank ones under the content included: on a tall pane with
@@ -7667,8 +7766,12 @@ def env_int(key: str, default: int) -> int:
         return default
 
 
-def cache_ttl() -> int:
-    return env_int("MESH_CACHE_TTL", CACHE_TTL)
+def cache_ttl(session_ttl: int | None = None) -> int:
+    """The root's cache lifetime: MESH_CACHE_TTL when set (a live check fakes a short one), else what its session
+    file says Claude Code used (`line_ttl`), else CACHE_TTL."""
+    if os.environ.get("MESH_CACHE_TTL"):
+        return env_int("MESH_CACHE_TTL", CACHE_TTL)
+    return session_ttl or CACHE_TTL
 
 
 def root_reset_at() -> int:
@@ -7738,26 +7841,30 @@ def root_transcript(entry: dict, session: str) -> Path | None:
 def root_context(run: dict, as_root: bool = False) -> dict | None:
     """The root's context size and cache state, or None when it can't be read (an agy root before its first
     reset, a session file not found). The cache is cold once the conversation has been still for its TTL: its
-    next turn then re-reads every token at full price, where a warm one pays a twentieth."""
+    next turn then rewrites every token but the ~25k static prefix (system prompt and tools, cached machine-wide)
+    at the cache-write price, where a warm one reads them all at a twentieth of the input price."""
     entry = run["agents"].get(run.get("root")) or {}
     session = root_session(entry, as_root, lambda: reset_session(run["id"], run.get("root"))) \
         if entry.get("pane") else None
     if not session:
         return None
+    session_ttl = None
     if entry.get("kind") == "agy":
         tokens, files = agy_context_tokens(session), progress_files({"kind": "agy"}, session)
         transcript = agy_conversation_file(session)
     else:
         transcript = root_transcript(entry, session)
-        tokens, files = (transcript_tokens(transcript), [transcript]) if transcript else (None, [])
+        tokens, session_ttl = transcript_usage(transcript) if transcript else (None, None)
+        files = [transcript] if transcript else []
     if tokens is None:
         return None
     last = max((f.stat().st_mtime for f in files if f.exists()), default=None)
     idle = time.time() - last if last else None
+    ttl = cache_ttl(session_ttl)
     return {"kind": entry.get("kind"), "session": session, "transcript": str(transcript), "tokens": tokens,
             "last_turn": datetime.fromtimestamp(last, timezone.utc).isoformat(timespec="seconds") if last else None,
-            "idle": round(idle) if idle is not None else None,
-            "cold": idle is not None and idle > cache_ttl(), "reset_at": root_reset_at()}
+            "idle": round(idle) if idle is not None else None, "ttl": ttl,
+            "cold": idle is not None and idle > ttl, "reset_at": root_reset_at()}
 
 
 def kilo(tokens: int) -> str:
@@ -7770,7 +7877,7 @@ def context_text(context: dict) -> str:
     if context.get("last_turn") is None:
         return text
     if context["cold"]:
-        since = datetime.fromisoformat(context["last_turn"]) + timedelta(seconds=cache_ttl())
+        since = datetime.fromisoformat(context["last_turn"]) + timedelta(seconds=context["ttl"])
         return f"{text}, cache cold since {since.astimezone():%H:%M}"
     return f"{text}, cache warm ({ago(context['idle'])} since its last turn)"
 
@@ -7825,8 +7932,9 @@ def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, boo
     """The hint a root command prints about the root's own context, or None (design §15).
 
     A `/clear` never re-reads the old context, so a reset costs the fresh session's small prefix whenever it
-    happens; what it saves is the next turns of the big one: all of it at full price once the cache is cold,
-    a twentieth of it while warm. Hence: reset now when cold, or when about to wait (the next report may well
+    happens; what it saves is the next turns of the big one: all but its static prefix rewritten at the
+    cache-write price once the cache is cold, all of it at a twentieth while warm (design §15 says why the
+    threshold compares the whole size). Hence: reset now when cold, or when about to wait (the next report may well
     come after the cache expired); while warm, only when very big, at a quiet point. The second value says
     whether the line reports a failed or cancelled reset, which it does once.
     """
@@ -7846,11 +7954,11 @@ def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, boo
         reset = 'write notes.md, then run `mesh reset --next "<what you do next>"` and end your turn'
         waits = root_mail(run_id, run["root"])
         if context["cold"]:
-            notes.append(f"{context_text(context)}: its next turn re-reads all of it; {reset}"
+            notes.append(f"{context_text(context)}: its next turn re-reads all of it at the cache-write price; {reset}"
                          + (f", once you've handled {mail_text(waits)}" if waits else ""))
         elif about_to_wait and not waits:
             notes.append(f"{context_text(context)}, and you're about to wait on workers: a report that wakes you "
-                         f"after the cache expires ({ago(cache_ttl())}) re-reads all of it at full price; {reset}")
+                         f"after the cache expires ({ago(context['ttl'])}) re-reads all of it at the cache-write price; {reset}")
         elif context["tokens"] > 2 * at:
             notes.append(f"{context_text(context)}: at your next quiet point (a phase boundary, nothing waiting "
                          f"on you), {reset}")
@@ -8157,8 +8265,8 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     if entry.get("kind") not in KINDS or not entry.get("pane") or reset_pending(run_id):
         return False
     last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
-    if last and age_seconds(last["time"]) < cache_ttl():
-        return False  # one try per cache lifetime: a failing one shouldn't repeat every minute
+    if last and age_seconds(last["time"]) < AUTORESET_BACKOFF:
+        return False  # a failing one shouldn't repeat every minute (nor every 5 on a 5-minute cache)
     context = root_context(run)
     if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
         return False
