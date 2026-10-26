@@ -1993,6 +1993,18 @@ def test_a_stale_hold_is_dropped_and_the_message_gets_the_first_doorbell(mesh, f
     assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
 
+def test_reading_mail_drops_the_readers_hold_so_later_mail_rings(mesh, fake, run, monkeypatch):
+    held_worker(mesh, run)
+    as_worker(monkeypatch, run)
+    assert mesh.main(["inbox", "--peek"]) == 0  # a peek proves nothing
+    assert "held" in mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert mesh.main(["inbox"]) == 0
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})  # a later permission prompt
+    delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Yes.")
+    assert delivery["rung"] and "held" not in delivery and fake.called("agent", "prompt")
+
+
 def test_a_failed_release_keeps_the_hold_for_a_retry(mesh, fake, run, monkeypatch):
     held_worker(mesh, run)
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
@@ -2597,6 +2609,57 @@ def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
     _, rows = status_rows(mesh, run, capsys)
     row = rows["repo-fix-typo"]
     assert row["waiting"].endswith(f", waiting until {until.astimezone():%H:%M}") and row["needs"] == "worker"
+
+
+def test_status_shows_a_worker_held_at_a_startup_screen_until_it_is_past_it(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    held_worker(mesh, run)
+    at = mesh.load_run(run)["agents"]["repo-fix-typo"]["held"]["at"]
+    data, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("held at a startup screen (Settings Warning) since "
+                                     f"{mesh.datetime.fromisoformat(at).astimezone():%H:%M} (")
+    assert row["waiting"].endswith(", task stored") and row["needs"] == "root" and row["since"] == at
+    assert data["needs_root"] == ["repo-fix-typo"]
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # the user cleared it and prompted it
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].startswith("task unread ") and rows["repo-fix-typo"]["needs"] == "worker"
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})  # past it, and no watch rang it
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].startswith("task unread ") and rows["repo-fix-typo"]["needs"] == "root"
+    assert rows["repo-fix-typo"]["waiting"].endswith(", its first doorbell never rang: `mesh ring repo-fix-typo`")
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})
+    with mesh.editing_run(run) as data:  # its doorbell rang (`release_held`, `mesh ring`): the hold is gone
+        data["agents"]["repo-fix-typo"].pop("held")
+    _, rows = status_rows(mesh, run, capsys)
+    assert not rows["repo-fix-typo"]["waiting"].startswith("held")
+
+
+def test_status_shows_a_hold_with_no_task_and_an_unknown_state(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "unknown"}})  # herdr lost it, the pane lives
+    with mesh.editing_run(run) as data:  # spawned with no task
+        data["agents"]["repo-fix-typo"]["held"] = {"sender": None, "type": None, "file": None,
+                                                   "screen": "Settings Warning", "at": mesh.now_iso()}
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("held at a startup screen (Settings Warning) since ") and row["needs"] == "root"
+    assert "stored" not in row["waiting"]
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})  # nothing to ring
+    _, rows = status_rows(mesh, run, capsys)
+    assert (rows["repo-fix-typo"]["waiting"], rows["repo-fix-typo"]["needs"]) == ("no task", None)
+
+
+def test_status_ignores_a_stale_hold_the_worker_got_past(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})  # e.g. a permission prompt later on
+    path = held_worker(mesh, run)
+    mesh.mark_read(path)  # it read its task: past the screen, though no ring dropped the hold
+    _, rows = status_rows(mesh, run, capsys)
+    assert rows["repo-fix-typo"]["waiting"].startswith("on task ")
+    mesh.record(run, "repo-fix-typo", "repo-lead", "plan", "My plan")
+    _, rows = status_rows(mesh, run, capsys)
+    row = rows["repo-fix-typo"]
+    assert row["waiting"].startswith("plan unanswered ") and row["waiting"].endswith(", unread")
+    assert row["report"] == "plan" and row["needs"] == "root"
 
 
 def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
