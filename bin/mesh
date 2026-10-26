@@ -3177,6 +3177,8 @@ def session_reset(events: list[dict], name: str) -> bool:
 
 def cmd_inbox(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
+    if not args.peek:
+        file_orphans(run_id, me)  # an answer a killed `mesh ask` left with its Copilot asker
     folder = inbox_dir(run_id, me)
     paths = unread(run_id, me)
     if args.all and (folder / "read").exists():
@@ -3469,6 +3471,8 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
             mtype, since = received["type"], received.get("time")
             if retired:
                 text, needs = "retired before reporting", None
+            elif entry.get("view") == "headless" and entry.get("status") == "running" and row["state"] == "gone":
+                text, needs = "answer waiting: `mesh inbox` files it", "root"  # a killed `mesh ask` (file_orphan)
             elif (inbox_dir(run_id, name) / str(received.get("file"))).exists():
                 text, needs = f"{mtype} unread {ago(age_seconds(since))}", "worker"
                 if doorbell_failed(events, name, received.get("file")):
@@ -3987,6 +3991,7 @@ class Watch:
         # baseline is the count before its question, and which reads the reply itself).
         self.unread_report = None if finals_at_start is not None else unread_report(run_id, entry.get("parent"), name)
         self.log = entry.get("log")
+        self.headless = entry.get("view") == "headless"
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.session: str | None = None  # its conversation, once found (see conversation)
         self.session_tried: float | None = None
@@ -4008,6 +4013,8 @@ class Watch:
         """(status, line) once there is something to say, else None. `events` is this poll's read of the log."""
         run_id, name = self.run_id, self.name
         events = read_log(run_id) if events is None else events
+        if self.headless and file_orphan(run_id, name):  # a killed `mesh ask` left its answer unfiled
+            events = read_log(run_id)
         event = self.report_event(events, alerts_only) or self.quota_event()
         if event:
             return event
@@ -4605,7 +4612,7 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
             return {"name": name, "pane_id": None, "bg_id": row.get("id")}
     if entry.get("view") == "headless":
         # Busy while the `mesh ask` running it lives, or the copilot it started, which a killed one leaves
-        # running (copilot_ask); a `running` they both left is stale.
+        # running (copilot_ask); a `running` they both left is an answer file_orphan files.
         if entry.get("status") != "running":
             return None
         for key, answering in (("pid", "mesh process"), ("copilot_pid", "copilot process")):
@@ -5500,8 +5507,8 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
 
     The caller has marked the entry `running` with this process's pid (`claim_copilot`), and copilot's own
-    pid joins it while it runs, in a session of its own: a killed `mesh ask` leaves it answering, and
-    live_holder then still finds it busy. Every task goes
+    pid joins it while it runs, in a session of its own: a killed `mesh ask` leaves it answering, live_holder
+    then still finds it busy, and file_orphan files its answer once it exits. Every task goes
     under the session id recorded at spawn, which starts the session the first time and
     resumes it after, so the asker keeps what it read. The prompt goes on stdin: a review's diff can be
     larger than one command-line argument may be.
@@ -5539,6 +5546,72 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
             agent["model"] = model or agent["model"]
 
 
+def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
+    """The report copilot_ask would have filed for `task`, read back from the asker's session events once copilot
+    has exited: (type, body, model). Copilot writes each ask there as a `user.message` holding the prompt mesh
+    piped in, then the turn's events, then `session.shutdown` when it exits on its own (none when it is killed)."""
+    try:
+        lines = copilot_events(entry).read_text().splitlines()
+    except OSError:
+        lines = []
+    events = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    asked = [i for i, e in enumerate(events) if e.get("type") == "user.message" and isinstance(e.get("data"), dict)
+             and str(e["data"].get("content") or "").lstrip().startswith(task.strip())]
+    if not asked:
+        return "failed", "copilot never got the task: its `mesh ask` was killed", None
+    turn = events[asked[-1] + 1:]
+    if not any(e.get("type") == "session.shutdown" for e in turn):
+        return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
+    text, model = copilot_answer("\n".join(json.dumps(e) for e in turn))
+    if not text:
+        return "failed", "copilot gave no answer (exit 0)", None
+    return "done", text, model
+
+
+def file_orphan(run_id: str, name: str) -> str | None:
+    """File the report a Copilot asker owes when a SIGKILLed `mesh ask` left copilot answering and copilot has
+    exited since (copilot_turn), and release the asker as copilot_ask would. Under the run lock, and only while the
+    entry is still `running` with neither process alive, so whoever finds it first (the next ask, a watch, the
+    root's inbox, stop) files it, once. The type filed, or None."""
+    if not maybe_run(run_id):
+        return None  # archived
+    with editing_run(run_id) as run:
+        agent = run["agents"].get(name)
+        if not agent or agent.get("view") != "headless" or agent.get("status") != "running" \
+                or live_holder(name, agent):
+            return None
+        report, received = last_report(read_log(run_id), name)
+        filed = None
+        # None when its `mesh ask` died before recording the task, or after filing the answer.
+        if received and received.get("type") == "task" and not (report and report.get("type") in FINAL_TYPES):
+            filed, body, model = copilot_turn(agent, message_body(run_id, received))
+            record(run_id, name, received["sender"], filed, body)
+            log_event(run_id, "copilot_filed", name=name, type=filed)
+            agent["model"] = model or agent["model"]
+        agent["status"] = "retired"
+        for key in PROCESS_KEYS:
+            agent.pop(key, None)
+    if filed:
+        print(f"mesh: filed {name}'s `{filed}` from its Copilot session, which a killed `mesh ask` left answering "
+              "(`mesh inbox` shows it)", file=sys.stderr)
+    return filed
+
+
+def file_orphans(run_id: str, parent: str | None = None) -> None:
+    """file_orphan for each Copilot asker of the run (of `parent`'s only, when given) that may be one."""
+    for name, entry in (maybe_run(run_id) or {}).get("agents", {}).items():
+        if entry.get("view") == "headless" and entry.get("status") == "running" \
+                and (parent is None or entry.get("parent") == parent):
+            file_orphan(run_id, name)
+
+
 def refuse_busy(name: str, entry: dict) -> None:
     holder = live_holder(name, entry)
     if holder and holder.get("pid"):
@@ -5549,7 +5622,7 @@ def refuse_busy(name: str, entry: dict) -> None:
 def claim_copilot(entry: dict) -> None:
     """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it."""
     for key in PROCESS_KEYS:
-        entry.pop(key, None)  # a copilot a killed `mesh ask` left is gone by now (refuse_busy)
+        entry.pop(key, None)  # a copilot a killed `mesh ask` left is gone by now (refuse_busy), its answer filed
     entry.update(status="running", pid=os.getpid(), pid_start=proc_start(os.getpid()))
 
 
@@ -5598,6 +5671,8 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
     if target:
         old_run, _, old_name, old = target
+        if file_orphan(old_run["id"], old_name):  # its last answer first, so this one isn't taken for it
+            old = agent_entry(load_run(old_run["id"]), old_name)
         if old_run["id"] != run_id:
             refuse_busy(old_name, old)
         branch = entry_branch(old_run, old)
@@ -6806,6 +6881,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
                 kill = "kill it" if holder["answering"] == "mesh process" else f"kill it with `kill -- -{holder['pid']}`"
                 raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; wait for "
                                 f"it to finish (or {kill}), then stop the run")
+    file_orphans(run_id)  # into the run's mailboxes, archived with it, rather than lost
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
         if entry.get("view") == "headless" and entry.get("pane"):  # a peek pane a killed `mesh ask` left open
