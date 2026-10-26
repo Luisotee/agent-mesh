@@ -6644,6 +6644,56 @@ def test_conflicts_matches_committed_renames_and_non_ascii_paths(mesh, fake, run
     assert overlap_pairs(mesh, capsys) == {frozenset(("b1", "b2")): ["café.txt", "r.txt"]}
 
 
+def test_mesh_reads_a_workers_worktree_without_writing_its_index(mesh, fake, run, repo, capsys):
+    commit_file(repo, "a.txt", "1\n", "base")
+    b1, branch, base = mesh.add_worktree(run, repo, "b1", None)
+    index = Path(subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-path", "index"], cwd=b1,
+                                check=True, capture_output=True, text=True).stdout.strip())
+    os.utime(b1 / "a.txt", (1e9, 1e9))  # its stat changed, its content didn't: a refresh rewrites the index
+    before = index.read_bytes()
+    assert overlap_pairs(mesh, capsys) == {}  # `git status` in changed_files
+    entry = {"repo": str(repo), "branch": branch, "base": base, "cwd": str(b1)}
+    assert mesh.work_evidence(mesh.load_run(run), entry)["dirty"] is False  # `git status` through git()
+    assert index.read_bytes() == before  # never took the worker's index.lock
+    subprocess.run(["git", "status", "--porcelain"], cwd=b1, check=True, capture_output=True)
+    assert index.read_bytes() != before  # git's own default would have
+
+
+def test_conflicts_asks_each_ancestry_question_once(mesh, fake, run, repo, capsys, monkeypatch):
+    commit_file(repo, "a.txt", "1\n", "base")
+    for slug in ("b1", "b2", "b3"):
+        path, _, _ = mesh.add_worktree(run, repo, slug, None)
+        commit_file(path, "a.txt", f"{slug}\n", slug)
+    b4, _, _ = mesh.add_worktree(run, repo, "b4", "mesh/mtest/b1")  # stacked on b1
+    commit_file(b4, "a.txt", "b4\n", "b4")
+    asked, real = [], subprocess.run
+
+    def spy(argv, *args, **kwargs):
+        if argv[:3] == ["git", "merge-base", "--is-ancestor"]:
+            asked.append(tuple(argv[3:]))
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(mesh.subprocess, "run", spy)
+    pairs = overlap_pairs(mesh, capsys)
+    assert frozenset(("b1", "b4")) not in pairs and frozenset(("b1", "b2")) not in pairs  # stacked; a conflict
+    assert asked and len(asked) == len(set(asked))
+    assert all(len(commit) == 40 for pair in asked for commit in pair)  # by commit, not by name
+
+
+def test_ancestry_asks_once_per_pair_of_commits_and_a_missing_ref_is_in_nothing(mesh, repo):
+    commit_file(repo, "a.txt", "1\n", "base")
+    subprocess.run(["git", "branch", "side"], cwd=repo, check=True)
+    side = subprocess.run(["git", "rev-parse", "side"], cwd=repo, check=True, capture_output=True,
+                          text=True).stdout.strip()
+    commit_file(repo, "b.txt", "2\n", "main moves on")
+    ancestry = mesh.Ancestry(str(repo), {})
+    assert ancestry.contains("side", "main") and ancestry.contains(side, "main")
+    assert len(ancestry.known) == 1  # two names for one commit
+    assert not ancestry.contains("main", "side")
+    assert not ancestry.contains("0" * 40, "main") and not ancestry.contains("main", "gone")
+    assert len(ancestry.known) == 2
+
+
 def test_a_bg_approve_whose_launch_failed_can_be_run_again(mesh, fake, cli, run, capsys):
     claude_root(mesh, run)
     bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium")
