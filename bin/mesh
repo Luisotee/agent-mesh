@@ -5068,6 +5068,50 @@ def fix_commits(repo: Path, last: str, head: str) -> bool:
         return False
 
 
+REVIEW_STAYS = ("Your worktree is still at {last}, not the new head, because {why}: read the new head with "
+                "`git show {head}:<path>`.")
+
+
+def move_reviewer(run_id: str, target: tuple, last: str | None, head: str | None) -> tuple[bool, str]:
+    """Move a fresh reviewer asked again to the PR's new head, as `ask --repo` started it: its run branch at the
+    head, recorded as its `base`. Only its own review checkout (its `base` is the head it last reviewed), clean,
+    with no commits of its own, and not mid-turn. (moved, why not: for the task, empty when there's nothing to
+    move)."""
+    old_run, _, name, entry = target
+    cwd, repo, branch = entry.get("cwd"), entry.get("repo"), entry_branch(old_run, entry)
+    if (not (last and head and last != head) or entry.get("base") != last or entry.get("peer") or not branch
+            or not repo or not cwd or Path(cwd).resolve() == Path(repo).resolve()):
+        return False, ""
+    live = old_run["id"] == run_id and entry.get("status") != "retired"
+    if live and agent_status(name, entry) not in ("gone", "idle", "done"):
+        return False, "you were busy when this task was sent"
+    try:
+        if Path(cwd).exists():
+            if git("rev-parse", "HEAD", cwd=cwd) != last:
+                return False, "it has moved off the head you last reviewed"
+            if git("status", "--porcelain", cwd=cwd):
+                return False, "it has uncommitted changes"
+            git("reset", "-q", "--keep", head, cwd=cwd)
+        else:  # stopped: `mesh stop` removed the clean worktree, and an untouched branch with it
+            try:
+                tip = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo)
+            except MeshError:
+                tip = None
+            if tip and tip != last:
+                return False, f"its branch {branch} has moved off the head you last reviewed"
+            if tip:
+                git("branch", "-f", branch, head, cwd=repo)
+    except (MeshError, OSError) as e:
+        return False, f"mesh couldn't move it ({e})"
+    with editing_run(old_run["id"]) as run:  # so `mesh stop` still sees the branch untouched, and a resume uses it
+        run["agents"][name]["base"] = head
+        for wt in run.get("worktrees", []):
+            if Path(wt["path"]) == Path(cwd):
+                wt["base"] = head
+    entry["base"] = head
+    return True, ""
+
+
 def record_review(run_id: str, name: str, pr: str, head: str | None) -> None:
     """The PR in `reviews`, so `mesh resume <pr>` still finds the author, not the reviewer, and the head it
     read in `review_heads`, so asking it again names what changed since."""
@@ -5466,7 +5510,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
     kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
                                       or load_run(run_id)["mode"])
     narrow = not (last and head and last != head) or fix_commits(repo, last, head)
-    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last, kind=kind, narrow=narrow,
+    moved, stays = move_reviewer(run_id, target, last, head) if pr and target else (False, "")
+    if stays:
+        print(f"mesh: {target[2]}'s worktree stays at {last} ({stays})", file=sys.stderr)
+        body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(last=last, head=head, why=stays)) if part)
+    task = ask_task(body, pr, number, fresh=bool(args.repo) or moved, head=head, last=last, kind=kind, narrow=narrow,
                     repo=repo)
     base = head if args.repo else None
     if copilot:
