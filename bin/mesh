@@ -3363,7 +3363,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     run_id, me = caller(args, args.run_id)
     run = load_run(run_id)
     rows = status_rows(run_id, run)
-    context = quietly(root_context, run)
+    context = quietly(root_context, run, as_root=me == run["root"])
     if args.json:
         emit({"run": run_id, "mode": run["mode"], "agents": rows,
               "needs_root": [r["name"] for r in rows if r["needs"] == "root"], "root_context": context})
@@ -6395,7 +6395,6 @@ RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
 CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
-RESET_FAILED_SHOWN = 3600  # seconds a failed or cancelled reset stays in the root's hint line
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
 # herdr's `--lines N` is the screen's last N rows, blank ones under the content included: on a tall pane with
@@ -6412,13 +6411,16 @@ def quietly(fn, *args, **kwargs):
 
 
 def caller(args: argparse.Namespace, run_id: str | None) -> tuple[str, str | None]:
-    """(run, own name) for a command that may name its run: the name is None when it isn't in one."""
+    """(run, own name) for a command that may name another run than the caller's: the name is None unless the
+    caller is an agent of that run. Its own identity is resolved as any command's, so nothing of the named run
+    is touched (no rebind, no address) when it isn't the caller's."""
     if not run_id:
         return identity(args)
     try:
-        return run_id, identity(args)[1]
+        own_run, name = identity(args)
     except MeshError:
         return run_id, None
+    return run_id, name if own_run == run_id else None
 
 
 def env_int(key: str, default: int) -> int:
@@ -6448,17 +6450,17 @@ def pane_agent(pane: str) -> dict:
         return {}
 
 
-def root_session(entry: dict, use_env: bool = True) -> str | None:
-    """The root's current conversation. Claude: in a root command (`use_env`), the session it runs under (it
-    follows a /clear), else, for a process that may outlive that session (the root's watch, a reset), what
-    herdr's Claude integration reports for the pane (seen to follow a /clear too); agy: the one its last
-    `mesh reset` recorded, as nothing ties an agy conversation to a pane before that."""
+def root_session(entry: dict, as_root: bool = False) -> str | None:
+    """The root's current conversation. Claude: what herdr's Claude integration reports for the root's pane (it
+    follows a /clear: seen live); a command the root itself runs (`as_root`) may use the session it runs under
+    when herdr agrees or can't say. Never the caller's session otherwise: a worker's, or the old session of a
+    root watch that outlived a reset, isn't the root's. agy: the one its last `mesh reset` recorded, as nothing
+    ties an agy conversation to a pane before that."""
     if entry.get("kind") == "agy":
         return entry.get("session")
-    if use_env:
-        return os.environ.get("CLAUDE_CODE_SESSION_ID")
-    session = pane_agent(entry["pane"]).get("agent_session") or {} if entry.get("pane") else {}
-    return session.get("value")
+    reported = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value") if entry.get("pane") else None
+    own = os.environ.get("CLAUDE_CODE_SESSION_ID") if as_root else None
+    return own if own and reported in (None, own) else reported
 
 
 def root_transcript(entry: dict, session: str) -> Path | None:
@@ -6469,12 +6471,12 @@ def root_transcript(entry: dict, session: str) -> Path | None:
     return next(iter(sorted(base.glob(f"*/{session}.jsonl"))), None)
 
 
-def root_context(run: dict, use_env: bool = True) -> dict | None:
+def root_context(run: dict, as_root: bool = False) -> dict | None:
     """The root's context size and cache state, or None when it can't be read (an agy root before its first
     reset, a session file not found). The cache is cold once the conversation has been still for its TTL: its
     next turn then re-reads every token at full price, where a warm one pays a twentieth."""
     entry = run["agents"].get(run.get("root")) or {}
-    session = root_session(entry, use_env) if entry.get("pane") else None
+    session = root_session(entry, as_root) if entry.get("pane") else None
     if not session:
         return None
     if entry.get("kind") == "agy":
@@ -6522,7 +6524,8 @@ def mail_text(mail: list[dict]) -> str:
     return ", ".join(f"a {m.get('type')} from {m.get('from')}" for m in mail)
 
 
-RESET_EVENTS = ("reset_requested", "reset", "reset_failed", "reset_cancelled")
+# `reset_noted`: a root command showed the root that its last reset failed or was cancelled (once is enough).
+RESET_EVENTS = ("reset_requested", "reset", "reset_failed", "reset_cancelled", "reset_noted")
 
 
 def last_reset(events: list[dict]) -> dict | None:
@@ -6547,24 +6550,26 @@ def reset_pending(run_id: str) -> bool:
     return False
 
 
-def root_line(run_id: str, about_to_wait: bool = False) -> str | None:
+def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, bool]:
     """The hint a root command prints about the root's own context, or None (design §14).
 
     A `/clear` never re-reads the old context, so a reset costs the fresh session's small prefix whenever it
     happens; what it saves is the next turns of the big one: all of it at full price once the cache is cold,
     a twentieth of it while warm. Hence: reset now when cold, or when about to wait (the next report may well
-    come after the cache expired); while warm, only when very big, at a quiet point.
+    come after the cache expired); while warm, only when very big, at a quiet point. The second value says
+    whether the line reports a failed or cancelled reset, which it does once.
     """
     run = load_run(run_id)
     events = read_log(run_id)
     notes = []
     last = last_reset(events)
     if reset_pending(run_id):
-        return None
-    if last and last["event"] in ("reset_failed", "reset_cancelled") and age_seconds(last["time"]) < RESET_FAILED_SHOWN:
+        return None, False
+    failure = bool(last and last["event"] in ("reset_failed", "reset_cancelled"))
+    if failure:
         what = "failed" if last["event"] == "reset_failed" else "was cancelled"
         notes.append(f"the last `mesh reset` {what} {ago(age_seconds(last['time']))}: {last.get('reason')}")
-    context = root_context(run)
+    context = root_context(run, as_root=True)
     at = root_reset_at()
     if context and context["tokens"] > at:
         reset = 'write notes.md, then run `mesh reset --next "<what you do next>"` and end your turn'
@@ -6578,19 +6583,23 @@ def root_line(run_id: str, about_to_wait: bool = False) -> str | None:
         elif context["tokens"] > 2 * at:
             notes.append(f"{context_text(context)}: at your next quiet point (a phase boundary, nothing waiting "
                          f"on you), {reset}")
-    return "; ".join(notes) or None
+    return "; ".join(notes) or None, failure
 
 
 def root_hint(run_id: str, about_to_wait: bool = False) -> None:
     """Print `root_line` on stderr; never fails the command (like `warn_unwatched`). For root commands only."""
-    if line := quietly(root_line, run_id, about_to_wait):
+    line, failure = quietly(root_line, run_id, about_to_wait) or (None, False)
+    if line:
         print(f"mesh: {line} (see ORCHESTRATE.md, \"Your own context\")", file=sys.stderr)
+    if failure:
+        quietly(log_event, run_id, "reset_noted", name=(maybe_run(run_id) or {}).get("root"))
 
 
 def start_reset(run_id: str, root: str, next_task: str | None, compact: str | None, via: str) -> int:
     """Start the detached process that resets the root once its turn ends, holding the run's reset lock.
 
-    The lock is taken here and handed down, so two `mesh reset` calls can't both start one. The child gets
+    The lock is taken here and handed down (the child inherits the open file through `pass_fds` and holds it
+    until it exits), so two `mesh reset` calls can't both start one. The child gets
     no Claude session variables: it is nobody's tool, and names the root with --run/--as.
     """
     path = reset_lock_path(run_id)
@@ -6603,7 +6612,7 @@ def start_reset(run_id: str, root: str, next_task: str | None, compact: str | No
     log = run_dir(run_id) / "logs" / "reset.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, str(Path(__file__).absolute()), "reset", "--run", run_id, "--as", root,
-            "--detached", "--lock-fd", str(handle.fileno()), "--via", via,
+            "--detached", "--via", via,
             *(["--next", next_task] if next_task else []), *(["--compact", compact] if compact is not None else [])]
     env = {k: v for k, v in os.environ.items() if k not in CLAUDE_SESSION_VARS and k not in MESH_IDS}
     try:
@@ -6665,26 +6674,51 @@ def agy_conversations() -> set[str]:
     return {p.stem for p in folder.glob("*.db")} if folder.is_dir() else set()
 
 
-def cleared_session(entry: dict, before: str | None, agy_before: set[str]) -> str | None:
-    """The new conversation a typed /clear started, once it shows: Claude's from herdr (its integration reports
-    the clear), agy's as a conversation file that wasn't there before; None if none showed in time."""
+def cleared_session(entry: dict, before: str | None, agy_before: set[str]) -> set[str]:
+    """The new conversation(s) a typed /clear started, once one shows: Claude's from herdr (its integration
+    reports the clear), agy's as conversation files that weren't there before (another agy may have started one
+    meanwhile: `agy_root_conversation` tells them apart); empty if none showed in time."""
     for _ in range(CLEAR_CONFIRM):
         if entry.get("kind") == "agy":
-            if new := sorted(agy_conversations() - agy_before):
-                return new[-1]
+            if new := agy_conversations() - agy_before:
+                return new
         else:
             current = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value")
             if current and current != before:
-                return current
+                return {current}
+        time.sleep(1)
+    return set()
+
+
+def agy_root_conversation(candidates: set[str], token: str) -> str | None:
+    """Which of the new agy conversations is the root's: the only one, else the one whose first prompt (agy's
+    index keeps it as `preview`) is the bootstrap carrying this reset's token; None when that can't be told."""
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    source = Path(os.environ.get("MESH_AGY_SUMMARIES") or Path.home() / AGY_HOME / "conversation_summaries.db")
+    for _ in range(CLEAR_CONFIRM):
+        try:
+            mtime = max(f.stat().st_mtime for f in (source, source.with_name(source.name + "-wal")) if f.exists())
+        except (OSError, ValueError):
+            mtime = None
+        if mtime is not None:
+            for row in agy_summaries(str(source), mtime):
+                if row["conversationId"] in candidates and f"(ref {token})" in row["display"]:
+                    return row["conversationId"]
         time.sleep(1)
     return None
 
 
-def bootstrap_text(run_id: str, root: str, next_task: str | None, compacted: bool, token: str) -> str:
+def bootstrap_text(run_id: str, root: str, next_task: str | None, compacted: bool, token: str,
+                   via: str = "command") -> str:
     """The prompt a reset root wakes to. It is a doorbell (so `human_draft` takes a leftover copy for ours), but
-    a root's: it has no parent to report to."""
+    a root's: it has no parent to report to. After the watch's idle reset, the root may have been waiting on the
+    user: ORCHESTRATE has it write such a question to notes.md, and the prompt says to look there."""
     what = "compacted your session" if compacted else "gave you a fresh session (your earlier context is gone)"
     then = next_task or "carry on from the next step in your notes"
+    if via == "watch":
+        then += ("; if notes.md says you were waiting on an answer from the user, ask the user again rather "
+                 "than going on without it")
     return (f"{DOORBELL_PREFIX} (ref {token}) You are {root}, the root of agent-mesh run {run_id}, and `mesh reset` "
             f"just {what}. You have no parent to report to. Run `mesh brief` and rebuild your picture from it, "
             f"not from memory. Then: {then}")
@@ -6696,7 +6730,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
     run = load_run(run_id)
     entry = run["agents"][root]
     pane, kind = entry["pane"], entry.get("kind")
-    context = quietly(root_context, run, use_env=False)
+    context = quietly(root_context, run)
     deadline = time.monotonic() + env_int("MESH_RESET_WAIT", RESET_WAIT)
     quiet, why = 0, "it never read idle"
 
@@ -6714,7 +6748,8 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                 if ok:
                     if waits := root_mail(run_id, root, BLOCKING_TYPES):  # a report on its way rings after this
                         return failed("reset_cancelled", f"{mail_text(waits)} arrived")
-                    before = (pane_agent(pane).get("agent_session") or {}).get("value")
+                    before = entry.get("session") if kind == "agy" else \
+                        (pane_agent(pane).get("agent_session") or {}).get("value")
                     agy_before = agy_conversations() if kind == "agy" else set()
                     command = f"/compact {compact}".strip() if compact is not None else "/clear"
                     try:
@@ -6737,22 +6772,29 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                   str(COMPACT_TIMEOUT * 1000), timeout=COMPACT_TIMEOUT + 30)
         except HerdrError as exc:
             return failed("reset_failed", f"the compaction didn't finish: {exc.code}")
-        new = before
+        candidates = {before} if before else set()  # a compaction keeps the conversation
     else:
-        new = cleared_session(entry, before, agy_before)
-        if not new:
+        candidates = cleared_session(entry, before, agy_before)
+        if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
-        if kind == "agy":
-            with editing_run(run_id) as data:
-                data["agents"][root]["session"] = new  # so it is measured from now on
     token = ring_token()
-    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token), token)
+    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token)
     if not result["rung"]:
         return failed("reset_failed", f"its session was reset, but the prompt to run `mesh brief` didn't get "
                                       f"through ({result['error']})")
+    note = None
+    if kind == "agy":
+        # Its conversation, recorded so it is measured from now on; a guess would measure someone else's.
+        new = agy_root_conversation(candidates, token) if candidates else None
+        if new is None and candidates:
+            note = "couldn't tell which new agy conversation is the root's; it isn't measured until its next reset"
+        with editing_run(run_id) as data:
+            data["agents"][root]["session"] = new
+    else:
+        new = next(iter(candidates), None)
     log_event(run_id, "reset", name=root, via=via, compact=compact, next=next_task, old_session=before,
               new_session=new, tokens=(context or {}).get("tokens"),
-              transcript=(context or {}).get("transcript"))
+              transcript=(context or {}).get("transcript"), **({"note": note} if note else {}))
     print(f"mesh reset: done ({before} → {new})", flush=True)
     return 0
 
@@ -6767,7 +6809,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
     if last and age_seconds(last["time"]) < cache_ttl():
         return False  # one try per cache lifetime: a failing one shouldn't repeat every minute
-    context = root_context(run, use_env=False)
+    context = root_context(run)
     if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
         return False
     if pane_agent(entry["pane"]).get("agent_status") not in QUIET_STATES:
@@ -6778,6 +6820,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
 
 
 BRIEF_TEXT = 4000  # characters of board.md and of notes.md a brief carries
+BRIEF_REQUEST = 1000  # characters of the run's request
 BRIEF_ROWS = 25
 BRIEF_MAIL = 10
 
@@ -6824,13 +6867,16 @@ def brief(run_id: str, me: str) -> dict:
                        "text": capped(path.read_text(errors="replace").strip(), BRIEF_TEXT, f"cat {path}")
                        if path.exists() else None}
     reset = next((e for e in reversed(events) if e.get("event") == "reset"), None)
-    context = quietly(root_context, run)
+    context = quietly(root_context, run, as_root=me == root)
+    procedure = ("you are the run's root: follow ~/.config/agent-mesh/ORCHESTRATE.md (Root, and Task lists or "
+                 "Questions and reviews as this run needs) and PROTOCOL.md; read them again now if this session "
+                 "hasn't") if me == root else (f"you are {me}, not this run's root ({root}): this is its view of "
+                                               "the run, and nothing in it is yours to act on")
     return {
         "run": run_id, "mode": run["mode"], "dir": str(folder), "you": me, "root": root,
-        "request": run.get("request") or "",
-        "procedure": ("you are the run's root: follow ~/.config/agent-mesh/ORCHESTRATE.md (Root, and Task lists "
-                      "or Questions and reviews as this run needs) and PROTOCOL.md; read them again now if this "
-                      "session hasn't"),
+        "request": capped(run.get("request") or "", BRIEF_REQUEST,
+                          f"python3 -c 'import json; print(json.load(open(\"{folder / 'run.json'}\"))[\"request\"])'"),
+        "procedure": procedure,
         "root_context": context, "notes": texts["notes.md"], "board": texts["board.md"],
         "workers": capped_list(lines, BRIEF_ROWS, "mesh status"),
         "needs_root": [r["name"] for r in rows if r["needs"] == "root"],
@@ -7110,7 +7156,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--compact", nargs="?", const="", metavar="FOCUS",
                    help="type /compact [FOCUS] instead of /clear: for a root with its own repo's work in flight")
     p.add_argument("--detached", action="store_true", help=argparse.SUPPRESS)
-    p.add_argument("--lock-fd", type=int, help=argparse.SUPPRESS)
     p.add_argument("--via", default="command", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_reset)
 
