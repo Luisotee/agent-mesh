@@ -3799,6 +3799,72 @@ def test_a_named_model_on_a_resume_mid_plan_keeps_the_list_but_not_the_phase(mes
     assert deny_rules(started(fake)) and (entry["planning"], entry["phase"], entry["pinned"]) == (True, None, True)
 
 
+def test_a_direct_task_ends_a_plan_phase_with_no_deny_list_too(mesh, fake, run, capsys):
+    for kind, model in (("claude", "opus"), ("agy", "claude-opus-5-5-high")):
+        planning_worker(mesh, run, kind=kind, model=model)  # a sent plan's phase: no `planning`, no list
+        assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Add more."]) == 0
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "plan"  # a task it plans keeps it
+        assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+        entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+        assert entry["phase"] is None and not entry.get("planning") and not fake.called("agent", "start")
+    assert [e["name"] for e in mesh.read_log(run) if e["event"] == "plan_phase_ended"] == ["repo-fix-typo"] * 2
+
+
+def test_a_resume_mid_plan_keeps_an_agy_planner_and_not_one_that_finished(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="agy", session="c1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    planned = mesh.load_run(run)["agents"][name]
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name]) == 0
+    entry = mesh.load_run(run)["agents"][name]
+    assert (entry["phase"], entry["model"], entry["exec_model"]) == ("plan", planned["model"], "flash")
+    # It reported `done` without an approval (the fix was already in): it no longer owes a plan.
+    mesh.record(run, name, "repo-lead", "done", "Already fixed on main.")
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name]) == 0
+    assert mesh.load_run(run)["agents"][name]["phase"] is None
+
+
+def test_a_claude_worker_that_finished_mid_plan_resumes_without_the_list(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", DIRECT_FIX]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    with mesh.editing_run(run) as data:  # a plan phase from a sent plan, then a `done` with no approval
+        data["agents"][name].update(status="retired", phase="plan", exec_model="opus", exec_effort="medium")
+    mesh.record(run, name, "repo-lead", "done", "Nothing to change.")
+    assert mesh.main(["resume", name]) == 0
+    entry = mesh.load_run(run)["agents"][name]
+    assert not deny_rules(started(fake)) and (entry["planning"], entry["phase"]) == (False, None)
+
+
+def test_a_no_task_resume_keeps_an_asker_read_only(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Question (read-only)\n\nWhy?"]) == 0
+    name = json.loads(capsys.readouterr().out)["name"]
+    with mesh.editing_run(run) as data:
+        data["agents"][name]["status"] = "retired"
+    assert mesh.main(["resume", name]) == 0  # a follow-up question sent while it was stopped
+    entry = mesh.load_run(run)["agents"][name]
+    assert "Bash(git push:*)" in deny_rules(started(fake)) and (entry["read_only"], entry["planning"]) == (True, False)
+
+
+def test_resume_of_a_live_worker_with_a_task_it_plans_says_retire_first(mesh, fake, run, repo, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", cwd=str(repo), repo=str(repo), session="s-1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w9:p3", "name": "repo-fix-typo", "cwd": str(repo)}]})
+    capsys.readouterr()
+    assert mesh.main(["resume", "repo-fix-typo", "--task", "Add the feature."]) == 1
+    assert "`mesh retire repo-fix-typo` once its `done` is in" in capsys.readouterr().err
+    assert mesh.main(["resume", "repo-fix-typo", "--task", DIRECT_FIX]) == 1
+    assert "send it the task: `mesh send repo-fix-typo --type task`" in capsys.readouterr().err
+
+
 def test_a_model_swap_keeps_a_read_only_askers_deny_list(mesh, fake, run, capsys):
     read_only_asker(mesh, run)
     stub_new_pane(fake)

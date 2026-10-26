@@ -2893,13 +2893,14 @@ def read_body(body: str | None, file: str | None) -> str | None:
         raise MeshError(f"can't read {'stdin' if file == '-' else file}: {getattr(e, 'strerror', None) or e}") from None
 
 
-def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict | None:
+def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str, stored=None) -> dict | None:
     """A change task for a Claude worker under its deny list (claude_deny): the list follows the task.
 
     A task it plans first keeps the list until `mesh approve` lifts it: a read-only asker's reason just becomes
     `planning`, with no reopen. A direct task reopens its conversation without the list, on the same model and
     effort, by `swap_model` as `mesh approve` does, then delivers. None when it delivers as usual: not a task,
     a question or a review again, no deny list, or a planned task. `send` never reopens a worker to add the list.
+    `stored` runs once the task is in its mailbox, as `deliver` runs it.
     """
     if mtype != "task" or read_only_task(body):
         return None
@@ -2923,8 +2924,6 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
             print(f"mesh: {to} was a read-only asker; it plans this task under the same deny list, which "
                   "`mesh approve` lifts", file=sys.stderr)
         return None
-    # A direct task ends a plan it was in, so a resume with no task doesn't bring it back as a planner.
-    unplanned = {"read_only": False, "planning": False, **({"phase": None} if entry.get("phase") == "plan" else {})}
     try:
         swap = swap_model(run_id, to, entry["model"], entry["effort"], "read-only lifted" if asker else "deny lifted",
                           message=(me, "task", body), lift=True)
@@ -2937,15 +2936,18 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
         # A background worker's task went into its mailbox first, as the copy's opening prompt. That task is a
         # direct one, so neither reason holds any more: the resume this points to reopens it without the list.
         with editing_run(run_id) as run:
-            run["agents"][to].update(unplanned)
+            run["agents"][to].update(read_only=False, planning=False)
+        if stored:
+            stored()
         raise MeshError(f"{exc}. The task is stored, so don't send it again: `mesh resume {to}` (no task) "
                         "reopens it without its deny list to read it") from exc
-    with editing_run(run_id) as run:
-        run["agents"][to].update(unplanned)
     log_event(run_id, "read_only_lifted" if asker else "deny_lifted", name=to)
     print(f"mesh: {to} was {what}; reopened it in the same conversation without its deny list, "
           "so it can now edit and push", file=sys.stderr)
-    return {**(swap.pop("delivery", None) or deliver(run_id, me, to, "task", body, first=True)),
+    delivery = swap.pop("delivery", None)  # a background copy's opening prompt, or a task held at a screen
+    if delivery and stored:
+        stored()
+    return {**(delivery or deliver(run_id, me, to, "task", body, first=True, stored=stored)),
             "read_only_lifted" if asker else "deny_lifted": True, "reopened": swap}
 
 
@@ -2963,9 +2965,11 @@ def cmd_send(args: argparse.Namespace) -> int:
         record_session(run_id, me)
         if args.type == "plan":
             enter_plan_phase(run_id, me, to)
+        elif args.type == "task" and not planned_task(body) and not read_only_task(body):
+            end_plan_phase(run_id, to)
 
-    result = lift_read_only(run_id, me, to, args.type, body) or deliver(run_id, me, to, args.type, body,
-                                                                        stored=stored)
+    result = lift_read_only(run_id, me, to, args.type, body, stored) or deliver(run_id, me, to, args.type, body,
+                                                                                stored=stored)
     emit(result)
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
@@ -3096,6 +3100,16 @@ def enter_plan_phase(run_id: str, name: str, to: str) -> None:
         entry.setdefault("models", []).append({"model": entry.get("model"), "effort": entry.get("effort"),
                                                "at": now_iso(), "why": "planned task"})
     log_event(run_id, "plan_phase", name=name, exec_model=entry["exec_model"])
+
+
+def end_plan_phase(run_id: str, name: str) -> None:
+    """A direct task ends the plan phase its worker was in, deny list or not, so a resume with no task doesn't
+    bring it back as a planner, and a quota `switch` doesn't walk the plan chain while it executes."""
+    if (load_run(run_id)["agents"].get(name) or {}).get("phase") != "plan":
+        return
+    with editing_run(run_id) as run:
+        run["agents"][name]["phase"] = None
+    log_event(run_id, "plan_phase_ended", name=name)
 
 
 def record_session(run_id: str, name: str) -> None:
@@ -4925,14 +4939,27 @@ def leave_finished_pr(args: argparse.Namespace, run_id: str, entry: dict, branch
                          + (" (its commits are still there if you need them)." if merged else ".")}
 
 
+def owes_plan(run_id: str, name: str) -> bool:
+    """Whether `name`, in a run live or archived, hasn't finished its current task: no `done` or `failed` since
+    its last task or answer (a plan waiting for its answer still owes the work)."""
+    path = log_path(run_id)
+    events = parse_log_lines(path.read_text().splitlines(), path) if path.exists() else []
+    report, _ = last_report(events, name)
+    return not (report and report.get("type") in FINAL_TYPES)
+
+
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     current = load_run(run_id)
+    task = read_body(args.task, args.task_file)
 
     def live_hint(name, entry):
         holder = live_holder(name, entry)
         if holder:
             held = holder.get("name")
-            holder["hint"] = (f"send it the task: `mesh send {held} --type task`" if held in current["agents"]
+            holder["hint"] = (f"`mesh retire {held}` once its `done` is in, then run this resume again, so it plans "
+                              "the task at the planning effort (a Claude one under its deny list)"
+                              if held in current["agents"] and planned_task(task)
+                              else f"send it the task: `mesh send {held} --type task`" if held in current["agents"]
                               else f"attach to it with `mesh open {held}`" if holder.get("bg_id")
                               else f"go there with `herdr agent focus {held or holder.get('pane_id')}`")
         return holder
@@ -4944,7 +4971,6 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     if old["kind"] == "copilot":
         raise MeshError(f"{old_name} is a Copilot asker, which only answers: ask it again with `mesh ask {old_name}`, "
                         "or give the change to the PR's author or a fresh worker")
-    task = read_body(args.task, args.task_file)
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
         raise MeshError(f"{old_name} is a peer asker, which only answers questions about its project: ask it with "
                         f"`mesh ask {peer_name if peer else old_name}`, and give a change to a worker in that repo "
@@ -4953,8 +4979,9 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     # execution phase, so `mesh approve` moves it on; a named model or effort covers the whole task, as in spawn.
     planned = planned_task(task) and not (args.model or args.effort)
     # Retired mid-plan and resumed with no task: still that planner, whichever way its plan phase began (a
-    # spawn, a resume, or the plan a finished worker sent, which had no deny list), on the model it planned on.
-    mid_plan = not task and old.get("phase") == "plan"
+    # spawn, a resume, or the plan a finished worker sent, which had no deny list), on the model it planned on,
+    # unless it already reported `done` or `failed` on that task.
+    mid_plan = not task and old.get("phase") == "plan" and owes_plan(old_run["id"], old_name)
     keeps_phase = mid_plan and not (args.model or args.effort)
     notes: list[str] = []
     if planned:
@@ -5005,10 +5032,10 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     log = worker_log(run_id, name) if old["kind"] == "agy" else None
     env = mesh_env(run_id, name, me, "worker")
     # A question or a review is held by the deny list, and so is a task it plans first (a named model doesn't
-    # skip the plan), until `mesh approve`; with no task, it carries on as it was, under the list if it owes a
-    # plan. A direct task gets no list.
+    # skip the plan), until `mesh approve`; with no task, it carries on as it was: an asker still read-only, under
+    # the list if it owes a plan. A direct task gets no list.
     read_only = old["kind"] == "claude" and (getattr(args, "read_only", False) or read_only_task(task)
-                                             or bool(peer_name))
+                                             or bool(peer_name) or (not task and bool(old.get("read_only"))))
     planning = old["kind"] == "claude" and not read_only and (
         planned_task(task) if task else bool(old.get("planning") or mid_plan))
     deny = claude_deny({**old, "read_only": read_only, "planning": planning})
