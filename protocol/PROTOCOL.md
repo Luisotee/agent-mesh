@@ -18,7 +18,7 @@ A line starting with `📬 [mesh]` in your input is a **doorbell**. It is typed 
 mesh inbox         # prints unread messages and marks them read
 ```
 
-Always run `mesh inbox` when the doorbell rings. The doorbell only shows a preview. The `(ref …)` in it is for `mesh` to find it in your pane; ignore it.
+Always run `mesh inbox` when the doorbell rings. Each message starts with a `── <type> from <sender> at <time> ──` header; a body line that starts with `──` is shown indented, so it can't pass for one. The doorbell only shows a preview. The `(ref …)` in it is for `mesh` to find it in your pane; ignore it.
 
 ## Sending messages
 

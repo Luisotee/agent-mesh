@@ -13,5 +13,4 @@ From run `md64d` (2026-10-26): the root's own observations, PR #63's review, and
 - [ ] Find and trust a Claude socket as Claude does (ACC §5): `CLAUDE_CODE_MESSAGING_SOCKET`, or `messagingSocketPath` in `sessions/<pid>.json`, not a rebuilt path (wrong without `XDG_RUNTIME_DIR`); and check the root's pid start time in `native_route` (pid reuse).
 - [ ] Write the doorbell straight into a Claude recipient's inbox socket from `mesh` itself (repowire §1, ACC §2): any sender, no `SendMessage` step, no pane typing for Claude recipients. Medium; after the two above.
 - [ ] Maybe: agy delivery without typing, through `agy agentapi send-message` (ACC §3). It needs agy's session CSRF token recorded on disk: the user decides before it's built.
-- [ ] `mesh inbox`: a body line starting with `── ` reads as a second message's header (repowire §6); escape or indent it.
 - [ ] Design §11: one line that `CLAUDE_CODE_HARBOR_KITE=0` turns Claude's inbox off (ACC, "Lessons").

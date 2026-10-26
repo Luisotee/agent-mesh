@@ -3497,6 +3497,12 @@ def session_reset(events: list[dict], name: str) -> bool:
     return reset
 
 
+def quoted_body(text: str) -> str:
+    """A message body to print under its `── … ──` header: a line of it starting with `──` is indented, so only
+    a header starts a line with it and a body can't pass for a second message."""
+    return "\n".join(f"  {line}" if line.startswith("──") else line for line in text.split("\n"))
+
+
 def cmd_inbox(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     if not args.peek:
@@ -3534,7 +3540,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         for msg in messages:
             note = " (again: your session was cleared or compacted since you read it)" if msg.get("again") else ""
             print(f"── {msg.get('type')} from {msg.get('from')} at {msg.get('time')}{note} ──")
-            print(msg["body"], end="\n\n")
+            print(quoted_body(msg["body"]), end="\n\n")
     if (maybe_run(run_id) or {}).get("root") == me:
         root_hint(run_id)
     return 0
@@ -6252,7 +6258,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         if peek:
             close_peek(run_id, name, peek)
     meta, text = take_reply(run_id, me, name)
-    print(f"── {meta.get('type')} from {name} ──\n{text}\n")
+    print(f"── {meta.get('type')} from {name} ──\n{quoted_body(text)}\n")
     print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
     return 0 if meta.get("type") == "done" else 1
 
@@ -6502,7 +6508,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print(line)
         return 1 if status == 0 and line == stopped_line(run_id) else status  # stopped with no answer: no success
     meta, text = reply
-    print(f"── {meta.get('type')} from {name} ──\n{text}\n")
+    print(f"── {meta.get('type')} from {name} ──\n{quoted_body(text)}\n")
     is_peer = bool(peer) or bool(entry.get("peer"))  # a removed peer's conversation is still a peer's
     change = (f"a change to that project goes to a worker there (`mesh spawn --repo {repo}`)" if is_peer
               else f"give it a change with `mesh resume {name} --task-file …`")
