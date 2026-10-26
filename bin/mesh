@@ -2382,9 +2382,9 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
         "tabs": {},
         "worktrees": [],
     }
+    make_run_folders(run_id)  # before run.json, so whoever finds the run finds them too
     with run_lock(run_id):
         save_run(run_id, run)
-    make_run_folders(run_id)
     write_atomic(mesh_home() / "by-pane" / f"{pane_key(pane)}.json", json.dumps({"run": run_id, "name": name}))
     log_event(run_id, "init", name=name, mode=mode)
     return {"run": run_id, "name": name, "dir": str(run_dir(run_id)), "mode": mode,
@@ -2836,14 +2836,12 @@ def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
-    if file == "-":
-        return sys.stdin.read()
-    if file:
-        try:
-            return Path(file).expanduser().read_text()
-        except (OSError, UnicodeDecodeError) as e:
-            raise MeshError(f"can't read {file}: {getattr(e, 'strerror', None) or e}") from None
-    return body
+    if not file:
+        return body
+    try:
+        return sys.stdin.read() if file == "-" else Path(file).expanduser().read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        raise MeshError(f"can't read {'stdin' if file == '-' else file}: {getattr(e, 'strerror', None) or e}") from None
 
 
 def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict | None:
@@ -5672,9 +5670,8 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         if replies[name] and asker in opened and not args.keep:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
 
-    folder = run_dir(run_id) / "reports"
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"peers-{stamp()}.md"
+    make_run_folders(run_id)
+    path = run_dir(run_id) / "reports" / f"peers-{stamp()}.md"
     asked_groups = {registry[n].get("group") if isinstance(registry[n], dict) else None for n in names}
     group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
         if len(asked_groups) == 1 else None
@@ -5971,6 +5968,7 @@ def peers_add(args: argparse.Namespace) -> int:
     if len(args.targets) != 1:
         raise MeshError("add what? `mesh peers add <git-url | path>`")
     source, group = args.targets[0], args.group or "peers"
+    brief = read_body(args.body, args.file)  # an unreadable brief fails here, before anything is registered
     path = Path(source).expanduser()
     if not path.exists():  # a URL: clone it, unless it was cloned there already
         path = clone_target(source, group)
@@ -6025,9 +6023,8 @@ def peers_add(args: argparse.Namespace) -> int:
             release_worktree(old_run["id"], Path(entry["cwd"]))  # its run's `mesh stop` would remove what it now keeps
         data["peers"][name] = peer
     emit({"name": name, "adopted": adopted, **peer})
-    if args.body or args.file:  # the first research brief
-        argv = ["ask", name, "--size", args.size or "large", *(["--body", args.body] if args.body else []),
-                *(["--file", args.file] if args.file else []), *(["--run", args.run] if args.run else []),
+    if brief:  # the first research brief
+        argv = ["ask", name, "--size", args.size or "large", "--body", brief, *(["--run", args.run] if args.run else []),
                 *(["--as", args.as_] if args.as_ else [])]
         return cmd_ask(build_parser().parse_args(argv))
     if not adopted:
@@ -6519,7 +6516,11 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 
 def cmd_dir(args: argparse.Namespace) -> int:
     run_id = identity(args)[0]
-    make_run_folders(run_id)  # a run started before init_run made them
+    if (run_dir(run_id) / "run.json").exists():  # a live run started before init_run made them; never a stopped one
+        try:
+            make_run_folders(run_id)
+        except OSError as e:
+            print(f"mesh: can't make the folders in {run_dir(run_id)}: {e.strerror or e}", file=sys.stderr)
     print(run_dir(run_id))
     return 0
 
