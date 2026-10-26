@@ -435,11 +435,17 @@ def agent_processes() -> list[dict]:
 
 
 def socket_address(pid: int | None) -> str | None:
-    """The cross-session address (`uds:…/cc-socks/<pid>.sock`) of a running Claude Code process, if it has one."""
+    """The cross-session address (`uds:<socket>`) of a running Claude Code process, if it has one: the
+    `messagingSocketPath` its own `sessions/<pid>.json` names, never a path rebuilt from the layout (Claude Code
+    binds under `XDG_RUNTIME_DIR`, or a temp folder without it, or `/tmp/cc-socks-<uid>` past 103 bytes), and
+    never one an earlier process at a reused pid left (`process_record` checks its start). `MESH_CC_SOCKS`, a
+    folder of `<pid>.sock`, stands in for those files (tests)."""
     if not pid:
         return None
-    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    sock = Path(os.environ.get("MESH_CC_SOCKS") or Path(runtime) / "cc-socks") / f"{pid}.sock"
+    if folder := os.environ.get("MESH_CC_SOCKS"):
+        sock = Path(folder) / f"{pid}.sock"
+    else:
+        sock = Path((process_record(pid) or {}).get("messagingSocketPath") or "/nonexistent")
     return f"uds:{sock}" if sock.exists() else None
 
 
@@ -451,28 +457,46 @@ def claude_pid() -> int | None:
         return None
 
 
-def claude_address() -> str | None:
-    """The cross-session address of the Claude Code session this command runs under.
+def claude_process() -> dict:
+    """The Claude Code session this command runs under: its cross-session `address`, the `pid` of its process
+    and that process's `start` (each None when unknown).
 
-    Session names change as Claude retitles a conversation, so other sessions reach it by this socket, which
-    belongs to the process. That's `CLAUDE_PID`'s; without it, the first socket up the process tree, where a
-    stale one left at a reused pid could come first. None outside Claude Code (an agy root) or where /proc
-    can't be walked.
+    The socket is `CLAUDE_CODE_MESSAGING_SOCKET`, which Claude Code sets for its tools; else `CLAUDE_PID`'s; else
+    the first one up the process tree. Session names change as Claude retitles a conversation, so other
+    sessions reach it by this socket, which belongs to the process. None outside Claude Code (an agy root) or
+    where /proc can't be walked.
     """
-    if pid := claude_pid():
-        return socket_address(pid)
-    pid = os.getpid()
-    for _ in range(16):
-        if pid <= 1:
-            break
-        if address := socket_address(pid):
-            return address
-        pid = parent_pid(pid)
-    return None
+    pid = claude_pid()
+    own = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET")
+    if own and not os.environ.get("MESH_CC_SOCKS") and Path(own).exists():
+        address = f"uds:{own}"
+    elif pid:
+        address = socket_address(pid)
+    else:
+        address, walk = None, os.getpid()
+        for _ in range(16):
+            if walk <= 1:
+                break
+            if address := socket_address(walk):
+                pid = walk
+                break
+            walk = parent_pid(walk)
+    return {"address": address, "pid": pid if address else None, "start": proc_start(pid) if address and pid else None}
+
+
+def claude_address() -> str | None:
+    """The cross-session address of the Claude Code session this command runs under (`claude_process`)."""
+    return claude_process()["address"]
 
 
 def address_alive(address: str | None) -> bool:
     return bool(address) and (not address.startswith("uds:") or Path(address[4:]).exists())
+
+
+def root_reachable(entry: dict) -> bool:
+    """Whether a Claude root's recorded socket is still its own: the path exists, and the process recorded with
+    it (an entry from before mesh recorded one has none) still runs, not a later one at the same pid."""
+    return address_alive(entry.get("address")) and (not entry.get("pid") or pid_alive(entry["pid"], entry.get("start")))
 
 
 # ── run state ────────────────────────────────────────────────────────────
@@ -915,8 +939,9 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
     entry = (run or {}).get("agents", {}).get(name, {})
     if entry.get("role") != "root" or entry.get("kind") != "claude":
         return
-    address, current = claude_address(), os.environ.get("CLAUDE_CODE_SESSION_ID")
-    moved = bool(address) and address != entry.get("address")
+    inbox, current = claude_process(), os.environ.get("CLAUDE_CODE_SESSION_ID")
+    address = inbox["address"]
+    moved = bool(address) and (address, inbox["pid"]) != (entry.get("address"), entry.get("pid"))
     cleared = bool(current) and current != entry.get("session")
     if not (moved or cleared):
         return
@@ -926,9 +951,9 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
         leads = pane_runs_this_claude(pane)
         if leads is False:
             return
-        update = {**({"address": address} if moved else {}), **({"session": current} if cleared else {})}
+        update = {**(inbox if moved else {}), **({"session": current} if cleared else {})}
     elif moved and current and current == entry.get("session") and pane_probe(pane, "claude") in ("missing", "dead"):
-        update = {"address": address}
+        update = dict(inbox)
     if update:
         with editing_run(run_id) as data:
             data["agents"][name].update(update)
@@ -2601,7 +2626,7 @@ def native_route(run: dict, sender: str, to: str) -> str | None:
         return None
     entry = run["agents"][to]
     if entry.get("role") == "root":
-        return entry["address"] if address_alive(entry.get("address")) else None
+        return entry["address"] if root_reachable(entry) else None
     if entry.get("view") == "bg":
         row = bg_row(entry)
         if row and row.get("status"):
@@ -2824,6 +2849,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
         raise MeshError(f"Claude session {os.environ['CLAUDE_CODE_SESSION_ID']} isn't the process running in pane "
                         f"{pane}, so it can't be its root ({NOT_LEADER_HINT})")
     mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
+    inbox = claude_process()
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
     if name != me.get("name"):
@@ -2846,8 +2872,9 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
                 "parent": None,
                 "status": "running",
                 "renamed": name != me.get("name"),
-                # Claude workers report to a Claude root with SendMessage, at this address (see native_route).
-                "address": claude_address() if me.get("agent") == "claude" else None,
+                # Claude workers reach a Claude root at this address (see native_route), while the process at
+                # this pid, started at `start`, still runs (a later one could reuse the pid and the socket path).
+                **(inbox if me.get("agent") == "claude" else {"address": None}),
                 # Its conversation, by which a root reopened in another pane re-records its address.
                 **({"session": os.environ.get("CLAUDE_CODE_SESSION_ID")} if me.get("agent") == "claude" else {}),
             }
@@ -2953,7 +2980,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             raise MeshError("--view bg is for Claude workers (agy has no background sessions; a user-reviewed "
                             "plan needs a pane)")
         view = "pane"
-    if view == "bg" and not address_alive(run["agents"][run["root"]].get("address")):
+    if view == "bg" and not root_reachable(run["agents"][run["root"]]):
         notes.append("background needs a Claude root that background workers can message; starting a pane")
         view = "pane"
     if view == "bg" and not worker_accepts(repo_top):
@@ -5620,7 +5647,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = getattr(args, "view", None) or old.get("view") or "pane"
     if view == "bg" and old["kind"] != "claude":
         raise MeshError("--view bg is for Claude workers; agy has no background sessions")
-    if view == "bg" and not address_alive(current["agents"][current["root"]].get("address")):
+    if view == "bg" and not root_reachable(current["agents"][current["root"]]):
         if getattr(args, "view", None):
             raise MeshError("a background worker needs a Claude root it can message (see `mesh init`)")
         notes.append("background needs a Claude root that background workers can message; reopening in a pane")

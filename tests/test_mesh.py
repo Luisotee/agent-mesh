@@ -542,6 +542,39 @@ def test_claude_address_is_claude_pids_socket(mesh, monkeypatch):
     assert mesh.claude_address().endswith("/9003.sock")  # not the stale one nearer
 
 
+def test_a_socket_comes_from_claude_codes_own_records(mesh, monkeypatch, tmp_path):
+    # Claude Code binds under XDG_RUNTIME_DIR, a temp folder, or /tmp/cc-socks-<uid>: never rebuild the path.
+    monkeypatch.delenv("MESH_CC_SOCKS")
+    sock = tmp_path / "elsewhere" / "4100.sock"
+    sock.parent.mkdir()
+    sock.write_text("")
+    record = mesh.claude_home() / "sessions" / "4100.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"pid": 4100, "procStart": "77", "messagingSocketPath": str(sock)}))
+    monkeypatch.setattr(mesh, "proc_start", lambda p: "77")
+    assert mesh.socket_address(4100) == f"uds:{sock}"
+    monkeypatch.setattr(mesh, "proc_start", lambda p: "78")  # another process at that pid since
+    assert mesh.socket_address(4100) is None
+    # The session's own socket comes first, with its process.
+    own = tmp_path / "own.sock"
+    own.write_text("")
+    monkeypatch.setenv("CLAUDE_CODE_MESSAGING_SOCKET", str(own))
+    monkeypatch.setenv("CLAUDE_PID", "4100")
+    assert mesh.claude_process() == {"address": f"uds:{own}", "pid": 4100, "start": "78"}
+
+
+def test_a_root_socket_at_a_reused_pid_is_not_the_roots(mesh, fake, run, monkeypatch):
+    address = claude_root(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"].update(kind="claude", pid=os.getpid(), start="then")
+    data = mesh.load_run(run)
+    data["agents"]["repo-fix-typo"]["kind"] = "claude"
+    monkeypatch.setattr(mesh, "proc_start", lambda p: "now")
+    assert mesh.native_route(data, "repo-fix-typo", "repo-lead") is None  # the socket exists, but isn't the root's
+    monkeypatch.setattr(mesh, "proc_start", lambda p: "then")
+    assert mesh.native_route(data, "repo-fix-typo", "repo-lead") == address
+
+
 def test_a_bg_worker_keeps_its_identity_wherever_it_runs(mesh, fake, cli, run, monkeypatch, capsys):
     # A daemon's spare is no pane's process: only pane identities ask herdr.
     inherited(mesh, run, monkeypatch, view="bg", pane=None)
