@@ -7524,7 +7524,7 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
     if (task or "").startswith(DIRECT_STARTS):
         return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
     if entry.get("phase") == "plan" or entry.get("planning"):
-        return "planning: research, then send a `plan`, and change nothing until it is approved" + (
+        return "planning: research, write the plan, run the `check-plan` skill on it, then send it as a `plan`, and change nothing until it is approved" + (
             " (until then mesh denies edits to your worktree and `git push`: a denial is expected, not something to "
             "work around)" if claude_deny(entry) else "")
     if entry.get("phase") == "exec":

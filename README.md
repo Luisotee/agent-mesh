@@ -40,7 +40,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
   - every plan is reviewed before any code changes, and every result is checked (tests, lint, build, diff) before it's reported
   - you're asked only about real product decisions
   - every agent is a visible terminal you can step into
-- **No new runtime:** it's a single stdlib-Python CLI, three skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
+- **No new runtime:** it's a single stdlib-Python CLI, five skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
 
 ## Commands
 
@@ -158,6 +158,7 @@ mesh peers refresh                                                   # what chan
 - **Read-only for good:** a peer asker only answers. A change to that project goes to an ordinary worker there. Its checkout stays in place between runs, and its conversation is compacted over 300k tokens to what it learned about the project.
 - **Someone else's settings:** a peer's repo isn't yours to fix, so when its `.claude/settings.json` has a rule Claude Code rejects, mesh takes the warning's default "Continue", which skips just those rules. Your own repos still stop there for you.
 - **What each one is:** every peer and group has an `about` (at most 400 characters), which `mesh peers` shows and the answers file repeats. Write what the project is and what it's worth asking about. A new peer starts from its GitHub description; `mesh peers edit <peer | group> --about …` replaces it.
+- **Finding them:** `/find-peers` (or just ask for projects like yours to learn from) characterizes your repo's core mechanisms, searches GitHub, awesome lists, plugin directories and the web, ranks what it finds by shared mechanisms rather than stars, and shows you a shortlist. On your yes it runs `mesh peers add` for each, with an `about`, and sends them one first research brief. The search and ranking work in any repo.
 - `mesh peers add <path>` registers a clone you already have. It adopts the asker that already researched it when one has the default name (`<repo>-research`, or `--name`). `mesh peers remove <name>` drops a peer and keeps its clone.
 
 ## Task lists
@@ -325,7 +326,7 @@ mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear
 ## The protocol in one screen
 
 - `📬 [mesh]` means you have mail: run `mesh inbox`.
-- **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). A `Direct task (no plan)` goes straight to the change.
+- **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). Before sending it, the worker runs the `check-plan` skill, which checks the plan's claims in the code, attacks it and fixes it. A `Direct task (no plan)` goes straight to the change.
 - **`send_message`:** when `mesh send` prints one, pass it on with `SendMessage`, exactly as printed.
 - **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt. Any worker is refused every `mesh` command but its own (`send` to its parent, `inbox`, `whoami`, `dir`, the readings).
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.

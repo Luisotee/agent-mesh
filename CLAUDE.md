@@ -14,12 +14,14 @@ Keep it current as part of the same change: remove a task (or tick it) when the 
 
 If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools similar to agent-mesh, cloned under `~/research/orchestrators`. Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --file q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask <name>-research --body "…"`. They're standing read-only askers that keep their context between asks; `mesh peers` shows each one's `about`.
 
+- `agents-can-communicate` (asker `agents-can-communica-research`): cross-vendor messages between sessions the user opened, no lead agent. Claude's inbox socket, agy native delivery.
 - `ccswarm`: headless one-shot agents driven by a YAML flow state machine, persona quorum votes as gates. Flow/stage design, quorum review, loop caps.
 - `cyclops`: a daemon watching agents in tmux, fused state signals, durable mailboxes with one doorbell per message. Delivery into a human's draft.
 - `firstmate`: a bash supervisor over herdr panes (watcher, turn-end hooks, leases, caps). Its failure modes: hung agents, stale herdr registrations, trust dialogs.
 - `gastown`: patrol agents that respawn workers, a merge queue, convoys. Stop-hook guards, nudge queues, auto-restart, mostly as lessons in what broke.
 - `mcp-agent-mail`: an MCP server with mailboxes, identities and file leases. Inbox hooks, leases, two-store drift.
 - `orca`: tmux plus raw typing, roles from env vars. Guarding a user's draft, spawning panes on demand.
+- `repowire`: a Go daemon meshing live sessions: asks with acks and reminders, Claude's inbox socket, identity across reconnects.
 - `rove`: a daemon and PTY host owning every engine, flat dispatch with lineage. Delivery, matching reports to tasks.
 - `tmux-orchestrator`: an archived orchestrator → manager → engineer tree over `send-keys`. Mostly a contrast.
 
@@ -44,6 +46,8 @@ The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to th
 - `protocol/`: Markdown the agents themselves follow, installed as `~/.config/agent-mesh`. `ORCHESTRATE.md` is the root/worker procedure (and the mode table), `PROTOCOL.md` the messaging rules every mesh agent reads, `PLAN_TEMPLATE.md` the plan format. The orchestration is done by agents following these files, not by code, so a behaviour change usually needs both a `bin/mesh` change and a protocol/doc change.
 - `skills/delegate-agy`, `skills/delegate-claude`: the `/delegate-*` entry points. The user can type them, and agents invoke them on their own when a request fits the description (never a worker). They point the root at `ORCHESTRATE.md`.
 - `skills/delegate-review`: a PR review the user asks for, by any mix of Claude, agy and Copilot (or `all`), run in parallel with one `mesh ask` each. It reads only ORCHESTRATE's "Questions and reviews".
+- `skills/find-peers`: finds projects that share a repo's core mechanisms, ranks them by overlap, and on the user's yes registers them as peers (`mesh peers add`) and sends one first brief (`BRIEF.md`, from run mac82's). Root only, any repo.
+- `skills/check-plan`: a worker's self-check of its own draft plan (ORCHESTRATE Worker step 4): verify its claims in the code, attack it, fix the plan. Edits only the plan file, so it runs under the planning deny list; usable by hand in any session.
 - `rules/global-snippet.md`: the block `install.sh` writes between markers into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`.
 
 Core mechanics that span several files:
