@@ -4127,11 +4127,14 @@ WAIT_OVER = "agent-mesh: " + WAIT_OVER_BODY  # the Stop hook's reason; the body 
 
 
 def task_line(run_id: str, name: str, events: list[dict]) -> str:
-    """A sentence naming `name`'s current task by its first line, for a nudge to a worker that may have been
-    compacted since it read it; empty when its file is gone."""
+    """A sentence naming `name`'s current task, for a nudge to a worker that may have been compacted since it
+    read it: its gist past the standard prefixes, or a review's first line (which names the PR and head); empty
+    when its file is gone."""
     files = current_task(run_id, name, events)
-    line = first_line(parse_message(files[0])[1].lstrip("# ")) if files else ""
-    return f" Your current task starts: “{line}”." if line else ""
+    body = parse_message(files[0])[1].strip() if files else ""
+    review = REVIEW_GIST_RE.match(body)
+    line = review.group(1) if review else task_gist(body)
+    return f" Your current task: “{line}”." if line else ""
 
 
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
@@ -4232,9 +4235,9 @@ def record_alert(run_id: str, name: str, received: int, kind: str = "stopped") -
             log_event(run_id, "alert", name=name, received=received, kind=kind)
 
 
-def nudge(run_id: str, name: str, entry: dict, received: int) -> bool:
+def nudge(run_id: str, name: str, entry: dict, received: int, events: list[dict]) -> bool:
     """Remind a worker whose turn ended silently to report, through `deliver`, with a short ring schedule."""
-    body = NUDGE_BODY + task_line(run_id, name, read_log(run_id))
+    body = NUDGE_BODY + task_line(run_id, name, events)
     delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", body,
                        delays=NUDGE_RING_DELAYS)
     rung = bool(delivery.get("rung"))
@@ -4613,12 +4616,12 @@ class Watch:
                        f"--body \"Report with mesh send\"` and pass its send_message on{work()}")
         if claim_nudge(run_id, name, received):
             self.nudged = received
-            nudge(run_id, name, entry, received)
+            nudge(run_id, name, entry, received, events)
             self.worked, self.idle_for = True, 0.0  # alert if it stays idle, or goes idle again without a report
             return None
         if woke:
-            delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", WAIT_OVER_BODY,
-                               delays=NUDGE_RING_DELAYS)
+            delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info",
+                               WAIT_OVER_BODY + task_line(run_id, name, events), delays=NUDGE_RING_DELAYS)
             rung = bool(delivery.get("rung"))
             log_event(run_id, "wait_reminder", name=name, received=received, rung=rung,
                       **({} if rung else {"error": delivery.get("error")}))
@@ -5951,18 +5954,27 @@ def record_review(run_id: str, name: str, pr: str, head: str | None, checkout: b
 
 def take_reply(run_id: str, me: str, sender: str, folder: Path | None = None) -> tuple[dict, str] | None:
     """The last done/failed `sender` sent me, marked read. Found through the log, since the doorbell
-    it rang may already have had me read it with `mesh inbox`. `folder`: the run's, where it may be archived."""
+    it rang may already have had me read it with `mesh inbox`. `folder`: the run's (default: live or archived)."""
+    if folder is None:
+        try:
+            folder = run_folder(run_id)
+        except MeshError:
+            folder = run_dir(run_id)
     sends = [e for e in read_log(run_id, folder) if e.get("event") == "send" and e.get("sender") == sender
              and e.get("to") == me and e.get("type") in FINAL_TYPES]
     if not sends:
         return None
-    folder = (folder or run_dir(run_id)) / "inbox" / me
+    folder = folder / "inbox" / me
     path = next((p for p in (folder / sends[-1]["file"], folder / "read" / sends[-1]["file"]) if p.exists()), None)
     if not path:
         return None
     meta, body = parse_message(path)
     if path.parent == folder:
-        mark_read(path)
+        try:  # not with mark_read's parents: a live folder archived under it must not come back half-made
+            (folder / "read").mkdir(exist_ok=True)
+            os.replace(path, folder / "read" / path.name)
+        except FileNotFoundError:
+            pass  # archived meanwhile: the answer is in hand, unread in the archive
     return meta, body.strip()
 
 
@@ -6535,8 +6547,9 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
     let go at once: its watch lock closes and its `collect` mark goes, so what it sends later rings as usual
     and the root is told it's unwatched.
 
-    A `mesh stop` under way holds the ticks (the panes it closes would read as alerts) until it ends: archived,
-    each one left gets (1, …) and the run is left alone (`fan_out` reads the archive); failed, watching goes on."""
+    A `mesh stop` under way holds the ticks (the panes it closes would read as alerts), though an answer still
+    counts, until it ends: archived, each one left gets its answer from the archive or (1, …), and the run is
+    left alone (`fan_out` reads the archive); failed, watching goes on, and an alert held back meanwhile comes."""
     hang = hang_after()
     held_for = held_wait() if held_for is None else held_for
     watches = {name: Watch(run_id, name, grace, count, hang) for name, count in finals.items()}
@@ -6548,16 +6561,24 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
         watches.pop(name)
         if outcome[0]:
             held.pop(name).close()
-            with editing_run(run_id) as data:
-                if name in data["agents"]:
-                    data["agents"][name].pop("collect", None)
+            try:
+                with editing_run(run_id) as data:
+                    if name in data["agents"]:
+                        data["agents"][name].pop("collect", None)
+            except FileNotFoundError:  # archived: the mark dies with this process's pid
+                if not run_stopped(run_id):
+                    raise
         if on_outcome:
             on_outcome(name, *outcome)
 
     def stopped() -> None:
-        for name in list(watches):
-            outcomes[name] = 1, f"run {run_id} stopped before {name} answered"
+        archived = read_log(run_id, run_folder(run_id))
+        for name, watch in list(watches.items()):
+            answered = watch.report_event(archived, False)
+            outcomes[name] = answered or (1, f"run {run_id} stopped before {name} answered")
             watches.pop(name)
+
+    kept: dict[str, tuple[int, str]] = {}  # alerts a stop that began mid-poll held back, for if it fails
 
     held = dict(zip(watches, hold_watch(run_id, list(watches))))
     try:
@@ -6568,19 +6589,27 @@ def watch_each(run_id: str, finals: dict[str, int], timeout: float = 0, interval
             try:
                 run = load_run(run_id)
                 events = read_log(run_id)
-                ticked, agents = {}, {}
-                if not stop_under_way(events):
+                agents = {}
+                if stop_under_way(events):  # only answers, from the log
+                    ticked = {name: watch.report_event(events, False) for name, watch in watches.items()}
+                else:
                     bg_rows = claude_agents() if any(run["agents"].get(n, {}).get("view") == "bg" for n in watches) else None
                     ticked = {name: watch.tick(interval, False, bg_rows, events) for name, watch in watches.items()}
                     agents = load_run(run_id)["agents"]  # after the ticks, which may release a hold
+                    # a stop that held these back has failed: what they alerted on has been alerted on once
+                    ticked.update({n: kept.pop(n) for n in list(kept) if n in ticked and not ticked[n]})
+                if any(event and event[0] for event in ticked.values()):
+                    if run_stopped(run_id):
+                        raise FileNotFoundError(run_dir(run_id))  # archived since this poll's reads
+                    if stop_under_way(read_log(run_id)):
+                        # a stop that began during this poll: keep only the answers, and wait for how it ends
+                        kept.update({n: e for n, e in ticked.items() if e and e[0]})
+                        ticked = {name: event for name, event in ticked.items() if event and not event[0]}
             except (MeshError, OSError):
                 if run_stopped(run_id):  # archived mid-poll
                     stopped()
                     break
                 raise
-            if any(event and event[0] for event in ticked.values()) and stop_under_way(read_log(run_id)):
-                # a stop that began during this poll: keep only the answers, and wait for how it ends
-                ticked = {name: event for name, event in ticked.items() if event and not event[0]}
             for name, event in ticked.items():
                 watch = watches[name]
                 at_screen = (agents.get(name) or {}).get("held")
@@ -6626,9 +6655,14 @@ def ask_peers(args: argparse.Namespace) -> int:
         with signals_raise(signal.SIGTERM, signal.SIGHUP):  # a killed fan-out still clears its marks
             return fan_out(args, run_id, me, body, registry, names, mark, asked)
     finally:
-        for asker in asked.values() if not run_stopped(run_id) else ():  # archived marks die with this pid
-            with editing_run(run_id) as run:  # their next report rings as usual
-                run["agents"][asker].pop("collect", None)
+        for asker in asked.values():
+            try:
+                with editing_run(run_id) as run:  # their next report rings as usual
+                    run["agents"][asker].pop("collect", None)
+            except FileNotFoundError:  # archived: its marks die with this process's pid
+                if not run_stopped(run_id):
+                    raise
+                break
 
 
 CLAUDE_AGENTS_RETRY = 1.0  # seconds before asker_status asks `claude agents` again after a failed call
@@ -6727,16 +6761,11 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     for asker, outcome in watched.items():
         outcomes[by_asker[asker]] = outcome
 
-    stopped = run_stopped(run_id)  # by `mesh stop`, which closed the askers: the answers are in its archive
-    if stopped:
-        print(stopped_line(run_id), file=sys.stderr)
-    folder = run_folder(run_id)
+    folder = run_folder(run_id)  # archived by a `mesh stop`, which closed the askers: the answers are in it
     replies: dict[str, tuple[dict, str] | None] = {}
     for name in names:
         asker = asked.get(name)
         replies[name] = take_reply(run_id, me, asker, folder) if asker and outcomes[name][0] == 0 else None
-        if replies[name] and asker in opened and not args.keep and not stopped:
-            retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
     asked_groups = {registry[n].get("group") if isinstance(registry[n], dict) else None for n in names}
     group_about = ((load_peers().get("groups") or {}).get(next(iter(asked_groups))) or {}).get("about") \
         if len(asked_groups) == 1 else None
@@ -6771,6 +6800,18 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         except FileNotFoundError:
             if not run_stopped(run_id):
                 raise
+    else:
+        raise MeshError(f"couldn't write the peers report under {run_folder(run_id)}")
+    retire = [asked[n] for n in names if replies[n] and asked[n] in opened and not args.keep]
+    try:  # only once the report is written: a stop now must not lose it
+        for asker in retire if not stop_under_way(read_log(run_id)) else ():
+            retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
+    except (MeshError, OSError):
+        if not run_stopped(run_id):
+            raise
+    stopped = run_stopped(run_id)
+    if stopped:
+        print(stopped_line(run_id), file=sys.stderr)
     with editing_peers() as data:  # `mesh peers` names it, so it's found without remembering the run
         data["answers"] = str(path)
     answered = sum(1 for r in replies.values() if r)
