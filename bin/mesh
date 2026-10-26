@@ -6453,14 +6453,26 @@ def pane_agent(pane: str) -> dict:
 def root_session(entry: dict, as_root: bool = False) -> str | None:
     """The root's current conversation. Claude: what herdr's Claude integration reports for the root's pane (it
     follows a /clear: seen live); a command the root itself runs (`as_root`) may use the session it runs under
-    when herdr agrees or can't say. Never the caller's session otherwise: a worker's, or the old session of a
-    root watch that outlived a reset, isn't the root's. agy: the one its last `mesh reset` recorded, as nothing
-    ties an agy conversation to a pane before that."""
+    when herdr agrees or can't say. When they disagree, either can be stale: a root watch that outlived a
+    reset runs under the old session, and herdr takes a session report from anything in the pane (a nested
+    `claude -c -p`). The root's is then the one whose session file was written last: a root command runs inside
+    a live turn, which has just written its own. Never the caller's session otherwise: a worker's isn't the
+    root's. agy: the one its last `mesh reset` recorded, as nothing ties an agy conversation to a pane before."""
     if entry.get("kind") == "agy":
         return entry.get("session")
     reported = (pane_agent(entry["pane"]).get("agent_session") or {}).get("value") if entry.get("pane") else None
     own = os.environ.get("CLAUDE_CODE_SESSION_ID") if as_root else None
-    return own if own and reported in (None, own) else reported
+    if not own or reported in (None, own):
+        return own or reported
+
+    def written(session: str) -> float:
+        path = root_transcript(entry, session)
+        try:
+            return path.stat().st_mtime if path else float("-inf")
+        except OSError:
+            return float("-inf")
+
+    return max((own, reported), key=written)
 
 
 def root_transcript(entry: dict, session: str) -> Path | None:
@@ -6690,11 +6702,11 @@ def cleared_session(entry: dict, before: str | None, agy_before: set[str]) -> se
     return set()
 
 
-def agy_root_conversation(candidates: set[str], token: str) -> str | None:
-    """Which of the new agy conversations is the root's: the only one, else the one whose first prompt (agy's
-    index keeps it as `preview`) is the bootstrap carrying this reset's token; None when that can't be told."""
-    if len(candidates) == 1:
-        return next(iter(candidates))
+def agy_root_conversation(before: set[str], token: str) -> str | None:
+    """Which new agy conversation (not in `before`) is the root's: the one whose first prompt (agy's index keeps
+    it as `preview`) is the bootstrap carrying this reset's token. A lone new one isn't taken on trust: another
+    agy may have started it while the root's own isn't indexed yet, so the index is polled for a while; None
+    when it never shows."""
     source = Path(os.environ.get("MESH_AGY_SUMMARIES") or Path.home() / AGY_HOME / "conversation_summaries.db")
     for _ in range(CLEAR_CONFIRM):
         try:
@@ -6703,7 +6715,7 @@ def agy_root_conversation(candidates: set[str], token: str) -> str | None:
             mtime = None
         if mtime is not None:
             for row in agy_summaries(str(source), mtime):
-                if row["conversationId"] in candidates and f"(ref {token})" in row["display"]:
+                if row["conversationId"] not in before and f"(ref {token})" in row["display"]:
                     return row["conversationId"]
         time.sleep(1)
     return None
@@ -6783,15 +6795,17 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         return failed("reset_failed", f"its session was reset, but the prompt to run `mesh brief` didn't get "
                                       f"through ({result['error']})")
     note = None
-    if kind == "agy":
-        # Its conversation, recorded so it is measured from now on; a guess would measure someone else's.
-        new = agy_root_conversation(candidates, token) if candidates else None
-        if new is None and candidates:
+    if compact is not None:
+        new = before
+    elif kind == "agy":
+        new = agy_root_conversation(agy_before, token)
+        if new is None:
             note = "couldn't tell which new agy conversation is the root's; it isn't measured until its next reset"
-        with editing_run(run_id) as data:
-            data["agents"][root]["session"] = new
     else:
         new = next(iter(candidates), None)
+    if kind == "agy":  # recorded so it is measured from now on; a guess would measure someone else's
+        with editing_run(run_id) as data:
+            data["agents"][root]["session"] = new
     log_event(run_id, "reset", name=root, via=via, compact=compact, next=next_task, old_session=before,
               new_session=new, tokens=(context or {}).get("tokens"),
               transcript=(context or {}).get("transcript"), **({"note": note} if note else {}))

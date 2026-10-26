@@ -5963,6 +5963,36 @@ def test_reset_root_types_no_bootstrap_when_the_clear_doesnt_show(mesh, fake, ru
     assert "didn't show up as a new session" in mesh.read_log(run)[-1]["reason"]
 
 
+def agy_index(mesh, rows):
+    """agy's conversation index, as `agy_summaries` reads it: (id, first prompt) rows."""
+    import sqlite3
+    path = mesh.Path(mesh.os.environ["MESH_AGY_SUMMARIES"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE conversation_summaries (conversation_id, preview, workspace_uris, nesting_depth, "
+               "step_count, last_modified_time)")
+    for n, (conversation, preview) in enumerate(rows):
+        db.execute("INSERT INTO conversation_summaries VALUES (?, ?, '[]', 0, 1, ?)", (conversation, preview, n))
+    db.commit()
+    db.close()
+
+
+def index_on_bootstrap(mesh, monkeypatch, root_conversation, others=()):
+    """agy indexes the root's new conversation once the bootstrap is its first prompt; `others` are there anyway."""
+    agy_index(mesh, [(c, "someone else") for c in others])
+    real_ring = mesh.ring
+
+    def ring(targets, text, token, **kw):
+        result = real_ring(targets, text, token, **kw)
+        agy_index(mesh, [*((c, "someone else") for c in others),
+                         (root_conversation, f"📬 [mesh] (ref {token}) You are repo-lead…")])
+        return result
+
+    monkeypatch.setattr(mesh, "ring", ring)
+
+
 def test_reset_root_of_an_agy_root_confirms_by_a_new_conversation(mesh, fake, run, monkeypatch):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-lead"]["kind"] = "agy"
@@ -5972,9 +6002,31 @@ def test_reset_root_of_an_agy_root_confirms_by_a_new_conversation(mesh, fake, ru
     (folder / "before.db").write_text("")
     real = mesh.agy_conversations
     monkeypatch.setattr(mesh, "agy_conversations", lambda: real() | ({"after"} if prompts(fake) else set()))
+    index_on_bootstrap(mesh, monkeypatch, "after")
     assert mesh.reset_root(run, "repo-lead", None, None) == 0
     assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "after"  # measured from now on
     assert "Then: carry on from the next step in your notes" in prompts(fake)[1]
+
+
+def test_reset_root_of_an_agy_root_doesnt_take_a_lone_new_conversation_on_trust(mesh, fake, run, monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    # Another agy's conversation shows first; the root's own is indexed only after its bootstrap.
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "other"} if prompts(fake) else {"a"})
+    index_on_bootstrap(mesh, monkeypatch, "mine", others=("other",))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "mine"
+
+
+def test_reset_root_of_an_agy_root_records_nothing_when_the_lone_new_one_isnt_its_own(mesh, fake, run,
+                                                                                       monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "other"} if prompts(fake) else {"a"})
+    agy_index(mesh, [("other", "someone else")])  # the root's own never gets indexed in time
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] is None  # the lone one wasn't the root's
+    assert "couldn't tell" in mesh.read_log(run)[-1]["note"]
 
 
 def test_reset_root_with_compact_waits_for_the_compaction(mesh, fake, run, monkeypatch):
@@ -6135,31 +6187,10 @@ def agy_root(mesh, run):
 
 
 def test_reset_root_of_an_agy_root_tells_the_roots_conversation_by_its_bootstrap(mesh, fake, run, monkeypatch):
-    import sqlite3
     agy_root(mesh, run)
     scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
     monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "b", "z"} if prompts(fake) else {"a"})
-    path = mesh.Path(mesh.os.environ["MESH_AGY_SUMMARIES"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    def index(token_of):
-        if path.exists():
-            path.unlink()
-        db = sqlite3.connect(path)
-        db.execute("CREATE TABLE conversation_summaries (conversation_id, preview, workspace_uris, nesting_depth, "
-                   "step_count, last_modified_time)")
-        db.execute("INSERT INTO conversation_summaries VALUES ('z', 'someone else', '[]', 0, 1, 1)")
-        db.execute("INSERT INTO conversation_summaries VALUES ('b', ?, '[]', 0, 1, 2)", (token_of,))
-        db.commit()
-        db.close()
-
-    real_ring = mesh.ring
-
-    def ring(targets, text, token, **kw):  # agy indexes the conversation once the bootstrap is its first prompt
-        index(f"📬 [mesh] (ref {token}) You are repo-lead…")
-        return real_ring(targets, text, token, **kw)
-
-    monkeypatch.setattr(mesh, "ring", ring)
+    index_on_bootstrap(mesh, monkeypatch, "b", others=("z",))
     assert mesh.reset_root(run, "repo-lead", None, None) == 0
     assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "b"  # not "z", which sorts last
     event = mesh.read_log(run)[-1]
@@ -6199,3 +6230,20 @@ def test_brief_caps_the_request_and_tells_a_non_root_whose_view_it_is(mesh, fake
     assert len(data["request"]) < 1300 and "more characters" in data["request"]
     assert mesh.main(["brief", "--as", "repo-fix-typo"]) == 0
     assert "you are repo-fix-typo, not this run's root (repo-lead)" in capsys.readouterr().out
+
+
+def test_root_session_prefers_the_file_written_last_when_herdr_and_the_command_disagree(mesh, fake, run,
+                                                                                        monkeypatch):
+    # A nested `claude -c -p` in the root's pane made herdr report its session; the root's own turn is live.
+    root_transcript_file(mesh, monkeypatch, 20_000, idle=3000, session="nested-s")
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=1, session="root-s")
+    herdr_root_session(fake, "nested-s")
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    assert mesh.root_session(entry, as_root=True) == "root-s"
+    # A watch that outlived a reset: its own session is the still one, herdr's the live one.
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=3000, session="old-s")
+    root_transcript_file(mesh, monkeypatch, 30_000, idle=1, session="new-s")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "old-s")
+    herdr_root_session(fake, "new-s")
+    assert mesh.root_session(entry, as_root=True) == "new-s"
+    assert mesh.root_session(entry) == "new-s"  # not the root's own command: herdr's word
