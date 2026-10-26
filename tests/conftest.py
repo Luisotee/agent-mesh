@@ -37,10 +37,11 @@ class FakeHerdr:
             return texts.pop(0) if len(texts) > 1 else texts[0]
         return ""
 
-    def on(self, *prefix, result=None, error=None, errors=None):
-        """Answer calls starting with `prefix`: a result, one error, or a list of errors then the result."""
+    def on(self, *prefix, result=None, error=None, errors=None, results=None):
+        """Answer calls starting with `prefix`: a result, one error, a list of errors then the result, or a list
+        of results, one per call, the last one repeated."""
         queue = list(errors or ([error] if error else []))
-        self.handlers[prefix] = (queue, result)
+        self.handlers[prefix] = (queue, list(results) if results else result)
 
     def __call__(self, *args, timeout=None):
         self.calls.append(args)
@@ -48,6 +49,8 @@ class FakeHerdr:
             if args[: len(prefix)] == prefix:
                 if queue:
                     raise self.mesh.HerdrError(queue.pop(0), "stubbed")
+                if isinstance(result, list):
+                    return result.pop(0) if len(result) > 1 else result[0]
                 return result if result is not None else {}
         return {}
 
@@ -108,8 +111,11 @@ def mesh(tmp_path, monkeypatch):
     # CLAUDE_CODE_SESSION_ID, CLAUDE_PID: the suite may run inside Claude Code, whose session would meet
     # `inherited_identity` and whose process `claude_address`.
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
+                "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"):
         monkeypatch.delenv(key, raising=False)
+    # Never this machine's Claude session files either (a root's is looked up across every project folder).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
     # A path that bypasses the fakes below fails instead of reaching a real herdr pane or agent CLI.
     monkeypatch.setenv("MESH_HERDR", str(tmp_path / "no-herdr"))
     module = load_mesh()

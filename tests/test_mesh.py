@@ -2526,6 +2526,7 @@ def test_status_shows_a_declared_wait(mesh, fake, run, capsys):
 
 def test_status_moves_a_worker_that_owes_a_report_but_is_gone_to_the_root(mesh, fake, run, capsys):
     fake.on("agent", "get", errors=["agent_not_found"] * 4)
+    fake.on("agent", "get", "w1:p1", result={})  # the root's own pane, read for its session: herdr names none
     mesh.mark_read(mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it"))
     _, rows = status_rows(mesh, run, capsys)
     assert rows["repo-fix-typo"]["waiting"].startswith("on task ") and rows["repo-fix-typo"]["needs"] == "root"
@@ -3577,7 +3578,7 @@ def test_watch_stops_excusing_a_worker_that_never_comes_back(mesh, fake, run, ca
         data["agents"]["repo-fix-typo"]["status"] = "starting"
     fake.on("agent", "get", errors=["agent_not_found"] * 10)
     assert mesh.main(["watch", "repo-fix-typo", "--run-id", run, "--interval", "100"]) == 5
-    assert len(fake.called("agent", "get")) == 4  # 3 polls excused (300s), the 4th alerts
+    assert len(fake.called("agent", "get", "repo-fix-typo")) == 4  # 3 polls excused (300s), the 4th alerts
 
 
 def test_quota_hit_reads_only_new_bytes_and_ignores_plain_rate_limits(mesh, tmp_path):
@@ -5740,3 +5741,509 @@ def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run
     assert capsys.readouterr().out.splitlines() == ["06:35:49 says: Looking.",
                                                     "(proj-ask-auth is not answering now: its answer is what "
                                                     "`mesh ask` printed, or `mesh inbox`)"]
+
+
+# ── root context: measuring, resetting and briefing the root ─────────────
+
+
+def root_transcript_file(mesh, monkeypatch, tokens, idle=60, session="root-s"):
+    """A Claude root session file whose last reply had `tokens` of prompt, last written `idle` seconds ago."""
+    import os
+    import time
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    path = mesh.claude_sessions_dir("/repo") / f"{session}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(usage(tokens - 12)) + "\n")
+    os.utime(path, (time.time() - idle, time.time() - idle))
+    return path
+
+
+def test_transcript_tokens_reads_backwards_across_chunks(mesh, tmp_path):
+    path = tmp_path / "s.jsonl"
+    filler = {"type": "user", "message": {"content": "x" * 300}}
+    lines = [usage(1000), filler, {"type": "system", "subtype": "compact_boundary"}, filler, usage(7000),
+             *[filler] * 5]
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    assert mesh.transcript_tokens(path, chunk=64) == 7012  # the newest reply, though cut across many chunks
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines[:4]))
+    assert mesh.transcript_tokens(path, chunk=64) == 0  # compacted since its last reply
+    path.write_text(json.dumps(filler) + "\n")
+    assert mesh.transcript_tokens(path, chunk=64) is None
+    assert mesh.transcript_tokens(tmp_path / "missing.jsonl") is None
+
+
+def test_root_context_finds_a_session_file_outside_its_cwd(mesh, run, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
+    path = mesh.claude_sessions_dir("/somewhere/else") / "elsewhere.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(usage(988)) + "\n")
+    context = mesh.root_context(mesh.load_run(run), as_root=True)
+    assert (context["tokens"], context["transcript"], context["cold"]) == (1000, str(path), False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    assert mesh.root_context(mesh.load_run(run), as_root=True) is None  # no session anywhere
+
+
+def test_root_line_weighs_size_against_cache_state(mesh, run, monkeypatch):
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=60)
+    assert mesh.root_line(run)[0] is None  # warm and under twice the threshold: not worth a reset yet
+    line = mesh.root_line(run, about_to_wait=True)[0]
+    assert "root context 400k, cache warm" in line and "about to wait" in line and "mesh reset --next" in line
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=4000)
+    line = mesh.root_line(run)[0]
+    assert "cache cold since" in line and "re-reads all of it" in line
+    root_transcript_file(mesh, monkeypatch, 700_000, idle=60)
+    assert "next quiet point" in mesh.root_line(run)[0]
+    root_transcript_file(mesh, monkeypatch, 200_000, idle=4000)
+    assert mesh.root_line(run)[0] is None  # small: cold or not, a reset saves little
+    monkeypatch.setenv("MESH_ROOT_RESET_AT", "100000")
+    assert "cache cold" in mesh.root_line(run)[0]
+
+
+def test_root_line_waits_for_what_waits_on_the_root(mesh, run, monkeypatch):
+    mesh.store_message(run, "repo-fix-typo", "repo-lead", "plan", "my plan")
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=60)
+    assert mesh.root_line(run, about_to_wait=True)[0] is None  # a plan to review first: not about to wait
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=4000)
+    assert "once you've handled a plan from repo-fix-typo" in mesh.root_line(run)[0]
+
+
+def test_root_line_shows_a_failed_reset_and_nothing_while_one_is_pending(mesh, run, monkeypatch):
+    import fcntl
+    mesh.log_event(run, "reset_failed", name="repo-lead", reason="gave up after waiting 30m: a draft is in its input box")
+    assert "the last `mesh reset` failed" in mesh.root_line(run)[0] and "a draft" in mesh.root_line(run)[0]
+    with mesh.reset_lock_path(run).open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        assert mesh.root_line(run)[0] is None
+
+
+def test_status_header_and_root_commands_show_the_root_context(mesh, fake, run, monkeypatch, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=4000)
+    assert mesh.main(["status"]) == 0
+    out = capsys.readouterr()
+    assert "root context 400k, cache cold since" in out.out.splitlines()[0]
+    assert "mesh reset" in out.err
+    assert mesh.main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["root_context"]["tokens"] == 400_000
+    assert mesh.main(["inbox"]) == 0
+    assert "mesh reset" in capsys.readouterr().err
+    mesh.warn_unwatched(run)
+    assert "cache cold" in capsys.readouterr().err
+    assert mesh.main(["inbox", "--as", "repo-fix-typo"]) == 0
+    assert "mesh reset" not in capsys.readouterr().err  # a worker's command says nothing of the root
+
+
+def test_warn_unwatched_says_a_big_warm_root_is_about_to_wait(mesh, run, monkeypatch, capsys):
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=60)
+    mesh.warn_unwatched(run)
+    assert "about to wait on workers" in capsys.readouterr().err
+
+
+class FakePopen:
+    started: list = []
+
+    def __init__(self, argv, **kwargs):
+        self.pid = 4321
+        FakePopen.started.append((argv, kwargs))
+
+
+def test_reset_starts_a_detached_process_holding_the_lock(mesh, run, monkeypatch, capsys):
+    FakePopen.started = []
+    monkeypatch.setattr(mesh.subprocess, "Popen", FakePopen)
+    assert mesh.main(["reset", "--next", "review PR 31"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["pending"] and out["pid"] == 4321 and "end your turn" in out["then"]
+    (argv, kwargs), = FakePopen.started
+    assert argv[2:6] == ["reset", "--run", run, "--as"] and "--detached" in argv
+    assert argv[argv.index("--next") + 1] == "review PR 31" and "--compact" not in argv
+    assert kwargs["start_new_session"] and kwargs["pass_fds"]
+    assert "CLAUDE_CODE_SESSION_ID" not in kwargs["env"]
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["via"], event["next"]) == ("reset_requested", "command", "review PR 31")
+    assert mesh.main(["reset", "--compact", "keep the PR list"]) == 0
+    argv = FakePopen.started[-1][0]
+    assert argv[argv.index("--compact") + 1] == "keep the PR list"
+
+
+def test_reset_refuses_a_worker_a_waiting_plan_and_a_pending_reset(mesh, run, monkeypatch, capsys):
+    import fcntl
+    monkeypatch.setattr(mesh.subprocess, "Popen", FakePopen)
+    assert mesh.main(["reset", "--as", "repo-fix-typo"]) == 1
+    assert "only a run's root" in capsys.readouterr().err
+    path = mesh.store_message(run, "repo-fix-typo", "repo-lead", "question", "which field?")
+    assert mesh.main(["reset"]) == 1
+    assert "a question from repo-fix-typo waits on you" in capsys.readouterr().err
+    mesh.mark_read(path)
+    with mesh.reset_lock_path(run).open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        assert mesh.main(["reset"]) == 1
+        assert "already pending" in capsys.readouterr().err
+
+
+IDLE_BOX = "\n".join(claude_pane("❯\xa0"))
+
+
+def scripted_root(mesh, fake, monkeypatch, working=0, clears=True, status="idle", kind="claude"):
+    """herdr's view of the root's pane: `working` reads of working, then `status`; its session turns from
+    `old` to `new` once /clear has been typed into it (when `clears`)."""
+    reads = {"n": 0}
+
+    def agent(pane):
+        reads["n"] += 1
+        cleared = clears and any(c[:4] == ("agent", "prompt", pane, "/clear") for c in fake.calls)
+        return {"agent": kind, "agent_status": "working" if reads["n"] <= working else status,
+                "agent_session": {"value": "new" if cleared else "old"}}
+
+    monkeypatch.setattr(mesh, "pane_agent", agent)
+    fake.screen("w1:p1", IDLE_BOX)
+    return reads
+
+
+def prompts(fake):
+    return [c[3] for c in fake.called("agent", "prompt")]
+
+
+def test_reset_root_waits_for_the_turn_to_end_then_clears_and_bootstraps(mesh, fake, run, monkeypatch):
+    scripted_root(mesh, fake, monkeypatch, working=3)
+    assert mesh.reset_root(run, "repo-lead", "review PR 31", None) == 0
+    clear, bootstrap = prompts(fake)
+    assert clear == "/clear"
+    assert bootstrap.startswith("📬 [mesh] (ref ") and "You are repo-lead, the root of agent-mesh run mtest" in bootstrap
+    assert "no parent to report to" in bootstrap and "Run `mesh brief`" in bootstrap
+    assert bootstrap.endswith("Then: review PR 31")
+    assert "--wait" not in fake.called("agent", "prompt")[0]  # a clear is no turn: herdr would call it stalled
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["old_session"], event["new_session"]) == ("reset", "old", "new")
+
+
+def test_reset_root_never_types_into_a_working_root(mesh, fake, run, monkeypatch):
+    monkeypatch.setenv("MESH_RESET_WAIT", "0")
+    scripted_root(mesh, fake, monkeypatch, working=10 ** 6)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == []
+    event = mesh.read_log(run)[-1]
+    assert event["event"] == "reset_failed" and "it reads working" in event["reason"]
+
+
+def test_reset_root_holds_on_a_draft_but_not_on_ghost_text(mesh, fake, run, monkeypatch):
+    monkeypatch.setenv("MESH_RESET_WAIT", "0")
+    scripted_root(mesh, fake, monkeypatch)
+    fake.screen("w1:p1", "\n".join(claude_pane("❯\xa0hello draft")))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == [] and "a draft is in its input box" in mesh.read_log(run)[-1]["reason"]
+    # Claude's prompt suggestion after a turn is dim ghost text, like its "Try …" placeholder: an empty box
+    # (the row as captured from a live root, Claude Code 2.1.310).
+    monkeypatch.delenv("MESH_RESET_WAIT")
+    fake.screen("w1:p1", "\n".join(claude_pane("❯\xa0\x1b[0m\x1b[2mrespawn repo-tw and ask for its report\x1b[0m")))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert prompts(fake)[0] == "/clear"
+
+
+def test_reset_root_holds_on_an_unreadable_box(mesh, fake, run, monkeypatch):
+    monkeypatch.setenv("MESH_RESET_WAIT", "0")
+    scripted_root(mesh, fake, monkeypatch)
+    fake.screen("w1:p1", "no input box here")
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == [] and "can't be read" in mesh.read_log(run)[-1]["reason"]
+
+
+def test_reset_root_is_cancelled_by_a_plan_that_arrives(mesh, fake, run, monkeypatch):
+    scripted_root(mesh, fake, monkeypatch)
+    mesh.store_message(run, "repo-fix-typo", "repo-lead", "plan", "my plan")
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == []
+    event = mesh.read_log(run)[-1]
+    assert (event["event"], event["reason"]) == ("reset_cancelled", "a plan from repo-fix-typo arrived")
+
+
+def test_reset_root_types_no_bootstrap_when_the_clear_doesnt_show(mesh, fake, run, monkeypatch):
+    scripted_root(mesh, fake, monkeypatch, clears=False)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == ["/clear"]
+    assert "didn't show up as a new session" in mesh.read_log(run)[-1]["reason"]
+
+
+def agy_index(mesh, rows):
+    """agy's conversation index, as `agy_summaries` reads it: (id, first prompt) rows."""
+    import sqlite3
+    path = mesh.Path(mesh.os.environ["MESH_AGY_SUMMARIES"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE conversation_summaries (conversation_id, preview, workspace_uris, nesting_depth, "
+               "step_count, last_modified_time)")
+    for n, (conversation, preview) in enumerate(rows):
+        db.execute("INSERT INTO conversation_summaries VALUES (?, ?, '[]', 0, 1, ?)", (conversation, preview, n))
+    db.commit()
+    db.close()
+
+
+def index_on_bootstrap(mesh, monkeypatch, root_conversation, others=()):
+    """agy indexes the root's new conversation once the bootstrap is its first prompt; `others` are there anyway."""
+    agy_index(mesh, [(c, "someone else") for c in others])
+    real_ring = mesh.ring
+
+    def ring(targets, text, token, **kw):
+        result = real_ring(targets, text, token, **kw)
+        agy_index(mesh, [*((c, "someone else") for c in others),
+                         (root_conversation, f"📬 [mesh] (ref {token}) You are repo-lead…")])
+        return result
+
+    monkeypatch.setattr(mesh, "ring", ring)
+
+
+def test_reset_root_of_an_agy_root_confirms_by_a_new_conversation(mesh, fake, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "agy"
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    folder = mesh.agy_conversation_file("x").parent
+    folder.mkdir(parents=True)
+    (folder / "before.db").write_text("")
+    real = mesh.agy_conversations
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: real() | ({"after"} if prompts(fake) else set()))
+    index_on_bootstrap(mesh, monkeypatch, "after")
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "after"  # measured from now on
+    assert "Then: carry on from the next step in your notes" in prompts(fake)[1]
+
+
+def test_reset_root_of_an_agy_root_doesnt_take_a_lone_new_conversation_on_trust(mesh, fake, run, monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    # Another agy's conversation shows first; the root's own is indexed only after its bootstrap.
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "other"} if prompts(fake) else {"a"})
+    index_on_bootstrap(mesh, monkeypatch, "mine", others=("other",))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "mine"
+
+
+def test_reset_root_of_an_agy_root_records_nothing_when_the_lone_new_one_isnt_its_own(mesh, fake, run,
+                                                                                       monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "other"} if prompts(fake) else {"a"})
+    agy_index(mesh, [("other", "someone else")])  # the root's own never gets indexed in time
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] is None  # the lone one wasn't the root's
+    assert "couldn't tell" in mesh.read_log(run)[-1]["note"]
+
+
+def test_reset_root_with_compact_waits_for_the_compaction(mesh, fake, run, monkeypatch):
+    scripted_root(mesh, fake, monkeypatch, clears=False)
+    assert mesh.reset_root(run, "repo-lead", None, "keep the PR list") == 0
+    compact = fake.called("agent", "prompt")[0]
+    assert compact[3] == "/compact keep the PR list" and "--until" in compact
+    assert fake.called("agent", "wait")
+    assert "compacted your session" in prompts(fake)[1]
+
+
+def test_reset_root_reports_a_bootstrap_that_doesnt_get_through(mesh, fake, run, monkeypatch):
+    scripted_root(mesh, fake, monkeypatch)
+    real = fake.__call__
+
+    def herdr(*args, timeout=None):
+        if args[:2] == ("agent", "prompt") and args[3] != "/clear":
+            raise mesh.HerdrError("agent_not_found", "gone")
+        return real(*args, timeout=timeout)
+
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert "didn't get through" in mesh.read_log(run)[-1]["reason"]
+
+
+def autoreset_root(mesh, fake, monkeypatch, tokens=400_000, idle=4000, status="idle"):
+    import os
+    import time
+    path = mesh.claude_sessions_dir("/repo") / "root-s.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(usage(tokens - 12)) + "\n")
+    os.utime(path, (time.time() - idle, time.time() - idle))
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {"agent": "claude", "agent_status": status,
+                                                          "agent_session": {"value": "root-s"}})
+    started = []
+    monkeypatch.setattr(mesh, "start_reset", lambda *a, **k: started.append((a, k)) or 1)
+    return started
+
+
+def test_autoreset_resets_a_big_idle_cold_root_owed_nothing(mesh, fake, run, monkeypatch):
+    started = autoreset_root(mesh, fake, monkeypatch)
+    assert mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))
+    (args, kwargs), = started
+    assert args[1] == "repo-lead" and kwargs["via"] == "watch"
+    mesh.log_event(run, "reset_requested", name="repo-lead", via="watch")
+    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))  # once per cache lifetime
+
+
+@pytest.mark.parametrize("change", ["warm", "small", "working", "mail"])
+def test_autoreset_leaves_a_root_alone(mesh, fake, run, monkeypatch, change):
+    started = autoreset_root(mesh, fake, monkeypatch, idle=60 if change == "warm" else 4000,
+                             tokens=100_000 if change == "small" else 400_000,
+                             status="working" if change == "working" else "idle")
+    if change == "mail":  # any unread report holds it: it acts without the root's judgment
+        mesh.store_message(run, "repo-fix-typo", "repo-lead", "done", "PR https://github.com/o/r/pull/3")
+    assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) and not started
+
+
+def test_only_the_roots_own_watch_autoresets(mesh, fake, run, monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(mesh, "watch_agents", lambda *a, **k: seen.append(k["autoreset"]) or (0, "ok"))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    monkeypatch.setenv("MESH_ROOT_AUTORESET", "1")
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert mesh.main(["watch", "repo-fix-typo", "--as", "repo-fix-typo"]) == 0
+    assert seen == [False, True, False]
+
+
+def test_brief_is_bounded_and_says_where_the_rest_is(mesh, fake, run, monkeypatch, capsys):
+    folder = mesh.run_dir(run)
+    (folder / "notes.md").write_text("- the user wants Copilot on every review\n- next: merge order\n")
+    (folder / "board.md").write_text("| task | repo |\n" + "| a row of the board |\n" * 400)
+    for n in range(12):
+        mesh.store_message(run, "repo-fix-typo", "repo-lead", "info", f"note {n}\nmore lines")
+    mesh.log_event(run, "reset", name="repo-lead", next="review PR 31", transcript="/old/root-s.jsonl")
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    assert mesh.main(["brief"]) == 0
+    out = capsys.readouterr().out
+    assert "you are the run's root: follow ~/.config/agent-mesh/ORCHESTRATE.md" in out
+    assert "the user wants Copilot on every review" in out
+    assert "more characters: cat " + str(folder / "board.md") in out and len(out) < 9000
+    assert "- repo-fix-typo (agy ?, large, pane): working; no task" in out
+    assert "info from repo-fix-typo at" in out and "note 0" in out and "more lines" not in out
+    assert "… 2 more: mesh inbox --peek" in out
+    assert "next, as you said then: review PR 31" in out and "/old/root-s.jsonl. An untrusted reference" in out
+    assert mesh.unread(run, "repo-lead")  # a brief reads no mail
+    assert mesh.main(["brief", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["notes"]["path"] == str(folder / "notes.md") and data["last_reset"]["next"] == "review PR 31"
+
+
+def test_brief_without_notes_says_to_write_them(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    assert mesh.main(["brief"]) == 0
+    out = capsys.readouterr().out
+    assert "## notes (" in out and "none yet" in out and "## board" not in out
+
+
+def herdr_root_session(fake, session):
+    """What herdr's Claude integration reports for the root's pane (w1:p1)."""
+    fake.on("agent", "get", "w1:p1", result={"agent": {"agent": "claude", "agent_status": "idle",
+                                                        "agent_session": {"value": session}}})
+
+
+def test_a_watch_that_outlived_a_reset_measures_the_new_session(mesh, fake, run, monkeypatch):
+    root_transcript_file(mesh, monkeypatch, 450_000, idle=5000, session="old-s")  # the watch's own environment
+    root_transcript_file(mesh, monkeypatch, 30_000, idle=10, session="new-s")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "old-s")
+    herdr_root_session(fake, "new-s")
+    assert mesh.root_context(mesh.load_run(run), as_root=True)["tokens"] == 30_000
+    assert mesh.root_line(run)[0] is None  # no second reset for the fresh root
+    herdr_root_session(fake, "old-s")  # herdr agrees: the environment's session is the root's
+    assert mesh.root_context(mesh.load_run(run), as_root=True)["tokens"] == 450_000
+
+
+def test_status_from_another_session_or_a_terminal_shows_the_roots_context(mesh, fake, run, monkeypatch, capsys):
+    root_transcript_file(mesh, monkeypatch, 620_000, idle=30, session="worker-s")
+    root_transcript_file(mesh, monkeypatch, 80_000, idle=30, session="root-s")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    herdr_root_session(fake, "root-s")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "worker-s")
+    assert mesh.main(["status", "--as", "repo-fix-typo"]) == 0  # a Claude worker asking
+    assert "root context 80k" in capsys.readouterr().out
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    monkeypatch.delenv("HERDR_PANE_ID")  # a plain terminal: not in the run at all
+    assert mesh.main(["status", run, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["root_context"]["tokens"] == 80_000
+
+
+def test_caller_names_only_an_agent_of_the_named_run(mesh, fake, run, monkeypatch):
+    other = mesh.run_dir("mold")
+    other.mkdir(parents=True)
+    mesh.save_run("mold", {"id": "mold", "mode": "agy", "root": "repo-lead", "request": "",
+                           "agents": {"repo-lead": {"role": "root", "kind": "claude", "pane": "w9:p9"}}})
+    before = (other / "run.json").read_text()
+    assert mesh.caller(argparse_ns(), "mold") == ("mold", None)  # the pane is mtest's root, not mold's
+    assert mesh.caller(argparse_ns(), run) == (run, "repo-lead")
+    assert (other / "run.json").read_text() == before
+
+
+def argparse_ns(**kw):
+    import argparse
+    return argparse.Namespace(run=None, as_=None, **kw)
+
+
+def test_a_failed_reset_is_shown_once(mesh, fake, run, monkeypatch, capsys):
+    mesh.log_event(run, "reset_cancelled", name="repo-lead", reason="a plan from repo-fix-typo arrived")
+    mesh.root_hint(run)
+    assert "was cancelled" in capsys.readouterr().err
+    mesh.root_hint(run)
+    assert capsys.readouterr().err == ""
+    assert mesh.read_log(run)[-1]["event"] == "reset_noted"
+
+
+def agy_root(mesh, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"].update(kind="agy", session="agy-old")
+
+
+def test_reset_root_of_an_agy_root_tells_the_roots_conversation_by_its_bootstrap(mesh, fake, run, monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "b", "z"} if prompts(fake) else {"a"})
+    index_on_bootstrap(mesh, monkeypatch, "b", others=("z",))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "b"  # not "z", which sorts last
+    event = mesh.read_log(run)[-1]
+    assert (event["old_session"], event["new_session"], "note" in event) == ("agy-old", "b", False)
+
+
+def test_reset_root_of_an_agy_root_measures_nothing_rather_than_guess(mesh, fake, run, monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    monkeypatch.setattr(mesh, "agy_conversations", lambda: {"a", "b", "z"} if prompts(fake) else {"a"})
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0  # it was reset; only its measuring is lost
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] is None
+    assert "couldn't tell which new agy conversation" in mesh.read_log(run)[-1]["note"]
+
+
+def test_reset_root_compacting_an_agy_root_keeps_its_conversation(mesh, fake, run, monkeypatch):
+    agy_root(mesh, run)
+    scripted_root(mesh, fake, monkeypatch, clears=False, kind="agy")
+    assert mesh.reset_root(run, "repo-lead", None, "keep the PR list") == 0
+    assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "agy-old"
+    event = mesh.read_log(run)[-1]
+    assert (event["old_session"], event["new_session"]) == ("agy-old", "agy-old")
+
+
+def test_a_watch_reset_reminds_the_root_of_a_question_to_the_user(mesh):
+    text = mesh.bootstrap_text("mtest", "repo-lead", "carry on supervising", False, "abc123", via="watch")
+    assert "waiting on an answer from the user" in text and "notes.md" in text
+    assert "user" not in mesh.bootstrap_text("mtest", "repo-lead", "go on", False, "abc123")
+
+
+def test_brief_caps_the_request_and_tells_a_non_root_whose_view_it_is(mesh, fake, run, capsys):
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    with mesh.editing_run(run) as data:
+        data["request"] = "do it\n" * 1000
+    assert mesh.main(["brief", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["request"]) < 1300 and "more characters" in data["request"]
+    assert mesh.main(["brief", "--as", "repo-fix-typo"]) == 0
+    assert "you are repo-fix-typo, not this run's root (repo-lead)" in capsys.readouterr().out
+
+
+def test_root_session_prefers_the_file_written_last_when_herdr_and_the_command_disagree(mesh, fake, run,
+                                                                                        monkeypatch):
+    # A nested `claude -c -p` in the root's pane made herdr report its session; the root's own turn is live.
+    root_transcript_file(mesh, monkeypatch, 20_000, idle=3000, session="nested-s")
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=1, session="root-s")
+    herdr_root_session(fake, "nested-s")
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    assert mesh.root_session(entry, as_root=True) == "root-s"
+    # A watch that outlived a reset: its own session is the still one, herdr's the live one.
+    root_transcript_file(mesh, monkeypatch, 400_000, idle=3000, session="old-s")
+    root_transcript_file(mesh, monkeypatch, 30_000, idle=1, session="new-s")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "old-s")
+    herdr_root_session(fake, "new-s")
+    assert mesh.root_session(entry, as_root=True) == "new-s"
+    assert mesh.root_session(entry) == "new-s"  # not the root's own command: herdr's word

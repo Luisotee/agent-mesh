@@ -203,6 +203,15 @@ An old conversation has lost its prompt cache, so every turn of a follow-up woul
 - the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
 - `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` / `MESH_AGY_COMPACT_AT` move the thresholds.
 
+### The root's own context
+
+The root lives longest, and every turn re-reads its whole context: a twentieth of the price while the prompt cache is warm, full price once the cache has expired (an hour on a Claude subscription). So mesh measures the root too, and the root resets itself, without asking anyone:
+
+- root commands print a `mesh: root context 452k, cache cold since 14:02 …` line when a reset pays: over 300k tokens (`MESH_ROOT_RESET_AT`) with a cold cache, or when the root is about to wait on workers; over twice that while warm. `mesh status` shows the size and cache state in its header;
+- the root writes what the files can't hold to `$(mesh dir)/notes.md` (the user's standing instructions, decisions and why, what's next), runs `mesh reset --next "<what next>"` and ends its turn. A detached process waits until the turn has ended and the input box is empty (never over a draft), types `/clear` (or `/compact <focus>` with `--compact`) into the root's own pane, then a prompt that sends the fresh session to `mesh brief`;
+- `mesh brief` is one bounded view of the run for a fresh root: request, notes, board, each worker's state, what waits on it, PRs, unread mail headers and the old transcript's path, each part capped with a command for the rest;
+- with `MESH_ROOT_AUTORESET=1`, the root's own `mesh watch` resets an idle root over the threshold once its cache is cold.
+
 ## How it works
 
 ### Mailbox plus doorbell
@@ -309,6 +318,8 @@ mesh usage                 # agy quotas and the models auto would pick
 mesh conflicts             # which run branches conflict with the default branch or each other,
                            #   and which workers change the same files (uncommitted too)
 mesh watch --any [--alerts]  # one watchdog for every worker of the run
+mesh brief                 # (root) one bounded view of the run: what a fresh session needs
+mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear your own pane and resume from mesh brief
 ```
 
 ## The protocol in one screen

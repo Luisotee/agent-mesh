@@ -118,7 +118,7 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
    - **agy root:** rely on the doorbell, and check `mesh status` each time you wake. While the user has a draft typed in your pane, doorbells wait for it for about a minute, then give up (the sender's `mesh send` exits 2); those reports are still in your mailbox, and `mesh status` and the watch still show them.
    - **What's waiting on whom:** `mesh status` derives it for every worker, rows that need you first: a plan or question unanswered (and for how long), a task still unread ("doorbell failed": `mesh ring` it), a `done` with its PR's state and checks, or "no commits, no PR" (legitimate when the bug turned out not to be one, so read the report), "in review" while its reviewers work. `mesh log [--follow]` prints the run's events as a timeline.
    - **Keep working** on your own repo while workers run; their reports queue until your current turn ends. If your work depends on a worker's change, build against the contract you gave it, or wait for its `done` (its branch is `mesh/<run>/<slug>`) when you can't.
-   - **Keep your own context lean:** you live longest, so your context costs the most. Read plans and reports, not workers' transcripts. Look at diffs only where the plan says the risk is.
+   - **Keep your own context lean:** you live longest, so your context costs the most. Read plans and reports, not workers' transcripts. Look at diffs only where the plan says the risk is. When it grows big anyway, reset it (see "Your own context" below).
    - **Blocked on a dialog** (exit 4): a stray menu (a picker, a `/` command the worker opened) you may dismiss yourself with `herdr agent send-keys <name> esc`, then read the pane again. A real question, a permission prompt or a startup screen goes to the user.
 6. **Review every plan** (`plan` messages; large tasks only). Read the plan file and check it against the request, the repo and the other workers' plans:
    - Does it solve what was asked, and only that? Are the files and functions real (spot-check the code)?
@@ -150,7 +150,25 @@ A routing proposal is only a proposal: the user confirms the table, or you menti
 
     Then run `mesh stop`. It closes the panes, stops background workers, removes clean worktrees (branches with commits are kept) and archives the run log. It never touches your own checkout. Workers can still be resumed after it.
 
-**Root-only commands:** `mesh approve`, `switch` and `retire` act only for the worker's parent (you), and `mesh stop` refuses any worker. They find you by your pane, as every command does; the user acting for you from another terminal passes `--run <run> --as <your name>`.
+### Your own context
+
+Every turn re-reads your whole context: at a twentieth of the price while the prompt cache is warm, at full price once it has expired (an hour on a Claude subscription, five minutes on an API key). A big root woken cold by a report pays for all of it. `mesh reset` gives you a fresh session that rebuilds its picture from the run's files, and costs only the fresh session's small start, whenever you run it.
+
+- **The signal:** root commands (`status`, `inbox`, `spawn`, `approve`, `switch`, `resume`, `ask`, `watch`) print a `mesh: root context …` line when a reset pays: you're over 300k tokens (`MESH_ROOT_RESET_AT`) and your cache is cold, or you're about to wait on workers; or you're over twice that while still warm. `mesh status` shows your size and cache state in its header.
+- **Act on it without asking the user**, at a quiet point:
+  - **best:** big and about to wait: you have just approved plans or started workers, and nothing waits on you. Large workers often take longer than the cache lives, so their reports would wake you cold.
+  - **cold and nothing waiting:** reset before you do anything else.
+  - **warm:** only at a phase boundary (a batch of PRs settled, a task list finished).
+  - **never** with a plan or question waiting on you (`mesh reset` refuses), with a review's findings half-checked, or with your own repo's work neither committed nor written down.
+- **How:**
+  1. Bring `$(mesh dir)/notes.md` up to date: the user's standing instructions for this run, the decisions you made and why, and what you were about to do. It's what the files can't tell your next session. Keep it current as you go (write a decision down when you make it), not only before a reset.
+  2. `mesh reset --next "<what to do next>"`, then **end your turn at once**. It returns right away. Once your turn has ended and your input box is empty, it types `/clear` into your pane, then a prompt telling the fresh session to run `mesh brief` and go on with `--next` (or the next step in notes.md). It never types while you're working or while the user has a draft in your box, and gives up after 30 minutes (`MESH_RESET_WAIT`); a failed or cancelled reset shows up once, in the next root command's line.
+  - `--compact "<focus>"` types `/compact <focus>` instead of `/clear`: for a root that still has its own repo's work in flight, while its cache is warm. A pure supervisor (a task list) clears.
+- **After a reset or any compaction** (Claude Code's own included), run `mesh brief` first: one bounded view of the run (request, notes.md, board.md, each worker's state, what waits on you, PRs, unread mail headers, the old transcript's path), with a command for whatever it leaves out. Trust it and `mesh status` over what you remember; read the old transcript only for a detail they don't have. If it says no watch covers a worker, start `mesh watch --any --alerts` again.
+- **Idle reset (opt-in):** with `MESH_ROOT_AUTORESET=1`, your own `mesh watch` resets you while you're idle, over the threshold, with a cold cache and no unread report, so the next report wakes a small session. It can't tell that you're waiting on the user, so when you end a turn with a question to the user while it's on, write the question into notes.md first: the prompt after an idle reset tells you to look there and ask again.
+- Claude Code's `/autocompact <tokens>` is the user's own fallback; mesh doesn't rely on it, since it can compact cold or in the middle of a review.
+
+**Root-only commands:** `mesh reset` resets only the root itself. `mesh approve`, `switch` and `retire` act only for the worker's parent (you), and `mesh stop` refuses any worker. They find you by your pane, as every command does; the user acting for you from another terminal passes `--run <run> --as <your name>`.
 
 **Messages to a worker:** always send them with `mesh send` (or `mesh approve`). If the output has a `send_message` (a background worker has no pane to ring), pass it on with the `SendMessage` tool, with `to` and `message` exactly as printed.
 
@@ -173,7 +191,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
    - Below them it warns about workers that change the same files, committed or not (in `--json`, rows with `"kind": "overlap"`; real conflicts are `"kind": "conflict"`). Overlap isn't a conflict yet: stack or sequence the later worker, or tell the two which files they share.
    - Nobody merges, so report a merge order that avoids them.
    - When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
-7. **The board is the plan, `mesh status` the state:** change `board.md` only when the plan changes (a task re-sized, split, re-ordered, or given a worker). After your context is compacted, rebuild your picture from `board.md`, `mesh status --json` and `mesh inbox --all`, not from memory.
+7. **The board is the plan, `mesh status` the state:** change `board.md` only when the plan changes (a task re-sized, split, re-ordered, or given a worker). After your context is reset or compacted, rebuild your picture with `mesh brief`, not from memory.
    - Read `mesh status`, `mesh agents` and `mesh inbox` with `--json` rather than parsing their tables.
    - `mesh agents --run <run> --json` lists the run's workers and reviewers with their PRs, resumed ones included: gather PRs there, not by looping `gh pr list` over the repos.
 8. **Report:** the board as a table, with each task's PR, worker name, size, status (from `mesh status`) and review outcome. Then the suggested merge order, and what's left for the user.
