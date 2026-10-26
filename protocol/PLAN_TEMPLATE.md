@@ -2,6 +2,8 @@
 
 Repo: <path> · Branch: mesh/<run>/<slug> · Agent: <your name> (<model>/<effort>)
 
+A group's plan covers all its tasks: Goal, Findings, Files and Steps get a subsection per task, and a "Maybe" task says do or decline, with the evidence.
+
 ## Goal
 One or two sentences: the outcome, not the steps.
 
