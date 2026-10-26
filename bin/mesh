@@ -4893,7 +4893,8 @@ def cmd_open(args: argparse.Namespace) -> int:
         try:
             holder = live_holder(name, entry)
         except MeshError:
-            return None  # outside herdr: nothing to check against
+            # herdr's server isn't running (`mesh open` from a plain terminal): only the processes can tell
+            holder = live_holder(name, entry, agents=[])
         if holder:
             holder["hint"] = f"go there with `herdr agent focus {holder.get('name') or holder.get('pane_id')}`"
         return holder

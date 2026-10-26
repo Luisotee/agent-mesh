@@ -3025,6 +3025,22 @@ def test_open_reopens_the_conversation_here_outside_the_mesh(mesh, fake, repo, m
     assert "git worktree remove" in capsys.readouterr().err
 
 
+def test_open_without_herdr_refuses_a_conversation_a_process_holds(mesh, fake, repo, monkeypatch, capsys):
+    # herdr is installed but its server isn't running, so only the process table can show the worker live
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    fake.on("agent", "list", error="cli_error")
+    opened = []
+    monkeypatch.setattr(mesh.os, "chdir", lambda p: None)
+    monkeypatch.setattr(mesh.os, "execvpe", lambda f, argv, env: opened.append(argv))
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [{"pid": 4242, "argv": ["claude"], "cwd": str(path / "src")}])
+    capsys.readouterr()
+    assert mesh.main(["open", "proj-fix"]) == 1
+    assert "may still be open in process 4242" in capsys.readouterr().err and not opened
+    monkeypatch.setattr(mesh, "agent_processes", lambda: [])
+    assert mesh.main(["open", "proj-fix"]) == 0
+    assert opened == [["claude", "--resume", "s-1", "--model", "opus", "--effort", "high"]]
+
+
 # ── models per phase: approve, quota hits, switch ────────────────────────
 
 
