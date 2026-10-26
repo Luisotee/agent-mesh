@@ -110,11 +110,11 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_AGY_SUMMARIES", str(tmp_path / "agy" / "conversation_summaries.db"))
     monkeypatch.setenv("MESH_AGY_HISTORY", str(tmp_path / "agy" / "history.jsonl"))
     monkeypatch.setenv("MESH_AGY_CONVERSATIONS", str(tmp_path / "agy" / "conversations"))
-    # CLAUDE_CODE_SESSION_ID, CLAUDE_PID: the suite may run inside Claude Code, whose session would meet
-    # `inherited_identity` and whose process `claude_address`.
+    # CLAUDE_CODE_SESSION_ID, CLAUDE_PID, CLAUDE_CODE_MESSAGING_SOCKET: the suite may run inside Claude Code, whose
+    # session would meet `inherited_identity` and whose socket `claude_address`.
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
                 "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
-                "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"):
+                "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_CODE_MESSAGING_SOCKET"):
         monkeypatch.delenv(key, raising=False)
     # Never this machine's Claude session files either (a root's is looked up across every project folder).
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
@@ -124,6 +124,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setattr(module.subprocess, "Popen", RefuseAgentClis)
     monkeypatch.setattr(module.time, "sleep", lambda s: None)
     monkeypatch.setattr(module, "run_cli", FakeCli())
+    # Never this machine's managed Claude settings: a test that wants a policy writes one here (inbound_setting).
+    monkeypatch.setattr(module, "CLAUDE_MANAGED", tmp_path / "claude-managed")
     # Never this machine's real claude/agy processes (live_holder): a test that wants some lists its own.
     monkeypatch.setattr(module, "agent_processes", lambda: [])
     return module

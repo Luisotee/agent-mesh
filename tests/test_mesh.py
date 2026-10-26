@@ -5932,6 +5932,67 @@ def test_a_claude_worker_gets_its_hooks_and_agy_none(mesh, fake, run):
     assert starts[1]["hooks"][0]["command"].split()[1:4] == ["whoami", "--reminder", "clear"]
     bg = json.loads(mesh.worker_settings(env, bg=True))
     assert bg["hooks"] == settings["hooks"] and bg["env"]["MESH_SELF"] == "proj-x"
+    # Cross-session messages reach it whatever the root's permission mode, or mesh writing with none.
+    assert settings["crossSessionInbound"] == bg["crossSessionInbound"] == "accept"
+
+
+def write_settings(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"crossSessionInbound": value}))
+
+
+def test_inbound_setting_ranks_sources_as_claude_code_does(mesh, tmp_path):
+    repo, user = tmp_path / "proj", mesh.claude_home() / "settings.json"
+    assert mesh.inbound_setting(repo) == (None, None)  # unset: the session's permission mode decides
+    assert mesh.inbound_setting(repo, "accept") == ("accept", "flag")
+    write_settings(user, "hold")
+    assert mesh.inbound_setting(repo) == ("hold", "user")
+    assert mesh.inbound_setting(repo, "accept") == ("accept", "flag")  # the flag beats the user's own
+    write_settings(repo / ".claude" / "settings.json", "accept")
+    assert mesh.inbound_setting(repo) == ("hold", "user")  # a repo can't loosen it
+    write_settings(repo / ".claude" / "settings.local.json", "refuse")
+    assert mesh.inbound_setting(repo, "accept") == ("refuse", "repo")  # but it can tighten it
+    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "10-x.json", "hold")
+    assert mesh.inbound_setting(None, "accept") == ("hold", "managed")  # policy beats the flag
+    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.d" / "20-y.json", "nonsense")
+    assert mesh.inbound_setting(None, "accept") == ("hold", "managed")  # an unknown value holds
+    assert not mesh.worker_accepts(None)
+
+
+def test_transcript_mode_is_the_newest_prompts(mesh, tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text("\n".join(json.dumps(e) for e in (
+        {"type": "user", "permissionMode": "default"}, {"type": "user", "permissionMode": "bypassPermissions"},
+        {"type": "assistant"})) + "\n")
+    assert mesh.transcript_mode(path, chunk=16) == "bypassPermissions"
+    assert mesh.transcript_mode(tmp_path / "none.jsonl") is None
+    assert [mesh.mode_class(m) for m in ("bypassPermissions", "acceptEdits", "plan", None)] == \
+        ["bypass", "prompting", None, None]
+
+
+def test_init_and_status_warn_on_a_holding_inbound_policy(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "claude"
+    assert mesh.inbound_warnings(mesh.load_run(run)) == []
+    write_settings(mesh.claude_home() / "settings.json", "hold")
+    warning, = mesh.inbound_warnings(mesh.load_run(run))
+    assert "crossSessionInbound is hold (user settings" in warning and "typed into your pane" in warning
+    write_settings(mesh.CLAUDE_MANAGED / "managed-settings.json", "refuse")
+    root, workers = mesh.inbound_warnings(mesh.load_run(run))
+    assert "(managed settings)" in root and "Claude workers open in panes" in workers
+    monkeypatch.setattr(mesh, "status_rows", lambda run_id, data: [])
+    mesh.main(["status", "--json", "--as", "repo-lead"])
+    assert "Claude workers open in panes" in capsys.readouterr().err
+
+
+def test_background_falls_back_to_a_pane_where_settings_hold_messages(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    stub_new_pane(fake)
+    write_settings(repo / ".claude" / "settings.json", "hold")
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and "crossSessionInbound" in out["notes"][0]
+    assert not cli.called("--bg")
 
 
 def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, cli, run, repo, monkeypatch, capsys):

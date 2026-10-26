@@ -795,6 +795,77 @@ def process_session(pid: int) -> str | None:
     return (process_record(pid) or {}).get("sessionId") or None
 
 
+# Claude Code's managed settings on Linux: `managed-settings.json`, then `managed-settings.d/*.json` in name order.
+CLAUDE_MANAGED = Path("/etc/claude-code")
+INBOUND_RANK = {"accept": 0, "hold": 1, "refuse": 2}  # `crossSessionInbound`, loosest first
+PROMPTING_MODES = ("default", "acceptEdits", "auto", "dontAsk")
+
+
+def settings_inbound(path: Path) -> str | None:
+    """A settings file's `crossSessionInbound`; a value Claude Code doesn't know holds, as it does there."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    value = data.get("crossSessionInbound") if isinstance(data, dict) else None
+    return None if value is None else value if value in INBOUND_RANK else "hold"
+
+
+def inbound_setting(cwd: str | Path | None, flag: str | None = None) -> tuple[str | None, str | None]:
+    """(the `crossSessionInbound` a Claude session started in `cwd` with `--settings` `flag` runs with, where it
+    comes from), as Claude Code 2.1.310 decides it (design §11): managed policy, then the flag, then the user's
+    settings, the first that sets it; the repo's `.claude/settings*.json` may only tighten it. (None, None):
+    unset, so the session's permission mode decides. Server-managed policy isn't read."""
+    value = source = None
+    for path in (CLAUDE_MANAGED / "managed-settings.json", *sorted((CLAUDE_MANAGED / "managed-settings.d").glob("*.json"))):
+        if found := settings_inbound(path):
+            value, source = found, "managed"
+    if value is None and flag:
+        value, source = flag, "flag"
+    if value is None and (found := settings_inbound(claude_home() / "settings.json")):
+        value, source = found, "user"
+    for name in ("settings.local.json", "settings.json") if cwd else ():
+        found = settings_inbound(Path(cwd) / ".claude" / name)
+        if found and INBOUND_RANK[found] > INBOUND_RANK[value or "accept"]:
+            value, source = found, "repo"
+    return value, source
+
+
+def worker_accepts(cwd: str | Path | None) -> bool:
+    """Whether a Claude worker in `cwd` takes cross-session messages unprompted: mesh starts it with `accept`
+    (`worker_settings`), which only managed policy or a tightening repo overrides."""
+    return inbound_setting(cwd, "accept")[0] == "accept"
+
+
+def mode_class(mode: str | None) -> str | None:
+    """Claude Code's permission class for cross-session messages: "bypass", "prompting", or None when it can't
+    be told (`plan` counts as bypass only when bypass is available, which mesh can't see)."""
+    return "bypass" if mode == "bypassPermissions" else "prompting" if mode in PROMPTING_MODES else None
+
+
+def transcript_mode(path: Path | None, chunk: int = 1 << 20, most: int = 8 << 20) -> str | None:
+    """The permission mode of the newest prompt in a Claude session file (each carries `permissionMode`), read
+    backwards from its end, at most `most` bytes; None when not found."""
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            end, rest = fh.seek(0, os.SEEK_END), b""
+            stop = max(0, end - most)
+            while end > stop:
+                start = max(stop, end - chunk)
+                fh.seek(start)
+                lines = (fh.read(end - start) + rest).split(b"\n")
+                rest = lines.pop(0) if start else b""
+                for line in reversed(lines):
+                    if match := re.search(rb'"permissionMode":\s*"([A-Za-z]+)"', line):
+                        return match.group(1).decode()
+                end = start
+    except OSError:
+        return None
+    return None
+
+
 def leader_record(pane: str) -> dict | None:
     """The `process_record` of the Claude leading the pane's foreground group, or None if that can't be told.
     Unlike herdr's `agent_session`, nothing else started in the pane (a nested `claude -c -p`) can change it."""
@@ -1554,7 +1625,13 @@ def worker_hooks(run_id: str, name: str) -> dict:
 
 
 def worker_settings(env: dict[str, str], bg: bool) -> str:
-    """`--settings` JSON for a Claude worker: its hooks, and for a background one its environment.
+    """`--settings` JSON for a Claude worker: its hooks, `crossSessionInbound: accept`, and for a background one
+    its environment.
+
+    A worker bypasses permissions, and Claude Code holds a cross-session message for a bypass session's approval
+    when its sender asserts no permission mode (mesh writing a doorbell into its inbox) or another one (a root
+    that prompts): a background session has no dialog, so the message expires. The flag accepts them, and beats
+    the user's own setting; managed policy or the repo's settings can still tighten it (design §11).
 
     `claude --bg` runs the session in a spare process the daemon forked from its own environment, which is
     whoever's call started the daemon (an earlier worker, say), so the launch's own environment never reaches
@@ -1562,7 +1639,7 @@ def worker_settings(env: dict[str, str], bg: bool) -> str:
     key is set, empty when this launch has none, and the herdr ids are set empty, or a spare's stale values
     would stay (a pane id that `identity()` maps to its owner, another MESH_HOME). A pane has its environment.
     """
-    settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"])}
+    settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"]), "crossSessionInbound": "accept"}
     if bg:
         settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
     return json.dumps(settings)
@@ -2532,6 +2609,24 @@ def native_route(run: dict, sender: str, to: str) -> str | None:
     return None
 
 
+def inbound_warnings(run: dict) -> list[str]:
+    """What Claude Code's cross-session policy (`crossSessionInbound`) costs this run's delivery, for `init` and
+    `status` to say: never fixed by mesh, since the root's settings are the user's (design §11)."""
+    found = []
+    root = run["agents"].get(run.get("root")) or {}
+    if root.get("kind") == "claude":
+        value, source = inbound_setting(root.get("cwd"))
+        if value in ("hold", "refuse"):
+            fix = " (`accept` there changes that: your call)" if source == "user" else ""
+            found.append(f"warning: your session's crossSessionInbound is {value} ({source} settings{fix}), so "
+                         "workers' reports are typed into your pane instead of arriving as cross-session messages")
+    value, source = inbound_setting(None, "accept")
+    if value != "accept":
+        found.append(f"warning: {source} settings set crossSessionInbound to {value} for every Claude session, so "
+                     "Claude workers open in panes and their doorbells are typed into them")
+    return found
+
+
 def delivered(delivery: dict) -> bool:
     """Rung, handed back as a SendMessage, the opening prompt of a background session (`launched`), or a report
     a fan-out collects (`collected`)."""
@@ -2770,7 +2865,10 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    emit(init_run(args.mode, args.request, args.run_id))
+    result = init_run(args.mode, args.request, args.run_id)
+    emit(result)
+    for line in inbound_warnings(load_run(result["run"])):
+        print(line, file=sys.stderr)
     return 0
 
 
@@ -2857,6 +2955,10 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         view = "pane"
     if view == "bg" and not address_alive(run["agents"][run["root"]].get("address")):
         notes.append("background needs a Claude root that background workers can message; starting a pane")
+        view = "pane"
+    if view == "bg" and not worker_accepts(repo_top):
+        notes.append("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
+                     "background worker would never see; starting a pane")
         view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
     # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
@@ -3866,6 +3968,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}" + (f" · {context_text(context)}" if context else ""))
         print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "waiting", "branch"))
     if me == run["root"]:
+        for line in inbound_warnings(run):
+            print(line, file=sys.stderr)
         root_hint(run_id)
     return 0
 
@@ -5520,6 +5624,13 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         if getattr(args, "view", None):
             raise MeshError("a background worker needs a Claude root it can message (see `mesh init`)")
         notes.append("background needs a Claude root that background workers can message; reopening in a pane")
+        view = "pane"
+    if view == "bg" and not worker_accepts(old.get("cwd")):
+        if getattr(args, "view", None):
+            raise MeshError("Claude Code's settings there hold cross-session messages (crossSessionInbound), so a "
+                            "background worker would never hear from mesh: reopen it in a pane")
+        notes.append("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
+                     "background worker would never see; reopening in a pane")
         view = "pane"
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
