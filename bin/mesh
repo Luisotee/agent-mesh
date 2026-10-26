@@ -165,11 +165,12 @@ COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` t
                 "answer (your `done`).")
 # What a Copilot asker's entry records of the processes answering for it, while it runs (live_holder).
 PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
-REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `gh pr diff {pr}` shows the change."
+# `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
+REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `{show}` shows the change."
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
-REVIEW_OWN_AT = ("Don't switch your branch: read the change with `gh pr diff {pr}`, and a file at its head with "
+REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a file at its head with "
                  "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
@@ -3291,7 +3292,7 @@ def reviewing_pr(run_id: str, entry: dict, events: list[dict], name: str) -> str
     if not body.startswith("Review (read-only)"):
         return None
     named = REVIEW_GIST_RE.match(body)
-    pr = PR_RE.search(named.group(1)) if named else None
+    pr = PR_RE.search(named.group(2)) if named else None
     reviews = entry.get("reviews") or []
     return pr.group(0) if pr else (reviews[-1] if reviews else None)
 
@@ -3432,7 +3433,7 @@ def log_path(run_id: str) -> Path:
     raise MeshError(f"unknown run {run_id} (no {run_dir(run_id)}, nor one in {mesh_home() / 'archive'})")
 
 
-REVIEW_GIST_RE = re.compile(r"^(Review \(read-only\) of \S+?):\s")
+REVIEW_GIST_RE = re.compile(r"^(Review \(read-only\) of (\S+?)(?: at \S+)?):\s")  # the PR, and the head it names
 LOG_SKIP = ("time", "event", "name", "sender", "to", "type", "file")
 
 
@@ -4824,6 +4825,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
             "review_heads": dict(old.get("review_heads") or {}), "read_only": read_only, "planning": planning,
+            **({"review_checkout": old["review_checkout"]} if old.get("review_checkout") else {}),
             "repo": str(repo_top), "cwd": cwd, "branch": branch, "session": session, "pane": None, "tab": None,
             "workspace": None, "parent": me, "status": "starting", "spawned": now_iso(),
             "resumed_from": {"run": old_run["id"], "name": old_name}, "log": log,
@@ -4957,10 +4959,20 @@ def review_remote(repo: Path, pr: str) -> str:
     return remote
 
 
+def fetch_commit(repo: Path, remote: str, src: str) -> str:
+    """Fetch `src` from `remote` and return its commit, through a ref of this call's own (deleted after), not
+    FETCH_HEAD: parallel asks on one clone (`/delegate-review`) would read each other's, and the user's too."""
+    ref = f"refs/mesh/fetch/{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    git("fetch", "-q", "--no-write-fetch-head", remote, f"+{src}:{ref}", cwd=repo)
+    try:
+        return git("rev-parse", ref, cwd=repo)
+    finally:
+        git("update-ref", "-d", ref, cwd=repo)
+
+
 def pr_head(repo: Path, pr: str, number: int) -> str:
     """Fetch a PR's head commit from the remote it belongs to (`review_remote`)."""
-    git("fetch", "-q", review_remote(repo, pr), f"pull/{number}/head", cwd=repo)
-    return git("rev-parse", "FETCH_HEAD", cwd=repo)
+    return fetch_commit(repo, review_remote(repo, pr), f"pull/{number}/head")
 
 
 ASK_SLUG_SKIP = {"a", "an", "and", "are", "can", "do", "does", "for", "how", "in", "is", "it", "of", "on", "the",
@@ -5007,27 +5019,30 @@ def ask_slug(body: str) -> str:
 
 def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
     """`git diff` from the merge base with the PR's base branch (fetched from the PR's remote) to `head`, and that
-    merge base; None when gh can't name the base branch or git can't fetch or diff it."""
+    range (`<merge base>..<head>`); None when gh can't name the base branch, git can't fetch or diff it, or the
+    diff is empty (the base already holds the head, as after a merge commit: then only gh still shows the PR)."""
     data, _ = gh_json(["pr", "view", pr, "--json", "baseRefName"])
     base_ref = data.get("baseRefName") if isinstance(data, dict) else None
     if not base_ref:
         return None
     try:
-        git("fetch", "-q", review_remote(repo, pr), f"refs/heads/{base_ref}", cwd=repo)
-        merge_base = git("merge-base", git("rev-parse", "FETCH_HEAD", cwd=repo), head, cwd=repo)
-        return git("diff", "--no-color", "--no-ext-diff", merge_base, head, cwd=repo), merge_base
+        base = fetch_commit(repo, review_remote(repo, pr), f"refs/heads/{base_ref}")
+        merge_base = git("merge-base", base, head, cwd=repo)
+        diff = git("diff", "--no-color", "--no-ext-diff", merge_base, head, cwd=repo) if merge_base != head else ""
     except (MeshError, OSError):
         return None
+    return (diff, f"{merge_base}..{head}") if diff.strip() else None
 
 
 def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = None) -> str:
     """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit.
 
-    With the head the task names, from git (`built`, by `head_diff`), since `gh pr diff` shows the PR as it is now,
-    which an author's push since may have moved past `head`; from `gh pr diff` without it."""
+    Of the head the task names, from git (`built`, by `head_diff`), since `gh pr diff` shows the PR as it is now,
+    which an author's push since may have moved past `head`; from `gh pr diff` without it (`head` is then only
+    for that note)."""
     note = ""
     if built:
-        diff, command = built[0], f"git diff {built[1]} {head}"
+        diff, command = built[0], f"git diff {built[1]}"
     else:
         result = run_cli(["gh", "pr", "diff", pr], timeout=60)
         if result.returncode:
@@ -5046,18 +5061,20 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
     (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
     to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
-    PR number is gh's guess at the repo). The embedded diff is of `head`, built in `repo` (`pr_diff`)."""
+    PR number is gh's guess at the repo: it stays only where the PR's remote is `origin`, else the PR's link). The
+    embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`)."""
     skill = ""
     built = head_diff(repo, pr, head) if pr and repo and head else None
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
-        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head)
+        show = f"git diff {built[1]}" if built else f"gh pr diff {pr}"
+        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
         again = bool(last and head and last != head)
         if again:
             where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if kind == "claude" and head:
-            whole = f"{built[1]}..{head}" if built else pr  # the PR's link when git can't give the merge base
+            whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
             skill = CODE_REVIEW.format(target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
@@ -5065,6 +5082,14 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         task = ASK_PREFIX
     diff = pr_diff(pr, head, built) if pr else ""
     return task + "".join(f"\n\n{part}" for part in (skill, body, diff) if part)
+
+
+def pr_remote_is_origin(repo: Path | None, pr: str) -> bool:
+    """Whether a bare PR number names `pr` to gh in `repo`: its remote is `origin` (not a fork's `upstream`)."""
+    try:
+        return bool(repo) and review_remote(repo, pr) == "origin"
+    except (MeshError, OSError):
+        return False
 
 
 def fix_commits(repo: Path, last: str, head: str) -> bool:
@@ -5077,55 +5102,93 @@ def fix_commits(repo: Path, last: str, head: str) -> bool:
         return False
 
 
-REVIEW_STAYS = ("Your worktree is still at {last}, not the new head, because {why}: read the new head with "
+REVIEW_STAYS = ("Your worktree is still at {at}, not the new head, because {why}: read the new head with "
                 "`git show {head}:<path>`.")
 
 
-def move_reviewer(run_id: str, target: tuple, last: str | None, head: str | None) -> tuple[bool, str]:
-    """Move a fresh reviewer asked again to the PR's new head, as `ask --repo` started it: its run branch at the
-    head, recorded as its `base`. Only its own review checkout (its `base` is the head it last reviewed), clean,
-    with no commits of its own, and not mid-turn. (moved, why not: for the task, empty when there's nothing to
-    move)."""
+def plan_move(run_id: str, target: tuple, pr: str, head: str | None) -> tuple[dict | None, str]:
+    """Whether a fresh reviewer asked again can be moved to the PR's head, as `ask --repo` started it: its run
+    branch at the head, recorded as its `base`. Only its own review checkout of this PR (`review_checkout`, or
+    for an older entry a `base` that is the head it last reviewed), still at that `base` (clean, no commits of its
+    own), and not running mid-task in any run. Nothing is changed here (`apply_move`, after everything that can
+    fail before the reach). (the move, or None; why not, for the task, empty when there's nothing to say). A move
+    with no `git` is one already at the head: only its `base` is set."""
     old_run, _, name, entry = target
-    cwd, repo, branch = entry.get("cwd"), entry.get("repo"), entry_branch(old_run, entry)
-    if (not (last and head and last != head) or entry.get("base") != last or entry.get("peer") or not branch
-            or not repo or not cwd or Path(cwd).resolve() == Path(repo).resolve()):
-        return False, ""
-    live = old_run["id"] == run_id and entry.get("status") != "retired"
-    if live and agent_status(name, entry) not in ("gone", "idle", "done"):
-        return False, "you were busy when this task was sent"
+    cwd, repo, branch, base = entry.get("cwd"), entry.get("repo"), entry_branch(old_run, entry), entry.get("base")
+    mine = entry.get("review_checkout") == pr or base == (entry.get("review_heads") or {}).get(pr)
+    if (not head or not base or not mine or entry.get("peer") or not branch or not repo or not cwd
+            or Path(cwd).resolve() == Path(repo).resolve()):
+        return None, ""
+    move = {"run": old_run["id"], "name": name, "cwd": cwd, "repo": repo, "branch": branch, "from": base,
+            "to": head, "exists": Path(cwd).exists(), "git": base != head, "entry": entry}
     try:
-        if Path(cwd).exists():
-            if git("rev-parse", "HEAD", cwd=cwd) != last:
-                return False, "it has moved off the head you last reviewed"
+        if move["exists"]:
+            at = git("rev-parse", "HEAD", cwd=cwd)
+            if at == head:
+                return {**move, "git": False}, ""  # already there
+            if at != base:
+                return None, "it has moved off the head you last reviewed"
             if git("status", "--porcelain", cwd=cwd):
-                return False, "it has uncommitted changes"
-            git("reset", "-q", "--keep", head, cwd=cwd)
+                return None, "it has uncommitted changes"
         else:  # stopped: `mesh stop` removed the clean worktree, and an untouched branch with it
             try:
-                tip = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo)
+                move["tip"] = git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo)
             except MeshError:
-                tip = None
-            if tip and tip != last:
-                return False, f"its branch {branch} has moved off the head you last reviewed"
-            if tip:
-                git("branch", "-f", branch, head, cwd=repo)
+                move["tip"] = None
+            if move["tip"] and move["tip"] not in (base, head):
+                return None, f"its branch {branch} has moved off the head you last reviewed"
+            if move["tip"] == head or base == head:
+                return {**move, "git": False}, ""
+        holder = live_holder(name, entry)
     except (MeshError, OSError) as e:
-        return False, f"mesh couldn't move it ({e})"
-    with editing_run(old_run["id"]) as run:  # so `mesh stop` still sees the branch untouched, and a resume uses it
-        run["agents"][name]["base"] = head
+        return None, f"mesh couldn't check it ({e})"
+    if holder:  # a running agent mid-task could be reading the files a checkout changes
+        if old_run["id"] != run_id or entry.get("status") == "retired":
+            return None, f"you were still running in run {old_run['id']}"
+        if agent_status(name, entry) not in ("idle", "done"):
+            return None, "you were busy when this task was sent"
+        report, received = last_report(read_log(run_id), name)
+        if received and not (report and report.get("type") in FINAL_TYPES):  # a declared wait too
+            return None, "you hadn't reported on your last task yet"
+    return move, ""
+
+
+def apply_move(move: dict, undo: bool = False) -> None:
+    """Move the reviewer's checkout (`plan_move`) to its new head, or with `undo` back where it was."""
+    at, other = (move["from"], move["to"]) if undo else (move["to"], move["from"])
+    if move["git"] and move["exists"]:
+        git("reset", "-q", "--keep", at, cwd=move["cwd"])
+    elif move["git"] and move.get("tip"):
+        git("branch", "-f", move["branch"], at, cwd=move["repo"])
+    with editing_run(move["run"]) as run:  # so `mesh stop` still sees the branch untouched, and a resume uses it
+        run["agents"][move["name"]]["base"] = at
         for wt in run.get("worktrees", []):
-            if Path(wt["path"]) == Path(cwd):
-                wt["base"] = head
-    entry["base"] = head
-    return True, ""
+            if Path(wt["path"]) == Path(move["cwd"]) and wt.get("base") in (other, at):
+                wt["base"] = at
+    move["entry"]["base"] = at  # the entry ask_copilot reuses (resume_worker reads the run again)
 
 
-def record_review(run_id: str, name: str, pr: str, head: str | None) -> None:
+def moving(move: dict | None, reach: Callable[[], object]) -> object:
+    """`reach()` with the reviewer moved first (`apply_move`), and moved back if the reach refuses or fails, so
+    a failed ask leaves its checkout and `base` as they were."""
+    if move:
+        apply_move(move)
+    try:
+        return reach()
+    except BaseException:
+        if move:
+            apply_move(move, undo=True)
+        raise
+
+
+def record_review(run_id: str, name: str, pr: str, head: str | None, checkout: bool = False) -> None:
     """The PR in `reviews`, so `mesh resume <pr>` still finds the author, not the reviewer, and the head it
-    read in `review_heads`, so asking it again names what changed since."""
+    read in `review_heads`, so asking it again names what changed since. `checkout`: a fresh reviewer, whose
+    worktree is its review checkout of `pr` (`review_checkout`, which `plan_move` moves)."""
     with editing_run(run_id) as run:
         entry = run["agents"][name]
+        if checkout:
+            entry["review_checkout"] = pr
         reviews = entry.setdefault("reviews", [])
         if pr not in reviews:
             reviews.append(pr)
@@ -5333,7 +5396,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         log_event(run_id, "spawn", name=name, kind="copilot", role="worker", model=model, view="headless", parent=me)
         how = "started"
     if pr:
-        record_review(run_id, name, pr, head)
+        record_review(run_id, name, pr, head, checkout=how == "started")
     peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
     follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
     print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
@@ -5519,15 +5582,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
     kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
                                       or load_run(run_id)["mode"])
     narrow = not (last and head and last != head) or fix_commits(repo, last, head)
-    moved, stays = move_reviewer(run_id, target, last, head) if pr and target else (False, "")
+    move, stays = plan_move(run_id, target, pr, head) if pr and target else (None, "")
     if stays:
-        print(f"mesh: {target[2]}'s worktree stays at {last} ({stays})", file=sys.stderr)
-        body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(last=last, head=head, why=stays)) if part)
-    task = ask_task(body, pr, number, fresh=bool(args.repo) or moved, head=head, last=last, kind=kind, narrow=narrow,
-                    repo=repo)
+        at = target[3].get("base")
+        print(f"mesh: {target[2]}'s worktree stays at {at} ({stays})", file=sys.stderr)
+        body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(at=at, head=head, why=stays)) if part)
+    task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
+                    narrow=narrow, repo=repo)
     base = head if args.repo else None
     if copilot:
-        return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)
+        return moving(move, lambda: ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head))
 
     if args.repo:
         slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
@@ -5545,10 +5609,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
     elif peer and not target:
         result, finals, how = spawn_peer(args, run_id, me, args.ref, peer, task), 0, "started"
     else:
-        result, finals, how = reach_worker(args, run_id, me, target, task, gist, peer=args.ref if peer else None)
+        result, finals, how = moving(move, lambda: reach_worker(args, run_id, me, target, task, gist,
+                                                                peer=args.ref if peer else None))
     name = result["name"]
     if pr:
-        record_review(run_id, name, pr, head)
+        record_review(run_id, name, pr, head, checkout=bool(args.repo))
     if peer:
         record_peer_ask(args.ref, prep, run_id, name)
 
