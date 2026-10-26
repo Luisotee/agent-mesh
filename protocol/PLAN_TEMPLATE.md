@@ -23,6 +23,9 @@ Rules that must still hold afterwards: conventions from the repo's CLAUDE.md/AGE
 ## Done when
 The exact command(s) that must pass, e.g. `pnpm test && pnpm build`, plus any manual check.
 
+## Self-check
+What the `check-plan` skill found: its verdict (GO / FIX / RETHINK), the load-bearing claims marked FACT (with where you saw it) or GUESS, the strongest objection and what settled it, and the prior art. A few lines; what's still open goes in the next section.
+
 ## Open questions / risks
 - Decisions you'd like the reviewer to make, each with the options and your recommendation.
 - What could go wrong, and how you'll notice.
