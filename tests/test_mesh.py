@@ -540,14 +540,17 @@ def test_a_wait_is_stored_and_logged_without_a_doorbell(mesh, fake, run, monkeyp
     assert wait(mesh) == 1  # its task is still unread: the wait would belong to a task it hasn't read
     err = capsys.readouterr().err
     assert "not sent" in err and "task from repo-lead at " in err and "Fix the typo." in err
-    assert "send one wait that covers them too" in err and "--unread-ok" not in err  # a report's way out only
+    assert "hold off the watch for a task you haven't read" in err and "act on them, first" in err
+    assert "count as your reply" not in err and "--unread-ok" not in err  # a report's way out only
     assert mesh.main(["send", "parent", "--type", "wait", "--until", "30m", "--body", "Tests.", "--unread-ok"]) == 1
     assert mesh.unread(run, "repo-lead") == []
     mesh.main(["inbox"])
     rings = len(fake.called("agent", "prompt"))
     capsys.readouterr()
     assert wait(mesh) == 0
-    out = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert "for ending this turn" in captured.err and "send a fresh wait" in captured.err
     assert len(fake.called("agent", "prompt")) == rings  # asks nothing of the parent
     event = [e for e in mesh.read_log(run) if e["event"] == "send"][-1]
     assert (event["type"], event["until"]) == ("wait", out["until"])
@@ -1056,8 +1059,60 @@ def test_an_agy_wake_with_the_nudge_spent_gets_the_wait_reminder_then_an_alert(m
     assert all(watch.tick(5) is None for _ in range(5))
     reminders = [c for c in fake.called("agent", "prompt") if "woke during your declared wait" in c[3]]
     assert len(reminders) == 1
+    assert [e["rung"] for e in mesh.read_log(run) if e["event"] == "wait_reminder"] == [True]
     monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)
-    assert next(e for e in (watch.tick(5) for _ in range(3)) if e)[0] == 3
+    status, line = next(e for e in (watch.tick(5) for _ in range(3)) if e)
+    assert status == 3 and "(reminded once at its wake" in line
+
+
+def test_a_wait_reminder_held_by_a_draft_says_so_over_the_old_nudge(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    assert mesh.claim_nudge(run, "repo-fix-typo", 1)
+    mesh.log_event(run, "nudge_rung", name="repo-fix-typo", received=1, rung=True)  # the old nudge rang
+    declare_wait(mesh, run, 30)
+    states_then(mesh, monkeypatch, "idle", "idle", "working", "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(3))
+    fake.screen("repo-fix-typo", "\n".join(claude_pane("❯\xa0half a sentence")))
+    assert all(watch.tick(5) is None for _ in range(2))  # the reminder is held by the draft
+    assert [e["error"] for e in mesh.read_log(run) if e["event"] == "wait_reminder"] == ["human_draft"]
+    monkeypatch.setattr(mesh, "age_seconds", lambda stamp: 60.0)
+    status, line = next(e for e in (watch.tick(5) for _ in range(3)) if e)
+    assert status == 3 and "its reminder was not delivered: someone has a draft typed in its pane" in line
+
+
+def test_a_fresh_wait_after_a_wake_starts_its_idle_count_again(mesh, fake, run, monkeypatch):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    mesh.mark_read(mesh.unread(run, "repo-fix-typo")[0])
+    declare_wait(mesh, run, 30)
+    state = {"now": "idle"}
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: state["now"])
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    for now, ticks in (("idle", 4), ("working", 1), ("idle", 2)):  # declared, woke, stopped: the wait is over
+        state["now"] = now
+        assert all(watch.tick(5) is None for _ in range(ticks))
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over"]
+    state["now"] = "working"  # nudged, it sends a fresh wait and goes on working
+    assert watch.tick(5) is None
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w2.md",
+                   until=(mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(minutes=30)).isoformat())
+    state["now"] = "idle"  # a few seconds between agy's steps, inside the turn that declares it
+    assert watch.tick(5) is None
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over"]  # not yet its turn end
+    state["now"] = "working"
+    assert watch.tick(5) is None
+    state["now"] = "idle"  # that turn's real end
+    assert all(watch.tick(5) is None for _ in range(3))
+    assert wait_events(mesh, run) == ["wait_turn", "wait_over", "wait_turn"]
+    assert not [c for c in fake.called("agent", "prompt") if "woke during your declared wait" in c[3]]
+
+
+def test_a_wait_note_with_a_malformed_time_does_not_crash(mesh, run):
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md", until="soon")
+    assert "ended ? ago" in mesh.wait_note(mesh.read_log(run), "repo-fix-typo")
+    mesh.log_event(run, "wait_over", name="repo-fix-typo", file="w.md")
+    assert "ended when it woke" in mesh.wait_note(mesh.read_log(run), "repo-fix-typo")
 
 
 def test_a_claude_workers_wait_is_not_ended_by_the_watch(mesh, fake, run, monkeypatch):

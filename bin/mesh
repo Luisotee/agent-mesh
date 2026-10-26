@@ -2947,8 +2947,9 @@ def parse_until(text: str, now: datetime | None = None) -> datetime:
 
 def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str) -> int:
     """A worker declares a deliberate wait for its current task: until then the watch neither nudges nor
-    alerts it for a silent stop, and its Stop hook lets its turn end. Not a report, and no doorbell: it asks
-    nothing of the parent, who sees it in `mesh inbox` (`declared_wait` reads it from the log)."""
+    alerts it for the turn end that declared it, and its Stop hook lets that turn end; the first turn end after
+    a wake ends the wait (`wait_over`). Not a report, and no doorbell: it asks nothing of the parent, who sees
+    it in `mesh inbox` (`declared_wait` reads it from the log)."""
     if args.type != "wait":
         raise MeshError("--until is for `--type wait`")
     if not args.until:
@@ -2971,7 +2972,8 @@ def send_wait(args: argparse.Namespace, run_id: str, me: str, to: str, body: str
     record_session(run_id, me)
     emit({"stored": str(path), "until": stamp_iso, "rung": False})
     print(f"mesh: stored for {to}, without a doorbell. Until {until.astimezone():%H:%M} the watch won't nudge or "
-          "alert you for ending your turn; report as usual when you're done", file=sys.stderr)
+          "alert you for ending this turn. If you wake before then and are still waiting, send a fresh wait "
+          "before you end that turn; report as usual when you're done", file=sys.stderr)
     return 0
 
 
@@ -2984,11 +2986,13 @@ def refuse_stale_report(run_id: str, me: str, mtype: str) -> None:
     if not waiting:
         return
     lines = "\n".join(f"  - {m['type']} from {m['from']} at {m['time']}: {m['gist']}" for m in waiting)
-    raise MeshError(
-        f"not sent: your mailbox has {len(waiting)} unread task/answer message(s), and a {mtype} sent now would "
-        f"count as your reply to them:\n{lines}\nRun `mesh inbox` (not --peek) and act on them, then send one "
-        f"{mtype} that covers them too. Send anything that can't wait as `--type info`"
-        + ("; pass --unread-ok to send this as it is anyway" if mtype in REPORT_TYPES else ""))
+    report = mtype in REPORT_TYPES
+    why = "count as your reply to them" if report else "hold off the watch for a task you haven't read"
+    then = (f"then send one {mtype} that covers them too. Send anything that can't wait as `--type info`; pass "
+            "--unread-ok to send this as it is anyway") if report else \
+        "first. Send anything that can't wait as `--type info`"
+    raise MeshError(f"not sent: your mailbox has {len(waiting)} unread task/answer message(s), and a {mtype} sent "
+                    f"now would {why}:\n{lines}\nRun `mesh inbox` (not --peek) and act on them, {then}")
 
 
 def pinned(entry: dict) -> bool:
@@ -3639,10 +3643,11 @@ HOOK_NUDGE = ("agent-mesh: you're ending your turn without a `mesh send` since y
               "wake you), declare it with `mesh send parent --type wait --until <time> --body …` and end your "
               "turn (a wait covers one turn end: if you woke during one and are still waiting, send a fresh one): "
               "this reminder comes once per task.")
-WAIT_OVER = ("agent-mesh: you woke during your declared wait and are ending your turn again without a `mesh send`. "
-             "A wait covers only the turn end that declared it. If you're still waiting, send a fresh one with "
-             "`mesh send parent --type wait --until <time> --body …` and end your turn; if the task is finished, "
-             "run `mesh inbox`, then report `done` or `failed` with `mesh send parent`.")
+WAIT_OVER_BODY = ("You woke during your declared wait and are ending your turn again without a `mesh send`. A "
+                  "wait covers only the turn end that declared it. If you're still waiting, send a fresh one with "
+                  "`mesh send parent --type wait --until <time> --body …` and end your turn; if the task is "
+                  "finished, run `mesh inbox`, then report `done` or `failed` with `mesh send parent`.")
+WAIT_OVER = "agent-mesh: " + WAIT_OVER_BODY  # the Stop hook's reason; the body is the agy watch's doorbell
 
 
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
@@ -3844,10 +3849,8 @@ def wait_note(events: list[dict], name: str) -> str:
     if not wait:
         return ""
     if wait.get("over"):
-        woke = max(0, int(age_seconds(wait["over"]) // 60))
-        return f"; its wait until {wait.get('until')} ended when it woke {woke} min ago"
-    over = max(0, int(age_seconds(wait.get("until")) // 60))
-    return f"; its wait until {wait.get('until')} ended {over} min ago"
+        return f"; its wait until {wait.get('until')} ended when it woke {ago(age_seconds(wait['over']))} ago"
+    return f"; its wait until {wait.get('until')} ended {ago(age_seconds(wait.get('until')))} ago"
 
 
 class Watch:
@@ -3872,6 +3875,7 @@ class Watch:
         self.idle_for: float | None = None  # seconds it has read idle in a row
         self.wait_idle = 0.0  # the same during a declared wait, when only a usage limit or agy's turn end is looked for
         self.woke: str | None = None  # the wait (its file) during which this watch saw an agy worker working again
+        self.wait_file: str | None = None  # the wait `wait_idle` counts for
         self.blocked_polls = 0
         self.nudged: int | None = None  # the task (count of tasks and answers received) this watch nudged for
         self.reopening = 0.0  # seconds spent excusing a "gone" worker that is being reopened
@@ -3933,6 +3937,7 @@ class Watch:
             self.wait_idle = 0.0
             reset = self.limited(entry, bg)
             return self.limit_alert(entry, bg, reset, events) if reset is not None else None
+        self.wait_idle, self.wait_file = 0.0, None
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
@@ -4055,7 +4060,10 @@ class Watch:
     def agy_wait(self, entry: dict, bg: bool, wait: dict, state: str, interval: float) -> tuple[int, str] | None:
         """The Stop hook's wait rule, seen from outside: its first turn end under the wait is `wait_turn`, and a
         turn end after a `working` reading since then (it woke) is `wait_over`, judged as a silent stop. A wake
-        shorter than one poll is missed: the wait then holds until its deadline."""
+        shorter than one poll, within `--grace` of the turn end that declared the wait, or one no running watch
+        saw is missed: the wait then holds until its deadline, as before waits ended at a wake."""
+        if wait["file"] != self.wait_file:  # a fresh wait: its idle count starts again
+            self.wait_idle, self.wait_file = 0.0, wait["file"]
         if state not in ("idle", "done"):
             self.wait_idle = 0.0
             if state == "working" and wait.get("turned"):
@@ -4100,18 +4108,28 @@ class Watch:
             self.worked, self.idle_for = True, 0.0  # alert if it stays idle, or goes idle again without a report
             return None
         if woke:
-            deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info",
-                    WAIT_OVER.removeprefix("agent-mesh: ").replace("you woke", "You woke", 1),
-                    delays=NUDGE_RING_DELAYS)
+            delivery = deliver(run_id, entry.get("parent") or me_parent(run_id, name), name, "info", WAIT_OVER_BODY,
+                               delays=NUDGE_RING_DELAYS)
+            rung = bool(delivery.get("rung"))
+            log_event(run_id, "wait_reminder", name=name, received=received, rung=rung,
+                      **({} if rung else {"error": delivery.get("error")}))
+            self.nudged = received
             self.worked, self.idle_for = True, 0.0
             return None
-        done = nudge_of(read_log(run_id), name, received) or {}
+        events = read_log(run_id)
+        done = nudge_of(events, name, received) or {}
+        reminder = next((e for e in reversed(events) if e.get("event") == "wait_reminder"
+                         and e.get("name") == name and e.get("received") == received), None)
+        if reminder and epoch(reminder.get("time")) >= epoch(done.get("time")):
+            done = {**reminder, "what": "reminder"}  # its newest reminder: the one at its wake
         if self.nudged != received and age_seconds(done.get("time")) < self.grace:
             # another watch just nudged it: give it the same time the nudger gives it
             self.worked, self.idle_for = True, 0.0
             return None
-        how = ("nudged once by its Stop hook" if done.get("via") else "nudged once" if done.get("rung")
-               else self.undelivered_nudge(done.get("error")))
+        what = done.get("what", "nudge")
+        how = ("nudged once by its Stop hook" if done.get("via") else
+               ("reminded once at its wake" if what == "reminder" else "nudged once") if done.get("rung")
+               else self.undelivered_nudge(done.get("error"), what))
         how += self.unread_note()
         line = (f"ALERT {name} stopped working without sending a message ({how}); inspect it with "
                 f"`herdr agent read {name} --source recent-unwrapped --lines 80`{work()}")
@@ -4119,10 +4137,10 @@ class Watch:
         return 3, self.with_tail(line, bg, entry)
 
     @staticmethod
-    def undelivered_nudge(error: str | None) -> str:
+    def undelivered_nudge(error: str | None, what: str = "nudge") -> str:
         if error == "human_draft":  # `ring` doesn't type into a draft: the user is typing there
-            return "its nudge was not delivered: someone has a draft typed in its pane, so mesh didn't type over it"
-        return f"its nudge was not delivered ({error})" if error else "its nudge was not delivered"
+            return f"its {what} was not delivered: someone has a draft typed in its pane, so mesh didn't type over it"
+        return f"its {what} was not delivered ({error})" if error else f"its {what} was not delivered"
 
     def unread_note(self, before: str = ", ", after: str = "") -> str:
         """Says so when a task or answer is still in its mailbox: it never picked it up."""
