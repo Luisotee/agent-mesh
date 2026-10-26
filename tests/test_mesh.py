@@ -645,7 +645,7 @@ def test_the_reminder_restates_who_the_worker_is_and_its_task(mesh, fake, run, m
     assert out.startswith("agent-mesh reminder (compact): you are repo-fix-typo, a worker in run mtest, and your "
                           "parent is repo-lead.")
     assert "Current task: Fix the typo (" in out and "-repo-lead-task.md" in out
-    assert "Phase: planning: research, then send a `plan`" in out
+    assert "Phase: planning: research, write the plan, run the `check-plan` skill on it, then send it as a `plan`" in out
     assert "it shows your current task again" in out
     assert "Run `mesh inbox --run mtest --as repo-fix-typo` now" in out  # a cleared bg session can't rebind
     assert "(worker) in agent-mesh run" not in out  # agy's conversation lookup searches for the first doorbell

@@ -4,7 +4,7 @@ description: >-
   Checks a plan you wrote against the code before you send it or act on it: verifies its load-bearing claims, labels
   each one fact or guess, searches once for prior art, finds the strongest objection and the cheapest check for it,
   gives a verdict (GO / FIX / RETHINK), then fixes the plan and puts the open risks in it. Use it as a mesh worker
-  before every `plan` you send, and whenever the user asks you to check, stress-test, question or grill your own plan.
+  before you first send a plan, and again after a substantive revision (not on an unchanged re-send), and whenever the user asks you to check, stress-test, question or grill your own plan.
   It writes nothing but the plan and asks the user nothing. Not for reviewing someone else's plan or a PR.
 argument-hint: "[plan file; empty: the plan you just wrote]"
 ---
@@ -23,7 +23,7 @@ Try to prove your own plan wrong before anyone else reads it, and keep what surv
    - **FACT**: seen, with its `file:line`, command and output, or doc.
    - **GUESS**: inferred, not seen. A guess the plan depends on gets checked now if that takes minutes; otherwise it goes in the risks, with the check that would settle it.
    Never let a guess turn into a fact by being repeated.
-3. **Prior art, at least one search.** In the repo first: a function, flag or helper that already does it, a convention for it, an earlier attempt in `git log`. Then outside when the plan builds something new (a library, a package, an existing tool or skill). Name what you found and what is actually different. Reuse beats a new mechanism unless the difference matters.
+3. **Prior art, a search or two (at least one).** In the repo first: a function, flag or helper that already does it, a convention for it, an earlier attempt in `git log`. Then outside when the plan builds something new (a library, a package, an existing tool or skill). Name what you found and what is actually different. Reuse beats a new mechanism unless the difference matters.
 4. **The strongest objection.** Build the best case against the plan, not a straw man. Use only the lenses that bite:
    - a much simpler path to the same result
    - the wrong layer: fixing a symptom, or something another layer already owns

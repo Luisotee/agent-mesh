@@ -1,6 +1,6 @@
 # First brief for new peers
 
-The template for step 7 of `find-peers`. Fill every `<…>`, keep the sections, cut what doesn't apply. One brief goes to every new peer at once, so the per-project focus is a list at the end.
+The template for step 7 of `find-peers`. Fill every `<…>`, keep the sections, cut what doesn't apply, and copy only what is below the `---` line (this note is for you, not the peers). One brief goes to every new peer at once, so the per-project focus is a list at the end.
 
 ---
 

@@ -22,7 +22,7 @@ The goal is a few projects that solve the **same problems by similar mechanisms*
    - the problem it solves, in one sentence;
    - its 4 to 6 **core mechanisms** (how it does what it does, e.g. "delivers messages into running agent sessions", "a worktree per worker"), each named in plain words someone else's README would use;
    - its constraints (language, no dependencies, platform) and the alternatives it already rejected.
-   Run `mesh peers` (if `mesh` is installed): skip projects already registered, and note the group this repo's peers are in, if any: it is the default group for new ones. The user's focus, when given, narrows the mechanisms.
+   Run `mesh peers` (if `mesh` is installed): skip projects already registered. The default group for new ones is the one the repo's `CLAUDE.md` / `AGENTS.md` or a group's `about` names for this repo; else ask in step 6. The user's focus, when given, narrows the mechanisms.
 2. **Search several surfaces**, a few queries per mechanism, not one for the whole repo:
    - `gh search repos "<mechanism words>" --sort updated --limit 30`, and by topic (`--topic <t>`, from the topics of the first good hits);
    - `gh search code` for a distinctive API, file name or config key the mechanism implies;
@@ -33,17 +33,21 @@ The goal is a few projects that solve the **same problems by similar mechanisms*
 3. **Signs of life:** `gh repo view <owner/repo> --json description,stargazerCount,pushedAt,isArchived,licenseInfo,repositoryTopics`. Drop dead ones (archived, or no push in a year) unless one is worth keeping as a contrast, and say so. Note a missing license: such a project is fine to read, not to copy from.
 4. **Read before ranking.** For each survivor, read its README, then its source tree: a shallow clone (`git clone --depth 50`) in a scratch directory, never inside the repo. Find the file that implements each shared mechanism. A README claims; the code shows.
 5. **Rank by mechanism overlap,** not stars: a table with a row per candidate and a column per mechanism (yes / partial / no, with the file that shows it), plus what it would teach that the current peers don't, and its signs of life. Stars only break ties. Keep 3 to 8.
-6. **Show the shortlist and wait.** The table, then for each pick one line on what to ask it, and the group name you suggest. Say the cost: each peer's first brief is a large research task (a few hundred thousand tokens), and its clone lives under `~/research/<group>/`. Ask which to add. **Clone and register nothing before the user's yes.**
+6. **Show the shortlist and wait.** The table, then for each pick one line on what to ask it, and the group name you suggest. Say the cost: each peer's first brief is a large research task (a few hundred thousand tokens), and its clone lives under `~/research/<group>/`. Ask which to add. **Register nothing and clone nothing under `~/research` before the user's yes**: step 4's scratch clones are for reading only (delete them once you've ranked).
 7. **On the yes,** register each with mesh (needs agent-mesh installed; `peers add` itself needs no herdr):
 
    ```bash
-   mesh peers add <git-url> --group <group> --about "<what it is; what to ask it about>"   # at most 400 characters
-   mesh peers edit <group> --about "<what the group is, whose peers they are>"             # a new group only
+   mesh peers add https://github.com/<owner>/<repo> --group <group> --about "<what it is; what to ask it about>"   # at most 400 characters
+   mesh peers edit <group> --about "<what the group is, whose peers they are>"                                   # a new group only
    ```
 
-   Give no `--body` there: it would ask each peer in turn and wait for it. Instead write one brief from [BRIEF.md](BRIEF.md) (next to this file), with the repo's mechanics and a Focus line per peer, and ask them all at once:
-   - **The brief's file:** under a run, not in the repo. If `mesh whoami` fails, start one with `mesh init --mode <claude | agy: your own CLI> --request "find peers for <repo>"`, then write `$(mesh dir)/tasks/peers-brief.md`.
-   - **Ask:** `mesh ask --peers <name>,<name>,… --size large --file "$(mesh dir)/tasks/peers-brief.md"`. Claude Code: run it with `run_in_background`; agy: in the foreground. It needs herdr (`HERDR_ENV=1`); outside it, stop after `peers add` and tell the user to send the brief from a herdr session.
+   - **Names:** each `peers add` prints the asker's `name` (`<repo>-research`, the repo part cut to 20 characters): use that name from here on, never one you built from the repo's name. Pass `--name <short>-research` when a basename is long, or when two shortlisted projects share one (the second add would fail).
+   - Give no `--body` there: it would ask each peer in turn and wait for it. Instead send one brief to all of them at once, below.
+   - **No herdr** (`HERDR_ENV` unset): stop here. Fill the brief from [BRIEF.md](BRIEF.md), give it to the user, and tell them to send it from a herdr session with the `mesh ask --peers` line below.
+
+   Inside herdr:
+   - **The brief's file:** under a run, not in the repo. If `mesh whoami` fails, start one with `mesh init --mode <claude | agy: your own CLI> --request "find peers for <repo>"`. Write `$(mesh dir)/tasks/peers-brief.md` from [BRIEF.md](BRIEF.md) (next to this file): only what is below its `---` line, with the repo's mechanics and a Focus line per peer.
+   - **Ask:** `mesh ask --peers <name>,<name>,… --size large --timeout 3600 --file "$(mesh dir)/tasks/peers-brief.md"`. Claude Code: run it with `run_in_background`; agy: in the foreground. A first brief takes a peer 10 to 20 minutes; the default 30-minute timeout is too tight for a slow one, and a peer given up on answers later in your inbox instead of the file.
    - **The answers** come in **one file**, whose path the command prints: never read N inboxes. A line that says a peer didn't answer says what to do (see "Standing peer askers" in `~/.config/agent-mesh/ORCHESTRATE.md`).
 8. **Report:** a ranked summary of what the peers found, across all of them, with each peer's name so the user can ask it again (`mesh ask <name> --body …`, or `--peers <group>`). Where an answer shows an `about` was wrong, fix it with `mesh peers edit <name> --about …`. Offer to note the group in the repo's `CLAUDE.md` / `AGENTS.md` (which peers exist and what to ask each), so later sessions ask them before designing; write it only on a yes.
 
