@@ -1918,6 +1918,18 @@ def test_a_stale_hold_is_dropped_and_the_message_gets_the_first_doorbell(mesh, f
     assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
 
+def test_reading_mail_drops_the_readers_hold_so_later_mail_rings(mesh, fake, run, monkeypatch):
+    held_worker(mesh, run)
+    as_worker(monkeypatch, run)
+    assert mesh.main(["inbox", "--peek"]) == 0  # a peek proves nothing
+    assert "held" in mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert mesh.main(["inbox"]) == 0
+    assert "held" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", result={"agent": {"agent_status": "blocked"}})  # a later permission prompt
+    delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "Yes.")
+    assert delivery["rung"] and "held" not in delivery and fake.called("agent", "prompt")
+
+
 def test_a_failed_release_keeps_the_hold_for_a_retry(mesh, fake, run, monkeypatch):
     held_worker(mesh, run)
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")

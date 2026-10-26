@@ -3108,6 +3108,9 @@ def cmd_inbox(args: argparse.Namespace) -> int:
                          **({"again": True} if path in again and path.parent.name == "read" else {})})
         if not args.peek and path.parent == folder:
             mark_read(path)
+    if not args.peek and (maybe_run(run_id) or {}).get("agents", {}).get(me, {}).get("held"):
+        with editing_run(run_id) as run:  # reading mail proves it got past its startup screen
+            run["agents"][me].pop("held", None)
     if args.json:
         emit(messages)
     elif not messages:
@@ -3382,7 +3385,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
         held = entry.get("held")
         if held and not retired and (not report or str(report.get("time")) < str(held.get("at"))) and (
                 not held.get("file") or (inbox_dir(run_id, name) / held["file"]).exists()):
-            # A hold outlives its screen until a ring drops it: one the worker reported past or read is stale.
+            # A hold outlives its screen until a ring or its `mesh inbox` drops it: one reported past or read is stale.
             if row["state"] in ("blocked", "unknown"):  # `deliver`'s test for "at the screen": only the user clears it
                 since = held.get("at")
                 try:
