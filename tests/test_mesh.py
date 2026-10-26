@@ -2987,6 +2987,12 @@ def test_workspace_created_only_when_the_project_has_none(mesh, fake, tmp_path):
     assert fake.called("workspace", "create", "--cwd", str(repo), "--label", "newproj")
 
 
+def test_peer_tab_goes_in_the_roots_workspace(mesh, fake, run, tmp_path):
+    with mesh.editing_run(run) as r:
+        r["agents"][r["root"]]["workspace"] = "w1"
+    assert mesh.worker_workspace(run, tmp_path / "cyclops", peer=True) == ("w1", False)
+    assert not fake.called("workspace", "list") and not fake.called("workspace", "create")
+
 # ── past workers: sessions, agents, resume, open ─────────────────────────
 
 

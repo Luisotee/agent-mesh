@@ -1161,12 +1161,25 @@ def _beside_root(run_id: str, cwd: Path, env: dict[str, str], replacing: str | N
         return None
 
 
+def worker_workspace(run_id: str, repo_top: Path, peer: bool = False) -> tuple[str, bool]:
+    """(workspace, created) for a worker's tab: its project's, but a peer asker's goes in the root's.
+
+    A peer is a clone the user never works in, so a workspace per peer would only clutter herdr.
+    """
+    if peer:
+        root = (run := load_run(run_id))["agents"][run["root"]]
+        if root.get("workspace"):
+            return root["workspace"], False
+        repo_top = Path(root.get("cwd") or repo_top)
+    return find_or_create_workspace(repo_top)
+
+
 def place_pane(run_id: str, name: str, repo_top: Path, cwd: Path,
-               env: dict[str, str]) -> tuple[str, str, str, bool]:
+               env: dict[str, str], peer: bool = False) -> tuple[str, str, str, bool]:
     """(pane, tab, workspace, workspace created) for a new worker pane: beside the root, else the run's tab."""
     if beside := beside_root(run_id, name, cwd, env):
         return *beside, False
-    workspace_id, created_ws = find_or_create_workspace(repo_top)
+    workspace_id, created_ws = worker_workspace(run_id, repo_top, peer)
     return *new_pane(run_id, name, workspace_id, cwd, env), workspace_id, created_ws
 
 
@@ -3248,7 +3261,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
                 launched = True
 
         if not launched:
-            pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
+            pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env, bool(peer))
             with editing_run(run_id) as run:
                 run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
             log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane,
@@ -3364,8 +3377,9 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
     if beside:
         pane, tab, workspace_id = beside
-    else:  # a side worker's recorded workspace is the root's, so it goes to its project's
-        workspace_id = (not side and entry.get("workspace")) or find_or_create_workspace(Path(entry["repo"]))[0]
+    else:  # a side worker's recorded workspace is the root's, so it goes to its project's (a peer's: the root's)
+        workspace_id = ((not side and entry.get("workspace"))
+                        or worker_workspace(run_id, Path(entry["repo"]), bool(entry.get("peer")))[0])
         pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
     with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
@@ -5966,7 +5980,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     else:
         path = None
 
-    pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env)
+    pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env, bool(peer_name))
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
     result["view"] = "pane"
