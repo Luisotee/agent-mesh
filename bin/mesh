@@ -149,6 +149,10 @@ REVIEW_PREFIX = ("Review (read-only) of {pr}{at}: review this pull request. Chan
                  "Report only what you confirmed in the code and mark the rest unverified. Or reply `failed`.")
 REVIEW_AGAIN = ("You last reviewed it at {last}: say which of your earlier findings are fixed, and review what "
                 "changed since (`git diff {last} {head}`).")
+# When the branch was rebased or had its base merged in since, `git diff <last> <head>` holds more than the fix.
+REVIEW_AGAIN_WHOLE = ("You last reviewed it at {last}, but the branch was rebased or merged its base since, so "
+                      "`git diff {last} {head}` holds more than the fixes: review the whole PR again and say which of "
+                      "your earlier findings are fixed.")
 # What a read-only asker may not run, on top of its prompt: what would publish or merge (its shell stays
 # open so it can run tests), and file edits (below).
 PUBLISH_COMMANDS = ("git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close",
@@ -165,14 +169,18 @@ REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tes
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
+REVIEW_OWN_AT = ("Don't switch your branch: read the change with `gh pr diff {pr}`, and a file at its head with "
+                 "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
-# reviews the worktree's own branch). `high` at every size: higher levels mostly add speculative findings.
+# reviews the worktree's own branch). `high` at every size: higher levels mostly add speculative findings. Only
+# with the PR head in the worker's repo: the skill reads files from its worktree's repo, and gh takes a bare PR
+# number as one of that repo's.
 CODE_REVIEW = (
     "Run Claude Code's `/code-review high {target}` (the Skill tool, skill `code-review`) as the core of this "
     "review, never with `--fix`, `--comment` or `ultra`: you change and post nothing, and a tool denied to you is "
     "expected, not something to work around. It runs in the background and its findings come back as a "
-    "notification: meanwhile read the change and run its tests, and if you end your turn before they arrive, first "
+    "notification: meanwhile read the change (and run its tests, if your worktree has the PR head checked out), and if you end your turn before they arrive, first "
     "declare it (`mesh send parent --type wait --until 30m --body \"/code-review running\"`). Its findings are "
     "candidates: check each one yourself against the code at the PR head (trace it or run the failing case), mark "
     "it blocking or advisory, drop the ones you refute (one line each, saying why) and add what you found "
@@ -181,7 +189,7 @@ CODE_REVIEW = (
     "`code-review`, or the call fails), review it yourself.")
 CODE_REVIEW_AGAIN = (" Its target covers only the commits since your last review: check your earlier findings "
                      "against the new head yourself.")
-CODE_REVIEW_OWN = " The files in your worktree aren't the PR's: check each finding with `git show FETCH_HEAD:<path>`."
+CODE_REVIEW_OWN = " The files in your worktree aren't the PR's: check each finding with `git show {head}:<path>`."
 # Tasks with no plan phase (PROTOCOL.md rule 8, ORCHESTRATE.md "Direct tasks").
 DIRECT_PREFIX = ("Direct task (no plan): research, make the change, verify it, open the PR and report `done`. "
                  "If it turns out bigger or less clear than described here, send a `question` before changing anything.")
@@ -4975,23 +4983,36 @@ def pr_diff(pr: str) -> str:
 
 
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
-             last: str | None = None, kind: str | None = None) -> str:
-    """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before.
-    A Claude reviewer is also asked to run `/code-review`."""
+             last: str | None = None, kind: str | None = None, narrow: bool = True) -> str:
+    """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
+    (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
+    to run `/code-review`."""
     skill = ""
     if pr:
-        where = (REVIEW_FRESH if fresh else REVIEW_OWN).format(pr=pr, n=number)
+        own = REVIEW_OWN_AT if head else REVIEW_OWN
+        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head)
         again = bool(last and head and last != head)
         if again:
-            where += " " + REVIEW_AGAIN.format(last=last, head=head)
+            where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
-        if kind == "claude":
-            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again else number or pr)
-            skill += (CODE_REVIEW_AGAIN if again else "") + ("" if fresh else CODE_REVIEW_OWN)
+        if kind == "claude" and head:
+            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again and narrow else number)
+            skill += (CODE_REVIEW_AGAIN if again and narrow else "")
+            skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
         task = ASK_PREFIX
     diff = pr_diff(pr) if pr else ""
     return task + "".join(f"\n\n{part}" for part in (skill, body, diff) if part)
+
+
+def fix_commits(repo: Path, last: str, head: str) -> bool:
+    """Whether `last..head` holds only commits on top of what was reviewed: `last` is an ancestor of `head` and
+    no merge came in between (a merged base would bring its changes along). False when git can't tell."""
+    try:
+        git("merge-base", "--is-ancestor", last, head, cwd=repo)
+        return not git("rev-list", "--merges", f"{last}..{head}", cwd=repo)
+    except (MeshError, OSError):
+        return False
 
 
 def record_review(run_id: str, name: str, pr: str, head: str | None) -> None:
@@ -5384,15 +5405,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
-    asked = target[3] if target else {}  # a fresh agent is of --kind, else the run's mode
-    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last,
-                    kind="copilot" if copilot else asked.get("kind") or args.kind or load_run(run_id)["mode"])
+    # A worker keeps its CLI; a fresh agent is of --kind, else the run's mode.
+    kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
+                                      or load_run(run_id)["mode"])
+    narrow = not (last and head and last != head) or fix_commits(repo, last, head)
+    task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last, kind=kind, narrow=narrow)
     base = head if args.repo else None
     if copilot:
         return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)
 
     if args.repo:
-        kind = args.kind or load_run(run_id)["mode"]
         slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
         # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
         # effort and carry into the execution phase of a fix it is later given.

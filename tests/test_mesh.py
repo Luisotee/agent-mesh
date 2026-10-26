@@ -4261,15 +4261,45 @@ def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
     head = pr_origin(tmp_path, repo)
+    last = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     pr = "https://github.com/acme/proj/pull/7"
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(kind="claude", size="large", repo=str(repo), reviews=[pr],
-                                               review_heads={pr: "0ld"})
+                                               review_heads={pr: last})
     assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
     body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
-    assert f"`/code-review high 0ld..{head}`" in body and "commits since your last review" in body
-    assert "`git show FETCH_HEAD:<path>`" in body  # an existing worker isn't on the PR's branch
+    assert f"`/code-review high {last}..{head}`" in body and "commits since your last review" in body
+    assert f"`git diff {last} {head}`" in body and "review the whole PR again" not in body
+    # An existing worker isn't on the PR's branch; the head is in the shared object store, unlike FETCH_HEAD.
+    assert f"`git show {head}:<path>`" in body and "FETCH_HEAD" not in body
+
+
+def test_a_rebased_pr_is_reviewed_again_whole(mesh, fake, run, repo, tmp_path, capsys):
+    head = pr_origin(tmp_path, repo)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the old head, since rebased away"], cwd=repo,
+                   check=True)
+    last = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/proj/pull/7"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", repo=str(repo), reviews=[pr], review_heads={pr: last})
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert "`/code-review high 7`" in body and f"{last}..{head}" not in body
+    assert "review the whole PR again" in body and "commits since your last review" not in body
+
+
+def test_a_claude_reviewer_without_the_pr_head_reviews_by_hand(mesh, fake, run, capsys):
+    # Another repo's PR (or one whose head can't be fetched): a bare number would name a PR of the worker's repo.
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    pr = "https://github.com/acme/other/pull/3"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", repo="/nowhere")
+    assert mesh.main(["ask", "repo-fix-typo", "--review", pr, "--no-wait"]) == 0
+    body = mesh.parse_message(mesh.unread(run, "repo-fix-typo")[0])[1]
+    assert body.startswith(f"Review (read-only) of {pr}:") and "/code-review" not in body
+    assert "`git show FETCH_HEAD:<path>`" in body
 
 
 def test_a_review_whose_head_cant_be_fetched_still_goes_out(mesh, fake, run, monkeypatch, capsys):
