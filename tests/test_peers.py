@@ -534,6 +534,31 @@ def test_ask_peers_keeps_an_answer_that_lands_just_before_a_stop(mesh, fake, cli
     assert not mesh.run_dir(run).exists()
 
 
+def test_ask_peers_reports_a_peer_it_hands_a_send_message_as_not_reached(mesh, fake, cli, run, repo, tmp_path,
+                                                                           monkeypatch, capsys):
+    # A background peer launched before mesh started workers accepting: the fan-out blocks its caller, who
+    # could never pass the SendMessage on, so it isn't waited for.
+    _, clone = upstream_and_clone(tmp_path)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0
+
+    def spawn_peer(args, run_id, me, name, peer, task, collect=None):
+        with mesh.editing_run(run_id) as data:
+            data["agents"][name] = {"role": "worker", "kind": "claude", "view": "bg", "status": "running",
+                                    "collect": collect}
+        return {"name": name, "delivery": {"stored": "x", "send_message": {"to": "uds:/s", "message": "m"}}}
+
+    monkeypatch.setattr(mesh, "spawn_peer", spawn_peer)
+    monkeypatch.setattr(mesh, "watch_each", lambda run_id, finals, *a, **k: finals and pytest.fail("waited"))
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q?", "--no-refresh"]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("0 of 1 peers answered") and "not reached" in out
+    text = mesh.Path(out.splitlines()[-2].removeprefix("answers: ")).read_text()
+    assert "`mesh retire swarm-research` then `mesh resume swarm-research`" in text
+    assert "collect" not in mesh.load_run(run)["agents"]["swarm-research"]
+
+
 def test_ask_peers_reports_a_peer_that_asks_back_instead(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     _, clone = upstream_and_clone(tmp_path)
     archived_peer_worker(mesh, clone, "swarm-research", "s1")

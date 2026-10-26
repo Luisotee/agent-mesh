@@ -6062,6 +6062,46 @@ def test_background_falls_back_to_a_pane_where_settings_hold_messages(mesh, fake
     assert not cli.called("--bg")
 
 
+def test_any_failure_before_the_worker_runs_takes_its_worktree_back(mesh, fake, cli, run, repo, monkeypatch,
+                                                                     capsys):
+    def no_pane(*args, **kwargs):
+        raise mesh.MeshError("no room for a pane")
+    place_pane = mesh.place_pane
+    monkeypatch.setattr(mesh, "place_pane", no_pane)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
+                      "--view", "pane"]) == 1
+    assert "no room for a pane" in capsys.readouterr().err
+    assert mesh.load_run(run)["worktrees"] == []
+    assert not (mesh.worktree_root() / run / "proj-fix").exists()
+    assert subprocess.run(["git", "rev-parse", "--verify", "-q", "mesh/mtest/fix"], cwd=repo).returncode != 0
+    monkeypatch.setattr(mesh, "place_pane", place_pane)
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
+                      "--view", "pane"]) == 0
+
+
+def test_undoing_a_worktree_keeps_its_row_when_git_fails(mesh, run, repo, tmp_path):
+    with mesh.editing_run(run) as data:
+        data["worktrees"] = [{"path": str(tmp_path / "wt"), "repo": str(repo), "branch": "mesh/mtest/x"}]
+    with pytest.raises(mesh.MeshError):  # not a worktree of the repo: `worktree remove` fails
+        mesh.undo_worktree(repo, tmp_path / "wt", "mesh/mtest/x", None, run)
+    assert len(mesh.load_run(run)["worktrees"]) == 1
+
+
+def test_a_refused_bg_resume_takes_back_the_worktree_it_recreated(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    write_settings(repo / ".claude" / "settings.json", "hold")
+    subprocess.run(["git", "add", ".claude/settings.json"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "hold"], cwd=repo, check=True)
+    path, branch = archived_worker(mesh, repo, kind="claude", session="s-1")
+    assert mesh.main(["resume", "proj-fix", "--view", "bg", "--task", "Address the review."]) == 1
+    assert "--view bg: Claude Code's settings there hold" in capsys.readouterr().err
+    assert not path.exists()  # nothing owns it: no row in this run
+    assert subprocess.run(["git", "rev-parse", "--verify", "-q", branch], cwd=repo).returncode == 0  # kept
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-fix", "--view", "pane", "--task", "Address the review."]) == 0
+
+
 def test_background_reads_the_worktrees_settings_not_the_checkouts(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
@@ -6228,6 +6268,18 @@ def test_a_reopened_claude_root_rebinds_its_socket_on_its_next_command(mesh, fak
     assert json.loads(capsys.readouterr().out)["send_message"]["to"] == mesh.claude_address()
 
 
+def test_a_command_without_claude_pid_keeps_the_roots_recorded_pid(mesh, fake, run, monkeypatch):
+    address = claude_root(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"].update(kind="claude", pid=4242, start="t0", session="root-s")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-s")
+    monkeypatch.setattr(mesh, "claude_process", lambda: {"address": address, "pid": None, "start": None})
+    mesh.refresh_root_address(run, "repo-lead")
+    entry = mesh.load_run(run)["agents"]["repo-lead"]
+    assert (entry["address"], entry["pid"], entry["start"]) == (address, 4242, "t0")
+    assert not [e for e in mesh.read_log(run) if e["event"] == "rebind"]
+
+
 @pytest.mark.parametrize("where", ["another pane", "no pane", "nested in its pane"])
 def test_a_session_acting_as_the_root_leaves_its_address(mesh, fake, run, monkeypatch, capsys, where):
     import os
@@ -6341,6 +6393,23 @@ def test_a_background_worker_started_before_the_flag_keeps_send_message(mesh, fa
     address = inbox.listen(777)
     assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Use ISO dates."]) == 0
     assert json.loads(capsys.readouterr().out)["send_message"]["to"] == address and inbox.frames(777) == []
+
+
+def test_ask_hands_back_a_send_message_and_says_how_the_answer_comes(mesh, fake, cli, run, monkeypatch, capsys):
+    claude_root(mesh, run)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "claude"
+    bg_worker(mesh, run)  # no `inbound`: launched by an older mesh
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "old-s", "status": "idle", "pid": 777}])
+    monkeypatch.setattr(mesh, "watch_agent", lambda *a, **k: pytest.fail("its caller passes the SendMessage first"))
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?"]) == 0
+    captured = capsys.readouterr()
+    assert "send_message" in json.loads(captured.out)["delivery"]
+    assert "comes back as a cross-session message." in captured.err
+    write_settings(mesh.claude_home() / "settings.json", "hold")  # the root's lane is its pane
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?", "--wait"]) == 0
+    err = capsys.readouterr().err
+    assert "is typed into your pane; to wait for it, `mesh watch repo-fix-typo` after that." in err
 
 
 def test_a_failed_claude_agents_read_says_so(mesh, fake, cli, run, capsys):

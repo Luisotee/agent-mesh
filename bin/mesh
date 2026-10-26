@@ -877,20 +877,25 @@ def inbound_setting(cwd: str | Path | None, flag: str | None = None) -> tuple[st
     return value, source
 
 
-def background_view(view: str, named: bool, root: dict, cwd, notes: list[str], doing: str) -> str:
-    """`view`, or "pane" (with a note) where a background worker in `cwd` couldn't be messaged: no Claude root
-    it can report to, or settings there that hold cross-session messages (`worker_accepts`; `cwd` UNREAD skips
-    them, for a caller that checks the root before making the worktree). A `--view bg` the caller `named` is
-    refused instead."""
-    if view != "bg":
+def background_view(view: str, named: bool, root: dict, notes: list[str], doing: str) -> str:
+    """`view`, or "pane" (with a note) where a background worker couldn't report: no Claude root it can message.
+    A `--view bg` the caller `named` is refused instead. Checked before any side effect; `settings_view` checks
+    the worker's folder once it exists."""
+    if view != "bg" or root_reachable(root):
         return view
-    if not root_reachable(root):
-        why = "a background worker needs a Claude root it can message (see `mesh init`)"
-    elif cwd is not UNREAD and not worker_accepts(cwd):
-        why = ("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
-               "background worker would never see")
-    else:
+    return refuse_bg("a background worker needs a Claude root it can message (see `mesh init`)", named, notes, doing)
+
+
+def settings_view(view: str, named: bool, cwd, notes: list[str], doing: str) -> str:
+    """`view`, or "pane" (with a note, or refused when `named`) where Claude Code's settings in `cwd` hold
+    cross-session messages (`worker_accepts`), which a background worker there would never see."""
+    if view != "bg" or worker_accepts(cwd):
         return view
+    return refuse_bg("Claude Code's settings there hold cross-session messages (crossSessionInbound), which a "
+                     "background worker would never see", named, notes, doing)
+
+
+def refuse_bg(why: str, named: bool, notes: list[str], doing: str) -> str:
     if named:
         raise MeshError(f"--view bg: {why}; use a pane")
     notes.append(f"{why}; {doing} a pane")
@@ -983,7 +988,9 @@ def refresh_root_address(run_id: str, name: str, run: dict | None = None) -> Non
         return
     inbox, current = claude_process(), os.environ.get("CLAUDE_CODE_SESSION_ID")
     address = inbox["address"]
-    moved = bool(address) and (address, inbox["pid"]) != (entry.get("address"), entry.get("pid"))
+    # A command that can't name the process (no CLAUDE_PID) at the same socket hasn't moved it: keep its pid.
+    same = address == entry.get("address") and inbox["pid"] in (None, entry.get("pid"))
+    moved = bool(address) and not same
     cleared = bool(current) and current != entry.get("session")
     if not (moved or cleared):
         return
@@ -1751,7 +1758,7 @@ def launch_settings(argv: list[str]):
             yield settings
 
 
-UNREAD = object()  # a `pane_claude` the caller hasn't read yet
+UNREAD = object()  # a reading (`pane_claude`, `read_claude_agents`) the caller hasn't made yet
 
 
 def pane_claude(entry: dict) -> dict | None:
@@ -2477,13 +2484,26 @@ def add_worktree(run_id: str, repo_top: Path, slug: str, base: str | None) -> tu
     return path, branch, sha
 
 
-def undo_worktree(run_id: str, repo_top: Path, path: Path, branch: str) -> None:
-    """Take back a worktree `add_worktree` just made (nothing in it yet): the worktree, its branch and its row."""
-    quietly(git, "worktree", "remove", "--force", str(path), cwd=repo_top)
-    quietly(git, "branch", "-D", branch, cwd=repo_top)
-    with editing_run(run_id) as run:
-        run["worktrees"] = [w for w in run.get("worktrees", []) if Path(w["path"]) != Path(path)]
-    log_event(run_id, "worktree_undone", path=str(path), branch=branch)
+def undo_worktree(repo_top: Path, path: Path, branch: str | None, base: str | None, run_id: str | None = None) -> None:
+    """Take back a worktree just made or recreated, with nothing new in it: the worktree, its branch while it has
+    no commits (`untouched_branch`) and, once both are gone, `run_id`'s row for it. A git error surfaces and
+    keeps the row, so the run's `mesh stop` still sees the worktree."""
+    git("worktree", "remove", "--force", str(path), cwd=repo_top)
+    if branch and untouched_branch({"repo": str(repo_top), "branch": branch, "base": base}):
+        git("branch", "-D", branch, cwd=repo_top)
+    if run_id:
+        with editing_run(run_id) as run:
+            run["worktrees"] = [w for w in run.get("worktrees", []) if Path(w["path"]) != Path(path)]
+        log_event(run_id, "worktree_undone", path=str(path), branch=branch)
+
+
+def undoing_worktree(repo_top: Path, path: Path, branch: str | None, base: str | None, run_id: str | None = None):
+    """For an `except` that re-raises: `undo_worktree`, with its own failure printed rather than raised over the
+    error that made it."""
+    try:
+        undo_worktree(repo_top, path, branch, base, run_id)
+    except MeshError as exc:
+        print(f"warning: {path} was left in place: {exc}", file=sys.stderr)
 
 
 def entry_branch(run: dict, entry: dict) -> str | None:
@@ -2710,7 +2730,9 @@ def native_route(run: dict, sender: str, to: str, claude=UNREAD, rows=UNREAD) ->
     A Claude root is written to when it takes a frame that asserts no permission mode: its settings say
     `accept`, or with none set the newest `permissionMode` in its session file is a prompting one. A root in
     bypass mode (or one whose mode can't be read) holds such a frame, but takes a Claude worker's SendMessage,
-    which asserts the same class; a `hold` or `refuse` setting holds or refuses both.
+    which asserts the same class; a `hold` or `refuse` setting holds or refuses both. A background worker
+    launched accepting that has no socket (none yet, or its record unread) or whose settings now hold gets no
+    route, never a SendMessage, which it would hold too; its sender reports it unreached (`bg_unreached`).
     """
     entry = run["agents"][to]
     if entry.get("kind") != "claude":
@@ -2758,9 +2780,9 @@ def bg_unreached(name: str, entry: dict, rows: list[dict] | None) -> str:
         return (f"{name} was launched before mesh started workers accepting cross-session messages, so mesh can't "
                 f"write into its inbox, and a background session has no pane to ring: `mesh retire {name}` then "
                 f"`mesh resume {name}` relaunches it accepting them")
-    return (f"{name} runs, but mesh couldn't write into its inbox (no socket, a failed write, or settings that "
-            "hold cross-session messages), and a background session has no pane to ring; it sees the message at "
-            "its next `mesh inbox`")
+    return (f"{name} runs, but mesh couldn't write into its inbox (no socket yet, a failed write, or settings "
+            "that hold cross-session messages), and a background session has no pane to ring; it sees the message "
+            f"at its next `mesh inbox`, or `mesh ring {name}` retries")
 
 
 INBOX_TIMEOUT = 2.0  # seconds to connect to a Claude inbox socket and write one frame
@@ -3167,7 +3189,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         argv = [a for a in argv if a != "--dangerously-skip-permissions"]
         argv += ["--permission-mode", "plan", "--allow-dangerously-skip-permissions"]
     named_bg, root = bool(getattr(args, "view", None)), run["agents"][run["root"]]
-    view = background_view(view, named_bg, root, UNREAD, notes, "starting")  # refused before any side effect
+    view = background_view(view, named_bg, root, notes, "starting")  # refused before any side effect
     branch = base = None
     if args.worktree:
         cwd, branch, base = add_worktree(run_id, repo_top, slugify(args.worktree, 24), args.base)
@@ -3175,65 +3197,70 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         cwd = Path(args.cwd).expanduser().resolve()
     else:
         cwd = repo_top
-    # The worktree's own settings decide whether its worker hears from mesh (`.claude/settings.local.json` is
-    # untracked, so the main checkout's may differ); a refusal takes the fresh worktree back, so a retry under
-    # the same name works.
+    # Until the worker runs, any failure takes the fresh worktree back, so a retry under the same name works.
+    launched = False
     try:
-        view = background_view(view, named_bg, root, cwd, notes, "starting")
-    except MeshError:
-        if branch:
-            undo_worktree(run_id, repo_top, cwd, branch)
-        raise
+        # The worktree's own settings decide whether its worker hears from mesh (`.claude/settings.local.json`
+        # is untracked, so the main checkout's may differ).
+        view = settings_view(view, named_bg, cwd, notes, "starting")
 
-    parent = args.parent or me
-    if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
-        task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
-    read_only = args.kind == "claude" and read_only_task(task)
-    # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
-    planning = args.kind == "claude" and not (sized or user_review or read_only) and (not task or planned_task(task))
-    deny = claude_deny({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
-    env = mesh_env(run_id, name, parent, args.role)
-    with editing_run(run_id) as run:
-        run["agents"][name] = {
-            "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
-            "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
-            "planning": planning,
-            "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
-            "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
-            "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
-            "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
-            **({"peer": peer} if peer else {}),
-            **({"collect": args.collect} if getattr(args, "collect", None) else {}),
-        }
-    result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
-              "exec_model": exec_model, "notes": notes}
+        parent = args.parent or me
+        if task and (sized or user_review) and not task.startswith(READ_ONLY_STARTS):
+            task = f"{DIRECT_PREFIX if sized else USER_REVIEW_PREFIX}\n\n{task}"
+        read_only = args.kind == "claude" and read_only_task(task)
+        # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
+        planning = args.kind == "claude" and not (sized or user_review or read_only) and (not task or planned_task(task))
+        deny = claude_deny({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
+        env = mesh_env(run_id, name, parent, args.role)
+        with editing_run(run_id) as run:
+            run["agents"][name] = {
+                "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
+                "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
+                "planning": planning,
+                "repo": str(repo_top), "cwd": str(cwd), "branch": branch, "base": base, "session": session, "pane": None,
+                "tab": None, "workspace": None, "parent": parent, "status": "starting", "spawned": now_iso(),
+                "log": log, "phase": "plan" if exec_model else None, "exec_model": exec_model, "exec_effort": exec_effort,
+                "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
+                **({"peer": peer} if peer else {}),
+                **({"collect": args.collect} if getattr(args, "collect", None) else {}),
+            }
+        result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
+                  "exec_model": exec_model, "notes": notes}
 
-    task_path = None
-    if view == "bg":
-        # The task waits in the mailbox; the first doorbell is the session's opening prompt.
-        task_path = record(run_id, me, name, "task", task) if task else None
-        prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
-        try:
-            bg_id, session = launch_bg(name, cwd, model, effort, env, prompt, extra=deny)
-        except MeshError as exc:  # untrusted folder, or a launch that didn't take
-            notes.append(f"{exc}; starting a pane instead")
-            view = "pane"
-        else:
+        task_path = None
+        if view == "bg":
+            # The task waits in the mailbox; the first doorbell is the session's opening prompt.
+            task_path = record(run_id, me, name, "task", task) if task else None
+            prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
+            try:
+                bg_id, session = launch_bg(name, cwd, model, effort, env, prompt, extra=deny)
+            except MeshError as exc:  # untrusted folder, or a launch that didn't take
+                notes.append(f"{exc}; starting a pane instead")
+                view = "pane"
+            else:
+                with editing_run(run_id) as run:
+                    run["agents"][name].update(bg_id=bg_id, session=session, status="running", inbound=WORKER_INBOUND)
+                log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, view="bg",
+                          bg_id=bg_id, parent=parent)
+                result.update(view="bg", bg_id=bg_id, session=session)
+                if task_path:
+                    result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
+                launched = True
+
+        if not launched:
+            pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
             with editing_run(run_id) as run:
-                run["agents"][name].update(bg_id=bg_id, session=session, status="running", inbound=WORKER_INBOUND)
-            log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, view="bg",
-                      bg_id=bg_id, parent=parent)
-            result.update(view="bg", bg_id=bg_id, session=session)
-            if task_path:
-                result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
-            return result
-
-    pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env)
-    with editing_run(run_id) as run:
-        run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
-    log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane, parent=parent)
-
-    started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)], peer=bool(peer))
+                run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
+            log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane,
+                      parent=parent)
+            started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)],
+                                  peer=bool(peer))
+    except BaseException:
+        if branch and not launched:
+            undoing_worktree(repo_top, cwd, branch, base, run_id)
+        raise
+    if launched:  # in the background
+        return result
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
 
@@ -5842,7 +5869,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     if view == "bg" and old["kind"] != "claude":
         raise MeshError("--view bg is for Claude workers; agy has no background sessions")
     named_bg, root = bool(getattr(args, "view", None)), current["agents"][current["root"]]
-    view = background_view(view, named_bg, root, UNREAD, notes, "reopening in")  # before any side effect
+    view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
     taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
@@ -5855,13 +5882,16 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     started.append({"name": old_name, "from_run": old_run["id"]})
     cwd, repo_top = old["cwd"], Path(old["repo"])
     if peer:  # its own detached worktree, which outlives runs: no branch, and no run's `mesh stop` removes it
-        branch, recreated, moved = None, ensure_peer_worktree({**peer, "cwd": cwd}), {}
-        view = background_view(view, named_bg, root, cwd, notes, "reopening in")
+        branch, recreated = None, ensure_peer_worktree({**peer, "cwd": cwd})
     else:
         recreated = ensure_worktree(old, branch)
-        # Its worktree's settings, now that it's back (a retry reuses it), before a move to a new branch.
-        view = background_view(view, named_bg, root, cwd, notes, "reopening in")
-        moved = leave_finished_pr(args, run_id, old, branch, task)
+    try:  # its worktree's settings, now that it's back, before a move to a new branch
+        view = settings_view(view, named_bg, cwd, notes, "reopening in")
+    except MeshError:
+        if recreated:  # nothing owns it yet: take it back, keeping a branch with commits
+            undoing_worktree(Path(peer["repo"]) if peer else repo_top, Path(cwd), branch, old.get("base"))
+        raise
+    moved = {} if peer else leave_finished_pr(args, run_id, old, branch, task)
     orphan = recreated and peer_name and not peer  # a removed peer's: no registry entry keeps it, so this run does
     if moved.get("note"):
         notes.append(moved["note"])
@@ -6818,8 +6848,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if "send_message" in delivery:  # a background worker launched before mesh started workers accepting
         emit(result)
         warn_unwatched(run_id)
+        back = ("comes back as a cross-session message" if native_route(load_run(run_id), name, me)
+                else "is typed into your pane")
+        # Not even with --wait: a watch would block the caller, who has to pass the SendMessage on first.
         print(f"mesh: stored; now send it to {name} with SendMessage (`to` and `message` as in send_message). "
-              "Its answer comes back as a cross-session message.", file=sys.stderr)
+              f"Its answer {back}" + (f"; to wait for it, `mesh watch {name}` after that." if args.wait else "."),
+              file=sys.stderr)
         return 0
     if delivery.get("held"):  # only the user can clear it: say so now rather than wait silently
         emit(result)
@@ -7070,8 +7104,14 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         if result is None:
             outcomes[name] = 1, f"{name}: not asked ({how})"
             continue
-        finals[result["name"]] = count
         delivery = result.get("delivery") or {}
+        if "send_message" in delivery:  # this call blocks its caller, who can't pass a SendMessage on
+            asker = result["name"]
+            outcomes[name] = 2, (f"{name}: not reached: {asker} was launched before mesh started workers accepting "
+                                 f"cross-session messages; `mesh retire {asker}` then `mesh resume {asker}` relaunches "
+                                 "it accepting them, then ask again")
+            continue
+        finals[result["name"]] = count
         if delivery.get("held"):  # only the user can clear it; the watch rings it once they have
             print(held_alert(result["name"], delivery), file=sys.stderr)
         elif not delivered(delivery):

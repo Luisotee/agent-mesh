@@ -9,3 +9,4 @@ From the run `m6f06` research (2026-10-26): prompt-cache keepalive (don't build 
 From run `md64d` (2026-10-26): the root's own observations, PR #63's review, and the new peers' first answers (`reports/peers-20261026T083537929156Z.md` in the run, archived under `~/.local/state/agent-mesh/archive/md64d/` after `mesh stop`; "ACC" is its agents-can-communica-research section, "repowire" its repowire-research one).
 
 - [ ] `CLAUDE.md` is ~27.5 KB, over agy's 24,000-byte rule-file limit ("AGENTS.md truncated by 5714 bytes"), so agy workers here never read its last sections. Trim it under 24,000 (move detail to design.md) and keep it there, once PR #63 has merged.
+- [ ] The root starts no work until the user says go (unless told to run autonomously): for any request, not only task lists, it first proposes the work (groups, sizes, workers, routing) and waits.
