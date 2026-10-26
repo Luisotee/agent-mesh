@@ -204,9 +204,9 @@ COMPACT_FOCUS = ("Keep what the next task needs: {task}. Keep the repo facts, th
 # threshold, keeping what it learned about its project rather than the next task (design §14).
 PEER_FOCUS = ("Keep what you learned about {repo}: its architecture and mechanisms with file:line references, "
               "the answers you gave and the upstream commit you last read; drop tool output and dead ends.")
-# A resumed worker whose last task got no report: the ask's watch takes its next `done` as this answer.
-UNANSWERED_NOTE = ("The previous task you were given got no reply before your session stopped. Leave it: answer "
-                   "only this question, in one `done`.")
+# An asked worker whose last task got no report: the ask's watch takes its next `done` as this answer.
+UNANSWERED_NOTE = ("You haven't replied to the task before this one. Answer this task first, in a `done` of its "
+                   "own; only then, if you still owe it, report on that one.")
 PEER_LOG_LINES = 30  # upstream commits listed in an asker's upstream note; the rest are counted
 ABOUT_MAX = 400  # characters of a peer's or a group's `about`: what it is, and whom to ask about what
 PEER_THREADS = 8  # peers a fan-out prepares and opens at once
@@ -2055,6 +2055,10 @@ def entry_branch(run: dict, entry: dict) -> str | None:
     return next((wt["branch"] for wt in run.get("worktrees", []) if cwd and Path(wt["path"]) == Path(cwd)), None)
 
 
+def gone_clone(path, repo) -> MeshError:
+    return MeshError(f"{path} is gone and so is its clone {repo}: clone it there again to ask it")
+
+
 def ensure_worktree(entry: dict, branch: str | None) -> bool:
     """Bring a removed worktree back at its old path, where Claude looks for the session. True if recreated."""
     path = Path(entry["cwd"])
@@ -2062,7 +2066,7 @@ def ensure_worktree(entry: dict, branch: str | None) -> bool:
         return False
     if not branch and entry.get("peer") and entry.get("repo"):  # a peer's detached worktree, as `peers remove` left it
         if not Path(entry["repo"]).is_dir():
-            raise MeshError(f"{path} is gone and so is its clone {entry['repo']}: clone it there again to ask it")
+            raise gone_clone(path, entry["repo"])
         git("worktree", "prune", cwd=entry["repo"])
         path.parent.mkdir(parents=True, exist_ok=True)
         at = entry.get("base")
@@ -3649,6 +3653,12 @@ def since_last_task(events: list[dict], name: str) -> tuple[int, int, str | None
     return received, sent, at
 
 
+def owes_report(events: list[dict], name: str) -> bool:
+    """Whether `name` got a task or answer and has reported nothing since."""
+    received, sent, _ = since_last_task(events, name)
+    return bool(received and not sent)
+
+
 def last_report(events: list[dict], name: str) -> tuple[dict | None, dict | None]:
     """(the newest report `name` sent since its last task or answer, that last task or answer), as log events."""
     report = received = None
@@ -4344,8 +4354,8 @@ def unwatched(run_id: str, skip: tuple[str, ...] = ()) -> list[str]:
         if (entry.get("role") != "worker" or name in skip or entry.get("view") == "headless"
                 or entry.get("status") in ("retiring", "retired")):
             continue
-        received, sent, _ = since_last_task(events, name)
-        if received and not sent and not alerted(events, name, received, "gone") and not watched(run_id, name):
+        if owes_report(events, name) and not alerted(events, name, since_last_task(events, name)[0], "gone") \
+                and not watched(run_id, name):
             owing.append(name)
     return owing
 
@@ -4981,8 +4991,8 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     else:
         recreated = ensure_worktree(old, branch)
         moved = leave_finished_pr(args, run_id, old, branch, task)
-    if recreated and peer_name and not peer:  # a removed peer's: no run lists it and the registry forgot it
-        notes.append(f"no run or peer owns {cwd} now: remove it with `git worktree remove {cwd}` when done")
+    if recreated and peer_name and not peer:  # a removed peer's: no run lists it, and no registry entry keeps it
+        notes.append(f"no run owns {cwd}: remove it with `git worktree remove {cwd}` when done")
     if moved.get("note"):
         notes.append(moved["note"])
     if moved.get("task_note") and task:
@@ -5690,6 +5700,9 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
     old_run, folder, name, entry = target
     state = (agent_status(name, entry) if old_run["id"] == run_id and entry.get("status") != "retired"
              else "gone")
+    # It owes a reply to an earlier task: its next `done` must be this answer. Not while it works on that one.
+    if state != "working" and owes_report(read_log(old_run["id"], folder), name):
+        task = f"{task.rstrip()}\n\n{UNANSWERED_NOTE}"
     if state != "gone":
         finals = sends_from(run_id, name, FINAL_TYPES)
         if state == "working" and not args.no_wait:
@@ -5709,9 +5722,6 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
     finals = sends_from(run_id, name, FINAL_TYPES) if old_run["id"] == run_id else 0
     # A peer compacts with PEER_FOCUS (maybe_compact) unless the root named a focus; a removed one too.
     focus = args.focus or (None if peer or entry.get("peer") else COMPACT_FOCUS.format(task=gist))
-    received, sent, _ = since_last_task(read_log(old_run["id"], folder), name)
-    if received and not sent:  # it stopped mid-task: its next `done` must be this answer, not that one's
-        task = f"{task.rstrip()}\n\n{UNANSWERED_NOTE}"
     resume = argparse.Namespace(ref=name, from_run=old_run["id"], model=args.model, effort=args.effort,
                                 task=task, task_file=None, view=args.view, compact=args.compact,
                                 focus=focus, read_only=True, peer=peer, collect=collect)
@@ -5761,7 +5771,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         copilot = target[3].get("kind") == "copilot"
         cwd = target[3].get("cwd")
         if cwd and not Path(cwd).exists() and not repo.is_dir():  # nothing to recreate its worktree from
-            raise MeshError(f"{cwd} is gone and so is its clone {repo}: clone it there again to ask it")
+            raise gone_clone(cwd, repo)
     pr, number = pr_ref(args.review, repo) if args.review else (None, None)
     head = last = None
     if pr and args.repo:
@@ -5939,8 +5949,7 @@ def owes_answer(run_id: str, name: str, entry: dict) -> bool:
     # A background worker reads gone whenever `claude agents` can't answer too: trust that only with rows.
     if state == "gone" and (entry.get("view") != "bg" or claude_agents()):
         return False
-    received, sent, _ = since_last_task(read_log(run_id), name)
-    return bool(received and not sent) or state == "working"
+    return owes_report(read_log(run_id), name) or state == "working"
 
 
 def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
@@ -6141,6 +6150,8 @@ def ensure_peer_worktree(peer: dict) -> bool:
     cwd = Path(peer["cwd"])
     if cwd.exists() or peer.get("in_clone"):
         return False
+    if not Path(peer["repo"]).is_dir():
+        raise gone_clone(cwd, peer["repo"])
     at = peer.get("seen") or upstream_head(peer) or git("rev-parse", "HEAD", cwd=peer["repo"])
     git("worktree", "prune", cwd=peer["repo"])
     cwd.parent.mkdir(parents=True, exist_ok=True)
@@ -6224,10 +6235,14 @@ def peer_of(name: str, entry: dict) -> dict | None:
 
 def worker_peer(name: str, entry: dict, given: str | None = None) -> tuple[str | None, dict | None]:
     """(the peer a worker's conversation is: `given`, its entry's `peer` (a `-2` copy, or a removed peer), else
-    the registered peer of its name and clone; that peer's registry entry, None once removed or broken)."""
+    the registered peer of its name and clone; that peer's registry entry, None once removed, broken, or the name
+    is another clone's now)."""
     peer_name = given or entry.get("peer") or (name if peer_of(name, entry) else None)
     peer = load_peers()["peers"].get(peer_name) if peer_name else None
-    return peer_name, peer if peer is not None and not peer_problem(peer) else None
+    if peer is None or peer_problem(peer) or not entry.get("repo") \
+            or Path(entry["repo"]).resolve() != Path(peer["repo"]).resolve():
+        return peer_name, None  # a name reused for another clone isn't this conversation's peer
+    return peer_name, peer
 
 
 def peer_worker(name: str, peer: dict) -> tuple[dict, Path, str, dict] | None:

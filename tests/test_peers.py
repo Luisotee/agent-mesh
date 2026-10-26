@@ -933,3 +933,63 @@ def test_a_resumed_asker_that_left_a_task_unanswered_is_told(mesh, fake, cli, ru
     assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-refresh", "--no-wait"]) == 0
     task = sorted(mesh.inbox_dir(run, "swarm-research").glob("**/*-task.md"))[-1].read_text()
     assert "Q2?" in task and task.rstrip().endswith(mesh.UNANSWERED_NOTE)
+
+
+def test_open_on_a_peer_whose_clone_and_worktree_are_gone_is_a_clean_error(mesh, fake, cli, run, repo, tmp_path,
+                                                                           monkeypatch, capsys):
+    import shutil
+    _, clone = peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["status"] = "retired"
+    shutil.rmtree(mesh.load_peers()["peers"]["swarm-research"]["cwd"])
+    shutil.rmtree(clone)
+    monkeypatch.setattr(mesh.os, "execvpe", lambda *a: None)
+    capsys.readouterr()
+    assert mesh.main(["open", "swarm-research"]) == 1  # no traceback from git in a missing directory
+    assert "and so is its clone" in capsys.readouterr().err
+
+
+def test_a_live_idle_worker_owing_a_report_is_told_working_one_is_not(mesh, fake, run, monkeypatch, capsys):
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Q1?", "--no-wait"]) == 0
+    tasks = sorted(mesh.inbox_dir(run, "repo-fix-typo").glob("*-task.md"))
+    assert tasks[-1].read_text().rstrip().endswith(mesh.UNANSWERED_NOTE)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # still on it: leave its work alone
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Q2?", "--no-wait"]) == 0
+    tasks = sorted(mesh.inbox_dir(run, "repo-fix-typo").glob("*-task.md"))
+    assert "Q2?" in tasks[-1].read_text() and mesh.UNANSWERED_NOTE not in tasks[-1].read_text()
+
+
+def test_a_peer_name_reused_for_another_clone_isnt_the_old_conversations_peer(mesh, fake, repo, tmp_path,
+                                                                             monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path)
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    _, other_clone = upstream_and_clone(other)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(other_clone)]) == 0  # swarm-research is now the other clone's
+    entry = {"repo": str(clone), "cwd": "/gone", "peer": "swarm-research"}  # a removed peer's old conversation
+    assert mesh.worker_peer("swarm-research", entry) == ("swarm-research", None)
+    same = {**entry, "repo": str(other_clone)}
+    assert mesh.worker_peer("swarm-research", same)[1]["repo"] == str(other_clone.resolve())
+
+
+def test_adopting_from_a_live_run_with_its_worktree_gone_deletes_the_untouched_branch(mesh, fake, run, repo,
+                                                                                      tmp_path, monkeypatch):
+    import shutil
+    _, clone = upstream_and_clone(tmp_path)
+    path = mesh.worktree_root() / run / "swarm-research"
+    base = git("rev-parse", "HEAD", cwd=clone)
+    git("worktree", "add", "-q", "-b", "mesh/mtest/research", str(path), base, cwd=clone)
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"] = {"role": "worker", "kind": "claude", "repo": str(clone), "cwd": str(path),
+                                            "base": base, "status": "retired"}
+        data.setdefault("worktrees", []).append({"path": str(path), "repo": str(clone),
+                                                 "branch": "mesh/mtest/research", "base": base})
+    shutil.rmtree(path)
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0  # recreated detached before it is released
+    assert path.exists() and not mesh.load_run(run)["worktrees"]
+    assert not git("branch", "--list", "mesh/mtest/research", cwd=clone)
