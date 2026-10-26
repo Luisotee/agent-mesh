@@ -2169,7 +2169,7 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     if stored:
         stored()
         run = load_run(run_id)
-    if mtype in FINAL_TYPES and (run["agents"].get(sender) or {}).get("collect") == to:
+    if mtype in FINAL_TYPES and collecting(run["agents"].get(sender) or {}, to):
         # `mesh ask --peers` collects it from the mailbox into one file: no doorbell, no SendMessage
         log_event(run_id, "collected", sender=sender, to=to, file=path.name)
         return {"stored": str(path), "rung": False, "error": None, "collected": True}
@@ -2204,6 +2204,17 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
         with editing_run(run_id) as run:
             run["agents"][to].pop("swapped", None)
     return {"stored": str(path), "rung": result["rung"], "error": result["error"], "via": result["via"]}
+
+
+def collector(me: str) -> dict:
+    """What `ask --peers` marks its askers with: who collects their answers, and the fan-out's process."""
+    return {"to": me, "pid": os.getpid(), "start": proc_start(os.getpid())}
+
+
+def collecting(entry: dict, to: str) -> bool:
+    """A fan-out that is still running collects this worker's answer to `to`; a killed one's mark is stale."""
+    mark = entry.get("collect")
+    return isinstance(mark, dict) and mark.get("to") == to and pid_alive(mark.get("pid"), mark.get("start"))
 
 
 def unread(run_id: str, name: str) -> list[Path]:
@@ -2745,6 +2756,9 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str) -> dict
     if mtype != "task" or read_only_task(body):
         return None
     entry = agent_entry(load_run(run_id), to)
+    if entry.get("peer"):
+        raise MeshError(f"{to} is a peer asker, which only answers questions about its project. Nothing was sent: "
+                        f"ask it with `mesh ask {entry['peer']}`, and give a change to a worker in that repo")
     if entry.get("role") != "worker" or not claude_deny(entry):
         return None
     if entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way
@@ -4606,7 +4620,8 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
         return holder
 
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
-    peer_name = getattr(args, "peer", None) or (old_name if peer_of(old_name, old) else None)
+    # By the entry too: a resume that was given a `-2` name is still that peer.
+    peer_name = getattr(args, "peer", None) or old.get("peer") or (old_name if peer_of(old_name, old) else None)
     peer = load_peers()["peers"].get(peer_name) if peer_name else None
     if old["kind"] == "copilot":
         raise MeshError(f"{old_name} is a Copilot asker, which only answers: ask it again with `mesh ask {old_name}`, "
@@ -5177,7 +5192,7 @@ def ask_identity(args: argparse.Namespace, body: str, mode: str | None) -> tuple
 
 
 def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, task: str, gist: str,
-                 peer: str | None = None, collect: str | None = None) -> tuple[dict, int, str]:
+                 peer: str | None = None, collect: dict | None = None) -> tuple[dict, int, str]:
     """Give a worker `ask` found its read-only task: send it to a live one, else resume it. (result, its count of
     final sends before the task, how: "asked" or "resumed")."""
     old_run, _, name, entry = target
@@ -5189,9 +5204,11 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
             # Its next `done` would be for the task it's on, not this question.
             print(f"mesh: {name} is busy, so its answer will come after its current task", file=sys.stderr)
             args.no_wait = True
-        if collect:
-            with editing_run(run_id) as run:
+        with editing_run(run_id) as run:  # a single ask clears a stale mark, so its answer rings as usual
+            if collect:
                 run["agents"][name]["collect"] = collect
+            else:
+                run["agents"][name].pop("collect", None)
         return {"name": name, "delivery": deliver(run_id, me, name, "task", task)}, finals, "asked"
     # Counted before the task goes out, so a quick answer still counts (a same-run resume keeps the name).
     finals = sends_from(run_id, name, FINAL_TYPES) if old_run["id"] == run_id else 0
@@ -5205,7 +5222,7 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
 
 
 def spawn_peer(args: argparse.Namespace, run_id: str, me: str, name: str, peer: dict, task: str,
-               collect: str | None = None) -> dict:
+               collect: dict | None = None) -> dict:
     """A peer's first asker: a fresh worker in the peer's own worktree, under the peer's name."""
     spawn = argparse.Namespace(
         kind=peer.get("kind") or "claude", role="worker", repo=peer["repo"], model=args.model, exec_model=None,
@@ -5254,14 +5271,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
             pass
         last = (target[3].get("review_heads") or {}).get(pr)
     gist = first_line(body) or f"a review of {pr}"
-    if peer:
+    # a Copilot asker's run is in the root's own mode
+    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
+    if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
     task = ask_task(body, pr, number, fresh=bool(args.repo), head=head, last=last)
     base = head if args.repo else None
-
-    # a Copilot asker's run is in the root's own mode
-    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
     if copilot:
         return ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head)
 
@@ -5386,6 +5402,20 @@ def ask_peers(args: argparse.Namespace) -> int:
     registry = load_peers()["peers"]
     names = select_peers(registry, args.peers)
     run_id, me = ask_identity(args, body, None)
+    mark = collector(me)
+    asked: dict[str, str] = {}  # peer → the name its asker has in this run
+    try:
+        with signals_raise(signal.SIGTERM, signal.SIGHUP):  # a killed fan-out still clears its marks
+            return fan_out(args, run_id, me, body, registry, names, mark, asked)
+    finally:
+        for asker in asked.values():
+            with editing_run(run_id) as run:  # their next report rings as usual
+                run["agents"][asker].pop("collect", None)
+
+
+def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry: dict, names: list[str],
+            mark: dict, asked: dict[str, str]) -> int:
+    """ask_peers' work; `asked` is filled in as peers are reached, for its caller to clear their marks."""
     from concurrent.futures import ThreadPoolExecutor
 
     def prepare(name: str) -> dict:
@@ -5399,30 +5429,39 @@ def ask_peers(args: argparse.Namespace) -> int:
         try:
             task = ask_task(f"{body}\n\n{prep['note']}", None, None, fresh=False)
             target = peer_worker(name, peer)
+            if (target and target[0]["id"] == run_id and target[3].get("status") != "retired"
+                    and agent_status(target[2], target[3]) == "working"):
+                # Its next `done` answers the question it's on: filing that as this one's would be wrong.
+                return None, 0, "busy with its previous question; ask again once it answers"
             ask = argparse.Namespace(**{**vars(args), "no_wait": True})  # the fan-out watches them all
             if target:
                 result, finals, how = reach_worker(ask, run_id, me, target, task, first_line(body), peer=name,
-                                                   collect=me)
+                                                   collect=mark)
             else:
-                result, finals, how = spawn_peer(ask, run_id, me, name, peer, task, collect=me), 0, "started"
+                result, finals, how = spawn_peer(ask, run_id, me, name, peer, task, collect=mark), 0, "started"
         except MeshError as exc:
             return None, 0, str(exc)
         record_peer_ask(name, prep, run_id, result["name"])
         return result, finals, how
 
+    def reached_one(name: str) -> tuple:
+        result = reach(name)
+        if result[0]:
+            asked[name] = result[0]["name"]
+        return result
+
     with ThreadPoolExecutor(max_workers=min(PEER_THREADS, len(names))) as pool:
         preps = dict(zip(names, pool.map(prepare, names)))
         ready = [n for n in names if "failed" not in preps[n]]
-        reached = dict(zip(ready, pool.map(reach, ready)))
+        reached = dict(zip(ready, pool.map(reached_one, ready)))
 
     outcomes: dict[str, tuple[int, str]] = {n: (1, f"{n}: {preps[n]['failed']}") for n in names if n not in ready}
-    asked: dict[str, str] = {}  # peer → the name its asker has in this run
     finals: dict[str, int] = {}
     for name, (result, count, how) in reached.items():
         if result is None:
             outcomes[name] = 1, f"{name}: not asked ({how})"
             continue
-        asked[name], finals[result["name"]] = result["name"], count
+        finals[result["name"]] = count
         delivery = result.get("delivery") or {}
         if delivery.get("held"):  # only the user can clear it; the watch rings it once they have
             print(held_alert(result["name"], delivery), file=sys.stderr)
@@ -5443,9 +5482,6 @@ def ask_peers(args: argparse.Namespace) -> int:
     for name in names:
         asker = asked.get(name)
         replies[name] = take_reply(run_id, me, asker) if asker and outcomes[name][0] == 0 else None
-        if asker:
-            with editing_run(run_id) as run:  # its next report rings as usual
-                run["agents"][asker].pop("collect", None)
         if replies[name] and asker in opened and not args.keep:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
 
@@ -5564,7 +5600,7 @@ def ensure_peer_worktree(peer: dict) -> bool:
     """The asker's own worktree, detached (no branch to keep or delete), at the commit it last read. True if
     it had to be (re)created; its path never changes, since Claude keys the conversation by it."""
     cwd = Path(peer["cwd"])
-    if cwd.exists():
+    if cwd.exists() or peer.get("in_clone"):
         return False
     at = peer.get("seen") or upstream_head(peer) or git("rev-parse", "HEAD", cwd=peer["repo"])
     git("worktree", "prune", cwd=peer["repo"])
@@ -5584,7 +5620,8 @@ def prepare_peer(name: str, peer: dict, refresh: bool = True) -> dict:
     at = git("rev-parse", "HEAD", cwd=cwd)
     seen = seen or at
     dirty = bool(git("status", "--porcelain", cwd=cwd))
-    if head and head != at and not dirty:
+    in_clone = bool(peer.get("in_clone"))  # it runs in the clone's own checkout, which mesh never moves
+    if head and head != at and not dirty and not in_clone:
         git("checkout", "--quiet", "--detach", head, cwd=cwd)
         at = head
     up = peer["upstream"]
@@ -5604,6 +5641,9 @@ def prepare_peer(name: str, peer: dict, refresh: bool = True) -> dict:
         lines.append(f"Upstream ({where}) hasn't changed since you last looked.")
     if at == head:
         lines.append(f"Your checkout is at {at[:9]}.")
+    elif in_clone:
+        lines.append(f"You run in the clone's own checkout, which stays at {at[:9]}; upstream is at "
+                     f"{(head or '?')[:9]}: read the newer code with `git show {(head or '')[:9]}:<path>`.")
     else:
         lines.append(f"Your checkout has local changes, so it stays at {at[:9]}; upstream is at {(head or '?')[:9]}: "
                      f"read the newer code with `git show {(head or '')[:9]}:<path>`.")
@@ -5656,6 +5696,13 @@ def select_peers(registry: dict, spec: str) -> list[str]:
     return [n for n, p in registry.items() if n in wanted or p.get("group") in wanted]
 
 
+def same_url(a: str | None, b: str) -> bool:
+    """Whether two remote URLs name the same repo, ignoring a trailing `/` or `.git`."""
+    def norm(url: str) -> str:
+        return re.sub(r"(\.git)?/*$", "", url.strip())
+    return bool(a) and norm(a) == norm(b)
+
+
 def clone_target(url: str, group: str) -> Path:
     stem = re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]) or "repo"
     return peers_dir() / group / stem
@@ -5668,7 +5715,15 @@ def peers_add(args: argparse.Namespace) -> int:
     path = Path(source).expanduser()
     if not path.exists():  # a URL: clone it, unless it was cloned there already
         path = clone_target(source, group)
-        if not path.exists():
+        if path.exists():
+            try:
+                there = git("remote", "get-url", "origin", cwd=path)
+            except MeshError:
+                there = None
+            if not same_url(there, source):
+                raise MeshError(f"{path} is already a clone of {there or 'something else'}: add this one with "
+                                "another --group, or clone it yourself and `mesh peers add <path>`")
+        else:
             path.parent.mkdir(parents=True, exist_ok=True)
             result = run_cli(["git", "clone", "--quiet", source, str(path)], timeout=CLONE_TIMEOUT)
             if result.returncode:
@@ -5682,12 +5737,18 @@ def peers_add(args: argparse.Namespace) -> int:
         raise MeshError(f"{name} is a peer already; see `mesh peers`")
     peer = {"repo": str(repo), "group": group, "upstream": peer_upstream(repo), "added": now_iso()}
     try:
-        _, _, _, entry = find_worker(name)
+        source, folder, _, entry = find_worker(name)
     except MeshError:
         entry = None
     adopted = bool(entry and entry.get("repo") and Path(entry["repo"]).resolve() == repo and entry.get("cwd"))
     if adopted:  # its conversation is the valuable part: keep it, at the path Claude keys it by
         peer.update(kind=entry.get("kind"), cwd=entry["cwd"], seen=entry.get("base"))
+        if Path(entry["cwd"]).resolve() == repo:  # it ran in the clone itself: never a worktree to move or remove
+            peer["in_clone"] = True
+        elif folder.parent.name != "archive":  # a live run's `mesh stop` would remove the worktree it now keeps
+            with editing_run(source["id"]) as run:
+                run["worktrees"] = [w for w in run.get("worktrees", [])
+                                    if Path(w["path"]).resolve() != Path(entry["cwd"]).resolve()]
     else:
         peer.update(kind=args.kind or "claude", cwd=str(worktree_root() / "peers" / name), seen=upstream_head(peer))
     ensure_peer_worktree(peer)
@@ -5712,18 +5773,21 @@ def peers_remove(args: argparse.Namespace) -> int:
     if not args.targets:
         raise MeshError("remove which peer? `mesh peers remove <name>`")
     for name in args.targets:
-        with editing_peers() as data:
-            peer = data["peers"].pop(name, None)
+        peer = load_peers()["peers"].get(name)
         if not peer:
             raise MeshError(f"no peer named {name}; see `mesh peers`")
         cwd, kept = Path(peer["cwd"]), None
-        if cwd.exists():
+        if peer.get("in_clone"):
+            kept = "it is the clone's own checkout"
+        elif cwd.exists():
             if git("status", "--porcelain", cwd=cwd):
                 kept = "it has local changes"
             else:
                 git("worktree", "remove", str(cwd), cwd=peer["repo"])
+        with editing_peers() as data:
+            data["peers"].pop(name, None)
         print(f"{name}: removed; its clone stays at {peer['repo']}"
-              + (f", and its worktree at {cwd} ({kept})" if kept else "")
+              + (f", and its checkout at {cwd} ({kept})" if kept else "")
               + f". Its conversation is still there: `mesh ask {name}` finds it as a past worker.")
     return 0
 

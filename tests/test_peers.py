@@ -205,13 +205,149 @@ def test_a_peer_gets_past_a_settings_warning_on_continue_and_others_hold(mesh, f
 
 def test_a_collected_report_is_stored_without_a_doorbell(mesh, fake, run):
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"]["collect"] = "repo-lead"
+        data["agents"]["repo-fix-typo"]["collect"] = mesh.collector("repo-lead")
     out = mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Answer.")
     assert out["collected"] is True and mesh.delivered(out) and not fake.called("agent", "prompt")
     assert mesh.unread(run, "repo-lead")
     # a question still rings: the root has to answer it
     mesh.deliver(run, "repo-fix-typo", "repo-lead", "question", "Which branch?")
     assert fake.called("agent", "prompt")
+
+
+def test_a_dead_fan_outs_mark_is_ignored(mesh, fake, run):
+    with mesh.editing_run(run) as data:  # a SIGKILLed `ask --peers`: its pid is gone
+        data["agents"]["repo-fix-typo"]["collect"] = {"to": "repo-lead", "pid": 2 ** 22 + 9, "start": "1"}
+    out = mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Answer.")
+    assert not out.get("collected") and fake.called("agent", "prompt")
+
+
+def peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch):
+    up, clone = upstream_and_clone(tmp_path)
+    archived_peer_worker(mesh, clone, "swarm-research", "s1")
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0
+    stub_new_pane(fake)
+    fake.on("workspace", "create", result={"workspace": {"workspace_id": "w9"}})
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    return up, clone
+
+
+def test_ask_peers_skips_a_peer_still_on_its_previous_question(mesh, fake, cli, run, repo, tmp_path,
+                                                                 monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q1?", "--no-refresh", "--timeout", "1"]) == 6
+    capsys.readouterr()
+
+    def sleep(_):  # its answer to Q1 lands while Q2 runs
+        if not mesh.sends_from(run, "swarm-research", mesh.FINAL_TYPES):
+            mesh.deliver(run, "swarm-research", "repo-lead", "done", "ANSWER TO Q1")
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    assert mesh.main(["ask", "--peers", "all", "--body", "Q2?", "--no-refresh", "--timeout", "5"]) == 1
+    out = capsys.readouterr().out
+    assert "busy with its previous question; ask again once it answers" in out
+    text = mesh.Path(out.splitlines()[-2].removeprefix("answers: ")).read_text()
+    assert "ANSWER TO Q1" not in text and "busy with its previous question" in text
+    tasks = list(mesh.inbox_dir(run, "swarm-research").glob("**/*-task.md"))
+    assert len(tasks) == 1  # Q2 never went out
+
+
+def test_an_interrupted_fan_out_clears_its_marks(mesh, fake, cli, run, repo, tmp_path, monkeypatch):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+
+    def sleep(_):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    try:
+        mesh.main(["ask", "--peers", "all", "--body", "Q1?", "--no-refresh"])
+    except KeyboardInterrupt:
+        pass
+    assert "collect" not in mesh.load_run(run)["agents"]["swarm-research"]
+    assert not mesh.deliver(run, "swarm-research", "repo-lead", "done", "late").get("collected")
+
+
+def test_a_single_ask_clears_a_stale_mark(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"]["collect"] = mesh.collector("repo-lead")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    assert mesh.main(["ask", "swarm-research", "--body", "Q2?", "--no-refresh", "--no-wait"]) == 0
+    assert "collect" not in mesh.load_run(run)["agents"]["swarm-research"]
+
+
+def test_a_peer_cant_be_given_a_change_by_send_or_as_a_renamed_copy(mesh, fake, cli, run, repo, tmp_path,
+                                                                    monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-refresh", "--no-wait"]) == 0
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    capsys.readouterr()
+    assert mesh.main(["send", "swarm-research", "--type", "task", "--body", "Direct task (no plan)\n\nFix it."]) == 1
+    assert "only answers questions" in capsys.readouterr().err
+    assert mesh.load_run(run)["agents"]["swarm-research"]["read_only"] is True
+    with mesh.editing_run(run) as data:  # a copy resumed under a -2 name, in another run
+        entry = {**data["agents"].pop("swarm-research"), "status": "retired"}
+        data["agents"]["swarm-research-2"] = entry
+    assert mesh.main(["resume", "swarm-research-2", "--task", "Direct task (no plan)\n\nFix it."]) == 1
+    assert "only answers questions" in capsys.readouterr().err
+
+
+def test_an_asker_that_ran_in_the_clone_itself_never_moves_it(mesh, fake, cli, repo, tmp_path, monkeypatch, capsys):
+    up, clone = upstream_and_clone(tmp_path)
+    archived_peer_worker(mesh, clone, "swarm-research", "s1")
+    f = mesh.mesh_home() / "archive" / "mold" / "run.json"
+    data = json.loads(f.read_text())
+    data["agents"]["swarm-research"].update(cwd=str(clone), branch=None)
+    data["worktrees"] = []
+    f.write_text(json.dumps(data))
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0
+    peer = mesh.load_peers()["peers"]["swarm-research"]
+    assert peer["in_clone"] is True and peer["cwd"] == str(clone)
+    real_fetch(cli)
+    old, new = git("rev-parse", "HEAD", cwd=clone), commit(up, "new")
+    prep = mesh.prepare_peer("swarm-research", peer)
+    assert git("symbolic-ref", "HEAD", cwd=clone) == "refs/heads/main" and git("rev-parse", "HEAD", cwd=clone) == old
+    assert "clone's own checkout, which stays at" in prep["note"] and f"git show {new[:9]}" in prep["note"]
+    capsys.readouterr()
+    assert mesh.main(["peers", "remove", "swarm-research"]) == 0
+    assert "it is the clone's own checkout" in capsys.readouterr().out and clone.exists()
+
+
+def test_adopting_from_a_live_run_takes_the_worktree_off_its_stop_list(mesh, fake, run, repo, tmp_path,
+                                                                       monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path)
+    path = mesh.worktree_root() / run / "swarm-research"
+    with mesh.editing_run(run) as data:
+        data["agents"]["swarm-research"] = {"role": "worker", "kind": "claude", "repo": str(clone), "cwd": str(path),
+                                            "base": git("rev-parse", "HEAD", cwd=clone), "status": "retired"}
+        data.setdefault("worktrees", []).append({"path": str(path), "repo": str(clone), "branch": "mesh/mtest/r"})
+    monkeypatch.chdir(repo)
+    assert mesh.main(["peers", "add", str(clone)]) == 0
+    assert not any(w["path"] == str(path) for w in mesh.load_run(run)["worktrees"])
+
+
+def test_add_refuses_a_url_whose_clone_path_holds_another_repo(mesh, fake, cli, tmp_path, monkeypatch, capsys):
+    _, clone = upstream_and_clone(tmp_path, "swarm")
+    monkeypatch.setenv("MESH_PEERS_DIR", str(tmp_path))
+    assert clone == tmp_path / "research" / "swarm"
+    assert mesh.main(["peers", "add", "https://github.com/other/swarm.git", "--group", "research"]) == 1
+    err = capsys.readouterr().err
+    assert "is already a clone of" in err and "another --group" in err
+    assert not cli.called("clone") and not mesh.load_peers()["peers"]
+    origin = git("remote", "get-url", "origin", cwd=clone)
+    assert mesh.main(["peers", "add", origin + ".git", "--group", "research"]) == 0  # the same repo: reused
+    assert not cli.called("clone")
+
+
+def test_a_worker_asking_a_peer_moves_nothing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    peer_in_run(mesh, fake, cli, repo, tmp_path, monkeypatch)
+    monkeypatch.setenv("MESH_RUN", run)
+    monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
+    assert mesh.main(["ask", "swarm-research", "--body", "Q?"]) == 1
+    assert "only the root asks" in capsys.readouterr().err
+    assert not cli.called("fetch")
 
 
 def test_ask_peers_fans_out_and_collects_one_file(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
