@@ -3380,15 +3380,21 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
                 needs = "root"  # it owes a report it can't send
                 text += " (swap failed)" if entry.get("status") == "swap_failed" else ""
         held = entry.get("held")
-        if held and not retired and row["state"] in ("blocked", "unknown"):  # `deliver`'s test for "at the screen"
-            since = held.get("at")  # only the user clears it; past it (idle, working) or rung, the usual row shows
-            try:
-                clock = f" since {datetime.fromisoformat(since).astimezone():%H:%M}"
-            except (TypeError, ValueError):
-                clock = ""
-            text = f"held at a startup screen ({held.get('screen')}){clock} ({ago(age_seconds(since))})" + (
-                f", {held.get('type')} stored" if held.get("file") else "")
-            needs = "root"
+        if held and not retired and (not report or str(report.get("time")) < str(held.get("at"))) and (
+                not held.get("file") or (inbox_dir(run_id, name) / held["file"]).exists()):
+            # A hold outlives its screen until a ring drops it: one the worker reported past or read is stale.
+            if row["state"] in ("blocked", "unknown"):  # `deliver`'s test for "at the screen": only the user clears it
+                since = held.get("at")
+                try:
+                    clock = f" since {datetime.fromisoformat(since).astimezone():%H:%M}"
+                except (TypeError, ValueError):
+                    clock = ""
+                text = f"held at a startup screen ({held.get('screen')}){clock} ({ago(age_seconds(since))})" + (
+                    f", {held.get('type')} stored" if held.get("file") else "")
+                needs = "root"
+            elif row["state"] in ("idle", "done") and held.get("file"):  # past it, its first doorbell never rang
+                text += f", its first doorbell never rang: `mesh ring {name}`"
+                needs = "root"
         row.update(waiting=text, needs=None if retired else needs, since=since, report=report and report["type"])
 
 
