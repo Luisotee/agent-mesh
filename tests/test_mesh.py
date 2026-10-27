@@ -4047,18 +4047,54 @@ def test_a_background_asker_is_lifted_by_a_copy_launched_without_the_deny_list(m
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
 
 
-def test_a_retired_asker_is_given_a_change_by_resume_not_send(mesh, fake, run, repo, capsys):
+def test_send_to_a_retired_asker_resumes_it_with_the_list_its_task_calls_for(mesh, fake, run, repo, capsys):
     read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
     stub_new_pane(fake)
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
-    assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
-    assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
-    # `mesh resume` with the change reopens it without its deny list.
-    fake.on("agent", "get", error="agent_not_found")
-    assert mesh.main(["resume", "repo-fix-typo", "--task", "Direct task (no plan)\n\nFix it."]) == 0
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+    out, err = capsys.readouterr()
+    assert "was retired; resumed it" in err
+    # A direct task reopens it without its deny list, and the task is stored once.
     argv = fake.called("agent", "start")[-1]
     assert "--resume" in argv and not deny_rules(argv)
-    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is False
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["read_only"], entry["planning"], entry["status"]) == (False, False, "running")
+    sends = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "repo-fix-typo"]
+    assert len(sends) == 1 and json.loads(out)["resumed"]["name"] == "repo-fix-typo"
+    assert [e for e in mesh.read_log(run) if e.get("event") == "resume"]
+
+
+def test_send_to_a_retired_asker_with_a_planned_task_plans_it_under_the_list(mesh, fake, run, repo, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Add the feature."]) == 0
+    assert deny_rules(fake.called("agent", "start")[-1])
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["read_only"], entry["planning"], entry["phase"]) == (False, True, "plan")
+
+
+def test_send_of_an_answer_to_a_retired_worker_resumes_it_and_names_the_answer(mesh, fake, run, repo, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Yes, do that."]) == 0
+    # No task: it carries on as it was, still read-only; its first doorbell names the answer.
+    assert deny_rules(fake.called("agent", "start")[-1])
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["read_only"] is True
+    assert "for your answer" in prompts(fake)[-1]
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+
+
+def test_send_to_a_retired_worker_whose_resume_fails_keeps_the_message(mesh, fake, run, repo, monkeypatch, capsys):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+
+    def refuse(*a, **k):
+        raise mesh.MeshError("not enough memory")
+
+    monkeypatch.setattr(mesh, "reopen_worker", refuse)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
+    out, err = capsys.readouterr()
+    assert json.loads(out)["resumed"] is False and "wasn't resumed: not enough memory" in err
+    assert "`mesh resume repo-fix-typo`" in err and len(mesh.unread(run, "repo-fix-typo")) == 1
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
 
 
 def test_a_failed_background_lift_keeps_one_task_and_points_to_resume(mesh, fake, cli, run, tmp_path, capsys):
@@ -4385,15 +4421,16 @@ def test_a_failed_background_lift_of_a_planner_points_to_a_resume_without_the_li
     assert len(mesh.unread(run, "repo-fix-typo")) == 1
 
 
-def test_a_retired_planner_is_given_a_direct_task_by_resume_not_send(mesh, fake, cli, run, tmp_path, capsys):
+def test_send_to_a_retired_background_planner_resumes_it_with_one_task(mesh, fake, cli, run, tmp_path, capsys):
     claude_root(mesh, run)
     claude_planner(mesh, run, view="bg", bg_id="old1", pane=None, status="retired", cwd=str(tmp_path),
                    repo=str(tmp_path))
     bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": 6}])
-    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
-    assert "mesh resume repo-fix-typo --task-file" in capsys.readouterr().err
-    assert not cli.called("--bg") and not mesh.unread(run, "repo-fix-typo")
-    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+    launch = cli.called("--bg")[-1]
+    assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and not deny_rules(launch["argv"])
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
 
 
 def test_an_askers_planned_task_keeps_its_deny_list_until_approval(mesh, fake, run, capsys):
@@ -9294,3 +9331,143 @@ def test_stop_sweeps_every_worker_worktree_before_removing_it(mesh, fake, run, r
                         lambda run_id, workers: swept.append((sorted(workers), clean.exists())) or {})
     assert mesh.main(["stop"]) == 0
     assert swept == [(["repo-fix-typo"], True)] and not clean.exists()
+
+# ── auto-retire of idle workers (design §17) ──
+
+
+def idle_reporter(mesh, run, tmp_path, report="done", ago=1000):
+    """repo-fix-typo reported `report` `ago` seconds ago and has written nothing since."""
+    stamp = (datetime.now(timezone.utc) - timedelta(seconds=ago)).isoformat(timespec="seconds")
+    with open(mesh.log_path(run), "a") as log:
+        log.write(json.dumps({"time": stamp, "event": "send", "sender": "repo-fix-typo", "to": "repo-lead",
+                              "type": report, "file": f"{report}.md"}) + "\n")
+    progress = tmp_path / "agy.log"
+    progress.write_text("")
+    os.utime(progress, (time.time() - ago, time.time() - ago))
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["log"] = str(progress)
+
+
+def idle_watch(mesh, run, after=900.0):
+    return mesh.Watch(run, "repo-fix-typo", 30, idle_retire=after)
+
+
+def test_the_watch_retires_a_worker_idle_since_its_done(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    watch = idle_watch(mesh, run)
+    assert watch.tick(5, alerts_only=True) is None
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+    assert fake.called("pane", "close", "w2:p5") and watch.auto_retired
+    events = [e["event"] for e in mesh.read_log(run) if e.get("name") == "repo-fix-typo"]
+    assert events[-2:] == ["retire", "auto_retire"]
+    assert watch.tick(5, alerts_only=True) is None and watch.finished
+
+
+@pytest.mark.parametrize("case", ["plan", "question", "recent", "unread", "wait", "working", "draft", "off",
+                                  "starting"])
+def test_the_watch_leaves_a_worker_open_unless_it_is_idle_after_a_final_report(mesh, fake, run, tmp_path,
+                                                                                monkeypatch, case):
+    idle_reporter(mesh, run, tmp_path, report=case if case in ("plan", "question") else "done",
+                  ago=100 if case == "recent" else 1000)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working" if case == "working" else "idle")
+    if case == "unread":
+        mesh.store_message(run, "repo-lead", "repo-fix-typo", "info", "one more thing")
+    if case == "wait":
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+        mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md", until=until)
+    if case == "draft":
+        monkeypatch.setattr(mesh, "human_draft", lambda lines: True)
+    if case == "starting":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"]["status"] = "starting"
+    watch = idle_watch(mesh, run, after=0 if case == "off" else 900)
+    for _ in range(3):
+        watch.tick(5, alerts_only=True)
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] != "retired"
+    assert not fake.called("pane", "close")
+
+
+def test_auto_retire_is_called_off_by_a_message_stored_since_it_decided(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    watch = idle_watch(mesh, run)
+    events = mesh.read_log(run)  # read before the root's task lands
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan)\n\nOne more fix.")
+    watch.idle_at = time.time()
+    watch.maybe_retire(mesh.load_run(run)["agents"]["repo-fix-typo"], False, events)
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+    assert not fake.called("pane", "close")
+
+
+def test_a_failed_auto_retire_is_logged_once_and_not_retried(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    fake.on("pane", "close", error="boom")
+    watch = idle_watch(mesh, run)
+    for _ in range(3):
+        assert watch.tick(5, alerts_only=True) is None
+    failed = [e for e in mesh.read_log(run) if e.get("event") == "auto_retire_failed"]
+    assert len(failed) == 1 and len(fake.called("pane", "close")) == 1
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+
+
+def test_watch_any_says_it_auto_retired_a_worker_and_ends(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    monkeypatch.setattr(mesh.Roster, "settling", lambda self, watches: False)
+    status, line = mesh.watch_agents(run, ["repo-fix-typo"], alerts_only=True, every=mesh.load_run(run),
+                                     timeout=600, retire_after=900)
+    assert (status, line) == (0, "auto-retired repo-fix-typo (idle since its report); nothing left to watch")
+
+
+def test_mesh_watch_retires_by_MESH_IDLE_RETIRE(mesh, fake, run, tmp_path, monkeypatch, capsys):
+    idle_reporter(mesh, run, tmp_path, ago=100)
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "60")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    monkeypatch.setattr(mesh.Roster, "settling", lambda self, watches: False)
+    assert mesh.main(["watch", "--any", "--alerts", "--timeout", "600"]) == 0
+    assert "auto-retired repo-fix-typo" in capsys.readouterr().out
+
+
+def test_send_waits_out_a_retire_under_way_then_resumes_the_worker(mesh, fake, run, repo, monkeypatch, capsys):
+    read_only_asker(mesh, run, status="retiring", cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    real = mesh.load_run
+    reads = {"n": 0}
+
+    def load(run_id, *a, **k):  # the retire ends after a few reads
+        data = real(run_id, *a, **k)
+        reads["n"] += 1
+        if reads["n"] > 4 and data["agents"]["repo-fix-typo"]["status"] == "retiring":
+            data["agents"]["repo-fix-typo"]["status"] = "retired"
+            mesh.save_run(run_id, data)
+        return data
+
+    monkeypatch.setattr(mesh, "load_run", load)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+    assert "was retired; resumed it" in capsys.readouterr().err
+    assert real(run)["agents"]["repo-fix-typo"]["status"] == "running"
+    sends = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "repo-fix-typo"]
+    assert len(sends) == 1
+
+
+def test_ask_resumes_a_worker_retired_after_its_state_was_read(mesh, fake, run, repo, monkeypatch, capsys):
+    read_only_asker(mesh, run, cwd=str(repo), repo=str(repo))
+    stub_new_pane(fake)
+    real = mesh.deliver
+
+    def deliver(run_id, sender, to, *a, **k):  # the watch retires it just before the question is stored
+        if to == "repo-fix-typo" and mesh.load_run(run_id)["agents"][to]["status"] == "running":
+            with mesh.editing_run(run_id) as data:
+                data["agents"][to]["status"] = "retired"
+        return real(run_id, sender, to, *a, **k)
+
+    monkeypatch.setattr(mesh, "deliver", deliver)
+    args = mesh.argparse.Namespace(no_wait=True, focus=None, model=None, effort=None, view=None, compact=None)
+    target = (mesh.load_run(run), mesh.run_dir(run), "repo-fix-typo", mesh.load_run(run)["agents"]["repo-fix-typo"])
+    result, _, how = mesh.reach_worker(args, run, "repo-lead", target, "Question (read-only)\n\nWhy?", "Why?",
+                                       state="idle")
+    assert how == "resumed" and result["name"] == "repo-fix-typo"
+    assert deny_rules(fake.called("agent", "start")[-1])
+    sends = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "repo-fix-typo"]
+    assert len(sends) == 1
