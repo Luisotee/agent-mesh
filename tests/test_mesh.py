@@ -9130,3 +9130,91 @@ def test_ask_refuses_under_the_memory_floor_before_it_starts_a_run(mesh, fake, r
     assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--body", "Why?"]) == 1
     assert "not starting an asker in" in capsys.readouterr().err
     assert not (tmp_path / "state").exists() or not list((tmp_path / "state").glob("*/run.json"))
+
+
+# ── resources: leftover processes ───────────────────────────────────────
+
+
+def proc(pid, ppid, argv, cwd):
+    return {"pid": pid, "ppid": ppid, "argv": argv.split(), "cwd": str(cwd), "start": "1"}
+
+
+def worktree_table(top, outside):
+    """A pane worker's live tree, an orphaned dev server, a user's tmux shell and a process elsewhere."""
+    return [
+        proc(1278, 1274, "/init", "/"),
+        proc(1852, 1851, "/home/u/.local/bin/herdr server", "/home/u"),
+        proc(900, 1, "tmux new-session", "/home/u"),
+        proc(14460, 1852, "/bin/bash", top),                          # a live pane's shell
+        proc(14649, 14460, "claude --model opus", top),               # its agent
+        proc(14773, 14649, "node /x/bin/playwright-mcp --headless", top),  # the agent's MCP server
+        proc(20811, 1278, "/pnpm/exe dev", top),                      # orphaned: its tool shell is gone
+        proc(20834, 20811, "next-server (v16.2.6)", top / "app"),
+        proc(30001, 1, "node orphan.js", top),                        # orphaned straight to pid 1
+        proc(901, 900, "/bin/bash", top),                             # the user's own tmux pane
+        proc(40000, 1278, "node server.js", outside),                 # not in the worktree
+    ]
+
+
+def sweep_setup(mesh, run, monkeypatch, top, outside, alive=()):
+    killed = []
+    monkeypatch.setattr(mesh, "process_table", lambda: worktree_table(top, outside))
+    monkeypatch.setattr(mesh, "kill_process", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: pid in alive)
+    return killed
+
+
+def test_leftover_processes_are_the_orphans_in_the_worktree(mesh, tmp_path):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    found = mesh.leftover_processes(top, worktree_table(top, tmp_path / "elsewhere"))
+    assert [p["pid"] for p in found] == [20811, 20834, 30001]
+
+
+def test_retire_stops_what_the_worker_left_in_its_worktree(mesh, fake, run, tmp_path, monkeypatch, capsys):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(cwd=str(top), repo=str(tmp_path / "repo"))
+    # the pane's agent is gone by now: only the orphans and the user's tmux shell are left
+    table = [p for p in worktree_table(top, tmp_path / "elsewhere") if p["pid"] not in (14460, 14649, 14773)]
+    killed = sweep_setup(mesh, run, monkeypatch, top, tmp_path / "elsewhere", alive={20834})
+    monkeypatch.setattr(mesh, "process_table", lambda: table)
+    assert mesh.main(["retire", "repo-fix-typo"]) == 0
+    assert killed == [(20811, mesh.signal.SIGTERM), (20834, mesh.signal.SIGTERM), (30001, mesh.signal.SIGTERM),
+                      (20834, mesh.signal.SIGKILL)]  # it ignored the TERM
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "killed"]
+    assert (event["name"], event["pids"], event["forced"]) == ("repo-fix-typo", [20811, 20834, 30001], [20834])
+    assert "stopped 3 leftover processes repo-fix-typo left in" in capsys.readouterr().err
+
+
+def test_the_sweep_waits_for_the_agent_and_then_leaves_its_tree(mesh, fake, run, tmp_path, monkeypatch):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    reads = []
+    monkeypatch.setattr(mesh, "process_table", lambda: reads.append(1) or worktree_table(top, tmp_path / "x"))
+    killed = []
+    monkeypatch.setattr(mesh, "kill_process", lambda pid, sig: killed.append(pid))
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: False)
+    assert mesh.sweep_worktrees(run, {"repo-fix-typo": {"cwd": str(top)}}) == {"repo-fix-typo": [20811, 20834, 30001]}
+    assert len(reads) == mesh.SWEEP_AGENT_TRIES + 1 and killed == [20811, 20834, 30001]
+
+
+@pytest.mark.parametrize("where", ["main checkout", "outside mesh", "run folder", "root's cwd"])
+def test_the_sweep_never_touches_a_checkout_outside_a_worker_worktree(mesh, fake, run, tmp_path, monkeypatch, where):
+    top = {"main checkout": tmp_path / "worktrees" / "mtest" / "fix", "outside mesh": tmp_path / "proj",
+           "run folder": tmp_path / "worktrees" / "mtest", "root's cwd": tmp_path / "worktrees" / "mtest" / "fix"}[where]
+    entry = {"cwd": str(top), "repo": str(top if where == "main checkout" else tmp_path / "proj")}
+    if where == "root's cwd":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-lead"]["cwd"] = str(top / "sub")
+    killed = sweep_setup(mesh, run, monkeypatch, top, tmp_path / "x")
+    assert mesh.sweep_worktrees(run, {"w": entry}) == {} and killed == []
+
+
+def test_stop_sweeps_every_worker_worktree_before_removing_it(mesh, fake, run, repo, monkeypatch, capsys):
+    clean, _, _ = mesh.add_worktree(run, repo, "clean", None)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(cwd=str(clean), repo=str(repo), status="retired")
+    swept = []
+    monkeypatch.setattr(mesh, "sweep_worktrees",
+                        lambda run_id, workers: swept.append((sorted(workers), clean.exists())) or {})
+    assert mesh.main(["stop"]) == 0
+    assert swept == [(["repo-fix-typo"], True)] and not clean.exists()

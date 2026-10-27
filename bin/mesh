@@ -257,6 +257,10 @@ STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is
 MIN_FREE_HEADROOM_MB = 1024
 MIN_FREE_LEAST_MB = 2048
 AGENT_MB = 400  # one idle agent with its MCP servers (22 sessions held 8.4 GB on 2026-10-27)
+# The sweep of a worker's worktree (design §17): polls for its agent to exit, then for TERMed leftovers to go.
+SWEEP_AGENT_TRIES, SWEEP_AGENT_POLL = 20, 0.5
+SWEEP_KILL_TRIES, SWEEP_KILL_POLL = 10, 0.3
+INIT_NAMES = ("init", "systemd")  # what an orphan is reparented to: pid 1, WSL's /init, a `systemd --user`
 
 
 class MeshError(Exception):
@@ -3087,6 +3091,113 @@ def memory_guard(what: str, reserve: bool = True) -> None:
             _started_agents += 1
 
 
+def process_table() -> list[dict]:
+    """Every process this user can read, from one pass over /proc: {pid, ppid, argv, cwd, start} ([] without
+    /proc). A process whose cwd can't be read has cwd None."""
+    if not has_proc():
+        return []
+    table = []
+    for folder in Path("/proc").iterdir():
+        if not folder.name.isdigit():
+            continue
+        try:
+            fields = (folder / "stat").read_text().rsplit(")", 1)[1].split()
+            argv = [a for a in (folder / "cmdline").read_bytes().decode(errors="replace").split("\0") if a]
+        except (OSError, IndexError):
+            continue  # exited as we looked
+        try:
+            cwd = os.readlink(folder / "cwd")
+        except OSError:
+            cwd = None  # not ours
+        table.append({"pid": int(folder.name), "ppid": int(fields[1]), "argv": argv, "cwd": cwd,
+                      "start": fields[19]})
+    return table
+
+
+def leftover_processes(top: Path, table: list[dict]) -> list[dict]:
+    """The processes in `top` that nothing alive owns: each one's chain of parents inside `top` holds no agent
+    CLI, and the chain's top hangs off an init (its own parent died). A live pane's shell, a live agent and its
+    MCP servers, a background session under its daemon, a user's tmux or shell, this command: all left alone."""
+    by_pid = {p["pid"]: p for p in table}
+    found = []
+    for proc in table:
+        if not inside(proc["cwd"], top):
+            continue
+        node, seen = proc, set()
+        while node and inside(node["cwd"], top) and node["pid"] not in seen:
+            seen.add(node["pid"])
+            if agent_binary(node["argv"]):
+                break
+            node = by_pid.get(node["ppid"]) if node["ppid"] > 1 else {"pid": 1, "argv": ["init"], "cwd": "/"}
+        else:
+            if node and (node["pid"] == 1 or Path((node["argv"] or [""])[0]).name in INIT_NAMES):
+                found.append(proc)
+    return found
+
+
+def kill_process(pid: int, sig: int) -> None:
+    try:
+        os.kill(pid, sig)
+    except OSError:
+        pass  # gone already, or not ours
+
+
+def sweepable(entry: dict, root_cwd: str | None) -> Path | None:
+    """A worker's worktree the sweep may clean: inside mesh's worktrees, at least `<run>/<slug>` deep, not its
+    repo's main checkout and not holding the root's cwd. None for anything else."""
+    cwd = entry.get("cwd")
+    if not cwd:
+        return None
+    top, home = Path(cwd).resolve(), worktree_root().resolve()
+    if home not in top.parents or len(top.relative_to(home).parts) < 2:
+        return None
+    if entry.get("repo") and Path(entry["repo"]).resolve() == top:
+        return None
+    return None if root_cwd and inside(root_cwd, top) else top
+
+
+def sweep_worktrees(run_id: str, workers: dict[str, dict]) -> dict[str, list[int]]:
+    """Stop what retired or stopped workers left running in their worktrees (a dev server, a watcher): TERM,
+    a short wait, then KILL, each logged as `killed`. Waits a little for a worker's own agent to exit first, so
+    its children have been orphaned. Never raises: a failure here must not fail a retire or a stop."""
+    try:
+        run = load_run(run_id)
+        root_cwd = run["agents"].get(run.get("root"), {}).get("cwd")
+        tops = {name: top for name, entry in workers.items() if (top := sweepable(entry, root_cwd))}
+        if not tops:
+            return {}
+        table = process_table()
+        for _ in range(SWEEP_AGENT_TRIES):
+            if not any(agent_binary(p["argv"]) and inside(p["cwd"], top) for p in table for top in tops.values()):
+                break
+            time.sleep(SWEEP_AGENT_POLL)
+            table = process_table()
+        killed = {}
+        for name, top in tops.items():
+            procs = leftover_processes(top, table)
+            if not procs:
+                continue
+            for proc in procs:
+                kill_process(proc["pid"], signal.SIGTERM)
+            for _ in range(SWEEP_KILL_TRIES):
+                if not any(pid_alive(p["pid"], p["start"]) for p in procs):
+                    break
+                time.sleep(SWEEP_KILL_POLL)
+            forced = [p["pid"] for p in procs if pid_alive(p["pid"], p["start"])]
+            for pid in forced:
+                kill_process(pid, signal.SIGKILL)
+            shown = [f"{p['pid']} {' '.join(p['argv'])[:80]}" for p in procs]
+            quietly(log_event, run_id, "killed", name=name, cwd=str(top), pids=[p["pid"] for p in procs],
+                    commands=shown, forced=forced)
+            print(f"mesh: stopped {len(procs)} leftover process{'es' if len(procs) > 1 else ''} {name} left in "
+                  f"{top}: {', '.join(shown)}", file=sys.stderr)
+            killed[name] = [p["pid"] for p in procs]
+        return killed
+    except (MeshError, OSError, ValueError, KeyError) as exc:
+        print(f"mesh: couldn't sweep leftover processes: {exc}", file=sys.stderr)
+        return {}
+
+
 # ── commands ─────────────────────────────────────────────────────────────
 
 
@@ -5384,6 +5495,7 @@ def retire_worker(run_id: str, name: str, entry: dict) -> None:
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "retired"
     log_event(run_id, "retire", name=name)
+    sweep_worktrees(run_id, {name: entry})  # what it left running there (design §17)
 
 
 # ── past workers: agents, resume, open ───────────────────────────────────
@@ -8108,6 +8220,8 @@ def stop_run(args: argparse.Namespace, run_id: str, run: dict) -> int:
             herdr("tab", "close", tab)
         except HerdrError:
             pass
+    # What workers left running in their worktrees, retired ones too, before those are removed (design §17).
+    sweep_worktrees(run_id, {name: entry for name, entry in run["agents"].items() if entry["role"] != "root"})
     # A registered peer's worktree outlives runs, and a clone's own checkout is never removed.
     keep = {Path(p["cwd"]).resolve() for p in load_peers()["peers"].values() if not peer_problem(p)}
     for wt in run.get("worktrees", []):

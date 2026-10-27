@@ -139,7 +139,14 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "CLAUDE_MANAGED", tmp_path / "claude-managed")
     # Never this machine's real claude/agy processes (live_holder): a test that wants some lists its own.
     monkeypatch.setattr(module, "agent_processes", lambda: [])
+    # ...nor any other of its processes (the sweep), and never a real signal: a test that wants either fakes it.
+    monkeypatch.setattr(module, "process_table", lambda: [])
+    monkeypatch.setattr(module, "kill_process", refuse_kill)
     return module
+
+
+def refuse_kill(pid, sig):
+    raise AssertionError(f"a test sent a real signal {sig} to {pid}")
 
 
 class Inboxes:
