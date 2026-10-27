@@ -2925,11 +2925,15 @@ SETTLE_DEADLINES: dict[tuple[str, str], float] = {}  # one wait per worker and p
 def settled_status(run_id: str, name: str) -> str | None:
     """`name`'s status, read under the run lock once a retire under way has ended (at most RETIRE_WAIT_MS and
     half a minute, shared by every call in this process, so a send doesn't wait twice)."""
-    deadline = SETTLE_DEADLINES.setdefault((run_id, name), time.monotonic() + RETIRE_WAIT_MS / 1000 + 30)
+    key = (run_id, name)
+    deadline = SETTLE_DEADLINES.setdefault(key, time.monotonic() + RETIRE_WAIT_MS / 1000 + 30)
     while True:
         with run_lock(run_id):
             status = (load_run(run_id)["agents"].get(name) or {}).get("status")
-        if status != "retiring" or time.monotonic() > deadline:
+        if status != "retiring":
+            SETTLE_DEADLINES.pop(key, None)  # that retire is over: a later one gets a wait of its own
+            return status
+        if time.monotonic() > deadline:  # kept: this process's next call for it doesn't wait again
             return status
         time.sleep(1)
 

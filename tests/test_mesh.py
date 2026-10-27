@@ -9619,3 +9619,30 @@ def test_send_to_a_worker_still_retiring_past_the_wait_exits_2_with_the_hint(mes
     assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 2
     err = capsys.readouterr().err
     assert "stored, not rung" in err and "mesh ring repo-fix-typo" in err and "next `mesh inbox`" not in err
+
+
+def test_two_retires_of_one_worker_in_one_process_are_each_waited_for(mesh, fake, run, monkeypatch):
+    clock = {"t": 0.0}
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: clock["t"])
+    real = mesh.load_run
+
+    def retire_after(reads):
+        left = {"n": reads}
+
+        def load(run_id, *a, **k):  # the retire ends after a few reads
+            data = real(run_id, *a, **k)
+            left["n"] -= 1
+            if left["n"] <= 0 and data["agents"]["repo-fix-typo"]["status"] == "retiring":
+                data["agents"]["repo-fix-typo"]["status"] = "retired"
+                mesh.save_run(run_id, data)
+            return data
+        return load
+
+    for _ in range(2):  # the second, hours later, gets a wait of its own
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"]["status"] = "retiring"
+        monkeypatch.setattr(mesh, "load_run", retire_after(3))
+        assert mesh.settled_status(run, "repo-fix-typo") == "retired"
+        monkeypatch.setattr(mesh, "load_run", real)
+        clock["t"] += 4 * 3600
+    assert not mesh.SETTLE_DEADLINES
