@@ -3944,7 +3944,7 @@ def resume_stored(run_id: str, me: str, name: str, mtype: str, body: str, path: 
 
 
 def send_resumed(run_id: str, me: str, to: str, mtype: str, body: str, path: Path) -> int:
-    """`mesh send` to a retired worker: its message is stored; reopen it to read it (design §17)."""
+    """`mesh send` to a retired worker: its message is stored; reopen it to read it (design §18)."""
     try:
         resumed = resume_stored(run_id, me, to, mtype, body, path)
     except MeshError as exc:
@@ -5140,7 +5140,7 @@ class Watch:
 
     def maybe_retire(self, entry: dict, bg: bool, events: list[dict]) -> None:
         """Retire a worker that reported `done` or `failed` and has been idle `idle_retire` seconds since (design
-        §17): an idle process holds memory and buys nothing over a resume, which `mesh send` and `mesh ask` do.
+        §18): an idle process holds memory and buys nothing over a resume, which `mesh send` and `mesh ask` do.
         Idle since its report and its last transcript write (this watch's first idle reading when it has none
         to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane.
         Tried once per report: a failure is logged, not retried every poll."""
