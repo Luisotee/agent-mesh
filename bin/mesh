@@ -3093,6 +3093,21 @@ def memory_guard(what: str, reserve: bool = True) -> str | None:
         return rid
 
 
+def refresh_memory(rid: str | None) -> None:
+    """Restart a reservation's clock, at the launch it was taken for."""
+    if not rid:
+        return
+    with file_lock(mesh_home() / ".reservations.lock"):
+        try:
+            held = json.loads(reservations_path().read_text())
+            for r in held:
+                if r.get("id") == rid:
+                    r["time"] = time.time()
+            write_atomic(reservations_path(), json.dumps(held))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+
 def release_memory(ids: list[str | None]) -> None:
     """Take back the reservations of agents that didn't start after all."""
     ids = {i for i in ids if i}
@@ -3197,17 +3212,18 @@ def agents_in(top: Path, table: list[dict]) -> list[dict]:
 
 
 def own_agent(proc: dict, entry: dict) -> bool:
-    """Whether an agent CLI process runs this worker's conversation (its command line names the session), or
-    may: a worker with no session recorded yet (a fresh agy) owns every agent in its worktree."""
-    session = entry.get("session")
-    return not session or any(session in arg for arg in proc["argv"])
+    """Whether an agent CLI process runs this worker's conversation: its command line names the session (a
+    Claude `--session-id`/`--resume`, agy's `--conversation`, a bg session's host) or, for agy, which starts
+    without one, the worker's own `--log-file`. With neither recorded, any agent in its worktree may be it."""
+    marks = [m for m in (entry.get("session"), entry.get("log")) if m]
+    return not marks or any(m in arg for arg in proc["argv"] for m in marks)
 
 
 def sweep_worktrees(run_id: str, workers: dict[str, dict]) -> dict[str, list[int]]:
     """Stop what retired or stopped workers left running in their worktrees (a dev server, a watcher): TERM,
     a short wait, then KILL, each logged as `killed`. Waits a little for each worker's own agent to exit first,
-    so its children have been orphaned; a worktree another live agent still works in (a `spawn --cwd` restart,
-    the user's own) is left alone. Never raises: a failure here must not fail a retire or a stop."""
+    so its children have been orphaned; an agent still there (its own, lingering, or another's) keeps its tree.
+    Never raises: a failure here must not fail a retire or a stop."""
     try:
         run = load_run(run_id)
         root_cwd = run["agents"].get(run.get("root"), {}).get("cwd")
@@ -3222,11 +3238,7 @@ def sweep_worktrees(run_id: str, workers: dict[str, dict]) -> dict[str, list[int
             table = process_table()
         killed = {}
         for name, top in tops.items():
-            if busy := agents_in(top, table):
-                print(f"mesh: left {top} alone: {busy[0]['argv'][0]} {busy[0]['pid']} still works there",
-                      file=sys.stderr)
-                continue
-            procs = leftover_processes(top, table)
+            procs = leftover_processes(top, table)  # an agent still there keeps its own tree
             if not procs:
                 continue
             for proc in procs:
@@ -3376,7 +3388,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     try:
         return start_worker(args, run_id, me, held)
     except BaseException:
-        release_memory(held)
+        quietly(release_memory, held)  # only while nothing was launched (start_worker empties it then)
         raise
 
 
@@ -3492,6 +3504,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                 if task_path:
                     result["delivery"] = {"stored": str(task_path), "rung": False, "error": None, "launched": True}
                 launched = True
+                held.clear()  # it runs: its reservation stands
 
         if not launched:
             pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env, bool(peer))
@@ -3499,6 +3512,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                 run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
             log_event(run_id, "spawn", name=name, kind=args.kind, role=args.role, model=model, pane=pane,
                       parent=parent)
+            held.clear()  # launching: its reservation stands
             started = start_agent(name, args.kind, pane, [*deny, *argv, *settings_argv(args.kind, env)],
                                   peer=bool(peer))
     except BaseException:
@@ -6068,7 +6082,8 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     try:
         return reopen_worker(args, run_id, me, started)
     except BaseException:
-        release_memory([event.get("reservation") for event in started])
+        # only while nothing was launched (reopen_worker drops it from the event then)
+        quietly(release_memory, [event.get("reservation") for event in started])
         for event in started:  # so a `mesh watch --any` stops waiting for it
             quietly(log_event, run_id, "resume_failed", from_name=event["name"], from_run=event["from_run"])
         raise
@@ -6195,6 +6210,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
               "resumed_from": {"run": old_run["id"], "name": old_name}, "worktree_recreated": recreated,
               "compaction": compaction, "notes": notes, **({"left_pr": moved["pr"]} if moved.get("pr") else {})}
 
+    # The worktree and compaction steps may have outlasted the reservation: it counts from the launch.
+    refresh_memory(started[-1].get("reservation"))
     if view == "bg":
         # A copy of the conversation, so it gets this run's identity (see launch_bg); the task waits in its mailbox.
         path = record(run_id, me, name, "task", task) if task else None
@@ -6204,6 +6221,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         except MeshError as exc:  # as in spawn_worker: the conversation reopens in a pane instead
             notes.append(f"{exc}; reopening in a pane instead")
         else:
+            started[-1]["reservation"] = None  # it runs: its reservation stands
             with editing_run(run_id) as run:
                 run["agents"][name].update(bg_id=bg_id, session=new_session, sessions=[session], status="running",
                                            inbound=WORKER_INBOUND)
@@ -6223,6 +6241,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     log_event(run_id, "resume", name=name, kind=old["kind"], model=model, pane=pane, parent=me,
               from_run=old_run["id"], from_name=old_name, session=session)
 
+    started[-1]["reservation"] = None  # launching: its reservation stands
     started = start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
                                                     "--dangerously-skip-permissions", *settings_argv(old["kind"], env)],
                           peer=bool(peer_name))
@@ -6956,6 +6975,12 @@ def ask_identity(args: argparse.Namespace, body: str, mode: str | None) -> tuple
     return run_id, me
 
 
+def not_live(target: tuple | None) -> bool:
+    """Whether asking a worker `find_worker` / `peer_worker` gave (None: none yet) will start an agent: it has
+    none, or it is retired or in an archived run. Read from the record alone, before the asking run is known."""
+    return not target or target[3].get("status") == "retired" or target[1].parent.name == "archive"
+
+
 def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, task: str, gist: str,
                  peer: str | None = None, collect: dict | None = None,
                  events: list[dict] | None = None, state: str | None = None) -> tuple[dict, int, str]:
@@ -7050,8 +7075,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
             pass
         last = (target[3].get("review_heads") or {}).get(pr)
     gist = first_line(body) or f"a review of {pr}"
-    # Sure (or, for a retired worker, likely) to start an agent: refuse before a run is made.
-    if args.repo or copilot or (peer and not target) or (target and target[3].get("status") == "retired"):
+    # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
+    if args.repo or copilot or (peer and not target) or (target and not_live(target)):
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
     # a Copilot asker's run is in the root's own mode
     run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
@@ -7266,7 +7291,8 @@ def ask_peers(args: argparse.Namespace) -> int:
         raise MeshError("empty question: pass --body TEXT or --file PATH (- for stdin)")
     registry = load_peers()["peers"]
     names = select_peers(registry, args.peers)
-    memory_guard(f"the askers of {', '.join(names)}", reserve=False)  # before a run is made; then each peer's own
+    if any(not_live(quietly(peer_worker, n, registry[n])) for n in names):  # one will start: before a run is made
+        memory_guard(f"the askers of {', '.join(names)}", reserve=False)
     run_id, me = ask_identity(args, body, None)
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run

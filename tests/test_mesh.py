@@ -9116,6 +9116,17 @@ def test_each_agent_any_mesh_starts_counts_until_it_has_grown(mesh, tmp_path, mo
     assert mesh.memory_guard("third") and len(json.loads(mesh.reservations_path().read_text())) == 1
 
 
+def test_a_launched_spawn_keeps_its_reservation_when_a_later_step_fails(mesh, fake, run, repo, monkeypatch,
+                                                                       capsys):
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "start_agent", lambda *a, **k: (_ for _ in ()).throw(mesh.MeshError("it exited")))
+    monkeypatch.setattr(mesh, "release_memory", lambda ids: (_ for _ in ()).throw(OSError("disk")) if ids else None)
+    assert mesh.main(["spawn", "--repo", str(repo), "--kind", "claude", "--model", "opus", "--worktree", "Fix",
+                      "--task", "x"]) == 1
+    assert "it exited" in capsys.readouterr().err  # the original error, not a release's
+    assert len(json.loads(mesh.reservations_path().read_text())) == 1
+
+
 def test_a_spawn_that_fails_after_the_guard_takes_its_reservation_back(mesh, fake, run, repo, monkeypatch, capsys):
     monkeypatch.setattr(mesh, "add_worktree", lambda *a: (_ for _ in ()).throw(mesh.MeshError("no worktree")))
     assert mesh.main(["spawn", "--repo", str(repo), "--kind", "claude", "--model", "opus", "--worktree", "Fix",
@@ -9212,14 +9223,31 @@ def test_the_sweep_waits_for_the_workers_own_agent_to_exit(mesh, fake, run, tmp_
     assert killed == [20811, 20834, 30001]
 
 
-def test_the_sweep_leaves_a_worktree_another_agent_works_in(mesh, fake, run, tmp_path, monkeypatch, capsys):
+def test_the_sweep_spares_another_agents_tree_without_waiting_for_it(mesh, fake, run, tmp_path, monkeypatch):
     top = tmp_path / "worktrees" / "mtest" / "fix"
     reads = []
     monkeypatch.setattr(mesh, "process_table", lambda: reads.append(1) or worktree_table(top, tmp_path / "x"))
     killed = sweep_setup_kill(mesh, monkeypatch)
-    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {}
-    assert killed == [] and len(reads) == 1  # not its agent: no wait
-    assert f"left {top} alone: claude 14649 still works there" in capsys.readouterr().err
+    # claude 14649 (another session) and its MCP server stay; the orphans go
+    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {"w": [20811, 20834, 30001]}
+    assert killed == [20811, 20834, 30001] and len(reads) == 1  # not its agent: no wait
+
+
+def test_an_agy_worker_is_waited_for_by_its_log_file(mesh, fake, run, tmp_path, monkeypatch):
+    """A fresh agy's command line names no conversation, only its own `--log-file`, even once `session` is known."""
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    log = str(tmp_path / "state" / "mtest" / "logs" / "w.log")
+    entry = {"cwd": str(top), "kind": "agy", "session": "conv-1", "log": log}
+    assert mesh.own_agent(proc(1, 0, f"agy --log-file {log} --model flash", top), entry)
+    assert mesh.own_agent(proc(1, 0, "agy --conversation conv-1 --model flash", top), entry)
+    assert not mesh.own_agent(proc(1, 0, "agy --log-file /other.log --model flash", top), entry)
+    exiting = proc(5000, 14460, f"agy --log-file {log} --model flash", top)
+    child = proc(5001, 5000, "pnpm dev", top)
+    tables = [worktree_table(top, tmp_path / "x") + [exiting, child]] * 2
+    tables.append(worktree_table(top, tmp_path / "x") + [{**child, "ppid": 1278}])  # orphaned once agy exits
+    monkeypatch.setattr(mesh, "process_table", lambda: tables.pop(0) if len(tables) > 1 else tables[0])
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    assert mesh.sweep_worktrees(run, {"w": entry}) == {"w": [20811, 20834, 30001, 5001]}
 
 
 def sweep_setup_kill(mesh, monkeypatch):
