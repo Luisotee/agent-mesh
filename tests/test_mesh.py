@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from conftest import load_mesh
+from conftest import load_mesh, write_meminfo
 
 
 MESH_SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "mesh"
@@ -9060,3 +9060,73 @@ def test_a_bg_worker_from_before_the_flag_says_how_to_fix_it(mesh, fake, cli, ru
     delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "x")
     assert "launched before mesh started workers accepting" in delivery["error"]
     assert "`mesh retire repo-fix-typo` then `mesh resume repo-fix-typo`" in delivery["error"]
+
+
+# ── resources: the memory floor ─────────────────────────────────────────
+
+
+def low_memory(mesh, tmp_path, monkeypatch, free_mb=1000):
+    """A machine with `free_mb` of memory plus swap left (16 GB of RAM, 32 GB of swap: a 5.8 GB floor)."""
+    write_meminfo(tmp_path / "meminfo", available=free_mb * 1024 // 2, swap_free=free_mb * 1024 // 2)
+
+
+def test_the_default_floor_follows_ram_and_swap(mesh, monkeypatch):
+    assert mesh.min_free_mb({"MemTotal": 16 << 20, "SwapTotal": 32 << 20}) == 4915 + 1024
+    assert mesh.min_free_mb({"MemTotal": 4 << 20, "SwapTotal": 0}) == mesh.MIN_FREE_LEAST_MB
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "300")
+    assert mesh.min_free_mb({"MemTotal": 16 << 20}) == 300
+
+
+def test_spawn_refuses_under_the_memory_floor_before_any_side_effect(mesh, fake, run, repo, tmp_path,
+                                                                     monkeypatch, capsys):
+    low_memory(mesh, tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "flash", "--worktree", "Fix", "--task", "x"]) == 1
+    err = capsys.readouterr().err
+    assert "not starting proj-fix: 1000 MB of memory and swap left, under the 5939 MB floor" in err
+    assert "mesh retire" in err and "MESH_MIN_FREE_MB=0" in err
+    data = mesh.load_run(run)
+    assert data["worktrees"] == [] and "proj-fix" not in data["agents"]
+    assert not fake.called("tab", "create") and not fake.called("agent", "start")
+    assert not (tmp_path / "worktrees" / run).exists()
+
+
+@pytest.mark.parametrize("how", ["off", "unreadable"])
+def test_the_memory_guard_can_be_turned_off_and_needs_a_meminfo(mesh, tmp_path, monkeypatch, how):
+    low_memory(mesh, tmp_path, monkeypatch)
+    if how == "off":
+        monkeypatch.setenv("MESH_MIN_FREE_MB", "0")
+    else:
+        monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "missing"))
+    mesh.memory_guard("w")  # no error
+
+
+def test_each_agent_a_process_starts_counts_until_it_has_grown(mesh, tmp_path, monkeypatch):
+    low_memory(mesh, tmp_path, monkeypatch, free_mb=6000 + mesh.AGENT_MB // 2)  # room for one over the floor
+    mesh.memory_guard("first", reserve=False)
+    mesh.memory_guard("first")
+    with pytest.raises(mesh.MeshError, match="not starting second"):
+        mesh.memory_guard("second")
+
+
+def test_resume_refuses_under_the_memory_floor_before_it_logs_resuming(mesh, fake, run, repo, tmp_path,
+                                                                        monkeypatch, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    low_memory(mesh, tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 1
+    assert "not starting proj-fix again" in capsys.readouterr().err
+    assert not [e for e in mesh.read_log(run) if e["event"] in ("resuming", "resume_failed")]
+    assert "proj-fix" not in mesh.load_run(run)["agents"] and not fake.called("agent", "start")
+
+
+@pytest.mark.parametrize("kind", ["claude", "copilot"])
+def test_ask_refuses_under_the_memory_floor_before_it_starts_a_run(mesh, fake, repo, tmp_path, monkeypatch,
+                                                                   capsys, kind):
+    low_memory(mesh, tmp_path, monkeypatch)
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--body", "Why?"]) == 1
+    assert "not starting an asker in" in capsys.readouterr().err
+    assert not (tmp_path / "state").exists() or not list((tmp_path / "state").glob("*/run.json"))

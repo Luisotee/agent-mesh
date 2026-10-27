@@ -15,5 +15,4 @@ From the WSL freezes of 2026-10-27 (03:43 and 03:50): two full runs filled WSL's
 
 - [ ] Auto-retire idle workers: once a worker has reported and stays idle ~15 min, the watch retires it, and `send`/`ask` to a retired worker resumes it instead of refusing. An idle process buys nothing over a resume (the transcript is on disk, the prompt cache keys on content). Design note first; touches `send`, `watch` and the protocol.
 - [ ] Workers leave dev servers running (four `next dev`/`next start`, ~1.5 GB, before the freeze): a protocol rule to stop what you started before reporting, and `retire`/`stop` kill leftover processes whose cwd is inside the worker's worktree.
-- [ ] Memory guard: `spawn`/`ask`/`resume` refuse when MemAvailable plus free swap is below a threshold (`MESH_MIN_FREE_MB`), telling the root why.
 - [ ] One MCP process per server instead of one per session: run `playwright-mcp --port` once as a user service and point the user-scope entry at its URL; scope `claude-code-explorer` (and `shadcn`) to the projects that use them, or launch workers with `--strict-mcp-config` and only the servers their task needs. ~2.5–3 GB back at today's counts.

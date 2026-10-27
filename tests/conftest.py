@@ -96,6 +96,13 @@ class RefuseAgentClis(subprocess.Popen):
         super().__init__(args, *rest, **kwargs)
 
 
+def write_meminfo(path, available, swap_free, total=16 << 20, swap_total=32 << 20):
+    """A /proc/meminfo with these fields, in kB."""
+    path.write_text(f"MemTotal:       {total} kB\nMemFree:        {available // 2} kB\n"
+                    f"MemAvailable:   {available} kB\nSwapTotal:      {swap_total} kB\n"
+                    f"SwapFree:       {swap_free} kB\n")
+
+
 @pytest.fixture
 def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_HOME", str(tmp_path / "state"))
@@ -118,6 +125,10 @@ def mesh(tmp_path, monkeypatch):
         monkeypatch.delenv(key, raising=False)
     # Never this machine's Claude session files either (a root's is looked up across every project folder).
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+    # Never this machine's memory: plenty free, so the memory guard passes (see low_memory for a short machine).
+    write_meminfo(tmp_path / "meminfo", available=16 << 20, swap_free=16 << 20)
+    monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "meminfo"))
+    monkeypatch.delenv("MESH_MIN_FREE_MB", raising=False)
     # A path that bypasses the fakes below fails instead of reaching a real herdr pane or agent CLI.
     monkeypatch.setenv("MESH_HERDR", str(tmp_path / "no-herdr"))
     module = load_mesh()
