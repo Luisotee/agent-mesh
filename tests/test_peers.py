@@ -1293,3 +1293,36 @@ def test_a_worker_adds_a_peer_only_under_a_temp_home(mesh, fake, run, repo, tmp_
     monkeypatch.setenv("MESH_WORKTREES", str(tmp_path / "sandbox-worktrees"))
     assert mesh.main(["peers", "add", str(clone)]) == 0  # trying it out in a sandbox
     assert "swarm-research" in mesh.load_peers()["peers"] and not (real / "peers.json").exists()
+
+
+def test_ask_peers_carries_on_past_an_asker_it_cant_close(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    clones = {}
+    for project in ("swarm", "town"):
+        _, clones[project] = upstream_and_clone(tmp_path, project)
+        archived_peer_worker(mesh, clones[project], f"{project}-research", f"s-{project}")
+    monkeypatch.chdir(repo)
+    for project in ("swarm", "town"):
+        assert mesh.main(["peers", "add", str(clones[project]), "--group", "orch"]) == 0
+    real_fetch(cli)
+    stub_new_pane(fake)
+    fake.on("workspace", "create", result={"workspace": {"workspace_id": "w9"}})
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    answer_all_on_sleep(mesh, monkeypatch, run, {"swarm-research": "Swarm keeps it in a ledger.",
+                                                  "town-research": "Town keeps a patrol."})
+    real = mesh.retire_worker
+
+    def retire(run_id, name, entry, *a, **k):
+        if name == "swarm-research":
+            raise mesh.MeshError("couldn't stop swarm-research's background session")
+        return real(run_id, name, entry, *a, **k)
+
+    monkeypatch.setattr(mesh, "retire_worker", retire)
+    capsys.readouterr()
+    assert mesh.main(["ask", "--peers", "orch", "--body", "How do they track state?"]) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("2 of 2 peers answered") and "couldn't close swarm-research" in err
+    path = mesh.Path(out.splitlines()[-1].removeprefix("answers: "))
+    assert "Town keeps a patrol." in path.read_text() and mesh.load_peers()["answers"] == str(path)
+    data = mesh.load_run(run)
+    assert data["agents"]["town-research"]["status"] == "retired"
+    assert data["agents"]["swarm-research"]["status"] != "retired"

@@ -9526,8 +9526,9 @@ def test_auto_retire_called_off_by_a_message_is_tried_again_once_idle_after_it(m
 def test_a_background_worker_that_wont_stop_is_not_retired(mesh, fake, cli, run, tmp_path, monkeypatch):
     idle_reporter(mesh, run, tmp_path)
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="b1", pane=None, kind="claude")
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="b1", pane=None, kind="claude", session="s-1")
     cli.on("stop", returncode=1)
+    bg_cli(cli, rows=[{"id": "b1", "sessionId": "s-1", "status": "idle", "pid": 5}])  # still running
     watch = idle_watch(mesh, run)
     watch.idle_at = time.time() - 2000
     watch.maybe_retire(mesh.load_run(run)["agents"]["repo-fix-typo"], True, mesh.read_log(run))
@@ -9570,3 +9571,51 @@ def test_send_to_a_retired_peer_points_to_ask(mesh, fake, run, repo, capsys):
                                               file=None, unread_ok=False, until=None, run=None, run_id=None,
                                               as_=None))
     assert not mesh.unread(run, "repo-fix-typo")
+
+
+def test_ask_whose_closing_retire_fails_still_answers_with_0(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    fake.on("pane", "close", error="boom")
+    with_quotas(mesh, monkeypatch)
+    answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
+    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    out, err = capsys.readouterr()
+    assert "restockedAt is set in stock.py." in out and "is closed" not in out
+    assert "couldn't close proj-ask-restockedat" in err and "mesh retire proj-ask-restockedat" in err
+    assert mesh.load_run(run)["agents"]["proj-ask-restockedat"]["status"] != "retired"
+
+
+def test_retire_counts_a_background_session_gone_as_stopped(mesh, fake, cli, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="b1", pane=None, kind="claude")
+    cli.on("stop", returncode=1)
+    bg_cli(cli, rows=[])  # `claude stop` failed, but the session is gone anyway
+    assert mesh.retire_worker(run, "repo-fix-typo", mesh.load_run(run)["agents"]["repo-fix-typo"]) is True
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+
+
+@pytest.mark.parametrize("body, read_only, planning, phase", [
+    ("Add the feature.", False, True, "plan"),
+    ("Question (read-only)\n\nWhy?", True, False, None),
+    (DIRECT_FIX, False, False, None),
+])
+def test_a_failed_resume_sets_the_entry_as_that_resume_would_have(mesh, fake, run, repo, monkeypatch, capsys,
+                                                                  body, read_only, planning, phase):
+    read_only_asker(mesh, run, status="retired", cwd=str(repo), repo=str(repo))
+    monkeypatch.setattr(mesh, "reopen_worker", lambda *a, **k: (_ for _ in ()).throw(mesh.MeshError("no")))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", body]) == 1
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["read_only"], entry["planning"], entry.get("phase")) == (read_only, planning, phase)
+    if phase == "plan":
+        assert entry["exec_model"] and entry["exec_effort"]
+
+
+def test_send_to_a_worker_still_retiring_past_the_wait_exits_2_with_the_hint(mesh, fake, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retiring"
+    clock = iter(range(0, 10**6, 60))
+    monkeypatch.setattr(mesh.time, "monotonic", lambda: next(clock))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 2
+    err = capsys.readouterr().err
+    assert "stored, not rung" in err and "mesh ring repo-fix-typo" in err and "next `mesh inbox`" not in err

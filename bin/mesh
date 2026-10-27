@@ -2919,10 +2919,13 @@ def reopen_relaunched(run_id: str, sender: str, to: str, mtype: str, body: str, 
     return swap.get("delivery")  # reopened at a startup screen: held, rung once it's gone
 
 
+SETTLE_DEADLINES: dict[tuple[str, str], float] = {}  # one wait per worker and process (lift_read_only, deliver)
+
+
 def settled_status(run_id: str, name: str) -> str | None:
     """`name`'s status, read under the run lock once a retire under way has ended (at most RETIRE_WAIT_MS and
-    half a minute)."""
-    deadline = time.monotonic() + RETIRE_WAIT_MS / 1000 + 30
+    half a minute, shared by every call in this process, so a send doesn't wait twice)."""
+    deadline = SETTLE_DEADLINES.setdefault((run_id, name), time.monotonic() + RETIRE_WAIT_MS / 1000 + 30)
     while True:
         with run_lock(run_id):
             status = (load_run(run_id)["agents"].get(name) or {}).get("status")
@@ -2957,7 +2960,7 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
         error = (f"{to} is still being retired; the {mtype} is stored: once it is retired, `mesh resume {to}`, "
                  f"then `mesh ring {to}`")
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
-        return {"stored": str(path), "rung": False, "error": error}
+        return {"stored": str(path), "rung": False, "error": error, "retiring": True}
     if mtype in FINAL_TYPES and collecting(run["agents"].get(sender) or {}, to):
         # `mesh ask --peers` collects it from the mailbox into one file: no doorbell, no SendMessage
         log_event(run_id, "collected", sender=sender, to=to, file=path.name)
@@ -3924,9 +3927,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     if args.type in REPORT_TYPES and not args.unread_ok:
         refuse_stale_report(run_id, me, args.type)
     target = agent_entry(load_run(run_id), to)
-    if target.get("peer") and target.get("status") in ("retiring", "retired"):
-        raise MeshError(f"{to} is a retired peer asker. Nothing was sent: ask it with `mesh ask {target['peer']}`, "
-                        "which refreshes its worktree first")
+    if target.get("status") in ("retiring", "retired") and (why := peer_pointer(to, target)):
+        raise MeshError(f"{why}. Nothing was sent")
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -3939,6 +3941,9 @@ def cmd_send(args: argparse.Namespace) -> int:
     if result.get("retired"):
         return send_resumed(run_id, me, to, args.type, body, Path(result["stored"]))
     emit(result)
+    if result.get("retiring"):
+        print(f"warning: stored, not rung: {result['error']}", file=sys.stderr)
+        return 2
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
               file=sys.stderr)
@@ -3964,12 +3969,33 @@ def resume_stored(run_id: str, me: str, name: str, mtype: str, body: str, path: 
 RESUMING_TYPES = ("task", "answer", "question")  # what `mesh send` reopens a retired worker for (not an `info`)
 
 
+def peer_pointer(name: str, entry: dict) -> str | None:
+    """Why `send` doesn't reopen a retired peer asker: `mesh ask` refreshes its worktree first (prepare_peer)."""
+    if not entry.get("peer"):
+        return None
+    return f"{name} is a retired peer asker: ask it with `mesh ask {entry['peer']}`, which refreshes its worktree first"
+
+
+def unresumed_task(run_id: str, name: str, body: str) -> None:
+    """A task stored for a worker whose resume failed: set its deny list and plan phase as that resume would have,
+    so the `mesh resume` (no task) the error points to reopens it for that task."""
+    with editing_run(run_id) as run:
+        entry = run["agents"][name]
+        claude = entry.get("kind") == "claude"
+        if read_only_task(body):
+            entry.update(read_only=claude, planning=False)
+        elif planned_task(body):
+            entry.update(read_only=False, planning=claude, phase="plan",
+                         exec_model=entry.get("exec_model") or EXEC_MODEL[entry.get("kind") or "claude"],
+                         exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
+        else:  # a direct task: no list, no plan phase
+            entry.update(read_only=False, planning=False, phase=None)
+
+
 def send_resumed(run_id: str, me: str, to: str, mtype: str, body: str, path: Path) -> int:
     """`mesh send` to a retired worker: its message is stored; reopen it to read it (design §18). An `info`
     isn't worth a reopen: it waits for the next one."""
-    entry = agent_entry(load_run(run_id), to)
-    why = (f"{to} is a peer asker: ask it with `mesh ask {entry['peer']}`, which refreshes its worktree first"
-           if entry.get("peer") else None)
+    why = peer_pointer(to, agent_entry(load_run(run_id), to))
     if mtype not in RESUMING_TYPES or why:
         emit({"stored": str(path), "rung": False, "resumed": False, "error": why or f"{to} is retired"})
         print(f"warning: stored, not rung: {why or f'{to} is retired, and reads it when it is next resumed'}",
@@ -3978,10 +4004,8 @@ def send_resumed(run_id: str, me: str, to: str, mtype: str, body: str, path: Pat
     try:
         resumed = resume_stored(run_id, me, to, mtype, body, path)
     except MeshError as exc:
-        if mtype == "task" and not planned_task(body) and not read_only_task(body):
-            # a direct task: the resume the hint points to must reopen it without its deny list
-            with editing_run(run_id) as run:
-                run["agents"][to].update(read_only=False, planning=False)
+        if mtype == "task":
+            unresumed_task(run_id, to, body)
         emit({"stored": str(path), "rung": False, "resumed": False, "error": str(exc)})
         print(f"error: {to} is retired and wasn't resumed: {exc}. The {mtype} is stored: `mesh resume {to}` "
               f"brings it back, then `mesh ring {to}` tells it", file=sys.stderr)
@@ -5714,7 +5738,7 @@ def retire_worker(run_id: str, name: str, entry: dict, still=None) -> bool:
         before, agent["status"] = agent.get("status"), "retiring"
     try:
         if entry.get("view") == "bg":
-            if entry.get("bg_id") and not stop_bg(entry):  # still running: it isn't retired
+            if entry.get("bg_id") and not stop_bg(entry) and bg_status(entry) != "gone":  # still running
                 raise MeshError(f"couldn't stop {name}'s background session {entry['bg_id']}")
         elif entry.get("pane"):  # none if its pane never opened
             try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
@@ -7181,6 +7205,8 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
             else:
                 run["agents"][name].pop("collect", None)
         delivery = deliver(run_id, me, name, "task", task)
+        if delivery.get("retiring"):  # no answer can come: say what to do instead of waiting for one
+            raise MeshError(delivery["error"])
         if not delivery.get("retired"):
             return {"name": name, "delivery": delivery}, finals, "asked"
         stored = Path(delivery["stored"])  # retired since its state was read (auto-retire): resume it for that
@@ -7345,9 +7371,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
     change = (f"a change to that project goes to a worker there (`mesh spawn --repo {repo}`)" if is_peer
               else f"give it a change with `mesh resume {name} --task-file …`")
     if how != "asked" and not args.keep:  # an asker this call opened is done; one already at work stays
-        retire_worker(run_id, name, agent_entry(load_run(run_id), name))
-        print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
-              f"{change})")
+        try:
+            retire_worker(run_id, name, agent_entry(load_run(run_id), name))
+        except (MeshError, OSError) as exc:  # the answer is in: closing it is housekeeping
+            print(f"warning: couldn't close {name} ({exc}); `mesh retire {name}` when you're done with it",
+                  file=sys.stderr)
+        else:
+            print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
+                  f"{change})")
     else:
         print(f"(ask again: `mesh ask {name} --body …`; "
               + (change if is_peer else f"give it a change to make: `mesh send {name} --type task`") + ")")
@@ -7631,12 +7662,13 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     else:
         raise MeshError(f"couldn't write the peers report under {run_folder(run_id)}")
     retire = [asked[n] for n in names if replies[n] and asked[n] in opened and not args.keep]
-    try:  # only once the report is written: a stop now must not lose it
-        for asker in retire if not stop_under_way(read_log(run_id)) else ():
+    for asker in retire if not stop_under_way(read_log(run_id)) else ():  # only once the report is written
+        try:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
-    except (MeshError, OSError):
-        if not run_stopped(run_id):
-            raise
+        except (MeshError, OSError) as exc:
+            if run_stopped(run_id):  # a stop now must not lose the report
+                break
+            print(f"warning: couldn't close {asker} ({exc}); `mesh retire {asker}` it", file=sys.stderr)
     stopped = run_stopped(run_id)
     if stopped:
         print(stopped_line(run_id), file=sys.stderr)
