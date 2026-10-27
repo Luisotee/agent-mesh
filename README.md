@@ -263,6 +263,15 @@ A Claude worker at its usage limit is told by the pane's last 20 lines or by its
 
 A Claude root gets notified the moment the watch exits.
 
+### Many agents on one machine
+
+Every agent is a whole CLI process with its own MCP servers. On 2026-10-27 two full runs filled a WSL VM's 15.5 GB of RAM and its 4 GB of swap and it hung, with no OOM kill. Measured idle afterwards, 22 sessions held 8.4 GB: `claude` about 195 MB each, the MCP servers each session starts (playwright ~83 MB, claude-code-explorer ~36 MB, shadcn ~76 MB) another 38 %, herdr and the pane shells ~0.3 GB; workers had also left four `next dev`/`next start` servers running (~1.5 GB). A background worker is the same process with the same servers, so fewer panes alone saves little.
+
+- **Swap and an OOM killer.** Give the machine enough swap to absorb a spike, and run [earlyoom](https://github.com/rfjakob/earlyoom) (or systemd-oomd) so a full machine kills something instead of hanging. Tell it what to sacrifice and what to spare, e.g. `--prefer '(^|/)(next-server|node|pnpm)' --avoid '(^|/)(herdr|claude|agy)$'`.
+- **One MCP server per machine, not per session.** A stdio MCP server is started by every session that has it configured, so its memory multiplies by the agents running. Run a server that can be shared once, as a user service listening on a port (Playwright's MCP server takes `--port`), and point the user-scope entry at its URL; scope the others to the projects that use them (a project `.mcp.json`, or `claude mcp add --scope project` / `--scope local`) instead of the user scope. mesh launches workers with their repo's own MCP configuration and doesn't trim it (see [design notes](docs/design.md), §17).
+- **Retire what has reported.** An idle worker holds its whole process; its conversation stays on disk, and `mesh resume` (or `mesh ask`) reopens it. `mesh status` shows who's done.
+- **What mesh does itself:** `spawn`, `resume` and `ask` refuse to start an agent under a memory floor, and `retire` and `stop` stop what a worker left running in its worktree (both under Safety rails below). Workers are asked to stop their own servers before reporting.
+
 ### Safety rails
 
 - **Branches:** workers change code only in their own worktree, on `mesh/<run>/<slug>`, and never touch the main checkout.
