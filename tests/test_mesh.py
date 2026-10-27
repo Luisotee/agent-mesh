@@ -9101,12 +9101,27 @@ def test_the_memory_guard_can_be_turned_off_and_needs_a_meminfo(mesh, tmp_path, 
     mesh.memory_guard("w")  # no error
 
 
-def test_each_agent_a_process_starts_counts_until_it_has_grown(mesh, tmp_path, monkeypatch):
+def test_each_agent_any_mesh_starts_counts_until_it_has_grown(mesh, tmp_path, monkeypatch):
     low_memory(mesh, tmp_path, monkeypatch, free_mb=6000 + mesh.AGENT_MB // 2)  # room for one over the floor
     mesh.memory_guard("first", reserve=False)
-    mesh.memory_guard("first")
-    with pytest.raises(mesh.MeshError, match="not starting second"):
-        mesh.memory_guard("second")
+    first = mesh.memory_guard("first")
+    other = load_mesh()  # another `mesh` process: the reservation is machine-wide
+    with pytest.raises(other.MeshError, match="not starting second: .*, 1 agent still starting"):
+        other.memory_guard("second")
+    mesh.release_memory([first])  # the first didn't start after all
+    assert other.memory_guard("second")
+    [entry] = json.loads(mesh.reservations_path().read_text())
+    entry["time"] -= mesh.RESERVE_FOR  # grown by now: counted in MemAvailable instead
+    mesh.reservations_path().write_text(json.dumps([entry]))
+    assert mesh.memory_guard("third") and len(json.loads(mesh.reservations_path().read_text())) == 1
+
+
+def test_a_spawn_that_fails_after_the_guard_takes_its_reservation_back(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "add_worktree", lambda *a: (_ for _ in ()).throw(mesh.MeshError("no worktree")))
+    assert mesh.main(["spawn", "--repo", str(repo), "--kind", "claude", "--model", "opus", "--worktree", "Fix",
+                      "--task", "x"]) == 1
+    assert "no worktree" in capsys.readouterr().err
+    assert json.loads(mesh.reservations_path().read_text()) == []
 
 
 def test_resume_refuses_under_the_memory_floor_before_it_logs_resuming(mesh, fake, run, repo, tmp_path,
@@ -9135,8 +9150,8 @@ def test_ask_refuses_under_the_memory_floor_before_it_starts_a_run(mesh, fake, r
 # ── resources: leftover processes ───────────────────────────────────────
 
 
-def proc(pid, ppid, argv, cwd):
-    return {"pid": pid, "ppid": ppid, "argv": argv.split(), "cwd": str(cwd), "start": "1"}
+def proc(pid, ppid, argv, cwd, tty=0):
+    return {"pid": pid, "ppid": ppid, "tty": tty, "argv": argv.split(), "cwd": str(cwd), "start": "1"}
 
 
 def worktree_table(top, outside):
@@ -9146,7 +9161,7 @@ def worktree_table(top, outside):
         proc(1852, 1851, "/home/u/.local/bin/herdr server", "/home/u"),
         proc(900, 1, "tmux new-session", "/home/u"),
         proc(14460, 1852, "/bin/bash", top),                          # a live pane's shell
-        proc(14649, 14460, "claude --model opus", top),               # its agent
+        proc(14649, 14460, "claude --session-id s-other --model opus", top),  # its agent
         proc(14773, 14649, "node /x/bin/playwright-mcp --headless", top),  # the agent's MCP server
         proc(20811, 1278, "/pnpm/exe dev", top),                      # orphaned: its tool shell is gone
         proc(20834, 20811, "next-server (v16.2.6)", top / "app"),
@@ -9186,15 +9201,48 @@ def test_retire_stops_what_the_worker_left_in_its_worktree(mesh, fake, run, tmp_
     assert "stopped 3 leftover processes repo-fix-typo left in" in capsys.readouterr().err
 
 
-def test_the_sweep_waits_for_the_agent_and_then_leaves_its_tree(mesh, fake, run, tmp_path, monkeypatch):
+def test_the_sweep_waits_for_the_workers_own_agent_to_exit(mesh, fake, run, tmp_path, monkeypatch):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    exiting = proc(5000, 1278, "claude --resume s-mine --model opus", top)
+    tables = [worktree_table(top, tmp_path / "x")[:3] + [exiting] + worktree_table(top, tmp_path / "x")[6:]] * 3
+    tables.append([p for p in tables[0] if p["pid"] != 5000])
+    monkeypatch.setattr(mesh, "process_table", lambda: tables.pop(0) if len(tables) > 1 else tables[0])
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {"w": [20811, 20834, 30001]}
+    assert killed == [20811, 20834, 30001]
+
+
+def test_the_sweep_leaves_a_worktree_another_agent_works_in(mesh, fake, run, tmp_path, monkeypatch, capsys):
     top = tmp_path / "worktrees" / "mtest" / "fix"
     reads = []
     monkeypatch.setattr(mesh, "process_table", lambda: reads.append(1) or worktree_table(top, tmp_path / "x"))
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {}
+    assert killed == [] and len(reads) == 1  # not its agent: no wait
+    assert f"left {top} alone: claude 14649 still works there" in capsys.readouterr().err
+
+
+def sweep_setup_kill(mesh, monkeypatch):
     killed = []
     monkeypatch.setattr(mesh, "kill_process", lambda pid, sig: killed.append(pid))
     monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: False)
-    assert mesh.sweep_worktrees(run, {"repo-fix-typo": {"cwd": str(top)}}) == {"repo-fix-typo": [20811, 20834, 30001]}
-    assert len(reads) == mesh.SWEEP_AGENT_TRIES + 1 and killed == [20811, 20834, 30001]
+    return killed
+
+
+def test_a_users_terminal_or_tmux_in_the_worktree_is_no_leftover(mesh, tmp_path):
+    """On WSL a terminal's login shell and a tmux server hang off the same `/init` orphans go to."""
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    table = [
+        proc(1278, 1274, "/init", "/"),
+        proc(1288, 1278, "-bash", top, tty=34816),            # a Windows Terminal tab cd'd into the worktree
+        proc(1300, 1288, "vim x.py", top, tty=34816),
+        proc(1400, 1278, "tmux new-session -d", top),          # a tmux server started there: no tty itself
+        proc(1401, 1400, "-bash", tmp_path, tty=34840),        # its pane, holding one, wherever it cd'd
+        proc(1402, 1401, "pnpm dev", top, tty=34840),
+        proc(1500, 1278, "/bin/bash -c source snapshot.sh && pnpm dev", top),  # an orphaned tool shell
+        proc(1501, 1500, "next-server (v16.2.6)", top),
+    ]
+    assert [p["pid"] for p in mesh.leftover_processes(top, table)] == [1500, 1501]
 
 
 @pytest.mark.parametrize("where", ["main checkout", "outside mesh", "run folder", "root's cwd"])

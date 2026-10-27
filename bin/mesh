@@ -30,7 +30,6 @@ import stat
 import subprocess
 import sys
 import textwrap
-import threading
 import time
 import urllib.parse
 import uuid
@@ -257,6 +256,7 @@ STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is
 MIN_FREE_HEADROOM_MB = 1024
 MIN_FREE_LEAST_MB = 2048
 AGENT_MB = 400  # one idle agent with its MCP servers (22 sessions held 8.4 GB on 2026-10-27)
+RESERVE_FOR = 120  # seconds a started agent counts as AGENT_MB: about how long it takes to reach its idle size
 # The sweep of a worker's worktree (design §17): polls for its agent to exit, then for TERMed leftovers to go.
 SWEEP_AGENT_TRIES, SWEEP_AGENT_POLL = 20, 0.5
 SWEEP_KILL_TRIES, SWEEP_KILL_POLL = 10, 0.3
@@ -427,25 +427,12 @@ def has_proc() -> bool:
 def agent_processes() -> list[dict]:
     """Every running `claude` / `agy` process this user can see ({pid, argv, cwd}), from /proc ([] without it),
     leaving out this command's own ancestors (the agent that runs it isn't some worker's holder)."""
-    proc = Path("/proc")
-    if not has_proc():
-        return []
     mine, pid = set(), os.getpid()
     while pid > 1 and pid not in mine:
         mine.add(pid)
         pid = parent_pid(pid)
-    found = []
-    for folder in proc.iterdir():
-        if not folder.name.isdigit() or int(folder.name) in mine:
-            continue
-        try:
-            argv = (folder / "cmdline").read_bytes().decode(errors="replace").split("\0")
-            if not agent_binary(argv):
-                continue
-            found.append({"pid": int(folder.name), "argv": [a for a in argv if a], "cwd": os.readlink(folder / "cwd")})
-        except OSError:
-            continue  # exited as we looked, or not ours
-    return found
+    return [{"pid": p["pid"], "argv": p["argv"], "cwd": p["cwd"]} for p in process_table()
+            if p["pid"] not in mine and p["cwd"] and agent_binary(p["argv"])]
 
 
 def socket_address(pid: int | None) -> str | None:
@@ -3065,35 +3052,63 @@ def min_free_mb(info: dict[str, int]) -> int:
     return max(MIN_FREE_LEAST_MB, total // 10 // 1024 + MIN_FREE_HEADROOM_MB)
 
 
-_started_agents = 0  # agents this process let start, which haven't grown to their size yet (fan_out's threads)
-_guard_lock = threading.Lock()
+def reservations_path() -> Path:
+    return mesh_home() / "reservations.json"
 
 
-def memory_guard(what: str, reserve: bool = True) -> None:
+def memory_guard(what: str, reserve: bool = True) -> str | None:
     """Refuse to start `what` (a new agent process) while memory plus swap is under the floor (design §17).
-    Each agent this process already let start counts as AGENT_MB used; with `reserve`, this one too."""
-    global _started_agents
+
+    An agent any `mesh` process let start in the last RESERVE_FOR seconds hasn't grown into MemAvailable yet,
+    so each one's reservation (in `reservations.json`, machine-wide, under a lock) counts as AGENT_MB used.
+    With `reserve`, a pass adds this one's and returns its id, which `release_memory` takes back when the start
+    fails after all."""
     info = meminfo()
     if info is None or "MemAvailable" not in info:
-        return  # no /proc: nothing to tell by
+        return None  # no /proc: nothing to tell by
     floor = min_free_mb(info)
     if not floor:
-        return
-    with _guard_lock:
-        free = (info["MemAvailable"] + info.get("SwapFree", 0)) // 1024 - _started_agents * AGENT_MB
+        return None
+    path = reservations_path()
+    with file_lock(mesh_home() / ".reservations.lock"):
+        try:
+            stored = json.loads(path.read_text())
+            held = [r for r in stored if time.time() - r.get("time", 0) < RESERVE_FOR]
+        except (OSError, ValueError, TypeError, AttributeError):
+            stored, held = None, []
+        free = (info["MemAvailable"] + info.get("SwapFree", 0)) // 1024 - len(held) * AGENT_MB
         if free < floor:
+            starting = f", {len(held)} agent{'s' if len(held) > 1 else ''} still starting" if held else ""
             raise MeshError(
-                f"not starting {what}: {max(free, 0)} MB of memory and swap left, under the {floor} MB floor "
-                "(MESH_MIN_FREE_MB). Retire workers that have reported (`mesh status` shows them; `mesh retire "
-                "<name>` keeps their conversations resumable) and stop leftover dev servers, then try again, or "
-                "set MESH_MIN_FREE_MB=0 to start it anyway")
+                f"not starting {what}: {max(free, 0)} MB of memory and swap left{starting}, under the {floor} MB "
+                "floor (MESH_MIN_FREE_MB). Retire workers that have reported (`mesh status` shows them; `mesh "
+                "retire <name>` keeps their conversations resumable) and stop leftover dev servers, then try "
+                "again, or set MESH_MIN_FREE_MB=0 to start it anyway")
+        rid = None
         if reserve:
-            _started_agents += 1
+            rid = secrets.token_hex(6)
+            held.append({"id": rid, "time": time.time(), "pid": os.getpid(), "what": what})
+        if held != stored:
+            write_atomic(path, json.dumps(held))
+        return rid
+
+
+def release_memory(ids: list[str | None]) -> None:
+    """Take back the reservations of agents that didn't start after all."""
+    ids = {i for i in ids if i}
+    if not ids:
+        return
+    with file_lock(mesh_home() / ".reservations.lock"):
+        try:
+            held = json.loads(reservations_path().read_text())
+            write_atomic(reservations_path(), json.dumps([r for r in held if r.get("id") not in ids]))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
 
 
 def process_table() -> list[dict]:
-    """Every process this user can read, from one pass over /proc: {pid, ppid, argv, cwd, start} ([] without
-    /proc). A process whose cwd can't be read has cwd None."""
+    """Every process this user can read, from one pass over /proc: {pid, ppid, tty, argv, cwd, start} ([]
+    without /proc). `tty` is its controlling terminal (0: none). A process whose cwd can't be read has cwd None."""
     if not has_proc():
         return []
     table = []
@@ -3109,28 +3124,49 @@ def process_table() -> list[dict]:
             cwd = os.readlink(folder / "cwd")
         except OSError:
             cwd = None  # not ours
-        table.append({"pid": int(folder.name), "ppid": int(fields[1]), "argv": argv, "cwd": cwd,
-                      "start": fields[19]})
+        table.append({"pid": int(folder.name), "ppid": int(fields[1]), "tty": int(fields[4]), "argv": argv,
+                      "cwd": cwd, "start": fields[19]})
     return table
 
 
 def leftover_processes(top: Path, table: list[dict]) -> list[dict]:
     """The processes in `top` that nothing alive owns: each one's chain of parents inside `top` holds no agent
-    CLI, and the chain's top hangs off an init (its own parent died). A live pane's shell, a live agent and its
-    MCP servers, a background session under its daemon, a user's tmux or shell, this command: all left alone."""
+    CLI and hangs off an init (its own parent died), and no process of that tree, wherever its cwd, holds a
+    terminal or is an agent. A live pane's shell, a live agent and its MCP servers, a background session under
+    its daemon, this command, and a user's own terminal shell or tmux server (on WSL both hang off the same
+    `/init` orphans go to, but they and their panes hold a tty; an orphaned tool shell and its server don't):
+    all left alone."""
     by_pid = {p["pid"]: p for p in table}
+    children: dict[int, list[dict]] = {}
+    for p in table:
+        children.setdefault(p["ppid"], []).append(p)
+
+    def owned(root: dict) -> bool:  # someone's: a terminal or an agent anywhere in the tree
+        todo, seen = [root], set()
+        while todo:
+            node = todo.pop()
+            if node["pid"] in seen:
+                continue
+            seen.add(node["pid"])
+            if node.get("tty") or agent_binary(node["argv"]):
+                return True
+            todo += children.get(node["pid"], [])
+        return False
+
     found = []
     for proc in table:
         if not inside(proc["cwd"], top):
             continue
-        node, seen = proc, set()
+        node, chain_top, seen = proc, proc, set()
         while node and inside(node["cwd"], top) and node["pid"] not in seen:
             seen.add(node["pid"])
             if agent_binary(node["argv"]):
                 break
+            chain_top = node
             node = by_pid.get(node["ppid"]) if node["ppid"] > 1 else {"pid": 1, "argv": ["init"], "cwd": "/"}
         else:
-            if node and (node["pid"] == 1 or Path((node["argv"] or [""])[0]).name in INIT_NAMES):
+            if (node and (node["pid"] == 1 or Path((node["argv"] or [""])[0]).name in INIT_NAMES)
+                    and not owned(chain_top)):
                 found.append(proc)
     return found
 
@@ -3156,10 +3192,22 @@ def sweepable(entry: dict, root_cwd: str | None) -> Path | None:
     return None if root_cwd and inside(root_cwd, top) else top
 
 
+def agents_in(top: Path, table: list[dict]) -> list[dict]:
+    return [p for p in table if agent_binary(p["argv"]) and inside(p["cwd"], top)]
+
+
+def own_agent(proc: dict, entry: dict) -> bool:
+    """Whether an agent CLI process runs this worker's conversation (its command line names the session), or
+    may: a worker with no session recorded yet (a fresh agy) owns every agent in its worktree."""
+    session = entry.get("session")
+    return not session or any(session in arg for arg in proc["argv"])
+
+
 def sweep_worktrees(run_id: str, workers: dict[str, dict]) -> dict[str, list[int]]:
     """Stop what retired or stopped workers left running in their worktrees (a dev server, a watcher): TERM,
-    a short wait, then KILL, each logged as `killed`. Waits a little for a worker's own agent to exit first, so
-    its children have been orphaned. Never raises: a failure here must not fail a retire or a stop."""
+    a short wait, then KILL, each logged as `killed`. Waits a little for each worker's own agent to exit first,
+    so its children have been orphaned; a worktree another live agent still works in (a `spawn --cwd` restart,
+    the user's own) is left alone. Never raises: a failure here must not fail a retire or a stop."""
     try:
         run = load_run(run_id)
         root_cwd = run["agents"].get(run.get("root"), {}).get("cwd")
@@ -3168,12 +3216,16 @@ def sweep_worktrees(run_id: str, workers: dict[str, dict]) -> dict[str, list[int
             return {}
         table = process_table()
         for _ in range(SWEEP_AGENT_TRIES):
-            if not any(agent_binary(p["argv"]) and inside(p["cwd"], top) for p in table for top in tops.values()):
+            if not any(own_agent(p, workers[name]) for name, top in tops.items() for p in agents_in(top, table)):
                 break
             time.sleep(SWEEP_AGENT_POLL)
             table = process_table()
         killed = {}
         for name, top in tops.items():
+            if busy := agents_in(top, table):
+                print(f"mesh: left {top} alone: {busy[0]['argv'][0]} {busy[0]['pid']} still works there",
+                      file=sys.stderr)
+                continue
             procs = leftover_processes(top, table)
             if not procs:
                 continue
@@ -3320,6 +3372,15 @@ def cmd_spawn(args: argparse.Namespace) -> int:
 
 
 def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
+    held: list[str | None] = []  # its memory reservation, taken back if it doesn't start
+    try:
+        return start_worker(args, run_id, me, held)
+    except BaseException:
+        release_memory(held)
+        raise
+
+
+def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str | None]) -> dict:
     repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
     run = load_run(run_id)
     taken = set(run["agents"]) | live_agent_names()
@@ -3367,7 +3428,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
     pinned = getattr(args, "pinned", None)
     pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
-    memory_guard(name)  # the last check before any side effect
+    held.append(memory_guard(name))  # the last check before any side effect
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, effort, log)
     if user_review:
@@ -6003,10 +6064,11 @@ def owes_plan(run_id: str, name: str) -> bool:
 
 
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
-    started: list[dict] = []  # its `resuming` event, once logged
+    started: list[dict] = []  # its `resuming` event, once logged, with its memory reservation
     try:
         return reopen_worker(args, run_id, me, started)
     except BaseException:
+        release_memory([event.get("reservation") for event in started])
         for event in started:  # so a `mesh watch --any` stops waiting for it
             quietly(log_event, run_id, "resume_failed", from_name=event["name"], from_run=event["from_run"])
         raise
@@ -6064,10 +6126,10 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     while name in taken:
         name, n = f"{old_name[:29]}-{n}", n + 1
 
-    memory_guard(f"{old_name} again")  # the last check before any side effect
+    reservation = memory_guard(f"{old_name} again")  # the last check before any side effect
     # Before the worktree and compaction steps, which can take minutes: a `mesh watch --any` waits for it.
     log_event(run_id, "resuming", name=old_name, from_run=old_run["id"])
-    started.append({"name": old_name, "from_run": old_run["id"]})
+    started.append({"name": old_name, "from_run": old_run["id"], "reservation": reservation})
     cwd, repo_top = old["cwd"], Path(old["repo"])
     if peer:  # its own detached worktree, which outlives runs: no branch, and no run's `mesh stop` removes it
         branch, recreated = None, ensure_peer_worktree({**peer, "cwd": cwd})
@@ -6757,7 +6819,6 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
                                      ("--focus", args.focus)) if on]
     if ignored:
         print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
-    memory_guard(target[2] if target else "a Copilot asker")  # it starts a copilot process either way
     if target:
         old_run, _, old_name, old = target
         file_orphan(old_run["id"], old_name)  # its last answer first, so this one isn't taken for it
@@ -6989,7 +7050,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
             pass
         last = (target[3].get("review_heads") or {}).get(pr)
     gist = first_line(body) or f"a review of {pr}"
-    if args.repo or copilot or (peer and not target):  # sure to start an agent: refuse before a run is made
+    # Sure (or, for a retired worker, likely) to start an agent: refuse before a run is made.
+    if args.repo or copilot or (peer and not target) or (target and target[3].get("status") == "retired"):
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
     # a Copilot asker's run is in the root's own mode
     run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
@@ -7008,8 +7070,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
     task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
                     narrow=narrow, repo=repo)
     base = head if args.repo else None
-    if copilot:
-        return moving(move, lambda: ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body, head))
+    if copilot:  # it starts a copilot process either way, which is gone once it has answered
+        reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
+        try:
+            return moving(move, lambda: ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body,
+                                                    head))
+        finally:
+            release_memory([reservation])
 
     if args.repo:
         slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
@@ -7199,6 +7266,7 @@ def ask_peers(args: argparse.Namespace) -> int:
         raise MeshError("empty question: pass --body TEXT or --file PATH (- for stdin)")
     registry = load_peers()["peers"]
     names = select_peers(registry, args.peers)
+    memory_guard(f"the askers of {', '.join(names)}", reserve=False)  # before a run is made; then each peer's own
     run_id, me = ask_identity(args, body, None)
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run
