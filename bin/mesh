@@ -4804,10 +4804,13 @@ def viewer(name: str, entry: dict, table: list[dict] | None = None) -> str | Non
     if entry.get("view") == "bg":
         keys = [k for k in (entry.get("bg_id"), entry.get("session")) if k]
         for proc in process_table() if table is None else table:
-            argv = proc["argv"]
-            if agent_binary(argv) != "claude" or len(argv) < 3 or argv[1] != "attach":
+            argv = [a for a in proc["argv"] if a]
+            if agent_binary(argv) != "claude":
                 continue
-            target = argv[2]
+            args = argv[2:] if Path(argv[0]).name in INTERPRETERS else argv[1:]  # `node …/claude attach <id>`
+            if len(args) < 2 or args[0] != "attach":
+                continue
+            target = args[1]
             if target in keys or target.lower() in name.lower():
                 return f"attached (`claude attach`, pid {proc['pid']})"
         return None
@@ -5222,7 +5225,7 @@ class Watch:
                 event = self.stopped(entry, bg, events)
                 if event:
                     return event
-            self.maybe_retire(entry, bg, events)
+            self.idle_tick(entry, state, events)
             return None
         self.idle_for = None
         if state == "working":
@@ -5847,36 +5850,56 @@ def start_retirer(run_id: str, handle) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, str(Path(__file__).absolute()), "retirer", "--run", run_id,
             "--lock-fd", str(handle.fileno())]
-    env = {k: v for k, v in env_without_identity(keep_herdr=False).items() if k not in CLAUDE_SESSION_VARS}
     with open(log, "a") as out:
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=claude_env(),
                                 cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
     log_event(run_id, "retirer_started", pid=proc.pid)
     return proc.pid
 
 
 def retire_pass(run_id: str, watches: dict[str, "Watch"]) -> bool:
-    """One poll of the retirer: each worker that may be retired (`retirable`, a report not tried already) and
-    that no `mesh watch` covers is read and, idle long enough, retired through `Watch.maybe_retire`, the watch's
-    own path. True while any worker may still be retired, a watched one included (its watch may end first)."""
+    """One poll of the retirer; True while it should keep running.
+
+    It keeps running for any worker whose newest report since its last task or answer is a `done` or `failed`,
+    that isn't retired and wasn't found gone or failed to retire after that report: a state that only holds the
+    retire for now (unread mail, a wait, held, starting, retiring) passes, and nothing would start the retirer
+    again. Each one no `mesh watch` covers is read every poll; while `retirable` names it, the watch's own path
+    retires it (`Watch.idle_tick`, then `maybe_retire`). A worker that left (a new task,
+    retired) loses its Watch, so a stale idle count never retires it after a burst of work."""
     run = maybe_run(run_id)
-    if not run or run_stopped(run_id):
+    if not run:
         return False
     events = read_log(run_id)
-    pending = {}
+    if stop_under_way(events) or run_stopped(run_id):
+        return False
+    pending, judged = {}, set()
     for name, entry in run["agents"].items():
-        report = retirable(run_id, name, entry, events)
-        if report and report.get("file") != (watches.get(name) and watches[name].retire_tried):
-            pending[name] = entry
-    unwatched_ones = {n: e for n, e in pending.items() if not watched(run_id, n)}
-    bg_rows = claude_agents() if any(e.get("view") == "bg" for e in unwatched_ones.values()) else []
-    for name, entry in pending.items():
-        watch = watches.setdefault(name, Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire()))
-        if name not in unwatched_ones:
-            watch.idle_at = None  # its watch judges it meanwhile
+        report, _ = last_report(events, name)
+        if (entry.get("role") != "worker" or entry.get("view") == "headless" or entry.get("status") == "retired"
+                or not report or report.get("type") not in FINAL_TYPES):
             continue
+        judged.add(name)
+        if name not in watches or watches[name].retire_tried != report.get("file"):  # gone, or a failed retire
+            pending[name] = (entry, report)
+    for name in set(watches) - judged:
+        del watches[name]
+    unwatched_ones = {n: e for n, (e, _) in pending.items() if not watched(run_id, n)}
+    for name in set(pending) - set(unwatched_ones):
+        if name in watches:
+            watches[name].idle_at = None  # its watch judges it meanwhile
+    bg_rows = claude_agents() if any(e.get("view") == "bg" for e in unwatched_ones.values()) else []
+    for name, entry in unwatched_ones.items():
         try:
-            watch.idle_tick(entry, agent_status(name, entry, bg_rows), events)
+            if name not in watches:
+                watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire())
+            watch = watches[name]
+            state = agent_status(name, entry, bg_rows)
+            if state == "gone" and entry.get("status") == "running":  # ended after its report: nothing to retire
+                watch.retire_tried = pending.pop(name)[1].get("file")
+            elif retirable(run_id, name, entry, events):
+                watch.idle_tick(entry, state, events)
+            else:
+                watch.idle_at = None  # may not be retired now (unread mail, a wait, held, starting…)
         except (MeshError, OSError) as exc:  # herdr can't be read now: try at the next poll
             print(f"{now_iso()} {name}: {exc}", flush=True)
     return bool(pending)
