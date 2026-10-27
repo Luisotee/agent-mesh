@@ -8,7 +8,6 @@ From the run `m6f06` research (2026-10-26): prompt-cache keepalive (don't build 
 
 From run `md64d` (2026-10-26): the root's own observations, PR #63's review, and the new peers' first answers (`reports/peers-20261026T083537929156Z.md` in the run, archived under `~/.local/state/agent-mesh/archive/md64d/` after `mesh stop`; "ACC" is its agents-can-communica-research section, "repowire" its repowire-research one).
 
-- [ ] The root starts no work until the user says go (unless told to run autonomously): for any request, not only task lists, it first proposes the work (groups, sizes, workers, routing) and waits.
 
 From the WSL freezes of 2026-10-27 (03:43 and 03:50): two full runs filled WSL's 15.5 GB and its 4 GB swap and the VM hung (allocation failures, no OOM kill). The machine now has 32 GB swap, `vm.swappiness=100` and earlyoom. Idle, 22 sessions held 8.4 GB: `claude` ~195 MB each, its MCP servers (playwright ~83 MB, claude-code-explorer ~36 MB, shadcn ~76 MB) another 38% of the total, herdr and the pane shells ~0.3 GB. Fewer panes alone saves little: a `--bg` session is the same process with the same MCP servers. The MCP servers were made one per machine by config (a shared Playwright service, claude-code-explorer scoped to agent-mesh), and mesh got a memory floor and a sweep of leftover processes (README, "Many agents on one machine").
 
