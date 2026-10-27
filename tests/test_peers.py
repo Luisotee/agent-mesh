@@ -458,9 +458,26 @@ def test_ask_peers_fans_out_and_collects_one_file(mesh, fake, cli, run, repo, tm
     events = mesh.read_log(run)
     assert sum(e["event"] == "collected" for e in events) == 2  # no doorbell rang the root for them
     assert not mesh.unread(run, "repo-lead")
-    assert mesh.load_peers()["answers"] == str(path)
+    peers = mesh.load_peers()
+    ref = {"run": run, "file": f"reports/{path.name}"}
+    assert peers["answers"] == ref
+    assert all(peers["peers"][n]["answers"] == ref for n in ("swarm-research", "town-research"))
+    assert "answers" not in peers["peers"]["lone-research"]
     assert mesh.main(["peers"]) == 0
-    assert f"newest answers: {path}" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"newest answers: {path}" in out and f"{path}: swarm-research, town-research" in out
+    assert mesh.main(["peers", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    rows = {r["name"]: r for r in listed["peers"]}
+    assert listed["answers"] == str(path) and rows["swarm-research"]["answers"] == str(path)
+    assert rows["town-research"]["run"] == run and rows["lone-research"]["answers"] is None
+
+    mesh.os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)  # what `mesh stop` does last
+    archived = mesh.mesh_home() / "archive" / run / "reports" / path.name
+    assert mesh.main(["peers", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["answers"] == str(archived)
+    assert {r["name"]: r["answers"] for r in listed["peers"]}["swarm-research"] == str(archived)
 
 
 def two_peers_one_answering(mesh, fake, cli, run, repo, tmp_path, monkeypatch):
@@ -1322,7 +1339,22 @@ def test_ask_peers_carries_on_past_an_asker_it_cant_close(mesh, fake, cli, run, 
     out, err = capsys.readouterr()
     assert out.startswith("2 of 2 peers answered") and "couldn't close swarm-research" in err
     path = mesh.Path(out.splitlines()[-1].removeprefix("answers: "))
-    assert "Town keeps a patrol." in path.read_text() and mesh.load_peers()["answers"] == str(path)
+    assert "Town keeps a patrol." in path.read_text() and mesh.answers_file(mesh.load_peers()["answers"]) == path
     data = mesh.load_run(run)
     assert data["agents"]["town-research"]["status"] == "retired"
     assert data["agents"]["swarm-research"]["status"] != "retired"
+
+
+def test_answers_file_reads_an_old_absolute_path_and_follows_it_to_the_archive(mesh, run):
+    live = mesh.run_dir(run) / "reports" / "peers-1.md"
+    live.parent.mkdir(exist_ok=True)
+    live.write_text("answers")
+    assert mesh.answers_file(str(live)) == live
+    assert mesh.answers_file({"run": run, "file": "reports/peers-1.md"}) == live
+    (mesh.mesh_home() / "archive").mkdir()
+    mesh.os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)
+    archived = mesh.mesh_home() / "archive" / run / "reports" / "peers-1.md"
+    assert mesh.answers_file(str(live)) == archived
+    assert mesh.answers_file({"run": run, "file": "reports/peers-1.md"}) == archived
+    assert mesh.answers_file({"run": "gone1", "file": "reports/peers-1.md"}) is None
+    assert mesh.answers_file("/elsewhere/peers-1.md") is None and mesh.answers_file(None) is None

@@ -245,7 +245,7 @@ Then:
 **Standing peer askers** (`mesh peers`): askers registered for good, one per cloned peer project, outside any run. The registry is machine-wide; groups (`orchestrators`) pick a subset. Ask one by name like any worker (`mesh ask <peer> --body …`), or several with one command:
 
 ```bash
-mesh peers                                       # names, groups, what each last read, the newest answers file
+mesh peers                                       # names, groups, what each last read, each one's last answers file
 mesh ask --peers all|<group>|a,b --file q.md     # one question to all of them
 ```
 

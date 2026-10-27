@@ -7525,6 +7525,39 @@ def ask_peers(args: argparse.Namespace) -> int:
 CLAUDE_AGENTS_RETRY = 1.0  # seconds before asker_status asks `claude agents` again after a failed call
 
 
+def record_answers(run_id: str, path: Path, answered: list[str]) -> None:
+    """Keep the answers file, for `mesh peers` to name without remembering the run: the newest of any round,
+    and on each peer that answered, its own last one. As run and path in its folder, which `answers_file`
+    finds again once `mesh stop` has moved the run to the archive."""
+    ref = {"run": run_id, "file": f"reports/{path.name}"}
+    with editing_peers() as data:
+        data["answers"] = ref
+        for name in answered:
+            if isinstance(data["peers"].get(name), dict):
+                data["peers"][name]["answers"] = ref
+
+
+def answers_file(ref) -> Path | None:
+    """Where an `answers` record of peers.json is now, live or archived; None for none or a run gone. An
+    older peers.json stored the absolute path in the live folder: one `mesh stop` archived is found too."""
+    if isinstance(ref, dict) and isinstance(ref.get("run"), str) and isinstance(ref.get("file"), str):
+        try:
+            path = run_folder(ref["run"]) / ref["file"]
+        except MeshError:
+            return None
+        return path if path.exists() else None
+    if not isinstance(ref, str) or not ref:
+        return None
+    path = Path(ref)
+    if path.exists():
+        return path
+    try:
+        moved = mesh_home() / "archive" / path.relative_to(mesh_home())
+    except ValueError:
+        return None
+    return moved if moved.exists() else None
+
+
 def asker_status(name: str, entry: dict) -> str:
     """agent_status, but `unknown` for a background worker whose `claude agents` call failed twice, a second
     apart: it can't be told gone, and resuming a live one would run two processes on one conversation."""
@@ -7676,8 +7709,7 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     stopped = run_stopped(run_id)
     if stopped:
         print(stopped_line(run_id), file=sys.stderr)
-    with editing_peers() as data:  # `mesh peers` names it, so it's found without remembering the run
-        data["answers"] = str(path)
+    record_answers(run_id, path, [n for n in names if replies[n]])
     answered = sum(1 for r in replies.values() if r)
     print(f"{answered} of {len(names)} peers answered: {first_line(body, 100)}")
     print("\n".join(lines))
@@ -8162,8 +8194,14 @@ def peer_row(name: str, peer: dict) -> dict:
         "seen": (peer.get("seen") or "")[:9], "new": commits_between(peer["repo"], peer.get("seen"), head),
         "context": f"{tokens // 1000}k" if tokens else "", "session": "found" if session else "none yet",
         "worktree": "present" if Path(peer["cwd"]).exists() else "removed", "asked": (peer.get("asked") or "")[:16],
-        "about": peer.get("about") or "", "repo": peer["repo"], "cwd": peer["cwd"],
+        "about": peer.get("about") or "", "repo": peer["repo"], "cwd": peer["cwd"], "run": peer.get("run"),
+        "answers": answers_path(peer.get("answers")),
     }
+
+
+def answers_path(ref) -> str | None:
+    path = answers_file(ref)
+    return str(path) if path else None
 
 
 def peers_list(args: argparse.Namespace) -> int:
@@ -8177,10 +8215,12 @@ def peers_list(args: argparse.Namespace) -> int:
             rows.append({"name": name, "group": entry.get("group") or "", "kind": entry.get("kind") or "",
                          "upstream": "", "seen": "", "new": "", "context": "", "session": "",
                          "worktree": f"broken ({type(exc).__name__}: {exc})"[:60], "asked": "",
-                         "about": entry.get("about") or "", "repo": entry.get("repo"), "cwd": entry.get("cwd")})
+                         "about": entry.get("about") or "", "repo": entry.get("repo"), "cwd": entry.get("cwd"),
+                         "run": entry.get("run"), "answers": answers_path(entry.get("answers"))})
     groups = data.get("groups") or {}
+    newest = answers_path(data.get("answers"))
     if args.json:
-        emit({"peers": rows, "groups": groups, "answers": data.get("answers")})
+        emit({"peers": rows, "groups": groups, "answers": newest})
         return 0
     if not rows:
         print(f"{NO_PEERS[0].upper()}{NO_PEERS[1:]}.")
@@ -8195,8 +8235,16 @@ def peers_list(args: argparse.Namespace) -> int:
             print("\nAbout:")
             for row in described:
                 print(textwrap.fill(row["about"], 116, initial_indent=f"  {row['name']}: ", subsequent_indent="    "))
-    if data.get("answers"):
-        print(f"\nnewest answers: {data['answers']}")
+        files: dict[str, list[str]] = {}  # each peer's last `ask --peers` answers, one line per file
+        for row in mine:
+            if row["answers"]:
+                files.setdefault(row["answers"], []).append(row["name"])
+        if files:
+            print("\nLast answers:")
+            for path, who in files.items():
+                print(f"  {path}: {', '.join(who)}")
+    if newest:
+        print(f"\nnewest answers: {newest}")
     return 0
 
 
