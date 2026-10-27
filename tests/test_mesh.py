@@ -9536,6 +9536,49 @@ def test_a_background_worker_that_wont_stop_is_not_retired(mesh, fake, cli, run,
     assert [e for e in mesh.read_log(run) if e.get("event") == "auto_retire_failed"]
 
 
+def attach_row(target, pid=77, binary="claude"):
+    return {"pid": pid, "ppid": 1, "tty": 34816, "argv": [binary, "attach", target], "cwd": "/", "start": "1"}
+
+
+@pytest.mark.parametrize("target, held", [("b1", True), ("s-1", True), ("fix-typo", True), ("other", False)])
+def test_a_background_worker_attached_to_is_held_until_its_client_leaves(mesh, fake, cli, run, tmp_path,
+                                                                         monkeypatch, target, held):
+    idle_reporter(mesh, run, tmp_path)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(view="bg", bg_id="b1", pane=None, kind="claude", session="s-1")
+    table = [attach_row(target), attach_row("b1", pid=78, binary="vim")]
+    monkeypatch.setattr(mesh, "process_table", lambda: table)
+    bg_cli(cli, rows=[])
+    watch = idle_watch(mesh, run)
+    watch.idle_at = time.time() - 2000
+    for _ in range(2):
+        watch.maybe_retire(mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"), True, mesh.read_log(run))
+    status = mesh.load_run(run)["agents"]["repo-fix-typo"]["status"]
+    assert status == ("running" if held else "retired")
+    held_events = [e for e in mesh.read_log(run) if e.get("event") == "retire_held"]
+    assert len(held_events) == (1 if held else 0)  # logged once per report
+    if held:
+        assert "pid 77" in held_events[0]["why"]
+        table.clear()  # the user detached
+        watch.maybe_retire(mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"), True, mesh.read_log(run))
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+
+
+@pytest.mark.parametrize("pane, held", [({"focused": True}, True), ({"focused": False}, False), (None, False)])
+def test_a_pane_worker_whose_pane_is_focused_is_held(mesh, fake, run, tmp_path, monkeypatch, pane, held):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    if pane is None:
+        fake.on("pane", "get", error="pane_not_found")
+    else:
+        fake.on("pane", "get", result={"pane": {"pane_id": "w2:p5", **pane}})
+    watch = idle_watch(mesh, run)
+    watch.tick(5, alerts_only=True)
+    assert fake.called("pane", "get", "w2:p5")
+    assert (mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running") is held
+    assert bool(fake.called("pane", "close")) is not held
+
+
 @pytest.mark.parametrize("value, expected", [("-1", 0.0), ("0", 0.0), ("60", 60.0), ("x", 900.0), ("", 900.0)])
 def test_mesh_idle_retire_of_zero_or_less_means_never(mesh, monkeypatch, value, expected):
     monkeypatch.setenv("MESH_IDLE_RETIRE", value)

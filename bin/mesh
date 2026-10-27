@@ -4790,6 +4790,33 @@ def retirable(run_id: str, name: str, entry: dict, events: list[dict]) -> dict |
     return report
 
 
+def viewer(name: str, entry: dict, table: list[dict] | None = None) -> str | None:
+    """Why the user may be looking at a worker, which holds its auto-retire (design §18, "Viewers"), else None.
+
+    A background worker: a `claude attach` client of its session is running (`mesh open` runs one). Claude Code
+    keeps its attach clients to itself, but the client is a process for as long as it is attached. Its argument
+    is the job id, the session id or part of the session name (the worker's name), so a short part of a name may
+    hold several workers: holding is the safe side. A pane worker: herdr has its pane focused (one pane at a time).
+    Anything unreadable (no /proc, a herdr error) holds nothing."""
+    if entry.get("view") == "bg":
+        keys = [k for k in (entry.get("bg_id"), entry.get("session")) if k]
+        for proc in process_table() if table is None else table:
+            argv = proc["argv"]
+            if agent_binary(argv) != "claude" or len(argv) < 3 or argv[1] != "attach":
+                continue
+            target = argv[2]
+            if target in keys or target.lower() in name.lower():
+                return f"attached (`claude attach`, pid {proc['pid']})"
+        return None
+    if not entry.get("pane"):
+        return None
+    try:
+        pane = herdr("pane", "get", entry["pane"]).get("pane") or {}
+    except (HerdrError, MeshError):
+        return None
+    return "its pane is focused" if pane.get("focused") is True else None
+
+
 def declared_wait(events: list[dict], name: str) -> dict | None:
     """The wait `name` declared for its current task (its `send` event, `until` in ISO): sent since its last task
     or answer and after its newest report. A new task or answer, or a report, ends it. `turned` is set once the
@@ -5123,6 +5150,7 @@ class Watch:
         self.idle_at: float | None = None  # when this watch first read it idle, in the current run of idle readings
         self.retire_tried: str | None = None  # the report (its file) this watch last tried to retire it after
         self.auto_retired = False  # this watch retired it, idle after its report
+        self.retire_held: str | None = None  # the report (its file) whose retire a viewer held, logged once
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -5204,7 +5232,8 @@ class Watch:
         """Retire a worker that reported `done` or `failed` and has been idle `idle_retire` seconds since (design
         §18): an idle process holds memory and buys nothing over a resume, which `mesh send` and `mesh ask` do.
         Idle since its report and its last transcript write (this watch's first idle reading when it has none
-        to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane.
+        to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane,
+        nor while the user looks at it (`viewer`: attached, or its pane focused).
         A failed retire is logged and not tried again for that report; one a new message called off is."""
         run_id, name = self.run_id, self.name
         report = retirable(run_id, name, entry, events) if self.idle_retire else None
@@ -5216,6 +5245,13 @@ class Watch:
             return
         if not bg and human_draft(pane_lines(name, ansi=True)):
             return  # the user is typing to it
+        why = viewer(name, entry)
+        if why:  # the user is looking at it: retired once they leave, if it is still idle
+            if self.retire_held != report.get("file"):
+                self.retire_held = report.get("file")
+                log_event(run_id, "retire_held", name=name, file=report.get("file"), why=why)
+            return
+
         def still(agent: dict) -> bool:  # under the run lock: a message stored since stops it (see deliver)
             again = retirable(run_id, name, agent, read_log(run_id))
             return bool(again) and again.get("file") == report.get("file")
