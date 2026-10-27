@@ -232,6 +232,8 @@ BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
 RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 RETIRE_SETTLE = 120  # seconds `mesh watch --any` waits after a retire before it says nothing is left to watch
+IDLE_RETIRE = 900.0  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
+# (MESH_IDLE_RETIRE; 0 = never)
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -1643,7 +1645,7 @@ HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
                "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
-               "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
+               "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -2706,6 +2708,12 @@ def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first:
                 f"📬 [mesh] You are {to} ({entry['role']}) again in agent-mesh run {run['id']}{ref}, now on "
                 f"{entry.get('model')} at {entry.get('effort')} effort; same parent and worktree. Run `mesh inbox` for your {mtype}."
             )
+        if (entry.get("resumed_from") or {}).get("run") == run["id"]:  # the prefix up to `run <id>` is what
+            return (  # agy's conversation lookup matches: only the rest differs
+                f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}{ref}, the "
+                f"same run: same parent ({entry['parent']}), worktree and `mesh dir`. Background tasks from before "
+                f"(`task-…` ids) are gone. Run `mesh inbox` for your {mtype}."
+            )
         if entry.get("resumed_from"):
             return (
                 f"📬 [mesh] You are {to} ({entry['role']}) again, resumed into agent-mesh run {run['id']}{ref}; your "
@@ -2911,12 +2919,32 @@ def reopen_relaunched(run_id: str, sender: str, to: str, mtype: str, body: str, 
     return swap.get("delivery")  # reopened at a startup screen: held, rung once it's gone
 
 
+SETTLE_DEADLINES: dict[tuple[str, str], float] = {}  # one wait per worker and process (lift_read_only, deliver)
+
+
+def settled_status(run_id: str, name: str) -> str | None:
+    """`name`'s status, read under the run lock once a retire under way has ended (at most RETIRE_WAIT_MS and
+    half a minute, shared by every call in this process, so a send doesn't wait twice)."""
+    key = (run_id, name)
+    deadline = SETTLE_DEADLINES.setdefault(key, time.monotonic() + RETIRE_WAIT_MS / 1000 + 30)
+    while True:
+        with run_lock(run_id):
+            status = (load_run(run_id)["agents"].get(name) or {}).get("status")
+        if status != "retiring":
+            SETTLE_DEADLINES.pop(key, None)  # that retire is over: a later one gets a wait of its own
+            return status
+        if time.monotonic() > deadline:  # kept: this process's next call for it doesn't wait again
+            return status
+        time.sleep(1)
+
+
 def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: bool = False,
             stored=None, delays: tuple[int, ...] = RING_DELAYS) -> dict:
     """Store the message, then ring `to`'s doorbell: written into its inbox socket (`native_route`), else handed
     back as the SendMessage that tells it (`send_message`), else typed into its pane.
 
-    `stored()` runs between the two: what the recipient may act on must be recorded before it hears. A Claude
+    `stored()` runs between the two: what the recipient may act on must be recorded before it hears. A worker
+    retired by then isn't rung: the delivery says `retired`, for `mesh send` or `mesh ask` to resume it. A Claude
     pane worker that something other than mesh relaunched (`relaunched_outside_mesh`) is first reopened with
     its flags (`swap_model`, keeping its deny list), or not rung at all.
     """
@@ -2927,6 +2955,16 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     if stored:
         stored()
         run = load_run(run_id)
+    status = settled_status(run_id, to) if entry.get("role") == "worker" else None
+    if status == "retired":
+        # Read after storing, under the lock auto-retire checks the mailbox under: either it saw this message
+        # and stayed open, or this sees it retiring (waited out) or retired. The caller resumes it, or not.
+        return {"stored": str(path), "rung": False, "error": f"{to} is retired", "retired": True}
+    if status == "retiring":  # still closing past the wait: ringing would type into a pane about to go
+        error = (f"{to} is still being retired; the {mtype} is stored: once it is retired, `mesh resume {to}`, "
+                 f"then `mesh ring {to}`")
+        log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
+        return {"stored": str(path), "rung": False, "error": error, "retiring": True}
     if mtype in FINAL_TYPES and collecting(run["agents"].get(sender) or {}, to):
         # `mesh ask --peers` collects it from the mailbox into one file: no doorbell, no SendMessage
         log_event(run_id, "collected", sender=sender, to=to, file=path.name)
@@ -3840,12 +3878,12 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str, stored=
                         f"ask it with `mesh ask {entry['peer']}`, and give a change to a worker in that repo")
     if entry.get("role") != "worker" or not claude_deny(entry):
         return None
+    if entry.get("status") == "retiring" and settled_status(run_id, to) != "retired":
+        entry = agent_entry(load_run(run_id), to)  # its retire failed: it's open, as it was
+    if entry.get("status") in ("retiring", "retired"):
+        return None  # `deliver` stores it, and `cmd_send` resumes it with the list the task calls for
     asker = bool(entry.get("read_only"))
     what = "a read-only asker" if asker else "planning"
-    if entry.get("status") == "retired":  # `mesh ask` retires its askers: bring it back the usual way, not by a swap
-        raise MeshError(f"{to} is retired, and was {what} under a deny list. Nothing was sent: give it the change "
-                        f"with `mesh resume {to} --task-file …`, which compacts it if it's large and reopens it "
-                        "with its deny list only while it plans")
     if planned_task(body):
         if asker:
             with editing_run(run_id) as run:
@@ -3892,6 +3930,9 @@ def cmd_send(args: argparse.Namespace) -> int:
         return send_wait(args, run_id, me, to, body)
     if args.type in REPORT_TYPES and not args.unread_ok:
         refuse_stale_report(run_id, me, args.type)
+    target = agent_entry(load_run(run_id), to)
+    if target.get("status") in ("retiring", "retired") and (why := peer_pointer(to, target)):
+        raise MeshError(f"{why}. Nothing was sent")
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -3901,7 +3942,12 @@ def cmd_send(args: argparse.Namespace) -> int:
 
     result = lift_read_only(run_id, me, to, args.type, body, stored) or deliver(run_id, me, to, args.type, body,
                                                                                 stored=stored)
+    if result.get("retired"):
+        return send_resumed(run_id, me, to, args.type, body, Path(result["stored"]))
     emit(result)
+    if result.get("retiring"):
+        print(f"warning: stored, not rung: {result['error']}", file=sys.stderr)
+        return 2
     if "send_message" in result:
         print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
               file=sys.stderr)
@@ -3909,6 +3955,75 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not delivered(result):
         print(f"warning: stored, but the doorbell did not ring ({result['error']}); "
               f"{to} will see it on its next `mesh inbox`", file=sys.stderr)
+        return 2
+    return 0
+
+
+def resume_stored(run_id: str, me: str, name: str, mtype: str, body: str, path: Path, **overrides) -> dict:
+    """Resume a retired worker of this run for the message already stored for it (`path`): resume's rules
+    decide its model and deny list from a task (a task it plans, a direct task, a question or review), and with
+    any other message it carries on as it was. `overrides` are `ask`'s (model, effort, view, compact, focus…)."""
+    resume = argparse.Namespace(**{
+        "ref": name, "from_run": run_id, "model": None, "effort": None, "task": body if mtype == "task" else None,
+        "task_file": None, "view": None, "compact": None, "focus": None, "read_only": False, "peer": None,
+        "collect": None, **overrides, "stored": (path, mtype)})
+    return resume_worker(resume, run_id, me)
+
+
+RESUMING_TYPES = ("task", "answer", "question")  # what `mesh send` reopens a retired worker for (not an `info`)
+
+
+def peer_pointer(name: str, entry: dict) -> str | None:
+    """Why `send` doesn't reopen a retired peer asker: `mesh ask` refreshes its worktree first (prepare_peer)."""
+    if not entry.get("peer"):
+        return None
+    return f"{name} is a retired peer asker: ask it with `mesh ask {entry['peer']}`, which refreshes its worktree first"
+
+
+def unresumed_task(run_id: str, name: str, body: str) -> None:
+    """A task stored for a worker whose resume failed: set its deny list and plan phase as that resume would have,
+    so the `mesh resume` (no task) the error points to reopens it for that task."""
+    with editing_run(run_id) as run:
+        entry = run["agents"][name]
+        claude = entry.get("kind") == "claude"
+        if read_only_task(body):
+            entry.update(read_only=claude, planning=False)
+        elif planned_task(body):
+            entry.update(read_only=False, planning=claude, phase="plan",
+                         exec_model=entry.get("exec_model") or EXEC_MODEL[entry.get("kind") or "claude"],
+                         exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
+        else:  # a direct task: no list, no plan phase
+            entry.update(read_only=False, planning=False, phase=None)
+
+
+def send_resumed(run_id: str, me: str, to: str, mtype: str, body: str, path: Path) -> int:
+    """`mesh send` to a retired worker: its message is stored; reopen it to read it (design §18). An `info`
+    isn't worth a reopen: it waits for the next one."""
+    why = peer_pointer(to, agent_entry(load_run(run_id), to))
+    if mtype not in RESUMING_TYPES or why:
+        emit({"stored": str(path), "rung": False, "resumed": False, "error": why or f"{to} is retired"})
+        print(f"warning: stored, not rung: {why or f'{to} is retired, and reads it when it is next resumed'}",
+              file=sys.stderr)
+        return 2
+    try:
+        resumed = resume_stored(run_id, me, to, mtype, body, path)
+    except MeshError as exc:
+        if mtype == "task":
+            unresumed_task(run_id, to, body)
+        emit({"stored": str(path), "rung": False, "resumed": False, "error": str(exc)})
+        print(f"error: {to} is retired and wasn't resumed: {exc}. The {mtype} is stored: `mesh resume {to}` "
+              f"brings it back, then `mesh ring {to}` tells it", file=sys.stderr)
+        return 1
+    delivery = resumed.get("delivery") or {}
+    emit({**delivery, "resumed": resumed})
+    print(f"mesh: {to} was retired; resumed it in the same conversation to read its {mtype}", file=sys.stderr)
+    held = report_held(resumed["name"], delivery)
+    warn_unwatched(run_id)
+    if held:
+        return held
+    if not delivered(delivery):
+        print(f"warning: stored, but the doorbell did not ring ({delivery.get('error')}); "
+              f"{resumed['name']} will see it on its next `mesh inbox`", file=sys.stderr)
         return 2
     return 0
 
@@ -4619,7 +4734,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     else:
         names, run = [args.agent], None
     status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
-                                hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run)
+                                hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run,
+                                retire_after=idle_retire())
     print(line)
     if root:
         root_hint(run_id)
@@ -4657,6 +4773,21 @@ def last_report(events: list[dict], name: str) -> tuple[dict | None, dict | None
         elif event.get("sender") == name and event.get("type") in REPORT_TYPES:
             report = event
     return report, received
+
+
+def retirable(run_id: str, name: str, entry: dict, events: list[dict]) -> dict | None:
+    """The report (its `send` event) after which an idle worker may be retired: its newest report since its last
+    task or answer is a `done` or `failed`, it runs, nothing waits in its mailbox, it declared no wait, and no
+    fan-out is collecting it. How long it has been idle is the watch's to judge (Watch.maybe_retire)."""
+    if (entry.get("role") != "worker" or entry.get("status") != "running" or entry.get("held")
+            or entry.get("relaunching") or entry.get("view") == "headless"):
+        return None
+    report, _ = last_report(events, name)
+    if not report or report.get("type") not in FINAL_TYPES or live_wait(events, name):
+        return None
+    if unread(run_id, name) or collecting(entry, str(entry.get("parent"))):
+        return None
+    return report
 
 
 def declared_wait(events: list[dict], name: str) -> dict | None:
@@ -4960,9 +5091,10 @@ class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
     def __init__(self, run_id: str, name: str, grace: float, finals_at_start: int | None = None,
-                 hang: float = HANG_AFTER):
+                 hang: float = HANG_AFTER, idle_retire: float = 0.0):
         entry = agent_entry(load_run(run_id), name)
         self.run_id, self.name, self.grace, self.hang = run_id, name, grace, hang
+        self.idle_retire = idle_retire  # seconds idle after its report before this watch retires it (0: never)
         self.start_grace = max(START_GRACE_FACTOR * grace, SETTLE_GRACE)
         # Final sends before the watch started (or before its task was delivered) don't count.
         self.finals_at_start = sends_from(run_id, name, FINAL_TYPES) if finals_at_start is None else finals_at_start
@@ -4988,6 +5120,9 @@ class Watch:
         self.reported = False  # it reported since the watch started (an --alerts watch carries on)
         self.retired = False  # the root is retiring it, or has: whatever it does next is no news
         self.finished = False  # it reported, then its pane closed or its session ended; or it was retired
+        self.idle_at: float | None = None  # when this watch first read it idle, in the current run of idle readings
+        self.retire_tried: str | None = None  # the report (its file) this watch last tried to retire it after
+        self.auto_retired = False  # this watch retired it, idle after its report
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -5032,7 +5167,7 @@ class Watch:
         self.prev = state
         wait = live_wait(events, name)
         if wait:  # a declared wait: a silent stop or a quiet transcript is expected
-            self.idle_for = None
+            self.idle_for = self.idle_at = None
             self.worked = self.worked or state == "working"
             if entry.get("kind") != "claude":  # no Stop hook: the watch sees its turn ends (idle for --grace)
                 return self.agy_wait(entry, bg, wait, state, interval)
@@ -5046,11 +5181,17 @@ class Watch:
             limit = self.limited(entry, bg)
             return self.limit_alert(entry, bg, limit, events) if limit else None
         self.wait_idle, self.wait_file = 0.0, None
+        if state not in ("idle", "done"):
+            self.idle_at = None
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
+            self.idle_at = self.idle_at or time.time()
             if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
-                return self.stopped(entry, bg, events)
+                event = self.stopped(entry, bg, events)
+                if event:
+                    return event
+            self.maybe_retire(entry, bg, events)
             return None
         self.idle_for = None
         if state == "working":
@@ -5058,6 +5199,36 @@ class Watch:
         if state in ("working", "unknown"):
             return self.hung(entry, bg, state, events)
         return None
+
+    def maybe_retire(self, entry: dict, bg: bool, events: list[dict]) -> None:
+        """Retire a worker that reported `done` or `failed` and has been idle `idle_retire` seconds since (design
+        §18): an idle process holds memory and buys nothing over a resume, which `mesh send` and `mesh ask` do.
+        Idle since its report and its last transcript write (this watch's first idle reading when it has none
+        to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane.
+        A failed retire is logged and not tried again for that report; one a new message called off is."""
+        run_id, name = self.run_id, self.name
+        report = retirable(run_id, name, entry, events) if self.idle_retire else None
+        if not report or report.get("file") == self.retire_tried:
+            return
+        progress = last_progress(entry, self.conversation(entry))
+        idle = time.time() - max(epoch(report.get("time")), progress if progress is not None else self.idle_at or 0)
+        if idle < self.idle_retire:
+            return
+        if not bg and human_draft(pane_lines(name, ansi=True)):
+            return  # the user is typing to it
+        def still(agent: dict) -> bool:  # under the run lock: a message stored since stops it (see deliver)
+            again = retirable(run_id, name, agent, read_log(run_id))
+            return bool(again) and again.get("file") == report.get("file")
+
+        try:
+            if not retire_worker(run_id, name, entry, still=still):
+                return  # a message came meanwhile: judged again once it is idle after it
+        except (MeshError, OSError) as exc:
+            self.retire_tried = report.get("file")
+            log_event(run_id, "auto_retire_failed", name=name, file=report.get("file"), error=str(exc)[-300:])
+            return
+        log_event(run_id, "auto_retire", name=name, file=report.get("file"), idle=int(idle))
+        self.auto_retired = True
 
     def report_event(self, events: list[dict], alerts_only: bool) -> tuple[int, str] | None:
         """A report nobody has read yet (first tick only), or a `done`/`failed` sent since the watch started."""
@@ -5282,7 +5453,8 @@ class Watch:
 
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False,
-                 hang: float | None = None, autoreset: bool = False, every: dict | None = None) -> tuple[int, str]:
+                 hang: float | None = None, autoreset: bool = False, every: dict | None = None,
+                 retire_after: float = 0.0) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
@@ -5291,13 +5463,14 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
     `autoreset` (the root's own watch, with MESH_ROOT_AUTORESET=1) resets an idle root whose cache went cold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
-    report or come later, and lets retired ones go (see Roster).
+    report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
+    retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire).
     """
     hang = hang_after() if hang is None else hang
-    watches = [Watch(run_id, name, grace, finals_at_start, hang) for name in names]
+    watches = [Watch(run_id, name, grace, finals_at_start, hang, retire_after) for name in names]
     deadline = time.monotonic() + timeout if timeout else None
     held = dict(zip(names, hold_watch(run_id, names)))
-    roster = Roster(run_id, grace, hang, held, every, names) if every is not None else None
+    roster = Roster(run_id, grace, hang, held, every, names, retire_after) if every is not None else None
     try:
         return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster)
     finally:
@@ -5309,13 +5482,15 @@ class Roster:
     """What `mesh watch --any` re-reads each poll. Holds `ANY_WATCH`'s lock, so root commands know an unwatched
     worker is taken on at the next poll."""
 
-    def __init__(self, run_id: str, grace: float, hang: float, held: dict, run: dict, names: list[str]):
-        self.run_id, self.grace, self.hang, self.held = run_id, grace, hang, held
+    def __init__(self, run_id: str, grace: float, hang: float, held: dict, run: dict, names: list[str],
+                 retire_after: float = 0.0):
+        self.run_id, self.grace, self.hang, self.held, self.retire_after = run_id, grace, hang, held, retire_after
         # `spawned` as the watch found it: a new one means spawned or resumed since
         self.seen = {name: e.get("spawned") for name, e in run["agents"].items() if e["role"] != "root"}
         self.ever = set(names)  # every worker it has watched
         self.left: list[str] = []  # retired without a report since the watch started
         self.ended: list[str] = []  # retired after its report
+        self.auto: list[str] = []  # retired by this watch, idle after its report
         held[ANY_WATCH] = hold_watch(run_id, [ANY_WATCH])[0]
 
     def refresh(self, run: dict, watches: list["Watch"], events: list[dict]) -> None:
@@ -5329,7 +5504,8 @@ class Roster:
                 watches.remove(watch)
                 self.held.pop(watch.name).close()
                 if entry.get("status") == "retired":
-                    (self.ended if watch.reported else self.left).append(watch.name)
+                    (self.auto if watch.auto_retired else self.ended if watch.reported else self.left).append(
+                        watch.name)
         watching = {w.name for w in watches}
         for name, entry in run["agents"].items():
             if (entry["role"] == "root" or name in watching or entry.get("status") in ("retiring", "retired")
@@ -5337,9 +5513,9 @@ class Roster:
                 continue
             self.seen[name] = entry.get("spawned")
             self.held[name] = hold_watch(self.run_id, [name])[0]
-            watches.append(Watch(self.run_id, name, self.grace, hang=self.hang))
+            watches.append(Watch(self.run_id, name, self.grace, hang=self.hang, idle_retire=self.retire_after))
             self.ever.add(name)
-            for past in (self.left, self.ended):
+            for past in (self.left, self.ended, self.auto):
                 if name in past:
                     past.remove(name)
 
@@ -5410,14 +5586,18 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             raise
         if over:
             # without --alerts only a retired worker finishes without returning
-            left, ended = (roster.left, roster.ended) if roster else ([], [])
+            left, ended, auto = (roster.left, roster.ended, roster.auto) if roster else ([], [], [])
             if roster and not roster.ever:
                 return 0, "no live workers to watch"
-            retired = [*left, *(w.name for w in watches if w.retired and not w.reported)]
-            if not retired:
+            retired = [*left, *(w.name for w in watches if w.retired and not w.reported and not w.auto_retired)]
+            auto = [*auto, *(w.name for w in watches if w.auto_retired)]
+            if not retired and not auto:
                 return 0, "every watched worker reported and has ended; nothing left to watch"
-            rest = "" if len(retired) == len(watches) + len(left) + len(ended) else "; the rest reported and have ended"
-            return 0, f"retired {', '.join(retired)}{rest}; nothing left to watch"
+            said = ([f"retired {', '.join(retired)}"] if retired else []) + (
+                [f"auto-retired {', '.join(auto)} (idle since its report)"] if auto else [])
+            everyone = len(retired) + len(auto) == len(watches) + len(left) + len(ended) + len(roster.auto if roster else [])
+            rest = "" if everyone else "; the rest reported and have ended"
+            return 0, f"{' and '.join(said)}{rest}; nothing left to watch"
         if deadline and time.monotonic() > deadline:
             waiting = [w for w in watches if not w.reported and not w.retired]
             if not waiting:
@@ -5531,6 +5711,14 @@ def held_wait() -> float:
         return HELD_WAIT
 
 
+def idle_retire() -> float:
+    """MESH_IDLE_RETIRE, where 0 or less means never."""
+    try:
+        return max(0.0, float(os.environ.get("MESH_IDLE_RETIRE") or IDLE_RETIRE))
+    except ValueError:
+        return IDLE_RETIRE
+
+
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                 finals_at_start: int | None = None) -> tuple[int, str]:
     return watch_agents(run_id, [name], timeout, interval, grace, finals_at_start)
@@ -5544,14 +5732,18 @@ def cmd_retire(args: argparse.Namespace) -> int:
     return 0
 
 
-def retire_worker(run_id: str, name: str, entry: dict) -> None:
-    """Close a worker's pane (or stop its background session); its conversation stays resumable."""
+def retire_worker(run_id: str, name: str, entry: dict, still=None) -> bool:
+    """Close a worker's pane (or stop its background session); its conversation stays resumable. `still(agent)`,
+    checked under the run lock before anything changes, can call it off (False)."""
     with editing_run(run_id) as run:  # first, so a watch never takes the closing pane for a crash
         agent = run["agents"][name]
+        if still and not still(agent):
+            return False
         before, agent["status"] = agent.get("status"), "retiring"
     try:
         if entry.get("view") == "bg":
-            stop_bg(entry)
+            if entry.get("bg_id") and not stop_bg(entry) and bg_status(entry) != "gone":  # still running
+                raise MeshError(f"couldn't stop {name}'s background session {entry['bg_id']}")
         elif entry.get("pane"):  # none if its pane never opened
             try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
                 herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
@@ -5571,6 +5763,7 @@ def retire_worker(run_id: str, name: str, entry: dict) -> None:
         run["agents"][name]["status"] = "retired"
     log_event(run_id, "retire", name=name)
     sweep_worktrees(run_id, {name: entry})  # what it left running there (design §17)
+    return True
 
 
 # ── past workers: agents, resume, open ───────────────────────────────────
@@ -6092,6 +6285,7 @@ def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[dict]) -> dict:
     current = load_run(run_id)
     task = read_body(args.task, args.task_file)
+    stored, mtype = getattr(args, "stored", None) or (None, "task")  # a message already in its mailbox
 
     def live_hint(name, entry):
         holder = live_holder(name, entry)
@@ -6140,6 +6334,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     name, n = old_name, 2
     while name in taken:
         name, n = f"{old_name[:29]}-{n}", n + 1
+    if stored and name != old_name:
+        raise MeshError(f"{old_name}'s name is taken by a live agent, and its {mtype} is in {old_name}'s mailbox: "
+                        f"close that agent, then `mesh resume {old_name}`")
 
     reservation = memory_guard(f"{old_name} again")  # the last check before any side effect
     # Before the worktree and compaction steps, which can take minutes: a `mesh watch --any` waits for it.
@@ -6212,10 +6409,12 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
 
     # The worktree and compaction steps may have outlasted the reservation: it counts from the launch.
     refresh_memory(started[-1].get("reservation"))
+    if stored and moved.get("task_note"):  # the stored task can't take it: it goes as a message of its own
+        record(run_id, me, name, "info", moved["task_note"])
     if view == "bg":
         # A copy of the conversation, so it gets this run's identity (see launch_bg); the task waits in its mailbox.
-        path = record(run_id, me, name, "task", task) if task else None
-        prompt = doorbell_text(load_run(run_id), me, name, "task", task or "", first=True)
+        path = stored or (record(run_id, me, name, "task", task) if task else None)
+        prompt = doorbell_text(load_run(run_id), me, name, mtype, task or "", first=True)
         try:
             bg_id, new_session = launch_bg(name, cwd, model, effort, env, prompt, resume=session, extra=deny)
         except MeshError as exc:  # as in spawn_worker: the conversation reopens in a pane instead
@@ -6232,7 +6431,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
                 result["delivery"] = {"stored": str(path), "rung": False, "error": None, "launched": True}
             return result
     else:
-        path = None
+        path = stored
 
     pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env, bool(peer_name))
     with editing_run(run_id) as run:
@@ -6250,11 +6449,11 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
 
     result.update(pane=pane, workspace=workspace_id, session=session)
     if started.get("held"):  # as in spawn_worker
-        result["delivery"] = hold(run_id, me, name, "task", task, started, stored=path)
-    elif path:  # stored before a background launch that fell back to this pane
+        result["delivery"] = hold(run_id, me, name, mtype, task, started, stored=path)
+    elif path:  # stored before: by the sender, or before a background launch that fell back to this pane
         token = ring_token()
         rang = ring_stored(run_id, me, name, [name, pane],
-                           doorbell_text(load_run(run_id), me, name, "task", task, True, token), token, path)
+                           doorbell_text(load_run(run_id), me, name, mtype, task or "", True, token), token, path)
         result["delivery"] = {"stored": str(path), "rung": rang["rung"], "error": rang["error"], "via": rang["via"]}
     elif task:
         result["delivery"] = deliver(run_id, me, name, "task", task, first=True)
@@ -7009,14 +7208,22 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
                 run["agents"][name]["collect"] = collect
             else:
                 run["agents"][name].pop("collect", None)
-        return {"name": name, "delivery": deliver(run_id, me, name, "task", task)}, finals, "asked"
-    # Counted before the task goes out, so a quick answer still counts (a same-run resume keeps the name).
-    finals = sends_from(run_id, name, FINAL_TYPES) if old_run["id"] == run_id else 0
+        delivery = deliver(run_id, me, name, "task", task)
+        if delivery.get("retiring"):  # no answer can come: say what to do instead of waiting for one
+            raise MeshError(delivery["error"])
+        if not delivery.get("retired"):
+            return {"name": name, "delivery": delivery}, finals, "asked"
+        stored = Path(delivery["stored"])  # retired since its state was read (auto-retire): resume it for that
+    else:
+        stored = None
+        # Counted before the task goes out, so a quick answer still counts (a same-run resume keeps the name).
+        finals = sends_from(run_id, name, FINAL_TYPES) if old_run["id"] == run_id else 0
     # A peer compacts with PEER_FOCUS (maybe_compact) unless the root named a focus; a removed one too.
     focus = args.focus or (None if peer or entry.get("peer") else COMPACT_FOCUS.format(task=gist))
     resume = argparse.Namespace(ref=name, from_run=old_run["id"], model=args.model, effort=args.effort,
                                 task=task, task_file=None, view=args.view, compact=args.compact,
-                                focus=focus, read_only=True, peer=peer, collect=collect)
+                                focus=focus, read_only=True, peer=peer, collect=collect,
+                                stored=(stored, "task") if stored else None)
     result = resume_worker(resume, run_id, me)
     return result, finals if result["name"] == name else 0, "resumed"
 
@@ -7168,9 +7375,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
     change = (f"a change to that project goes to a worker there (`mesh spawn --repo {repo}`)" if is_peer
               else f"give it a change with `mesh resume {name} --task-file …`")
     if how != "asked" and not args.keep:  # an asker this call opened is done; one already at work stays
-        retire_worker(run_id, name, agent_entry(load_run(run_id), name))
-        print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
-              f"{change})")
+        try:
+            retire_worker(run_id, name, agent_entry(load_run(run_id), name))
+        except (MeshError, OSError) as exc:  # the answer is in: closing it is housekeeping
+            print(f"warning: couldn't close {name} ({exc}); `mesh retire {name}` when you're done with it",
+                  file=sys.stderr)
+        else:
+            print(f"({name} is closed. Ask again with `mesh ask {name} --body …`, which reopens its conversation; "
+                  f"{change})")
     else:
         print(f"(ask again: `mesh ask {name} --body …`; "
               + (change if is_peer else f"give it a change to make: `mesh send {name} --type task`") + ")")
@@ -7454,12 +7666,13 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
     else:
         raise MeshError(f"couldn't write the peers report under {run_folder(run_id)}")
     retire = [asked[n] for n in names if replies[n] and asked[n] in opened and not args.keep]
-    try:  # only once the report is written: a stop now must not lose it
-        for asker in retire if not stop_under_way(read_log(run_id)) else ():
+    for asker in retire if not stop_under_way(read_log(run_id)) else ():  # only once the report is written
+        try:
             retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
-    except (MeshError, OSError):
-        if not run_stopped(run_id):
-            raise
+        except (MeshError, OSError) as exc:
+            if run_stopped(run_id):  # a stop now must not lose the report
+                break
+            print(f"warning: couldn't close {asker} ({exc}); `mesh retire {asker}` it", file=sys.stderr)
     stopped = run_stopped(run_id)
     if stopped:
         print(stopped_line(run_id), file=sys.stderr)
