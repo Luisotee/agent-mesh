@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from conftest import load_mesh
+from conftest import load_mesh, write_meminfo
 
 
 MESH_SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "mesh"
@@ -9060,3 +9060,237 @@ def test_a_bg_worker_from_before_the_flag_says_how_to_fix_it(mesh, fake, cli, ru
     delivery = mesh.deliver(run, "repo-lead", "repo-fix-typo", "answer", "x")
     assert "launched before mesh started workers accepting" in delivery["error"]
     assert "`mesh retire repo-fix-typo` then `mesh resume repo-fix-typo`" in delivery["error"]
+
+
+# ── resources: the memory floor ─────────────────────────────────────────
+
+
+def low_memory(mesh, tmp_path, monkeypatch, free_mb=1000):
+    """A machine with `free_mb` of memory plus swap left (16 GB of RAM, 32 GB of swap: a 5.8 GB floor)."""
+    write_meminfo(tmp_path / "meminfo", available=free_mb * 1024 // 2, swap_free=free_mb * 1024 // 2)
+
+
+def test_the_default_floor_follows_ram_and_swap(mesh, monkeypatch):
+    assert mesh.min_free_mb({"MemTotal": 16 << 20, "SwapTotal": 32 << 20}) == 4915 + 1024
+    assert mesh.min_free_mb({"MemTotal": 4 << 20, "SwapTotal": 0}) == mesh.MIN_FREE_LEAST_MB
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "300")
+    assert mesh.min_free_mb({"MemTotal": 16 << 20}) == 300
+
+
+def test_spawn_refuses_under_the_memory_floor_before_any_side_effect(mesh, fake, run, repo, tmp_path,
+                                                                     monkeypatch, capsys):
+    low_memory(mesh, tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "flash", "--worktree", "Fix", "--task", "x"]) == 1
+    err = capsys.readouterr().err
+    assert "not starting proj-fix: 1000 MB of memory and swap left, under the 5939 MB floor" in err
+    assert "mesh retire" in err and "MESH_MIN_FREE_MB=0" in err
+    data = mesh.load_run(run)
+    assert data["worktrees"] == [] and "proj-fix" not in data["agents"]
+    assert not fake.called("tab", "create") and not fake.called("agent", "start")
+    assert not (tmp_path / "worktrees" / run).exists()
+
+
+@pytest.mark.parametrize("how", ["off", "unreadable"])
+def test_the_memory_guard_can_be_turned_off_and_needs_a_meminfo(mesh, tmp_path, monkeypatch, how):
+    low_memory(mesh, tmp_path, monkeypatch)
+    if how == "off":
+        monkeypatch.setenv("MESH_MIN_FREE_MB", "0")
+    else:
+        monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "missing"))
+    mesh.memory_guard("w")  # no error
+
+
+def test_each_agent_any_mesh_starts_counts_until_it_has_grown(mesh, tmp_path, monkeypatch):
+    low_memory(mesh, tmp_path, monkeypatch, free_mb=6000 + mesh.AGENT_MB // 2)  # room for one over the floor
+    mesh.memory_guard("first", reserve=False)
+    first = mesh.memory_guard("first")
+    other = load_mesh()  # another `mesh` process: the reservation is machine-wide
+    with pytest.raises(other.MeshError, match="not starting second: .*, 1 agent still starting"):
+        other.memory_guard("second")
+    mesh.release_memory([first])  # the first didn't start after all
+    assert other.memory_guard("second")
+    [entry] = json.loads(mesh.reservations_path().read_text())
+    entry["time"] -= mesh.RESERVE_FOR  # grown by now: counted in MemAvailable instead
+    mesh.reservations_path().write_text(json.dumps([entry]))
+    assert mesh.memory_guard("third") and len(json.loads(mesh.reservations_path().read_text())) == 1
+
+
+def test_a_launched_spawn_keeps_its_reservation_when_a_later_step_fails(mesh, fake, run, repo, monkeypatch,
+                                                                       capsys):
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "start_agent", lambda *a, **k: (_ for _ in ()).throw(mesh.MeshError("it exited")))
+    monkeypatch.setattr(mesh, "release_memory", lambda ids: (_ for _ in ()).throw(OSError("disk")) if ids else None)
+    assert mesh.main(["spawn", "--repo", str(repo), "--kind", "claude", "--model", "opus", "--worktree", "Fix",
+                      "--task", "x"]) == 1
+    assert "it exited" in capsys.readouterr().err  # the original error, not a release's
+    assert len(json.loads(mesh.reservations_path().read_text())) == 1
+
+
+def test_a_spawn_that_fails_after_the_guard_takes_its_reservation_back(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "add_worktree", lambda *a: (_ for _ in ()).throw(mesh.MeshError("no worktree")))
+    assert mesh.main(["spawn", "--repo", str(repo), "--kind", "claude", "--model", "opus", "--worktree", "Fix",
+                      "--task", "x"]) == 1
+    assert "no worktree" in capsys.readouterr().err
+    assert json.loads(mesh.reservations_path().read_text()) == []
+
+
+def test_resume_refuses_under_the_memory_floor_before_it_logs_resuming(mesh, fake, run, repo, tmp_path,
+                                                                        monkeypatch, capsys):
+    archived_worker(mesh, repo, session="c1")
+    stub_new_pane(fake)
+    low_memory(mesh, tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 1
+    assert "not starting proj-fix again" in capsys.readouterr().err
+    assert not [e for e in mesh.read_log(run) if e["event"] in ("resuming", "resume_failed")]
+    assert "proj-fix" not in mesh.load_run(run)["agents"] and not fake.called("agent", "start")
+
+
+@pytest.mark.parametrize("kind", ["claude", "copilot"])
+def test_ask_refuses_under_the_memory_floor_before_it_starts_a_run(mesh, fake, repo, tmp_path, monkeypatch,
+                                                                   capsys, kind):
+    low_memory(mesh, tmp_path, monkeypatch)
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--body", "Why?"]) == 1
+    assert "not starting an asker in" in capsys.readouterr().err
+    assert not (tmp_path / "state").exists() or not list((tmp_path / "state").glob("*/run.json"))
+
+
+# ── resources: leftover processes ───────────────────────────────────────
+
+
+def proc(pid, ppid, argv, cwd, tty=0):
+    return {"pid": pid, "ppid": ppid, "tty": tty, "argv": argv.split(), "cwd": str(cwd), "start": "1"}
+
+
+def worktree_table(top, outside):
+    """A pane worker's live tree, an orphaned dev server, a user's tmux shell and a process elsewhere."""
+    return [
+        proc(1278, 1274, "/init", "/"),
+        proc(1852, 1851, "/home/u/.local/bin/herdr server", "/home/u"),
+        proc(900, 1, "tmux new-session", "/home/u"),
+        proc(14460, 1852, "/bin/bash", top),                          # a live pane's shell
+        proc(14649, 14460, "claude --session-id s-other --model opus", top),  # its agent
+        proc(14773, 14649, "node /x/bin/playwright-mcp --headless", top),  # the agent's MCP server
+        proc(20811, 1278, "/pnpm/exe dev", top),                      # orphaned: its tool shell is gone
+        proc(20834, 20811, "next-server (v16.2.6)", top / "app"),
+        proc(30001, 1, "node orphan.js", top),                        # orphaned straight to pid 1
+        proc(901, 900, "/bin/bash", top),                             # the user's own tmux pane
+        proc(40000, 1278, "node server.js", outside),                 # not in the worktree
+    ]
+
+
+def sweep_setup(mesh, run, monkeypatch, top, outside, alive=()):
+    killed = []
+    monkeypatch.setattr(mesh, "process_table", lambda: worktree_table(top, outside))
+    monkeypatch.setattr(mesh, "kill_process", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: pid in alive)
+    return killed
+
+
+def test_leftover_processes_are_the_orphans_in_the_worktree(mesh, tmp_path):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    found = mesh.leftover_processes(top, worktree_table(top, tmp_path / "elsewhere"))
+    assert [p["pid"] for p in found] == [20811, 20834, 30001]
+
+
+def test_retire_stops_what_the_worker_left_in_its_worktree(mesh, fake, run, tmp_path, monkeypatch, capsys):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(cwd=str(top), repo=str(tmp_path / "repo"))
+    # the pane's agent is gone by now: only the orphans and the user's tmux shell are left
+    table = [p for p in worktree_table(top, tmp_path / "elsewhere") if p["pid"] not in (14460, 14649, 14773)]
+    killed = sweep_setup(mesh, run, monkeypatch, top, tmp_path / "elsewhere", alive={20834})
+    monkeypatch.setattr(mesh, "process_table", lambda: table)
+    assert mesh.main(["retire", "repo-fix-typo"]) == 0
+    assert killed == [(20811, mesh.signal.SIGTERM), (20834, mesh.signal.SIGTERM), (30001, mesh.signal.SIGTERM),
+                      (20834, mesh.signal.SIGKILL)]  # it ignored the TERM
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "killed"]
+    assert (event["name"], event["pids"], event["forced"]) == ("repo-fix-typo", [20811, 20834, 30001], [20834])
+    assert "stopped 3 leftover processes repo-fix-typo left in" in capsys.readouterr().err
+
+
+def test_the_sweep_waits_for_the_workers_own_agent_to_exit(mesh, fake, run, tmp_path, monkeypatch):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    exiting = proc(5000, 1278, "claude --resume s-mine --model opus", top)
+    tables = [worktree_table(top, tmp_path / "x")[:3] + [exiting] + worktree_table(top, tmp_path / "x")[6:]] * 3
+    tables.append([p for p in tables[0] if p["pid"] != 5000])
+    monkeypatch.setattr(mesh, "process_table", lambda: tables.pop(0) if len(tables) > 1 else tables[0])
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {"w": [20811, 20834, 30001]}
+    assert killed == [20811, 20834, 30001]
+
+
+def test_the_sweep_spares_another_agents_tree_without_waiting_for_it(mesh, fake, run, tmp_path, monkeypatch):
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    reads = []
+    monkeypatch.setattr(mesh, "process_table", lambda: reads.append(1) or worktree_table(top, tmp_path / "x"))
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    # claude 14649 (another session) and its MCP server stay; the orphans go
+    assert mesh.sweep_worktrees(run, {"w": {"cwd": str(top), "session": "s-mine"}}) == {"w": [20811, 20834, 30001]}
+    assert killed == [20811, 20834, 30001] and len(reads) == 1  # not its agent: no wait
+
+
+def test_an_agy_worker_is_waited_for_by_its_log_file(mesh, fake, run, tmp_path, monkeypatch):
+    """A fresh agy's command line names no conversation, only its own `--log-file`, even once `session` is known."""
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    log = str(tmp_path / "state" / "mtest" / "logs" / "w.log")
+    entry = {"cwd": str(top), "kind": "agy", "session": "conv-1", "log": log}
+    assert mesh.own_agent(proc(1, 0, f"agy --log-file {log} --model flash", top), entry)
+    assert mesh.own_agent(proc(1, 0, "agy --conversation conv-1 --model flash", top), entry)
+    assert not mesh.own_agent(proc(1, 0, "agy --log-file /other.log --model flash", top), entry)
+    exiting = proc(5000, 14460, f"agy --log-file {log} --model flash", top)
+    child = proc(5001, 5000, "pnpm dev", top)
+    tables = [worktree_table(top, tmp_path / "x") + [exiting, child]] * 2
+    tables.append(worktree_table(top, tmp_path / "x") + [{**child, "ppid": 1278}])  # orphaned once agy exits
+    monkeypatch.setattr(mesh, "process_table", lambda: tables.pop(0) if len(tables) > 1 else tables[0])
+    killed = sweep_setup_kill(mesh, monkeypatch)
+    assert mesh.sweep_worktrees(run, {"w": entry}) == {"w": [20811, 20834, 30001, 5001]}
+
+
+def sweep_setup_kill(mesh, monkeypatch):
+    killed = []
+    monkeypatch.setattr(mesh, "kill_process", lambda pid, sig: killed.append(pid))
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: False)
+    return killed
+
+
+def test_a_users_terminal_or_tmux_in_the_worktree_is_no_leftover(mesh, tmp_path):
+    """On WSL a terminal's login shell and a tmux server hang off the same `/init` orphans go to."""
+    top = tmp_path / "worktrees" / "mtest" / "fix"
+    table = [
+        proc(1278, 1274, "/init", "/"),
+        proc(1288, 1278, "-bash", top, tty=34816),            # a Windows Terminal tab cd'd into the worktree
+        proc(1300, 1288, "vim x.py", top, tty=34816),
+        proc(1400, 1278, "tmux new-session -d", top),          # a tmux server started there: no tty itself
+        proc(1401, 1400, "-bash", tmp_path, tty=34840),        # its pane, holding one, wherever it cd'd
+        proc(1402, 1401, "pnpm dev", top, tty=34840),
+        proc(1500, 1278, "/bin/bash -c source snapshot.sh && pnpm dev", top),  # an orphaned tool shell
+        proc(1501, 1500, "next-server (v16.2.6)", top),
+    ]
+    assert [p["pid"] for p in mesh.leftover_processes(top, table)] == [1500, 1501]
+
+
+@pytest.mark.parametrize("where", ["main checkout", "outside mesh", "run folder", "root's cwd"])
+def test_the_sweep_never_touches_a_checkout_outside_a_worker_worktree(mesh, fake, run, tmp_path, monkeypatch, where):
+    top = {"main checkout": tmp_path / "worktrees" / "mtest" / "fix", "outside mesh": tmp_path / "proj",
+           "run folder": tmp_path / "worktrees" / "mtest", "root's cwd": tmp_path / "worktrees" / "mtest" / "fix"}[where]
+    entry = {"cwd": str(top), "repo": str(top if where == "main checkout" else tmp_path / "proj")}
+    if where == "root's cwd":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-lead"]["cwd"] = str(top / "sub")
+    killed = sweep_setup(mesh, run, monkeypatch, top, tmp_path / "x")
+    assert mesh.sweep_worktrees(run, {"w": entry}) == {} and killed == []
+
+
+def test_stop_sweeps_every_worker_worktree_before_removing_it(mesh, fake, run, repo, monkeypatch, capsys):
+    clean, _, _ = mesh.add_worktree(run, repo, "clean", None)
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(cwd=str(clean), repo=str(repo), status="retired")
+    swept = []
+    monkeypatch.setattr(mesh, "sweep_worktrees",
+                        lambda run_id, workers: swept.append((sorted(workers), clean.exists())) or {})
+    assert mesh.main(["stop"]) == 0
+    assert swept == [(["repo-fix-typo"], True)] and not clean.exists()
