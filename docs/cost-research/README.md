@@ -70,8 +70,8 @@ Savings are per week at the baseline's volume, in API-equivalent dollars. "Check
 | # | Change | Expected | Check | Landed | Actual |
 |---|---|---|---|---|---|
 | 1 | Claude Code's built-in `Concise` output style, `"outputStyle": "Concise"` in `~/.claude/settings.json` (all sessions) | ~2–3% (output −13%, reports −31% in the e2e) | output tokens per call by kind; report and plan sizes in `reports/`, `plans/`; calls per task unchanged | 2026-10-28 | |
-| 2 | Fewer, lighter reviews: one reviewer for a small PR, Claude plus one for a large one; `/code-review` at medium for small | $90–120 (6–8%) plus ~⅓ of agy's review spend | reviewer $ per PR; reviewers per PR; agy review calls | | |
-| 3 | One root wake per review round (one fan-out, one answers file) | part of $125 doorbell turns (~1.4 wakes per PR) | root turns started by a reviewer's `done` per PR | | |
+| 2 | Fewer, lighter reviews: one reviewer for a small PR, Claude plus one for a large one; `/code-review` at medium for small | $90–120 (6–8%) plus ~⅓ of agy's review spend | reviewer $ per PR; reviewers per PR; agy review calls | 2026-10-28, PR #75 | |
+| 3 | One root wake per review round (one fan-out, one answers file) | part of $125 doorbell turns (~1.4 wakes per PR) | root turns started by a reviewer's `done` per PR | 2026-10-28, PR #75 | |
 | 4 | Root reset at 200k when idle and owed nothing, default on, warm or cold | $30–45 | root mean context per call; reset count | | |
 | 5 | `promptCacheTtl: "5m"` for reviewers, peers, askers, small/bg workers, headless `-p` | ~$50 (3%): peers −19%, headless −20%, reviewers −6% | `ephemeral_5m` share per kind; cost per kind | | |
 | 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise; templates and repos pending) | |

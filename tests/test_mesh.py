@@ -5706,8 +5706,8 @@ def test_an_author_reviewing_another_pr_never_moves(mesh, fake, run, repo, tmp_p
     assert mesh.plan_move(run, target, pr, "new") == (None, "")
 
 
-@pytest.mark.parametrize("size", ["small", "large", None])
-def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, run, repo, tmp_path, capsys, size):
+@pytest.mark.parametrize("size, level", [("small", "medium"), ("large", "high"), (None, "high")])
+def test_a_fresh_claude_reviewer_runs_code_review_at_its_size(mesh, fake, run, repo, tmp_path, capsys, size, level):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
@@ -5715,7 +5715,7 @@ def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, r
     assert mesh.main(argv + (["--size", size] if size else [])) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
-    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body  # no base: origin's
+    assert body.startswith(f"Review (read-only) of {pr} at ") and f"`/code-review {level} 7`" in body  # no base: origin's
     assert "never with `--fix`, `--comment` or `ultra`" in body and "--type wait" in body
     assert "commits since your last review" not in body and "FETCH_HEAD" not in body
 
@@ -5756,7 +5756,63 @@ def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
-    assert "`/code-review high 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]
+    assert "`/code-review medium 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]  # a small review's level
+
+
+def test_code_review_runs_at_the_reviews_size(mesh, cli, repo, tmp_path):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", returncode=1)
+    cli.on("pr", "diff", stdout="+fixed\n")
+    for size, level in (("trivial", "medium"), ("small", "medium"), ("large", "high"), (None, "high")):
+        task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo, size=size)
+        assert f"`/code-review {level} 7`" in task, size
+
+
+AGY_LOW = USAGE.replace("Gemini Models\tFive Hour Limit Remaining\t52%", "Gemini Models\tFive Hour Limit Remaining\t3%")
+AGY_OUT = AGY_LOW.replace("Claude and GPT models\tWeekly Limit Remaining\t49%", "Claude and GPT models\tWeekly Limit Remaining\t2%")
+
+
+@pytest.mark.parametrize("usage, agy, copilot, size, kinds", [
+    (USAGE, True, True, "small", ["agy"]),
+    (AGY_LOW, True, True, "small", ["copilot"]),
+    (AGY_LOW, True, False, "small", ["claude"]),
+    (USAGE, False, True, "small", ["copilot"]),  # agy not installed
+    (None, True, True, "trivial", ["agy"]),  # quotas unreadable: available, as for a spawn
+    (USAGE, True, True, "large", ["claude", "agy"]),  # Argon is out, but Opus has quota
+    (AGY_LOW, True, True, "large", ["claude", "agy"]),  # Flash is low, but Opus plans
+    (AGY_OUT, True, True, "large", ["claude", "copilot"]),  # the whole plan chain is out
+    (AGY_OUT, True, False, "large", ["claude"]),
+])
+def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, copilot, size, kinds):
+    with_quotas(mesh, monkeypatch, usage or "")
+    if usage is None:
+        monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot}[cmd]
+                        else None)
+    picked, notes = mesh.pick_reviewers(size)
+    assert picked == kinds
+    assert bool(notes) == ("agy" not in kinds)
+    if usage in (AGY_LOW, AGY_OUT) and notes:
+        assert "% left" in notes[0]
+
+
+def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch, AGY_LOW)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    claude, copilot = {"kind": "claude"}, {"kind": "copilot"}
+    assert mesh.pick_reviewers("large", {"copilot": copilot, "claude": claude})[0] == ["claude"]
+    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}, "claude": claude})[0] == ["claude", "agy"]
+    flash = {"kind": "agy", "model": "gemini-3.8-flash-high"}  # its own model is checked: Flash is at 3%
+    kinds, notes = mesh.pick_reviewers("large", {"agy": flash, "claude": claude})
+    assert kinds == ["claude"] and notes == ["agy: gemini-3.8-flash-high has 3% left (resets 2026-10-24T05:50:54Z); left out"]
+    with_quotas(mesh, monkeypatch, AGY_OUT)  # agy out on a re-review too: Claude takes its place
+    kinds, notes = mesh.pick_reviewers("small", {"agy": {"kind": "agy"}})
+    assert kinds == ["claude"] and "Claude instead" in notes[0]
+    kinds, notes = mesh.pick_reviewers("small", {"copilot": copilot})  # only Copilot: agy is out
+    assert kinds == ["claude"] and "Copilot" in notes[0]
+    with_quotas(mesh, monkeypatch, USAGE)
+    assert mesh.pick_reviewers("large", {"copilot": copilot})[0] == ["claude", "agy"]  # a large one keeps Claude
 
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
@@ -9943,3 +9999,193 @@ def test_the_retirer_reads_retirable_once_per_worker_per_poll(mesh, fake, run, t
     monkeypatch.setattr(mesh, "retire_worker", lambda run_id, name, entry, still=None: True)
     mesh.retire_pass(run, {})
     assert calls == ["repo-fix-typo"]
+
+
+def review_answers_on_sleep(mesh, monkeypatch, run, answers):
+    """Each reviewer whose name ends with a key answers its latest task the first time anything waits."""
+    def sleep(_):
+        for name, entry in mesh.load_run(run)["agents"].items():
+            body = next((text for end, text in answers.items() if name.endswith(end)), None)
+            if body and entry.get("status") != "retired" and mesh.owes_report(mesh.read_log(run), name):
+                mesh.deliver(run, name, "repo-lead", "done", body)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+
+
+def review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, answers):
+    head = pr_origin(tmp_path, repo)
+    with_quotas(mesh, monkeypatch)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    stub_new_pane(fake)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    review_answers_on_sleep(mesh, monkeypatch, run, answers)
+    return head, "https://github.com/acme/proj/pull/7"
+
+
+def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                             capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
+                                  {"review-7-claude": "1. a.py:1 claude's finding.", "review-7-agy": "Nothing found."})
+    cli.on("--output-format", stdout=copilot_jsonl("1. b.py:2 copilot's finding."))
+    capsys.readouterr()
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "all"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"3 of 3 reviewers answered: {pr} at {head[:9]}")
+    path = mesh.Path(next(line for line in out.splitlines() if line.startswith("answers: ")).removeprefix("answers: "))
+    assert path.name.startswith("review-7-")
+    text = path.read_text()
+    for name, finding in (("proj-review-7-claude", "claude's finding"), ("proj-review-7-agy", "Nothing found."),
+                          ("proj-review-7-copilot", "copilot's finding")):
+        assert f"## {name} (" in text and finding in text
+    events = mesh.read_log(run)
+    assert sum(e["event"] == "collected" for e in events) == 2  # Claude's and agy's: no doorbell to the root
+    assert not mesh.unread(run, "repo-lead")
+    agents = mesh.load_run(run)["agents"]
+    for name in ("proj-review-7-claude", "proj-review-7-agy", "proj-review-7-copilot"):
+        assert agents[name]["status"] == "retired" and "collect" not in agents[name]
+        assert agents[name]["review_heads"] == {pr: head} and agents[name]["review_checkout"] == pr
+    [task] = mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md")
+    assert "`/code-review high 7`" in mesh.parse_message(task)[1]  # a large review
+
+
+def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-agy": "Looks right."})
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-agy" in captured.out
+    assert "a fresh agy" in captured.err
+    assert [n for n in mesh.load_run(run)["agents"] if "review" in n] == ["proj-review-7-agy"]
+
+
+def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                               capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
+                                  {"review-7-claude": "1. a.py:1 a finding.", "review-7-copilot": "-"})
+    cli.on("--output-format", stdout=copilot_jsonl("1. b.py:2 another finding."))
+    monkeypatch.setattr(mesh, "agy_has_quota", lambda size: (False, "gemini has 3% left"))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
+    assert "proj-review-7-copilot" in capsys.readouterr().out  # agy is out: Claude plus Copilot
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
+    new = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/pull/7/head", new], cwd=origin, check=True)
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-claude again" in captured.err
+    assert len(cli.called("--output-format")) == 1  # Copilot isn't asked again
+    agents = mesh.load_run(run)["agents"]
+    assert agents["proj-review-7-claude"]["review_heads"] == {pr: new}
+    tasks = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "proj-review-7-claude"]
+    assert len(tasks) == 2 and not any(n.startswith("proj-review-7-claude-") for n in agents)
+
+
+def test_a_review_round_keeps_the_answers_it_has_when_a_reviewer_alerts(mesh, fake, cli, run, repo, tmp_path,
+                                                                        monkeypatch, capsys):
+    _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Found nothing."})
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "claude,agy",
+                      "--timeout", "1"]) == 6
+    out = capsys.readouterr().out
+    assert out.startswith("1 of 2 reviewers answered") and "has not answered within 1s" in out
+    text = mesh.Path(next(l for l in out.splitlines() if l.startswith("answers: "))[9:]).read_text()
+    assert "Found nothing." in text and "No answer: ALERT proj-review-7-agy" in text
+    agents = mesh.load_run(run)["agents"]
+    assert agents["proj-review-7-agy"]["status"] != "retired" and "collect" not in agents["proj-review-7-agy"]
+    assert agents["proj-review-7-claude"]["status"] == "retired"
+
+
+@pytest.mark.parametrize("extra, error", [
+    (["--kind", "claude"], "drop the worker, --kind"),
+    (["--name", "x"], "drop the worker, --kind"),
+    (["--reviewers", "claude,gpt"], "--reviewers takes auto, all"),
+])
+def test_a_review_round_refuses_what_it_cant_run(mesh, fake, run, repo, capsys, extra, error):
+    argv = ["ask", "--repo", str(repo), "--review", "7", "--reviewers", "auto", *extra]
+    assert mesh.main(argv) == 1
+    assert error in capsys.readouterr().err
+    assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
+
+
+def test_an_interrupted_review_round_clears_its_marks(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
+
+    def interrupted(*args, **kwargs):
+        assert mesh.load_run(run)["agents"]["proj-review-7-claude"]["collect"]["to"] == "repo-lead"
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(mesh, "watch_each", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
+    assert "collect" not in mesh.load_run(run)["agents"]["proj-review-7-claude"]  # its report rings as usual
+
+
+def test_a_review_rounds_copilot_reviews_at_the_rounds_size(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                            capsys):
+    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
+    cli.on("--output-format", stdout=copilot_jsonl("Nothing found."))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers",
+                      "copilot"]) == 0  # no --size: large
+    assert mesh.load_run(run)["agents"]["proj-review-7-copilot"]["effort"] == mesh.COPILOT_EFFORT["large"]
+
+
+def test_a_round_of_several_clis_refuses_one_clis_flags(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "pick_reviewers", lambda size, earlier: (["claude", "agy"], []))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "auto", "--model", "opus"]) == 1
+    assert "--model and --view are one CLI's" in capsys.readouterr().err
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "claude,copilot",
+                      "--view", "bg"]) == 1
+    assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
+
+
+def test_earlier_reviewers_are_the_newest_of_each_kind_across_runs(mesh, run):
+    pr = "https://github.com/acme/proj/pull/7"
+    archived = mesh.mesh_home() / "archive" / "mold"
+    archived.mkdir(parents=True)
+    old = {"id": "mold", "created": "2000-01-01T00:00:00+00:00", "agents": {
+        "proj-review-7-claude": {"role": "worker", "kind": "claude", "review_checkout": pr},
+        "proj-review-7-copilot": {"role": "worker", "kind": "copilot", "review_checkout": pr}}}
+    (archived / "run.json").write_text(json.dumps(old))
+    found = mesh.earlier_reviewers(pr)  # after `mesh stop`, or under a new root
+    assert {k: (t[0]["id"], t[1], t[2]) for k, t in found.items()} == {
+        "claude": ("mold", archived, "proj-review-7-claude"), "copilot": ("mold", archived, "proj-review-7-copilot")}
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", review_checkout=pr)  # resumed into this run
+    found = mesh.earlier_reviewers(pr)
+    assert (found["claude"][0]["id"], found["claude"][2]) == (run, "repo-fix-typo")  # the newer copy
+    assert found["copilot"][0]["id"] == "mold"  # merged by kind: the older run still gives its Copilot
+
+def test_an_interrupted_round_never_starts_its_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
+    gate = mesh.threading.Event()
+    real_asker, real_clear = mesh.copilot_asker, mesh.clear_marks
+
+    def asker(*args, **kwargs):
+        gate.wait(5)  # until the round has been interrupted
+        return real_asker(*args, **kwargs)
+
+    def clear(*args):
+        gate.set()  # the round's `finally` has set its stop event by now
+        return real_clear(*args)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(mesh, "copilot_asker", asker)
+    monkeypatch.setattr(mesh, "clear_marks", clear)
+    monkeypatch.setattr(mesh, "watch_each", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--size", "large",
+                   "--reviewers", "claude,copilot"])
+    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
+    assert entry["status"] == "retired" and "pid" not in entry  # claimed, then released unasked
+    assert not {"reviews", "review_heads", "review_checkout"} & set(entry)  # no review recorded: it never did one
+    assert not cli.called("--output-format")
+
+
+def test_a_re_review_round_with_no_size_keeps_the_earlier_reviewers(mesh, fake, cli, run, repo, tmp_path,
+                                                                    monkeypatch, capsys):
+    _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Fine."})
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"]) == 0
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude", "--no-wait"]) == 0
+    assert "--no-wait don't apply to a review round" in capsys.readouterr().err
+    tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
+    assert len(tasks) == 2 and "`/code-review medium" in mesh.parse_message(tasks[-1])[1]  # small, as recorded
