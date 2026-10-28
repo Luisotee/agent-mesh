@@ -5706,8 +5706,8 @@ def test_an_author_reviewing_another_pr_never_moves(mesh, fake, run, repo, tmp_p
     assert mesh.plan_move(run, target, pr, "new") == (None, "")
 
 
-@pytest.mark.parametrize("size", ["small", "large", None])
-def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, run, repo, tmp_path, capsys, size):
+@pytest.mark.parametrize("size, level", [("small", "medium"), ("large", "high"), (None, "high")])
+def test_a_fresh_claude_reviewer_runs_code_review_at_its_size(mesh, fake, run, repo, tmp_path, capsys, size, level):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
@@ -5715,7 +5715,7 @@ def test_a_fresh_claude_reviewer_runs_code_review_high_at_any_size(mesh, fake, r
     assert mesh.main(argv + (["--size", size] if size else [])) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
-    assert body.startswith(f"Review (read-only) of {pr} at ") and "`/code-review high 7`" in body  # no base: origin's
+    assert body.startswith(f"Review (read-only) of {pr} at ") and f"`/code-review {level} 7`" in body  # no base: origin's
     assert "never with `--fix`, `--comment` or `ultra`" in body and "--type wait" in body
     assert "commits since your last review" not in body and "FETCH_HEAD" not in body
 
@@ -5756,7 +5756,54 @@ def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo
     pr = "https://github.com/acme/proj/pull/7"
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
-    assert "`/code-review high 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]
+    assert "`/code-review medium 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]  # a small review's level
+
+
+def test_code_review_runs_at_the_reviews_size(mesh, cli, repo, tmp_path):
+    _, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", returncode=1)
+    cli.on("pr", "diff", stdout="+fixed\n")
+    for size, level in (("trivial", "medium"), ("small", "medium"), ("large", "high"), (None, "high")):
+        task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo, size=size)
+        assert f"`/code-review {level} 7`" in task, size
+
+
+AGY_LOW = USAGE.replace("Gemini Models\tFive Hour Limit Remaining\t52%", "Gemini Models\tFive Hour Limit Remaining\t3%")
+AGY_OUT = AGY_LOW.replace("Claude and GPT models\tWeekly Limit Remaining\t49%", "Claude and GPT models\tWeekly Limit Remaining\t2%")
+
+
+@pytest.mark.parametrize("usage, agy, copilot, size, kinds", [
+    (USAGE, True, True, "small", ["agy"]),
+    (AGY_LOW, True, True, "small", ["copilot"]),
+    (AGY_LOW, True, False, "small", ["claude"]),
+    (USAGE, False, True, "small", ["copilot"]),  # agy not installed
+    (None, True, True, "trivial", ["agy"]),  # quotas unreadable: available, as for a spawn
+    (USAGE, True, True, "large", ["claude", "agy"]),  # Argon is out, but Opus has quota
+    (AGY_LOW, True, True, "large", ["claude", "agy"]),  # Flash is low, but Opus plans
+    (AGY_OUT, True, True, "large", ["claude", "copilot"]),  # the whole plan chain is out
+    (AGY_OUT, True, False, "large", ["claude"]),
+])
+def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, copilot, size, kinds):
+    with_quotas(mesh, monkeypatch, usage or "")
+    if usage is None:
+        monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot}[cmd]
+                        else None)
+    picked, notes = mesh.pick_reviewers(size)
+    assert picked == kinds
+    assert bool(notes) == ("agy" not in kinds)
+    if usage in (AGY_LOW, AGY_OUT) and notes:
+        assert "% left" in notes[0]
+
+
+def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch, AGY_LOW)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    assert mesh.pick_reviewers("large", {"p-review-7-copilot": "copilot", "p-review-7-claude": "claude"})[0] == ["claude"]
+    assert mesh.pick_reviewers("large", {"a": "agy", "c": "claude"})[0] == ["claude", "agy"]
+    kinds, notes = mesh.pick_reviewers("small", {"p-review-7-copilot": "copilot"})  # only Copilot: agy is out
+    assert kinds == ["claude"] and "Copilot" in notes[0]
 
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):

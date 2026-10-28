@@ -24,6 +24,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import socket
 import stat
@@ -191,11 +192,12 @@ REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a
                  "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
-# reviews the worktree's own branch). `high` at every size: higher levels mostly add speculative findings. Only
-# with the PR head in the worker's repo: the skill reads files from its worktree's repo, and gh takes a bare PR
-# number as one of that repo's.
+# reviews the worktree's own branch). The level follows the review's size (REVIEW_LEVEL): higher levels mostly
+# add speculative findings. Only with the PR head in the worker's repo: the skill reads files from its worktree's
+# repo, and gh takes a bare PR number as one of that repo's.
+REVIEW_LEVEL = {"trivial": "medium", "small": "medium", "large": "high"}
 CODE_REVIEW = (
-    "Run Claude Code's `/code-review high {target}` (the Skill tool, skill `code-review`) as the core of this "
+    "Run Claude Code's `/code-review {level} {target}` (the Skill tool, skill `code-review`) as the core of this "
     "review, never with `--fix`, `--comment` or `ultra`: you change and post nothing, and a tool denied to you is "
     "expected, not something to work around. It runs in the background and its findings come back as a "
     "notification: meanwhile read the change (and run its tests, if your worktree has the PR head checked out), "
@@ -1997,6 +1999,55 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
     if fallback and best:
         return best[1], notes + [f"every model is under {min_quota()}%; using {best[1]}"]
     raise MeshError("no model with quota left: " + ("; ".join(notes) or "every candidate was already tried"))
+
+
+def agy_has_quota(size: str) -> tuple[bool, str]:
+    """Whether a fresh agy reviewer of this size would run on a model with MESH_MIN_QUOTA% left (Flash for a
+    trivial or small one, the plan chain for a large one), and why not. Unreadable quotas count as available, as
+    for a spawn (choose_agy_model); agy not installed, or no model it can resolve, doesn't."""
+    if not shutil.which("agy"):
+        return False, "agy isn't installed"
+    sized = SIZE_DEFAULTS.get(("agy", size))
+    chain, effort = ((sized["model"],), sized["effort"]) if sized else (PLAN_CHAIN["agy"], DEFAULT_EFFORT)
+    try:
+        choose_agy_model(chain, effort, fallback=False)
+    except MeshError as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def copilot_available() -> bool:
+    """Copilot can review: its CLI is installed (its credits running out shows only as that reviewer's `failed`)."""
+    return bool(shutil.which("copilot"))
+
+
+def pick_reviewers(size: str, earlier: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
+    """The reviewers' kinds `--reviewers auto` gives a review of this size, and notes on why (design §10).
+
+    A first round: a small (or trivial) review gets one reviewer, agy while it has quota, else Copilot, else
+    Claude; a large one gets Claude plus one other, agy while it has quota, else Copilot (else Claude alone).
+    `earlier`: the round's reviewers this run already has for the PR, kind by name. A re-review asks them again,
+    except Copilot, whose credits are kept for first looks; if that leaves none, agy if it has quota, else Claude."""
+    notes: list[str] = []
+    if earlier:
+        kinds = sorted({kind for kind in earlier.values() if kind != "copilot"}, key=ASK_KINDS.index)
+        if kinds:
+            return kinds, notes
+        notes.append("a re-review leaves Copilot out")
+        agy, why = agy_has_quota(size)
+        if not agy:
+            notes.append(f"agy: {why}; Claude instead")
+        return ["agy" if agy else "claude"], notes
+    agy, why = agy_has_quota(size)
+    copilot = copilot_available()
+    if agy:
+        other = "agy"
+    else:
+        other = "copilot" if copilot else None
+        notes.append(f"agy: {why}; " + ("Copilot instead" if copilot else "Copilot isn't installed either"))
+    if size == "large":
+        return ["claude", *([other] if other else [])], notes
+    return [other or "claude"], notes
 
 
 def agent_argv(kind: str, model: str, effort: str, log: str | None = None) -> tuple[list[str], str, str | None]:
@@ -6858,12 +6909,14 @@ def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = No
 
 
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
-             last: str | None = None, kind: str | None = None, narrow: bool = True, repo: Path | None = None) -> str:
+             last: str | None = None, kind: str | None = None, narrow: bool = True, repo: Path | None = None,
+             size: str | None = None) -> str:
     """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
     (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
     to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
     PR number is gh's guess at the repo: it stays only where the PR's remote is `origin`, else the PR's link). The
-    embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`)."""
+    embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`). `size` is
+    the review's, which sets `/code-review`'s level (REVIEW_LEVEL; high when unknown)."""
     skill = ""
     built = head_diff(repo, pr, head) if pr and repo and head else None
     if pr:
@@ -6876,7 +6929,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if kind == "claude" and head:
             whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
-            skill = CODE_REVIEW.format(target=f"{last}..{head}" if again and narrow else whole)
+            skill = CODE_REVIEW.format(level=REVIEW_LEVEL.get(size or "large", "high"), target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
@@ -7520,8 +7573,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
         at = target[3].get("base")
         print(f"mesh: {target[2]}'s worktree stays at {at} ({stays})", file=sys.stderr)
         body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(at=at, head=head, why=stays)) if part)
+    size = args.size or (target[3].get("size") if target else None)
     task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
-                    narrow=narrow, repo=repo)
+                    narrow=narrow, repo=repo, size=size)
     base = head if args.repo else None
     if copilot:  # it starts a copilot process either way, which is gone once it has answered
         reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
