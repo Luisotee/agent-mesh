@@ -2,12 +2,13 @@ import json
 import os
 import shlex
 import subprocess
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from conftest import load_mesh, write_meminfo
+from conftest import clis, load_mesh, with_config, write_meminfo
 
 
 MESH_SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "mesh"
@@ -5970,7 +5971,7 @@ def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, cop
     with_quotas(mesh, monkeypatch, usage or "")
     if usage is None:
         monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)
-    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot}[cmd]
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot, "claude": True}[cmd]
                         else None)
     picked, notes = mesh.pick_reviewers(size)
     assert picked == kinds
@@ -6425,13 +6426,16 @@ def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, 
     capsys.readouterr()
 
 
-def test_an_empty_config_variable_counts_as_unset(mesh, monkeypatch):
+def test_an_empty_config_variable_counts_as_unset(mesh, monkeypatch, tmp_path):
     for key in mesh.MESH_CONFIG:
         monkeypatch.setenv(key, "")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # MESH_CONFIG_FILE unset: never the user's own file
+    assert mesh.config_path() == tmp_path / "agent-mesh.json"
     assert (mesh.claude_bin(), mesh.side_panes(), mesh.min_quota()) == ("claude", mesh.SIDE_PANES, 10)
     assert mesh.mesh_home() == Path.home() / ".local/state/agent-mesh"
+    # The config file always goes along, resolved, so the worker reads the policy its launch read.
     assert mesh.mesh_env("r", "n", "p", "worker") == {"MESH_RUN": "r", "MESH_SELF": "n", "MESH_PARENT": "p",
-                                                      "MESH_ROLE": "worker"}
+                                                      "MESH_ROLE": "worker", "MESH_CONFIG_FILE": str(mesh.config_path())}
 
 
 def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, run, repo, capsys):
@@ -10290,7 +10294,7 @@ def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, 
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
                                   {"review-7-claude": "1. a.py:1 a finding.", "review-7-copilot": "-"})
     cli.on("--output-format", stdout=copilot_jsonl("1. b.py:2 another finding."))
-    monkeypatch.setattr(mesh, "agy_has_quota", lambda size: (False, "gemini has 3% left"))
+    monkeypatch.setattr(mesh, "agy_has_quota", lambda size, model=None: (False, "gemini has 3% left"))
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
     assert "proj-review-7-copilot" in capsys.readouterr().out  # agy is out: Claude plus Copilot
     origin = tmp_path / "origin"
@@ -10660,3 +10664,176 @@ def test_a_failing_continue_in_the_watch_is_logged_once(mesh, fake, run, monkeyp
         watch.tick(5)
     failed = [e for e in mesh.read_log(run) if e["event"] == "continue_failed"]
     assert len(failed) == 1 and "herdr down" in failed[0]["error"]
+
+
+# ── policy as data (design §21) ──────────────────────────────────────────
+
+
+def test_a_policy_value_comes_from_the_env_then_the_config_then_the_built_in(mesh, monkeypatch):
+    assert mesh.setting_with_source("quota_stop") == (90, "built-in") and mesh.quota_stop() == 90
+    with_config({"quota_stop": 70, "peers_dir": "/x/peers"})
+    assert mesh.setting_with_source("quota_stop") == (70, "config") and mesh.min_quota() == 30
+    assert mesh.peers_dir() == Path("/x/peers")
+    monkeypatch.setenv("MESH_MIN_QUOTA", "20")  # the older variable still beats the file
+    assert mesh.setting_with_source("quota_stop") == (80, "env MESH_MIN_QUOTA")
+    monkeypatch.setenv("MESH_QUOTA_STOP", "95")
+    assert mesh.setting_with_source("quota_stop") == (95, "env MESH_QUOTA_STOP")
+    monkeypatch.setenv("MESH_PEERS_DIR", "/y")
+    assert mesh.peers_dir() == Path("/y")
+
+
+def test_a_nested_config_value_leaves_its_siblings_at_their_defaults(mesh):
+    with_config({"models": {"agy": {"small": {"effort": "medium"}}}, "_comment": "ignored"})
+    assert mesh.size_policy("agy", "small") == {"model": "flash", "effort": "medium", "view": "pane"}
+    assert mesh.size_policy("agy", "trivial") == {"model": "flash", "effort": "low", "view": "pane"}
+    assert mesh.plan_chain("agy") == ("argon", "opus", "flash") and mesh.size_policy("agy", "large") is None
+
+
+@pytest.mark.parametrize("data, error", [
+    ({"models": {"agy": {"exce": "flash"}}}, "unknown key models.agy.exce"),
+    ({"review": {"rounds": {"small": "one"}}}, "review.rounds.small should be a whole number"),
+    ({"models": {"claude": {"plan_effort": "huge"}}}, "should be one of low, medium"),
+    ({"review": {"reviewers": {"small": [["gemini"]]}}}, "should be a list of slots"),
+    ({"quota_stop": 120}, "quota_stop should be a whole number 0-100"),
+    ([1, 2], "expected a JSON object"),
+])
+def test_a_broken_config_is_an_error_naming_the_key(mesh, data, error):
+    path = with_config(data)
+    with pytest.raises(mesh.MeshError, match=re.escape(error)) as exc:
+        mesh.setting("quota_stop")
+    assert str(path) in str(exc.value)
+
+
+def test_config_that_isnt_json_fails_routing_but_shows_the_rest(mesh, capsys):
+    Path(os.environ["MESH_CONFIG_FILE"]).write_text("{oops")
+    assert mesh.main(["routing"]) == 1
+    out = capsys.readouterr().out
+    assert "isn't valid JSON" in out and "quota_stop" in out and "[built-in]" in out
+
+
+def test_config_sets_a_claude_tasks_models_and_efforts(mesh, fake, run, repo, capsys):
+    stub_new_pane(fake)
+    with_config({"models": {"claude": {"plan": ["fable"], "exec": "sonnet", "plan_effort": "xhigh",
+                                       "exec_effort": "low"}}})
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    entry = mesh.load_run(run)["agents"][out["name"]]
+    assert (entry["model"], entry["effort"], entry["exec_model"], entry["exec_effort"]) == ("fable", "xhigh", "sonnet", "low")
+
+
+def test_skip_permissions_off_drops_the_flag_and_keeps_workers_in_panes(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    stub_new_pane(fake)
+    with_config({"skip_permissions": False})
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["view"] == "pane" and "skip_permissions is off" in out["notes"][0]
+    assert "--dangerously-skip-permissions" not in started(fake) and not cli.called("--bg")
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--view", "bg", "--repo", str(repo),
+                      "--worktree", "cfg2"]) == 1
+    assert "skip_permissions is off" in capsys.readouterr().err
+
+
+def test_config_sets_the_reviewers_of_a_size(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch)
+    with_config({"review": {"reviewers": {"small": [["claude"], ["copilot"]]}}})
+    assert mesh.pick_reviewers("small") == (["claude", "copilot"], [])
+    assert mesh.pick_reviewers("large")[0] == ["claude", "agy"]  # the other size keeps its default
+
+
+def test_agy_only_rounds_review_with_agy_and_refuse_claude(mesh, fake, run, repo, monkeypatch, capsys):
+    clis(monkeypatch, "agy")
+    with_quotas(mesh, monkeypatch)
+    assert mesh.pick_reviewers("small") == (["agy"], [])
+    kinds, notes = mesh.pick_reviewers("large")
+    assert kinds == ["agy"] and "Claude Code isn't installed" in notes[0]
+    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}})[0] == ["agy"]  # keep: Claude, if installed
+    with_quotas(mesh, monkeypatch, AGY_OUT)
+    with pytest.raises(mesh.MeshError, match="no reviewer to start") as exc:
+        mesh.pick_reviewers("small")
+    assert "% left" in str(exc.value) and "installed: agy" in str(exc.value)
+    with pytest.raises(mesh.MeshError, match=r"needs Claude Code \(`claude`\), which isn't on PATH"):
+        mesh.parse_reviewers("claude,agy")
+    assert mesh.parse_reviewers("all") == ["agy"]
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "x"]) == 1
+    assert "a claude worker needs Claude Code" in capsys.readouterr().err
+    assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "x"]) == 1
+    assert "--plan-review user (Claude Code's plan mode) needs Claude Code" in capsys.readouterr().err
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "why?"]) == 1
+    assert "`--kind copilot` needs Copilot" in capsys.readouterr().err
+    assert mesh.default_kind("claude") == "agy"
+
+
+def test_claude_only_rounds_review_with_claude_and_spawn_defaults_to_it(mesh, fake, run, repo, monkeypatch, capsys):
+    clis(monkeypatch, "claude")
+    stub_new_pane(fake)
+    kinds, notes = mesh.pick_reviewers("small")
+    assert kinds == ["claude"] and "agy isn't installed" in notes[0]
+    assert mesh.pick_reviewers("large")[0] == ["claude"]
+    assert mesh.pick_reviewers("large", {"claude": {"kind": "claude"}, "copilot": {"kind": "copilot"}})[0] == ["claude"]
+    assert mesh.pick_reviewers("small", {"agy": {"kind": "agy"}})[0] == ["claude"]
+    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "feat"]) == 0
+    assert mesh.load_run(run)["agents"][json.loads(capsys.readouterr().out)["name"]]["kind"] == "claude"
+
+
+def test_neither_cli_is_a_clear_error(mesh, monkeypatch):
+    clis(monkeypatch)
+    with pytest.raises(mesh.MeshError, match="neither Claude Code"):
+        mesh.default_kind()
+    with pytest.raises(mesh.MeshError, match="none of Claude Code, agy or Copilot is on PATH"):
+        mesh.pick_reviewers("small")
+
+
+def test_copilot_over_its_quota_is_left_out_of_auto_rounds(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch, AGY_OUT)
+    events = [{"type": "session.error", "data": {"errorType": "quota", "statusCode": 402,
+                                                 "message": "You have exceeded your monthly quota"}}]
+    assert mesh.copilot_quota_error(events) == "You have exceeded your monthly quota"
+    assert mesh.copilot_quota_error([{"type": "assistant.message", "data": {"content": "hi"}}]) is None
+    assert mesh.pick_reviewers("small")[0] == ["copilot"]
+    mesh.note_copilot_limit("You have exceeded your monthly quota")
+    kinds, notes = mesh.pick_reviewers("small")
+    assert kinds == ["claude"] and "Copilot is over its quota" in notes[0]
+    limit = json.loads(mesh.copilot_limit_path().read_text())
+    mesh.copilot_limit_path().write_text(json.dumps({**limit, "until": time.time() - 1}))  # it may have reset
+    assert mesh.pick_reviewers("small")[0] == ["copilot"]
+
+
+def test_a_bare_repo_name_is_looked_up_in_repos_dir(mesh, repo, monkeypatch, tmp_path):
+    with pytest.raises(mesh.MeshError, match="repos_dir` isn't set"):
+        mesh.resolve_repo("proj")
+    with_config({"repos_dir": [str(tmp_path / "none"), str(tmp_path)]})
+    assert mesh.resolve_repo("proj") == repo.resolve()
+    assert mesh.resolve_repo(str(repo)) == repo.resolve()
+    with pytest.raises(mesh.MeshError, match="no repo nope here or in"):
+        mesh.resolve_repo("nope")
+    monkeypatch.setenv("MESH_REPOS_DIR", str(tmp_path / "none"))  # the env var beats the file
+    with pytest.raises(mesh.MeshError, match="no repo proj"):
+        mesh.resolve_repo("proj")
+
+
+def test_workers_read_the_policy_file_their_launch_read(mesh):
+    env = mesh.mesh_env("r", "n", "p", "worker")
+    assert env["MESH_CONFIG_FILE"] == os.environ["MESH_CONFIG_FILE"]
+    assert "MESH_CONFIG_FILE" in mesh.MESH_CONFIG  # set (or blanked) in a --bg spare's settings env too
+    assert json.loads(mesh.worker_settings({**env, "MESH_RUN": "r", "MESH_SELF": "n"}, bg=True))["env"][
+        "MESH_CONFIG_FILE"] == os.environ["MESH_CONFIG_FILE"]
+
+
+def test_mesh_routing_shows_each_value_and_its_source(mesh, monkeypatch, capsys):
+    clis(monkeypatch, "agy", "copilot")
+    with_config({"models": {"agy": {"exec": "sonnet"}}, "review": {"tiny_pr_lines": 200}})
+    monkeypatch.setenv("MESH_QUOTA_STOP", "95")
+    assert mesh.main(["routing"]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^models\.agy\.exec +sonnet  \[config\]$", out, re.M)
+    assert re.search(r"^review\.tiny_pr_lines +200  \[config\]$", out, re.M)
+    assert re.search(r"^quota_stop +95  \[env MESH_QUOTA_STOP\]$", out, re.M)
+    assert re.search(r"^review\.reviewers\.large +claude \| agy or copilot  \[built-in\]$", out, re.M)
+    assert "Claude Code missing" in out and "large: agy\n" in out  # agy and Copilot share a slot
+    assert mesh.main(["routing", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["policy"]["models.agy.exec"] == {"value": "sonnet", "source": "config"}
+    assert data["installed"]["claude"] is None and data["auto_reviewers"] == {"small": ["agy"], "large": ["agy"]}
+    assert set(data["policy"]) == set(mesh.POLICY) and data["config"]["exists"]
+    assert "routing" in mesh.WORKER_COMMANDS  # a reading: workers may run it
