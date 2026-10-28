@@ -10,11 +10,12 @@ def text_of(c):
         return ' '.join(b.get('text','') for b in c if isinstance(b,dict) and b.get('type')=='text')
     return ''
 files=glob.glob(ROOT+'/*/*.jsonl')+glob.glob(ROOT+'/*/*/subagents/*.jsonl')
+seen=set()  # across files: a copied or forked session repeats its original's message ids
 for f in files:
     rel=os.path.relpath(f,ROOT); proj=rel.split('/')[0]
     sub='/subagents/' in rel
     sid=os.path.basename(f)[:-6]
-    seen=set(); first_user=None; ep=None; n=0; prev_t=None; compacts=[]; reqsrc={}
+    first_user=None; ep=None; n=0; prev_t=None; compacts=[]; reqsrc={}
     user_turns=0; meshcmd={}; bells=0; cwd=None; tool_results_chars=0; model_set=set()
     for l in open(f,errors='replace'):
         h=l[:60]

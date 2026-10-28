@@ -216,7 +216,7 @@ def test_agy_steps_give_tokens_by_time(mesh, capsys, tmp_path):
     db.execute("INSERT INTO steps VALUES (2, 17, 3, ?)", (field(1, field(1, seconds + 1)),))
     db.commit()
     db.close()
-    assert mesh.agy_calls("conv") == [{"t": float(seconds), "model": "agy", "input": 1000, "w5": 0, "w1": 0,
+    assert mesh.agy_calls("conv") == [{"id": None, "t": float(seconds), "model": "agy", "input": 1000, "w5": 0, "w1": 0,
                                        "read": 20_000, "output": 300}]
     write_run(mesh, "mrun", {"repo-lead": root("r1"),
                              "repo-fix": {**worker("conv", 1), "kind": "agy"}})
@@ -224,3 +224,63 @@ def test_agy_steps_give_tokens_by_time(mesh, capsys, tmp_path):
     assert data["agy"] == [{"kind": "agy worker large pane", "sessions": 1, "calls": 1, "input": 1000,
                             "read": 20_000, "output": 300}]
     assert data["usd"] == 0
+
+
+def test_a_background_copy_counts_its_copied_calls_once(mesh, capsys):
+    """A bg swap or resume copies the conversation, message ids and all, into a new session file: the copied calls
+    stay the original's (and its run's), the copy's own first call is a cold resume, and neither is a prefix."""
+    write_run(mesh, "mone", {"a-lead": root("r1"), "a-fix": worker("orig", 1, view="bg")},
+              events=[{"time": iso(30), "event": "stop"}], archived=True)
+    write_run(mesh, "mtwo", {"a-lead": root("r2"), "a-fix": worker("copy", 200, view="bg", sessions=["orig"])},
+              created=190)
+    calls = (reply(2, "a", w1=30_000, output=1000), reply(3, "b", output=1000))
+    transcript(mesh, "/wt", "orig", *calls)
+    transcript(mesh, "/wt", "copy", *calls, reply(201, "c", w1=40_000, output=1000))
+    one = by(cost(mesh, capsys, "mone")["agents"], "name", "a-fix")
+    two = by(cost(mesh, capsys, "mtwo")["agents"], "name", "a-fix")
+    assert one["calls"] == 2 and two["calls"] == 1 and two["cold"] == 1
+    window = cost(mesh, capsys, "--since", iso(-5))
+    assert window["usd"] == pytest.approx(one["usd"] + two["usd"])
+    assert by(window["kinds"], "kind", "worker large bg")["first_ctx_median"] == 30_000
+
+
+def test_a_run_with_no_claude_calls_prints_its_tables(mesh, capsys):
+    write_run(mesh, "mrun", {"repo-lead": root("r1")})
+    assert mesh.main(["cost", "mrun"]) == 0
+    assert "run mrun: $0.00" in capsys.readouterr().out
+
+
+def test_an_inverted_window_is_refused(mesh, capsys):
+    assert mesh.main(["cost", "--since", "2026-11-04", "--until", "2026-11-01"]) == 1
+    assert "not before --until" in capsys.readouterr().err
+
+
+def test_root_commands_only_count_at_a_command_start(mesh):
+    assert mesh.ROOT_COMMAND_RE.search("cd /repo && mesh spawn --task x")
+    assert mesh.ROOT_COMMAND_RE.search("mesh approve repo-fix")
+    assert mesh.ROOT_COMMAND_RE.search("ls\nmesh watch --any")
+    assert not mesh.ROOT_COMMAND_RE.search('grep -n "mesh spawn" README.md')
+
+
+def test_an_unstopped_runs_window_ends_at_its_last_event(mesh, capsys):
+    write_run(mesh, "mold", {"repo-lead": root("r1")}, events=[{"time": iso(20), "event": "init"}])
+    transcript(mesh, "/repo", "r1", reply(10, "in", output=1000), reply(500, "later", output=1000))
+    assert by(cost(mesh, capsys, "mold")["agents"], "name", "repo-lead")["calls"] == 1
+
+
+def test_a_reviewer_resumed_in_a_later_run_is_one_reviewer(mesh, capsys):
+    review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7": worker("v", 1, **review)},
+              events=[{"time": iso(30), "event": "stop"}], archived=True)
+    write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7": worker("v", 60, **review)}, created=50)
+    transcript(mesh, "/wt", "v", reply(2, "a", output=1000), reply(61, "b", output=1000))
+    reviews = cost(mesh, capsys, "--since", iso(-5))["reviews"]
+    assert reviews["prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
+
+
+def test_a_worker_resumed_in_its_own_run_keeps_its_earlier_calls(mesh, capsys):
+    """A resume in the same run writes a fresh entry (spawned now); the log still says when it first started."""
+    write_run(mesh, "mrun", {"repo-lead": root("r1"), "repo-fix": worker("w", 50)}, events=[
+        {"time": iso(1), "event": "spawn", "name": "repo-fix"}, {"time": iso(50), "event": "resume", "name": "repo-fix"}])
+    transcript(mesh, "/wt", "w", reply(5, "a", output=1000), reply(55, "b", output=1000))
+    assert by(cost(mesh, capsys, "mrun")["agents"], "name", "repo-fix")["calls"] == 2

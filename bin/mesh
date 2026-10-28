@@ -3788,7 +3788,11 @@ def cmd_approve(args: argparse.Namespace) -> int:
             log_event(run_id, "approve_kept_model", name=args.agent, model=model)
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         with editing_run(run_id) as run:
-            run["agents"][args.agent]["phase"] = "exec"
+            agent = run["agents"][args.agent]
+            agent["phase"] = "exec"
+            if "swap" not in result and not result.get("kept_model"):  # no reopen recorded where execution starts
+                agent.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(),
+                                                       "why": "plan approved"})
     result["delivery"] = (result.get("swap") or {}).pop("delivery", None) or deliver(
         run_id, me, args.agent, "answer", body, first="swap" in result)
     emit(result)
@@ -9634,7 +9638,8 @@ def cmd_brief(args: argparse.Namespace) -> int:
 # $ per million tokens: input, cache write 5 min, cache write 1 h, cache read, output. Checked 2026-10-28 against
 # the `claude-api` skill of Claude Code 2.1.312 (its model table cached 2026-10-06; writes are 1.25x the input
 # price at 5 min, 2x at 1 h). It states no Haiku read price: 0.1x, as the cost study took it. A model is priced by
-# its family (an older Opus as Opus 5.5), and a model no family names as Opus. API prices stand in for what the
+# its family, at that family's newest model's price (an older Opus as Opus 5.5, though Opus 4.x cost $5/$25),
+# and a model no family names as Opus. API prices stand in for what the
 # subscription limit counts, which is undocumented (docs/cost-research/README.md, "Method").
 PRICES = {
     "fable": (10.0, 12.5, 20.0, 0.25, 50.0),
@@ -9644,7 +9649,8 @@ PRICES = {
 }
 PRICES_AS_OF = "2026-10-28, claude-api skill (Claude Code 2.1.312)"
 COLD_WRITE_MIN = 20_000  # cache-write tokens past which a call after a gap longer than the TTL reads as a cold resume
-ROOT_COMMAND_RE = re.compile(r"\bmesh (?:spawn|init|ask|approve|resume|switch|watch)\b")
+# a root command at the start of a shell command (`cd x && mesh spawn …`), not quoted in other text (`grep "mesh spawn"`)
+ROOT_COMMAND_RE = re.compile(r"(?:^|[;&|(])\s*mesh (?:spawn|init|ask|approve|resume|switch|watch)\b", re.M)
 TOKEN_KEYS = ("input", "w5", "w1", "read", "output")
 
 
@@ -9721,7 +9727,7 @@ def claude_calls(path: Path) -> tuple[list[dict], dict]:
                 writes = usage.get("cache_creation") or {}
                 w5, w1 = (int(writes.get(f"ephemeral_{ttl}_input_tokens") or 0) for ttl in ("5m", "1h"))
                 w1 += max(0, int(usage.get("cache_creation_input_tokens") or 0) - w5 - w1)
-                calls.append({"t": at, "model": message.get("model") or "", "input": int(usage.get("input_tokens") or 0),
+                calls.append({"id": key, "t": at, "model": message.get("model") or "", "input": int(usage.get("input_tokens") or 0),
                               "w5": w5, "w1": w1, "read": int(usage.get("cache_read_input_tokens") or 0),
                               "output": int(usage.get("output_tokens") or 0)})
     except OSError:
@@ -9762,7 +9768,7 @@ def agy_calls(session: str) -> list[dict]:
         except (ValueError, IndexError):
             continue
         if 2 in counts and seconds:
-            calls.append({"t": float(seconds), "model": "agy", "input": counts[2], "w5": 0, "w1": 0,
+            calls.append({"id": None, "t": float(seconds), "model": "agy", "input": counts[2], "w5": 0, "w1": 0,
                           "read": counts.get(5, 0), "output": counts.get(3, 0)})
     return calls
 
@@ -9825,8 +9831,8 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
     {run: its window}.
 
     A segment is one agent of one run under one of its sessions: its run, name, kind, phase marks, and when it
-    started (a worker's spawn or resume; a root's run `created`) and ended (its run's last `stop`, None while
-    live). A worker's sessions are its `session` and the ones swaps copied from (`sessions`), an agy one found
+    started (a worker's spawn or resume; a root's run `created`) and ended (its run's last `stop`; a run never
+    stopped, its last event, or None while that is under `CACHE_TTL` old). A worker's sessions are its `session` and the ones swaps copied from (`sessions`), an agy one found
     pinned by its first doorbell when none is recorded; a root's also every `reset`'s old and new session.
     """
     segments: dict[str, list[dict]] = {}
@@ -9834,7 +9840,10 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
     for run, folder in all_runs():
         events = read_log(run["id"], folder)
         stops = [epoch(e.get("time")) for e in events if e.get("event") == "stop"]
-        window = {"start": epoch(run.get("created")), "end": max(stops) if stops else None,
+        # A run never stopped ends at its last event, unless that is recent: it is still going.
+        last = max((epoch(e.get("time")) for e in events), default=epoch(run.get("created")))
+        end = max(stops) if stops else (None if time.time() - last < CACHE_TTL else last)
+        window = {"start": epoch(run.get("created")), "end": end,
                   "root": run.get("root"), "cwd": (run["agents"].get(run.get("root")) or {}).get("cwd"),
                   "resets": [epoch(e.get("time")) for e in events if e.get("event") == "reset"]}
         windows[run["id"]] = window
@@ -9849,12 +9858,15 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                              for key in ("old_session", "new_session")]
             elif entry.get("kind") == "agy" and not entry.get("session"):
                 sessions.append(quietly(agy_conversation, name, run["id"], None, True))
-            starts = [epoch(t) for t in (entry.get("spawned"), *(m.get("at") for m in entry.get("models") or ()))
+            # A resume in the same run writes a fresh entry: the log keeps when the agent first started in it.
+            starts = [epoch(t) for t in (entry.get("spawned"), *(m.get("at") for m in entry.get("models") or ()),
+                                         *(e.get("time") for e in events
+                                           if e.get("event") in ("spawn", "resume") and e.get("name") == name))
                       if epoch(t)]
             segment = {"run": run["id"], "name": name, "kind": cost_kind(name, entry, root), "root": root,
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
-                       "agy": entry.get("kind") == "agy", "prs": reviewed_pr(name, entry)}
+                       "agy": entry.get("kind") == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd")}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)
     return segments, windows
@@ -9863,7 +9875,8 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
 def segment_at(segments: list[dict], t: float) -> dict | None:
     """The segment a call at `t` belongs to: a root's while its run is open, else the worker segment that started
     last before it. A call before a worker segment's start but after the one before it ended (a resume's headless
-    `/compact`, run before the reopen is recorded) goes to the later one."""
+    `/compact`, run before the reopen is recorded) goes to the later one; one before every segment (the session's
+    life before mesh adopted it) to none."""
     for segment in segments:
         if segment["root"] and segment["start"] <= t and (segment["end"] is None or t <= segment["end"]):
             return segment
@@ -9871,7 +9884,9 @@ def segment_at(segments: list[dict], t: float) -> dict | None:
     for segment in sorted((s for s in segments if not s["root"]), key=lambda s: s["start"]):
         if segment["start"] <= t:
             chosen = segment
-        elif chosen is None or (chosen["end"] is not None and t > chosen["end"]):
+        elif chosen is None:
+            return None
+        elif chosen["end"] is not None and t > chosen["end"]:
             return segment
         else:
             break
@@ -9940,8 +9955,10 @@ class CostTally:
 
 
 def tally_session(tally: CostTally, session: str, calls: list[dict], sub: bool, place, since: float | None,
-                  until: float | None) -> None:
+                  until: float | None, seen: set[str]) -> None:
     """Add one session file's calls to the tally: `place(call)` gives (kind, agent key, phase) or None to skip it.
+    A call whose id is in `seen` was counted in an earlier file (the one a copy was made from): it is skipped, but
+    still times the gaps, so the copy's first own call after it can read as a cold resume.
 
     A cold resume is a main-conversation call after a gap longer than the cache's TTL (what the previous writing
     call wrote at, `CACHE_WRITES`, else `CACHE_TTL`) that writes at least `COLD_WRITE_MIN` tokens."""
@@ -9951,6 +9968,10 @@ def tally_session(tally: CostTally, session: str, calls: list[dict], sub: bool, 
         last = call["t"]
         if call["w1"] or call["w5"]:
             ttl = CACHE_WRITES["ephemeral_1h_input_tokens" if call["w1"] else "ephemeral_5m_input_tokens"]
+        if call["id"]:
+            if call["id"] in seen:
+                continue
+            seen.add(call["id"])
         if (since is not None and call["t"] < since) or (until is not None and call["t"] >= until):
             continue
         if placed := place(call):
@@ -9963,6 +9984,18 @@ def session_files(session: str, cwd: str | None) -> list[Path]:
     if cwd and (path := claude_sessions_dir(cwd) / f"{session}.jsonl").exists():
         return [path]
     return sorted((claude_home() / "projects").glob(f"*/{session}.jsonl"))[:1]
+
+
+def recent_files(paths, since: float | None) -> set[Path]:
+    """The files written at or after `since` (all with None); one removed meanwhile is skipped."""
+    found = set()
+    for path in paths:
+        try:
+            if since is None or path.stat().st_mtime >= since:
+                found.add(path)
+        except OSError:
+            continue
+    return found
 
 
 def subagent_files(path: Path) -> list[Path]:
@@ -9989,7 +10022,7 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
                 if run_id and segment["run"] != run_id:
                     return None
                 for pr in segment["prs"]:
-                    reviewed.setdefault(pr, set()).add((segment["run"], segment["name"]))
+                    reviewed.setdefault(pr, set()).add(segment["name"])  # resumed in a later run: still one
                 return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
             if run_id:
                 return None
@@ -10002,24 +10035,28 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
 
     if run_id:  # the run's sessions, and what its root's project folder holds of its window
         window = windows[run_id]
-        claude = {s for s, segs in segments.items() for seg in segs if seg["run"] == run_id and not seg["agy"]}
-        files = {path for s in claude for seg in segments[s] if seg["run"] == run_id
-                 for path in session_files(s, None)}
+        claude = {s: seg["cwd"] for s, segs in segments.items() for seg in segs
+                  if seg["run"] == run_id and not seg["agy"]}
+        files = {path for s, cwd in claude.items() for path in session_files(s, cwd)}
         if window["cwd"]:
-            files |= {p for p in claude_sessions_dir(window["cwd"]).glob("*.jsonl")
-                      if p.stat().st_mtime >= window["start"]}
+            files |= recent_files(claude_sessions_dir(window["cwd"]).glob("*.jsonl"), window["start"])
         agy = {s for s, segs in segments.items() for seg in segs if seg["run"] == run_id and seg["agy"]}
     else:
-        files = {p for p in (claude_home() / "projects").glob("*/*.jsonl") if p.stat().st_mtime >= since}
-        folder = agy_conversation_file("x").parent
-        agy = {p.stem for p in folder.glob("*.db") if p.stat().st_mtime >= since} if folder.is_dir() else set()
-    for path in sorted(files):
-        session = path.stem
+        files = recent_files((claude_home() / "projects").glob("*/*.jsonl"), since)
+        agy = {p.stem for p in recent_files(agy_conversation_file("x").parent.glob("*.db"), since)}
+    # A background swap or resume copies the conversation into a new session file, its calls' ids included, and so
+    # do other forks (a `/resume` that branches, a relaunch): each call counts once. A file run state names goes
+    # first (its calls belong to that agent), then the one whose calls start first, or on a tie (a copy keeps the
+    # timestamps) end first: the original stopped where the copy goes on.
+    read = []
+    for path in files:
         calls, info = claude_calls(path)
-        tally_session(tally, session, calls, False, placer(session, info, path, False), since, until)
-        for sub_path in subagent_files(path):
-            sub_calls, _ = claude_calls(sub_path)
-            tally_session(tally, session, sub_calls, True, placer(session, info, path, True), since, until)
+        read.append((path, calls, info, False, path.stem))
+        read += [(sub, claude_calls(sub)[0], info, True, path.stem) for sub in subagent_files(path)]
+    seen: set[str] = set()
+    for path, calls, info, sub, session in sorted(read, key=lambda r: (r[4] not in segments, *((r[1][0]["t"], r[1][-1]["t"]) if r[1] else (0, 0)),
+                                                       str(r[0]))):
+        tally_session(tally, session, calls, sub, placer(session, info, path, sub), since, until, seen)
     for session in sorted(agy):
         mine = segments.get(session, [])
 
@@ -10030,7 +10067,7 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
                     return None
                 return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
             return None if run_id else ("agy user", ("", "agy user"), "")
-        tally_session(agy_tally, session, agy_calls(session), False, place_agy, since, until)
+        tally_session(agy_tally, session, agy_calls(session), False, place_agy, since, until, set())
     resets = [t for r, w in windows.items() if not run_id or r == run_id for t in w["resets"]
               if (since is None or t >= since) and (until is None or t < until)]
     return cost_report(tally, agy_tally, reviewed, len(resets))
@@ -10078,6 +10115,8 @@ def tokens_text(n: int) -> str:
 def cmd_cost(args: argparse.Namespace) -> int:
     since = parse_since(args.since) if args.since else None
     until = parse_since(args.until) if args.until else None
+    if since is not None and until is not None and since >= until:
+        raise MeshError(f"--since {args.since} is not before --until {args.until}")
     run_id = args.run_id
     if not run_id and since is None:
         try:
@@ -10095,7 +10134,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
         emit(report)
         return 0
     print(f"{scope}: ${report['usd']:,.2f} at API prices ({PRICES_AS_OF})")
-    if run_id or args.agents:
+    if (run_id or args.agents) and report["agents"]:
         print()
         print_table([{**a, "agent": f"{a['name']}" if run_id else f"{a['run']}:{a['name']}" if a["run"] else a["name"],
                       "$": f"{a['usd']:.2f}", "plan/exec": f"{a['plan_usd']:.2f}/{a['exec_usd']:.2f}",
