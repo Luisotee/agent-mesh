@@ -9537,13 +9537,15 @@ def test_a_background_worker_that_wont_stop_is_not_retired(mesh, fake, cli, run,
 
 
 def attach_row(target, pid=77, binary="claude"):
-    argv = ["node", "/usr/local/bin/claude"] if binary == "node" else [binary]  # an npm install, by its shebang
+    argv = {"node": ["node", "/usr/local/bin/claude"],  # an npm install, by its shebang
+            "debug": ["claude", "--debug"]}.get(binary, [binary])
     return {"pid": pid, "ppid": 1, "tty": 34816, "argv": [*argv, "attach", target], "cwd": "/", "start": "1"}
 
 
 @pytest.mark.parametrize("target, held, binary", [("b1", True, "claude"), ("s-1", True, "claude"),
                                                   ("fix-typo", True, "claude"), ("other", False, "claude"),
-                                                  ("b1", True, "node"), ("other", False, "node")])
+                                                  ("b1", True, "node"), ("other", False, "node"),
+                                                  ("b1", True, "debug")])
 def test_a_background_worker_attached_to_is_held_until_its_client_leaves(mesh, fake, cli, run, tmp_path,
                                                                          monkeypatch, target, held, binary):
     idle_reporter(mesh, run, tmp_path)
@@ -9787,17 +9789,71 @@ def test_the_retirer_leaves_a_worker_open_while_it_may_not_retire_it(mesh, fake,
         assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
 
 
-def test_the_retirer_lets_a_worker_go_that_ended_after_its_report(mesh, fake, run, tmp_path, monkeypatch):
+def test_the_retirer_lets_a_worker_go_that_reads_gone_several_polls_in_a_row(mesh, fake, run, tmp_path, monkeypatch):
     idle_reporter(mesh, run, tmp_path)
     mesh.store_message(run, "repo-lead", "repo-fix-typo", "info", "thanks")  # not retirable now either
-    reads = []
-    monkeypatch.setattr(mesh, "agent_status", lambda *_: reads.append(1) or "gone")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "gone")
     watches = {}
-    assert not mesh.retire_pass(run, watches)
-    assert not mesh.retire_pass(run, watches) and len(reads) == 1  # not read again
+    for _ in range(mesh.RETIRER_GONE_POLLS - 1):
+        assert mesh.retire_pass(run, watches)  # one gone reading may be a bad read
+    assert not mesh.retire_pass(run, watches)  # ended: it no longer keeps the retirer
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
     mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan)\n\nMore.")
     assert not mesh.retire_pass(run, watches) and watches == {}  # a new task: its Watch goes
+
+
+def test_a_gone_worker_back_with_no_task_counts_again(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    states = ["gone"] * mesh.RETIRER_GONE_POLLS + ["idle"]
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: states.pop(0) if len(states) > 1 else states[0])
+    watches = {}
+    for _ in range(mesh.RETIRER_GONE_POLLS):
+        mesh.retire_pass(run, watches)
+    assert watches["repo-fix-typo"].gone_after == "done.md"
+    mesh.retire_pass(run, watches)  # read again while the retirer runs: resumed, idle since its report
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+
+
+@pytest.mark.parametrize("bad", ["claude-agents", "herdr"])
+def test_one_bad_read_doesnt_give_up_on_a_worker(mesh, fake, cli, run, tmp_path, monkeypatch, bad):
+    idle_reporter(mesh, run, tmp_path)
+    if bad == "claude-agents":
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"].update(view="bg", bg_id="b1", pane=None, kind="claude", session="s-1")
+        rows = iter([None, [{"id": "b1", "sessionId": "s-1", "status": "idle", "pid": 5}]])
+        monkeypatch.setattr(mesh, "read_claude_agents", lambda: next(rows))
+        monkeypatch.setattr(mesh, "stop_bg", lambda entry: True)
+        monkeypatch.setattr(mesh, "last_progress", lambda entry, session: time.time() - 1000)  # its transcript
+    else:
+        reads = iter(["gone", "idle"])
+        monkeypatch.setattr(mesh, "agent_status", lambda *_: next(reads))
+    watches = {}
+    assert mesh.retire_pass(run, watches)  # the bad read: skipped, or one gone reading
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+    mesh.retire_pass(run, watches)  # read fine, idle since its report
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+
+
+@pytest.mark.parametrize("entry, counts", [
+    ({"status": "swap_failed"}, True),  # stuck, its pane closed: it ended
+    ({"status": "retiring"}, False),
+    ({"status": "starting", "spawned": "now"}, False),  # approve or switch reopening it
+    ({"status": "starting", "spawned": "2026-01-01T00:00:00+00:00"}, True),  # a stale start
+    ({"status": "running", "relaunching": True}, False),
+    ({"status": "running", "held": {"screen": "trust"}}, False),
+])
+def test_gone_counts_unless_it_is_being_reopened_or_retired(mesh, entry, counts):
+    if entry.get("spawned") == "now":
+        entry = {**entry, "spawned": mesh.now_iso()}
+    assert mesh.gone_counts(entry) is counts
+
+
+def test_the_retirer_doesnt_retry_a_retire_a_watch_tried(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    mesh.log_event(run, "auto_retire_failed", name="repo-fix-typo", file="done.md", error="boom")
+    assert not mesh.retire_pass(run, {})
+    assert not fake.called("pane", "close")
 
 
 def test_the_retirer_drops_a_worker_that_got_new_work(mesh, fake, run, tmp_path, monkeypatch):
@@ -9809,11 +9865,25 @@ def test_the_retirer_drops_a_worker_that_got_new_work(mesh, fake, run, tmp_path,
     assert not mesh.retire_pass(run, watches) and watches == {}
 
 
-def test_the_retirer_stops_with_the_run(mesh, fake, run, tmp_path, monkeypatch):
+def test_the_retirer_retires_nothing_while_a_stop_is_under_way(mesh, fake, run, tmp_path, monkeypatch):
     idle_reporter(mesh, run, tmp_path)
-    monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
     mesh.log_event(run, "stopping", pid=os.getpid(), start=mesh.proc_start(os.getpid()))
+    assert mesh.retire_pass(run, {})  # kept, in case the stop fails
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "running"
+    mesh.log_event(run, "stop_failed", error="x")  # it failed: the retirer carries on as before
+    mesh.retire_pass(run, {})
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
+
+
+def test_the_retirer_exits_once_the_run_is_stopped(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "run_stopped", lambda run_id: True)
     assert not mesh.retire_pass(run, {})
+
+
+def test_a_failing_poll_doesnt_end_the_retirer(mesh, run, monkeypatch):
+    monkeypatch.setattr(mesh, "retire_poll", lambda run_id, watches: (_ for _ in ()).throw(OSError("lock")))
+    assert mesh.retire_pass(run, {})
 
 
 def test_the_retirer_takes_its_lock_back_for_a_report_logged_while_it_let_go(mesh, fake, run, tmp_path,
@@ -9851,3 +9921,23 @@ def test_the_retirer_exits_when_a_newer_one_holds_the_lock(mesh, run, monkeypatc
         assert mesh.run_retirer(run, handle, sleep=lambda s: None) == 0
         with pytest.raises(StopIteration):
             next(looks)
+
+
+@pytest.mark.parametrize("task, starts", [(False, True), (True, False)])
+def test_a_resume_with_nothing_new_restarts_the_retirer(mesh, fake, run, tmp_path, monkeypatch, task, starts):
+    idle_reporter(mesh, run, tmp_path)
+    if task:
+        mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan)\n\nMore.")
+    monkeypatch.setattr(mesh, "reopen_worker", lambda args, run_id, me, started: {"name": "repo-fix-typo"})
+    mesh.resume_worker(mesh.argparse.Namespace(), run, "repo-lead")
+    assert mesh.retirers == ([run] if starts else [])
+
+
+def test_the_retirer_reads_retirable_once_per_worker_per_poll(mesh, fake, run, tmp_path, monkeypatch):
+    idle_reporter(mesh, run, tmp_path)
+    monkeypatch.setattr(mesh, "agent_status", lambda *_: "idle")
+    calls, real = [], mesh.retirable
+    monkeypatch.setattr(mesh, "retirable", lambda *a: calls.append(a[1]) or real(*a))
+    monkeypatch.setattr(mesh, "retire_worker", lambda run_id, name, entry, still=None: True)
+    mesh.retire_pass(run, {})
+    assert calls == ["repo-fix-typo"]
