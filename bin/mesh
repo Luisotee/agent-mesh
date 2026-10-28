@@ -3762,10 +3762,6 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if entry.get("phase") == "plan" and entry.get("exec_model"):
         if args.keep_model:  # asked for, never a fallback: it executes on what it planned on
             if not denied:  # else the reopen below records it, and logs this once it has started
-                with editing_run(run_id) as run:
-                    run["agents"][args.agent].setdefault("models", []).append(
-                        {"model": entry.get("model"), "effort": entry.get("effort"), "at": now_iso(),
-                         "why": "plan approved", "kept": True})
                 log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
             result["kept_model"] = True
         else:
@@ -3790,9 +3786,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
         with editing_run(run_id) as run:
             agent = run["agents"][args.agent]
             agent["phase"] = "exec"
-            if "swap" not in result and not result.get("kept_model"):  # no reopen recorded where execution starts
+            if "swap" not in result:  # no reopen recorded where execution starts
                 agent.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(),
-                                                       "why": "plan approved"})
+                                                       "why": "plan approved",
+                                                       **({"kept": True} if result.get("kept_model") else {})})
     result["delivery"] = (result.get("swap") or {}).pop("delivery", None) or deliver(
         run_id, me, args.agent, "answer", body, first="swap" in result)
     emit(result)
@@ -9649,8 +9646,10 @@ PRICES = {
 }
 PRICES_AS_OF = "2026-10-28, claude-api skill (Claude Code 2.1.312)"
 COLD_WRITE_MIN = 20_000  # cache-write tokens past which a call after a gap longer than the TTL reads as a cold resume
-# a root command at the start of a shell command (`cd x && mesh spawn …`), not quoted in other text (`grep "mesh spawn"`)
-ROOT_COMMAND_RE = re.compile(r"(?:^|[;&|(])\s*mesh (?:spawn|init|ask|approve|resume|switch|watch)\b", re.M)
+# A root command at the start of a shell command (`cd x && mesh spawn …`, `for …; do mesh ask …`, `timeout 900
+# mesh watch`, `X=1 mesh ask`), not quoted in other text (`grep "mesh spawn"`).
+ROOT_COMMAND_RE = re.compile(r"(?:^|[;&|(]|\b(?:do|then|else|time)\b)\s*(?:timeout\s+\S+\s+)?(?:\w+=\S*\s+)*"
+                             r"mesh (?:spawn|init|ask|approve|resume|switch|watch)\b", re.M)
 TOKEN_KEYS = ("input", "w5", "w1", "read", "output")
 
 
@@ -9819,7 +9818,9 @@ def phase_marks(name: str, entry: dict, events: list[dict]) -> list[tuple[float,
 
 
 def phase_at(marks: list[tuple[float, str]], t: float) -> str:
-    phase = marks[0][1] if marks else ""
+    """The phase at `t`; "" before the first mark (a worker resumed in its own run: the fresh entry's marks start
+    at the resume, and what came before is unknown)."""
+    phase = ""
     for at, value in marks:
         if at <= t:
             phase = value
@@ -9831,20 +9832,32 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
     {run: its window}.
 
     A segment is one agent of one run under one of its sessions: its run, name, kind, phase marks, and when it
-    started (a worker's spawn or resume; a root's run `created`) and ended (its run's last `stop`; a run never
-    stopped, its last event, or None while that is under `CACHE_TTL` old). A worker's sessions are its `session` and the ones swaps copied from (`sessions`), an agy one found
+    started (a worker's first spawn or resume in its run; a root's run `created`) and ended (its run's last `stop`;
+    a run never stopped, `CACHE_TTL` after its last event or at the next run in its root's directory). A worker's sessions are its `session` and the ones swaps copied from (`sessions`), an agy one found
     pinned by its first doorbell when none is recorded; a root's also every `reset`'s old and new session.
     """
     segments: dict[str, list[dict]] = {}
     windows: dict[str, dict] = {}
-    for run, folder in all_runs():
+    runs = all_runs()
+    came_from = {(run["id"], name): (entry["resumed_from"].get("run"), entry["resumed_from"].get("name"))
+                 for run, _ in runs for name, entry in run["agents"].items()
+                 if isinstance(entry.get("resumed_from"), dict)}
+
+    def first_name(key: tuple) -> str:
+        """The name an agent had before any resume renamed it (`<name>-2`)."""
+        for _ in range(len(came_from) + 1):
+            if key not in came_from or came_from[key] == key:
+                break
+            key = came_from[key]
+        return key[1]
+
+    for run, folder in runs:
         events = read_log(run["id"], folder)
         stops = [epoch(e.get("time")) for e in events if e.get("event") == "stop"]
-        # A run never stopped ends at its last event, unless that is recent: it is still going.
         last = max((epoch(e.get("time")) for e in events), default=epoch(run.get("created")))
-        end = max(stops) if stops else (None if time.time() - last < CACHE_TTL else last)
-        window = {"start": epoch(run.get("created")), "end": end,
+        window = {"start": epoch(run.get("created")), "end": max(stops) if stops else last + CACHE_TTL,
                   "root": run.get("root"), "cwd": (run["agents"].get(run.get("root")) or {}).get("cwd"),
+                  "stopped": bool(stops),
                   "resets": [epoch(e.get("time")) for e in events if e.get("event") == "reset"]}
         windows[run["id"]] = window
         for name, entry in run["agents"].items():
@@ -9866,9 +9879,16 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
             segment = {"run": run["id"], "name": name, "kind": cost_kind(name, entry, root), "root": root,
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
-                       "agy": entry.get("kind") == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd")}
+                       "agy": entry.get("kind") == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
+                       "who": first_name((run["id"], name))}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)
+    # A run never stopped ends a cache lifetime after its last event, or where the next run in its root's
+    # directory starts, if sooner. A fixed end (never "still open"), so a report doesn't change with the clock.
+    for run_id, window in windows.items():
+        if not window.pop("stopped"):
+            later = [w["start"] for w in windows.values() if w["cwd"] == window["cwd"] and w["start"] > window["start"]]
+            window["end"] = min([window["end"], *later])
     return segments, windows
 
 
@@ -10022,7 +10042,7 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
                 if run_id and segment["run"] != run_id:
                     return None
                 for pr in segment["prs"]:
-                    reviewed.setdefault(pr, set()).add(segment["name"])  # resumed in a later run: still one
+                    reviewed.setdefault(pr, set()).add(segment.get("who") or segment["name"])  # one through resumes
                 return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
             if run_id:
                 return None

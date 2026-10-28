@@ -259,7 +259,13 @@ def test_root_commands_only_count_at_a_command_start(mesh):
     assert mesh.ROOT_COMMAND_RE.search("cd /repo && mesh spawn --task x")
     assert mesh.ROOT_COMMAND_RE.search("mesh approve repo-fix")
     assert mesh.ROOT_COMMAND_RE.search("ls\nmesh watch --any")
+    assert mesh.ROOT_COMMAND_RE.search("for r in a b; do mesh ask $r --body x; done")
+    assert mesh.ROOT_COMMAND_RE.search("if true; then mesh approve repo-fix; fi")
+    assert mesh.ROOT_COMMAND_RE.search("timeout 900 mesh watch --any")
+    assert mesh.ROOT_COMMAND_RE.search("MESH_MIN_QUOTA=20 mesh spawn --repo x")
+    assert mesh.ROOT_COMMAND_RE.search("time mesh ask x --body y")
     assert not mesh.ROOT_COMMAND_RE.search('grep -n "mesh spawn" README.md')
+    assert not mesh.ROOT_COMMAND_RE.search("echo see mesh approve in the docs")
 
 
 def test_an_unstopped_runs_window_ends_at_its_last_event(mesh, capsys):
@@ -284,3 +290,28 @@ def test_a_worker_resumed_in_its_own_run_keeps_its_earlier_calls(mesh, capsys):
         {"time": iso(1), "event": "spawn", "name": "repo-fix"}, {"time": iso(50), "event": "resume", "name": "repo-fix"}])
     transcript(mesh, "/wt", "w", reply(5, "a", output=1000), reply(55, "b", output=1000))
     assert by(cost(mesh, capsys, "mrun")["agents"], "name", "repo-fix")["calls"] == 2
+
+
+def test_calls_before_the_first_phase_mark_have_no_phase(mesh):
+    marks = mesh.phase_marks("repo-fix", worker("w", 50, exec_model="opus", phase="plan"), [])
+    assert [mesh.phase_at(marks, mesh.epoch(iso(m))) for m in (10, 60)] == ["", "plan"]
+
+
+def test_a_reviewer_renamed_on_resume_is_one_reviewer(mesh, capsys):
+    review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7-claude": worker("v", 1, **review)},
+              events=[{"time": iso(30), "event": "stop"}], archived=True)
+    write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7-claude-2": worker(
+        "v2", 60, resumed_from={"run": "mone", "name": "repo-review-7-claude"}, **review)}, created=50)
+    transcript(mesh, "/wt", "v", reply(2, "a", output=1000))
+    transcript(mesh, "/wt", "v2", reply(61, "b", output=1000))
+    reviews = cost(mesh, capsys, "--since", iso(-5))["reviews"]
+    assert reviews["prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
+
+
+def test_an_unstopped_run_ends_where_the_next_run_of_its_root_starts(mesh, capsys):
+    write_run(mesh, "mold", {"repo-lead": root("r1")}, events=[{"time": iso(20), "event": "init"}])
+    write_run(mesh, "mnew", {"repo-lead": root("r1")}, created=40, events=[{"time": iso(40), "event": "init"}])
+    transcript(mesh, "/repo", "r1", reply(10, "a", output=1000), reply(45, "b", output=1000))
+    assert by(cost(mesh, capsys, "mold")["agents"], "name", "repo-lead")["calls"] == 1
+    assert by(cost(mesh, capsys, "mnew")["agents"], "name", "repo-lead")["calls"] == 1
