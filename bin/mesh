@@ -2159,7 +2159,7 @@ def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effor
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
-    """Whether a fresh agy reviewer of this size would run on a model with MESH_MIN_QUOTA% left (Flash for a
+    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (MESH_QUOTA_STOP) (Flash for a
     trivial or small one, the plan chain for a large one), or `model` has (the one a reviewer asked again keeps),
     and why not. Unreadable quotas count as available, as for a spawn (choose_agy_model); agy not installed, or
     no model it can resolve, doesn't."""
@@ -2169,7 +2169,7 @@ def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
         rows = agy_usage()
         names = listing_names(agy_model_listing()) if rows else {}
         quota = model_quota(model, names.get(model, ""), rows) if rows else None
-        if quota is None or quota[0] >= min_quota():
+        if quota is None or quota[0] > min_quota():  # at the reserve it counts as spent, as in choose_agy_model
             return True, ""
         return False, f"{model} has {quota[0]}% left (resets {quota[1]})"
     sized = SIZE_DEFAULTS.get(("agy", size))  # at the effort it would run at: REVIEW_EFFORT, or a plan's
