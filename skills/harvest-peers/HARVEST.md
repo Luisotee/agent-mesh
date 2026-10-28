@@ -30,7 +30,7 @@ Cover the whole range of what we could take, not only new features:
 
 Topics I care about most: <the open questions in this repo right now; its tracker's themes>.
 
-Rank the findings, most valuable first. Say plainly what you could not confirm in the code. Don't pad: three strong findings beat ten weak ones. Change nothing in the clone.
+Rank the findings, most valuable first. Say plainly what you could not confirm in the code. Don't pad: three strong findings beat ten weak ones. Write each one briefly: lead with the result, keep every fact, reason and caveat, and don't narrate your research. Change nothing in the clone.
 
 ## Focus per project
 
@@ -57,7 +57,7 @@ Since <date of the last round>: <a few lines on what landed, each with the file 
 2. **New upstream.** In the commits since you last looked: features, fixes and reverts that matter to us, and why.
 3. **Ideas.** Anything else worth taking, only if it's new against our current code and the list above.
 
-For each finding: what and where in your project, our counterpart (file and function, or none), the case that would go wrong for us (input or sequence of events), verdict adopt / adapt / skip, and rough cost. Rank them, most valuable first. Say plainly what you could not confirm in our code or yours. Nothing new is a fine answer. Change nothing in either checkout.
+For each finding: what and where in your project, our counterpart (file and function, or none), the case that would go wrong for us (input or sequence of events), verdict adopt / adapt / skip, and rough cost. Rank them, most valuable first. Say plainly what you could not confirm in our code or yours. Nothing new is a fine answer. Write briefly: lead with the result, keep every fact, reason and caveat, and don't narrate your research. Change nothing in either checkout.
 
 ## Focus per project
 

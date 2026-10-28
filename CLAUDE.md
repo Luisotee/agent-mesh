@@ -2,17 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
-agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), as a visible herdr pane with two-way messaging. `README.md` is the user-facing overview; `docs/design.md` records why each decision was made and the alternatives that lost. Read the relevant section there before changing behaviour.
+agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing overview; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour.
 
 ## Task tracking
 
-Open work is tracked in `TODO.md`. Tasks are deliberately short summaries; the agent doing a task is expected to think it through and work out the details itself.
+Open work is tracked in `TODO.md`, as deliberately short summaries: the agent doing a task works out the details itself. Check it before starting something that might already be tracked.
 
-Keep it current as part of the same change: remove a task (or tick it) when the work lands, reword it when scope changes, and add a line for any follow-up you discover but don't do now. Check it before starting something that might already be tracked.
+Keep it current in the same change: remove (or tick) a task when the work lands, reword it when scope changes, and add a line for any follow-up you discover but don't do now.
 
 ## Peer projects
 
-If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools similar to agent-mesh, cloned under `~/research/orchestrators`. Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --file q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask <name>-research --body "…"`. They're standing read-only askers that keep their context between asks; `mesh peers` shows each one's `about`.
+If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools like agent-mesh, cloned under `~/research/orchestrators`. They are standing read-only askers that keep their context between asks; `mesh peers` shows each one's `about`. Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --file q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask <name>-research --body "…"`.
 
 - `agents-can-communicate` (asker `agents-can-communica-research`): cross-vendor messages between sessions the user opened, no lead agent. Claude's inbox socket, agy native delivery.
 - `ccswarm`: headless one-shot agents driven by a YAML flow state machine, persona quorum votes as gates. Flow/stage design, quorum review, loop caps.
@@ -36,15 +36,15 @@ uvx pytest -q tests/test_mesh.py::test_name      # one test
 
 To try `bin/mesh` by hand (reviewing a change, say), point `MESH_HOME`, `MESH_WORKTREES` and `MESH_PEERS_DIR` at temp dirs and `MESH_HERDR` (and `MESH_CLAUDE`) at a missing binary, as `tests/conftest.py` does: the defaults are the machine's real run state and herdr's real panes, which every agent uses. A worker that forgets is refused every command but its own (`check_worker`).
 
-There is no build or lint step: `bin/mesh` is one stdlib-only Python 3.10+ script with no dependencies. Keep it stdlib-only.
+There is no build or lint step: `bin/mesh` is one Python 3.10+ script with no dependencies. Keep it stdlib-only.
 
-The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to this checkout**, so whatever branch is checked out is what every agent on the machine runs.
+The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to this checkout**: every agent on the machine runs whatever branch is checked out.
 
 ## Layout and how the pieces fit
 
 - `bin/mesh`: the whole CLI (argparse in the `# ── CLI` section, one `cmd_*` per subcommand). Sections are marked with `# ── name ──` comments: paths, run state, identity, herdr topology, models, sessions, worktrees, messaging, commands, past workers.
-- `protocol/`: Markdown the agents themselves follow, installed as `~/.config/agent-mesh`. `ORCHESTRATE.md` is the root/worker procedure (and the mode table), `PROTOCOL.md` the messaging rules every mesh agent reads, `PLAN_TEMPLATE.md` the plan format. The orchestration is done by agents following these files, not by code, so a behaviour change usually needs both a `bin/mesh` change and a protocol/doc change.
-- `skills/delegate-agy`, `skills/delegate-claude`: the `/delegate-*` entry points. The user can type them, and agents invoke them on their own when a request fits the description (never a worker). They point the root at `ORCHESTRATE.md`.
+- `protocol/`: Markdown the agents follow, installed as `~/.config/agent-mesh`: `ORCHESTRATE.md` the root/worker procedure (and the mode table), `PROTOCOL.md` the messaging rules every mesh agent reads, `PLAN_TEMPLATE.md` the plan format. Agents do the orchestration by following these files, not code, so a behaviour change usually needs both a `bin/mesh` change and a protocol/doc change.
+- `skills/delegate-agy`, `skills/delegate-claude`: the `/delegate-*` entry points, typed by the user or invoked by an agent (never a worker) when a request fits the description. They point the root at `ORCHESTRATE.md`.
 - `skills/delegate-review`: a PR review the user asks for, by any mix of Claude, agy and Copilot (or `all`), run as one review round (`mesh ask --reviewers`). It reads only ORCHESTRATE's "Questions and reviews".
 - `skills/find-peers`: finds projects that share a repo's core mechanisms, ranks them by overlap, and on the user's yes registers them as peers (`mesh peers add`), unbriefed. Root only, any repo.
 - `skills/harvest-peers`: a research round by the peers (first brief or follow-up from `HARVEST.md`, with bug-hunt targets), every finding checked in our code, survivors filed in the tracker on the user's yes. Never run by `find-peers`. Root only.
@@ -52,7 +52,7 @@ The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to th
 - `skills/check-plan`: a worker's self-check of its own draft plan (ORCHESTRATE Worker step 4): verify its claims in the code, attack it, fix the plan. Edits only the plan file, so it runs under the planning deny list; usable by hand in any session.
 - `rules/global-snippet.md`: the block `install.sh` writes between markers into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`.
 
-Core mechanics that span several files. Each bullet is the gist and the names to start from; `docs/design.md` has the why (by section) and, in "Code map", the function-level map of each. Change a mechanism, update both.
+Core mechanics that span several files: each bullet is the gist and the names to start from. `docs/design.md` has the why (by section) and, in "Code map", each one's functions. Change a mechanism, update both.
 
 - **Run state** lives in `$MESH_HOME/<run>/` (default `~/.local/state/agent-mesh`): `run.json` (agents, models history, worktrees), per-agent mailboxes, `log.jsonl` events, and the `RUN_FOLDERS` agents write into (`plans/`, `reports/`, `tasks/`). Mutate it only through `editing_run(run_id)` (locked, atomic write); `editing_run(run_id, folder)` edits an archived run.
 - **Mailbox plus doorbell** (design §3): `mesh send` writes the message file first, then `deliver` types a one-line `📬 [mesh]` doorbell into the recipient's pane via `herdr agent prompt` (`ring_stored`), retrying until its fresh `(ref <token>)` shows above the input box, and never into a human's draft (`human_draft`, per-pane `ring_lock`). A lost doorbell loses nothing. `main` runs `check_worker` first: a worker of a live run runs only `WORKER_COMMANDS` and sends only to its parent (design §10).
@@ -77,12 +77,12 @@ Core mechanics that span several files. Each bullet is the gist and the names to
 
 ## Conventions the design depends on
 
-- Model changes happen only by reopening the same conversation (approve / switch / resume), never by briefing a fresh worker: the point is to keep the worker's research context. Reject designs that add delegation tiers or cold hand-offs.
+- Model changes happen only by reopening the same conversation (approve / switch / resume), never by briefing a fresh worker, to keep the worker's research context. Reject designs that add delegation tiers or cold hand-offs.
 - The mesh is process-agnostic: protocol files never name a tracker, branch convention or repo-specific process; workers follow their repo's own rules.
 - Skills name model **families** (`argon`, `flash`, `opus`, `sonnet`), resolved to the newest id from `agy models`; don't hard-code model ids.
 - `mesh resume` / `mesh open` refuse a worker that is still running (one process per conversation); `open` attaches to a running background worker instead. `mesh stop` stops background workers (never `claude rm`), removes only clean worktrees and keeps every branch that has a commit or an upstream (an untouched one is deleted and recreated from its recorded `base` on resume).
 - Keep README, `ORCHESTRATE.md`, the skill descriptions and `docs/design.md` in sync when defaults (models, efforts, exit codes) change.
-- Keep this file at most 24,000 bytes: agy truncates a rule file past that, and `AGENTS.md` is a symlink to it (`tests/test_docs.py` checks both). Detail goes in `docs/design.md` (its "Code map" for function names), with a gist here.
+- Keep this file at most 24,000 bytes: agy truncates a rule file past that, and `AGENTS.md` is a symlink to it (`tests/test_docs.py` checks both). Put detail in `docs/design.md` (function names in its "Code map") and a gist here.
 
 ## Tests
 
