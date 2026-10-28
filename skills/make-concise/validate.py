@@ -5,15 +5,17 @@
 
 BEFORE and AFTER are two files, or two directories: every file under BEFORE is
 compared with the file at the same relative path under AFTER. Text moved out of
-a file counts as kept when it is in any AFTER file, or in an --also file (a new
-document the detail moved to).
+a file counts as kept when it is new in another AFTER file, or is in an --also
+file (a new document the detail moved to).
 
 Errors (exit 1): a fenced block missing or changed; a marked block changed or
 missing; an inline code span, URL, path or `@` import of BEFORE found in no
 AFTER file; a --keep text that BEFORE has and AFTER lacks; a rules file
-(CLAUDE.md, AGENTS.md, GEMINI.md) over --limit bytes. Warnings (exit 0): a bare
-file name gone (`Next.js` looks like one), new code spans, URLs or paths, a
-removed heading, a file that grew. Exit 2 is a usage error. Stdlib only.
+(CLAUDE.md, AGENTS.md, GEMINI.md) over --limit bytes; a file that isn't UTF-8.
+Warnings (exit 0): a bare file name gone (`Next.js` looks like one), text kept
+only in another file that already had it, new code spans, URLs, paths or file
+names, a removed heading, changed line endings, a file that grew. Exit 2 is a
+usage error. Stdlib only.
 """
 import argparse
 import re
@@ -24,39 +26,47 @@ from pathlib import Path
 AGY_RULE_LIMIT = 24_000  # bytes; agy truncates a rule file past this
 RULE_FILES = {"claude.md", "agents.md", "gemini.md"}
 
-FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+FENCE_OPEN = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 MARKER = re.compile(
     r"<!--\s*(?:(?P<kw1>begin|end)\s*:\s*(?P<name1>[\w.-]+)|(?P<name2>[\w.-]+)\s*:\s*(?P<kw2>begin|end)\b)[^>]*?-->",
     re.IGNORECASE)
-# a span may wrap across lines, but not across a blank line (a new paragraph)
-CODE_SPAN = re.compile(r"(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
+# a span may wrap across lines, but not into a new block: a blank line, a list item, a heading or a quote
+BLOCK_START = r"\r?\n[ \t]*(?:\r?\n|[-*+][ \t]|\d+[.)][ \t]|#|>)"
+CODE_SPAN = re.compile(r"(`+)(?!`)((?:(?!" + BLOCK_START + r").)+?)(?<!`)\1(?!`)", re.DOTALL)
 URL = re.compile(r"https?://[^\s<>()\[\]`'\"]+")
 IMPORT = re.compile(r"(?:^|\s)@([~./\w-]\S*)", re.MULTILINE)
 WORD = re.compile(r"[^\s()\[\]{}<>\"'`,;:!?*|]+")
 EXT = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,5}$")
 HEADING = re.compile(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 TRAILING = ".,;:)!?"
+TOKEN_KINDS = (("inline code", "spans"), ("URL", "urls"), ("path", "paths"), ("@ import", "imports"))
 
 
 def read(path):
-    return Path(path).read_bytes().decode("utf-8")  # no newline translation: CRLF stays CRLF
+    """The file's text with its line endings as they are (CRLF stays CRLF), or None if it isn't UTF-8."""
+    try:
+        return Path(path).read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def fenced_blocks(text):
-    """(fence-less text, [block, ...]): each block is its opener line through its closer, no final newline."""
+    """(fence-less text, [block, ...]): each block is its opener line through its closer, dedented by
+    the opener's indentation and without its final newline."""
     lines = text.splitlines(keepends=True)
     prose, blocks, i = [], [], 0
     while i < len(lines):
-        m = FENCE_OPEN.match(lines[i].rstrip("\r\n"))
-        if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
+        m = FENCE_OPEN.match(lines[i].rstrip("\n"))
+        if not m or (m.group(2)[0] == "`" and "`" in m.group(3)):
             prose.append(lines[i])
             i += 1
             continue
-        fence, j = m.group(1), i + 1
+        indent, fence, j = len(m.group(1)), m.group(2), i + 1
         close = re.compile(r"^\s*" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*$")
-        while j < len(lines) and not close.match(lines[j].rstrip("\r\n")):
+        while j < len(lines) and not close.match(lines[j].rstrip("\n")):
             j += 1
-        blocks.append("".join(lines[i:j + 1]).rstrip("\r\n"))
+        body = [re.sub(r"^[ \t]{0,%d}" % indent, "", line) for line in lines[i:j + 1]]
+        blocks.append("".join(body).rstrip("\n"))
         prose.append("\n")
         i = j + 1
     return "".join(prose), blocks
@@ -89,10 +99,6 @@ def path_kind(word):
     return None
 
 
-def is_path(word):
-    return path_kind(word.rstrip(".")) is not None
-
-
 @dataclass
 class Facts:
     fences: list = field(default_factory=list)
@@ -103,6 +109,7 @@ class Facts:
     names: set = field(default_factory=set)
     imports: set = field(default_factory=set)
     headings: list = field(default_factory=list)
+    crlf: bool = False
 
     @property
     def tokens(self):
@@ -111,12 +118,14 @@ class Facts:
 
 
 def facts(text):
+    crlf = "\r\n" in text
+    text = text.replace("\r\n", "\n")  # line endings are compared once, as a warning
     marked = marked_blocks(text)
     for blocks in marked.values():  # compared whole, so left out of the other checks
         for block in blocks:
             text = text.replace(block, "\n")
     prose, fences = fenced_blocks(text)
-    spans = {" ".join(m.group(2).split()) for m in CODE_SPAN.finditer(prose)}
+    spans = {re.sub(r"[ \t]*\n[ \t]*", " ", m.group(2)).strip() for m in CODE_SPAN.finditer(prose)}
     bare = URL.sub(" ", CODE_SPAN.sub(" ", prose))
     words = [w.rstrip(".") for w in WORD.findall(bare)]
     imports = {i.rstrip(TRAILING) for i in IMPORT.findall(bare)}
@@ -127,18 +136,40 @@ def facts(text):
         names={w for w in words if path_kind(w) == "name"},
         imports={"@" + i for i in imports if "/" in i or EXT.search(i)},
         headings=[h.strip() for h in HEADING.findall(prose)],
+        crlf=crlf,
     )
 
 
-def compare(name, before, after, keep=(), limit=AGY_RULE_LIMIT, elsewhere=None):
-    """(errors, warnings) for one file's rewrite. `elsewhere` is the Facts of every other AFTER text,
-    where moved text counts as kept."""
+def union(many):
+    """One Facts holding the tokens and fences of several."""
+    out = Facts()
+    for f in many:
+        out.fences += f.fences
+        for attr in ("spans", "urls", "paths", "names", "imports"):
+            getattr(out, attr).update(getattr(f, attr))
+    return out
+
+
+def compare(name, before, after, keep=(), limit=AGY_RULE_LIMIT, moved=None, others=None, seen=None):
+    """(errors, warnings) for one file's rewrite.
+
+    moved: Facts of what is new in the other AFTER files or in --also files: text gone from this file
+    and found there was moved, so it's kept. others: {name: Facts} of the other AFTER files: text found
+    there but not moved was deduplicated into them, a warning. seen: Facts of every BEFORE file, so a
+    token moved between files isn't reported as added."""
     old, new = facts(before), facts(after)
-    kept_tokens = new.tokens | (elsewhere.tokens if elsewhere else set())
-    kept_fences = set(new.fences) | set(elsewhere.fences if elsewhere else ())
+    moved, others, seen = moved or Facts(), others or {}, seen or old
     errors, warnings = [], []
+
+    def where(item, attr):
+        return next((n for n, f in others.items() if item in getattr(f, attr)), None)
+
     for block in old.fences:
-        if block not in kept_fences:
+        if block in new.fences or block in moved.fences:
+            continue
+        if holder := where(block, "fences"):
+            warnings.append(f"fenced block kept only in {holder}: {_preview(block)}")
+        else:
             errors.append(f"fenced block missing or changed: {block.splitlines()[0].strip()} {_preview(block)}")
     for marker, blocks in old.marked.items():
         now = new.marked.get(marker, [])
@@ -146,11 +177,17 @@ def compare(name, before, after, keep=(), limit=AGY_RULE_LIMIT, elsewhere=None):
             errors.append(f"marked block {marker!r} missing")
         elif now != blocks:
             errors.append(f"marked block {marker!r} changed (must stay byte-identical)")
-    for label, attr in (("inline code", "spans"), ("URL", "urls"), ("path", "paths"), ("@ import", "imports")):
-        errors += [f"{label} missing: {item}" for item in sorted(getattr(old, attr) - kept_tokens)]
-    warnings += [f"file name missing: {item}" for item in sorted(old.names - kept_tokens)]
-    for label, attr in (("inline code", "spans"), ("URL", "urls"), ("path", "paths"), ("@ import", "imports")):
-        warnings += [f"{label} added: {item}" for item in sorted(getattr(new, attr) - old.tokens)]
+    kept = new.tokens | moved.tokens
+    for label, attr in TOKEN_KINDS + (("file name", "names"),):
+        for item in sorted(getattr(old, attr) - kept):
+            if holder := where(item, "tokens"):
+                warnings.append(f"{label} kept only in {holder}: {item}")
+            elif attr == "names":
+                warnings.append(f"file name missing: {item}")
+            else:
+                errors.append(f"{label} missing: {item}")
+    for label, attr in TOKEN_KINDS + (("file name", "names"),):
+        warnings += [f"{label} added: {item}" for item in sorted(getattr(new, attr) - old.tokens - seen.tokens)]
     for text in keep:
         if text in before and text not in after:
             errors.append(f"kept text missing: {text}")
@@ -158,20 +195,11 @@ def compare(name, before, after, keep=(), limit=AGY_RULE_LIMIT, elsewhere=None):
     if Path(name).name.lower() in RULE_FILES and size > limit:
         errors.append(f"{size} bytes, over the {limit}-byte limit (agy truncates a rules file past it)")
     warnings += [f"heading removed: {h}" for h in old.headings if h not in new.headings]
+    if old.crlf != new.crlf:
+        warnings.append(f"line endings changed ({'CRLF' if old.crlf else 'LF'} -> {'CRLF' if new.crlf else 'LF'})")
     if size > len(before.encode()):
         warnings.append("the file grew")
     return errors, warnings
-
-
-def merged(texts):
-    """One Facts holding the tokens and fences of several texts."""
-    out = Facts()
-    for text in texts:
-        f = facts(text)
-        out.fences += f.fences
-        for attr in ("spans", "urls", "paths", "names", "imports"):
-            getattr(out, attr).update(getattr(f, attr))
-    return out
 
 
 def _preview(block):
@@ -202,18 +230,35 @@ def main(argv=None):
         ap.error("BEFORE and AFTER must both be files or both directories")
     if missing := [str(p) for p in args.also if not p.is_file()]:
         ap.error(f"--also file not found: {', '.join(missing)}")
-    todo = pairs(args.before, args.after)
-    afters = {new: read(new) for _, _, new in todo if new.is_file()}
-    extra = [read(p) for p in args.also]
+
     failed = False
-    for name, old, new in todo:
-        if new not in afters:
+    texts = {}  # name -> (before text, after text), facts computed once each
+    for name, old, new in pairs(args.before, args.after):
+        if not new.is_file():
             print(f"{name}: ERROR missing after the rewrite")
             failed = True
-            continue
-        before, after = read(old), afters[new]
-        elsewhere = merged([t for p, t in afters.items() if p != new] + extra)
-        errors, warnings = compare(name, before, after, args.keep, args.limit, elsewhere)
+        elif None in (pair := (read(old), read(new))):
+            print(f"{name}: ERROR not UTF-8")
+            failed = True
+        else:
+            texts[name] = pair
+    also = []
+    for path in args.also:
+        if (text := read(path)) is None:
+            print(f"{path}: ERROR not UTF-8")
+            failed = True
+        else:
+            also.append(facts(text))
+    olds = {n: facts(b) for n, (b, _) in texts.items()}
+    news = {n: facts(a) for n, (_, a) in texts.items()}
+    seen = union(olds.values())
+    for name, (before, after) in texts.items():
+        others = {n: f for n, f in news.items() if n != name}
+        fresh = [Facts(fences=[b for b in f.fences if b not in olds[n].fences],
+                       **{a: getattr(f, a) - olds[n].tokens for a in ("spans", "urls", "paths", "names", "imports")})
+                 for n, f in others.items()]
+        errors, warnings = compare(name, before, after, args.keep, args.limit,
+                                   moved=union(fresh + also), others=others, seen=seen)
         b, a = len(before.encode()), len(after.encode())
         print(f"{name}: {b} -> {a} bytes ({(a - b) / b * 100 if b else 0:+.0f}%)")
         for e in errors:

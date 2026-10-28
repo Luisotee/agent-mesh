@@ -87,9 +87,10 @@ def test_a_dropped_import_fails():
 
 
 def test_slash_words_are_not_paths():
-    assert not v.is_path("and/or") and not v.is_path("Claude/agy") and not v.is_path("1/2")
-    assert v.is_path("~/x") and v.is_path("src/") and v.is_path("a/b/c") and v.is_path("run.json")
-    assert not v.is_path("e.g.") and not v.is_path("1.5")
+    k = v.path_kind
+    assert k("and/or") is k("Claude/agy") is k("1/2") is k("e.g") is k("1.5") is k("@a/b.md") is None
+    assert k("~/x") == k("src/") == k("a/b/c") == k("./x") == k("docs/x.md") == "path"
+    assert k("run.json") == k("Next.js") == "name"
 
 
 @pytest.mark.parametrize("begin,end", [
@@ -199,7 +200,7 @@ def test_a_code_span_may_wrap_across_lines():
 
 
 def test_crlf_is_read_as_is(tmp_path):
-    """C4: CRLF isn't translated, so sizes are real and a marked block that lost its CRs is changed."""
+    """C4, H: CRLF isn't translated, so sizes are real; a CRLF -> LF rewrite is one warning, not a changed block."""
     block = "<!-- BEGIN:x -->\r\nkeep\r\n<!-- END:x -->"
     old, new = tmp_path / "old.md", tmp_path / "AGENTS.md"
     old.write_bytes(f"Intro.\r\n{block}\r\n".encode())
@@ -208,7 +209,63 @@ def test_crlf_is_read_as_is(tmp_path):
     assert out.returncode == 0 and f"{len(old.read_bytes())} -> {len(new.read_bytes())} bytes" in out.stdout
     new.write_bytes(f"Intro.\n{block.replace(chr(13), '')}\n".encode())
     out = run(old, new)
-    assert out.returncode == 1 and "marked block 'x' changed" in out.stdout
+    assert out.returncode == 0 and "warn  line endings changed (CRLF -> LF)" in out.stdout
+    assert f"-> {len(new.read_bytes())} bytes" in out.stdout
+
+
+def test_crlf_to_lf_keeps_fences_and_spans():
+    """H, A: fences and spans compare across line endings; a CRLF blank line still ends a span."""
+    before = "Run `make\r\n  all`.\r\n\r\n```\r\nmake\r\n```\r\n"
+    errors, warnings = check(before.replace("\r\n", "\n"), before=before)
+    assert errors == [] and warnings == ["line endings changed (CRLF -> LF)"]
+    assert "b c" not in v.facts("a `b\r\n\r\nc` d\r\n").spans
+
+
+def test_a_span_does_not_pair_across_list_items_or_headings():
+    """B: a stray backtick in one list item doesn't swallow the next item."""
+    f = v.facts("- item ` one\n- item two `x`\n# Head ` y\n> quote `z`\n")
+    assert f.spans == {"x", "z"}
+
+
+def test_a_reindented_fence_is_unchanged():
+    """C: a fence moved in or out of a list item is the same block."""
+    before = "1. Run:\n\n   ```bash\n   make all\n   ```\n"
+    assert check("Run:\n\n```bash\nmake all\n```\n", before=before)[0] == []
+
+
+def test_spaces_inside_a_span_are_compared():
+    """E: only a line break (and its indent) inside a span is collapsed."""
+    assert v.facts("`a  b` and `c\n   d`").spans == {"a  b", "c d"}
+    assert check("`a b`\n", before="`a  b`\n")[0] == ["inline code missing: a  b"]
+
+
+def test_an_invented_file_name_warns():
+    """F."""
+    assert "file name added: setup.cfg" in check(AFTER + "See setup.cfg.\n")[1]
+
+
+def test_dedup_into_a_file_that_had_it_warns_and_moves_dont_add(tmp_path):
+    """D, G: a token deleted where another file already had it is 'kept only in'; a token moved
+    between rewritten files is neither missing nor added."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    before.mkdir(), after.mkdir()
+    (before / "AGENTS.md").write_text("Run `make` and `lint`.\n")
+    (before / "CLAUDE.md").write_text("Run `make`. See docs/a.md.\n")
+    (after / "AGENTS.md").write_text("Run `lint`. See docs/a.md.\n")
+    (after / "CLAUDE.md").write_text("Run `make`.\n")
+    out = run(before, after)
+    assert out.returncode == 0, out.stdout
+    assert "warn  inline code kept only in CLAUDE.md: make" in out.stdout
+    assert "added" not in out.stdout and "missing" not in out.stdout
+
+
+def test_a_file_that_is_not_utf8_is_an_error(tmp_path):
+    """J."""
+    old, new = tmp_path / "old.md", tmp_path / "CLAUDE.md"
+    old.write_text("hi\n")
+    new.write_bytes(b"caf\xe9\n")
+    out = run(old, new)
+    assert out.returncode == 1 and "ERROR not UTF-8" in out.stdout and "Traceback" not in out.stderr
 
 
 def test_every_marked_block_of_a_name_is_checked():
@@ -223,7 +280,7 @@ def test_every_marked_block_of_a_name_is_checked():
 def test_an_indented_fence_is_a_fence():
     """C6: a fence nested in a list item (indented 4+ spaces) is compared too."""
     before = "1. Run:\n\n       ```bash\n       make all\n       ```\n"
-    assert v.fenced_blocks(before)[1] == ["       ```bash\n       make all\n       ```"]
+    assert v.fenced_blocks(before)[1] == ["```bash\nmake all\n```"]  # dedented by the opener's indent
     errors, _ = check("1. Run:\n\n       ```bash\n       make\n       ```\n", before=before)
     assert len(errors) == 1 and "fenced block" in errors[0]
 
