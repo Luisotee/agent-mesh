@@ -1,14 +1,12 @@
 ---
 name: find-peers
 description: >-
-  Finds open-source projects that share a repo's core mechanisms, to learn from their code, history and issues:
-  characterizes the repo, searches GitHub, awesome lists, plugin directories and the web, ranks the candidates by
-  mechanism overlap rather than stars, shows you the shortlist, and on your yes registers each one as a standing
-  agent-mesh peer (`mesh peers add`, with an `about`), unbriefed. Use it, whether the user types /find-peers or not, when
-  the user wants similar projects, competitors or prior art to copy ideas from ("find peer projects", "who else solves
-  this", "survey tools like this one", "find projects to learn from"). Not for briefing or asking peers already
-  registered (that's /harvest-peers for a research round, /delegate-claude or /delegate-agy for one question), and never
-  when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
+  Finds open-source projects that share a repo's core mechanisms, to learn from their code and history: searches GitHub,
+  awesome lists and the web, ranks by mechanism overlap rather than stars, shows you the shortlist, and on your yes
+  registers each as an agent-mesh peer, unbriefed. Use it, typed or not, when the user wants similar projects,
+  competitors or prior art ("find peer projects", "who else solves this", "find projects to learn from"). Not for asking
+  registered peers (/harvest-peers for a round, /delegate-claude or /delegate-agy for one question), or a mesh worker
+  (your task came by a `📬 [mesh]` doorbell).
 argument-hint: "[repo path (default: this one)] [what to focus on]"
 ---
 

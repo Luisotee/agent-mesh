@@ -1,15 +1,14 @@
 ---
 name: delegate-review
 description: >-
-  agent-mesh: gets a pull request reviewed by one or more other agents, Claude, agy and Copilot, each running inside the
-  PR's repo with its rules loaded and the PR head checked out. They change nothing and post nothing; you get their
-  findings merged, each checked against the code, and reviewers you can ask again. Defaults to the current branch's PR
-  and to reviewers by the PR's size: Claude plus agy, or all three (Claude, agy and Copilot) for a large or risky PR, and
-  Claude plus agy again for a large PR's re-review after a fix (a small PR gets one round); `all` is all three. Use it,
-  whether the user types /delegate-review or not, for any PR review the user asks for, their own PR included
-  ("review my PR", "have Copilot review PR 42", "second opinion from Gemini and GPT on this PR"). Vendor words name
-  reviewers: Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the reviews a
-  `/delegate-*` run gives its own workers' PRs, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
+  agent-mesh: gets a pull request reviewed by other agents (Claude, agy, Copilot), each inside the PR's repo at the PR
+  head; they change and post nothing, and you get their findings merged and checked against the code. Defaults to the
+  current branch's PR and to reviewers by the PR's size: Claude plus agy, or all three (Claude, agy and Copilot) for a
+  large or risky PR, and Claude plus agy again for a large PR's re-review after a fix (a small PR gets one round); `all`
+  is all three. Use it, typed or not, for any PR review the user asks for, their own included ("review my PR", "have
+  Copilot review PR 42", "second opinion from Gemini and GPT"). Gemini, Flash, Argon → agy; GPT, Copilot → copilot;
+  Opus, Sonnet, Fable → claude. Not for the reviews a `/delegate-*` run gives its own workers' PRs, or a mesh worker
+  (your task came by a `📬 [mesh]` doorbell).
 argument-hint: "[all | claude agy copilot (any of them)] [PR link or number]"
 ---
 

@@ -1,11 +1,10 @@
 ---
 name: check-plan
 description: >-
-  Checks a plan you wrote against the code before you send it or act on it: verifies its load-bearing claims, labels
-  each one fact or guess, searches once for prior art, finds the strongest objection and the cheapest check for it,
-  gives a verdict (GO / FIX / RETHINK), then fixes the plan and puts the open risks in it. Use it as a mesh worker
-  before you first send a plan, and again after a substantive revision (not on an unchanged re-send), and whenever the user asks you to check, stress-test, question or grill your own plan.
-  It writes nothing but the plan and asks the user nothing. Not for reviewing someone else's plan or a PR.
+  Checks a plan you wrote against the code before you send it or act on it: verifies its load-bearing claims, finds the
+  strongest objection, gives a verdict (GO / FIX / RETHINK) and fixes the plan. Use it as a mesh worker before you first
+  send a plan and after a substantive revision, and whenever the user asks you to check, stress-test, question or grill
+  your own plan. Edits only the plan. Not for reviewing someone else's plan or a PR.
 argument-hint: "[plan file; empty: the plan you just wrote]"
 ---
 

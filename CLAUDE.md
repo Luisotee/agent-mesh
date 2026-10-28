@@ -48,6 +48,7 @@ The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to th
 - `skills/delegate-review`: a PR review the user asks for, by any mix of Claude, agy and Copilot (or `all`), run in parallel with one `mesh ask` each. It reads only ORCHESTRATE's "Questions and reviews".
 - `skills/find-peers`: finds projects that share a repo's core mechanisms, ranks them by overlap, and on the user's yes registers them as peers (`mesh peers add`), unbriefed. Root only, any repo.
 - `skills/harvest-peers`: a research round by the peers (first brief or follow-up from `HARVEST.md`, with bug-hunt targets), every finding checked in our code, survivors filed in the tracker on the user's yes. Never run by `find-peers`. Root only.
+- `skills/make-concise`: rewrites a repo's rules files concisely without dropping a rule, run by that repo's own agent; `validate.py` (stdlib, tested in `tests/test_make_concise.py`) fails on a lost fence, marked block, code span, URL, path or `@` import, or a rules file over 24,000 bytes.
 - `skills/check-plan`: a worker's self-check of its own draft plan (ORCHESTRATE Worker step 4): verify its claims in the code, attack it, fix the plan. Edits only the plan file, so it runs under the planning deny list; usable by hand in any session.
 - `rules/global-snippet.md`: the block `install.sh` writes between markers into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`.
 
