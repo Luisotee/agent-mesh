@@ -77,7 +77,7 @@ Savings are per week at the baseline's volume, in API-equivalent dollars. "Check
 | 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise; templates and repos pending) | |
 | 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | |
 | 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | | |
-| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | | |
+| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | |
 
 Total expected: roughly $250–350 a week, 15–20% of the baseline.
 
