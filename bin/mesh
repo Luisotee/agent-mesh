@@ -2131,6 +2131,10 @@ def claude_at_reserve(usage: dict | None, model: str | None = None) -> tuple[str
                 None)
 
 
+def agy_hit_text(model: str, hit: tuple[int, str]) -> str:
+    return f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"
+
+
 def claude_hit_text(key: str, window: dict) -> str:
     return f"Claude is at {window['used']:.0f}% of its {CLAUDE_WINDOWS[key]} (resets {reset_text(window['resets'])})"
 
@@ -2174,7 +2178,7 @@ def reserve_hit(kind: str | None, model: str | None = None, effort: str | None =
     elif kind == "agy" and model:
         hit = agy_at_reserve(model, effort)
         if hit:
-            return f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"
+            return agy_hit_text(model, hit)
     return None
 
 
@@ -3454,7 +3458,13 @@ def command_table() -> list[dict]:
         words = command.split()
         # A binary's path may hold spaces (macOS `Application Support`): its first word naming a CLI ends it.
         end = next((i for i, w in enumerate(words) if Path(w).name in (*AGENT_BINARIES, *INTERPRETERS)), 0)
-        table.append({"pid": int(pid), "argv": [" ".join(words[:end + 1]), *words[end + 1:]] if words else []})
+        argv = [" ".join(words[:end + 1])] if words else []
+        if words and Path(words[end]).name in INTERPRETERS:  # `node /Application Support/…/claude attach b1`
+            script = next((j for j in range(end + 1, len(words)) if Path(words[j]).name in AGENT_BINARIES), end)
+            if script > end:
+                argv.append(" ".join(words[end + 1:script + 1]))
+                end = script
+        table.append({"pid": int(pid), "argv": [*argv, *words[end + 1:]]})
     return table
 
 
@@ -5458,6 +5468,7 @@ class Watch:
         self.retire_held: str | None = None  # the report (its file) whose retire a viewer held, logged once
         self.gone_polls = 0  # the run's retirer: polls in a row it read this worker gone (retire_poll)
         self.gone_after: str | None = None  # ...and the report after which it let it go as ended
+        self.continue_failed: str | None = None  # the `continue_due` whose delivery this watch saw fail, logged once
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -5480,8 +5491,11 @@ class Watch:
             try:
                 if continue_worker(run_id, name, entry, state, events) == "continued":
                     return None  # continued at its reset: judged afresh from the next poll
-            except (MeshError, OSError):
-                pass  # tried again at the next poll, as the retirer does
+            except (MeshError, OSError) as exc:  # tried again at the next poll, as the retirer does
+                due = due_continue(events, name) or {}
+                if self.continue_failed != due.get("id"):
+                    self.continue_failed = due.get("id")
+                    log_event(run_id, "continue_failed", name=name, id=due.get("id"), error=str(exc)[-300:])
         if entry.get("held") and release_held(run_id, name, entry, state):
             return None  # at the startup screen its start already reported (exit 4), or its doorbell just rang
         if (state == "gone" and self.reopening < SWAP_GRACE
@@ -6003,7 +6017,7 @@ def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str]
             hits.append((f"claude:{key}:{str(window['resets'])[:16]}", "Claude", claude_hit_text(key, window)))
     for model, effort in sorted({(e["model"], e.get("effort")) for e in live if e.get("kind") == "agy" and e.get("model")}):
         if hit := agy_at_reserve(model, effort):
-            hits.append((f"agy:{model}:{hit[1]}", "agy", f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"))
+            hits.append((f"agy:{model}:{hit[1]}", "agy", agy_hit_text(model, hit)))
     seen = {e.get("key") for e in events if e.get("event") == "reserve"}
     for key, vendor, what in hits:
         if key in seen or not what:
@@ -6255,7 +6269,8 @@ def claude_limit_reset(model: str | None = None) -> float | None:
     """When Claude's spent window (for `model`) resets, the latest of those at 100%, from its usage; None if none
     is or it's unknown."""
     windows = claude_windows_for(claude_usage(), model).values()
-    resets = [epoch(w["resets"]) for w in windows if w["used"] >= 100 and w.get("resets")]
+    # A reset already past is a stale reading's (a cache), not this limit's: the caller then has other sources.
+    resets = [epoch(w["resets"]) for w in windows if w["used"] >= 100 and epoch(w.get("resets")) > time.time()]
     return max(resets, default=None)
 
 
@@ -8067,7 +8082,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     elif peer:
         reserve_guard(own_run, peer.get("kind") or "claude", peer.get("model"), None, f"a question for {args.ref}")
     elif not copilot and (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
-        reserve_guard(own_run, "claude", args.model, args.effort, f"an asker in {repo.name}")
+        reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else PLAN_CHAIN["claude"][0],
+                      args.effort, f"an asker in {repo.name}")
     # a Copilot asker's run is in the root's own mode
     run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
@@ -8273,8 +8289,9 @@ def ask_peers(args: argparse.Namespace) -> int:
     own_run = (quietly(identity, args) or (None,))[0]  # the reserve, before a run is made
     for peer in sorted(names):
         entry = registry[peer] if isinstance(registry[peer], dict) else {}
-        reserve_guard(own_run, entry.get("kind") or "claude", entry.get("model"), None,
-                      f"the askers of {', '.join(names)}")
+        worker = (quietly(peer_worker, peer, entry) or (None, None, None, {}))[3]  # its last conversation's model
+        reserve_guard(own_run, worker.get("kind") or entry.get("kind") or "claude", worker.get("model"),
+                      worker.get("effort"), f"the askers of {', '.join(names)}")
     run_id, me = ask_identity(args, body, None)
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run
@@ -9777,7 +9794,8 @@ def cmd_usage(args: argparse.Namespace) -> int:
         emit({"claude": claude, "rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
               "notes": notes, "quota_stop": quota_stop(), "min_quota": min_quota()})
         return 0
-    print(f"Claude: {claude_usage_text(claude)}" + (" — at the reserve" if claude_at_reserve(claude) else ""))
+    spent = [CLAUDE_WINDOWS[k] for k, w in ((claude or {}).get("windows") or {}).items() if w["used"] >= quota_stop()]
+    print(f"Claude: {claude_usage_text(claude)}" + (f" — at the reserve: {', '.join(spent)}" if spent else ""))
     if rows:
         print()
         print_table(rows, ("group", "label", "left", "resets"))
@@ -9911,6 +9929,8 @@ def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) ->
                     text = content if isinstance(content, str) else " ".join(
                         c.get("text") or "" for c in content or [] if isinstance(c, dict))
                     text = text.lstrip()
+                    if mesh_seen and text.startswith("[Request interrupted"):
+                        return False  # the turn before the mesh prompt ended there
                     if not text or text.startswith(("[Request interrupted", "<local-command")):
                         continue
                     if text.startswith("📬 [mesh]"):

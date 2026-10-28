@@ -10611,3 +10611,52 @@ def test_a_refused_ask_makes_no_run(mesh, fake, repo, monkeypatch, capsys):
     assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--body", "Where is X?"]) == 1
     assert "Claude is at 95%" in capsys.readouterr().err
     assert not [p for p in mesh.mesh_home().glob("*/run.json")]
+
+
+# ── PR #76 re-review ─────────────────────────────────────────────────────
+
+
+def test_a_window_whose_reset_has_passed_gives_no_reset_time(mesh, monkeypatch):
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    soon = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {"five_hour": {"utilization": 100, "resets_at": past}})
+    assert mesh.claude_limit_reset() is None  # a stale reading: parse_reset, then the 5 h fallback decide
+    (mesh.mesh_home() / "claude-usage.json").unlink()
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {"five_hour": {"utilization": 100, "resets_at": soon}})
+    assert mesh.claude_limit_reset() == mesh.epoch(soon)
+
+
+def test_usage_names_the_windows_at_the_reserve(mesh, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {
+        "five_hour": {"utilization": 20, "resets_at": None},
+        "seven_day_opus": {"utilization": 95, "resets_at": None}})
+    assert mesh.main(["usage"]) == 0
+    assert "at the reserve: weekly Opus window" in capsys.readouterr().out
+
+
+def test_ps_keeps_a_script_path_with_spaces_after_its_interpreter(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "has_proc", lambda: False)
+    monkeypatch.setattr(mesh.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, stdout=(
+        "  612 node /Users/me/Library/Application Support/npm/bin/claude attach b1\n"), stderr=""))
+    [row] = mesh.command_table()
+    assert row["argv"] == ["node", "/Users/me/Library/Application Support/npm/bin/claude", "attach", "b1"]
+    assert mesh.viewer("repo-fix-typo", {"view": "bg", "bg_id": "b1"}) == "attached (`claude attach`, pid 612)"
+
+
+def test_an_interrupt_before_a_doorbell_ends_the_users_turn(mesh, tmp_path):
+    path = tmp_path / "s.jsonl"
+    end = json.dumps({"type": "assistant", "message": {"stop_reason": "end_turn", "content": []}})
+    path.write_text("\n".join([prompt_line("Review PR 31", "human"), prompt_line("[Request interrupted by user]"),
+                               prompt_line("📬 [mesh] done from x", "peer", meta=True), end]) + "\n")
+    assert mesh.last_turn_by_user(path) is False
+
+
+def test_a_failing_continue_in_the_watch_is_logged_once(mesh, fake, run, monkeypatch):
+    limited_worker(mesh, run, monkeypatch)
+    monkeypatch.setattr(mesh, "continue_worker", lambda *a: (_ for _ in ()).throw(mesh.MeshError("herdr down")))
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    for _ in range(3):
+        watch.tick(5)
+    failed = [e for e in mesh.read_log(run) if e["event"] == "continue_failed"]
+    assert len(failed) == 1 and "herdr down" in failed[0]["error"]
