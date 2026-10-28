@@ -5433,6 +5433,10 @@ class Watch:
             return None
         run_id, name = self.run_id, self.name
         received, sent, at = since_last_task(events, name)
+        if not received or not gone_counts(entry):
+            # No task or answer in this run (a peer reopened for an ask, before it is asked: its transcript is the
+            # last ask's), or being reopened: herdr names the new pane before its CLI runs in it.
+            return None
         if sent or alerted(events, name, received, "hung"):
             return None  # it reported (herdr's `working` may be stale); or this task was already alerted on
         progress = last_progress(entry, self.conversation(entry))

@@ -2026,6 +2026,24 @@ def test_a_working_registration_over_a_bare_shell_is_gone(mesh, fake, run, monke
     assert "herdr still reads it working, but its pane runs no claude process" in capsys.readouterr().out
 
 
+def test_a_worker_being_reopened_over_a_bare_shell_is_not_gone(mesh, fake, run, monkeypatch, tmp_path, capsys):
+    # Run mb3c1: `ask --peers` reopened a peer; herdr named its new pane (reading it `unknown`) before claude ran
+    # in it, its transcript was the last ask's, and the root's `watch --any` raised it as gone (exit 5).
+    cwd, _ = stale_transcript(mesh, monkeypatch, tmp_path)
+    claude_worker(mesh, run, cwd=cwd, session="s1", status="starting", spawned=mesh.now_iso())
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "unknown")
+    claude_in_pane(fake, "w2:p5", "-bash")
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert all(watch.tick(5) is None for _ in range(3))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")  # asked, still starting
+    assert watch.tick(5) is None
+    assert not [e for e in mesh.read_log(run) if e["event"] == "alert"]
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "running"  # launched, and its claude died
+    status, line = watch.tick(5)
+    assert status == 5 and "herdr still reads it unknown, but its pane runs no claude process" in line
+
+
 def test_gone_and_stopped_alerts_show_the_workers_work(mesh, fake, cli, run, repo, monkeypatch, capsys):
     subprocess.run(["git", "checkout", "-q", "-b", "mesh/mtest/fix"], cwd=repo, check=True)
     base = subprocess.run(["git", "rev-parse", "main"], cwd=repo, capture_output=True, text=True).stdout.strip()
