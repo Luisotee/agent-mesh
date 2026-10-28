@@ -1752,7 +1752,11 @@ def test_a_claude_worker_at_its_usage_limit_is_exit_7_once_per_task(mesh, fake, 
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     out = capsys.readouterr().out
     assert out.startswith("ALERT repo-fix-typo hit Claude's usage limit (resets 7pm (America/Los_Angeles)); ")
-    assert "--type task --body" in out and "mesh switch" not in out
+    assert "mesh continues it after the reset (Claude Code's own auto-continue first" in out
+    assert "send it nothing" in out and "mesh switch" not in out
+    due = [e for e in mesh.read_log(run) if e["event"] == "continue_due"]
+    assert len(due) == 1 and due[0]["why"] == "limit" and due[0]["received"] == 1
+    assert mesh.epoch(due[0]["at"]) == mesh.parse_reset("7pm (America/Los_Angeles)") + mesh.CONTINUE_GRACE
     watch = mesh.Watch(run, "repo-fix-typo", 30.0)  # a restarted watch waits quietly
     assert all(watch.tick(5) is None for _ in range(10))
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "The usage limit has reset: continue.")
@@ -4743,9 +4747,12 @@ def test_switch_moves_a_planning_worker_down_the_chain(mesh, fake, run, monkeypa
 def test_switch_with_flash_exhausted_while_executing_changes_nothing(mesh, fake, run, monkeypatch, capsys):
     planning_worker(mesh, run, model="gemini-3.8-flash-high", phase="exec")
     with_quotas(mesh, monkeypatch, USAGE.replace("52%", "0%"))
-    assert mesh.main(["switch", "repo-fix-typo"]) == 1
-    assert "no model with quota left" in capsys.readouterr().err
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    err = capsys.readouterr().err
+    assert "no model with quota left" in err and "mesh continues it there" in err
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
+    due = [e for e in mesh.read_log(run) if e["event"] == "continue_due"]
+    assert due[0]["why"] == "quota" and mesh.epoch(due[0]["at"]) == mesh.epoch("2026-10-24T05:50:54+00:00") + 600
 
 
 def test_switch_a_claude_worker_needs_a_model(mesh, fake, run, capsys):
@@ -10364,3 +10371,96 @@ def test_a_re_review_round_with_no_size_keeps_the_earlier_reviewers(mesh, fake, 
     assert "--no-wait don't apply to a review round" in capsys.readouterr().err
     tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
     assert len(tasks) == 2 and "`/code-review medium" in mesh.parse_message(tasks[-1])[1]  # small, as recorded
+
+
+# ── continuing at a reset ────────────────────────────────────────────────
+
+
+def limited_worker(mesh, run, monkeypatch, at=-60, stop=("usage_limit_note", "notice")):
+    """A Claude pane worker stopped by its usage limit on its task, with a continue due `at` seconds from now."""
+    claude_worker(mesh, run, session="s1", status="running")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "transcript_stop", lambda entry, session, tail=0: stop)
+    return mesh.schedule_continue(run, "repo-fix-typo", "limit", time.time() + at - mesh.CONTINUE_GRACE)
+
+
+def continue_now(mesh, run, state="idle"):
+    return mesh.continue_worker(run, "repo-fix-typo", mesh.agent_entry(mesh.load_run(run), "repo-fix-typo"), state,
+                                mesh.read_log(run))
+
+
+def test_parse_reset_reads_claudes_clock_times(mesh):
+    at = mesh.parse_reset("7pm (America/Los_Angeles)")
+    when = mesh.datetime.fromtimestamp(at, mesh.timezone.utc)
+    assert 0 < at - time.time() <= 86400 and when.minute == 0 and when.hour in (2, 3)  # 19:00 PDT/PST
+    assert mesh.parse_reset("resets 2:20am") is not None and mesh.parse_reset("resets soon") is None
+    assert mesh.parse_reset("3pm (Nowhere/Atlantis)") is None
+
+
+def test_a_due_continue_is_sent_once_from_the_parent_without_waking_the_root(mesh, fake, run, monkeypatch):
+    due = limited_worker(mesh, run, monkeypatch)
+    assert due["why"] == "limit" and due["received"] == 1 and mesh.retirers == ["mtest"]
+    assert mesh.schedule_continue(run, "repo-fix-typo", "limit", None)["id"] == due["id"]  # once per task
+    fake.screen("repo-fix-typo", "❯ ")
+    assert continue_now(mesh, run) == "continued"
+    sends = [e for e in mesh.read_log(run) if e["event"] == "send"]
+    assert (sends[-1]["sender"], sends[-1]["to"], sends[-1]["type"]) == ("repo-lead", "repo-fix-typo", "task")
+    assert mesh.LIMIT_CONTINUE in mesh.message_body(run, sends[-1])
+    assert mesh.due_continue(mesh.read_log(run), "repo-fix-typo") is None
+    assert continue_now(mesh, run) is None
+
+
+def test_a_continue_waits_for_its_time_and_for_claudes_own_auto_continue(mesh, fake, run, monkeypatch):
+    limited_worker(mesh, run, monkeypatch, at=300)
+    assert continue_now(mesh, run) is None  # not yet
+    events = [e for e in mesh.read_log(run) if e["event"] == "continue_due"]
+    limited_worker(mesh, run, monkeypatch)  # a new task: a new continue, due now
+    fake.screen("repo-fix-typo", "Usage limit reached · continuing automatically at 7:00pm · esc to cancel\n❯ ")
+    assert continue_now(mesh, run) is None  # Claude Code's own goes first
+    assert len(events) == 1
+
+
+@pytest.mark.parametrize("change, why", [
+    ("release", "continued already"), ("task", "newer task"), ("question", "sent a question"),
+    ("working", "working again"), ("retired", "retired")])
+def test_a_continue_is_dropped_once_anything_else_moved_the_worker_on(mesh, fake, run, monkeypatch, change, why):
+    limited_worker(mesh, run, monkeypatch)
+    state = "idle"
+    if change == "release":
+        monkeypatch.setattr(mesh, "transcript_stop", lambda entry, session, tail=0: (mesh.LIMIT_OVER, ""))
+    elif change == "task":
+        mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Something else.")
+    elif change == "question":
+        mesh.deliver(run, "repo-fix-typo", "repo-lead", "question", "Which file?")
+    elif change == "working":
+        state = "working"
+    else:
+        with mesh.editing_run(run) as data:
+            data["agents"]["repo-fix-typo"]["status"] = "retired"
+    assert continue_now(mesh, run, state) == "dropped"
+    dropped = [e for e in mesh.read_log(run) if e["event"] == "continue_dropped"]
+    assert len(dropped) == 1 and why in dropped[0]["why"]
+    assert not [e for e in mesh.read_log(run) if e["event"] == "continued"]
+
+
+def test_a_continue_with_no_known_reset_waits_until_the_quota_reads_free(mesh, fake, run, monkeypatch):
+    claude_worker(mesh, run, session="s1", status="running", view="bg")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    monkeypatch.setattr(mesh, "transcript_stop", lambda entry, session, tail=0: ("usage_limit_note", ""))
+    due = mesh.schedule_continue(run, "repo-fix-typo", "limit", None)
+    assert "at" not in due and mesh.continue_text(due) == "once its quota reads free again"
+    claude_windows(mesh, monkeypatch, five=100)
+    assert continue_now(mesh, run) is None
+    (mesh.mesh_home() / "claude-usage.json").unlink()
+    claude_windows(mesh, monkeypatch, five=0)
+    assert continue_now(mesh, run) == "continued"
+
+
+def test_the_retirer_continues_an_unwatched_worker_even_with_idle_retire_off(mesh, fake, run, monkeypatch):
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "0")
+    limited_worker(mesh, run, monkeypatch)
+    assert mesh.retirers == ["mtest"]  # started for the continue, idle retire or not
+    monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "idle")
+    fake.screen("repo-fix-typo", "❯ ")
+    assert mesh.retire_pass(run, {}) is False  # continued: nothing keeps it
+    assert [e["event"] for e in mesh.read_log(run)][-1] == "continued"

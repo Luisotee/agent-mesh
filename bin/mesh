@@ -4050,7 +4050,15 @@ def cmd_switch(args: argparse.Namespace) -> int:
         raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
     else:
         chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
-        model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
+        try:
+            model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
+        except MeshError as exc:  # nowhere to move it: it waits on its own model, and mesh continues it at the reset
+            spent = agy_at_reserve(entry["model"]) if entry.get("model") else None
+            due = schedule_continue(run_id, args.agent, "quota", epoch(spent[1]) or None if spent else None)
+            emit({"name": args.agent, "switched": False, "continue_at": due.get("at"), "notes": [str(exc)]})
+            print(f"mesh: {exc}. {args.agent} stays on {entry.get('model')}, and mesh continues it there "
+                  f"{continue_text(due)}: tell the user, and send it nothing", file=sys.stderr)
+            return 0
     body = (f"Your previous model ({entry.get('model')}) hit its quota; you are now on {model}, in the same "
             "conversation. Continue exactly where you stopped.")
     swap = swap_model(run_id, args.agent, model, effort, "quota", wait_ms=60_000, strict=False,
@@ -5413,6 +5421,8 @@ class Watch:
             return None
         if self.retired:  # its retire failed, or it was resumed: watch it again
             self.retired = self.finished = False
+        if due_continue(events, name) and continue_worker(run_id, name, entry, state, events) == "continued":
+            return None  # continued at its reset: judged afresh from the next poll
         if entry.get("held") and release_held(run_id, name, entry, state):
             return None  # at the startup screen its start already reported (exit 4), or its doorbell just rang
         if (state == "gone" and self.reopening < SWAP_GRACE
@@ -5587,9 +5597,10 @@ class Watch:
                        f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
                        f"--body \"You're logged in again: continue where you stopped.\"`")
         when = f" (resets {reset})" if reset else ""
-        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; it can't go on until then: wait for the "
-                   f"reset, then `mesh send {self.name} --type task --body \"The usage limit has reset: continue "
-                   f"where you stopped.\"`")
+        due = schedule_continue(self.run_id, self.name, "limit", parse_reset(reset) or claude_limit_reset())
+        how = "" if bg else " (Claude Code's own auto-continue first, in its pane)"
+        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; mesh continues it after the reset"
+                   f"{how}, {continue_text(due)}: tell the user, and send it nothing")
 
     def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
         """Exit 8, once per task, when it reads working (or herdr lost it) with nothing reported since its last task
@@ -6104,9 +6115,10 @@ def retirer_lock_path(run_id: str) -> Path:
 
 
 def ensure_retirer(run_id: str) -> int | None:
-    """Start the run's retirer unless one runs (it holds the lock) or idle retire is off; its pid, or None.
-    Called after the report is logged, so a retirer letting go of the lock re-checks and sees it (run_retirer)."""
-    if not idle_retire():
+    """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
+    continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
+    retirer letting go of the lock re-checks and sees it (run_retirer)."""
+    if not idle_retire() and not any(due_continue(read_log(run_id), n) for n in load_run(run_id)["agents"]):
         return None
     handle = retirer_lock_path(run_id).open("a")
     try:
@@ -6133,6 +6145,151 @@ def start_retirer(run_id: str, handle) -> int:
                                 cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
     log_event(run_id, "retirer_started", pid=proc.pid)
     return proc.pid
+
+
+# ── continuing at a reset ────────────────────────────────────────────────
+# A worker stopped by a usage limit (Claude) or a spent quota with no model left (agy) is continued at the reset by
+# mesh itself, from the watch or the run's retirer, without waking the root (design §9, "Limits and resets").
+
+CONTINUE_GRACE = 600  # seconds after a reset before mesh continues a worker: Claude Code's own continue goes first
+LIMIT_CONTINUE = "The usage limit has reset: continue where you stopped."
+QUOTA_CONTINUE = "Your model's quota has reset: continue where you stopped."
+# Claude Code's armed auto-continue, as its pane shows it (`autoContinueAtUsageLimit`, on by default).
+AUTO_CONTINUE_RE = re.compile(r"continuing automatically|Continuing shortly", re.IGNORECASE)
+RESET_CLOCK_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b", re.IGNORECASE)
+RESET_ZONE_RE = re.compile(r"\(([A-Za-z]+(?:/[A-Za-z0-9_+-]+)+|UTC)\)")
+
+
+def parse_reset(text: str | None) -> float | None:
+    """The epoch of a reset Claude names as a clock time (`7pm (America/Los_Angeles)`, `2:20am`): its next
+    occurrence in that zone (else the local one); None when the text names no time or an unknown zone."""
+    match = RESET_CLOCK_RE.search(text or "")
+    if not match:
+        return None
+    zone = RESET_ZONE_RE.search(text or "")
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(zone.group(1)) if zone else datetime.now().astimezone().tzinfo
+    except (ImportError, ValueError, KeyError, OSError):
+        return None
+    hour = int(match.group(1)) % 12 + (12 if match.group(3).lower() == "pm" else 0)
+    now = datetime.now(tz)
+    at = now.replace(hour=hour, minute=int(match.group(2) or 0), second=0, microsecond=0)
+    return (at if at > now else at + timedelta(days=1)).timestamp()
+
+
+def claude_limit_reset() -> float | None:
+    """When Claude's spent window resets (the latest of those at 100%), from its usage; None if none is or unknown."""
+    windows = ((claude_usage() or {}).get("windows") or {}).values()
+    resets = [epoch(w["resets"]) for w in windows if w["used"] >= 100 and w.get("resets")]
+    return max(resets, default=None)
+
+
+def still_limited(entry: dict) -> bool:
+    """Whether the quota that stopped a worker scheduled with no reset time still reads spent (unknown: no)."""
+    if entry.get("kind") == "claude":
+        return any(w["used"] >= 100 for w in ((claude_usage() or {}).get("windows") or {}).values())
+    hit = agy_at_reserve(entry.get("model") or "", entry.get("effort")) if entry.get("model") else None
+    return bool(hit and hit[0] <= 0)
+
+
+def iso_at(when: float) -> str:
+    return datetime.fromtimestamp(when, timezone.utc).isoformat(timespec="seconds")
+
+
+def due_continue(events: list[dict], name: str) -> dict | None:
+    """`name`'s pending `continue_due`: the newest one, until a `continued` or `continue_dropped` settles it."""
+    found = None
+    for event in events:
+        if event.get("name") != name:
+            continue
+        if event.get("event") == "continue_due":
+            found = event
+        elif event.get("event") in ("continued", "continue_dropped") and found and event.get("id") == found.get("id"):
+            found = None
+    return found
+
+
+def schedule_continue(run_id: str, name: str, why: str, reset: float | None) -> dict:
+    """Log that `name` is to be continued CONTINUE_GRACE after `reset` (None: once its quota reads free), and make
+    sure a retirer runs to do it when no watch does. Once per task: a pending one for the same task stands."""
+    events = read_log(run_id)
+    received = since_last_task(events, name)[0]
+    pending = due_continue(events, name)
+    if pending and pending.get("received") == received:
+        return pending
+    event = {"name": name, "why": why, "received": received, "id": secrets.token_hex(4),
+             **({"at": iso_at(reset + CONTINUE_GRACE)} if reset else {})}
+    log_event(run_id, "continue_due", **event)
+    quietly(ensure_retirer, run_id)
+    return event
+
+
+def continue_text(due: dict) -> str:
+    return f"at {reset_text(due['at'])}" if due.get("at") else "once its quota reads free again"
+
+
+def continue_worker(run_id: str, name: str, entry: dict, state: str, events: list[dict]) -> str | None:
+    """Continue `name` if its `continue_due` is due: "continued", "dropped" (logged with why), or None (not yet).
+
+    Dropped, not deferred, once anything else moved it on: a newer task or answer, a report since (a plan or
+    question waits on the root), working again, gone, retired, or (Claude) its session file shows the limit over,
+    which Claude Code's own auto-continue (or the user) leaves. Held while a pane still shows Claude's armed
+    auto-continue, which fires at about the reset, and while a quota with no known reset still reads spent. The
+    `continue` is a task from its parent, stored and rung as any; the root isn't woken."""
+    due = due_continue(events, name)
+    if not due:
+        return None
+    received = since_last_task(events, name)[0]
+    report, _ = last_report(events, name)
+    why = None
+    if entry.get("status") in ("retiring", "retired"):
+        why = "it was retired"
+    elif received != due.get("received"):
+        why = "it got a newer task or answer"
+    elif report:
+        why = f"it sent a {report.get('type')} since"
+    elif state == "working":
+        why = "it is working again"
+    elif state == "gone" and gone_counts(entry):
+        why = "it is gone"
+    elif entry.get("kind") == "claude":
+        stop = transcript_stop(entry, entry.get("session"))
+        if stop and stop[0] == LIMIT_OVER:
+            why = "it was continued already (Claude Code's own auto-continue, or the user)"
+    if why:
+        log_event(run_id, "continue_dropped", name=name, id=due.get("id"), why=why)
+        return "dropped"
+    if due.get("at") and epoch(due["at"]) > time.time():
+        return None
+    if (not due.get("at") and still_limited(entry)) or state not in ("idle", "done", "blocked"):
+        return None
+    if entry.get("kind") == "claude" and entry.get("view") != "bg" and \
+            AUTO_CONTINUE_RE.search("\n".join(pane_lines(name) or [])):
+        return None  # Claude Code continues it itself
+    body = LIMIT_CONTINUE if due.get("why") == "limit" else QUOTA_CONTINUE
+    delivery = deliver(run_id, entry.get("parent"), name, "task", body)
+    log_event(run_id, "continued", name=name, id=due.get("id"), rung=delivered(delivery))
+    return "continued"
+
+
+def continue_poll(run_id: str, run: dict, events: list[dict]) -> bool:
+    """The retirer's other duty: continue the workers no watch covers whose `continue_due` is due. True while
+    any worker's continue is still pending."""
+    bg_rows = None
+    for name, entry in run["agents"].items():
+        if not due_continue(events, name) or watched(run_id, name):
+            continue
+        if entry.get("view") == "bg" and bg_rows is None:
+            bg_rows = read_claude_agents()
+            if bg_rows is None:
+                continue  # `claude agents` failed: next poll
+        try:
+            continue_worker(run_id, name, entry, agent_status(name, entry, bg_rows or []), events)
+        except (MeshError, OSError) as exc:
+            print(f"{now_iso()} {name}: {exc}", flush=True)
+    events = read_log(run_id)
+    return any(due_continue(events, name) for name in run["agents"])
 
 
 RETIRER_GONE_POLLS = 3  # polls in a row a reported worker must read gone before the retirer lets it go
@@ -6171,6 +6328,9 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
     if not run or run_stopped(run_id):
         return False
     events = read_log(run_id)
+    continuing = continue_poll(run_id, run, events) if not stop_under_way(events) else False
+    if not idle_retire():
+        return continuing
     failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
     candidates, pending = {}, set()
     for name, entry in run["agents"].items():
@@ -6216,7 +6376,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
             watch.idle_tick(entry, state, events, again)
         else:
             watch.idle_at = None  # may not be retired now (unread mail, a wait, held, starting…)
-    return bool(pending)
+    return bool(pending) or continuing
 
 
 def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.sleep) -> int:
@@ -6225,11 +6385,11 @@ def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.slee
     report logged before that look is seen, and a `send` logged after it finds the lock free and starts one."""
     watches: dict[str, Watch] = {}
     while True:
-        if idle_retire() and retire_pass(run_id, watches):
+        if retire_pass(run_id, watches):
             sleep(poll)
             continue
         fcntl.flock(handle, fcntl.LOCK_UN)
-        if not idle_retire() or not retire_pass(run_id, watches):
+        if not retire_pass(run_id, watches):
             return 0
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
