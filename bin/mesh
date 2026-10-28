@@ -2063,7 +2063,7 @@ def fetch_claude_usage() -> dict | None:
             "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "agent-mesh"})
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.load(response)
-    except (OSError, ValueError, AttributeError):
+    except Exception:  # noqa: BLE001 - an undocumented endpoint: anything it does reads as unknown, never a crash
         return None
     return data if isinstance(data, dict) else None
 
@@ -2114,11 +2114,25 @@ def claude_usage(network: bool = True, force: bool = False) -> dict | None:
     return {**newest, "source": "cache"} if newest and now - newest["fetched"] < CLAUDE_USAGE_STALE else None
 
 
-def claude_at_reserve(usage: dict | None) -> tuple[str, dict] | None:
-    """The first of Claude's windows at or past the reserve, as (window, its reading); None when none is, or when
-    nothing could be read (an unreadable quota never blocks, as agy's)."""
-    return next(((key, w) for key, w in ((usage or {}).get("windows") or {}).items() if w["used"] >= quota_stop()),
+FAMILY_WINDOWS = {"seven_day_opus": "opus", "seven_day_sonnet": "sonnet"}  # windows of one model family only
+
+
+def claude_windows_for(usage: dict | None, model: str | None = None) -> dict[str, dict]:
+    """Claude's windows that apply to a worker on `model`: the account's, plus a family's own weekly window
+    (`seven_day_opus`, `seven_day_sonnet`) only for a model of that family (unknown model: the account's only)."""
+    return {key: w for key, w in ((usage or {}).get("windows") or {}).items()
+            if key not in FAMILY_WINDOWS or FAMILY_WINDOWS[key] in (model or "").lower()}
+
+
+def claude_at_reserve(usage: dict | None, model: str | None = None) -> tuple[str, dict] | None:
+    """The first of Claude's windows (for `model`) at or past the reserve, as (window, its reading); None when
+    none is, or when nothing could be read (an unreadable quota never blocks, as agy's)."""
+    return next(((key, w) for key, w in claude_windows_for(usage, model).items() if w["used"] >= quota_stop()),
                 None)
+
+
+def claude_hit_text(key: str, window: dict) -> str:
+    return f"Claude is at {window['used']:.0f}% of its {CLAUDE_WINDOWS[key]} (resets {reset_text(window['resets'])})"
 
 
 def agy_at_reserve(model: str, effort: str | None = None) -> tuple[int, str] | None:
@@ -2154,10 +2168,9 @@ def reserve_hit(kind: str | None, model: str | None = None, effort: str | None =
     if quota_stop() >= 100:
         return None
     if kind == "claude":
-        hit = claude_at_reserve(claude_usage())
+        hit = claude_at_reserve(claude_usage(), model)
         if hit:
-            key, window = hit
-            return f"Claude is at {window['used']:.0f}% of its {CLAUDE_WINDOWS[key]} (resets {reset_text(window['resets'])})"
+            return claude_hit_text(*hit)
     elif kind == "agy" and model:
         hit = agy_at_reserve(model, effort)
         if hit:
@@ -3436,8 +3449,12 @@ def command_table() -> list[dict]:
     table = []
     for line in out.splitlines():
         pid, _, command = line.strip().partition(" ")
-        if pid.isdigit():
-            table.append({"pid": int(pid), "argv": command.split()})
+        if not pid.isdigit():
+            continue
+        words = command.split()
+        # A binary's path may hold spaces (macOS `Application Support`): its first word naming a CLI ends it.
+        end = next((i for i, w in enumerate(words) if Path(w).name in (*AGENT_BINARIES, *INTERPRETERS)), 0)
+        table.append({"pid": int(pid), "argv": [" ".join(words[:end + 1]), *words[end + 1:]] if words else []})
     return table
 
 
@@ -5328,8 +5345,8 @@ def unread_line(name: str, kind: str) -> str:
 
 def epoch(stamp_iso: str | None) -> float:
     try:
-        return datetime.fromisoformat(stamp_iso).timestamp()
-    except (TypeError, ValueError):
+        return datetime.fromisoformat(stamp_iso.replace("Z", "+00:00")).timestamp()  # 3.10 reads no `Z`
+    except (TypeError, ValueError, AttributeError):
         return 0.0
 
 
@@ -5459,8 +5476,12 @@ class Watch:
             return None
         if self.retired:  # its retire failed, or it was resumed: watch it again
             self.retired = self.finished = False
-        if due_continue(events, name) and continue_worker(run_id, name, entry, state, events) == "continued":
-            return None  # continued at its reset: judged afresh from the next poll
+        if due_continue(events, name):
+            try:
+                if continue_worker(run_id, name, entry, state, events) == "continued":
+                    return None  # continued at its reset: judged afresh from the next poll
+            except (MeshError, OSError):
+                pass  # tried again at the next poll, as the retirer does
         if entry.get("held") and release_held(run_id, name, entry, state):
             return None  # at the startup screen its start already reported (exit 4), or its doorbell just rang
         if (state == "gone" and self.reopening < SWAP_GRACE
@@ -5506,7 +5527,9 @@ class Watch:
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
-            if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
+            # A worker waiting on its reset (`continue_due`) is the continue's: a nudge would only cancel it.
+            if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)) \
+                    and not due_continue(events, name):
                 event = self.stopped(entry, bg, events)
                 if event:
                     return event
@@ -5635,7 +5658,10 @@ class Watch:
                        f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
                        f"--body \"You're logged in again: continue where you stopped.\"`")
         when = f" (resets {reset})" if reset else ""
-        due = schedule_continue(self.run_id, self.name, "limit", parse_reset(reset) or claude_limit_reset())
+        when_reset = claude_limit_reset(entry.get("model")) or parse_reset(reset)
+        if when_reset is None and claude_usage() is None:  # nothing to tell the reset by: the 5-hour window's worst
+            when_reset = time.time() + LIMIT_UNKNOWN_RESET
+        due = schedule_continue(self.run_id, self.name, "limit", when_reset)
         how = "" if bg else " (Claude Code's own auto-continue first, in its pane)"
         return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; mesh continues it after the reset"
                    f"{how}, {continue_text(due)}: tell the user, and send it nothing")
@@ -5968,12 +5994,16 @@ def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str]
     live = [e for e in run["agents"].values()
             if e.get("role") == "worker" and e.get("status") not in ("retired", "retiring")]
     hits = []
-    if any(e.get("kind") == "claude" for e in live) and (hit := claude_at_reserve(claude_usage())):
-        key, window = hit
-        hits.append((f"claude:{key}:{window['resets']}", "Claude", reserve_hit("claude")))
+    claude_models = {e.get("model") for e in live if e.get("kind") == "claude"}
+    usage = claude_usage() if claude_models else None
+    for model in sorted(claude_models, key=str):
+        if hit := claude_at_reserve(usage, model):
+            key, window = hit
+            # The endpoint stamps `resets_at` with the request's own microseconds: the minute names the window.
+            hits.append((f"claude:{key}:{str(window['resets'])[:16]}", "Claude", claude_hit_text(key, window)))
     for model, effort in sorted({(e["model"], e.get("effort")) for e in live if e.get("kind") == "agy" and e.get("model")}):
         if hit := agy_at_reserve(model, effort):
-            hits.append((f"agy:{model}:{hit[1]}", "agy", reserve_hit("agy", model, effort)))
+            hits.append((f"agy:{model}:{hit[1]}", "agy", f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"))
     seen = {e.get("key") for e in events if e.get("event") == "reserve"}
     for key, vendor, what in hits:
         if key in seen or not what:
@@ -6156,8 +6186,10 @@ def ensure_retirer(run_id: str) -> int | None:
     """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
     continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
     retirer letting go of the lock re-checks and sees it (run_retirer)."""
-    if not idle_retire() and not any(due_continue(read_log(run_id), n) for n in load_run(run_id)["agents"]):
-        return None
+    if not idle_retire():
+        events = read_log(run_id)
+        if not any(due_continue(events, n) for n in load_run(run_id)["agents"]):
+            return None
     handle = retirer_lock_path(run_id).open("a")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -6189,12 +6221,15 @@ def start_retirer(run_id: str, handle) -> int:
 # A worker stopped by a usage limit (Claude) or a spent quota with no model left (agy) is continued at the reset by
 # mesh itself, from the watch or the run's retirer, without waking the root (design §9, "Limits and resets").
 
+LIMIT_UNKNOWN_RESET = 5 * 3600  # a limit with no reset time and no usage reading: continued after the longest window
 CONTINUE_GRACE = 600  # seconds after a reset before mesh continues a worker: Claude Code's own continue goes first
 LIMIT_CONTINUE = "The usage limit has reset: continue where you stopped."
 QUOTA_CONTINUE = "Your model's quota has reset: continue where you stopped."
 # Claude Code's armed auto-continue, as its pane shows it (`autoContinueAtUsageLimit`, on by default).
 AUTO_CONTINUE_RE = re.compile(r"continuing automatically|Continuing shortly", re.IGNORECASE)
 RESET_CLOCK_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b", re.IGNORECASE)
+RESET_DATE_RE = re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|\d{1,2}/\d{1,2}",
+                           re.IGNORECASE)
 RESET_ZONE_RE = re.compile(r"\(([A-Za-z]+(?:/[A-Za-z0-9_+-]+)+|UTC)\)")
 
 
@@ -6202,8 +6237,8 @@ def parse_reset(text: str | None) -> float | None:
     """The epoch of a reset Claude names as a clock time (`7pm (America/Los_Angeles)`, `2:20am`): its next
     occurrence in that zone (else the local one); None when the text names no time or an unknown zone."""
     match = RESET_CLOCK_RE.search(text or "")
-    if not match:
-        return None
+    if not match or RESET_DATE_RE.search(text or ""):
+        return None  # no time, or a date it would read as today (`Oct 30, 7pm`): the caller has better sources
     zone = RESET_ZONE_RE.search(text or "")
     try:
         from zoneinfo import ZoneInfo
@@ -6216,9 +6251,10 @@ def parse_reset(text: str | None) -> float | None:
     return (at if at > now else at + timedelta(days=1)).timestamp()
 
 
-def claude_limit_reset() -> float | None:
-    """When Claude's spent window resets (the latest of those at 100%), from its usage; None if none is or unknown."""
-    windows = ((claude_usage() or {}).get("windows") or {}).values()
+def claude_limit_reset(model: str | None = None) -> float | None:
+    """When Claude's spent window (for `model`) resets, the latest of those at 100%, from its usage; None if none
+    is or it's unknown."""
+    windows = claude_windows_for(claude_usage(), model).values()
     resets = [epoch(w["resets"]) for w in windows if w["used"] >= 100 and w.get("resets")]
     return max(resets, default=None)
 
@@ -6226,7 +6262,7 @@ def claude_limit_reset() -> float | None:
 def still_limited(entry: dict) -> bool:
     """Whether the quota that stopped a worker scheduled with no reset time still reads spent (unknown: no)."""
     if entry.get("kind") == "claude":
-        return any(w["used"] >= 100 for w in ((claude_usage() or {}).get("windows") or {}).values())
+        return any(w["used"] >= 100 for w in claude_windows_for(claude_usage(), entry.get("model")).values())
     hit = agy_at_reserve(entry.get("model") or "", entry.get("effort")) if entry.get("model") else None
     return bool(hit and hit[0] <= 0)
 
@@ -8022,13 +8058,18 @@ def cmd_ask(args: argparse.Namespace) -> int:
     # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
     if args.repo or copilot or (peer and not target) or (target and not_live(target)):
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
-    # a Copilot asker's run is in the root's own mode
-    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
-    if target and not copilot:  # a fresh agent is checked by its spawn, once its model is known
-        reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+    # The reserve, before a run is made (a fresh agy agent is checked again by its spawn, once its model is known).
+    # A peer's registry entry records no model, so an agy peer's model is checked when its resume picks one.
+    own_run = (quietly(identity, args) or (None,))[0]
+    if target and not copilot:
+        reserve_guard(own_run, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
                       f"a question for {target[2]}")
     elif peer:
-        reserve_guard(run_id, peer.get("kind") or "claude", None, None, f"a question for {args.ref}")
+        reserve_guard(own_run, peer.get("kind") or "claude", peer.get("model"), None, f"a question for {args.ref}")
+    elif not copilot and (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
+        reserve_guard(own_run, "claude", args.model, args.effort, f"an asker in {repo.name}")
+    # a Copilot asker's run is in the root's own mode
+    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
@@ -8229,10 +8270,12 @@ def ask_peers(args: argparse.Namespace) -> int:
     names = select_peers(registry, args.peers)
     if any(not_live(quietly(peer_worker, n, registry[n])) for n in names):  # one will start: before a run is made
         memory_guard(f"the askers of {', '.join(names)}", reserve=False)
+    own_run = (quietly(identity, args) or (None,))[0]  # the reserve, before a run is made
+    for peer in sorted(names):
+        entry = registry[peer] if isinstance(registry[peer], dict) else {}
+        reserve_guard(own_run, entry.get("kind") or "claude", entry.get("model"), None,
+                      f"the askers of {', '.join(names)}")
     run_id, me = ask_identity(args, body, None)
-    for kind in sorted({(registry[n] if isinstance(registry[n], dict) else {}).get("kind") or "claude"
-                        for n in names}):
-        reserve_guard(run_id, kind, None, None, f"the askers of {', '.join(names)}")
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run
     try:
@@ -8575,6 +8618,9 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
                 state = asker_status(target[2], target[3]) if live else None
                 if live and owes_answer(run_id, target[2], target[3], events, state):
                     return None, 0, "busy with its previous task; ask it again once it answers"
+                if target[3].get("kind") != "copilot":
+                    reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+                                  f"a review by {target[2]}")
                 result, finals, how = moving(move, lambda: reach_worker(ask, run_id, me, target, task,
                                                                         f"a review of {pr}", collect=mark,
                                                                         events=events, state=state))
@@ -9829,7 +9875,10 @@ def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) ->
     pane (`origin.kind` "human", or none), False for one mesh or a tool brought (a socket doorbell is a `peer`
     meta entry, a background watch's exit a `task-notification`, a typed doorbell starts with `📬 [mesh]`), None
     when no prompt is found in the last `limit` bytes. Meta entries, tool results, interrupts and local command
-    output aren't prompts."""
+    output aren't prompts (they carry no origin). A doorbell that lands mid-turn is queued into the turn the user
+    started, so a mesh prompt with a typed one before it and no finished reply (`end_turn`) between still makes
+    the turn the user's."""
+    mesh_seen = False
     try:
         with open(path, "rb") as fh:
             end, rest = fh.seek(0, os.SEEK_END), b""
@@ -9840,6 +9889,8 @@ def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) ->
                 lines = (fh.read(end - start) + rest).split(b"\n")
                 rest = lines.pop(0) if start else b""
                 for line in reversed(lines):
+                    if mesh_seen and b'"end_turn"' in line and b'"assistant"' in line:
+                        return False  # a finished reply before the mesh prompt: the turn was mesh's
                     if b'"user"' not in line:
                         continue
                     try:
@@ -9850,7 +9901,8 @@ def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) ->
                         continue
                     kind = (event.get("origin") or {}).get("kind")
                     if kind not in (None, "human"):
-                        return False
+                        mesh_seen = True
+                        continue
                     content = (event.get("message") or {}).get("content")
                     if event.get("isMeta") or event.get("toolUseResult") is not None or (
                             isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result"
@@ -9861,11 +9913,14 @@ def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) ->
                     text = text.lstrip()
                     if not text or text.startswith(("[Request interrupted", "<local-command")):
                         continue
-                    return not text.startswith("📬 [mesh]")
+                    if text.startswith("📬 [mesh]"):
+                        mesh_seen = True
+                        continue
+                    return True
                 end = start
     except OSError:
         return None
-    return None
+    return False if mesh_seen else None
 
 
 def pane_agent(pane: str) -> dict:
