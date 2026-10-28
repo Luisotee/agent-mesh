@@ -10,8 +10,8 @@
 
 Not a framework or an agent harness: a small CLI and a few skills that let the Claude Code or [Antigravity](https://antigravity.google) session you already use start, brief and supervise other sessions, each one inside the repo it changes. Requires [herdr](https://herdr.dev), GitHub and Linux or WSL.
 
-![Eight agent panes in herdr: agy reviewers on Gemini Flash beside Claude workers, each reporting to the root](docs/media/panes.webp)
-<sub>One run: agy reviewers on Gemini Flash beside Claude workers, each in its own worktree, reporting back to the root.</sub>
+![A real run as a time-lapse: the root starts a Claude worker in a pane, the worker finds the cause of a hanging test, fixes it and opens a PR, then a Claude reviewer reviews it in a pane below](docs/media/demo.webp)
+<sub>A real run, sped up about 50×: a worker fixes a hanging test and opens [PR #84](https://github.com/Luisotee/agent-mesh/pull/84), then a reviewer checks it in the pane below.</sub>
 
 You're building a feature in `shop-web` and find that `shop-api` doesn't return the field you need. Usually you either stop and brief a new session in `shop-api` from scratch, or let your current agent edit a repo whose `CLAUDE.md`, hooks and conventions it never loaded. With agent-mesh you stay where you are and type:
 
@@ -113,6 +113,9 @@ Each reviewer works inside the repo at the PR's head and changes nothing. You ge
 - **Plan first, then the same agent executes.** Large tasks plan on the strongest model with quota left and get reviewed before any code changes; approval reopens the *same conversation* on the execution model. Small tasks skip the plan.
 - **Claude, Gemini and Copilot in one run.** Mix Claude Code and agy workers, and have a PR reviewed by several vendors at once.
 - **Supervised, not fire-and-forget.** Every message is stored in a mailbox before a doorbell wakes the recipient, so a missed doorbell loses nothing. While the root waits, a watchdog flags a worker that went silent, sits at a dialog, hung, crashed or hit a quota.
+
+![Eight agent panes in herdr: agy reviewers on Gemini Flash beside Claude workers, each reporting to the root](docs/media/panes.webp)
+<sub>One run: agy reviewers on Gemini Flash beside Claude workers, each in its own worktree, reporting back to the root.</sub>
 
 No server or database to install: one stdlib Python script, a few skills and a protocol written in Markdown, with state in plain files.
 
