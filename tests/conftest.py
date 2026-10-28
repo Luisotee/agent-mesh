@@ -121,6 +121,7 @@ def mesh(tmp_path, monkeypatch):
     # session would meet `inherited_identity` and whose socket `claude_address`.
     for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
                 "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
+                "MESH_QUOTA_STOP", "MESH_MIN_QUOTA", "MESH_CLAUDE_USAGE",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_CODE_MESSAGING_SOCKET"):
         monkeypatch.delenv(key, raising=False)
     # Never this machine's Claude session files either (a root's is looked up across every project folder).
@@ -142,6 +143,12 @@ def mesh(tmp_path, monkeypatch):
     # ...nor any other of its processes (the sweep), and never a real signal: a test that wants either fakes it.
     monkeypatch.setattr(module, "process_table", lambda: [])
     monkeypatch.setattr(module, "kill_process", refuse_kill)
+    # Never Claude's real usage endpoint: a test that wants a reading sets one (see claude_windows).
+    module.real_fetch_claude_usage = module.fetch_claude_usage
+    monkeypatch.setattr(module, "fetch_claude_usage", lambda: None)
+    # ...nor agy's quotas (the reserve reads them on every agy spawn): the tests of agy_usage use real_agy_usage.
+    module.real_agy_usage = module.agy_usage
+    monkeypatch.setattr(module, "agy_usage", lambda force=False: None)
     # Never a real detached retirer (a worker's `done` starts one): `module.retirers` lists what would have started.
     module.retirers = []
     module.real_start_retirer = module.start_retirer

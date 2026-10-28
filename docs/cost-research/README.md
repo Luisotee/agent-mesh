@@ -78,6 +78,7 @@ Savings are per week at the baseline's volume, in API-equivalent dollars. "Check
 | 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | |
 | 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | | |
 | 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | |
+| 10 | Quota reserve: mesh starts nothing new on a quota once it is 90% used (`MESH_QUOTA_STOP`), for Claude's windows and agy's models (from the user, 2026-10-28) | none: keeps ~10% of each quota for the user's own sessions | no mesh spawn, ask or approve after a window passed 90% (`reserve` events, the usage endpoint's figures) | 2026-10-28, PR #LIFECYCLE | |
 
 Total expected: roughly $250–350 a week, 15–20% of the baseline.
 

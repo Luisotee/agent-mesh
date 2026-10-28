@@ -34,6 +34,7 @@ import textwrap
 import threading
 import time
 import urllib.parse
+import urllib.request
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -87,6 +88,15 @@ CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high)$")
 AGY_MODELS_TTL = 6 * 3600
 AGY_USAGE_TTL = 300
 AGY_USAGE_RETRY = 60  # seconds before a failed `agy -p /usage` is tried again
+QUOTA_STOP = 90  # percent of a quota used at which mesh starts nothing new on it (MESH_QUOTA_STOP; design §9)
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # what Claude Code's /usage reads
+CLAUDE_USAGE_TTL = 120  # seconds mesh keeps a reading of Claude's usage (machine-wide, $MESH_HOME/claude-usage.json)
+CLAUDE_USAGE_RETRY = 60  # seconds before a failed reading is tried again
+CLAUDE_USAGE_STALE = 900  # seconds a cached reading (ours, or Claude Code's own) still counts when a fresh one fails
+# Claude's usage windows a reserve applies to (the account's limits), as its usage endpoint names them.
+CLAUDE_WINDOWS = {"five_hour": "five-hour window", "seven_day": "weekly window",
+                  "seven_day_opus": "weekly Opus window", "seven_day_sonnet": "weekly Sonnet window"}
+RESERVE_POLL = 300  # seconds between a root watch's looks at the quotas
 SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopened on another model
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
@@ -1646,7 +1656,7 @@ MESH_IDS = ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")
 HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
-               "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
+               "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
@@ -1972,8 +1982,17 @@ def model_quota(model_id: str, display: str, rows: list[dict]) -> tuple[int, str
     return min(limits) if limits else None
 
 
+def quota_stop() -> int:
+    """The percent of a quota used at which mesh starts nothing new on it (the reserve): MESH_QUOTA_STOP, else
+    100 less the older MESH_MIN_QUOTA (percent left), else QUOTA_STOP."""
+    if os.environ.get("MESH_QUOTA_STOP"):
+        return env_int("MESH_QUOTA_STOP", QUOTA_STOP)
+    return 100 - env_int("MESH_MIN_QUOTA", 100 - QUOTA_STOP)
+
+
 def min_quota() -> int:
-    return int(os.environ.get("MESH_MIN_QUOTA") or 10)
+    """The percent left under which an agy model counts as spent (the reserve, seen from the other side)."""
+    return 100 - quota_stop()
 
 
 def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] = (), force: bool = False,
@@ -1992,14 +2011,151 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
         if model_id in skip:
             continue
         quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None
-        if quota is None or quota[0] >= min_quota():
+        if quota is None or quota[0] > min_quota():  # at the reserve (MESH_QUOTA_STOP used) it counts as spent
             return model_id, notes
         notes.append(f"{model_id} has {quota[0]}% left (resets {quota[1]})")
         if best is None or quota[0] > best[0]:
             best = (quota[0], model_id)
     if fallback and best:
         return best[1], notes + [f"every model is under {min_quota()}%; using {best[1]}"]
-    raise MeshError("no model with quota left: " + ("; ".join(notes) or "every candidate was already tried"))
+    raise MeshError(f"no model with quota left over the reserve (mesh stops at {quota_stop()}% used): "
+                    + ("; ".join(notes) or "every candidate was already tried"))
+
+
+# The quota reserve (design §9): mesh starts nothing new on a quota once QUOTA_STOP% of it is used, so the user
+# keeps some for their own sessions. agy's quotas are `agy -p /usage`'s rows; Claude's are its usage windows.
+
+
+def claude_code_json() -> Path:
+    """Claude Code's own state file: `.claude.json` in its config folder when CLAUDE_CONFIG_DIR is set, else home."""
+    folder = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(folder) if folder else Path.home()) / ".claude.json"
+
+
+def fetch_claude_usage() -> dict | None:
+    """Claude's usage as its endpoint gives it right now, or None (no login file, an expired token, any error).
+    Reads the access token Claude Code keeps in `.credentials.json` and never refreshes it, since a refresh
+    rotates the refresh token under Claude Code; macOS keeps it in the Keychain, so there only caches count."""
+    try:
+        oauth = json.loads((claude_home() / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+        token = oauth.get("accessToken")
+        if not token or (oauth.get("expiresAt") or 0) / 1000 <= time.time():
+            return None
+        request = urllib.request.Request(CLAUDE_USAGE_URL, headers={
+            "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "agent-mesh"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.load(response)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def usage_windows(data: dict | None) -> dict[str, dict]:
+    """{window: {"used": percent, "resets": ISO or None}} for the CLAUDE_WINDOWS a usage reading has."""
+    windows = {}
+    for key in CLAUDE_WINDOWS:
+        window = (data or {}).get(key)
+        if isinstance(window, dict) and isinstance(window.get("utilization"), (int, float)):
+            windows[key] = {"used": float(window["utilization"]), "resets": window.get("resets_at")}
+    return windows
+
+
+def claude_usage(network: bool = True, force: bool = False) -> dict | None:
+    """Claude's usage, {"windows": usage_windows, "fetched": epoch, "source": "live" or "cache"}, or None when
+    nothing fresh enough can be read. A reading serves every mesh on the machine for CLAUDE_USAGE_TTL seconds;
+    past that, one call to the endpoint, unless `network` is off (`mesh status`), MESH_CLAUDE_USAGE=off, or the
+    last call failed under CLAUDE_USAGE_RETRY ago. Failing that, the newer of mesh's last reading and Claude
+    Code's own cached copy (`cachedUsageUtilization`, refreshed only now and then) counts while under
+    CLAUDE_USAGE_STALE old."""
+    cache, failed = mesh_home() / "claude-usage.json", mesh_home() / "claude-usage.failed"
+    try:
+        ours = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        ours = None
+    now = time.time()
+    if ours and now - ours.get("fetched", 0) < CLAUDE_USAGE_TTL and not force:
+        return {**ours, "source": "live"}
+    if (network and os.environ.get("MESH_CLAUDE_USAGE") != "off"
+            and (force or not (failed.exists() and now - failed.stat().st_mtime < CLAUDE_USAGE_RETRY))):
+        data = fetch_claude_usage()
+        if data is not None:
+            reading = {"windows": usage_windows(data), "fetched": now}
+            write_atomic(cache, json.dumps(reading))
+            failed.unlink(missing_ok=True)
+            return {**reading, "source": "live"}
+        failed.parent.mkdir(parents=True, exist_ok=True)
+        failed.touch()
+    readings = [ours] if ours else []
+    try:
+        theirs = json.loads(claude_code_json().read_text()).get("cachedUsageUtilization") or {}
+        readings.append({"windows": usage_windows(theirs.get("utilization")),
+                         "fetched": (theirs.get("fetchedAtMs") or 0) / 1000})
+    except (OSError, ValueError, AttributeError):
+        pass
+    newest = max(readings, key=lambda r: r.get("fetched", 0), default=None)
+    return {**newest, "source": "cache"} if newest and now - newest["fetched"] < CLAUDE_USAGE_STALE else None
+
+
+def claude_at_reserve(usage: dict | None) -> tuple[str, dict] | None:
+    """The first of Claude's windows at or past the reserve, as (window, its reading); None when none is, or when
+    nothing could be read (an unreadable quota never blocks, as agy's)."""
+    return next(((key, w) for key, w in ((usage or {}).get("windows") or {}).items() if w["used"] >= quota_stop()),
+                None)
+
+
+def agy_at_reserve(model: str, effort: str | None = None) -> tuple[int, str] | None:
+    """(percent left, reset) when the agy model (an id, or a family at `effort`) is at the reserve, else None."""
+    try:
+        rows = agy_usage()
+        if not rows:
+            return None
+        model_id = model if parse_agy_id(model) else resolve_agy_model(model, effort or DEFAULT_EFFORT)
+        quota = model_quota(model_id, listing_names(agy_model_listing()).get(model_id, ""), rows)
+    except MeshError:
+        return None
+    return quota if quota and quota[0] <= min_quota() else None
+
+
+def reserve_off(run_id: str | None) -> bool:
+    """Whether the user let this run go on past the reserve (`mesh reserve off`)."""
+    return bool(((maybe_run(run_id) if run_id else None) or {}).get("over_reserve"))
+
+
+def reset_text(stamp: str | None) -> str:
+    """A reset time for a person: local `HH:MM` within a day, else with its date; as given if it isn't ISO."""
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone()
+    except ValueError:
+        return str(stamp or "?")
+    return when.strftime("%H:%M" if when.timestamp() - time.time() < 86400 else "%b %d %H:%M")
+
+
+def reserve_hit(kind: str | None, model: str | None = None, effort: str | None = None) -> str | None:
+    """What of `kind`'s quota is at the reserve, as a phrase ("Claude is at 92% of its five-hour window (resets
+    07:20)"), or None. Copilot has no usage source, so never."""
+    if quota_stop() >= 100:
+        return None
+    if kind == "claude":
+        hit = claude_at_reserve(claude_usage())
+        if hit:
+            key, window = hit
+            return f"Claude is at {window['used']:.0f}% of its {CLAUDE_WINDOWS[key]} (resets {reset_text(window['resets'])})"
+    elif kind == "agy" and model:
+        hit = agy_at_reserve(model, effort)
+        if hit:
+            return f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"
+    return None
+
+
+def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effort: str | None, what: str) -> None:
+    """Refuse to start `what` on a quota at its reserve (design §9), unless the run was let past it."""
+    if reserve_off(run_id):
+        return
+    hit = reserve_hit(kind, model, effort)
+    if hit:
+        raise MeshError(f"{hit}: not starting {what}, since mesh keeps {100 - quota_stop()}% of every quota for "
+                        f"the user (MESH_QUOTA_STOP={quota_stop()}). Nothing was started or sent. Tell the user; "
+                        "`mesh reserve off` lets this run go on past it")
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
@@ -3533,7 +3689,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         exec_effort = (args.exec_effort or args.effort or EXEC_EFFORT) if exec_model else None
         if exec_model:
             resolve_model(args.kind, exec_model, exec_effort)  # fail now, not after a whole planning phase
-        model, notes = plan_model(args.kind, effort) if auto else (args.model, [])
+        model, notes = plan_model(args.kind, effort, run_id) if auto else (args.model, [])
     view = getattr(args, "view", None) or (sized["view"] if sized else "pane")
     if view == "bg" and (args.kind != "claude" or user_review):
         if getattr(args, "view", None):
@@ -3544,6 +3700,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
     pinned = getattr(args, "pinned", None)
     pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
+    reserve_guard(run_id, args.kind, model, effort, name)
     held.append(memory_guard(name))  # the last check before any side effect
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, effort, log)
@@ -3641,9 +3798,11 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     return result
 
 
-def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
+def plan_model(kind: str, effort: str, run_id: str | None = None) -> tuple[str, list[str]]:
+    """The model a task plans on. agy: the first of the chain over the reserve; with none, the one with the most
+    left only when the run was let past the reserve (`mesh reserve off`), else an error."""
     if kind == "agy":
-        return choose_agy_model(PLAN_CHAIN["agy"], effort)
+        return choose_agy_model(PLAN_CHAIN["agy"], effort, fallback=reserve_off(run_id) or quota_stop() >= 100)
     return PLAN_CHAIN["claude"][0], []
 
 
@@ -3819,6 +3978,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
     entry = require_parent(load_run(run_id), me, args.agent, "approve")
     refuse_headless(args.agent, entry, "`mesh approve`")
     refuse_no_plan(run_id, args.agent, entry)
+    reserve_guard(run_id, entry.get("kind"), entry.get("exec_model") or entry.get("model"),
+                  entry.get("exec_effort") or entry.get("effort"), f"{args.agent}'s execution")
     result: dict = {"name": args.agent, "model": entry.get("model")}
     extra = read_body(args.body, args.file)
     body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
@@ -4000,6 +4161,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     target = agent_entry(load_run(run_id), to)
     if target.get("status") in ("retiring", "retired") and (why := peer_pointer(to, target)):
         raise MeshError(f"{why}. Nothing was sent")
+    if args.type == "task" and target.get("role") == "worker":  # new work; an answer finishes what it was doing
+        reserve_guard(run_id, target.get("kind"), target.get("model"), target.get("effort"), f"a task for {to}")
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -4658,9 +4821,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     context = quietly(root_context, run, as_root=me == run["root"])
     if args.json:
         emit({"run": run_id, "mode": run["mode"], "agents": rows,
-              "needs_root": [r["name"] for r in rows if r["needs"] == "root"], "root_context": context})
+              "needs_root": [r["name"] for r in rows if r["needs"] == "root"], "root_context": context,
+              "quota": quietly(quota_line, run)})
     else:
         print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}" + (f" · {context_text(context)}" if context else ""))
+        print(quietly(quota_line, run) or "quota: unknown")
         print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "waiting", "branch"))
     if me == run["root"]:
         for line in inbound_warnings(run):
@@ -4805,7 +4970,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         names, run = [args.agent], None
     status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
                                 hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run,
-                                retire_after=idle_retire())
+                                retire_after=idle_retire(), reserve=root)
     print(line)
     if root:
         root_hint(run_id)
@@ -5582,7 +5747,7 @@ class Watch:
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False,
                  hang: float | None = None, autoreset: bool = False, every: dict | None = None,
-                 retire_after: float = 0.0) -> tuple[int, str]:
+                 retire_after: float = 0.0, reserve: bool = False) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
@@ -5592,7 +5757,8 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     `autoreset` (the root's own watch, with MESH_ROOT_AUTORESET=1) resets an idle root whose cache went cold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
     report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
-    retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire).
+    retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
+    watch) raises exit 7 once when a quota its live workers draw on reaches the reserve (`reserve_alert`).
     """
     hang = hang_after() if hang is None else hang
     watches = [Watch(run_id, name, grace, finals_at_start, hang, retire_after) for name in names]
@@ -5600,7 +5766,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     held = dict(zip(names, hold_watch(run_id, names)))
     roster = Roster(run_id, grace, hang, held, every, names, retire_after) if every is not None else None
     try:
-        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster)
+        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster, reserve)
     finally:
         for handle in held.values():
             handle.close()
@@ -5684,8 +5850,10 @@ class Roster:
 
 
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
-                 alerts_only: bool, autoreset: bool = False, roster: Roster | None = None) -> tuple[int, str]:
+                 alerts_only: bool, autoreset: bool = False, roster: Roster | None = None,
+                 reserve: bool = False) -> tuple[int, str]:
     checked = float("-inf")  # when the root was last checked for an idle reset
+    quotas = float("-inf")  # when the quotas were last looked at
     stopped = (0, stopped_line(run_id))
     while True:
         if run_stopped(run_id):  # `mesh stop` archived it under the watch: nothing more comes
@@ -5702,6 +5870,11 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
                 checked = time.monotonic()
                 quietly(maybe_autoreset, run_id, run, events)
+            if reserve and time.monotonic() - quotas >= RESERVE_POLL:
+                quotas = time.monotonic()
+                alert = quietly(reserve_alert, run_id, run, events)
+                if alert:
+                    return alert
             for watch in watches:
                 event = watch.tick(interval, alerts_only, bg_rows, events)
                 if event:
@@ -5735,6 +5908,33 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
         time.sleep(interval)
+
+
+def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str] | None:
+    """Exit 7 the first time a quota the run's live workers draw on reaches the reserve: once per window and reset
+    (a `reserve` event). Nothing is stopped: the workers finish their current task, and the gates
+    (`reserve_guard`) refuse new work meanwhile."""
+    if reserve_off(run_id) or quota_stop() >= 100:
+        return None
+    live = [e for e in run["agents"].values()
+            if e.get("role") == "worker" and e.get("status") not in ("retired", "retiring")]
+    hits = []
+    if any(e.get("kind") == "claude" for e in live) and (hit := claude_at_reserve(claude_usage())):
+        key, window = hit
+        hits.append((f"claude:{key}:{window['resets']}", "Claude", reserve_hit("claude")))
+    for model, effort in sorted({(e["model"], e.get("effort")) for e in live if e.get("kind") == "agy" and e.get("model")}):
+        if hit := agy_at_reserve(model, effort):
+            hits.append((f"agy:{model}:{hit[1]}", "agy", reserve_hit("agy", model, effort)))
+    seen = {e.get("key") for e in events if e.get("event") == "reserve"}
+    for key, vendor, what in hits:
+        if key in seen or not what:
+            continue
+        log_event(run_id, "reserve", key=key)
+        return 7, (f"ALERT {what}: mesh keeps {100 - quota_stop()}% of every quota for the user "
+                   f"(MESH_QUOTA_STOP={quota_stop()}), so it starts no new {vendor} work until then; running workers "
+                   "finish their current task. Tell the user; don't stop or retire them (`mesh reserve off` lets "
+                   "this run go on past it)")
+    return None
 
 
 ANY_WATCH = "--any"  # the lock a running `mesh watch --any` holds besides its workers'; no worker name starts with -
@@ -6611,7 +6811,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     notes: list[str] = []
     if planned:
         effort = DEFAULT_EFFORT
-        model, notes = plan_model(old["kind"], effort)
+        model, notes = plan_model(old["kind"], effort, run_id)
     else:
         model, effort = resumed_model(old, args.model, args.effort)
     view = getattr(args, "view", None) or old.get("view") or "pane"
@@ -6629,6 +6829,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         raise MeshError(f"{old_name}'s name is taken by a live agent, and its {mtype} is in {old_name}'s mailbox: "
                         f"close that agent, then `mesh resume {old_name}`")
 
+    if task or mtype == "task":  # new work; an answer, or a resume with no task, finishes what it was doing
+        reserve_guard(run_id, old["kind"], model, effort, f"{old_name} again")
     reservation = memory_guard(f"{old_name} again")  # the last check before any side effect
     # Before the worktree and compaction steps, which can take minutes: a `mesh watch --any` waits for it.
     log_event(run_id, "resuming", name=old_name, from_run=old_run["id"])
@@ -7624,6 +7826,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
     # a Copilot asker's run is in the root's own mode
     run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
+    if target and not copilot:  # a fresh agent is checked by its spawn, once its model is known
+        reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+                      f"a question for {target[2]}")
+    elif peer:
+        reserve_guard(run_id, peer.get("kind") or "claude", None, None, f"a question for {args.ref}")
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
@@ -7825,6 +8032,9 @@ def ask_peers(args: argparse.Namespace) -> int:
     if any(not_live(quietly(peer_worker, n, registry[n])) for n in names):  # one will start: before a run is made
         memory_guard(f"the askers of {', '.join(names)}", reserve=False)
     run_id, me = ask_identity(args, body, None)
+    for kind in sorted({(registry[n] if isinstance(registry[n], dict) else {}).get("kind") or "claude"
+                        for n in names}):
+        reserve_guard(run_id, kind, None, None, f"the askers of {', '.join(names)}")
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run
     try:
@@ -9279,23 +9489,74 @@ def cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def claude_usage_text(usage: dict | None) -> str:
+    """One line of Claude's windows: `five-hour window 28% (resets 07:20) · weekly window 16% (…)`, with the
+    reading's age when it came from a cache."""
+    if not usage or not usage.get("windows"):
+        return "unknown (no reading: see `mesh usage`)"
+    parts = [f"{CLAUDE_WINDOWS[k]} {w['used']:.0f}% (resets {reset_text(w['resets'])})"
+             for k, w in usage["windows"].items()]
+    age = time.time() - usage.get("fetched", 0)
+    return " · ".join(parts) + ("" if usage.get("source") == "live" else f" [cached {ago(age)} ago]")
+
+
+def quota_line(run: dict | None = None) -> str:
+    """`mesh status`'s quota line, from what mesh already read (no network): Claude's windows, the agy limits at
+    the reserve, the reserve, and whether this run was let past it."""
+    parts = [f"Claude {claude_usage_text(claude_usage(network=False))}"]
+    try:
+        rows = parse_usage((mesh_home() / "agy-usage.txt").read_text())
+    except OSError:
+        rows = []
+    spent = [f"{r['group']} {r['label'].lower()} {r['left']}% left" for r in rows if r["left"] <= min_quota()]
+    if spent:
+        parts.append("agy at the reserve: " + ", ".join(spent))
+    tail = f"reserve: mesh stops at {quota_stop()}% used"
+    if (run or {}).get("over_reserve"):
+        tail += " (off for this run: `mesh reserve on`)"
+    return "quota: " + "; ".join(parts) + f"; {tail}"
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
+    claude = claude_usage(force=args.refresh)
     rows = agy_usage(force=args.refresh)
-    if rows is None:
-        raise MeshError("`agy -p /usage` gave no quota rows")
-    plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort)
-    execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
-    names = listing_names(agy_model_listing())
-    exec_quota = model_quota(execute, names.get(execute, ""), rows)
+    plan = execute = exec_quota = None
+    notes: list[str] = []
+    if rows:
+        try:
+            plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort, fallback=False)
+        except MeshError as exc:
+            notes = [str(exc)]
+        execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
+        exec_quota = model_quota(execute, listing_names(agy_model_listing()).get(execute, ""), rows)
     if args.json:
-        emit({"rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
-              "notes": notes, "min_quota": min_quota()})
+        emit({"claude": claude, "rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
+              "notes": notes, "quota_stop": quota_stop(), "min_quota": min_quota()})
         return 0
-    print_table(rows, ("group", "label", "left", "resets"))
-    print(f"\nplan on {plan}, execute on {execute}"
-          + (f" ({exec_quota[0]}% left)" if exec_quota else "") + f"; threshold {min_quota()}%")
-    for note in notes:
-        print(f"  {note}")
+    print(f"Claude: {claude_usage_text(claude)}" + (" — at the reserve" if claude_at_reserve(claude) else ""))
+    if rows:
+        print()
+        print_table(rows, ("group", "label", "left", "resets"))
+        print(f"\nplan on {plan or 'nothing (every model is at the reserve)'}, execute on {execute}"
+              + (f" ({exec_quota[0]}% left)" if exec_quota else ""))
+        for note in notes:
+            print(f"  {note}")
+    else:
+        print("agy: `agy -p /usage` gave no quota rows")
+    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used (MESH_QUOTA_STOP)")
+    return 0
+
+
+def cmd_reserve(args: argparse.Namespace) -> int:
+    """Let this run go on past the quota reserve, or hold it to it again (root only)."""
+    run_id, me = identity(args)
+    if (load_run(run_id)["agents"].get(me) or {}).get("role") != "root":
+        raise MeshError("only the run's root lets its run past the quota reserve")
+    if args.state:
+        with editing_run(run_id) as run:
+            run["over_reserve"] = args.state == "off"
+        log_event(run_id, "reserve_" + args.state, name=me)
+    print(quota_line(load_run(run_id)))
     return 0
 
 
@@ -10780,10 +11041,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS)
     p.set_defaults(func=cmd_model)
 
-    p = sub.add_parser("usage", help="agy quotas, and the models `auto` would plan and execute on")
+    p = sub.add_parser("usage", help="Claude's and agy's quotas, the reserve, and the models `auto` would plan and "
+                                     "execute on")
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS, help="planning effort")
     p.add_argument("--exec-effort", default=EXEC_EFFORT, choices=EFFORTS)
-    p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
+    p.add_argument("--refresh", action="store_true", help="skip the caches (agy's 5 minutes, Claude's 2)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
 
@@ -10794,6 +11056,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agents", action="store_true", help="the per-agent table in window mode too")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cost)
+
+    p = ident(sub.add_parser("reserve", help="root only: let this run go on past the quota reserve (off), or hold "
+                                             "it to the reserve again (on); no argument shows the quotas"))
+    p.add_argument("state", nargs="?", choices=("off", "on"))
+    p.set_defaults(func=cmd_reserve)
     return parser
 
 

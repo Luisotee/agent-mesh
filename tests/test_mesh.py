@@ -987,6 +987,7 @@ def test_auto_plans_on_the_first_model_with_quota(mesh, monkeypatch):
 
 
 def test_usage_is_cached_and_force_reads_it_again(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "agy_usage", mesh.real_agy_usage)
     calls = []
 
     def fake_run(argv, **kwargs):
@@ -2183,7 +2184,7 @@ ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo
              ["approve", "repo-fix-typo"], ["switch", "repo-fix-typo"], ["retire", "repo-fix-typo"],
              ["retirer", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
              ["ask", "--repo", ".", "--body", "x"], ["peers", "add", "/nowhere"], ["peers", "remove", "p"],
-             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"])
+             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"])
 WORKER_RUNS = (["whoami"], ["whoami", "--reminder", "clear"], ["inbox"], ["dir"], ["peers", "list"], ["status"],
                ["log"], ["agents"], ["send", "parent", "--type", "info", "--body", "FYI."])
 
@@ -5016,7 +5017,7 @@ def test_spawn_records_a_named_model_or_effort(mesh, fake, run, repo, monkeypatc
     with_quotas(mesh, monkeypatch)
     stub_new_pane(fake)
     stub_split(fake)
-    assert mesh.main(["spawn", "--kind", "agy", "--model", "argon", "--repo", str(repo), "--worktree", "a"]) == 0
+    assert mesh.main(["spawn", "--kind", "agy", "--model", "opus", "--repo", str(repo), "--worktree", "a"]) == 0
     assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--worktree", "b"]) == 0
     assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--effort", "high", "--repo", str(repo),
                       "--worktree", "c"]) == 0
@@ -5113,6 +5114,7 @@ def test_the_new_model_doorbell_survives_a_failed_ring(mesh, fake, run, monkeypa
 
 
 def test_a_failed_usage_read_is_not_retried_for_a_minute(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "agy_usage", mesh.real_agy_usage)
     calls = []
 
     def fail(argv, **kwargs):
@@ -5167,6 +5169,161 @@ def test_switch_to_an_exact_id_records_its_own_effort(mesh, fake, run, monkeypat
 def test_effort_flags_reject_unknown_values(mesh, capsys):
     with pytest.raises(SystemExit):
         mesh.main(["usage", "--exec-effort", "med"])
+
+
+# ── the quota reserve ────────────────────────────────────────────────────
+
+
+def claude_windows(mesh, monkeypatch, five=28.0, week=16.0):
+    """Claude's usage endpoint answers with these windows (percent used); returns the list of its calls."""
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        return {"five_hour": {"utilization": five, "resets_at": "2026-10-28T07:19:59+00:00"},
+                "seven_day": {"utilization": week, "resets_at": "2026-11-03T08:59:59+00:00"},
+                "seven_day_opus": None, "extra_usage": {"is_enabled": False}}
+
+    monkeypatch.setattr(mesh, "fetch_claude_usage", fetch)
+    return calls
+
+
+def test_claude_usage_is_read_live_shared_for_two_minutes_then_falls_back_to_a_fresh_cache(mesh, monkeypatch,
+                                                                                            tmp_path):
+    calls = claude_windows(mesh, monkeypatch, five=40)
+    usage = mesh.claude_usage()
+    assert usage["source"] == "live" and usage["windows"]["five_hour"]["used"] == 40.0
+    assert "seven_day_opus" not in usage["windows"]  # null: no such limit on this account
+    assert mesh.claude_usage()["windows"] == usage["windows"] and len(calls) == 1  # the shared reading
+    assert mesh.claude_usage(network=False)["source"] == "live" and len(calls) == 1
+    # Past the TTL with the endpoint failing: our last reading, while not stale; Claude Code's own copy if newer.
+    cache = mesh.mesh_home() / "claude-usage.json"
+    reading = json.loads(cache.read_text())
+    cache.write_text(json.dumps({**reading, "fetched": time.time() - 600}))
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: None)
+    assert mesh.claude_usage()["source"] == "cache"
+    theirs = {"fetchedAtMs": (time.time() - 60) * 1000,
+              "utilization": {"five_hour": {"utilization": 95, "resets_at": None}}}
+    mesh.claude_code_json().parent.mkdir(parents=True, exist_ok=True)
+    mesh.claude_code_json().write_text(json.dumps({"cachedUsageUtilization": theirs}))
+    assert mesh.claude_usage()["windows"]["five_hour"]["used"] == 95
+    theirs["fetchedAtMs"] = (time.time() - 3 * 86400) * 1000  # days old, as seen on this machine
+    mesh.claude_code_json().write_text(json.dumps({"cachedUsageUtilization": theirs}))
+    cache.write_text(json.dumps({**reading, "fetched": time.time() - 3600}))
+    assert mesh.claude_usage() is None  # nothing fresh: unknown, which never blocks
+
+
+def test_fetch_claude_usage_never_uses_an_expired_token(mesh, monkeypatch):
+    sent = []
+    monkeypatch.setattr(mesh.urllib.request, "urlopen", lambda *a, **k: sent.append(a) or (_ for _ in ()).throw(OSError()))
+    creds = mesh.claude_home() / ".credentials.json"
+    creds.parent.mkdir(parents=True, exist_ok=True)
+    creds.write_text(json.dumps({"claudeAiOauth": {"accessToken": "t", "expiresAt": (time.time() - 10) * 1000}}))
+    assert mesh.real_fetch_claude_usage() is None and not sent
+    creds.write_text(json.dumps({"claudeAiOauth": {"accessToken": "t", "expiresAt": (time.time() + 600) * 1000}}))
+    assert mesh.real_fetch_claude_usage() is None and len(sent) == 1  # a failed call reads as unknown
+    assert sent[0][0].get_header("Authorization") == "Bearer t"
+
+
+def test_the_reserve_setting_and_its_older_name(mesh, monkeypatch):
+    assert (mesh.quota_stop(), mesh.min_quota()) == (90, 10)
+    monkeypatch.setenv("MESH_MIN_QUOTA", "20")
+    assert mesh.quota_stop() == 80
+    monkeypatch.setenv("MESH_QUOTA_STOP", "95")
+    assert (mesh.quota_stop(), mesh.min_quota()) == (95, 5)
+
+
+def test_spawn_refuses_claude_work_at_the_reserve_until_the_run_is_let_past_it(mesh, fake, cli, run, repo,
+                                                                                 monkeypatch, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    claude_windows(mesh, monkeypatch, five=91)
+    spawn = ["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--task", "Fix it."]
+    assert mesh.main([*spawn, "--worktree", "a"]) == 1
+    err = capsys.readouterr().err
+    assert "Claude is at 91% of its five-hour window" in err and "mesh reserve off" in err
+    assert "proj-a" not in mesh.load_run(run)["agents"] and not cli.called("--bg")
+    assert mesh.main(["reserve", "off"]) == 0
+    assert "off for this run" in capsys.readouterr().out
+    assert mesh.main([*spawn, "--worktree", "b"]) == 0
+    assert mesh.main(["reserve", "on"]) == 0
+    monkeypatch.setenv("MESH_QUOTA_STOP", "100")  # the reserve turned off machine-wide
+    assert mesh.main([*spawn, "--worktree", "c"]) == 0
+    monkeypatch.delenv("MESH_QUOTA_STOP")
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: None)
+    (mesh.mesh_home() / "claude-usage.json").unlink()
+    assert mesh.main([*spawn, "--worktree", "d"]) == 0  # unreadable: never blocks
+    events = [e["event"] for e in mesh.read_log(run)]
+    assert "reserve_off" in events and "reserve_on" in events
+    capsys.readouterr()
+
+
+def test_agy_work_is_refused_on_a_model_at_the_reserve_and_auto_plans_only_over_it(mesh, fake, run, repo,
+                                                                                    monkeypatch, capsys):
+    with_quotas(mesh, monkeypatch, USAGE.replace("74%", "5%").replace("49%", "10%"))
+    stub_new_pane(fake)
+    stub_split(fake)
+    assert mesh.main(["spawn", "--kind", "agy", "--size", "small", "--repo", str(repo), "--worktree", "a",
+                      "--task", "Fix it."]) == 1
+    assert "agy's flash has 5% left" in capsys.readouterr().err
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--worktree", "b", "--task", "Fix it."]) == 1
+    assert "no model with quota left over the reserve" in capsys.readouterr().err  # 10% left is the reserve
+    with pytest.raises(mesh.MeshError):
+        mesh.plan_model("agy", "high", run)
+    with mesh.editing_run(run) as data:
+        data["over_reserve"] = True
+    assert mesh.plan_model("agy", "high", run)[0] == "claude-opus-5-5-high"  # the most left, as before
+
+
+def test_send_refuses_a_task_at_the_reserve_but_an_answer_goes(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run, model="opus")
+    claude_windows(mesh, monkeypatch, week=90)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "One more thing."]) == 1
+    assert "weekly window" in capsys.readouterr().err
+    assert not mesh.read_log(run) or all(e.get("type") != "task" for e in mesh.read_log(run))
+    mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Yes, go on."])
+    assert [e["type"] for e in mesh.read_log(run) if e["event"] == "send"] == ["answer"]
+    capsys.readouterr()
+
+
+def test_approve_is_refused_at_the_reserve(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    claude_windows(mesh, monkeypatch, five=99)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "not starting repo-fix-typo's execution" in capsys.readouterr().err
+    assert not fake.called("agent", "start")
+
+
+def test_the_roots_watch_alerts_once_per_window_when_a_quota_reaches_the_reserve(mesh, fake, run, monkeypatch):
+    claude_worker(mesh, run, model="opus", status="running")
+    claude_windows(mesh, monkeypatch, five=92)
+    status, line = mesh.reserve_alert(run, mesh.load_run(run), mesh.read_log(run))
+    assert status == 7 and "Claude is at 92% of its five-hour window" in line and "finish their current task" in line
+    assert mesh.reserve_alert(run, mesh.load_run(run), mesh.read_log(run)) is None  # once for that window
+    with mesh.editing_run(run) as data:
+        data["over_reserve"] = True
+    (mesh.mesh_home() / "claude-usage.json").unlink()
+    claude_windows(mesh, monkeypatch, five=10, week=95)
+    assert mesh.reserve_alert(run, mesh.load_run(run), mesh.read_log(run)) is None  # let past it
+    with mesh.editing_run(run) as data:
+        data["over_reserve"] = False
+    assert "weekly window" in mesh.reserve_alert(run, mesh.load_run(run), mesh.read_log(run))[1]
+
+
+def test_usage_and_status_show_the_quotas_and_the_reserve(mesh, fake, run, monkeypatch, capsys):
+    claude_windows(mesh, monkeypatch, five=28, week=93)
+    assert mesh.main(["usage"]) == 0
+    out = capsys.readouterr().out
+    assert "Claude: five-hour window 28%" in out and "weekly window 93%" in out and "at the reserve" in out
+    assert "agy: `agy -p /usage` gave no quota rows" in out and "once 90% of it is used" in out
+    monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: pytest.fail("status reads no network"))
+    (mesh.mesh_home() / "claude-usage.json").write_text(json.dumps({**json.loads(
+        (mesh.mesh_home() / "claude-usage.json").read_text()), "fetched": time.time() - 300}))  # past its TTL
+    mesh.write_atomic(mesh.mesh_home() / "agy-usage.txt", USAGE)
+    line = mesh.quota_line(mesh.load_run(run))
+    assert line.startswith("quota: Claude five-hour window 28%") and "[cached 5m ago]" in line
+    assert "agy at the reserve: Gemini 4 Argon gemini 4 argon weekly limit 0% left" in line
+    assert line.endswith("reserve: mesh stops at 90% used")
 
 
 # ── ask: questions and reviews ───────────────────────────────────────────
