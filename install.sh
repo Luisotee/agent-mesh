@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Install (or --uninstall) agent-mesh for the current user by symlinking this
 # checkout into place and adding a marked block to both global rule files.
+# --plugin: Claude Code gets the skills from the agent-mesh plugin, so they are
+# not linked into ~/.claude/skills (and our old links there are removed).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -68,6 +70,9 @@ PY
   echo "$( [[ "$add" == 1 ]] && echo updated || echo cleaned ) $file"
 }
 
+PLUGIN=0
+[[ "${1:-}" == "--plugin" ]] && PLUGIN=1
+
 if [[ "${1:-}" == "--uninstall" ]]; then
   unlink_if_ours "$BIN_DIR/mesh"
   unlink_if_ours "$CONFIG_LINK"
@@ -88,6 +93,10 @@ link "$REPO/bin/mesh" "$BIN_DIR/mesh"
 link "$REPO/protocol" "$CONFIG_LINK"
 for root in "${SKILL_ROOTS[@]}"; do
   for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
+  if [[ "$PLUGIN" == 1 && "$root" == "$HOME/.claude/skills" ]]; then
+    for skill in "${SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done  # the plugin has them
+    continue
+  fi
   for skill in "${SKILLS[@]}"; do link "$REPO/skills/$skill" "$root/$skill"; done
 done
 for file in "${RULE_FILES[@]}"; do set_block "$file" 1; done

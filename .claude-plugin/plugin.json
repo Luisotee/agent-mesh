@@ -1,0 +1,8 @@
+{
+  "name": "agent-mesh",
+  "description": "Hand another repo's part of a change, a question or a PR review to agents running inside that repo, in herdr panes, with two-way messaging. The skills need the `mesh` CLI and protocol from install.sh.",
+  "author": { "name": "Luisotee" },
+  "homepage": "https://github.com/Luisotee/agent-mesh",
+  "repository": "https://github.com/Luisotee/agent-mesh",
+  "keywords": ["agents", "orchestration", "multi-repo", "herdr", "delegation", "code-review"]
+}
