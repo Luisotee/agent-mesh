@@ -8666,7 +8666,7 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
 # What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
 # agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
 WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
-                             "peek", "brief", "model", "usage", "peers list"})
+                             "peek", "brief", "model", "usage", "cost", "peers list"})
 # Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
@@ -9628,6 +9628,502 @@ def cmd_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── cost: spend per agent from session files ─────────────────────────────
+
+
+# $ per million tokens: input, cache write 5 min, cache write 1 h, cache read, output. Checked 2026-10-28 against
+# the `claude-api` skill of Claude Code 2.1.312 (its model table cached 2026-10-06; writes are 1.25x the input
+# price at 5 min, 2x at 1 h). It states no Haiku read price: 0.1x, as the cost study took it. A model is priced by
+# its family (an older Opus as Opus 5.5), and a model no family names as Opus. API prices stand in for what the
+# subscription limit counts, which is undocumented (docs/cost-research/README.md, "Method").
+PRICES = {
+    "fable": (10.0, 12.5, 20.0, 0.25, 50.0),
+    "opus": (4.0, 5.0, 8.0, 0.20, 20.0),
+    "sonnet": (2.0, 2.5, 4.0, 0.20, 10.0),
+    "haiku": (0.10, 0.125, 0.20, 0.01, 0.50),
+}
+PRICES_AS_OF = "2026-10-28, claude-api skill (Claude Code 2.1.312)"
+COLD_WRITE_MIN = 20_000  # cache-write tokens past which a call after a gap longer than the TTL reads as a cold resume
+ROOT_COMMAND_RE = re.compile(r"\bmesh (?:spawn|init|ask|approve|resume|switch|watch)\b")
+TOKEN_KEYS = ("input", "w5", "w1", "read", "output")
+
+
+def call_cost(call: dict) -> float:
+    """A call's price in dollars (`PRICES`); agy calls have none."""
+    if call["model"] == "agy":
+        return 0.0
+    prices = next((p for family, p in PRICES.items() if family in call["model"]), PRICES["opus"])
+    return sum(call[key] * price for key, price in zip(TOKEN_KEYS, prices)) / 1e6
+
+
+def stamp_epoch(stamp: str | None) -> float | None:
+    try:
+        return datetime.fromisoformat(stamp[:-1] + "+00:00" if stamp[-1:] in "zZ" else stamp).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def prompt_text(content) -> str | None:
+    """A user record's typed text: a string, or its text blocks; None for tool results."""
+    if isinstance(content, str):
+        return content
+    texts = [c.get("text") or "" for c in content or () if isinstance(c, dict) and c.get("type") == "text"]
+    return " ".join(texts) if texts else None
+
+
+def claude_calls(path: Path) -> tuple[list[dict], dict]:
+    """Every API call in a Claude session file, oldest first, and what the file says of its session: its
+    `entrypoint` (`sdk-cli` for `claude -p`), `cwd`, whether its first prompt was a mesh doorbell and whether it
+    ran a root command (`ROOT_COMMAND_RE` in a Bash call).
+
+    Claude Code writes one record per content block of a reply (thinking, text, each tool call), each with the
+    reply's whole usage, so calls are folded by `message.id`: summing records counts most calls two or three times
+    (Gas Town's ledger did, until it deduped). Read line by line with no length limit: a reply holding a big tool
+    call is one line of megabytes (Gas Town's 64 KB scanner dropped those). A call's context is what `line_tokens`
+    sums; a write with no TTL split is taken as 1 h.
+    """
+    calls, seen = [], set()
+    info = {"entrypoint": None, "cwd": None, "doorbell": False, "root_commands": False}
+    prompted = False
+    try:
+        with open(path, "rb") as fh:
+            for line in fh:
+                reply = b'"usage"' in line and b'"assistant"' in line
+                if not reply and (prompted or b'"user"' not in line):
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                info["entrypoint"] = info["entrypoint"] or event.get("entrypoint")
+                info["cwd"] = info["cwd"] or event.get("cwd")
+                message = event.get("message") or {}
+                if event.get("type") == "user" and not prompted and not event.get("isMeta"):
+                    text = prompt_text(message.get("content"))
+                    if text is not None:
+                        prompted, info["doorbell"] = True, text.lstrip().startswith("📬 [mesh]")
+                    continue
+                if event.get("type") != "assistant":
+                    continue
+                content = message.get("content")
+                for block in content if isinstance(content, list) else ():
+                    if isinstance(block, dict) and block.get("name") == "Bash" and ROOT_COMMAND_RE.search(
+                            str((block.get("input") or {}).get("command") or "")):
+                        info["root_commands"] = True
+                usage, key = message.get("usage"), message.get("id") or event.get("requestId")
+                at = stamp_epoch(event.get("timestamp"))
+                if not usage or key in seen or message.get("model") == "<synthetic>" or at is None:
+                    continue
+                if key:
+                    seen.add(key)
+                writes = usage.get("cache_creation") or {}
+                w5, w1 = (int(writes.get(f"ephemeral_{ttl}_input_tokens") or 0) for ttl in ("5m", "1h"))
+                w1 += max(0, int(usage.get("cache_creation_input_tokens") or 0) - w5 - w1)
+                calls.append({"t": at, "model": message.get("model") or "", "input": int(usage.get("input_tokens") or 0),
+                              "w5": w5, "w1": w1, "read": int(usage.get("cache_read_input_tokens") or 0),
+                              "output": int(usage.get("output_tokens") or 0)})
+    except OSError:
+        return [], info
+    calls.sort(key=lambda c: c["t"])
+    return calls, info
+
+
+def agy_calls(session: str) -> list[dict]:
+    """An agy conversation's model calls, oldest first, in tokens: a step's time is field 1 of its `metadata`
+    (a protobuf Timestamp, seconds first) and its usage field 9, as `agy_context_tokens` reads it (2 the input read
+    fresh, 5 read from cache, 3 the output)."""
+    try:
+        import sqlite3  # here, so a Python built without it only loses agy's rows
+    except ImportError:
+        return []
+    path = agy_conversation_file(session)
+    if not path.exists():
+        return []
+    try:
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = db.execute("SELECT metadata FROM steps ORDER BY idx").fetchall()
+        finally:
+            db.close()
+    except (sqlite3.Error, ValueError):
+        return []
+    calls = []
+    for (metadata,) in rows:
+        if not isinstance(metadata, bytes):
+            continue
+        try:
+            fields = protobuf_fields(metadata)
+            usage = next((v for f, v in fields if f == 9 and isinstance(v, bytes)), b"")
+            stamp = next((v for f, v in fields if f == 1 and isinstance(v, bytes)), b"")
+            counts = {f: v for f, v in protobuf_fields(usage) if isinstance(v, int)}
+            seconds = next((v for f, v in protobuf_fields(stamp) if f == 1 and isinstance(v, int)), None)
+        except (ValueError, IndexError):
+            continue
+        if 2 in counts and seconds:
+            calls.append({"t": float(seconds), "model": "agy", "input": counts[2], "w5": 0, "w1": 0,
+                          "read": counts.get(5, 0), "output": counts.get(3, 0)})
+    return calls
+
+
+def cost_kind(name: str, entry: dict, root: bool) -> str:
+    """The kind an agent's spend is counted under, as the cost study classified sessions."""
+    if root:
+        kind = "root"
+    elif entry.get("peer"):
+        kind = "peer"
+    elif entry.get("review_heads") or entry.get("reviews") or re.search(r"-review-\d+", name):
+        kind = "reviewer"
+    elif entry.get("read_only"):
+        kind = "asker"
+    else:
+        kind = f"worker {entry.get('size') or '?'} {entry.get('view') or 'pane'}"
+    return f"agy {kind}" if entry.get("kind") == "agy" else kind
+
+
+def reviewed_pr(name: str, entry: dict) -> list[str]:
+    """The PR a reviewer's spend is for: the one its name gives (`<repo>-review-<n>`, one reviewer per PR and
+    vendor), else the last it recorded. `reviews` alone over-counts: a resume carries the earlier ones along."""
+    if not (entry.get("review_heads") or entry.get("reviews") or re.search(r"-review-\d+", name)):
+        return []
+    if number := re.search(r"-review-(\d+)", name):
+        return [f"{Path(entry.get('repo') or '').name}#{number.group(1)}"]
+    return list(entry.get("reviews") or ())[-1:]
+
+
+def phase_marks(name: str, entry: dict, events: list[dict]) -> list[tuple[float, str]]:
+    """(time, phase) where an agent's phase changes: `plan`, `exec`, or "" (no plan phase).
+
+    Its entry starts at its spawn or resume (a resume writes a fresh one). The first change after it tells what it
+    started in: a `plan approved` or a `plan_phase_ended` ends a plan phase, a `planned task` starts one; with
+    none, its current `phase` is still the one it started in.
+    """
+    start = epoch(entry.get("spawned"))
+    changes = sorted([(epoch(m.get("at")), {"plan approved": "exec", "planned task": "plan"}[m["why"]])
+                      for m in entry.get("models") or () if m.get("why") in ("plan approved", "planned task")]
+                     + [(epoch(e.get("time")), "") for e in events
+                        if e.get("event") == "plan_phase_ended" and e.get("name") == name
+                        and epoch(e.get("time")) >= start])
+    if changes:
+        first = "" if changes[0][1] == "plan" else "plan"
+    else:
+        first = "plan" if entry.get("phase") == "plan" else ""
+    return [(start, first), *changes]
+
+
+def phase_at(marks: list[tuple[float, str]], t: float) -> str:
+    phase = marks[0][1] if marks else ""
+    for at, value in marks:
+        if at <= t:
+            phase = value
+    return phase
+
+
+def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
+    """Where each conversation's calls belong, from every run, live and archived: {session: [segment]} and
+    {run: its window}.
+
+    A segment is one agent of one run under one of its sessions: its run, name, kind, phase marks, and when it
+    started (a worker's spawn or resume; a root's run `created`) and ended (its run's last `stop`, None while
+    live). A worker's sessions are its `session` and the ones swaps copied from (`sessions`), an agy one found
+    pinned by its first doorbell when none is recorded; a root's also every `reset`'s old and new session.
+    """
+    segments: dict[str, list[dict]] = {}
+    windows: dict[str, dict] = {}
+    for run, folder in all_runs():
+        events = read_log(run["id"], folder)
+        stops = [epoch(e.get("time")) for e in events if e.get("event") == "stop"]
+        window = {"start": epoch(run.get("created")), "end": max(stops) if stops else None,
+                  "root": run.get("root"), "cwd": (run["agents"].get(run.get("root")) or {}).get("cwd"),
+                  "resets": [epoch(e.get("time")) for e in events if e.get("event") == "reset"]}
+        windows[run["id"]] = window
+        for name, entry in run["agents"].items():
+            if entry.get("kind") not in KINDS:
+                continue  # Copilot keeps no session file of ours to read
+            root = entry.get("role") == "root"
+            sessions = [entry.get("session"), *(s if isinstance(s, str) else (s or {}).get("session")
+                                                for s in entry.get("sessions") or ())]
+            if root:
+                sessions += [e.get(key) for e in events if e.get("event") == "reset" and e.get("name") == name
+                             for key in ("old_session", "new_session")]
+            elif entry.get("kind") == "agy" and not entry.get("session"):
+                sessions.append(quietly(agy_conversation, name, run["id"], None, True))
+            starts = [epoch(t) for t in (entry.get("spawned"), *(m.get("at") for m in entry.get("models") or ()))
+                      if epoch(t)]
+            segment = {"run": run["id"], "name": name, "kind": cost_kind(name, entry, root), "root": root,
+                       "start": window["start"] if root else min(starts, default=window["start"]),
+                       "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
+                       "agy": entry.get("kind") == "agy", "prs": reviewed_pr(name, entry)}
+            for session in dict.fromkeys(s for s in sessions if s):
+                segments.setdefault(session, []).append(segment)
+    return segments, windows
+
+
+def segment_at(segments: list[dict], t: float) -> dict | None:
+    """The segment a call at `t` belongs to: a root's while its run is open, else the worker segment that started
+    last before it. A call before a worker segment's start but after the one before it ended (a resume's headless
+    `/compact`, run before the reopen is recorded) goes to the later one."""
+    for segment in segments:
+        if segment["root"] and segment["start"] <= t and (segment["end"] is None or t <= segment["end"]):
+            return segment
+    chosen = None
+    for segment in sorted((s for s in segments if not s["root"]), key=lambda s: s["start"]):
+        if segment["start"] <= t:
+            chosen = segment
+        elif chosen is None or (chosen["end"] is not None and t > chosen["end"]):
+            return segment
+        else:
+            break
+    return chosen
+
+
+def root_fallback(windows: dict[str, dict], cwd: str | None, t: float) -> dict | None:
+    """A root segment for a session no run names that ran root commands in a root's cwd while its run was open
+    (a `/clear` typed by hand starts one; only `mesh reset` records it)."""
+    for run_id, window in windows.items():
+        if cwd and window["cwd"] == cwd and window["start"] <= t and (window["end"] is None or t <= window["end"]):
+            return {"run": run_id, "name": window["root"], "kind": "root", "root": True, "marks": [], "prs": []}
+    return None
+
+
+def parse_since(text: str, now: datetime | None = None) -> float:
+    """A window's edge, in epoch seconds: a span back from now (`7d`, `36h`, `90m`) or ISO 8601 (local time
+    without an offset, a date alone at its midnight)."""
+    now = now or datetime.now(timezone.utc)
+    if span := re.fullmatch(r"(\d+)([dhm])", text.strip().lower()):
+        return (now - timedelta(**{{"d": "days", "h": "hours", "m": "minutes"}[span.group(2)]: int(span.group(1))})
+                ).timestamp()
+    try:
+        at = datetime.fromisoformat(text[:-1] + "+00:00" if text[-1:] in "zZ" else text)
+    except ValueError as exc:
+        raise MeshError(f"{text}: give a span back from now (7d, 36h) or ISO 8601 (2026-11-04, 2026-11-04T09:00)") \
+            from exc
+    return (at if at.tzinfo else at.astimezone()).timestamp()
+
+
+class CostTally:
+    """Sums calls by agent and by kind, with cold resumes and each new session's first call (its static prefix)."""
+
+    def __init__(self):
+        self.agents: dict[tuple, dict] = {}
+        self.kinds: dict[str, dict] = {}
+
+    @staticmethod
+    def blank() -> dict:
+        return {"sessions": set(), "calls": 0, **{k: 0 for k in TOKEN_KEYS}, "usd": 0.0, "ctx": 0,
+                "plan": 0.0, "exec": 0.0, "cold": 0, "cold_usd": 0.0, "sub_usd": 0.0, "firsts": []}
+
+    def add(self, session: str, call: dict, kind: str, agent: tuple, phase: str, sub: bool, cold: bool,
+            first: bool) -> None:
+        usd = call_cost(call)
+        rows = [self.kinds.setdefault(kind + (" subagents" if sub else ""), self.blank())]
+        row = self.agents.setdefault(agent, {**self.blank(), "kind": kind})
+        if sub:
+            row["sub_usd"] += usd
+        else:
+            rows.append(row)
+        for r in rows:
+            r["sessions"].add(session)
+            r["calls"] += 1
+            r["usd"] += usd
+            r["ctx"] += call["input"] + call["w5"] + call["w1"] + call["read"]
+            for key in TOKEN_KEYS:
+                r[key] += call[key]
+            if phase in ("plan", "exec"):
+                r[phase] += usd
+            if cold:
+                r["cold"] += 1
+                r["cold_usd"] += usd
+            if first:
+                r["firsts"].append(call["input"] + call["w5"] + call["w1"] + call["read"])
+
+
+def tally_session(tally: CostTally, session: str, calls: list[dict], sub: bool, place, since: float | None,
+                  until: float | None) -> None:
+    """Add one session file's calls to the tally: `place(call)` gives (kind, agent key, phase) or None to skip it.
+
+    A cold resume is a main-conversation call after a gap longer than the cache's TTL (what the previous writing
+    call wrote at, `CACHE_WRITES`, else `CACHE_TTL`) that writes at least `COLD_WRITE_MIN` tokens."""
+    ttl, last = CACHE_TTL, None
+    for index, call in enumerate(calls):
+        cold = not sub and last is not None and call["t"] - last > ttl and call["w5"] + call["w1"] >= COLD_WRITE_MIN
+        last = call["t"]
+        if call["w1"] or call["w5"]:
+            ttl = CACHE_WRITES["ephemeral_1h_input_tokens" if call["w1"] else "ephemeral_5m_input_tokens"]
+        if (since is not None and call["t"] < since) or (until is not None and call["t"] >= until):
+            continue
+        if placed := place(call):
+            kind, agent, phase = placed
+            tally.add(session, call, kind, agent, phase, sub, cold, first=index == 0 and not sub)
+
+
+def session_files(session: str, cwd: str | None) -> list[Path]:
+    """A Claude session's file (under its cwd's project folder, else wherever Claude started it), if any."""
+    if cwd and (path := claude_sessions_dir(cwd) / f"{session}.jsonl").exists():
+        return [path]
+    return sorted((claude_home() / "projects").glob(f"*/{session}.jsonl"))[:1]
+
+
+def subagent_files(path: Path) -> list[Path]:
+    return sorted(path.with_suffix("").glob("subagents/*.jsonl"))
+
+
+def run_cost(run_id: str | None, since: float | None, until: float | None) -> dict:
+    """Spend per agent and per kind: of one run's agents (`run_id`), or of every session in [since, until)."""
+    segments, windows = cost_segments()
+    if run_id and run_id not in windows:
+        raise MeshError(f"unknown run {run_id} (`mesh agents` lists runs)")
+    tally, agy_tally = CostTally(), CostTally()
+    worktrees = re.sub(r"[^A-Za-z0-9]", "-", str(worktree_root()))
+    reviewed: dict[str, set] = {}
+
+    def placer(session: str, info: dict, path: Path, sub: bool):
+        mine = segments.get(session, [])
+
+        def place(call: dict):
+            segment = segment_at(mine, call["t"]) if mine else None
+            if not segment and info.get("root_commands"):
+                segment = root_fallback(windows, info.get("cwd"), call["t"])
+            if segment:
+                if run_id and segment["run"] != run_id:
+                    return None
+                for pr in segment["prs"]:
+                    reviewed.setdefault(pr, set()).add((segment["run"], segment["name"]))
+                return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
+            if run_id:
+                return None
+            if worktrees in path.parent.name or info.get("doorbell"):
+                kind = "worker (unmapped)"
+            else:
+                kind = "headless" if info.get("entrypoint") == "sdk-cli" else "user"
+            return kind, ("", kind), ""
+        return place
+
+    if run_id:  # the run's sessions, and what its root's project folder holds of its window
+        window = windows[run_id]
+        claude = {s for s, segs in segments.items() for seg in segs if seg["run"] == run_id and not seg["agy"]}
+        files = {path for s in claude for seg in segments[s] if seg["run"] == run_id
+                 for path in session_files(s, None)}
+        if window["cwd"]:
+            files |= {p for p in claude_sessions_dir(window["cwd"]).glob("*.jsonl")
+                      if p.stat().st_mtime >= window["start"]}
+        agy = {s for s, segs in segments.items() for seg in segs if seg["run"] == run_id and seg["agy"]}
+    else:
+        files = {p for p in (claude_home() / "projects").glob("*/*.jsonl") if p.stat().st_mtime >= since}
+        folder = agy_conversation_file("x").parent
+        agy = {p.stem for p in folder.glob("*.db") if p.stat().st_mtime >= since} if folder.is_dir() else set()
+    for path in sorted(files):
+        session = path.stem
+        calls, info = claude_calls(path)
+        tally_session(tally, session, calls, False, placer(session, info, path, False), since, until)
+        for sub_path in subagent_files(path):
+            sub_calls, _ = claude_calls(sub_path)
+            tally_session(tally, session, sub_calls, True, placer(session, info, path, True), since, until)
+    for session in sorted(agy):
+        mine = segments.get(session, [])
+
+        def place_agy(call: dict, mine=mine):
+            segment = segment_at(mine, call["t"]) if mine else None
+            if segment:
+                if run_id and segment["run"] != run_id:
+                    return None
+                return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
+            return None if run_id else ("agy user", ("", "agy user"), "")
+        tally_session(agy_tally, session, agy_calls(session), False, place_agy, since, until)
+    resets = [t for r, w in windows.items() if not run_id or r == run_id for t in w["resets"]
+              if (since is None or t >= since) and (until is None or t < until)]
+    return cost_report(tally, agy_tally, reviewed, len(resets))
+
+
+def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set], resets: int) -> dict:
+    total = sum(r["usd"] for r in tally.kinds.values())
+
+    def kind_row(kind: str, r: dict) -> dict:
+        writes = r["w5"] + r["w1"]
+        firsts = sorted(r["firsts"])
+        return {"kind": kind, "sessions": len(r["sessions"]), "calls": r["calls"], "usd": round(r["usd"], 2),
+                "share": round(100 * r["usd"] / total, 1) if total else 0.0,
+                "usd_per_call": round(r["usd"] / r["calls"], 4) if r["calls"] else 0.0,
+                "ctx_per_call": r["ctx"] // r["calls"] if r["calls"] else 0,
+                "out_per_call": r["output"] // r["calls"] if r["calls"] else 0,
+                **{key: r[key] for key in TOKEN_KEYS},
+                "write_5m_share": round(100 * r["w5"] / writes, 1) if writes else 0.0,
+                "first_ctx_median": firsts[len(firsts) // 2] if firsts else None,
+                "cold": r["cold"], "cold_usd": round(r["cold_usd"], 2)}
+
+    agents = [{"run": run, "name": name, "kind": r["kind"], "calls": r["calls"],
+               **{key: r[key] for key in TOKEN_KEYS}, "usd": round(r["usd"], 2), "plan_usd": round(r["plan"], 2),
+               "exec_usd": round(r["exec"], 2), "sub_usd": round(r["sub_usd"], 2), "cold": r["cold"],
+               "cold_usd": round(r["cold_usd"], 2)}
+              for (run, name), r in tally.agents.items()]
+    review_usd = sum(r["usd"] for k, r in tally.kinds.items() if k.startswith("reviewer"))
+    return {"prices_as_of": PRICES_AS_OF, "usd": round(total, 2),
+            "agents": sorted(agents, key=lambda a: -(a["usd"] + a["sub_usd"])),
+            "kinds": sorted((kind_row(k, r) for k, r in tally.kinds.items()), key=lambda r: -r["usd"]),
+            "agy": sorted(({"kind": k, "sessions": len(r["sessions"]), "calls": r["calls"], "input": r["input"],
+                            "read": r["read"], "output": r["output"]} for k, r in agy_tally.kinds.items()),
+                          key=lambda r: -(r["input"] + r["read"])),
+            "reviews": {"prs": len(reviewed), "usd": round(review_usd, 2),
+                        "usd_per_pr": round(review_usd / len(reviewed), 2) if reviewed else None,
+                        "reviewers_per_pr": round(sum(map(len, reviewed.values())) / len(reviewed), 1)
+                        if reviewed else None},
+            "resets": resets}
+
+
+def tokens_text(n: int) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k"
+
+
+def cmd_cost(args: argparse.Namespace) -> int:
+    since = parse_since(args.since) if args.since else None
+    until = parse_since(args.until) if args.until else None
+    run_id = args.run_id
+    if not run_id and since is None:
+        try:
+            run_id = identity(args)[0]
+        except MeshError as exc:
+            raise MeshError("name a run, or a window with --since (`mesh cost --since 7d`)") from exc
+    report = run_cost(run_id, since, until)
+    scope = f"run {run_id}" if run_id else "every session"
+    if since is not None or until is not None:
+        def edge(t: float | None, none: str) -> str:
+            return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%d %H:%M") if t else none
+        scope += f", {edge(since, 'start')} → {edge(until, 'now')}"
+    report["scope"] = scope
+    if args.json:
+        emit(report)
+        return 0
+    print(f"{scope}: ${report['usd']:,.2f} at API prices ({PRICES_AS_OF})")
+    if run_id or args.agents:
+        print()
+        print_table([{**a, "agent": f"{a['name']}" if run_id else f"{a['run']}:{a['name']}" if a["run"] else a["name"],
+                      "$": f"{a['usd']:.2f}", "plan/exec": f"{a['plan_usd']:.2f}/{a['exec_usd']:.2f}",
+                      "sub $": f"{a['sub_usd']:.2f}", "cold": f"{a['cold']} (${a['cold_usd']:.2f})" if a["cold"] else "",
+                      **{k: tokens_text(a[k]) for k in TOKEN_KEYS}} for a in report["agents"]],
+                    ("agent", "kind", "calls", "input", "w1", "w5", "read", "output", "$", "plan/exec", "sub $",
+                     "cold"))
+    if report["kinds"]:
+        print()
+        print_table([{**k, "$": f"{k['usd']:.2f}", "%": f"{k['share']}", "$/call": f"{k['usd_per_call']:.3f}",
+                      "ctx/call": tokens_text(k["ctx_per_call"]), "out/call": k["out_per_call"],
+                      "5m %": k["write_5m_share"], "prefix": tokens_text(k["first_ctx_median"])
+                      if k["first_ctx_median"] is not None else "",
+                      "cold": f"{k['cold']} (${k['cold_usd']:.2f})" if k["cold"] else ""} for k in report["kinds"]],
+                    ("kind", "sessions", "calls", "$", "%", "$/call", "ctx/call", "out/call", "5m %", "prefix",
+                     "cold"))
+    if report["agy"]:
+        print("\nagy (tokens; no prices):")
+        print_table([{**a, **{k: tokens_text(a[k]) for k in ("input", "read", "output")}} for a in report["agy"]],
+                    ("kind", "sessions", "calls", "input", "read", "output"))
+    reviews = report["reviews"]
+    if reviews["prs"]:
+        print(f"\nreviews: {reviews['prs']} PRs, ${reviews['usd']:.2f} (${reviews['usd_per_pr']:.2f} per PR, "
+              f"{reviews['reviewers_per_pr']} Claude reviewers per PR)")
+    print(f"root resets: {report['resets']}")
+    return 0
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 
@@ -9878,6 +10374,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
+
+    p = ident(sub.add_parser("cost", help="spend per agent, kind and phase, from the session files"))
+    p.add_argument("run_id", nargs="?", help="a run, live or archived (default: your own)")
+    p.add_argument("--since", help="every session from then on (7d, 36h, or ISO: 2026-11-04)")
+    p.add_argument("--until", help="the window's end (default: now)")
+    p.add_argument("--agents", action="store_true", help="the per-agent table in window mode too")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_cost)
     return parser
 
 

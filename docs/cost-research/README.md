@@ -20,6 +20,8 @@ The first round ran on 2026-10-28 (run `mb3c1`). Its reports are under `~/.local
 
 ### Scripts
 
+**`mesh cost` first** (design §19): `mesh cost --since <start> --until <end>` gives the week's total and, per session kind, sessions, calls, $, share, $ per call, context and output per call, the 5m share of cache writes, the median first-call context (the static prefix) and cold resumes; then reviews ($ per PR, Claude reviewers per PR), root resets and agy tokens by kind (`--agents` for per agent, `--json` for the rows, `mesh cost <run>` for one run with its plan/exec split). That answers the ledger's checks #1, #2 (Claude side), #4 (root context per call, resets), #5, #6 and #7. Over this baseline's week it gives $1,639 (here $1,614; roots $84 lower and `user` higher, as it counts a root's calls outside its run's window as `user`). The scripts below are for what it doesn't do: per turn and per task, reads, re-reads after compaction, inter-agent text, effort.
+
 In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (they read and write files in the current directory):
 
 1. `python3 <repo>/docs/cost-research/scripts/extract.py`: writes `msgs.jsonl` (one row per deduped API call: session, time, model, effort, query source, input, cache write 1h/5m, cache read, output) and `sessions.jsonl` (one per transcript: project, entrypoint, first user message, compactions, mesh commands used). Copy `classify.py` and `agg.py` beside them.
