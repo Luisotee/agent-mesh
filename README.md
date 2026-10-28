@@ -310,8 +310,21 @@ git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
 | `bin/mesh` | `~/.local/bin/mesh` |
 | `protocol/` | `~/.config/agent-mesh` |
 | the skills | `~/.claude/skills/` and `~/.gemini/config/skills/` |
+| `herdr/mesh-notify` | herdr's plugins (`herdr plugin link`), when herdr is on PATH |
 
 It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, and a short "Writing" rule (lead with the result, no narration or recap, keep every fact and reason that changes an action, code and errors verbatim): agy has no concise mode like Claude Code's `Concise` output style. Re-running it is safe.
+
+`herdr/mesh-notify` sends a desktop notification (a Windows toast under WSL, else `notify-send`) when an agent finishes or needs input, without the run's noise: never for a worker, and for a root's finished turn only once no worker still owes it a report. Turn herdr's own popups and sounds off, or they fire for every worker too:
+
+```toml
+[ui.toast]
+delivery = "off"
+
+[ui.sound]
+enabled = false
+```
+
+`herdr plugin action invoke local.mesh-notify.test` sends a test notification; its decisions are logged in `~/.local/state/herdr/plugins/local.mesh-notify/notify.log`.
 
 `/make-concise`, run in any repo by that repo's own agent (or as a mesh task there), rewrites its `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` in concise plain English: every rule and its reason kept, examples of different cases kept, code, paths, URLs and marked blocks (the Next.js one) untouched, each file under agy's 24,000-byte limit. Its `validate.py` compares the files before and after and fails on anything code-like that went missing; it adds a size test and opens one PR for the repo's reviewers.
 

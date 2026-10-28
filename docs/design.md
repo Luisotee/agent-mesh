@@ -350,6 +350,16 @@ On 2026-10-27 WSL froze twice from memory exhaustion: 22 Claude sessions of two 
 - **Cold resumes:** a call after a gap longer than the TTL its session last wrote at that writes at least `COLD_WRITE_MIN` (20k) tokens; counted per agent and kind, since a large session resumed cold is the expensive pattern (§12, §14).
 - Measured against the study's baseline week (2026-10-21 → 10-28): $1,527, the same calls as the study's data deduped across files ($1,614 as the study reported it, ~$1,504 corrected), in 3.5 s. Its kinds differ where it splits by time: roots' calls outside their run's window are `user`, and a run never stopped ends an hour after its last event.
 
+## 20. Notifications without the workers
+
+Herdr notifies when a background agent pane finishes or needs input, but it can filter only by agent kind (`ui.sound.agents.claude`), not by pane, so in a run every worker's report and every root turn that handled one popped a notification. `herdr/mesh-notify` is a herdr plugin on `pane.agent_status_changed` that replaces herdr's own popups (`[ui.toast] delivery = "off"`, `[ui.sound] enabled = false`):
+
+- **A worker never notifies:** a pane that a non-retired worker of a run holds, or whose herdr `agent_session` is a worker's `session` (a pane id herdr reused for another session doesn't count).
+- **A root's `done` waits for the run:** while a non-retired worker owes it a report (a task or answer with no plan, question, done or failed after it), the root's turn only handled a report; `blocked` (a question to the user) always notifies.
+- Like herdr's own toasts, a state must hold `DELAY` before it notifies, and the focused pane never does. A run whose log hasn't changed in 6 hours is ignored, so a root that died can't silence the panes herdr later reuses.
+- It reads run state directly instead of calling `mesh`: it runs on every agent state change machine-wide, and loading `bin/mesh` each time would cost more than the check. The report types it mirrors are tested against `bin/mesh`.
+- Under WSL it shows a Windows toast through `powershell.exe` (WinRT, nothing to install); elsewhere `notify-send`. Claude Code's own `Stop` / `Notification` hooks were the alternative: they miss agy and need the same filtering per vendor.
+
 ## Code map
 
 The names in `bin/mesh` behind each mechanic that spans several files, for finding the code; the why is in the numbered sections above. `CLAUDE.md` keeps a short gist of each: change a mechanism, update both.

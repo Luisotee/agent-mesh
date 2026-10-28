@@ -10,6 +10,7 @@ SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
+PLUGIN_ID="local.mesh-notify"  # herdr/mesh-notify: desktop notifications without the workers' noise
 BEGIN="<!-- agent-mesh:begin (managed by agent-mesh/install.sh) -->"
 END="<!-- agent-mesh:end -->"
 
@@ -24,6 +25,16 @@ link() { # link <target> <link-path>: replace an old symlink, refuse to clobber 
   fi
   ln -s "$target" "$path"
   echo "linked $path -> $target"
+}
+
+link_plugin() { # (re)link herdr/mesh-notify into herdr; herdr records the path, so relink after a move
+  command -v herdr >/dev/null || return 0
+  herdr plugin unlink "$PLUGIN_ID" >/dev/null 2>&1 || true
+  if herdr plugin link "$REPO/herdr/mesh-notify" >/dev/null; then
+    echo "linked herdr plugin $PLUGIN_ID -> $REPO/herdr/mesh-notify"
+    grep -qE '^delivery *= *"off"' "$HOME/.config/herdr/config.toml" 2>/dev/null \
+      || echo "note: set [ui.toast] delivery = \"off\" (and [ui.sound] enabled = false) in herdr's config.toml, or herdr notifies for workers too" >&2
+  fi
 }
 
 unlink_if_ours() {
@@ -64,6 +75,9 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
   for file in "${RULE_FILES[@]}"; do set_block "$file" 0; done
+  if command -v herdr >/dev/null && herdr plugin list 2>/dev/null | grep -qF "$PLUGIN_ID"; then
+    herdr plugin unlink "$PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $PLUGIN_ID"
+  fi
   echo "agent-mesh uninstalled (run state in ~/.local/state/agent-mesh is kept)"
   exit 0
 fi
@@ -77,4 +91,5 @@ for root in "${SKILL_ROOTS[@]}"; do
   for skill in "${SKILLS[@]}"; do link "$REPO/skills/$skill" "$root/$skill"; done
 done
 for file in "${RULE_FILES[@]}"; do set_block "$file" 1; done
+link_plugin
 echo "agent-mesh installed. Try: mesh --version"
