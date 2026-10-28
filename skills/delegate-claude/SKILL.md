@@ -2,8 +2,7 @@
 name: delegate-claude
 description: >-
   agent-mesh, mode `claude`: hands each repo's part of a change, a task list, or a question about another repo to Claude
-  agents working inside those repos, and supervises them; large tasks get their plan reviewed first, and each PR gets
-  two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a trivial or small task's or
+  agents working inside those repos, and supervises them; large tasks get their plan reviewed first, and each PR gets one review (agy while it has quota, else Copilot, else Claude), or two for a large PR (Claude plus agy or Copilot), in one round (one root wake), except a trivial or small task's or
   group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also asks the registered peer
   projects a question. Use it, typed or not, when the user wants work or a question handed to agents in other repos
   ("have Claude do it", "delegate this", "ask the shop-api agent") and names no other CLI (agy, Gemini, Argon, Flash);

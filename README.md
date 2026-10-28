@@ -123,7 +123,7 @@ Not every cross-repo need is a change. To ask another repo something, use the sa
 
 `/delegate-review` checks every finding against the code before it shows you, merges the ones several reviewers found (saying who found each), gives its verdict on each, and fixes nothing unless you ask. Reviewers mark each finding blocking (with the input that makes it fail) or advisory, and every review names the commit it read, so a reviewer asked again after a fix reviews what changed since. A Claude reviewer runs Claude Code's `/code-review` skill as the core of its review (at `medium` for a small PR, `high` for a large one) and checks each of its findings before reporting it. A run's own PRs get one review round when small, whose fix the root checks itself, and at most two review→fix rounds when large; what's still open after that comes to you.
 
-The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). The agent changes nothing and posts nothing on GitHub.
+The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). A review round (`--reviewers`) runs all of a PR's reviewers at once and writes their answers into one file, so the root wakes once per round instead of once per reviewer; run again after a fix, it asks the same reviewers on the commits since. The agent changes nothing and posts nothing on GitHub.
 
 The agent is an ordinary worker, so it stays useful after it answers:
 
@@ -137,6 +137,7 @@ A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside
 mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
 mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
 mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot, headless
+mesh ask --repo . --review 88 --size small --reviewers auto                 # a review round: reviewers by size and quota, one answers file
 mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
 ```

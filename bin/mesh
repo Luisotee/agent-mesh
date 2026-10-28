@@ -7311,6 +7311,25 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
                                      ("--focus", args.focus)) if on]
     if ignored:
         print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
+    name, how = copilot_asker(args, run_id, me, repo, target, pr, number, base, body, head)
+    peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
+    follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
+    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
+    try:
+        copilot_ask(run_id, me, name, task, args.timeout)
+    finally:
+        if peek:
+            close_peek(run_id, name, peek)
+    meta, text = take_reply(run_id, me, name)
+    print(f"── {meta.get('type')} from {name} ──\n{quoted_body(text)}\n")
+    print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
+    return 0 if meta.get("type") == "done" else 1
+
+
+def copilot_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, pr: str | None,
+                  number: int | None, base: str | None, body: str, head: str | None = None) -> tuple[str, str]:
+    """The Copilot asker `mesh ask` puts its task to, claimed for this process (claim_copilot): `target` brought
+    into this run, or a fresh one in its own worktree. (name, how: "asked" or "started")."""
     if target:
         old_run, _, old_name, old = target
         file_orphan(old_run["id"], old_name)  # its last answer first, so this one isn't taken for it
@@ -7359,18 +7378,7 @@ def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, targ
         how = "started"
     if pr:
         record_review(run_id, name, pr, head, checkout=how == "started")
-    peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
-    follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
-    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
-    try:
-        copilot_ask(run_id, me, name, task, args.timeout)
-    finally:
-        if peek:
-            close_peek(run_id, name, peek)
-    meta, text = take_reply(run_id, me, name)
-    print(f"── {meta.get('type')} from {name} ──\n{quoted_body(text)}\n")
-    print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
-    return 0 if meta.get("type") == "done" else 1
+    return name, how
 
 
 def copilot_events(entry: dict) -> Path:
@@ -7513,10 +7521,46 @@ def spawn_peer(args: argparse.Namespace, run_id: str, me: str, name: str, peer: 
     return spawn_worker(spawn, run_id, me)
 
 
+def asker_task(args: argparse.Namespace, run_id: str, repo: Path, target: tuple | None, kind: str, body: str,
+               pr: str | None, number: int | None, head: str | None, last: str | None) -> tuple[str, dict | None, str]:
+    """The read-only task for one asker, the move of its review checkout to `head` (plan_move; None when it
+    stays or has none) and the body with a note on why it stays, for `mesh ask` and a review round alike."""
+    narrow = not (last and head and last != head) or fix_commits(repo, last, head)
+    move, stays = plan_move(run_id, target, pr, head) if pr and target else (None, "")
+    if stays:
+        at = target[3].get("base")
+        print(f"mesh: {target[2]}'s worktree stays at {at} ({stays})", file=sys.stderr)
+        body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(at=at, head=head, why=stays)) if part)
+    size = args.size or (target[3].get("size") if target else None)
+    task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
+                    narrow=narrow, repo=repo, size=size)
+    return task, move, body
+
+
+def fresh_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, kind: str, task: str, body: str,
+                pr: str | None, number: int | None, base: str | None, collect: dict | None = None) -> dict:
+    """A fresh Claude or agy asker in `repo` (a reviewer: a pane at the PR head, at REVIEW_EFFORT when its
+    size has no plan phase), spawned with its task; `collect` marks it for a fan-out."""
+    slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
+    # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
+    # effort and carry into the execution phase of a fix it is later given.
+    sized = (kind, args.size or "large") in SIZE_DEFAULTS
+    spawn = argparse.Namespace(
+        kind=kind, role="worker", repo=str(repo), model=args.model,
+        exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
+        name=args.name and slug, worktree=slug,  # a taken --name gets the same -2 as its branch
+        cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
+        view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
+        pinned=bool((args.model and args.model != "auto") or args.effort), collect=collect)
+    return spawn_worker(spawn, run_id, me)
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     """Ask a worker, or a fresh agent in a repo, a question or for a PR review, and wait for the answer."""
     if getattr(args, "peers", None):
         return ask_peers(args)
+    if getattr(args, "reviewers", None):
+        return ask_reviewers(args)
     if bool(args.ref) == bool(args.repo):
         raise MeshError("ask whom? pass a worker (name, branch or PR link, see `mesh agents`), --repo for a fresh "
                         "agent, or --peers for the peer askers")
@@ -7567,15 +7611,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     # A worker keeps its CLI; a fresh agent is of --kind, else the run's mode.
     kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
                                       or load_run(run_id)["mode"])
-    narrow = not (last and head and last != head) or fix_commits(repo, last, head)
-    move, stays = plan_move(run_id, target, pr, head) if pr and target else (None, "")
-    if stays:
-        at = target[3].get("base")
-        print(f"mesh: {target[2]}'s worktree stays at {at} ({stays})", file=sys.stderr)
-        body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(at=at, head=head, why=stays)) if part)
-    size = args.size or (target[3].get("size") if target else None)
-    task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
-                    narrow=narrow, repo=repo, size=size)
+    task, move, body = asker_task(args, run_id, repo, target, kind, body, pr, number, head, last)
     base = head if args.repo else None
     if copilot:  # it starts a copilot process either way, which is gone once it has answered
         reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
@@ -7586,18 +7622,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             release_memory([reservation])
 
     if args.repo:
-        slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
-        # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
-        # effort and carry into the execution phase of a fix it is later given.
-        sized = (kind, args.size or "large") in SIZE_DEFAULTS
-        spawn = argparse.Namespace(
-            kind=kind, role="worker", repo=str(repo), model=args.model,
-            exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
-            name=args.name and slug, worktree=slug,  # a taken --name gets the same -2 as its branch
-            cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
-            view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
-            pinned=bool((args.model and args.model != "auto") or args.effort))
-        result, finals, how = spawn_worker(spawn, run_id, me), 0, "started"
+        result, finals, how = fresh_asker(args, run_id, me, repo, kind, task, body, pr, number, base), 0, "started"
     elif peer and not target:
         result, finals, how = spawn_peer(args, run_id, me, args.ref, peer, task), 0, "started"
     else:
@@ -7962,25 +7987,8 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
             parts += [f"No answer: {line}", ""]
             what = line.splitlines()[0]
         lines.append(f"  {name:<28} {what}" + (f"  (upstream +{prep['new']})" if prep.get("new") else ""))
-    for _ in range(2):
-        path = run_folder(run_id) / "reports" / f"peers-{stamp()}.md"
-        try:  # never with parents: a live folder `mesh stop` just archived must not come back half-made
-            path.parent.mkdir(exist_ok=True)
-            write_atomic(path, "\n".join(parts))
-            break
-        except FileNotFoundError:
-            if not run_stopped(run_id):
-                raise
-    else:
-        raise MeshError(f"couldn't write the peers report under {run_folder(run_id)}")
-    retire = [asked[n] for n in names if replies[n] and asked[n] in opened and not args.keep]
-    for asker in retire if not stop_under_way(read_log(run_id)) else ():  # only once the report is written
-        try:
-            retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
-        except (MeshError, OSError) as exc:
-            if run_stopped(run_id):  # a stop now must not lose the report
-                break
-            print(f"warning: couldn't close {asker} ({exc}); `mesh retire {asker}` it", file=sys.stderr)
+    path = write_answers(run_id, "peers", parts)
+    retire_answered(run_id, [asked[n] for n in names if replies[n] and asked[n] in opened and not args.keep])
     stopped = run_stopped(run_id)
     if stopped:
         print(stopped_line(run_id), file=sys.stderr)
@@ -7995,6 +8003,241 @@ def fan_out(args: argparse.Namespace, run_id: str, me: str, body: str, registry:
         print("(a peer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
     failed = [outcomes[n][0] for n in names if not replies[n]]
     return failed[0] if failed else 0
+
+
+def resolve_reviewers(spec: str, size: str, earlier: dict[str, str]) -> tuple[list[str], list[str]]:
+    """`--reviewers`: `auto` (pick_reviewers), `all`, or a comma list of kinds; (kinds, notes)."""
+    words = [word.strip() for word in spec.split(",") if word.strip()]
+    if words == ["auto"]:
+        return pick_reviewers(size, earlier)
+    if words == ["all"]:
+        return list(ASK_KINDS), []
+    if not words or any(word not in ASK_KINDS for word in words):
+        raise MeshError(f"--reviewers takes auto, all, or a comma list of {', '.join(ASK_KINDS)} (got {spec!r})")
+    return list(dict.fromkeys(words)), []
+
+
+def stop_copilot(run_id: str, name: str) -> None:
+    """Stop the copilot a Copilot asker's `mesh ask` started (its own process group), so its thread files a
+    `failed` before the asker is released."""
+    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}
+    pid = entry.get("copilot_pid")
+    if pid and pid_alive(pid, entry.get("copilot_pid_start")):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
+def ask_reviewers(args: argparse.Namespace) -> int:
+    """`mesh ask --repo <checkout> --review <PR> --reviewers …`: one review round, its reviewers picked by the
+    review's size and agy's quota (`auto`, pick_reviewers) or named, all at once; their answers are collected
+    into one file, so the root wakes once (design §10). A reviewer this run already has for the PR (one `ask
+    --repo` started at its head, `review_checkout`) is asked again, on the commits since; any other is fresh."""
+    if args.ref or not args.repo or not args.review or args.kind or args.name:
+        raise MeshError("--reviewers runs a review round: pass --repo and --review, and drop the worker, --kind "
+                        "and --name")
+    body = (read_body(args.body, args.file) or "").strip()
+    size = args.size or "large"
+    if args.reviewers.strip() != "auto":
+        resolve_reviewers(args.reviewers, size, {})  # a typo fails before anything starts
+    repo = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    pr, number = pr_ref(args.review, repo)
+    head = pr_head(repo, pr, number)  # what a fresh reviewer's worktree starts at
+    memory_guard(f"the reviewers of {pr}", reserve=False)
+    run_id, me = ask_identity(args, body or f"review {pr}", None)
+    run = load_run(run_id)
+    earlier = {name: e.get("kind") for name, e in run["agents"].items() if e.get("review_checkout") == pr}
+    kinds, notes = resolve_reviewers(args.reviewers, size, earlier)
+    for note in notes:
+        print(f"mesh: {note}", file=sys.stderr)
+    folder = run_folder(run_id)
+    targets = {}
+    for kind in kinds:
+        again = [name for name, k in earlier.items() if k == kind]
+        if again:  # its newest reviewer of that kind
+            targets[kind] = (run, folder, again[-1], run["agents"][again[-1]])
+    print(f"mesh: reviewers of {pr}: " + ", ".join(f"{targets[k][2]} again" if k in targets else f"a fresh {k}"
+                                                  for k in kinds), file=sys.stderr)
+    mark = collector(me)
+    asked: dict[str, str] = {}  # kind → the reviewer's name
+    try:
+        with signals_raise(signal.SIGTERM, signal.SIGHUP):  # a killed round still clears its marks
+            return review_round(args, run_id, me, repo, pr, number, head, body, size, kinds, targets, mark, asked)
+    finally:
+        for kind, name in asked.items():
+            if kind == "copilot":
+                stop_copilot(run_id, name)
+                continue
+            try:
+                with editing_run(run_id) as data:  # its next report rings as usual
+                    data["agents"][name].pop("collect", None)
+            except FileNotFoundError:  # archived: its marks die with this process's pid
+                if not run_stopped(run_id):
+                    raise
+                break
+
+
+def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr: str, number: int | None,
+                 head: str, body: str, size: str, kinds: list[str], targets: dict[str, tuple], mark: dict,
+                 asked: dict[str, str]) -> int:
+    """ask_reviewers' work; `asked` is filled in as reviewers are reached, for its caller to clean up after.
+    Claude and agy reviewers are reached in threads under the `collect` mark and watched with watch_each;
+    Copilot answers in a thread of its own, headless, as `mesh ask` runs it."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    outcomes: dict[str, tuple[int, str]] = {}
+
+    def prepared(kind: str) -> tuple:
+        target = targets.get(kind)
+        last = (target[3].get("review_heads") or {}).get(pr) if target else None
+        # a re-ask is of a worker, as `mesh ask <name> --review` is: no --repo, so its task reads as one
+        ask = argparse.Namespace(**{**vars(args), "no_wait": True, "kind": kind, "repo": None if target else args.repo})
+        return (ask, target, *asker_task(ask, run_id, repo, target, kind, body, pr, number, head, last))
+
+    def start(kind: str) -> tuple:
+        try:
+            ask, target, task, move, text = prepared(kind)
+            if target:
+                entry = agent_entry(load_run(run_id), target[2])
+                if entry.get("status") != "retired" and owes_answer(run_id, target[2], entry):
+                    return None, 0, "busy with its previous task; ask it again once it answers"
+                result, finals, how = moving(move, lambda: reach_worker(ask, run_id, me, target, task,
+                                                                        f"a review of {pr}", collect=mark))
+            else:
+                result, finals, how = (fresh_asker(ask, run_id, me, repo, kind, task, text, pr, number, head,
+                                                   collect=mark), 0, "started")
+        except MeshError as exc:
+            return None, 0, str(exc)
+        asked[kind] = result["name"]
+        record_review(run_id, result["name"], pr, head, checkout=not target)
+        return result, finals, how
+
+    def copilot() -> None:
+        try:
+            ask, target, task, move, text = prepared("copilot")
+            reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
+            try:
+                name, how = moving(move, lambda: copilot_asker(ask, run_id, me, repo, target, pr, number,
+                                                               None if target else head, text, head))
+                asked["copilot"] = name
+                peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
+                print(f"mesh: {how} {name} (Copilot, headless)" + (f", followed in pane {peek}" if peek else ""),
+                      file=sys.stderr)
+                try:
+                    copilot_ask(run_id, me, name, task, args.timeout)
+                finally:
+                    if peek:
+                        close_peek(run_id, name, peek)
+            finally:
+                release_memory([reservation])
+        except Exception as exc:  # noqa: BLE001 - that reviewer's outcome, not the round's
+            outcomes["copilot"] = 1, f"copilot: not asked ({exc})"
+
+    helper = threading.Thread(target=copilot, name="copilot-review") if "copilot" in kinds else None
+    if helper:
+        helper.start()
+    panes = [kind for kind in kinds if kind != "copilot"]
+    reached: dict[str, tuple] = {}
+    if panes:
+        with ThreadPoolExecutor(max_workers=len(panes)) as pool:
+            reached = dict(zip(panes, pool.map(start, panes)))
+
+    finals: dict[str, int] = {}
+    opened: set[str] = set()
+    for kind, (result, count, how) in reached.items():
+        if result is None:
+            outcomes[kind] = 1, f"{kind}: not asked ({how})"
+            continue
+        name, delivery = result["name"], result.get("delivery") or {}
+        if how != "asked":
+            opened.add(name)
+        if "send_message" in delivery:  # this call blocks its caller, who can't pass a SendMessage on
+            outcomes[kind] = 2, (f"{name}: not reached: it was launched before mesh started workers accepting "
+                                 f"cross-session messages; `mesh retire {name}`, then run the round again")
+            continue
+        finals[name] = count
+        if delivery.get("held"):  # only the user can clear it; the watch rings it once they have
+            print(held_alert(name, delivery), file=sys.stderr)
+        elif not delivered(delivery):
+            print(f"warning: {name}'s review task is stored, but its doorbell did not ring "
+                  f"({delivery.get('error')}); `mesh ring {name}` retries it", file=sys.stderr)
+    warn_unwatched(run_id, skip=tuple(finals))
+    if finals:
+        print(f"mesh: asked {', '.join(finals)}; waiting for their reviews", file=sys.stderr)
+    by_name = {name: kind for kind, name in asked.items()}
+    watched = watch_each(run_id, finals, args.timeout,
+                         on_outcome=lambda n, status, line: status and print(line.splitlines()[0], file=sys.stderr))
+    for name, outcome in watched.items():
+        outcomes[by_name[name]] = outcome
+    if helper:
+        helper.join()
+        outcomes.setdefault("copilot", (0, ""))
+
+    folder = run_folder(run_id)  # archived by a `mesh stop`, which closed the reviewers: the answers are in it
+    replies = {kind: take_reply(run_id, me, asked[kind], folder) if kind in asked and outcomes[kind][0] == 0
+               else None for kind in kinds}
+    names = [asked.get(kind, kind) for kind in kinds]
+    parts = [f"# Review of {pr} at {head}", "",
+             f"Asked {now_iso()} in run {run_id}, size {size}, of {len(kinds)} reviewer{'s' if len(kinds) > 1 else ''}: "
+             f"{', '.join(names)}.", *(["", "## Notes to the reviewers", "", body] if body else []), ""]
+    lines, failed = [], []
+    for kind, name in zip(kinds, names):
+        reply = replies[kind]
+        parts += [f"## {name} ({kind})", ""]
+        if reply:
+            meta, text = reply
+            parts += [text if meta.get("type") == "done" else f"**{meta.get('type')}:** {text}", ""]
+            what = f"{meta.get('type')}, {len(text.split()):,} words"
+            if meta.get("type") != "done":
+                failed.append(1)
+        else:
+            line = outcomes.get(kind, (1, f"{kind}: no answer"))[1] or f"{kind}: no answer"
+            parts += [f"No answer: {line}", ""]
+            what = line.splitlines()[0]
+            failed.append(outcomes.get(kind, (1,))[0] or 1)
+        lines.append(f"  {name:<28} {what}")
+    path = write_answers(run_id, f"review-{number or 'pr'}", parts)
+    retire_answered(run_id, [asked[k] for k in panes if replies[k] and asked[k] in opened and not args.keep])
+    stopped = run_stopped(run_id)
+    if stopped:
+        print(stopped_line(run_id), file=sys.stderr)
+    answered = sum(1 for reply in replies.values() if reply)
+    print(f"{answered} of {len(kinds)} reviewers answered: {pr} at {head[:9]}")
+    print("\n".join(lines))
+    print(f"answers: {path}")
+    if answered < len(kinds) and not stopped:
+        print("(a reviewer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
+    print("(ask one again: `mesh ask <name> --body …`; after a fix, run this round again for the re-review)")
+    return failed[0] if failed else 0
+
+
+def write_answers(run_id: str, prefix: str, parts: list[str]) -> Path:
+    """A fan-out's answers file, `reports/<prefix>-<stamp>.md`, in the run's folder: the live one, or the archive
+    a `mesh stop` meanwhile moved it to."""
+    for _ in range(2):
+        path = run_folder(run_id) / "reports" / f"{prefix}-{stamp()}.md"
+        try:  # never with parents: a live folder `mesh stop` just archived must not come back half-made
+            path.parent.mkdir(exist_ok=True)
+            write_atomic(path, "\n".join(parts))
+            return path
+        except FileNotFoundError:
+            if not run_stopped(run_id):
+                raise
+    raise MeshError(f"couldn't write the {prefix} report under {run_folder(run_id)}")
+
+
+def retire_answered(run_id: str, names: list[str]) -> None:
+    """Close the askers a fan-out opened once their answers are in its file (not during a `mesh stop`, which
+    closes them itself)."""
+    for asker in names if not stop_under_way(read_log(run_id)) else ():
+        try:
+            retire_worker(run_id, asker, agent_entry(load_run(run_id), asker))
+        except (MeshError, OSError) as exc:
+            if run_stopped(run_id):  # a stop now must not lose the report
+                break
+            print(f"warning: couldn't close {asker} ({exc}); `mesh retire {asker}` it", file=sys.stderr)
 
 
 # ── peers: standing askers ───────────────────────────────────────────────
@@ -10413,6 +10656,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wait", action="store_true",
                    help="wait even for a Claude worker under a Claude root, answering by a cross-session message")
     p.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the answer (0 = none)")
+    p.add_argument("--reviewers", metavar="auto|all|KINDS",
+                   help="with --repo and --review: run a review round, its reviewers picked by --size and agy's quota "
+                        "(auto) or named (a comma list of claude, agy, copilot): one combined answers file")
     p.add_argument("--peers", metavar="all|GROUP|NAMES",
                    help="ask the peer askers at once (all, a group, or a comma list): one combined answer file")
     p.add_argument("--no-refresh", action="store_true", help="don't fetch a peer's upstream first")
