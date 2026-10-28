@@ -34,6 +34,7 @@ import textwrap
 import threading
 import time
 import urllib.parse
+import urllib.request
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -87,6 +88,15 @@ CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high)$")
 AGY_MODELS_TTL = 6 * 3600
 AGY_USAGE_TTL = 300
 AGY_USAGE_RETRY = 60  # seconds before a failed `agy -p /usage` is tried again
+QUOTA_STOP = 90  # percent of a quota used at which mesh starts nothing new on it (MESH_QUOTA_STOP; design §9)
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # what Claude Code's /usage reads
+CLAUDE_USAGE_TTL = 120  # seconds mesh keeps a reading of Claude's usage (machine-wide, $MESH_HOME/claude-usage.json)
+CLAUDE_USAGE_RETRY = 60  # seconds before a failed reading is tried again
+CLAUDE_USAGE_STALE = 900  # seconds a cached reading (ours, or Claude Code's own) still counts when a fresh one fails
+# Claude's usage windows a reserve applies to (the account's limits), as its usage endpoint names them.
+CLAUDE_WINDOWS = {"five_hour": "five-hour window", "seven_day": "weekly window",
+                  "seven_day_opus": "weekly Opus window", "seven_day_sonnet": "weekly Sonnet window"}
+RESERVE_POLL = 300  # seconds between a root watch's looks at the quotas
 SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopened on another model
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
@@ -1646,7 +1656,7 @@ MESH_IDS = ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE")
 HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 # Every MESH_* variable mesh reads as configuration; an empty one counts as unset.
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
-               "MESH_MIN_QUOTA", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
+               "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
@@ -1716,6 +1726,19 @@ def worker_hooks(run_id: str, name: str) -> dict:
 WORKER_INBOUND = "accept"  # the `crossSessionInbound` every Claude worker starts with (recorded as a bg one's `inbound`)
 
 
+SHORT_CACHE = "5m"  # the prompt cache TTL of a worker that is asked once or works briefly (worker_cache_ttl)
+
+
+def worker_cache_ttl(entry: dict) -> str | None:
+    """`promptCacheTtl` for a Claude worker: SHORT_CACHE for a read-only one (an asker, a reviewer), a peer, or a
+    trivial or small task, whose gaps between turns rarely reuse a 1 h cache and whose writes then cost 1.25×
+    the input price instead of 2×; None (Claude Code's own choice, 1 h on a subscription) for a large change
+    task, whose waits on the root a 5-minute cache wouldn't outlive (the cost study of run mb3c1: +8% there)."""
+    if entry.get("read_only") or entry.get("peer") or entry.get("size") in ("trivial", "small"):
+        return SHORT_CACHE
+    return None
+
+
 def worker_settings(env: dict[str, str], bg: bool) -> str:
     """`--settings` JSON for a Claude worker: its hooks, `crossSessionInbound: accept`, and for a background one
     its environment.
@@ -1732,6 +1755,11 @@ def worker_settings(env: dict[str, str], bg: bool) -> str:
     would stay (a pane id that `identity()` maps to its owner, another MESH_HOME). A pane has its environment.
     """
     settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"]), "crossSessionInbound": WORKER_INBOUND}
+    # From its entry as this launch wrote it (spawn, resume and swaps write it first), so a reopen for another
+    # kind of task (a reviewer given a large change) gets that task's TTL.
+    ttl = worker_cache_ttl(((maybe_run(env["MESH_RUN"]) or {}).get("agents") or {}).get(env["MESH_SELF"]) or {})
+    if ttl:
+        settings["promptCacheTtl"] = ttl
     if bg:
         settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
     return json.dumps(settings)
@@ -1972,8 +2000,17 @@ def model_quota(model_id: str, display: str, rows: list[dict]) -> tuple[int, str
     return min(limits) if limits else None
 
 
+def quota_stop() -> int:
+    """The percent of a quota used at which mesh starts nothing new on it (the reserve): MESH_QUOTA_STOP, else
+    100 less the older MESH_MIN_QUOTA (percent left), else QUOTA_STOP."""
+    if os.environ.get("MESH_QUOTA_STOP"):
+        return env_int("MESH_QUOTA_STOP", QUOTA_STOP)
+    return 100 - env_int("MESH_MIN_QUOTA", 100 - QUOTA_STOP)
+
+
 def min_quota() -> int:
-    return int(os.environ.get("MESH_MIN_QUOTA") or 10)
+    """The percent left under which an agy model counts as spent (the reserve, seen from the other side)."""
+    return 100 - quota_stop()
 
 
 def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] = (), force: bool = False,
@@ -1992,18 +2029,172 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
         if model_id in skip:
             continue
         quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None
-        if quota is None or quota[0] >= min_quota():
+        if quota is None or quota[0] > min_quota():  # at the reserve (MESH_QUOTA_STOP used) it counts as spent
             return model_id, notes
         notes.append(f"{model_id} has {quota[0]}% left (resets {quota[1]})")
         if best is None or quota[0] > best[0]:
             best = (quota[0], model_id)
     if fallback and best:
         return best[1], notes + [f"every model is under {min_quota()}%; using {best[1]}"]
-    raise MeshError("no model with quota left: " + ("; ".join(notes) or "every candidate was already tried"))
+    raise MeshError(f"no model with quota left over the reserve (mesh stops at {quota_stop()}% used): "
+                    + ("; ".join(notes) or "every candidate was already tried"))
+
+
+# The quota reserve (design §9): mesh starts nothing new on a quota once QUOTA_STOP% of it is used, so the user
+# keeps some for their own sessions. agy's quotas are `agy -p /usage`'s rows; Claude's are its usage windows.
+
+
+def claude_code_json() -> Path:
+    """Claude Code's own state file: `.claude.json` in its config folder when CLAUDE_CONFIG_DIR is set, else home."""
+    folder = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(folder) if folder else Path.home()) / ".claude.json"
+
+
+def fetch_claude_usage() -> dict | None:
+    """Claude's usage as its endpoint gives it right now, or None (no login file, an expired token, any error).
+    Reads the access token Claude Code keeps in `.credentials.json` and never refreshes it, since a refresh
+    rotates the refresh token under Claude Code; macOS keeps it in the Keychain, so there only caches count."""
+    try:
+        oauth = json.loads((claude_home() / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+        token = oauth.get("accessToken")
+        if not token or (oauth.get("expiresAt") or 0) / 1000 <= time.time():
+            return None
+        request = urllib.request.Request(CLAUDE_USAGE_URL, headers={
+            "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "agent-mesh"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.load(response)
+    except Exception:  # noqa: BLE001 - an undocumented endpoint: anything it does reads as unknown, never a crash
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def usage_windows(data: dict | None) -> dict[str, dict]:
+    """{window: {"used": percent, "resets": ISO or None}} for the CLAUDE_WINDOWS a usage reading has."""
+    windows = {}
+    for key in CLAUDE_WINDOWS:
+        window = (data or {}).get(key)
+        if isinstance(window, dict) and isinstance(window.get("utilization"), (int, float)):
+            windows[key] = {"used": float(window["utilization"]), "resets": window.get("resets_at")}
+    return windows
+
+
+def claude_usage(network: bool = True, force: bool = False) -> dict | None:
+    """Claude's usage, {"windows": usage_windows, "fetched": epoch, "source": "live" or "cache"}, or None when
+    nothing fresh enough can be read. A reading serves every mesh on the machine for CLAUDE_USAGE_TTL seconds;
+    past that, one call to the endpoint, unless `network` is off (`mesh status`), MESH_CLAUDE_USAGE=off, or the
+    last call failed under CLAUDE_USAGE_RETRY ago. Failing that, the newer of mesh's last reading and Claude
+    Code's own cached copy (`cachedUsageUtilization`, refreshed only now and then) counts while under
+    CLAUDE_USAGE_STALE old."""
+    cache, failed = mesh_home() / "claude-usage.json", mesh_home() / "claude-usage.failed"
+    try:
+        ours = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        ours = None
+    now = time.time()
+    if ours and now - ours.get("fetched", 0) < CLAUDE_USAGE_TTL and not force:
+        return {**ours, "source": "live"}
+    if (network and os.environ.get("MESH_CLAUDE_USAGE") != "off"
+            and (force or not (failed.exists() and now - failed.stat().st_mtime < CLAUDE_USAGE_RETRY))):
+        data = fetch_claude_usage()
+        if data is not None:
+            reading = {"windows": usage_windows(data), "fetched": now}
+            write_atomic(cache, json.dumps(reading))
+            failed.unlink(missing_ok=True)
+            return {**reading, "source": "live"}
+        failed.parent.mkdir(parents=True, exist_ok=True)
+        failed.touch()
+    readings = [ours] if ours else []
+    try:
+        theirs = json.loads(claude_code_json().read_text()).get("cachedUsageUtilization") or {}
+        readings.append({"windows": usage_windows(theirs.get("utilization")),
+                         "fetched": (theirs.get("fetchedAtMs") or 0) / 1000})
+    except (OSError, ValueError, AttributeError):
+        pass
+    newest = max(readings, key=lambda r: r.get("fetched", 0), default=None)
+    return {**newest, "source": "cache"} if newest and now - newest["fetched"] < CLAUDE_USAGE_STALE else None
+
+
+FAMILY_WINDOWS = {"seven_day_opus": "opus", "seven_day_sonnet": "sonnet"}  # windows of one model family only
+
+
+def claude_windows_for(usage: dict | None, model: str | None = None) -> dict[str, dict]:
+    """Claude's windows that apply to a worker on `model`: the account's, plus a family's own weekly window
+    (`seven_day_opus`, `seven_day_sonnet`) only for a model of that family (unknown model: the account's only)."""
+    return {key: w for key, w in ((usage or {}).get("windows") or {}).items()
+            if key not in FAMILY_WINDOWS or FAMILY_WINDOWS[key] in (model or "").lower()}
+
+
+def claude_at_reserve(usage: dict | None, model: str | None = None) -> tuple[str, dict] | None:
+    """The first of Claude's windows (for `model`) at or past the reserve, as (window, its reading); None when
+    none is, or when nothing could be read (an unreadable quota never blocks, as agy's)."""
+    return next(((key, w) for key, w in claude_windows_for(usage, model).items() if w["used"] >= quota_stop()),
+                None)
+
+
+def agy_hit_text(model: str, hit: tuple[int, str]) -> str:
+    return f"agy's {model} has {hit[0]}% left (resets {reset_text(hit[1])})"
+
+
+def claude_hit_text(key: str, window: dict) -> str:
+    return f"Claude is at {window['used']:.0f}% of its {CLAUDE_WINDOWS[key]} (resets {reset_text(window['resets'])})"
+
+
+def agy_at_reserve(model: str, effort: str | None = None) -> tuple[int, str] | None:
+    """(percent left, reset) when the agy model (an id, or a family at `effort`) is at the reserve, else None."""
+    try:
+        rows = agy_usage()
+        if not rows:
+            return None
+        model_id = model if parse_agy_id(model) else resolve_agy_model(model, effort or DEFAULT_EFFORT)
+        quota = model_quota(model_id, listing_names(agy_model_listing()).get(model_id, ""), rows)
+    except MeshError:
+        return None
+    return quota if quota and quota[0] <= min_quota() else None
+
+
+def reserve_off(run_id: str | None) -> bool:
+    """Whether the user let this run go on past the reserve (`mesh reserve off`)."""
+    return bool(((maybe_run(run_id) if run_id else None) or {}).get("over_reserve"))
+
+
+def reset_text(stamp: str | None) -> str:
+    """A reset time for a person: local `HH:MM` within a day, else with its date; as given if it isn't ISO."""
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone()
+    except ValueError:
+        return str(stamp or "?")
+    return when.strftime("%H:%M" if when.timestamp() - time.time() < 86400 else "%b %d %H:%M")
+
+
+def reserve_hit(kind: str | None, model: str | None = None, effort: str | None = None) -> str | None:
+    """What of `kind`'s quota is at the reserve, as a phrase ("Claude is at 92% of its five-hour window (resets
+    07:20)"), or None. Copilot has no usage source, so never."""
+    if quota_stop() >= 100:
+        return None
+    if kind == "claude":
+        hit = claude_at_reserve(claude_usage(), model)
+        if hit:
+            return claude_hit_text(*hit)
+    elif kind == "agy" and model:
+        hit = agy_at_reserve(model, effort)
+        if hit:
+            return agy_hit_text(model, hit)
+    return None
+
+
+def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effort: str | None, what: str) -> None:
+    """Refuse to start `what` on a quota at its reserve (design §9), unless the run was let past it."""
+    if reserve_off(run_id):
+        return
+    hit = reserve_hit(kind, model, effort)
+    if hit:
+        raise MeshError(f"{hit}: not starting {what}, since mesh keeps {100 - quota_stop()}% of every quota for "
+                        f"the user (MESH_QUOTA_STOP={quota_stop()}). Nothing was started or sent. Tell the user; "
+                        "`mesh reserve off` lets this run go on past it")
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
-    """Whether a fresh agy reviewer of this size would run on a model with MESH_MIN_QUOTA% left (Flash for a
+    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (MESH_QUOTA_STOP) (Flash for a
     trivial or small one, the plan chain for a large one), or `model` has (the one a reviewer asked again keeps),
     and why not. Unreadable quotas count as available, as for a spawn (choose_agy_model); agy not installed, or
     no model it can resolve, doesn't."""
@@ -2013,7 +2204,7 @@ def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
         rows = agy_usage()
         names = listing_names(agy_model_listing()) if rows else {}
         quota = model_quota(model, names.get(model, ""), rows) if rows else None
-        if quota is None or quota[0] >= min_quota():
+        if quota is None or quota[0] > min_quota():  # at the reserve it counts as spent, as in choose_agy_model
             return True, ""
         return False, f"{model} has {quota[0]}% left (resets {quota[1]})"
     sized = SIZE_DEFAULTS.get(("agy", size))  # at the effort it would run at: REVIEW_EFFORT, or a plan's
@@ -2528,7 +2719,9 @@ def compact_conversation(entry: dict, session: str, model: str, focus: str) -> t
     if entry.get("kind") == "agy":
         argv = ["agy", "--conversation", session, "--model", model, "--dangerously-skip-permissions", "-p", prompt]
     else:
-        argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions", prompt]
+        # A one-off turn whose summary the resumed worker reads at once: a 5-minute cache is all it needs.
+        argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions",
+                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE}), prompt]
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
     proc = run_cli(argv, cwd=entry["cwd"], env=claude_env(), timeout=COMPACT_TIMEOUT)
     return proc.returncode == 0, (proc.stderr or proc.stdout).strip()[-300:]
@@ -3248,6 +3441,33 @@ def process_table() -> list[dict]:
     return table
 
 
+def command_table() -> list[dict]:
+    """Every process's {pid, argv}: `process_table` with /proc, else `ps` (macOS), whose command line comes joined
+    by spaces, so its argv is split on them (enough to tell `claude attach <id>`). [] when neither can be read."""
+    if has_proc():
+        return process_table()
+    try:
+        out = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    table = []
+    for line in out.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if not pid.isdigit():
+            continue
+        words = command.split()
+        # A binary's path may hold spaces (macOS `Application Support`): its first word naming a CLI ends it.
+        end = next((i for i, w in enumerate(words) if Path(w).name in (*AGENT_BINARIES, *INTERPRETERS)), 0)
+        argv = [" ".join(words[:end + 1])] if words else []
+        if words and Path(words[end]).name in INTERPRETERS:  # `node /Application Support/…/claude attach b1`
+            script = next((j for j in range(end + 1, len(words)) if Path(words[j]).name in AGENT_BINARIES), end)
+            if script > end:
+                argv.append(" ".join(words[end + 1:script + 1]))
+                end = script
+        table.append({"pid": int(pid), "argv": [*argv, *words[end + 1:]]})
+    return table
+
+
 def leftover_processes(top: Path, table: list[dict]) -> list[dict]:
     """The processes in `top` that nothing alive owns: each one's chain of parents inside `top` holds no agent
     CLI and hangs off an init (its own parent died), and no process of that tree, wherever its cwd, holds a
@@ -3533,7 +3753,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         exec_effort = (args.exec_effort or args.effort or EXEC_EFFORT) if exec_model else None
         if exec_model:
             resolve_model(args.kind, exec_model, exec_effort)  # fail now, not after a whole planning phase
-        model, notes = plan_model(args.kind, effort) if auto else (args.model, [])
+        model, notes = plan_model(args.kind, effort, run_id) if auto else (args.model, [])
     view = getattr(args, "view", None) or (sized["view"] if sized else "pane")
     if view == "bg" and (args.kind != "claude" or user_review):
         if getattr(args, "view", None):
@@ -3544,6 +3764,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
     pinned = getattr(args, "pinned", None)
     pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
+    reserve_guard(run_id, args.kind, model, effort, name)
     held.append(memory_guard(name))  # the last check before any side effect
     log = worker_log(run_id, name) if args.kind == "agy" else None
     argv, model, session = agent_argv(args.kind, model, effort, log)
@@ -3641,9 +3862,11 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     return result
 
 
-def plan_model(kind: str, effort: str) -> tuple[str, list[str]]:
+def plan_model(kind: str, effort: str, run_id: str | None = None) -> tuple[str, list[str]]:
+    """The model a task plans on. agy: the first of the chain over the reserve; with none, the one with the most
+    left only when the run was let past the reserve (`mesh reserve off`), else an error."""
     if kind == "agy":
-        return choose_agy_model(PLAN_CHAIN["agy"], effort)
+        return choose_agy_model(PLAN_CHAIN["agy"], effort, fallback=reserve_off(run_id) or quota_stop() >= 100)
     return PLAN_CHAIN["claude"][0], []
 
 
@@ -3819,6 +4042,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
     entry = require_parent(load_run(run_id), me, args.agent, "approve")
     refuse_headless(args.agent, entry, "`mesh approve`")
     refuse_no_plan(run_id, args.agent, entry)
+    reserve_guard(run_id, entry.get("kind"), entry.get("exec_model") or entry.get("model"),
+                  entry.get("exec_effort") or entry.get("effort"), f"{args.agent}'s execution")
     result: dict = {"name": args.agent, "model": entry.get("model")}
     extra = read_body(args.body, args.file)
     body = "approved" + (f"\n\n{extra.strip()}" if extra and extra.strip() else "")
@@ -3889,7 +4114,15 @@ def cmd_switch(args: argparse.Namespace) -> int:
         raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
     else:
         chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
-        model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
+        try:
+            model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
+        except MeshError as exc:  # nowhere to move it: it waits on its own model, and mesh continues it at the reset
+            spent = agy_at_reserve(entry["model"]) if entry.get("model") else None
+            due = schedule_continue(run_id, args.agent, "quota", epoch(spent[1]) or None if spent else None)
+            emit({"name": args.agent, "switched": False, "continue_at": due.get("at"), "notes": [str(exc)]})
+            print(f"mesh: {exc}. {args.agent} stays on {entry.get('model')}, and mesh continues it there "
+                  f"{continue_text(due)}: tell the user, and send it nothing", file=sys.stderr)
+            return 0
     body = (f"Your previous model ({entry.get('model')}) hit its quota; you are now on {model}, in the same "
             "conversation. Continue exactly where you stopped.")
     swap = swap_model(run_id, args.agent, model, effort, "quota", wait_ms=60_000, strict=False,
@@ -4000,6 +4233,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     target = agent_entry(load_run(run_id), to)
     if target.get("status") in ("retiring", "retired") and (why := peer_pointer(to, target)):
         raise MeshError(f"{why}. Nothing was sent")
+    if args.type == "task" and target.get("role") == "worker":  # new work; an answer finishes what it was doing
+        reserve_guard(run_id, target.get("kind"), target.get("model"), target.get("effort"), f"a task for {to}")
     def stored() -> None:  # before the doorbell, so a root that approves at once sees the plan phase
         record_session(run_id, me)
         if args.type == "plan":
@@ -4658,9 +4893,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     context = quietly(root_context, run, as_root=me == run["root"])
     if args.json:
         emit({"run": run_id, "mode": run["mode"], "agents": rows,
-              "needs_root": [r["name"] for r in rows if r["needs"] == "root"], "root_context": context})
+              "needs_root": [r["name"] for r in rows if r["needs"] == "root"], "root_context": context,
+              "quota": quietly(quota_line, run)})
     else:
         print(f"run {run_id} ({run['mode']}), {run_dir(run_id)}" + (f" · {context_text(context)}" if context else ""))
+        print(quietly(quota_line, run) or "quota: unknown")
         print_table(rows, ("name", "role", "kind", "model", "size", "view", "state", "unread", "waiting", "branch"))
     if me == run["root"]:
         for line in inbound_warnings(run):
@@ -4805,7 +5042,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         names, run = [args.agent], None
     status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
                                 hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run,
-                                retire_after=idle_retire())
+                                retire_after=idle_retire(), reserve=root)
     print(line)
     if root:
         root_hint(run_id)
@@ -4869,11 +5106,12 @@ def viewer(name: str, entry: dict, table: list[dict] | None = None) -> str | Non
     A background worker: a `claude attach` client of its session is running (`mesh open` runs one). Claude Code
     keeps its attach clients to itself, but the client is a process for as long as it is attached. Its argument
     is the job id, the session id or part of the session name (the worker's name), so a short part of a name may
-    hold several workers: holding is the safe side. A pane worker: herdr has its pane focused (one pane at a time).
-    Anything unreadable (no /proc, a herdr error) holds nothing."""
+    hold several workers: holding is the safe side. Without /proc (macOS) the clients are read from `ps`
+    (`command_table`). A pane worker: herdr has its pane focused (one pane at a time). Anything unreadable (a
+    herdr error, no process table) holds nothing."""
     if entry.get("view") == "bg":
         keys = [k for k in (entry.get("bg_id"), entry.get("session")) if k]
-        for proc in process_table() if table is None else table:
+        for proc in command_table() if table is None else table:
             argv = [a for a in proc["argv"] if a]
             if agent_binary(argv) != "claude":
                 continue
@@ -5117,8 +5355,8 @@ def unread_line(name: str, kind: str) -> str:
 
 def epoch(stamp_iso: str | None) -> float:
     try:
-        return datetime.fromisoformat(stamp_iso).timestamp()
-    except (TypeError, ValueError):
+        return datetime.fromisoformat(stamp_iso.replace("Z", "+00:00")).timestamp()  # 3.10 reads no `Z`
+    except (TypeError, ValueError, AttributeError):
         return 0.0
 
 
@@ -5230,6 +5468,7 @@ class Watch:
         self.retire_held: str | None = None  # the report (its file) whose retire a viewer held, logged once
         self.gone_polls = 0  # the run's retirer: polls in a row it read this worker gone (retire_poll)
         self.gone_after: str | None = None  # ...and the report after which it let it go as ended
+        self.continue_failed: str | None = None  # the `continue_due` whose delivery this watch saw fail, logged once
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -5248,6 +5487,15 @@ class Watch:
             return None
         if self.retired:  # its retire failed, or it was resumed: watch it again
             self.retired = self.finished = False
+        if due_continue(events, name):
+            try:
+                if continue_worker(run_id, name, entry, state, events) == "continued":
+                    return None  # continued at its reset: judged afresh from the next poll
+            except (MeshError, OSError) as exc:  # tried again at the next poll, as the retirer does
+                due = due_continue(events, name) or {}
+                if self.continue_failed != due.get("id"):
+                    self.continue_failed = due.get("id")
+                    log_event(run_id, "continue_failed", name=name, id=due.get("id"), error=str(exc)[-300:])
         if entry.get("held") and release_held(run_id, name, entry, state):
             return None  # at the startup screen its start already reported (exit 4), or its doorbell just rang
         if (state == "gone" and self.reopening < SWAP_GRACE
@@ -5293,7 +5541,9 @@ class Watch:
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
-            if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
+            # A worker waiting on its reset (`continue_due`) is the continue's: a nudge would only cancel it.
+            if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)) \
+                    and not due_continue(events, name):
                 event = self.stopped(entry, bg, events)
                 if event:
                     return event
@@ -5422,9 +5672,13 @@ class Watch:
                        f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
                        f"--body \"You're logged in again: continue where you stopped.\"`")
         when = f" (resets {reset})" if reset else ""
-        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; it can't go on until then: wait for the "
-                   f"reset, then `mesh send {self.name} --type task --body \"The usage limit has reset: continue "
-                   f"where you stopped.\"`")
+        when_reset = claude_limit_reset(entry.get("model")) or parse_reset(reset)
+        if when_reset is None and claude_usage() is None:  # nothing to tell the reset by: the 5-hour window's worst
+            when_reset = time.time() + LIMIT_UNKNOWN_RESET
+        due = schedule_continue(self.run_id, self.name, "limit", when_reset)
+        how = "" if bg else " (Claude Code's own auto-continue first, in its pane)"
+        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; mesh continues it after the reset"
+                   f"{how}, {continue_text(due)}: tell the user, and send it nothing")
 
     def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
         """Exit 8, once per task, when it reads working (or herdr lost it) with nothing reported since its last task
@@ -5433,6 +5687,10 @@ class Watch:
             return None
         run_id, name = self.run_id, self.name
         received, sent, at = since_last_task(events, name)
+        if not received or not gone_counts(entry):
+            # No task or answer in this run (a peer reopened for an ask, before it is asked: its transcript is the
+            # last ask's), or being reopened: herdr names the new pane before its CLI runs in it.
+            return None
         if sent or alerted(events, name, received, "hung"):
             return None  # it reported (herdr's `working` may be stale); or this task was already alerted on
         progress = last_progress(entry, self.conversation(entry))
@@ -5578,17 +5836,18 @@ class Watch:
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False,
                  hang: float | None = None, autoreset: bool = False, every: dict | None = None,
-                 retire_after: float = 0.0) -> tuple[int, str]:
+                 retire_after: float = 0.0, reserve: bool = False) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
     is the child's count of final sends before its task was delivered, so a report that lands before the watch
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
     the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
-    `autoreset` (the root's own watch, with MESH_ROOT_AUTORESET=1) resets an idle root whose cache went cold.
+    `autoreset` (the root's own watch, unless MESH_ROOT_AUTORESET=0) resets an idle root over the threshold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
     report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
-    retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire).
+    retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
+    watch) raises exit 7 once when a quota its live workers draw on reaches the reserve (`reserve_alert`).
     """
     hang = hang_after() if hang is None else hang
     watches = [Watch(run_id, name, grace, finals_at_start, hang, retire_after) for name in names]
@@ -5596,7 +5855,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     held = dict(zip(names, hold_watch(run_id, names)))
     roster = Roster(run_id, grace, hang, held, every, names, retire_after) if every is not None else None
     try:
-        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster)
+        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster, reserve)
     finally:
         for handle in held.values():
             handle.close()
@@ -5680,8 +5939,10 @@ class Roster:
 
 
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
-                 alerts_only: bool, autoreset: bool = False, roster: Roster | None = None) -> tuple[int, str]:
+                 alerts_only: bool, autoreset: bool = False, roster: Roster | None = None,
+                 reserve: bool = False) -> tuple[int, str]:
     checked = float("-inf")  # when the root was last checked for an idle reset
+    quotas = float("-inf")  # when the quotas were last looked at
     stopped = (0, stopped_line(run_id))
     while True:
         if run_stopped(run_id):  # `mesh stop` archived it under the watch: nothing more comes
@@ -5698,6 +5959,11 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
                 checked = time.monotonic()
                 quietly(maybe_autoreset, run_id, run, events)
+            if reserve and time.monotonic() - quotas >= RESERVE_POLL:
+                quotas = time.monotonic()
+                alert = quietly(reserve_alert, run_id, run, events)
+                if alert:
+                    return alert
             for watch in watches:
                 event = watch.tick(interval, alerts_only, bg_rows, events)
                 if event:
@@ -5731,6 +5997,37 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
             who = waiting[0].name if len(waiting) == 1 else f"{len(waiting)} workers"
             return 6, f"ALERT {who} has not reported within {timeout}s ({states})"
         time.sleep(interval)
+
+
+def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str] | None:
+    """Exit 7 the first time a quota the run's live workers draw on reaches the reserve: once per window and reset
+    (a `reserve` event). Nothing is stopped: the workers finish their current task, and the gates
+    (`reserve_guard`) refuse new work meanwhile."""
+    if reserve_off(run_id) or quota_stop() >= 100:
+        return None
+    live = [e for e in run["agents"].values()
+            if e.get("role") == "worker" and e.get("status") not in ("retired", "retiring")]
+    hits = []
+    claude_models = {e.get("model") for e in live if e.get("kind") == "claude"}
+    usage = claude_usage() if claude_models else None
+    for model in sorted(claude_models, key=str):
+        if hit := claude_at_reserve(usage, model):
+            key, window = hit
+            # The endpoint stamps `resets_at` with the request's own microseconds: the minute names the window.
+            hits.append((f"claude:{key}:{str(window['resets'])[:16]}", "Claude", claude_hit_text(key, window)))
+    for model, effort in sorted({(e["model"], e.get("effort")) for e in live if e.get("kind") == "agy" and e.get("model")}):
+        if hit := agy_at_reserve(model, effort):
+            hits.append((f"agy:{model}:{hit[1]}", "agy", agy_hit_text(model, hit)))
+    seen = {e.get("key") for e in events if e.get("event") == "reserve"}
+    for key, vendor, what in hits:
+        if key in seen or not what:
+            continue
+        log_event(run_id, "reserve", key=key)
+        return 7, (f"ALERT {what}: mesh keeps {100 - quota_stop()}% of every quota for the user "
+                   f"(MESH_QUOTA_STOP={quota_stop()}), so it starts no new {vendor} work until then; running workers "
+                   "finish their current task. Tell the user; don't stop or retire them (`mesh reserve off` lets "
+                   "this run go on past it)")
+    return None
 
 
 ANY_WATCH = "--any"  # the lock a running `mesh watch --any` holds besides its workers'; no worker name starts with -
@@ -5900,10 +6197,13 @@ def retirer_lock_path(run_id: str) -> Path:
 
 
 def ensure_retirer(run_id: str) -> int | None:
-    """Start the run's retirer unless one runs (it holds the lock) or idle retire is off; its pid, or None.
-    Called after the report is logged, so a retirer letting go of the lock re-checks and sees it (run_retirer)."""
+    """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
+    continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
+    retirer letting go of the lock re-checks and sees it (run_retirer)."""
     if not idle_retire():
-        return None
+        events = read_log(run_id)
+        if not any(due_continue(events, n) for n in load_run(run_id)["agents"]):
+            return None
     handle = retirer_lock_path(run_id).open("a")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -5929,6 +6229,156 @@ def start_retirer(run_id: str, handle) -> int:
                                 cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
     log_event(run_id, "retirer_started", pid=proc.pid)
     return proc.pid
+
+
+# ── continuing at a reset ────────────────────────────────────────────────
+# A worker stopped by a usage limit (Claude) or a spent quota with no model left (agy) is continued at the reset by
+# mesh itself, from the watch or the run's retirer, without waking the root (design §9, "Limits and resets").
+
+LIMIT_UNKNOWN_RESET = 5 * 3600  # a limit with no reset time and no usage reading: continued after the longest window
+CONTINUE_GRACE = 600  # seconds after a reset before mesh continues a worker: Claude Code's own continue goes first
+LIMIT_CONTINUE = "The usage limit has reset: continue where you stopped."
+QUOTA_CONTINUE = "Your model's quota has reset: continue where you stopped."
+# Claude Code's armed auto-continue, as its pane shows it (`autoContinueAtUsageLimit`, on by default).
+AUTO_CONTINUE_RE = re.compile(r"continuing automatically|Continuing shortly", re.IGNORECASE)
+RESET_CLOCK_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b", re.IGNORECASE)
+RESET_DATE_RE = re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|\d{1,2}/\d{1,2}",
+                           re.IGNORECASE)
+RESET_ZONE_RE = re.compile(r"\(([A-Za-z]+(?:/[A-Za-z0-9_+-]+)+|UTC)\)")
+
+
+def parse_reset(text: str | None) -> float | None:
+    """The epoch of a reset Claude names as a clock time (`7pm (America/Los_Angeles)`, `2:20am`): its next
+    occurrence in that zone (else the local one); None when the text names no time or an unknown zone."""
+    match = RESET_CLOCK_RE.search(text or "")
+    if not match or RESET_DATE_RE.search(text or ""):
+        return None  # no time, or a date it would read as today (`Oct 30, 7pm`): the caller has better sources
+    zone = RESET_ZONE_RE.search(text or "")
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(zone.group(1)) if zone else datetime.now().astimezone().tzinfo
+    except (ImportError, ValueError, KeyError, OSError):
+        return None
+    hour = int(match.group(1)) % 12 + (12 if match.group(3).lower() == "pm" else 0)
+    now = datetime.now(tz)
+    at = now.replace(hour=hour, minute=int(match.group(2) or 0), second=0, microsecond=0)
+    return (at if at > now else at + timedelta(days=1)).timestamp()
+
+
+def claude_limit_reset(model: str | None = None) -> float | None:
+    """When Claude's spent window (for `model`) resets, the latest of those at 100%, from its usage; None if none
+    is or it's unknown."""
+    windows = claude_windows_for(claude_usage(), model).values()
+    # A reset already past is a stale reading's (a cache), not this limit's: the caller then has other sources.
+    resets = [epoch(w["resets"]) for w in windows if w["used"] >= 100 and epoch(w.get("resets")) > time.time()]
+    return max(resets, default=None)
+
+
+def still_limited(entry: dict) -> bool:
+    """Whether the quota that stopped a worker scheduled with no reset time still reads spent (unknown: no)."""
+    if entry.get("kind") == "claude":
+        return any(w["used"] >= 100 for w in claude_windows_for(claude_usage(), entry.get("model")).values())
+    hit = agy_at_reserve(entry.get("model") or "", entry.get("effort")) if entry.get("model") else None
+    return bool(hit and hit[0] <= 0)
+
+
+def iso_at(when: float) -> str:
+    return datetime.fromtimestamp(when, timezone.utc).isoformat(timespec="seconds")
+
+
+def due_continue(events: list[dict], name: str) -> dict | None:
+    """`name`'s pending `continue_due`: the newest one, until a `continued` or `continue_dropped` settles it."""
+    found = None
+    for event in events:
+        if event.get("name") != name:
+            continue
+        if event.get("event") == "continue_due":
+            found = event
+        elif event.get("event") in ("continued", "continue_dropped") and found and event.get("id") == found.get("id"):
+            found = None
+    return found
+
+
+def schedule_continue(run_id: str, name: str, why: str, reset: float | None) -> dict:
+    """Log that `name` is to be continued CONTINUE_GRACE after `reset` (None: once its quota reads free), and make
+    sure a retirer runs to do it when no watch does. Once per task: a pending one for the same task stands."""
+    events = read_log(run_id)
+    received = since_last_task(events, name)[0]
+    pending = due_continue(events, name)
+    if pending and pending.get("received") == received:
+        return pending
+    event = {"name": name, "why": why, "received": received, "id": secrets.token_hex(4),
+             **({"at": iso_at(reset + CONTINUE_GRACE)} if reset else {})}
+    log_event(run_id, "continue_due", **event)
+    quietly(ensure_retirer, run_id)
+    return event
+
+
+def continue_text(due: dict) -> str:
+    return f"at {reset_text(due['at'])}" if due.get("at") else "once its quota reads free again"
+
+
+def continue_worker(run_id: str, name: str, entry: dict, state: str, events: list[dict]) -> str | None:
+    """Continue `name` if its `continue_due` is due: "continued", "dropped" (logged with why), or None (not yet).
+
+    Dropped, not deferred, once anything else moved it on: a newer task or answer, a report since (a plan or
+    question waits on the root), working again, gone, retired, or (Claude) its session file shows the limit over,
+    which Claude Code's own auto-continue (or the user) leaves. Held while a pane still shows Claude's armed
+    auto-continue, which fires at about the reset, and while a quota with no known reset still reads spent. The
+    `continue` is a task from its parent, stored and rung as any; the root isn't woken."""
+    due = due_continue(events, name)
+    if not due:
+        return None
+    received = since_last_task(events, name)[0]
+    report, _ = last_report(events, name)
+    why = None
+    if entry.get("status") in ("retiring", "retired"):
+        why = "it was retired"
+    elif received != due.get("received"):
+        why = "it got a newer task or answer"
+    elif report:
+        why = f"it sent a {report.get('type')} since"
+    elif state == "working":
+        why = "it is working again"
+    elif state == "gone" and gone_counts(entry):
+        why = "it is gone"
+    elif entry.get("kind") == "claude":
+        stop = transcript_stop(entry, entry.get("session"))
+        if stop and stop[0] == LIMIT_OVER:
+            why = "it was continued already (Claude Code's own auto-continue, or the user)"
+    if why:
+        log_event(run_id, "continue_dropped", name=name, id=due.get("id"), why=why)
+        return "dropped"
+    if due.get("at") and epoch(due["at"]) > time.time():
+        return None
+    if (not due.get("at") and still_limited(entry)) or state not in ("idle", "done", "blocked"):
+        return None
+    if entry.get("kind") == "claude" and entry.get("view") != "bg" and \
+            AUTO_CONTINUE_RE.search("\n".join(pane_lines(name) or [])):
+        return None  # Claude Code continues it itself
+    body = LIMIT_CONTINUE if due.get("why") == "limit" else QUOTA_CONTINUE
+    delivery = deliver(run_id, entry.get("parent"), name, "task", body)
+    log_event(run_id, "continued", name=name, id=due.get("id"), rung=delivered(delivery))
+    return "continued"
+
+
+def continue_poll(run_id: str, run: dict, events: list[dict]) -> bool:
+    """The retirer's other duty: continue the workers no watch covers whose `continue_due` is due. True while
+    any worker's continue is still pending."""
+    bg_rows = None
+    for name, entry in run["agents"].items():
+        if not due_continue(events, name) or watched(run_id, name):
+            continue
+        if entry.get("view") == "bg" and bg_rows is None:
+            bg_rows = read_claude_agents()
+            if bg_rows is None:
+                continue  # `claude agents` failed: next poll
+        try:
+            continue_worker(run_id, name, entry, agent_status(name, entry, bg_rows or []), events)
+        except (MeshError, OSError) as exc:
+            print(f"{now_iso()} {name}: {exc}", flush=True)
+    events = read_log(run_id)
+    return any(due_continue(events, name) for name in run["agents"])
 
 
 RETIRER_GONE_POLLS = 3  # polls in a row a reported worker must read gone before the retirer lets it go
@@ -5967,6 +6417,9 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
     if not run or run_stopped(run_id):
         return False
     events = read_log(run_id)
+    continuing = continue_poll(run_id, run, events) if not stop_under_way(events) else False
+    if not idle_retire():
+        return continuing
     failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
     candidates, pending = {}, set()
     for name, entry in run["agents"].items():
@@ -6012,7 +6465,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
             watch.idle_tick(entry, state, events, again)
         else:
             watch.idle_at = None  # may not be retired now (unread mail, a wait, held, starting…)
-    return bool(pending)
+    return bool(pending) or continuing
 
 
 def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.sleep) -> int:
@@ -6021,11 +6474,11 @@ def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.slee
     report logged before that look is seen, and a `send` logged after it finds the lock free and starts one."""
     watches: dict[str, Watch] = {}
     while True:
-        if idle_retire() and retire_pass(run_id, watches):
+        if retire_pass(run_id, watches):
             sleep(poll)
             continue
         fcntl.flock(handle, fcntl.LOCK_UN)
-        if not idle_retire() or not retire_pass(run_id, watches):
+        if not retire_pass(run_id, watches):
             return 0
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -6607,7 +7060,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     notes: list[str] = []
     if planned:
         effort = DEFAULT_EFFORT
-        model, notes = plan_model(old["kind"], effort)
+        model, notes = plan_model(old["kind"], effort, run_id)
     else:
         model, effort = resumed_model(old, args.model, args.effort)
     view = getattr(args, "view", None) or old.get("view") or "pane"
@@ -6625,6 +7078,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         raise MeshError(f"{old_name}'s name is taken by a live agent, and its {mtype} is in {old_name}'s mailbox: "
                         f"close that agent, then `mesh resume {old_name}`")
 
+    if task or mtype == "task":  # new work; an answer, or a resume with no task, finishes what it was doing
+        reserve_guard(run_id, old["kind"], model, effort, f"{old_name} again")
     reservation = memory_guard(f"{old_name} again")  # the last check before any side effect
     # Before the worktree and compaction steps, which can take minutes: a `mesh watch --any` waits for it.
     log_event(run_id, "resuming", name=old_name, from_run=old_run["id"])
@@ -7618,6 +8073,17 @@ def cmd_ask(args: argparse.Namespace) -> int:
     # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
     if args.repo or copilot or (peer and not target) or (target and not_live(target)):
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
+    # The reserve, before a run is made (a fresh agy agent is checked again by its spawn, once its model is known).
+    # A peer's registry entry records no model, so an agy peer's model is checked when its resume picks one.
+    own_run = (quietly(identity, args) or (None,))[0]
+    if target and not copilot:
+        reserve_guard(own_run, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+                      f"a question for {target[2]}")
+    elif peer:
+        reserve_guard(own_run, peer.get("kind") or "claude", peer.get("model"), None, f"a question for {args.ref}")
+    elif not copilot and (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
+        reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else PLAN_CHAIN["claude"][0],
+                      args.effort, f"an asker in {repo.name}")
     # a Copilot asker's run is in the root's own mode
     run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
@@ -7820,6 +8286,12 @@ def ask_peers(args: argparse.Namespace) -> int:
     names = select_peers(registry, args.peers)
     if any(not_live(quietly(peer_worker, n, registry[n])) for n in names):  # one will start: before a run is made
         memory_guard(f"the askers of {', '.join(names)}", reserve=False)
+    own_run = (quietly(identity, args) or (None,))[0]  # the reserve, before a run is made
+    for peer in sorted(names):
+        entry = registry[peer] if isinstance(registry[peer], dict) else {}
+        worker = (quietly(peer_worker, peer, entry) or (None, None, None, {}))[3]  # its last conversation's model
+        reserve_guard(own_run, worker.get("kind") or entry.get("kind") or "claude", worker.get("model"),
+                      worker.get("effort"), f"the askers of {', '.join(names)}")
     run_id, me = ask_identity(args, body, None)
     mark = collector(me)
     asked: dict[str, str] = {}  # peer → the name its asker has in this run
@@ -8163,6 +8635,9 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
                 state = asker_status(target[2], target[3]) if live else None
                 if live and owes_answer(run_id, target[2], target[3], events, state):
                     return None, 0, "busy with its previous task; ask it again once it answers"
+                if target[3].get("kind") != "copilot":
+                    reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+                                  f"a review by {target[2]}")
                 result, finals, how = moving(move, lambda: reach_worker(ask, run_id, me, target, task,
                                                                         f"a review of {pr}", collect=mark,
                                                                         events=events, state=state))
@@ -9275,23 +9750,75 @@ def cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def claude_usage_text(usage: dict | None) -> str:
+    """One line of Claude's windows: `five-hour window 28% (resets 07:20) · weekly window 16% (…)`, with the
+    reading's age when it came from a cache."""
+    if not usage or not usage.get("windows"):
+        return "unknown (no reading: see `mesh usage`)"
+    parts = [f"{CLAUDE_WINDOWS[k]} {w['used']:.0f}% (resets {reset_text(w['resets'])})"
+             for k, w in usage["windows"].items()]
+    age = time.time() - usage.get("fetched", 0)
+    return " · ".join(parts) + ("" if usage.get("source") == "live" else f" [cached {ago(age)} ago]")
+
+
+def quota_line(run: dict | None = None) -> str:
+    """`mesh status`'s quota line, from what mesh already read (no network): Claude's windows, the agy limits at
+    the reserve, the reserve, and whether this run was let past it."""
+    parts = [f"Claude {claude_usage_text(claude_usage(network=False))}"]
+    try:
+        rows = parse_usage((mesh_home() / "agy-usage.txt").read_text())
+    except OSError:
+        rows = []
+    spent = [f"{r['group']} {r['label'].lower()} {r['left']}% left" for r in rows if r["left"] <= min_quota()]
+    if spent:
+        parts.append("agy at the reserve: " + ", ".join(spent))
+    tail = f"reserve: mesh stops at {quota_stop()}% used"
+    if (run or {}).get("over_reserve"):
+        tail += " (off for this run: `mesh reserve on`)"
+    return "quota: " + "; ".join(parts) + f"; {tail}"
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
+    claude = claude_usage(force=args.refresh)
     rows = agy_usage(force=args.refresh)
-    if rows is None:
-        raise MeshError("`agy -p /usage` gave no quota rows")
-    plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort)
-    execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
-    names = listing_names(agy_model_listing())
-    exec_quota = model_quota(execute, names.get(execute, ""), rows)
+    plan = execute = exec_quota = None
+    notes: list[str] = []
+    if rows:
+        try:
+            plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort, fallback=False)
+        except MeshError as exc:
+            notes = [str(exc)]
+        execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
+        exec_quota = model_quota(execute, listing_names(agy_model_listing()).get(execute, ""), rows)
     if args.json:
-        emit({"rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
-              "notes": notes, "min_quota": min_quota()})
+        emit({"claude": claude, "rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
+              "notes": notes, "quota_stop": quota_stop(), "min_quota": min_quota()})
         return 0
-    print_table(rows, ("group", "label", "left", "resets"))
-    print(f"\nplan on {plan}, execute on {execute}"
-          + (f" ({exec_quota[0]}% left)" if exec_quota else "") + f"; threshold {min_quota()}%")
-    for note in notes:
-        print(f"  {note}")
+    spent = [CLAUDE_WINDOWS[k] for k, w in ((claude or {}).get("windows") or {}).items() if w["used"] >= quota_stop()]
+    print(f"Claude: {claude_usage_text(claude)}" + (f" — at the reserve: {', '.join(spent)}" if spent else ""))
+    if rows:
+        print()
+        print_table(rows, ("group", "label", "left", "resets"))
+        print(f"\nplan on {plan or 'nothing (every model is at the reserve)'}, execute on {execute}"
+              + (f" ({exec_quota[0]}% left)" if exec_quota else ""))
+        for note in notes:
+            print(f"  {note}")
+    else:
+        print("agy: `agy -p /usage` gave no quota rows")
+    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used (MESH_QUOTA_STOP)")
+    return 0
+
+
+def cmd_reserve(args: argparse.Namespace) -> int:
+    """Let this run go on past the quota reserve, or hold it to it again (root only)."""
+    run_id, me = identity(args)
+    if (load_run(run_id)["agents"].get(me) or {}).get("role") != "root":
+        raise MeshError("only the run's root lets its run past the quota reserve")
+    if args.state:
+        with editing_run(run_id) as run:
+            run["over_reserve"] = args.state == "off"
+        log_event(run_id, "reserve_" + args.state, name=me)
+    print(quota_line(load_run(run_id)))
     return 0
 
 
@@ -9299,7 +9826,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
 
 CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
-ROOT_RESET_AT = 300_000  # root context tokens past which mesh suggests `mesh reset`
+ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
 RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
@@ -9307,6 +9834,8 @@ CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
 CLEAR_FILE_GRACE = 5  # seconds the root's process file gets to follow a /clear herdr has already reported
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
 AUTORESET_BACKOFF = 3600  # seconds before a root watch starts another idle reset (a failing one shouldn't repeat)
+AUTORESET_QUIET = 300  # seconds a root must have been still after a turn mesh started before its watch resets it
+AUTORESET_USER_QUIET = 1800  # ...after a turn the user started (or when that can't be told): it may wait on them
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
 # herdr's `--lines N` is the screen's last N rows, blank ones under the content included: on a tall pane with
@@ -9355,7 +9884,63 @@ def root_reset_at() -> int:
 
 
 def autoreset_on() -> bool:
-    return os.environ.get("MESH_ROOT_AUTORESET") == "1"
+    """The root's watch resets an idle root (design §15): on unless MESH_ROOT_AUTORESET=0."""
+    return os.environ.get("MESH_ROOT_AUTORESET") != "0"
+
+
+def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) -> bool | None:
+    """Whether the newest turn of a Claude session file was started by the user: True for a prompt typed in the
+    pane (`origin.kind` "human", or none), False for one mesh or a tool brought (a socket doorbell is a `peer`
+    meta entry, a background watch's exit a `task-notification`, a typed doorbell starts with `📬 [mesh]`), None
+    when no prompt is found in the last `limit` bytes. Meta entries, tool results, interrupts and local command
+    output aren't prompts (they carry no origin). A doorbell that lands mid-turn is queued into the turn the user
+    started, so a mesh prompt with a typed one before it and no finished reply (`end_turn`) between still makes
+    the turn the user's."""
+    mesh_seen = False
+    try:
+        with open(path, "rb") as fh:
+            end, rest = fh.seek(0, os.SEEK_END), b""
+            stop = max(0, end - limit)
+            while end > stop:
+                start = max(stop, end - chunk)
+                fh.seek(start)
+                lines = (fh.read(end - start) + rest).split(b"\n")
+                rest = lines.pop(0) if start else b""
+                for line in reversed(lines):
+                    if mesh_seen and b'"end_turn"' in line and b'"assistant"' in line:
+                        return False  # a finished reply before the mesh prompt: the turn was mesh's
+                    if b'"user"' not in line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("type") != "user":
+                        continue
+                    kind = (event.get("origin") or {}).get("kind")
+                    if kind not in (None, "human"):
+                        mesh_seen = True
+                        continue
+                    content = (event.get("message") or {}).get("content")
+                    if event.get("isMeta") or event.get("toolUseResult") is not None or (
+                            isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result"
+                                                              for c in content)):
+                        continue
+                    text = content if isinstance(content, str) else " ".join(
+                        c.get("text") or "" for c in content or [] if isinstance(c, dict))
+                    text = text.lstrip()
+                    if mesh_seen and text.startswith("[Request interrupted"):
+                        return False  # the turn before the mesh prompt ended there
+                    if not text or text.startswith(("[Request interrupted", "<local-command")):
+                        continue
+                    if text.startswith("📬 [mesh]"):
+                        mesh_seen = True
+                        continue
+                    return True
+                end = start
+    except OSError:
+        return None
+    return False if mesh_seen else None
 
 
 def pane_agent(pane: str) -> dict:
@@ -9832,8 +10417,11 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
 
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
-    """The root's own watch, with MESH_ROOT_AUTORESET=1: reset a root that is over the threshold, idle, cold and
-    owed nothing. Stricter than `mesh reset`: any unread report holds it, since it acts without the root's say.
+    """The root's own watch (unless MESH_ROOT_AUTORESET=0): reset a root that is over the threshold, idle, owed
+    nothing and quiet, warm or cold (design §15). Quiet is AUTORESET_QUIET since its last turn when mesh started
+    that turn, AUTORESET_USER_QUIET when the user did or it can't be told (`last_turn_by_user`): a root answering
+    the user may be waiting on them. Stricter than `mesh reset`: any unread report holds it, since it acts without
+    the root's say.
     A Claude root herdr reads `unknown` counts as idle when its own process says its turn is over
     (`lost_root_quiet`); when that can't be told, nothing starts, and the next poll looks again."""
     root = run.get("root")
@@ -9844,7 +10432,10 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     if last and age_seconds(last["time"]) < AUTORESET_BACKOFF:
         return False  # a failing one shouldn't repeat every minute (nor every 5 on a 5-minute cache)
     context = root_context(run)
-    if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
+    if not context or context["tokens"] <= root_reset_at() or context.get("idle") is None or root_mail(run_id, root):
+        return False
+    by_user = last_turn_by_user(Path(context["transcript"])) if entry.get("kind") == "claude" else None
+    if context["idle"] < (AUTORESET_QUIET if by_user is False else AUTORESET_USER_QUIET):
         return False
     status = pane_agent(entry["pane"]).get("agent_status")
     if status == "unknown" and entry.get("kind") == "claude":
@@ -9855,7 +10446,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
             return False
     elif status not in QUIET_STATES:
         return False
-    start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle with a cold cache",
+    start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle",
                 None, via="watch")
     return True
 
@@ -10776,10 +11367,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS)
     p.set_defaults(func=cmd_model)
 
-    p = sub.add_parser("usage", help="agy quotas, and the models `auto` would plan and execute on")
+    p = sub.add_parser("usage", help="Claude's and agy's quotas, the reserve, and the models `auto` would plan and "
+                                     "execute on")
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS, help="planning effort")
     p.add_argument("--exec-effort", default=EXEC_EFFORT, choices=EFFORTS)
-    p.add_argument("--refresh", action="store_true", help="skip the 5-minute cache")
+    p.add_argument("--refresh", action="store_true", help="skip the caches (agy's 5 minutes, Claude's 2)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
 
@@ -10790,6 +11382,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agents", action="store_true", help="the per-agent table in window mode too")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cost)
+
+    p = ident(sub.add_parser("reserve", help="root only: let this run go on past the quota reserve (off), or hold "
+                                             "it to the reserve again (on); no argument shows the quotas"))
+    p.add_argument("state", nargs="?", choices=("off", "on"))
+    p.set_defaults(func=cmd_reserve)
     return parser
 
 

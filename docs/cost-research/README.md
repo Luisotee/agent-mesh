@@ -72,12 +72,13 @@ Savings are per week at the baseline's volume, in API-equivalent dollars. "Check
 | 1 | Claude Code's built-in `Concise` output style, `"outputStyle": "Concise"` in `~/.claude/settings.json` (all sessions) | ~2–3% (output −13%, reports −31% in the e2e) | output tokens per call by kind; report and plan sizes in `reports/`, `plans/`; calls per task unchanged | 2026-10-28 | |
 | 2 | Fewer, lighter reviews: one reviewer for a small PR, Claude plus one for a large one; `/code-review` at medium for small | $90–120 (6–8%) plus ~⅓ of agy's review spend | reviewer $ per PR; reviewers per PR; agy review calls | 2026-10-28, PR #75 | |
 | 3 | One root wake per review round (one fan-out, one answers file) | part of $125 doorbell turns (~1.4 wakes per PR) | root turns started by a reviewer's `done` per PR | 2026-10-28, PR #75 | |
-| 4 | Root reset at 200k when idle and owed nothing, default on, warm or cold | $30–45 | root mean context per call; reset count | | |
-| 5 | `promptCacheTtl: "5m"` for reviewers, peers, askers, small/bg workers, headless `-p` | ~$50 (3%): peers −19%, headless −20%, reviewers −6% | `ephemeral_5m` share per kind; cost per kind | | |
+| 4 | Root reset at 200k when idle and owed nothing, default on, warm or cold | $30–45 | root mean context per call; reset count | 2026-10-28, PR #76 | |
+| 5 | `promptCacheTtl: "5m"` for reviewers, peers, askers, small/bg workers, headless `-p` | ~$50 (3%): peers −19%, headless −20%, reviewers −6% | `ephemeral_5m` share per kind; cost per kind | 2026-10-28, PR #76 | |
 | 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise; templates and repos pending) | |
 | 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | |
-| 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | | |
+| 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | 2026-10-28, PR #76 | |
 | 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | |
+| 10 | Quota reserve: mesh starts nothing new on a quota once it is 90% used (`MESH_QUOTA_STOP`), for Claude's windows and agy's models (from the user, 2026-10-28) | none: keeps ~10% of each quota for the user's own sessions | no mesh spawn, ask or approve after a window passed 90% (`reserve` events, the usage endpoint's figures) | 2026-10-28, PR #76 | |
 
 Total expected: roughly $250–350 a week, 15–20% of the baseline.
 
