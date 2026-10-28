@@ -9835,6 +9835,26 @@ def test_a_background_worker_attached_to_is_held_until_its_client_leaves(mesh, f
         assert mesh.load_run(run)["agents"]["repo-fix-typo"]["status"] == "retired"
 
 
+def test_without_proc_an_attach_client_is_read_from_ps(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "has_proc", lambda: False)
+    calls = []
+
+    def ps(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout=(
+            "  501 /Applications/Utilities/Terminal.app/Contents/MacOS/Terminal\n"
+            "  612 node /opt/homebrew/bin/claude attach b1\n"
+            "  613 claude --resume s-9\n"), stderr="")
+
+    monkeypatch.setattr(mesh.subprocess, "run", ps)
+    entry = {"view": "bg", "bg_id": "b1", "session": "s-1"}
+    assert mesh.viewer("repo-fix-typo", entry) == "attached (`claude attach`, pid 612)"
+    assert calls[0][:2] == ["ps", "-axww"]
+    assert mesh.viewer("repo-fix-typo", {**entry, "bg_id": "b2"}) is None
+    monkeypatch.setattr(mesh.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+    assert mesh.command_table() == []  # no ps either: nothing holds
+
+
 @pytest.mark.parametrize("pane, held", [({"focused": True}, True), ({"focused": False}, False), (None, False)])
 def test_a_pane_worker_whose_pane_is_focused_is_held(mesh, fake, run, tmp_path, monkeypatch, pane, held):
     idle_reporter(mesh, run, tmp_path)

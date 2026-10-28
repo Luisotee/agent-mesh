@@ -3424,6 +3424,23 @@ def process_table() -> list[dict]:
     return table
 
 
+def command_table() -> list[dict]:
+    """Every process's {pid, argv}: `process_table` with /proc, else `ps` (macOS), whose command line comes joined
+    by spaces, so its argv is split on them (enough to tell `claude attach <id>`). [] when neither can be read."""
+    if has_proc():
+        return process_table()
+    try:
+        out = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    table = []
+    for line in out.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if pid.isdigit():
+            table.append({"pid": int(pid), "argv": command.split()})
+    return table
+
+
 def leftover_processes(top: Path, table: list[dict]) -> list[dict]:
     """The processes in `top` that nothing alive owns: each one's chain of parents inside `top` holds no agent
     CLI and hangs off an init (its own parent died), and no process of that tree, wherever its cwd, holds a
@@ -5062,11 +5079,12 @@ def viewer(name: str, entry: dict, table: list[dict] | None = None) -> str | Non
     A background worker: a `claude attach` client of its session is running (`mesh open` runs one). Claude Code
     keeps its attach clients to itself, but the client is a process for as long as it is attached. Its argument
     is the job id, the session id or part of the session name (the worker's name), so a short part of a name may
-    hold several workers: holding is the safe side. A pane worker: herdr has its pane focused (one pane at a time).
-    Anything unreadable (no /proc, a herdr error) holds nothing."""
+    hold several workers: holding is the safe side. Without /proc (macOS) the clients are read from `ps`
+    (`command_table`). A pane worker: herdr has its pane focused (one pane at a time). Anything unreadable (a
+    herdr error, no process table) holds nothing."""
     if entry.get("view") == "bg":
         keys = [k for k in (entry.get("bg_id"), entry.get("session")) if k]
-        for proc in process_table() if table is None else table:
+        for proc in command_table() if table is None else table:
             argv = [a for a in proc["argv"] if a]
             if agent_binary(argv) != "claude":
                 continue
