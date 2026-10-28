@@ -5802,6 +5802,9 @@ def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypat
     monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
     assert mesh.pick_reviewers("large", {"p-review-7-copilot": "copilot", "p-review-7-claude": "claude"})[0] == ["claude"]
     assert mesh.pick_reviewers("large", {"a": "agy", "c": "claude"})[0] == ["claude", "agy"]
+    with_quotas(mesh, monkeypatch, AGY_OUT)  # agy out on a re-review too: Claude takes its place
+    kinds, notes = mesh.pick_reviewers("large", {"a": "agy"})
+    assert kinds == ["claude"] and "Claude instead" in notes[0]
     kinds, notes = mesh.pick_reviewers("small", {"p-review-7-copilot": "copilot"})  # only Copilot: agy is out
     assert kinds == ["claude"] and "Copilot" in notes[0]
 
@@ -10107,3 +10110,65 @@ def test_an_interrupted_review_round_clears_its_marks(mesh, fake, cli, run, repo
     with pytest.raises(KeyboardInterrupt):
         mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
     assert "collect" not in mesh.load_run(run)["agents"]["proj-review-7-claude"]  # its report rings as usual
+
+
+def test_a_review_rounds_copilot_reviews_at_the_rounds_size(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
+                                                            capsys):
+    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
+    cli.on("--output-format", stdout=copilot_jsonl("Nothing found."))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers",
+                      "copilot"]) == 0  # no --size: large
+    assert mesh.load_run(run)["agents"]["proj-review-7-copilot"]["effort"] == mesh.COPILOT_EFFORT["large"]
+
+
+def test_a_round_of_several_clis_refuses_one_clis_flags(mesh, fake, run, repo, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "pick_reviewers", lambda size, earlier: (["claude", "agy"], []))
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "auto", "--model", "opus"]) == 1
+    assert "--model and --view are one CLI's" in capsys.readouterr().err
+    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "claude,copilot",
+                      "--view", "bg"]) == 1
+    assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
+
+
+def test_earlier_reviewers_come_from_the_newest_run_that_has_them(mesh, run):
+    pr = "https://github.com/acme/proj/pull/7"
+    archived = mesh.mesh_home() / "archive" / "mold"
+    archived.mkdir(parents=True)
+    old = {"id": "mold", "created": "2000-01-01T00:00:00+00:00", "agents": {
+        "proj-review-7-claude": {"role": "worker", "kind": "claude", "review_checkout": pr},
+        "proj-review-7-copilot": {"role": "worker", "kind": "copilot", "review_checkout": pr}}}
+    (archived / "run.json").write_text(json.dumps(old))
+    (past, folder), found = mesh.earlier_reviewers(pr)  # after `mesh stop`, or under a new root
+    assert past["id"] == "mold" and folder == archived and found == {"proj-review-7-claude": "claude",
+                                                                     "proj-review-7-copilot": "copilot"}
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["review_checkout"] = pr  # resumed into this run: its copy is the newer
+    (past, _), found = mesh.earlier_reviewers(pr)
+    assert past["id"] == run and list(found) == ["repo-fix-typo"]
+
+
+def test_an_interrupted_round_never_starts_its_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
+    gate = mesh.threading.Event()
+    real_asker, real_clear = mesh.copilot_asker, mesh.clear_marks
+
+    def asker(*args, **kwargs):
+        gate.wait(5)  # until the round has been interrupted
+        return real_asker(*args, **kwargs)
+
+    def clear(*args):
+        gate.set()  # the round's `finally` has set its stop event by now
+        return real_clear(*args)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(mesh, "copilot_asker", asker)
+    monkeypatch.setattr(mesh, "clear_marks", clear)
+    monkeypatch.setattr(mesh, "watch_each", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--size", "large",
+                   "--reviewers", "claude,copilot"])
+    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
+    assert entry["status"] == "retired" and "pid" not in entry  # claimed, then released unasked
+    assert not cli.called("--output-format")
