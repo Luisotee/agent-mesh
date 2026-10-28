@@ -82,6 +82,7 @@ Core mechanics that span several files: each bullet is the gist and the names to
 - The mesh is process-agnostic: protocol files never name a tracker, branch convention or repo-specific process; workers follow their repo's own rules.
 - Skills name model **families** (`argon`, `flash`, `opus`, `sonnet`), resolved to the newest id from `agy models`; don't hard-code model ids.
 - `mesh resume` / `mesh open` refuse a worker that is still running (one process per conversation); `open` attaches to a running background worker instead. `mesh stop` stops background workers (never `claude rm`), removes only clean worktrees and keeps every branch that has a commit or an upstream (an untouched one is deleted and recreated from its recorded `base` on resume).
+- Re-run `./install.sh` once a change that needs it is on the checked-out branch (merged to `main`): a change to `rules/global-snippet.md` (it is copied into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, not linked), a skill added, removed or renamed (`SKILLS` / `RETIRED_SKILLS`), the herdr plugin moved, or `install.sh` itself changed. An edit inside a linked file (`bin/mesh`, `protocol/`, a skill) needs no re-run.
 - Keep README, `ORCHESTRATE.md`, the skill descriptions and `docs/design.md` in sync when defaults (models, efforts, exit codes) change.
 - Keep this file at most 24,000 bytes: agy truncates a rule file past that, and `AGENTS.md` is a symlink to it (`tests/test_docs.py` checks both). Put detail in `docs/design.md` (function names in its "Code map") and a gist here.
 
