@@ -13,12 +13,14 @@ The first round ran on 2026-10-28 (run `mb3c1`). Its reports are under `~/.local
 ## Method
 
 - **Source:** every Claude Code transcript in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl` (819 transcripts, 29,881 API calls, 2026-09-16 → 10-28). Each assistant record's `message.usage` gives `input_tokens`, `cache_creation_input_tokens` (split into `ephemeral_1h` / `ephemeral_5m`), `cache_read_input_tokens` and `output_tokens`.
-- **Dedup by `message.id`:** Claude Code writes one record per content block (thinking, tool use, text), each with the same usage. Summing per record triples the totals (rove #942, Gas Town PR #1772).
+- **Dedup by `message.id`:** Claude Code writes one record per content block (thinking, tool use, text), each with the same usage. Summing per record triples the totals (rove #942, Gas Town PR #1772). The ids must be deduped across files too: a background swap or resume copies the conversation into a new session file with the same ids, and so does a `/resume` that forks. The first round's `extract.py` deduped per file and over-counted by 7.3% (2026-10-21 → 10-28: $1,639 per file, $1,527 across files); it now shares one `seen`, so a copied call is counted in whichever file `glob` lists first, and `mesh cost` gives it to the file run state names.
 - **Classification:** a session is mapped to an agent through every `run.json` (live and archived runs: role, size, view, `read_only`, `peer`, `review_heads`), else by project directory (mesh worktrees, peer worktrees) and its first message.
 - **Weighting:** API-equivalent dollars stand in for what the subscription limit counts, which is undocumented. Opus 5.5 per MTok: input $4, 1h cache write $8 (2×), 5m write $5 (1.25×), cache read $0.20 (0.05×), output $20. Sonnet 5.5: $2 / $4 / $2.50 / $0.20 / $10 (from the `claude-api` skill). So a written token costs 40 reads, an output token 100. Every main session writes 1h cache; subagents write 5m. The ranking holds as long as writes and output cost more than reads.
 - **agy:** token counts only, from the step metadata in agy's conversation files (as `agy_context_tokens` reads them). Copilot not measured.
 
 ### Scripts
+
+**`mesh cost` first** (design §19): `mesh cost --since <start> --until <end>` gives the week's total and, per session kind, sessions, calls, $, share, $ per call, context and output per call, the 5m share of cache writes, the median first-call context (the static prefix) and cold resumes; then reviews ($ per PR, Claude reviewers per PR), root resets and agy tokens by kind (`--agents` for per agent, `--json` for the rows, `mesh cost <run>` for one run with its plan/exec split). That answers the ledger's checks #1, #2 (Claude side), #4 (root context per call, resets), #5, #6 and #7. Over this baseline's week it gives $1,527, the study's own per-call data deduped across files (the $1,614 below is inflated by copied sessions, ~$1,504 corrected: +1.5%). Its kinds differ from the study's where it splits by time: a root's calls outside its run's window count as `user`, and copied calls go to the agent whose file they came from. The scripts below are for what it doesn't do: per turn and per task, reads, re-reads after compaction, inter-agent text, effort.
 
 In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (they read and write files in the current directory):
 
@@ -31,7 +33,7 @@ In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (t
 
 ## Baseline: the week of 2026-10-21 → 10-27
 
-**$1,614** API-equivalent (89% of the 14-day total, $1,810), 90% of it mesh; the last 46 h alone were $893, so the pace was still rising. Usage at the time (`cachedUsageUtilization` in `~/.claude.json`): one `five_hour` and one weekly window; `seven_day_opus` and `seven_day_sonnet` null, so Sonnet draws the same bucket as Opus on this account.
+**$1,614** API-equivalent as measured, **~$1,504** corrected for copied sessions (see "Dedup" above: −7.3%, which also lowers the kind rows below, `worker small bg` most of all; `mesh cost --since 2026-10-21 --until 2026-10-28` gives the corrected split) (89% of the 14-day total, $1,810), 90% of it mesh; the last 46 h alone were $893, so the pace was still rising. Usage at the time (`cachedUsageUtilization` in `~/.claude.json`): one `five_hour` and one weekly window; `seven_day_opus` and `seven_day_sonnet` null, so Sonnet draws the same bucket as Opus on this account.
 
 - **Spend split:** 42% cache reads, 37% cache writes, 21% output.
 - **Cost goes per call:** $0.06–0.08 per call in every kind; cost is context size × number of calls.
@@ -75,7 +77,7 @@ Savings are per week at the baseline's volume, in API-equivalent dollars. "Check
 | 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise; templates and repos pending) | |
 | 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | |
 | 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | | |
-| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | | |
+| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | |
 
 Total expected: roughly $250–350 a week, 15–20% of the baseline.
 

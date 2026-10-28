@@ -331,6 +331,8 @@ mesh approve <worker>      # (root) approve the plan it sent; an auto worker mov
 mesh switch <worker>       # (root) move a worker off a model that hit its quota
                            #   approve, switch, retire and stop refuse a worker (the user: --run <id> --as <root>)
 mesh usage                 # agy quotas and the models auto would pick
+mesh cost [<run>]          # what each agent spent (API prices): by kind, phase, cold resumes
+                           #   --since 7d [--until …]: every session on the machine in a window
 mesh conflicts             # which run branches conflict with the default branch or each other,
                            #   and which workers change the same files (uncommitted too)
 mesh watch --any [--alerts]  # one watchdog for every worker of the run

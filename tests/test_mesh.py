@@ -4597,7 +4597,9 @@ def test_approve_with_the_same_model_and_effort_keeps_the_pane_of_a_worker_with_
         data["agents"]["repo-fix-typo"]["exec_effort"] = "high"
     assert mesh.main(["approve", "repo-fix-typo"]) == 0
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
-    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["phase"] == "exec"
+    assert entry["models"][-1]["why"] == "plan approved"  # where execution starts, for `mesh cost`
     assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
 
 
