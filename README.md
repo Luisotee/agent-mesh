@@ -308,7 +308,7 @@ git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
 | `protocol/` | `~/.config/agent-mesh` |
 | the skills | `~/.claude/skills/` and `~/.gemini/config/skills/` |
 
-It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Re-running it is safe.
+It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, and a short "Writing" rule (lead with the result, no narration or recap, keep every fact and reason that changes an action, code and errors verbatim): agy has no concise mode like Claude Code's `Concise` output style. Re-running it is safe.
 
 Claude workers run with `--dangerously-skip-permissions`, and Claude Code delivers cross-session messages without asking only between sessions in the same permission mode. Run a Claude root in bypass-permissions mode too, or approve each worker's report as it arrives.
 
