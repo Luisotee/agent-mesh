@@ -1,13 +1,15 @@
 ---
 name: delegate-agy
 description: >-
-  agent-mesh, mode `agy`: hands each repo's part of a change, or a whole task list, to an agy agent running inside that repo, in a visible herdr pane, and supervises them.
-  Work is sized to save quota: trivial and small tasks run on Flash with no plan, large ones plan on the strongest model with quota left (Argon → Opus → Flash),
-  get their plan reviewed, then execute on Flash and open a PR, and each PR gets two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a trivial or small task's or group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also answers questions about another repo, with agents you can ask again,
-  resume (compacted when large) or hand the change to; asks the registered peer projects' standing askers a question ("ask the peer projects / the researched projects"; a research round for ideas and bugs is /harvest-peers); can route large tasks to Claude.
-  Use it, whether the user types /delegate-agy or not, when the user wants another repo's part of a change, a question about another repo,
-  or a task list handed to agents that work inside those repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), and they don't name the other CLI (Claude, Opus, Sonnet, Fable); with neither named, use this one when you are agy.
-  Not for a PR review the user asks for (that's /delegate-review), not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
+  agent-mesh, mode `agy`: hands each repo's part of a change, a task list, or a question about another repo to agy
+  agents working inside those repos, in visible herdr panes, and supervises them; large tasks get their plan reviewed
+  first, and each PR gets two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a
+  trivial or small task's or group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also
+  asks the registered peer projects a question. Use it, typed or not, when the user wants work or a question handed to
+  agents in other repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent") and names no other CLI
+  (Claude, Opus, Sonnet, Fable); with none named, use it when you are agy. Not for a PR review the user asks for
+  (/delegate-review), a research round by the peers (/harvest-peers), work in your own repo alone, or a mesh worker
+  (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>
 ---
 

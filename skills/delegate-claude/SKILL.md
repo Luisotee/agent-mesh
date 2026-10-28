@@ -1,13 +1,15 @@
 ---
 name: delegate-claude
 description: >-
-  agent-mesh, mode `claude`: hands each repo's part of a change, or a whole task list, to a Claude agent running inside that repo, and supervises them.
-  Work is sized: trivial and small tasks run on Opus in the background with no plan, large ones plan on Opus at high effort in a visible herdr pane,
-  get their plan reviewed, execute at medium effort and open a PR, and each PR gets two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a trivial or small task's or group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Workers report back by SendMessage. Also answers questions about another repo,
-  with agents you can ask again, resume (compacted when large) or hand the change to, and asks the registered peer projects' standing askers a question ("ask the peer projects / the researched projects"; a research round for ideas and bugs is /harvest-peers).
-  Use it, whether the user types /delegate-claude or not, when the user wants another repo's part of a change, a question about another repo,
-  or a task list handed to agents that work inside those repos ("have Claude do it", "delegate this", "ask the shop-api agent"), and they don't name the other CLI (agy, Gemini, Argon, Flash); with neither named, use this one when you are Claude Code.
-  Not for a PR review the user asks for (that's /delegate-review), not for work you can do in your own repo alone, and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
+  agent-mesh, mode `claude`: hands each repo's part of a change, a task list, or a question about another repo to Claude
+  agents working inside those repos, and supervises them; large tasks get their plan reviewed first, and each PR gets
+  two or three reviews (Claude and agy, plus Copilot on a large PR's first review), except a trivial or small task's or
+  group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also asks the registered peer
+  projects a question. Use it, typed or not, when the user wants work or a question handed to agents in other repos
+  ("have Claude do it", "delegate this", "ask the shop-api agent") and names no other CLI (agy, Gemini, Argon, Flash);
+  with none named, use it when you are Claude Code. Not for a PR review the user asks for (/delegate-review), a research
+  round by the peers (/harvest-peers), work in your own repo alone, or a mesh worker (your task came by a `📬 [mesh]`
+  doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>
 ---
 

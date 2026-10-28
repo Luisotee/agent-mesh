@@ -1,15 +1,12 @@
 ---
 name: harvest-peers
 description: >-
-  Runs a round of research by the registered peer projects (agent-mesh's standing peer askers) for ideas, improvements
-  and bugs we may have: picks the peers, works out what changed on our side since they were last asked, names our
-  riskiest mechanisms for them to compare against theirs, asks them all at once with one brief (the first-round brief
-  for peers that never researched anything), checks every finding against our own code, and reports them ranked as bugs, improvements and
-  features, filing the survivors in the repo's tracker on your yes. Use it, whether the user types /harvest-peers or
-  not, when the user wants ideas, features, improvements or likely bugs gathered from the peer projects ("harvest the
-  peers", "what can we learn from the peers now", "brief the new peers", "have the peers hunt for our bugs"). Not for
-  one question to a peer (that's /delegate-claude or /delegate-agy), not for finding new peers (that's /find-peers),
-  and never when you are a mesh worker (your task came by a `📬 [mesh]` doorbell).
+  Runs a research round by the registered peer projects for ideas, improvements and bugs we may have: briefs them all at
+  once (a first brief, or a follow-up on what changed here and our riskiest mechanisms), checks every finding against
+  our code, ranks them, and files the survivors in the tracker on your yes. Use it, typed or not, when the user wants
+  ideas or likely bugs from the peers ("harvest the peers", "brief the new peers", "have the peers hunt for our bugs").
+  Not for one question to a peer (/delegate-claude or /delegate-agy), finding new peers (/find-peers), or a mesh worker
+  (your task came by a `📬 [mesh]` doorbell).
 argument-hint: "[peers or group (default: this repo's)] [what to focus on]"
 ---
 
