@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
-agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing overview; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour.
+agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing pitch and `docs/guide.md` the full reference; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour.
 
 ## Task tracking
 
@@ -85,7 +85,7 @@ Core mechanics that span several files: each bullet is the gist and the names to
 - Skills name model **families** (`argon`, `flash`, `opus`, `sonnet`), resolved to the newest id from `agy models`; don't hard-code model ids.
 - `mesh resume` / `mesh open` refuse a worker that is still running (one process per conversation); `open` attaches to a running background worker instead. `mesh stop` stops background workers (never `claude rm`), removes only clean worktrees and keeps every branch that has a commit or an upstream (an untouched one is deleted and recreated from its recorded `base` on resume).
 - Re-run `./install.sh` once a change that needs it is on the checked-out branch (merged to `main`): a change to `rules/global-snippet.md` (it is copied into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, not linked), a skill added, removed or renamed (update `SKILLS` / `RETIRED_SKILLS` and the plugin's description in `.claude-plugin/marketplace.json`), the herdr plugin moved, or `install.sh` itself changed. An edit inside a linked file (`bin/mesh`, `protocol/`, a skill) needs no re-run.
-- Keep README, `ORCHESTRATE.md`, the skill descriptions and `docs/design.md` in sync when defaults (models, efforts, exit codes) change.
+- Keep README, `docs/guide.md`, `ORCHESTRATE.md`, the skill descriptions and `docs/design.md` in sync when defaults (models, efforts, exit codes) change.
 - Keep this file at most 24,000 bytes: agy truncates a rule file past that, and `AGENTS.md` is a symlink to it (`tests/test_docs.py` checks both). Put detail in `docs/design.md` (function names in its "Code map") and a gist here.
 
 ## Tests
