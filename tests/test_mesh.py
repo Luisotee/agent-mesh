@@ -6881,7 +6881,8 @@ def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cl
     out = json.loads(capsys.readouterr().out)
     argv = cli.called("-p")[0]["argv"]
     assert argv[:7] == ["claude", "-p", "--resume", "s-1", "--model", "opus", "--dangerously-skip-permissions"]
-    assert argv[7].startswith("/compact Keep what the next task needs: Apply the review.")
+    assert argv[7:9] == ["--settings", '{"promptCacheTtl": "5m"}']  # a one-off turn: a 5-minute cache
+    assert argv[9].startswith("/compact Keep what the next task needs: Apply the review.")
     assert started == [False]  # compacted before the pane opens
     assert "MESH_SELF" not in cli.called("-p")[0]["env"]
     assert out["compaction"]["compacted"] is True and out["compaction"]["context_tokens"] == 450_012
@@ -10489,3 +10490,14 @@ def test_the_retirer_continues_an_unwatched_worker_even_with_idle_retire_off(mes
     fake.screen("repo-fix-typo", "❯ ")
     assert mesh.retire_pass(run, {}) is False  # continued: nothing keeps it
     assert [e["event"] for e in mesh.read_log(run)][-1] == "continued"
+
+
+@pytest.mark.parametrize("extra, ttl", [
+    ({"size": "small"}, "5m"), ({"size": "trivial"}, "5m"), ({"size": "large", "read_only": True}, "5m"),
+    ({"size": "large", "peer": "rove"}, "5m"), ({"size": "large"}, None), ({"size": "large", "planning": True}, None)])
+def test_cheap_workers_launch_on_a_five_minute_cache(mesh, run, extra, ttl):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", **extra)
+    env = mesh.mesh_env(run, "repo-fix-typo", "repo-lead", "worker")
+    for bg in (False, True):
+        assert json.loads(mesh.worker_settings(env, bg)).get("promptCacheTtl") == ttl

@@ -1726,6 +1726,19 @@ def worker_hooks(run_id: str, name: str) -> dict:
 WORKER_INBOUND = "accept"  # the `crossSessionInbound` every Claude worker starts with (recorded as a bg one's `inbound`)
 
 
+SHORT_CACHE = "5m"  # the prompt cache TTL of a worker that is asked once or works briefly (worker_cache_ttl)
+
+
+def worker_cache_ttl(entry: dict) -> str | None:
+    """`promptCacheTtl` for a Claude worker: SHORT_CACHE for a read-only one (an asker, a reviewer), a peer, or a
+    trivial or small task, whose gaps between turns rarely reuse a 1 h cache and whose writes then cost 1.25×
+    the input price instead of 2×; None (Claude Code's own choice, 1 h on a subscription) for a large change
+    task, whose waits on the root a 5-minute cache wouldn't outlive (the cost study of run mb3c1: +8% there)."""
+    if entry.get("read_only") or entry.get("peer") or entry.get("size") in ("trivial", "small"):
+        return SHORT_CACHE
+    return None
+
+
 def worker_settings(env: dict[str, str], bg: bool) -> str:
     """`--settings` JSON for a Claude worker: its hooks, `crossSessionInbound: accept`, and for a background one
     its environment.
@@ -1742,6 +1755,11 @@ def worker_settings(env: dict[str, str], bg: bool) -> str:
     would stay (a pane id that `identity()` maps to its owner, another MESH_HOME). A pane has its environment.
     """
     settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"]), "crossSessionInbound": WORKER_INBOUND}
+    # From its entry as this launch wrote it (spawn, resume and swaps write it first), so a reopen for another
+    # kind of task (a reviewer given a large change) gets that task's TTL.
+    ttl = worker_cache_ttl(((maybe_run(env["MESH_RUN"]) or {}).get("agents") or {}).get(env["MESH_SELF"]) or {})
+    if ttl:
+        settings["promptCacheTtl"] = ttl
     if bg:
         settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
     return json.dumps(settings)
@@ -2684,7 +2702,9 @@ def compact_conversation(entry: dict, session: str, model: str, focus: str) -> t
     if entry.get("kind") == "agy":
         argv = ["agy", "--conversation", session, "--model", model, "--dangerously-skip-permissions", "-p", prompt]
     else:
-        argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions", prompt]
+        # A one-off turn whose summary the resumed worker reads at once: a 5-minute cache is all it needs.
+        argv = [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions",
+                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE}), prompt]
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
     proc = run_cli(argv, cwd=entry["cwd"], env=claude_env(), timeout=COMPACT_TIMEOUT)
     return proc.returncode == 0, (proc.stderr or proc.stdout).strip()[-300:]

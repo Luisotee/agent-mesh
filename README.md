@@ -74,7 +74,7 @@ The root sizes every task before it starts a worker:
 
 ### Background workers
 
-A Claude worker for a trivial or small task runs as a Claude Code background session (`claude --bg`) instead of a pane. It's still a mesh worker: you can ask it again, resume it and review its PR. Where to see it:
+A Claude worker for a trivial or small task runs as a Claude Code background session (`claude --bg`) instead of a pane. It's still a mesh worker: you can ask it again, resume it and review its PR. It runs on a 5-minute prompt cache (`promptCacheTtl: "5m"`), as do askers, reviewers, peers and mesh's headless compactions: they rarely come back within the hour, and a 5-minute cache write costs 1.25× the input price instead of 2×. Large change workers and the root keep Claude Code's 1 hour. Where to see it:
 
 ```bash
 mesh status                # every worker, with its size and view (pane or bg)
