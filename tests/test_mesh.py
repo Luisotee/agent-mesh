@@ -5800,13 +5800,19 @@ def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, cop
 def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypatch):
     with_quotas(mesh, monkeypatch, AGY_LOW)
     monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
-    assert mesh.pick_reviewers("large", {"p-review-7-copilot": "copilot", "p-review-7-claude": "claude"})[0] == ["claude"]
-    assert mesh.pick_reviewers("large", {"a": "agy", "c": "claude"})[0] == ["claude", "agy"]
+    claude, copilot = {"kind": "claude"}, {"kind": "copilot"}
+    assert mesh.pick_reviewers("large", {"copilot": copilot, "claude": claude})[0] == ["claude"]
+    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}, "claude": claude})[0] == ["claude", "agy"]
+    flash = {"kind": "agy", "model": "gemini-3.8-flash-high"}  # its own model is checked: Flash is at 3%
+    kinds, notes = mesh.pick_reviewers("large", {"agy": flash, "claude": claude})
+    assert kinds == ["claude"] and notes == ["agy: gemini-3.8-flash-high has 3% left (resets 2026-10-24T05:50:54Z); left out"]
     with_quotas(mesh, monkeypatch, AGY_OUT)  # agy out on a re-review too: Claude takes its place
-    kinds, notes = mesh.pick_reviewers("large", {"a": "agy"})
+    kinds, notes = mesh.pick_reviewers("small", {"agy": {"kind": "agy"}})
     assert kinds == ["claude"] and "Claude instead" in notes[0]
-    kinds, notes = mesh.pick_reviewers("small", {"p-review-7-copilot": "copilot"})  # only Copilot: agy is out
+    kinds, notes = mesh.pick_reviewers("small", {"copilot": copilot})  # only Copilot: agy is out
     assert kinds == ["claude"] and "Copilot" in notes[0]
+    with_quotas(mesh, monkeypatch, USAGE)
+    assert mesh.pick_reviewers("large", {"copilot": copilot})[0] == ["claude", "agy"]  # a large one keeps Claude
 
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
@@ -10130,7 +10136,7 @@ def test_a_round_of_several_clis_refuses_one_clis_flags(mesh, fake, run, repo, m
     assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
 
 
-def test_earlier_reviewers_come_from_the_newest_run_that_has_them(mesh, run):
+def test_earlier_reviewers_are_the_newest_of_each_kind_across_runs(mesh, run):
     pr = "https://github.com/acme/proj/pull/7"
     archived = mesh.mesh_home() / "archive" / "mold"
     archived.mkdir(parents=True)
@@ -10138,14 +10144,14 @@ def test_earlier_reviewers_come_from_the_newest_run_that_has_them(mesh, run):
         "proj-review-7-claude": {"role": "worker", "kind": "claude", "review_checkout": pr},
         "proj-review-7-copilot": {"role": "worker", "kind": "copilot", "review_checkout": pr}}}
     (archived / "run.json").write_text(json.dumps(old))
-    (past, folder), found = mesh.earlier_reviewers(pr)  # after `mesh stop`, or under a new root
-    assert past["id"] == "mold" and folder == archived and found == {"proj-review-7-claude": "claude",
-                                                                     "proj-review-7-copilot": "copilot"}
+    found = mesh.earlier_reviewers(pr)  # after `mesh stop`, or under a new root
+    assert {k: (t[0]["id"], t[1], t[2]) for k, t in found.items()} == {
+        "claude": ("mold", archived, "proj-review-7-claude"), "copilot": ("mold", archived, "proj-review-7-copilot")}
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"]["review_checkout"] = pr  # resumed into this run: its copy is the newer
-    (past, _), found = mesh.earlier_reviewers(pr)
-    assert past["id"] == run and list(found) == ["repo-fix-typo"]
-
+        data["agents"]["repo-fix-typo"].update(kind="claude", review_checkout=pr)  # resumed into this run
+    found = mesh.earlier_reviewers(pr)
+    assert (found["claude"][0]["id"], found["claude"][2]) == (run, "repo-fix-typo")  # the newer copy
+    assert found["copilot"][0]["id"] == "mold"  # merged by kind: the older run still gives its Copilot
 
 def test_an_interrupted_round_never_starts_its_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
@@ -10171,4 +10177,15 @@ def test_an_interrupted_round_never_starts_its_copilot(mesh, fake, cli, run, rep
                    "--reviewers", "claude,copilot"])
     entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
     assert entry["status"] == "retired" and "pid" not in entry  # claimed, then released unasked
+    assert not {"reviews", "review_heads", "review_checkout"} & set(entry)  # no review recorded: it never did one
     assert not cli.called("--output-format")
+
+
+def test_a_re_review_round_with_no_size_keeps_the_earlier_reviewers(mesh, fake, cli, run, repo, tmp_path,
+                                                                    monkeypatch, capsys):
+    _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Fine."})
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"]) == 0
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude", "--no-wait"]) == 0
+    assert "--no-wait don't apply to a review round" in capsys.readouterr().err
+    tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
+    assert len(tasks) == 2 and "`/code-review medium" in mesh.parse_message(tasks[-1])[1]  # small, as recorded
