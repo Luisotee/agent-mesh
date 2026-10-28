@@ -10837,3 +10837,12 @@ def test_mesh_routing_shows_each_value_and_its_source(mesh, monkeypatch, capsys)
     assert data["installed"]["claude"] is None and data["auto_reviewers"] == {"small": ["agy"], "large": ["agy"]}
     assert set(data["policy"]) == set(mesh.POLICY) and data["config"]["exists"]
     assert "routing" in mesh.WORKER_COMMANDS  # a reading: workers may run it
+
+
+def test_the_readmes_config_example_is_the_built_in_policy(mesh):
+    """README's Configuration example sets every key, to its built-in value but `repos_dir`: kept in sync."""
+    text = (Path(mesh.__file__).resolve().parent.parent / "README.md").read_text()
+    with_config(json.loads(re.search(r"## Configuration.*?```json\n(.*?)```", text, re.S).group(1)))
+    config = mesh.load_config()
+    assert set(config) == set(mesh.POLICY)
+    assert {leaf for leaf in config if config[leaf] != mesh.POLICY[leaf][0]} == {"repos_dir"}

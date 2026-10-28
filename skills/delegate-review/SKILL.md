@@ -3,9 +3,9 @@ name: delegate-review
 description: >-
   agent-mesh: gets a pull request reviewed by other agents (Claude, agy, Copilot), each inside the PR's repo at the PR
   head; they change and post nothing, and you get their findings merged and checked against the code. Defaults to the
-  current branch's PR and to reviewers by the PR's size and agy's quota: one for a small PR (agy, else Copilot, else
-  Claude), Claude plus agy or Copilot for a large or risky PR, the same ones minus Copilot for a large PR's re-review
-  (a small PR gets one round), all run by one command that wakes you once; `all` is all three. Use it, typed or not,
+  current branch's PR and to reviewers by the PR's size, the CLIs installed and agy's quota (this machine's policy:
+  `mesh routing`), the same ones again for a re-review, all run by one command that wakes you once; `all` is every
+  installed one. Use it, typed or not,
   for any PR review the user asks for, their own included ("review my PR", "have Copilot review PR 42", "second opinion
   from Gemini and GPT"). Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the
   reviews a `/delegate-*` run gives its own workers' PRs, or a mesh worker (your task came by a `📬 [mesh]` doorbell).
@@ -17,8 +17,8 @@ argument-hint: "[all | claude agy copilot (any of them)] [PR link or number]"
 Get a review for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
 1. **The PR:** the link or number given. Otherwise the current branch's PR (`gh pr view --json url -q .url`). If there is none, ask the user which PR.
-2. **The reviewers:** every CLI named, in any order (vendor words as in the description), as a comma list (`claude,copilot`), or `all` for all three. With none named, `auto`: mesh picks by the size (step 3) and agy's quota, one reviewer for `small` (agy while it has quota, else Copilot, else Claude), Claude plus one other for `large` (agy, else Copilot), and says on stderr what it picked and why. A small PR gets one round: after its fix, check the fix commits yourself (`git diff <reviewed head>..<new head>`) rather than asking for a re-review, unless the user asks for one. A re-review after a fix (the user asks you to look again at a PR these reviewers already reviewed, or a large PR's fix) is the same command again: `auto` asks the same reviewers again except Copilot, whose credits are kept for first looks at the PRs that matter.
-3. **The size:** `small` for a PR of up to a few hundred lines in a few files (`gh pr view <PR> --json additions,deletions,changedFiles`), `large` for anything bigger or riskier (auth, money, data migrations). Every reviewer gets the same size. The size picks the plan phase and the level of a Claude reviewer's `/code-review` (`medium` for small, `high` for large); Claude and agy reviewers run at high effort either way, each in a pane beside you.
+2. **The reviewers:** every CLI named, in any order (vendor words as in the description), as a comma list (`claude,copilot`), or `all` for all three. With none named, `auto`: mesh picks by the size (step 3), what is installed and the quotas, from `review.reviewers.<size>` (`mesh routing` shows them), and says on stderr what it picked and why. A PR gets `review.rounds.<size>` rounds: after the last one's fix, check the fix commits yourself (`git diff <reviewed head>..<new head>`) rather than asking for a re-review, unless the user asks for one. A re-review after a fix (the user asks you to look again at a PR these reviewers already reviewed, or a fix before a PR's last round) is the same command again: `auto` asks the same reviewers again by `review.re_review` (by default without Copilot, whose credits are kept for first looks at the PRs that matter).
+3. **The size:** `small` for a PR of up to a few hundred lines in a few files (`gh pr view <PR> --json additions,deletions,changedFiles`), `large` for anything bigger or riskier (auth, money, data migrations). Every reviewer gets the same size. The size picks the plan phase and the level of a Claude reviewer's `/code-review` (`review.level.<size>`); Claude and agy reviewers run at `review.effort` either way, each in a pane beside you.
 4. **Run them** from the local checkout of the PR's repo (the current one, or ask the user where it is), all in one command, a review round:
 
    ```bash
