@@ -51,6 +51,7 @@ The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to th
 - `skills/make-concise`: rewrites a repo's rules files concisely without dropping a rule, run by that repo's own agent; `validate.py` (stdlib, tested in `tests/test_make_concise.py`) fails on a lost fence, marked block, code span, URL, path or `@` import, or a rules file over 24,000 bytes.
 - `skills/check-plan`: a worker's self-check of its own draft plan (ORCHESTRATE Worker step 4): verify its claims in the code, attack it, fix the plan. Edits only the plan file, so it runs under the planning deny list; usable by hand in any session.
 - `rules/global-snippet.md`: the block `install.sh` writes between markers into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`.
+- `herdr/mesh-notify`: a herdr plugin (`install.sh` links it) that sends a desktop notification when a root or a plain session is `done` or `blocked`, never a worker, and a root's `done` only once no worker owes it a report (design §20). It reads `run.json` and `log.jsonl` directly and mirrors `RECEIVED_TYPES` / `REPORT_TYPES` (`tests/test_notify.py` checks they match).
 
 Core mechanics that span several files: each bullet is the gist and the names to start from. `docs/design.md` has the why (by section) and, in "Code map", each one's functions. Change a mechanism, update both.
 

@@ -1,0 +1,16 @@
+id = "local.mesh-notify"
+name = "Mesh Notify"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "A desktop notification when an agent finishes or needs input, except agent-mesh workers."
+platforms = ["linux"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "-I", "notify.py"]
+
+[[actions]]
+id = "test"
+title = "Send a test notification"
+contexts = ["workspace"]
+command = ["python3", "-I", "notify.py", "--test"]
