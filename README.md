@@ -41,7 +41,7 @@ Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-c
   - nothing starts until you say go: the root first proposes the work (what it does itself, each worker's repo, size, model and view, any routing), unless you told it to run on its own; a question or a review you asked for just runs
   - after that, you're asked only about real product decisions
   - every agent is a visible terminal you can step into
-- **No new runtime:** it's a single stdlib-Python CLI, five skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
+- **No new runtime:** it's a single stdlib-Python CLI, seven skills and a protocol written in Markdown. The agents do the orchestration themselves, following written procedures.
 
 ## Commands
 
@@ -309,6 +309,8 @@ git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
 | the skills | `~/.claude/skills/` and `~/.gemini/config/skills/` |
 
 It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, and a short "Writing" rule (lead with the result, no narration or recap, keep every fact and reason that changes an action, code and errors verbatim): agy has no concise mode like Claude Code's `Concise` output style. Re-running it is safe.
+
+`/make-concise`, run in any repo by that repo's own agent (or as a mesh task there), rewrites its `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` in concise plain English: every rule and its reason kept, examples of different cases kept, code, paths, URLs and marked blocks (the Next.js one) untouched, each file under agy's 24,000-byte limit. Its `validate.py` compares the files before and after and fails on anything code-like that went missing; it adds a size test and opens one PR for the repo's reviewers.
 
 Claude workers run with `--dangerously-skip-permissions`, and Claude Code delivers cross-session messages without asking only between sessions in the same permission mode. Run a Claude root in bypass-permissions mode too, or approve each worker's report as it arrives.
 
