@@ -1819,6 +1819,7 @@ def test_a_claude_worker_whose_login_expired_is_exit_7_once_per_task(mesh, fake,
     watch = mesh.Watch(run, "repo-fix-typo", 30.0)  # a restarted watch waits quietly
     assert all(watch.tick(5) is None for _ in range(10))
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "You're logged in again: continue.")
+    states_then(mesh, monkeypatch, "working", "idle")  # a turn to judge: else it waits out `start_grace` for real
     assert mesh.main(["watch", "repo-fix-typo"]) == 7  # the new task re-arms it
     assert [e["kind"] for e in mesh.read_log(run) if e["event"] == "alert"] == ["login", "login"]
 
