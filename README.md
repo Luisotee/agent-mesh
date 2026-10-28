@@ -11,7 +11,7 @@
 Not a framework or an agent harness: a small CLI and a few skills that let the Claude Code or [Antigravity](https://antigravity.google) session you already use start, brief and supervise other sessions, each one inside the repo it changes. Requires [herdr](https://herdr.dev), GitHub and Linux or WSL.
 
 ![A real run as a time-lapse: the root starts a Claude worker in a pane, the worker finds the cause of a hanging test, fixes it and opens a PR, then a Claude reviewer reviews it in a pane below](docs/media/demo.webp)
-<sub>A real run, sped up about 30×: a worker fixes a hanging test and opens [PR #84](https://github.com/Luisotee/agent-mesh/pull/84), then a reviewer checks it in the pane below.</sub>
+<sub>A real run, sped up about 50×: a worker fixes a hanging test and opens [PR #84](https://github.com/Luisotee/agent-mesh/pull/84), then a reviewer checks it in the pane below.</sub>
 
 You're building a feature in `shop-web` and find that `shop-api` doesn't return the field you need. Usually you either stop and brief a new session in `shop-api` from scratch, or let your current agent edit a repo whose `CLAUDE.md`, hooks and conventions it never loaded. With agent-mesh you stay where you are and type:
 
