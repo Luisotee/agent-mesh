@@ -6,10 +6,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def install(home: Path, *args: str) -> subprocess.CompletedProcess:
-    # PATH without ~/.local/bin, so the machine's herdr is never touched
+def install(home: Path, *args: str, clis: tuple[str, ...] = ("claude", "agy")) -> subprocess.CompletedProcess:
+    # PATH without ~/.local/bin, so the machine's herdr is never touched; `clis` are stand-ins that only exist
+    fakes = home / "fake-bin"
+    fakes.mkdir(exist_ok=True)
+    for cli in clis:
+        (fakes / cli).write_text("#!/bin/sh\nexit 0\n")
+        (fakes / cli).chmod(0o755)
     return subprocess.run(["bash", str(ROOT / "install.sh"), *args], capture_output=True, text=True,
-                          env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, timeout=60)
+                          env={"HOME": str(home), "PATH": f"{fakes}:/usr/bin:/bin"}, timeout=60)
 
 
 def claude_skills(home: Path) -> list[str]:
@@ -62,3 +67,38 @@ def test_uninstall_removes_the_links(tmp_path):
     install(tmp_path)
     assert install(tmp_path, "--uninstall").returncode == 0
     assert claude_skills(tmp_path) == [] and not (tmp_path / ".local" / "bin" / "mesh").exists()
+
+
+def gemini_skills(home: Path) -> list[str]:
+    folder = home / ".gemini" / "config" / "skills"
+    return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+
+
+def test_an_agy_only_machine_gets_only_agys_skills_and_rules(tmp_path):
+    done = install(tmp_path, clis=("agy",))
+    assert done.returncode == 0 and "claude is not on PATH" in done.stdout
+    assert claude_skills(tmp_path) == [] and not (tmp_path / ".claude" / "CLAUDE.md").exists()
+    assert "delegate-claude" not in gemini_skills(tmp_path) and "delegate-agy" in gemini_skills(tmp_path)
+    assert len(gemini_skills(tmp_path)) == 6
+    assert "agent-mesh:begin" in (tmp_path / ".gemini" / "AGENTS.md").read_text()
+
+
+def test_a_claude_only_machine_gets_no_delegate_agy(tmp_path):
+    assert install(tmp_path, clis=("claude",)).returncode == 0
+    assert "delegate-agy" not in claude_skills(tmp_path) and len(claude_skills(tmp_path)) == 6
+    assert gemini_skills(tmp_path) == [] and not (tmp_path / ".gemini" / "AGENTS.md").exists()
+
+
+def test_a_cli_missing_from_path_on_a_rerun_removes_nothing(tmp_path):
+    """agy may be on another shell's PATH only: a re-run without it adds nothing for it and removes nothing."""
+    assert install(tmp_path).returncode == 0
+    before = (claude_skills(tmp_path), gemini_skills(tmp_path), (tmp_path / ".gemini" / "AGENTS.md").read_text())
+    (tmp_path / "fake-bin" / "agy").unlink()
+    done = install(tmp_path, clis=("claude",))
+    assert done.returncode == 0 and "nothing new goes into" in done.stdout
+    assert (claude_skills(tmp_path), gemini_skills(tmp_path), (tmp_path / ".gemini" / "AGENTS.md").read_text()) == before
+
+
+def test_no_cli_at_all_warns(tmp_path):
+    done = install(tmp_path, clis=())
+    assert done.returncode == 0 and "neither Claude Code (claude) nor agy is on PATH" in done.stderr

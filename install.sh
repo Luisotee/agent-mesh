@@ -11,6 +11,7 @@ BIN_DIR="$HOME/.local/bin"
 CONFIG_LINK="$HOME/.config/agent-mesh"
 SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
+ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
@@ -41,6 +42,15 @@ link_plugin() { # (re)link herdr/mesh-notify into herdr; herdr records the path,
   fi
 }
 
+skill_needs() { # skill_needs <skill>: the CLI its workers run on, or nothing (works with either)
+  case "$1" in
+    delegate-agy) echo agy ;;
+    delegate-claude) echo claude ;;
+  esac
+}
+
+has() { command -v "$1" >/dev/null; }
+
 unlink_if_ours() {
   local path="$1"
   if [[ -L "$path" && "$(readlink "$path")" == "$REPO"/* ]]; then
@@ -52,7 +62,7 @@ unlink_if_ours() {
 # Rewrite a rule file without the marked block, optionally appending a fresh one.
 set_block() { # set_block <file> <add: 0|1>
   local file="$1" add="$2"
-  [[ -f "$file" ]] || { [[ "$add" == 1 ]] || return 0; touch "$file"; }
+  [[ -f "$file" ]] || { [[ "$add" == 1 ]] || return 0; mkdir -p "$(dirname "$file")"; touch "$file"; }
   if grep -qF "$BEGIN" "$file" || [[ "$add" == 1 ]]; then
     cp "$file" "$file.bak-agent-mesh"
   fi
@@ -120,17 +130,31 @@ if [[ "$UNINSTALL" == 1 ]]; then
 fi
 
 command -v herdr >/dev/null || echo "warning: herdr is not on PATH; mesh needs it at runtime" >&2
+has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; mesh needs at least one" >&2
 chmod +x "$REPO/bin/mesh"
 link "$REPO/bin/mesh" "$BIN_DIR/mesh"
 link "$REPO/protocol" "$CONFIG_LINK"
-for root in "${SKILL_ROOTS[@]}"; do
+# Each CLI's skills and rules go in only when it is installed, and a skill whose workers' CLI is missing is left
+# out. A missing CLI only means no new links: what an earlier install put in place stays (the CLI may be on another
+# shell's PATH); only --uninstall removes it. Re-run this after installing the other CLI.
+for i in "${!SKILL_ROOTS[@]}"; do
+  root="${SKILL_ROOTS[$i]}"
   for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
+  if has "${ROOT_CLIS[$i]}"; then
+    set_block "${RULE_FILES[$i]}" 1
+  else
+    echo "skip: ${ROOT_CLIS[$i]} is not on PATH, so nothing new goes into $root or ${RULE_FILES[$i]}"
+  fi
   if [[ "$PLUGIN" == 1 && "$root" == "$HOME/.claude/skills" ]]; then
     for skill in "${SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done  # the plugin has them
     continue
   fi
-  for skill in "${SKILLS[@]}"; do link "$REPO/skills/$skill" "$root/$skill"; done
+  for skill in "${SKILLS[@]}"; do
+    need="$(skill_needs "$skill")"
+    if has "${ROOT_CLIS[$i]}" && { [[ -z "$need" ]] || has "$need"; }; then
+      link "$REPO/skills/$skill" "$root/$skill"
+    fi
+  done
 done
-for file in "${RULE_FILES[@]}"; do set_block "$file" 1; done
 link_plugin
 echo "agent-mesh installed. Try: mesh --version"

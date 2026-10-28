@@ -1,6 +1,8 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -130,6 +132,14 @@ def mesh(tmp_path, monkeypatch):
     write_meminfo(tmp_path / "meminfo", available=16 << 20, swap_free=16 << 20)
     monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "meminfo"))
     monkeypatch.delenv("MESH_MIN_FREE_MB", raising=False)
+    # Never this machine's policy file or folders (a test that wants a config writes one here, see with_config).
+    monkeypatch.setenv("MESH_CONFIG_FILE", str(tmp_path / "agent-mesh.json"))
+    for key in ("MESH_REPOS_DIR", "MESH_PEERS_DIR", "MESH_COPILOT_MODEL", "MESH_CLAUDE"):
+        monkeypatch.delenv(key, raising=False)
+    # Every CLI counts as installed, whatever this machine has; `clis()` narrows it.
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: f"/bin/{cmd}" if cmd in ("agy", "claude", "copilot")
+                        else real_which(cmd, *a, **k))
     # A path that bypasses the fakes below fails instead of reaching a real herdr pane or agent CLI.
     monkeypatch.setenv("MESH_HERDR", str(tmp_path / "no-herdr"))
     module = load_mesh()
@@ -235,3 +245,17 @@ def run(mesh, fake, monkeypatch):
 
 def read_json(path):
     return json.loads(Path(path).read_text())
+
+
+def with_config(data) -> Path:
+    """Write the policy file the `mesh` fixture points MESH_CONFIG_FILE at."""
+    path = Path(os.environ["MESH_CONFIG_FILE"])
+    path.write_text(json.dumps(data))
+    return path
+
+
+def clis(monkeypatch, *kinds: str) -> None:
+    """Only these agent CLIs count as installed (claude, agy, copilot)."""
+    real = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: (f"/bin/{cmd}" if cmd in kinds else None)
+                        if cmd in ("agy", "claude", "copilot") else real(cmd, *a, **k))

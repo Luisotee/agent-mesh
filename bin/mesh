@@ -60,19 +60,21 @@ SIZE_DEFAULTS = {
     ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
 }
-# A Claude worker whose plan the user approves in its own pane: Opus plans and executes, in plan mode first.
+# A Claude worker whose plan the user approves in its own pane plans and executes on one model, in plan mode
+# first: `models.claude.user_review` (built in: this).
 USER_REVIEW_MODEL = "opus"
-# A review is verification, which is where effort pays: a trivial or small reviewer gets high effort
-# instead of its size's (a large one plans at DEFAULT_EFFORT, high, anyway).
+# A review is verification, which is where effort pays: a trivial or small reviewer gets `review.effort` (built in:
+# this) instead of its size's (a large one plans at its kind's `plan_effort` anyway).
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
-# `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
-# then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
-# the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
+# `--model auto`: plan on the first model of `models.<kind>.plan` with quota left at its `plan_effort`, then
+# execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
+# on Opus: a resume that changes only the effort keeps the prompt cache, while a model switch re-reads the whole
+# conversation.
 PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
 EXEC_MODEL = {"agy": "flash", "claude": "opus"}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -203,7 +205,7 @@ REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a
                  "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
-# reviews the worktree's own branch). The level follows the review's size (REVIEW_LEVEL): higher levels mostly
+# reviews the worktree's own branch). The level follows the review's size (`review.level.<size>`): higher levels mostly
 # add speculative findings. Only with the PR head in the worker's repo: the skill reads files from its worktree's
 # repo, and gh takes a bare PR number as one of that repo's.
 REVIEW_LEVEL = {"trivial": "medium", "small": "medium", "large": "high"}
@@ -318,6 +320,257 @@ def inbox_dir(run_id: str, name: str) -> Path:
 
 def pane_key(pane_id: str) -> str:
     return pane_id.replace(":", "_")
+
+
+# ── policy ───────────────────────────────────────────────────────────────
+# The user's choices (models, efforts, reviewers, rounds, the reserve, folders) as data (design §21): every leaf
+# below may be set in a JSON config file, nested by its dots, and the ones with an env var there too. An env var
+# beats the file, which beats the built-in default here, leaf by leaf; with no file mesh behaves as these say.
+
+
+def _sizes(kind: str) -> dict:
+    return {f"models.{kind}.{size}.{field}": (SIZE_DEFAULTS[(kind, size)][field], check)
+            for size in ("trivial", "small") for field, check in (("model", "str"), ("effort", "effort"),
+                                                                  ("view", "view"))}
+
+
+POLICY = {  # leaf: (built-in default, check)
+    **{leaf: value for kind in KINDS for leaf, value in {
+        f"models.{kind}.plan": (list(PLAN_CHAIN[kind]), "chain"),
+        f"models.{kind}.exec": (EXEC_MODEL[kind], "str"),
+        f"models.{kind}.plan_effort": (DEFAULT_EFFORT, "effort"),
+        f"models.{kind}.exec_effort": (EXEC_EFFORT, "effort"),
+        **_sizes(kind),
+        # A Claude worker whose plan the user approves in its pane (`--plan-review user`) plans and executes on it.
+        **({"models.claude.user_review": (USER_REVIEW_MODEL, "str")} if kind == "claude" else {})}.items()},
+    "review.effort": (REVIEW_EFFORT, "effort"),
+    **{f"review.level.{size}": (REVIEW_LEVEL[size], "effort") for size in SIZES},
+    # Each slot takes its first candidate that is available and not picked yet (pick_reviewers).
+    "review.reviewers.small": ([["agy", "copilot", "claude"]], "slots"),
+    "review.reviewers.large": ([["claude"], ["agy", "copilot"]], "slots"),
+    "review.re_review.skip": (["copilot"], "kinds"),  # Copilot's credits are kept for first looks
+    "review.re_review.keep.small": ([], "kinds"),
+    "review.re_review.keep.large": (["claude"], "kinds"),
+    # Read by the root's procedure (ORCHESTRATE), not by code: shown by `mesh routing`.
+    "review.rounds.small": (1, "int"),
+    "review.rounds.large": (2, "int"),
+    "review.tiny_pr_lines": (150, "int"),
+    "quota_stop": (QUOTA_STOP, "percent"),
+    "copilot_model": (COPILOT_MODEL, "str"),
+    "peers_dir": ("~/research", "str"),
+    "repos_dir": ([], "strs"),  # folders a bare `--repo <name>` is looked up in, in order
+    # Worker launches only (spawn, resume, swaps, --bg) start with --dangerously-skip-permissions; mesh's own
+    # headless calls that run no tools on a repo (`agy -p /usage`, `/compact`) keep it either way.
+    "skip_permissions": (True, "bool"),
+}
+POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
+              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR"}
+POLICY_CHECKS = {
+    "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
+    "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
+    "chain": (lambda v: isinstance(v, list) and bool(v) and all(isinstance(s, str) and s for s in v),
+              "a non-empty list of model names"),
+    "effort": (lambda v: v in EFFORTS, "one of " + ", ".join(EFFORTS)),
+    "view": (lambda v: v in VIEWS, "one of " + ", ".join(VIEWS)),
+    "kinds": (lambda v: isinstance(v, list) and all(k in ASK_KINDS for k in v),
+              "a list of " + ", ".join(ASK_KINDS)),
+    "slots": (lambda v: isinstance(v, list) and all(isinstance(s, list) and s and all(k in ASK_KINDS for k in s)
+                                                    for s in v),
+              "a list of slots, each a non-empty list of " + ", ".join(ASK_KINDS)),
+    "int": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a whole number, 0 or more"),
+    "percent": (lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100, "a whole number 0-100"),
+    "bool": (lambda v: isinstance(v, bool), "true or false"),
+}
+
+
+def config_path() -> Path:
+    """The config file: MESH_CONFIG_FILE, else agent-mesh.json beside (not inside: that is the protocol link)
+    `~/.config/agent-mesh`, under XDG_CONFIG_HOME when set."""
+    if os.environ.get("MESH_CONFIG_FILE"):
+        return Path(os.environ["MESH_CONFIG_FILE"]).expanduser()
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config").expanduser() / "agent-mesh.json"
+
+
+@lru_cache(maxsize=8)
+def _read_config(path: str, mtime: tuple[int, int]) -> dict:
+    try:
+        data = json.loads(Path(path).read_text())
+    except ValueError as exc:
+        raise MeshError(f"config {path} isn't valid JSON: {exc}") from None
+    except OSError as exc:  # unreadable, or a folder
+        raise MeshError(f"config {path}: {exc.strerror or exc}") from None
+    if not isinstance(data, dict):
+        raise MeshError(f"config {path}: expected a JSON object")
+    leaves: dict = {}
+
+    def walk(node: dict, prefix: str) -> None:
+        for key, value in node.items():
+            if key.startswith("_"):  # a comment
+                continue
+            leaf = f"{prefix}{key}"
+            if leaf in POLICY:
+                ok, want = POLICY_CHECKS[POLICY[leaf][1]]
+                if not ok(value):
+                    raise MeshError(f"config {path}: {leaf} should be {want}, not {json.dumps(value)}")
+                leaves[leaf] = value
+            elif isinstance(value, dict) and any(k.startswith(leaf + ".") for k in POLICY):
+                walk(value, leaf + ".")
+            else:
+                raise MeshError(f"config {path}: unknown key {leaf} (`mesh routing` lists the keys)")
+
+    walk(data, "")
+    return leaves
+
+
+def load_config() -> dict:
+    """The config file's leaves, checked (an unknown key or a wrong type is an error naming the file and the key,
+    rather than a silent default); {} when there is no file. Read again when the file changes."""
+    path = config_path()
+    try:
+        stat_ = path.stat()
+        mtime = (stat_.st_mtime_ns, stat_.st_size)
+    except OSError:
+        return {}
+    return _read_config(str(path), mtime)
+
+
+def env_setting(leaf: str) -> tuple[object, str] | None:
+    """The env var's value for a leaf, and its name, when one is set and parses."""
+    if leaf == "quota_stop":
+        for key, value in (("MESH_QUOTA_STOP", lambda n: n), ("MESH_MIN_QUOTA", lambda n: 100 - n)):
+            try:
+                if os.environ.get(key):
+                    return value(int(os.environ[key])), key
+            except ValueError:
+                continue
+        return None
+    key = POLICY_ENV.get(leaf)
+    if not key or not os.environ.get(key):
+        return None
+    if leaf == "repos_dir":
+        return [p for p in os.environ[key].split(os.pathsep) if p], key
+    return os.environ[key], key
+
+
+def setting(leaf: str):
+    """A policy leaf's value: env var, else config file, else built-in."""
+    return setting_with_source(leaf)[0]
+
+
+def setting_with_source(leaf: str) -> tuple[object, str]:
+    found = env_setting(leaf)
+    if found:
+        return found[0], f"env {found[1]}"
+    config = load_config()
+    if leaf in config:
+        return config[leaf], "config"
+    return POLICY[leaf][0], "built-in"
+
+
+def plan_chain(kind: str) -> tuple[str, ...]:
+    """The models a task plans on: agy takes the first with quota; Claude its first (its quota isn't per model)."""
+    return tuple(setting(f"models.{kind}.plan"))
+
+
+def exec_model_for(kind: str) -> str:
+    return setting(f"models.{kind}.exec")
+
+
+def plan_effort_for(kind: str | None) -> str:
+    return setting(f"models.{kind if kind in KINDS else 'claude'}.plan_effort")
+
+
+def exec_effort_for(kind: str | None) -> str:
+    return setting(f"models.{kind if kind in KINDS else 'claude'}.exec_effort")
+
+
+def size_policy(kind: str, size: str | None) -> dict | None:
+    """A trivial or small task's one model, effort and view (no plan phase); None for a large one."""
+    if kind not in KINDS or size not in ("trivial", "small"):
+        return None
+    return {field: setting(f"models.{kind}.{size}.{field}") for field in ("model", "effort", "view")}
+
+
+def repos_dirs() -> list[Path]:
+    return [Path(p).expanduser() for p in setting("repos_dir")]
+
+
+def skip_flags() -> list[str]:
+    """What a worker's launch passes to skip permission prompts: nothing when `skip_permissions` is off."""
+    return ["--dangerously-skip-permissions"] if setting("skip_permissions") else []
+
+
+def repo_top(path: Path) -> Path | None:
+    """The top folder of the git repo `path` is in, or None when it isn't in one."""
+    try:
+        return Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
+    except (MeshError, OSError):
+        return None
+
+
+def resolve_repo(arg: str) -> Path:
+    """`--repo`'s top folder. A path (`.`, `./x`, `~/x`, `/x`, anything with a slash) is taken as given. A bare name
+    is a repo in `repos_dir` (a folder there that is a repo's own top), or a folder here that is a repo's own top;
+    both is ambiguous, and a bare name that is only a plain folder here is refused, since its enclosing repo is
+    rarely what was meant (pass `./x` for that)."""
+    path = Path(arg).expanduser()
+    if "/" in arg or arg in (".", "..") or arg.startswith("~"):
+        top = repo_top(path) if path.is_dir() else None
+        if not top:
+            raise MeshError(f"--repo {arg}: {path.resolve()} " + ("isn't in a git repo" if path.is_dir()
+                                                                  else "isn't a folder"))
+        return top
+    match = next((d / arg for d in repos_dirs() if (d / arg).is_dir() and repo_top(d / arg) == (d / arg).resolve()),
+                 None)
+    local = repo_top(path) if path.is_dir() else None
+    local_is_top = bool(local) and local == path.resolve()
+    if match and local_is_top and local != match.resolve():
+        raise MeshError(f"--repo {arg} is ambiguous: {local} here, and {match.resolve()} in repos_dir; pass a path "
+                        f"(./{arg}, or the full one)")
+    if match:
+        return match.resolve()
+    if local_is_top:
+        return local
+    where = ", ".join(str(d) for d in repos_dirs()) or "nowhere, since `repos_dir` isn't set (`mesh routing`)"
+    if path.is_dir():
+        raise MeshError(f"--repo {arg}: no repo of that name in {where}, and {path.resolve()} is "
+                        + (f"a folder inside {local}: pass ./{arg} if you mean that repo" if local
+                           else "not in a git repo"))
+    plain = [str(d / arg) for d in repos_dirs() if (d / arg).is_dir()]
+    raise MeshError(f"--repo {arg}: no repo of that name here or in {where}"
+                    + (f" ({', '.join(plain)}: a folder, not a repo's top)" if plain else ""))
+
+
+CLI_NAMES = {"claude": "Claude Code", "agy": "agy", "copilot": "Copilot"}
+SHORT_NAMES = {"claude": "Claude", "agy": "agy", "copilot": "Copilot"}  # in routing notes
+
+
+def cli_binary(kind: str) -> str:
+    return claude_bin() if kind == "claude" else kind
+
+
+def installed(kind: str) -> bool:
+    """Whether this kind's CLI is on PATH (MESH_CLAUDE for Claude)."""
+    return bool(shutil.which(cli_binary(kind)))
+
+
+def installed_text() -> str:
+    found = [CLI_NAMES[k] for k in ASK_KINDS if installed(k)]
+    return f"installed: {', '.join(found)}" if found else "none of Claude Code, agy or Copilot is on PATH"
+
+
+def require_cli(kind: str, what: str) -> None:
+    if not installed(kind):
+        raise MeshError(f"{what} needs {CLI_NAMES[kind]} (`{cli_binary(kind)}`), which isn't on PATH "
+                        f"({installed_text()})")
+
+
+def default_kind(preferred: str = "agy") -> str:
+    """A new agent's CLI when none is named: `preferred` when installed, else the other one."""
+    for kind in (preferred, *(k for k in KINDS if k != preferred)):
+        if installed(kind):
+            return kind
+    raise MeshError("neither Claude Code (`claude`) nor agy is on PATH: mesh needs at least one")
 
 
 # ── subprocess helpers ───────────────────────────────────────────────────
@@ -892,7 +1145,11 @@ def inbound_setting(cwd: str | Path | None, flag: str | None = None) -> tuple[st
 def background_view(view: str, named: bool, root: dict, notes: list[str], doing: str) -> str:
     """`view`, or "pane" (with a note) where a background worker couldn't report: no Claude root it can message.
     A `--view bg` the caller `named` is refused instead. Checked before any side effect; `settings_view` checks
-    the worker's folder once it exists."""
+    the worker's folder once it exists. With `skip_permissions` off, a background session has no dialog to answer
+    a permission prompt in, so it gets a pane too."""
+    if view == "bg" and not skip_flags():
+        return refuse_bg("skip_permissions is off, and a background worker can't answer a permission prompt",
+                         named, notes, doing)
     if view != "bg" or root_reachable(root):
         return view
     return refuse_bg("a background worker needs a Claude root it can message (see `mesh init`)", named, notes, doing)
@@ -1658,7 +1915,8 @@ HERDR_IDS = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH_CC_SOCKS", "MESH_SIDE_PANES",
                "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
-               "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT")
+               "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
+               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -1846,7 +2104,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     `worker_settings`), while continuing the old id would bring back the options it was first started with.
     """
     argv = [claude_bin(), "--bg", *(["--resume", resume] if resume else []), "-n", name, "--model", model,
-            "--effort", effort, *extra, "--settings", worker_settings(env, bg=True), "--dangerously-skip-permissions", prompt]
+            "--effort", effort, *extra, "--settings", worker_settings(env, bg=True), *skip_flags(), prompt]
     # No MESH_* in the process itself, so a daemon this launch starts, and its spares, carry none.
     proc = run_cli(argv, cwd=cwd, env=claude_env(strip_mesh=True), timeout=120)
     out = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -2002,10 +2260,17 @@ def model_quota(model_id: str, display: str, rows: list[dict]) -> tuple[int, str
 
 def quota_stop() -> int:
     """The percent of a quota used at which mesh starts nothing new on it (the reserve): MESH_QUOTA_STOP, else
-    100 less the older MESH_MIN_QUOTA (percent left), else QUOTA_STOP."""
-    if os.environ.get("MESH_QUOTA_STOP"):
-        return env_int("MESH_QUOTA_STOP", QUOTA_STOP)
-    return 100 - env_int("MESH_MIN_QUOTA", 100 - QUOTA_STOP)
+    100 less the older MESH_MIN_QUOTA (percent left), else the config's `quota_stop`, else QUOTA_STOP."""
+    return setting("quota_stop")
+
+
+def quota_stop_text() -> str:
+    """Where the reserve's line comes from, for a message: `MESH_QUOTA_STOP=95`, `quota_stop=80 in <file>`…"""
+    value, source = setting_with_source("quota_stop")
+    if source.startswith("env "):
+        key = source[4:]
+        return f"{key}={os.environ[key]}"
+    return f"quota_stop={value}" + (f" in {config_path()}" if source == "config" else ", built in")
 
 
 def min_quota() -> int:
@@ -2145,7 +2410,7 @@ def agy_at_reserve(model: str, effort: str | None = None) -> tuple[int, str] | N
         rows = agy_usage()
         if not rows:
             return None
-        model_id = model if parse_agy_id(model) else resolve_agy_model(model, effort or DEFAULT_EFFORT)
+        model_id = model if parse_agy_id(model) else resolve_agy_model(model, effort or plan_effort_for("agy"))
         quota = model_quota(model_id, listing_names(agy_model_listing()).get(model_id, ""), rows)
     except MeshError:
         return None
@@ -2189,16 +2454,16 @@ def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effor
     hit = reserve_hit(kind, model, effort)
     if hit:
         raise MeshError(f"{hit}: not starting {what}, since mesh keeps {100 - quota_stop()}% of every quota for "
-                        f"the user (MESH_QUOTA_STOP={quota_stop()}). Nothing was started or sent. Tell the user; "
+                        f"the user ({quota_stop_text()}). Nothing was started or sent. Tell the user; "
                         "`mesh reserve off` lets this run go on past it")
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
-    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (MESH_QUOTA_STOP) (Flash for a
+    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (`quota_stop`) (Flash for a
     trivial or small one, the plan chain for a large one), or `model` has (the one a reviewer asked again keeps),
     and why not. Unreadable quotas count as available, as for a spawn (choose_agy_model); agy not installed, or
     no model it can resolve, doesn't."""
-    if not shutil.which("agy"):
+    if not installed("agy"):
         return False, "agy isn't installed"
     if model:
         rows = agy_usage()
@@ -2207,8 +2472,9 @@ def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
         if quota is None or quota[0] > min_quota():  # at the reserve it counts as spent, as in choose_agy_model
             return True, ""
         return False, f"{model} has {quota[0]}% left (resets {quota[1]})"
-    sized = SIZE_DEFAULTS.get(("agy", size))  # at the effort it would run at: REVIEW_EFFORT, or a plan's
-    chain, effort = ((sized["model"],), REVIEW_EFFORT) if sized else (PLAN_CHAIN["agy"], DEFAULT_EFFORT)
+    sized = size_policy("agy", size)  # at the effort it would run at: review.effort, or a plan's
+    chain, effort = ((sized["model"],), setting("review.effort")) if sized else (plan_chain("agy"),
+                                                                                plan_effort_for("agy"))
     try:
         choose_agy_model(chain, effort, fallback=False)
     except MeshError as exc:
@@ -2216,54 +2482,164 @@ def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
     return True, ""
 
 
-def copilot_available() -> bool:
-    """Copilot can review: its CLI is installed (its credits running out shows only as that reviewer's `failed`)."""
-    return bool(shutil.which("copilot"))
+COPILOT_LIMIT_HOLD = 24 * 3600  # seconds Copilot counts as out after a quota error: it states no reset time
+
+
+def copilot_limit_path() -> Path:
+    return mesh_home() / "copilot-limit.json"
+
+
+def copilot_limit() -> dict | None:
+    """The quota error Copilot last answered with, while it still holds ({"at", "until", "message"}); machine-wide,
+    like agy's quota cache."""
+    try:
+        limit = json.loads(copilot_limit_path().read_text())
+        return limit if time.time() < float(limit["until"]) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def copilot_quota_error(events: list[dict]) -> str | None:
+    """The message of a quota error in Copilot's JSON events (HTTP 402 `quota_exceeded`, its monthly quota)."""
+    for event in events:
+        data = event.get("data")
+        if event.get("type") == "session.error" and isinstance(data, dict) and (
+                data.get("errorType") == "quota" or data.get("statusCode") == 402
+                or data.get("errorCode") == "quota_exceeded"):
+            return str(data.get("message") or "quota exceeded")
+    return None
+
+
+def events_time(events: list[dict]) -> float | None:
+    """When the last of these Copilot events was written (their `timestamp`), as epoch seconds."""
+    for event in reversed(events):
+        try:
+            return datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00")).timestamp()
+        except (KeyError, ValueError):
+            continue
+    return None
+
+
+def note_copilot_limit(message: str, at: float | None = None) -> str:
+    """Record a quota error Copilot answered with (`at`: when, if its events say; else now), and the `failed`
+    text that says so. An older error than the one recorded doesn't move the hold back."""
+    at = at or time.time()
+    held = copilot_limit_record()
+    if not held or float(held.get("at") or 0) <= at:
+        write_atomic(copilot_limit_path(), json.dumps({"at": at, "until": at + COPILOT_LIMIT_HOLD,
+                                                       "message": message}))
+    return (f"Copilot is over its quota: {message}. mesh leaves it out of `--reviewers auto` for "
+            f"{COPILOT_LIMIT_HOLD // 3600} h, or until it next answers")
+
+
+def clear_copilot_limit(at: float | None = None) -> None:
+    """Copilot answered (`at`: when, if its events say; else now): a quota error recorded before that is over
+    (topped up, or reset). An answer filed late, from before the error, leaves the hold."""
+    held = copilot_limit_record()
+    if held and float(held.get("at") or 0) <= (at or time.time()):
+        copilot_limit_path().unlink(missing_ok=True)
+
+
+def copilot_limit_record() -> dict | None:
+    try:
+        held = json.loads(copilot_limit_path().read_text())
+        return held if isinstance(held, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def reviewer_available(kind: str, size: str, model: str | None = None) -> tuple[bool, str]:
+    """Whether `--reviewers auto` may pick this kind, and why not: its CLI is installed, and agy has quota on the
+    model such a reviewer runs on (`model`: the one an earlier reviewer keeps), Copilot no recent quota error."""
+    if kind == "agy":
+        return agy_has_quota(size, model)
+    if not installed(kind):
+        return False, f"{CLI_NAMES[kind]} isn't installed"
+    if kind == "copilot" and (limit := copilot_limit()):
+        return False, (f"Copilot is over its quota ({limit.get('message')}); mesh tries it again after "
+                       f"{datetime.fromtimestamp(limit['until']).astimezone().strftime('%Y-%m-%d %H:%M')}")
+    return True, ""
+
+
+def pick_slots(size: str, exclude: set[str], notes: list[str],
+               available: Callable[[str, str], tuple[bool, str]] | None = None,
+               slots: list[list[str]] | None = None) -> list[str]:
+    """A first round's reviewers: each slot of `review.reviewers.<size>` takes its first candidate that is
+    `available` (default reviewer_available) and not picked or excluded; why each one passed over was goes into
+    `notes`. `mesh routing` passes an installed-only check and the slots it shows, so it shows what a round
+    would start."""
+    available = available or reviewer_available
+    picked: list[str] = []
+    for slot in slots or setting(f"review.reviewers.{'large' if size == 'large' else 'small'}"):
+        passed = []
+        for kind in slot:
+            if kind in picked or kind in exclude:
+                continue
+            ok, why = available(kind, size)
+            if ok:
+                picked.append(kind)
+                break
+            passed.append(f"{kind}: {why}" if kind == "agy" else why)
+        else:
+            if passed:
+                notes.append("; ".join(passed))
+            continue
+        if passed:
+            notes.append("; ".join(passed) + f"; {SHORT_NAMES[picked[-1]]} instead")
+    return picked
 
 
 def pick_reviewers(size: str, earlier: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
-    """The reviewers' kinds `--reviewers auto` gives a review of this size, and notes on why (design §10).
+    """The reviewers' kinds `--reviewers auto` gives a review of this size, and notes on why (design §10, §21).
 
-    A first round: a small (or trivial) review gets one reviewer, agy while it has quota, else Copilot, else
-    Claude; a large one gets Claude plus one other, agy while it has quota, else Copilot (else Claude alone).
-    `earlier`: the PR's reviewers from an earlier round, by kind (their entries, earlier_reviewers). A re-review
-    asks them again, except Copilot, whose credits are kept for first looks, and an agy one whose model is short
-    of quota: Claude takes the place of what that leaves out, and a large re-review always has Claude."""
+    A first round fills the size's slots (`review.reviewers.<size>`; built in: a small review gets one of agy,
+    Copilot, Claude, a large one Claude plus agy or Copilot). Only an available kind is picked: its CLI installed,
+    agy with quota, Copilot with no recent quota error. `earlier`: the PR's reviewers from an earlier round, by
+    kind (their entries, earlier_reviewers). A re-review asks them again, except the kinds in
+    `review.re_review.skip` (Copilot, whose credits are kept for first looks) and an unavailable one (an agy whose
+    model is short of quota), adds `review.re_review.keep.<size>` (a large one always has Claude), and when that
+    leaves nobody, fills the slots again without them. Nobody at all is an error."""
     notes: list[str] = []
-    if earlier:
-        kinds = [kind for kind in KINDS if kind in earlier]
-        if "copilot" in earlier:
-            notes.append("a re-review leaves Copilot out")
-        if "agy" in kinds or not kinds:
-            agy, why = agy_has_quota(size, (earlier.get("agy") or {}).get("model"))
-            if not agy:
-                kinds = [kind for kind in kinds if kind != "agy"]
-                notes.append(f"agy: {why}; " + ("left out" if "claude" in kinds else "Claude instead"))
-            elif not kinds:
-                kinds = ["agy"]
-        if size == "large" and "claude" not in kinds:
-            kinds.insert(0, "claude")
-        return kinds or ["claude"], notes
-    agy, why = agy_has_quota(size)
-    copilot = copilot_available()
-    if agy:
-        other = "agy"
+    if not earlier:
+        kinds = pick_slots(size, set(), notes)
     else:
-        other = "copilot" if copilot else None
-        notes.append(f"agy: {why}; " + ("Copilot instead" if copilot else "Copilot isn't installed either"))
-    if size == "large":
-        return ["claude", *([other] if other else [])], notes
-    return [other or "claude"], notes
+        skip = set(setting("review.re_review.skip"))
+        kinds, dropped = [], []
+        for kind in ASK_KINDS:
+            if kind not in earlier:
+                continue
+            if kind in skip:
+                notes.append(f"a re-review leaves {SHORT_NAMES[kind]} out")
+                continue
+            ok, why = reviewer_available(kind, size, (earlier.get(kind) or {}).get("model"))
+            if ok:
+                kinds.append(kind)
+            else:
+                dropped.append((kind, why))
+        fallback = [] if kinds else pick_slots(size, skip | {k for k, _ in dropped}, [] if dropped else notes)
+        for kind, why in dropped:
+            notes.append(f"{kind}: {why}; " + ("left out" if kinds or not fallback
+                                                else " and ".join(SHORT_NAMES[k] for k in fallback) + " instead"))
+        kinds = kinds or fallback
+        keep = setting(f"review.re_review.keep.{'large' if size == 'large' else 'small'}")
+        for kind in reversed(keep):
+            if kind not in kinds and reviewer_available(kind, size)[0]:
+                kinds.insert(0, kind)
+    if not kinds:
+        raise MeshError("no reviewer to start: " + "; ".join(notes or ["no review slots configured"])
+                        + f" ({installed_text()}). Name the reviewers (`--reviewers <kinds>`), or change "
+                        "`review.reviewers` (`mesh routing`)")
+    return kinds, notes
 
 
 def agent_argv(kind: str, model: str, effort: str, log: str | None = None) -> tuple[list[str], str, str | None]:
     """Native CLI arguments, the resolved model and the session id (Claude only) for a new agent."""
     if kind == "agy":
         resolved = resolve_agy_model(model, effort)
-        return [*log_argv(log), "--model", resolved, "--dangerously-skip-permissions"], resolved, None
+        return [*log_argv(log), "--model", resolved, *skip_flags()], resolved, None
     # Choosing the session id up front is what lets `mesh resume` find the conversation later.
     session = str(uuid.uuid4())
-    argv = ["--session-id", session, "--model", model, "--effort", effort, "--dangerously-skip-permissions"]
+    argv = ["--session-id", session, "--model", model, "--effort", effort, *skip_flags()]
     return argv, model, session
 
 
@@ -2304,16 +2680,16 @@ def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
 
 def resumed_model(entry: dict, model: str | None, effort: str | None) -> tuple[str, str]:
     """The model and effort a resumed agent runs on: what it had, unless overridden."""
-    effort = effort or entry.get("effort") or DEFAULT_EFFORT
+    effort = effort or entry.get("effort") or plan_effort_for(entry.get("kind"))
     if entry.get("kind") == "copilot":
-        return model or entry.get("requested_model") or COPILOT_MODEL, effort
+        return model or entry.get("requested_model") or setting("copilot_model"), effort
     if entry.get("kind") != "agy":
-        return model or entry.get("model") or PLAN_CHAIN["claude"][0], effort
+        return model or entry.get("model") or plan_chain("claude")[0], effort
     if not model:
         parsed = parse_agy_id(entry.get("model") or "")
         if parsed and parsed[2] == effort:
             return entry["model"], effort  # the exact id it ran on; no listing needed
-        model = parsed[0] if parsed else EXEC_MODEL["agy"]
+        model = parsed[0] if parsed else exec_model_for("agy")
     return resolve_agy_model(model, effort), effort
 
 
@@ -3163,8 +3539,8 @@ def reopen_relaunched(run_id: str, sender: str, to: str, mtype: str, body: str, 
                 "error": f"{to} is being reopened with mesh's flags by another delivery, whose doorbell covers "
                          "this; if that fails, the next message retries"}
     try:
-        swap = swap_model(run_id, to, entry.get("model") or PLAN_CHAIN["claude"][0],
-                          entry.get("effort") or DEFAULT_EFFORT, "relaunched", wait_ms=RELAUNCH_WAIT * 1000,
+        swap = swap_model(run_id, to, entry.get("model") or plan_chain("claude")[0],
+                          entry.get("effort") or plan_effort_for("claude"), "relaunched", wait_ms=RELAUNCH_WAIT * 1000,
                           message=(sender, mtype, body), stored=path, lost_ok=False)
     except MeshError as exc:
         error = (f"{to} runs a Claude mesh didn't start (a herdr restore?), without its hooks and deny list, and "
@@ -3619,7 +3995,8 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
     if os.environ.get("CLAUDE_CODE_SESSION_ID") and pane_runs_this_claude(pane) is False:
         raise MeshError(f"Claude session {os.environ['CLAUDE_CODE_SESSION_ID']} isn't the process running in pane "
                         f"{pane}, so it can't be its root ({NOT_LEADER_HINT})")
-    mode = mode or (me.get("agent") if me.get("agent") in MODES else "agy")
+    mode = mode or (me.get("agent") if me.get("agent") in MODES else default_kind())
+    require_cli(mode, f"mode {mode}")
     inbox = claude_process() if me.get("agent") == "claude" else {"address": None}
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
     name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
@@ -3695,6 +4072,7 @@ def mesh_env(run_id: str, name: str, parent: str, role: str) -> dict[str, str]:
     """A worker's identity, and the configuration this process runs with (only the keys that are set)."""
     env = {"MESH_RUN": run_id, "MESH_SELF": name, "MESH_PARENT": parent, "MESH_ROLE": role}
     env.update({key: os.environ[key] for key in MESH_CONFIG if os.environ.get(key)})
+    env["MESH_CONFIG_FILE"] = str(config_path())  # the policy this launch read, whatever the worker's XDG dirs
     return env
 
 
@@ -3717,7 +4095,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 
 
 def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str | None]) -> dict:
-    repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    repo_top = resolve_repo(args.repo)
     run = load_run(run_id)
     taken = set(run["agents"]) | live_agent_names()
     name = getattr(args, "agent", None) or agent_name(repo_top.name, spawn_suffix(args, run), taken)
@@ -3728,8 +4106,12 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
 
     # Resolve the model before any side effect, so a failed lookup leaves no orphan worktree.
     size = getattr(args, "size", None) or "large"
-    sized = SIZE_DEFAULTS.get((args.kind, size))
     user_review = getattr(args, "plan_review", None) == "user"
+    if user_review:
+        require_cli("claude", "--plan-review user (Claude Code's plan mode)")
+    args.kind = args.kind or default_kind()
+    require_cli(args.kind, f"a{'n' if args.kind == 'agy' else ''} {args.kind} worker")
+    sized = size_policy(args.kind, size)
     if (sized or user_review) and (args.exec_model or args.exec_effort):
         raise MeshError(f"a {'user-reviewed' if user_review else size} task has no execution phase: "
                         "drop --exec-model / --exec-effort")
@@ -3741,16 +4123,16 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         model, effort, notes = named or sized["model"], args.effort or sized["effort"], []
     elif user_review:  # Claude Code leaves plan mode when the user approves the plan, on the same model
         auto, exec_model, exec_effort = False, None, None
-        model, effort, notes = named or USER_REVIEW_MODEL, args.effort or DEFAULT_EFFORT, []
+        model, effort, notes = named or setting("models.claude.user_review"), args.effort or plan_effort_for("claude"), []
     else:
         # `auto` plans on the best model with quota and switches to the exec model at `mesh approve`.
         auto = (args.model or "auto") == "auto"
-        exec_model = args.exec_model or (EXEC_MODEL[args.kind] if auto else None)
+        exec_model = args.exec_model or (exec_model_for(args.kind) if auto else None)
         if args.exec_effort and not exec_model:
             raise MeshError("--exec-effort needs an execution phase: drop --model, or add --exec-model")
         # A named --effort covers the whole task; --exec-effort alone overrides the execution phase.
-        effort = args.effort or DEFAULT_EFFORT
-        exec_effort = (args.exec_effort or args.effort or EXEC_EFFORT) if exec_model else None
+        effort = args.effort or plan_effort_for(args.kind)
+        exec_effort = (args.exec_effort or args.effort or exec_effort_for(args.kind)) if exec_model else None
         if exec_model:
             resolve_model(args.kind, exec_model, exec_effort)  # fail now, not after a whole planning phase
         model, notes = plan_model(args.kind, effort, run_id) if auto else (args.model, [])
@@ -3761,7 +4143,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                             "plan needs a pane)")
         view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
-    # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
+    # `mesh ask` says itself whether its effort was named (a sized reviewer's `review.effort` isn't).
     pinned = getattr(args, "pinned", None)
     pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
     reserve_guard(run_id, args.kind, model, effort, name)
@@ -3770,7 +4152,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     argv, model, session = agent_argv(args.kind, model, effort, log)
     if user_review:
         argv = [a for a in argv if a != "--dangerously-skip-permissions"]
-        argv += ["--permission-mode", "plan", "--allow-dangerously-skip-permissions"]
+        argv += ["--permission-mode", "plan", *(["--allow-dangerously-skip-permissions"] if skip_flags() else [])]
     named_bg, root = bool(getattr(args, "view", None)), run["agents"][run["root"]]
     view = background_view(view, named_bg, root, notes, "starting")  # refused before any side effect
     branch = base = None
@@ -3866,8 +4248,8 @@ def plan_model(kind: str, effort: str, run_id: str | None = None) -> tuple[str, 
     """The model a task plans on. agy: the first of the chain over the reserve; with none, the one with the most
     left only when the run was let past the reserve (`mesh reserve off`), else an error."""
     if kind == "agy":
-        return choose_agy_model(PLAN_CHAIN["agy"], effort, fallback=reserve_off(run_id) or quota_stop() >= 100)
-    return PLAN_CHAIN["claude"][0], []
+        return choose_agy_model(plan_chain("agy"), effort, fallback=reserve_off(run_id) or quota_stop() >= 100)
+    return plan_chain("claude")[0], []
 
 
 def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effort: str, why: str,
@@ -3878,12 +4260,20 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     """
     wait_bg_idle(entry, wait_ms, strict)
     sender, mtype, body = message
-    path = record(run_id, sender, name, mtype, body)
     with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, status="starting", swapped=True, **lifted(entry, lift))
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    stop_bg(entry)
+    if not stop_bg(entry):  # a copy launched beside a live session would run its conversation twice
+        with editing_run(run_id) as run:
+            e = run["agents"][name]
+            e.update(model=entry.get("model"), effort=entry.get("effort"), status=entry.get("status") or "running",
+                     **lifted(entry, False))
+            e.pop("swapped", None)
+            e["models"].pop()
+        raise SwapNotStarted(f"`claude stop {entry.get('bg_id')}` failed, so {name} wasn't reopened: its "
+                             "conversation would run in two processes")
+    path = record(run_id, sender, name, mtype, body)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
@@ -3897,7 +4287,9 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
-        raise MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry") from exc
+        err = MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry")
+        err.stored = path
+        raise err from exc
     with editing_run(run_id) as run:
         e = run["agents"][name]
         e.update(bg_id=bg_id, session=new_session, status="running", inbound=WORKER_INBOUND)
@@ -3931,41 +4323,63 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
                              f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
-    if entry.get("view") == "bg":
+    if entry.get("view") == "bg" and skip_flags():
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
                        message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift)
-    try:  # never cut a turn short: the conversation is only safe to reopen between turns
-        herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
-              timeout=wait_ms / 1000 + 10)
-    except HerdrError as exc:
-        if exc.code == "agent_not_found" and not lost_ok:
-            raise SwapNotStarted(f"herdr doesn't know {name}, so its turn can't be waited for") from exc
-        if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
-            if exc.code == "timeout":
-                raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
-            raise
+    moved = None  # a background worker moving to a pane: its message, stored once its session has stopped
+    if entry.get("view") == "bg":  # skip_permissions turned off since it started: a pane can answer a prompt
+        wait_bg_idle(entry, wait_ms, strict)
+        with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
+            run["agents"][name]["status"] = "starting"
+        if not stop_bg(entry):
+            with editing_run(run_id) as run:
+                run["agents"][name]["status"] = entry.get("status") or "running"
+            raise SwapNotStarted(f"`claude stop {entry.get('bg_id')}` failed, so {name} wasn't reopened in a pane: "
+                                 "its conversation would run in two processes")
+        log_event(run_id, "view_changed", name=name, view="pane",
+                  why="skip_permissions is off, and a background worker can't answer a permission prompt")
+        with editing_run(run_id) as run:
+            run["agents"][name].update(view="pane")
+            run["agents"][name].pop("bg_id", None)
+        entry = {**entry, "view": "pane", "bg_id": None}
+        if message:
+            moved = record(run_id, message[0], name, message[1], message[2])
+    else:
+        try:  # never cut a turn short: the conversation is only safe to reopen between turns
+            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
+                  timeout=wait_ms / 1000 + 10)
+        except HerdrError as exc:
+            if exc.code == "agent_not_found" and not lost_ok:
+                raise SwapNotStarted(f"herdr doesn't know {name}, so its turn can't be waited for") from exc
+            if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
+                if exc.code == "timeout":
+                    raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
+                raise
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
-    run = load_run(run_id)
-    side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
-    beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
-    if beside:
-        pane, tab, workspace_id = beside
-    else:  # a side worker's recorded workspace is the root's, so it goes to its project's (a peer's: the root's)
-        workspace_id = ((not side and entry.get("workspace"))
-                        or worker_workspace(run_id, Path(entry["repo"]), bool(entry.get("peer")))[0])
-        pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
-    with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
-        e = run["agents"][name]
-        e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                 status="starting", swapped=True, **lifted(entry, lift))
-        e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    argv = [*log_argv(entry.get("log")), *claude_deny({**entry, **lifted(entry, lift)}),
-            *resume_argv(entry["kind"], session, model, effort), "--dangerously-skip-permissions",
-            *settings_argv(entry["kind"], env)]
+    recorded = False
     try:
+        run = load_run(run_id)
+        side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
+        beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
+        if beside:
+            pane, tab, workspace_id = beside
+        else:  # a side worker's recorded workspace is the root's, so it goes to its project's (a peer's: the root's)
+            workspace_id = ((not side and entry.get("workspace"))
+                            or worker_workspace(run_id, Path(entry["repo"]), bool(entry.get("peer")))[0])
+            pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
+        with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
+            e = run["agents"][name]
+            e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
+                     status="starting", swapped=True, **lifted(entry, lift))
+            e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
+        recorded = True
+        argv = [*log_argv(entry.get("log")), *claude_deny({**entry, **lifted(entry, lift)}),
+                *resume_argv(entry["kind"], session, model, effort), *skip_flags(),
+                *settings_argv(entry["kind"], env)]
         try:
-            herdr("pane", "close", entry["pane"])
+            if entry.get("pane"):  # none for a background worker moving to a pane
+                herdr("pane", "close", entry["pane"])
         except HerdrError as exc:
             if exc.code not in ("pane_not_found", "agent_not_found"):
                 raise
@@ -3977,15 +4391,27 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
                      **lifted(entry, False))
             e.pop("swapped", None)
-            e["models"].pop()
+            if recorded:
+                e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
+        if moved:  # its session is stopped and its message stored: a resume brings it back, in a pane, to read it
+            err = MeshError(f"{name} was stopped in the background but not reopened in a pane on {model} ({exc}); "
+                            f"its {message[1]} is in its mailbox: `mesh resume {name}` reopens it to read it")
+            err.stored = moved
+            raise err from exc
         raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
     result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
     if started.get("held") and message:  # the caller would ring a pane at a startup screen: hold it instead
-        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=stored)
+        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=moved or stored)
+    elif moved:  # stored above: ring it here, so the caller doesn't store it again
+        token = ring_token()
+        rang = ring_stored(run_id, message[0], name, [name, pane],
+                           doorbell_text(load_run(run_id), message[0], name, message[1], message[2], True, token),
+                           token, moved)
+        result["delivery"] = {"stored": str(moved), "rung": rang["rung"], "error": rang["error"], "via": rang["via"]}
     return result
 
 
@@ -4056,7 +4482,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 log_event(run_id, "approve_kept_model", name=args.agent, model=entry.get("model"))
             result["kept_model"] = True
         else:
-            effort = entry.get("exec_effort") or EXEC_EFFORT
+            effort = entry.get("exec_effort") or exec_effort_for(entry["kind"])
             model = resolve_model(entry["kind"], entry["exec_model"], effort)
     if denied or (model, effort) != (entry.get("model"), entry.get("effort")):
         try:
@@ -4102,9 +4528,9 @@ def cmd_switch(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     entry = require_parent(load_run(run_id), me, args.agent, "switch")
     refuse_headless(args.agent, entry, "`mesh switch`")
-    effort = entry.get("effort") or DEFAULT_EFFORT
+    effort = entry.get("effort") or plan_effort_for(entry["kind"])
     if entry.get("phase") == "exec" and not args.model:  # after `approve --keep-model` it still has the plan's
-        effort = entry.get("exec_effort") or EXEC_EFFORT
+        effort = entry.get("exec_effort") or exec_effort_for(entry["kind"])
     notes: list[str] = []
     if args.model:
         model = resolve_model(entry["kind"], args.model, effort)
@@ -4113,7 +4539,7 @@ def cmd_switch(args: argparse.Namespace) -> int:
     elif entry["kind"] != "agy":
         raise MeshError("only agy quotas are known to mesh; pass --model for a claude worker")
     else:
-        chain = PLAN_CHAIN["agy"] if entry.get("phase") != "exec" else (entry.get("exec_model") or EXEC_MODEL["agy"],)
+        chain = plan_chain("agy") if entry.get("phase") != "exec" else (entry.get("exec_model") or exec_model_for("agy"),)
         try:
             model, notes = choose_agy_model(chain, effort, skip=models_tried(entry), force=True, fallback=False)
         except MeshError as exc:  # nowhere to move it: it waits on its own model, and mesh continues it at the reset
@@ -4199,7 +4625,7 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str, stored=
         raise MeshError(f"{exc}. Nothing was sent: {to} is {what}, under a deny list that a direct task "
                         f"reopens it without once its turn has ended; send it again then") from exc
     except MeshError as exc:
-        if entry.get("view") != "bg":
+        if not getattr(exc, "stored", None):
             raise  # a pane is given its task only once it's back, so nothing was stored
         # A background worker's task went into its mailbox first, as the copy's opening prompt. That task is a
         # direct one, so neither reason holds any more: the resume this points to reopens it without the list.
@@ -4295,8 +4721,8 @@ def unresumed_task(run_id: str, name: str, body: str) -> None:
             entry.update(read_only=claude, planning=False)
         elif planned_task(body):
             entry.update(read_only=False, planning=claude, phase="plan",
-                         exec_model=entry.get("exec_model") or EXEC_MODEL[entry.get("kind") or "claude"],
-                         exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
+                         exec_model=entry.get("exec_model") or exec_model_for(entry.get("kind") or "claude"),
+                         exec_effort=entry.get("exec_effort") or exec_effort_for(entry.get("kind")))
         else:  # a direct task: no list, no plan phase
             entry.update(read_only=False, planning=False, phase=None)
 
@@ -4445,8 +4871,8 @@ def enter_plan_phase(run_id: str, name: str, to: str) -> None:
         return
     with editing_run(run_id) as run:
         entry = run["agents"][name]
-        entry.update(phase="plan", exec_model=entry.get("exec_model") or EXEC_MODEL[entry["kind"]],
-                     exec_effort=entry.get("exec_effort") or EXEC_EFFORT)
+        entry.update(phase="plan", exec_model=entry.get("exec_model") or exec_model_for(entry["kind"]),
+                     exec_effort=entry.get("exec_effort") or exec_effort_for(entry["kind"]))
         # where this plan phase starts, for models_tried
         entry.setdefault("models", []).append({"model": entry.get("model"), "effort": entry.get("effort"),
                                                "at": now_iso(), "why": "planned task"})
@@ -6024,7 +6450,7 @@ def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str]
             continue
         log_event(run_id, "reserve", key=key)
         return 7, (f"ALERT {what}: mesh keeps {100 - quota_stop()}% of every quota for the user "
-                   f"(MESH_QUOTA_STOP={quota_stop()}), so it starts no new {vendor} work until then; running workers "
+                   f"({quota_stop_text()}), so it starts no new {vendor} work until then; running workers "
                    "finish their current task. Tell the user; don't stop or retire them (`mesh reserve off` lets "
                    "this run go on past it)")
     return None
@@ -7059,7 +7485,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     keeps_phase = mid_plan and not (args.model or args.effort)
     notes: list[str] = []
     if planned:
-        effort = DEFAULT_EFFORT
+        effort = plan_effort_for(old["kind"])
         model, notes = plan_model(old["kind"], effort, run_id)
     else:
         model, effort = resumed_model(old, args.model, args.effort)
@@ -7128,8 +7554,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     planning = old["kind"] == "claude" and not read_only and (
         planned_task(task) if task else bool(old.get("planning") or mid_plan))
     deny = claude_deny({**old, "read_only": read_only, "planning": planning})
-    exec_model = (old.get("exec_model") or EXEC_MODEL[old["kind"]]) if planned or keeps_phase else None
-    exec_effort = (old.get("exec_effort") or EXEC_EFFORT) if planned or keeps_phase else None
+    exec_model = (old.get("exec_model") or exec_model_for(old["kind"])) if planned or keeps_phase else None
+    exec_effort = (old.get("exec_effort") or exec_effort_for(old["kind"])) if planned or keeps_phase else None
     with editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
@@ -7184,7 +7610,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
 
     started[-1]["reservation"] = None  # launching: its reservation stands
     started = start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
-                                                    "--dangerously-skip-permissions", *settings_argv(old["kind"], env)],
+                                                    *skip_flags(), *settings_argv(old["kind"], env)],
                           peer=bool(peer_name))
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
@@ -7386,7 +7812,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
     PR number is gh's guess at the repo: it stays only where the PR's remote is `origin`, else the PR's link). The
     embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`). `size` is
-    the review's, which sets `/code-review`'s level (REVIEW_LEVEL; high when unknown)."""
+    the review's, which sets `/code-review`'s level (`review.level.<size>`; large's when unknown)."""
     skill = ""
     built = head_diff(repo, pr, head) if pr and repo and head else None
     if pr:
@@ -7399,7 +7825,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if kind == "claude" and head:
             whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
-            skill = CODE_REVIEW.format(level=REVIEW_LEVEL.get(size or "large", "high"), target=f"{last}..{head}" if again and narrow else whole)
+            skill = CODE_REVIEW.format(level=setting(f"review.level.{size if size in SIZES else 'large'}"), target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
@@ -7574,11 +8000,6 @@ def turn_answer(events: list[dict]) -> tuple[str, str | None]:
     return text, model
 
 
-def copilot_answer(stdout: str) -> tuple[str, str | None]:
-    """The last thing Copilot said and the model it said it on, from its `--output-format json` lines."""
-    return turn_answer(json_events(stdout.splitlines()))
-
-
 @contextmanager
 def signals_raise(*signums: int):
     """Turn these signals into SystemExit while inside, so `finally` and `except` clauses (run_cli's
@@ -7622,8 +8043,13 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
         with signals_raise(signal.SIGTERM, signal.SIGHUP):  # so a killed or hung-up `mesh ask` takes copilot with it
             result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False),
                              timeout=timeout or None, input=f"{task}\n\n{COPILOT_NOTE}", started=started)
-        text, model = copilot_answer(result.stdout)
-        if text and result.returncode == 0:
+        events = json_events(result.stdout.splitlines())
+        text, model = turn_answer(events)
+        quota = copilot_quota_error(events)
+        if quota:  # a monthly quota: no auto round picks Copilot until it may have reset (copilot_limit)
+            report = ("failed", note_copilot_limit(quota), None)
+        elif text and result.returncode == 0:
+            clear_copilot_limit()
             report = ("done", text, model)
         elif result.returncode == 0:
             report = ("failed", "copilot gave no answer (exit 0)", None)
@@ -7678,9 +8104,13 @@ def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
     end = next((i for i, e in enumerate(turn) if e.get("type") == "session.shutdown"), None)
     if end is None:
         return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
+    quota = copilot_quota_error(turn[:end])
+    if quota:
+        return "failed", note_copilot_limit(quota, events_time(turn[:end])), None
     text, model = turn_answer(turn[:end])
     if not text:
         return "failed", "copilot gave no answer (exit 0)", None
+    clear_copilot_limit(events_time(turn[:end]))
     return "done", text, model
 
 
@@ -7832,7 +8262,7 @@ def copilot_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, ta
         slug = free_slug(run_id, repo, args.name or (f"review-{number}-copilot" if pr else ask_slug(body)))
         name = agent_name(repo.name, slug, taken)
         cwd, branch, base = add_worktree(run_id, repo, slugify(slug, 24), base)
-        model = args.model or os.environ.get("MESH_COPILOT_MODEL") or COPILOT_MODEL
+        model = args.model or setting("copilot_model")
         size = args.size or "small"
         effort = args.effort or COPILOT_EFFORT[size]
         with editing_run(run_id) as run:
@@ -8009,15 +8439,15 @@ def asker_task(args: argparse.Namespace, run_id: str, repo: Path, target: tuple 
 
 def fresh_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, kind: str, task: str, body: str,
                 pr: str | None, number: int | None, base: str | None, collect: dict | None = None) -> dict:
-    """A fresh Claude or agy asker in `repo` (a reviewer: a pane at the PR head, at REVIEW_EFFORT when its
+    """A fresh Claude or agy asker in `repo` (a reviewer: a pane at the PR head, at `review.effort` when its
     size has no plan phase), spawned with its task; `collect` marks it for a fan-out."""
     slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
-    # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
+    # A large reviewer already plans at its `plan_effort`; passing `review.effort` there would read as a named
     # effort and carry into the execution phase of a fix it is later given.
-    sized = (kind, args.size or "large") in SIZE_DEFAULTS
+    sized = size_policy(kind, args.size or "large") is not None
     spawn = argparse.Namespace(
         kind=kind, role="worker", repo=str(repo), model=args.model,
-        exec_model=None, effort=args.effort or (REVIEW_EFFORT if pr and sized else None), exec_effort=None,
+        exec_model=None, effort=args.effort or (setting("review.effort") if pr and sized else None), exec_effort=None,
         name=args.name and slug, worktree=slug,  # a taken --name gets the same -2 as its branch
         cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
         view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
@@ -8037,6 +8467,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if args.kind and args.ref:
         raise MeshError("--kind is for a fresh agent (--repo); a worker keeps its own CLI")
     copilot = args.kind == "copilot"
+    if args.kind:
+        require_cli(args.kind, f"`--kind {args.kind}`")
     body = (read_body(args.body, args.file) or "").strip()
     if not body and not args.review:
         raise MeshError("empty question: pass --body TEXT or --file PATH (- for stdin), or --review PR")
@@ -8044,7 +8476,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     # Resolve everything that can fail before anything is started.
     target = peer = prep = None
     if args.repo:
-        repo = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+        repo = resolve_repo(args.repo)
     elif args.ref in load_peers()["peers"]:
         peer = load_peers()["peers"][args.ref]
         refuse_unaskable_peer(args.ref, peer)
@@ -8082,10 +8514,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
     elif peer:
         reserve_guard(own_run, peer.get("kind") or "claude", peer.get("model"), None, f"a question for {args.ref}")
     elif not copilot and (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
-        reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else PLAN_CHAIN["claude"][0],
+        reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else plan_chain("claude")[0],
                       args.effort, f"an asker in {repo.name}")
     # a Copilot asker's run is in the root's own mode
-    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or "agy")
+    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or default_kind())
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
@@ -8515,10 +8947,15 @@ def parse_reviewers(spec: str) -> list[str] | None:
     words = [word.strip() for word in spec.split(",") if word.strip()]
     if words == ["auto"]:
         return None
-    if words == ["all"]:
-        return list(ASK_KINDS)
+    if words == ["all"]:  # every installed one
+        kinds = [kind for kind in ASK_KINDS if installed(kind)]
+        if not kinds:
+            raise MeshError(f"--reviewers all: {installed_text()}")
+        return kinds
     if not words or any(word not in ASK_KINDS for word in words):
         raise MeshError(f"--reviewers takes auto, all, or a comma list of {', '.join(ASK_KINDS)} (got {spec!r})")
+    for word in words:
+        require_cli(word, f"a {word} reviewer")
     return list(dict.fromkeys(words))
 
 
@@ -8563,7 +9000,7 @@ def ask_reviewers(args: argparse.Namespace) -> int:
         print(f"mesh: {', '.join(ignored)} don't apply to a review round, which always waits for its reviewers",
               file=sys.stderr)
     body = (read_body(args.body, args.file) or "").strip()
-    repo = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    repo = resolve_repo(args.repo)
     pr, number = pr_ref(args.review, repo)
     earlier = earlier_reviewers(pr)
     # no --size: the size the PR's earlier reviewers were given, else large (as a spawn)
@@ -8788,7 +9225,7 @@ def editing_peers():
 
 
 def peers_dir() -> Path:
-    return Path(os.environ.get("MESH_PEERS_DIR") or Path.home() / "research").expanduser()
+    return Path(setting("peers_dir")).expanduser()
 
 
 def peer_upstream(repo: Path) -> dict:
@@ -9087,7 +9524,7 @@ def peers_add(args: argparse.Namespace) -> int:
         if Path(entry["cwd"]).resolve() == repo:  # it ran in the clone itself: never a worktree to move or remove
             peer["in_clone"] = True
     else:
-        peer.update(kind=args.kind or "claude", cwd=str(worktree_root() / "peers" / name), seen=upstream_head(peer))
+        peer.update(kind=args.kind or default_kind("claude"), cwd=str(worktree_root() / "peers" / name), seen=upstream_head(peer))
     if args.about:
         peer["about"] = about_text(args.about)
     else:
@@ -9297,7 +9734,7 @@ def cmd_peers(args: argparse.Namespace) -> int:
 
 def cmd_worktree(args: argparse.Namespace) -> int:
     run_id, _ = identity(args)
-    repo_top = Path(git("rev-parse", "--show-toplevel", cwd=Path(args.repo).expanduser())).resolve()
+    repo_top = resolve_repo(args.repo)
     path, branch, _ = add_worktree(run_id, repo_top, slugify(args.slug, 24), args.base)
     emit({"path": str(path), "branch": branch})
     return 0
@@ -9488,13 +9925,14 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
 # What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
 # agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
 WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
-                             "peek", "brief", "model", "usage", "cost", "peers list"})
+                             "peek", "brief", "model", "usage", "cost", "routing", "peers list"})
 # Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
 SANDBOX_HINT = ("To try mesh commands out (reviewing agent-mesh itself, say), point MESH_HOME, MESH_WORKTREES and "
-                "MESH_PEERS_DIR at temp dirs, and MESH_HERDR and MESH_CLAUDE at a missing binary: the defaults are "
-                "this machine's real state, which every agent uses. The user in a shell left with a worker's "
+                "MESH_PEERS_DIR at temp dirs, MESH_CONFIG_FILE at a temp file, MESH_HERDR at a missing binary and "
+                "MESH_CLAUDE at one that does nothing (/bin/false, so Claude still counts as installed): the "
+                "defaults are this machine's real state, which every agent uses. The user in a shell left with a worker's "
                 "variables runs `env -u MESH_RUN -u MESH_SELF -u MESH_PARENT -u MESH_ROLE mesh …`.")
 
 
@@ -9740,6 +10178,8 @@ def cmd_dir(args: argparse.Namespace) -> int:
 
 
 def cmd_model(args: argparse.Namespace) -> int:
+    args.kind = args.kind or default_kind()
+    args.effort = args.effort or plan_effort_for(args.kind)
     if (args.model or "auto") == "auto":
         model, notes = plan_model(args.kind, args.effort)
         for note in notes:
@@ -9779,16 +10219,17 @@ def quota_line(run: dict | None = None) -> str:
 
 
 def cmd_usage(args: argparse.Namespace) -> int:
+    args.effort, args.exec_effort = args.effort or plan_effort_for("agy"), args.exec_effort or exec_effort_for("agy")
     claude = claude_usage(force=args.refresh)
     rows = agy_usage(force=args.refresh)
     plan = execute = exec_quota = None
     notes: list[str] = []
     if rows:
         try:
-            plan, notes = choose_agy_model(PLAN_CHAIN["agy"], args.effort, fallback=False)
+            plan, notes = choose_agy_model(plan_chain("agy"), args.effort, fallback=False)
         except MeshError as exc:
             notes = [str(exc)]
-        execute = resolve_agy_model(EXEC_MODEL["agy"], args.exec_effort)
+        execute = resolve_agy_model(exec_model_for("agy"), args.exec_effort)
         exec_quota = model_quota(execute, listing_names(agy_model_listing()).get(execute, ""), rows)
     if args.json:
         emit({"claude": claude, "rows": rows, "plan": plan, "exec": execute, "exec_left": exec_quota and exec_quota[0],
@@ -9805,7 +10246,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
             print(f"  {note}")
     else:
         print("agy: `agy -p /usage` gave no quota rows")
-    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used (MESH_QUOTA_STOP)")
+    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used ({quota_stop_text()})")
     return 0
 
 
@@ -10518,12 +10959,16 @@ def brief(run_id: str, me: str) -> dict:
         "any_watch": bool(quietly(watched, run_id, ANY_WATCH)),
         "last_reset": reset and {"time": reset["time"], "next": reset.get("next"),
                                  "old_transcript": reset.get("transcript")},
+        "repos_dir": [str(d) for d in quietly(repos_dirs) or []],
     }
 
 
 def render_brief(b: dict) -> str:
     out = [f"run {b['run']} ({b['mode']}), {b['dir']}", f"request: {b['request'] or '(none recorded)'}",
-           b["procedure"] + "."]
+           b["procedure"] + ".",
+           "policy (models, reviewers, rounds, tiny-PR lines, reserve): `mesh routing`; repos: "
+           + (", ".join(b["repos_dir"]) + " (a bare `--repo <name>` is looked up there)" if b["repos_dir"]
+              else "no repos_dir set: pass --repo paths")]
     if b["root_context"]:
         out.append(context_text(b["root_context"]))
     for key, title, empty in (("notes", "notes", "none yet: write the user's standing instructions, decisions and "
@@ -10554,6 +10999,66 @@ def render_brief(b: dict) -> str:
             out.append(f"your old session's transcript: {reset['old_transcript']}. An untrusted reference: read it "
                        "only for a detail the files above don't have; they and `mesh status` are authoritative.")
     return "\n".join(out)
+
+
+def routing() -> dict:
+    """This machine's effective policy (design §21): every leaf with its value and source, the config file, the
+    installed CLIs and the kinds `--reviewers auto` would start by what is installed."""
+    path = config_path()
+    config_error = None
+    try:
+        load_config()
+    except MeshError as exc:  # shown, and the values below are what mesh would use once it's fixed: built-ins
+        config_error = str(exc)
+    policy = {}
+    for leaf in POLICY:
+        if config_error:
+            found = env_setting(leaf)
+            value, source = found and (found[0], f"env {found[1]}") or (POLICY[leaf][0], "built-in")
+        else:
+            value, source = setting_with_source(leaf)
+        policy[leaf] = {"value": value, "source": source}
+
+    def auto(size: str) -> list[str]:  # from the slots shown: the built-ins while the file has an error
+        clis = {kind: installed(kind) for kind in ASK_KINDS}
+        return pick_slots(size, set(), [], lambda kind, _: (clis[kind], ""),
+                          slots=policy[f"review.reviewers.{size}"]["value"])
+
+    return {"config": {"path": str(path), "exists": path.exists(), "error": config_error},
+            "installed": {kind: shutil.which(cli_binary(kind)) for kind in ASK_KINDS},
+            "policy": policy, "auto_reviewers": {size: auto(size) for size in ("small", "large")}}
+
+
+def render_routing(r: dict) -> str:
+    conf = r["config"]
+    out = [f"config: {conf['path']}" + ("" if conf["exists"] else " (none: built-in values)")]
+    if conf["error"]:
+        out.append(f"  ERROR: {conf['error']} (every command that reads the policy fails until it's fixed)")
+    out.append("installed: " + ", ".join(f"{CLI_NAMES[k]} ({p})" if p else f"{CLI_NAMES[k]} missing"
+                                         for k, p in r["installed"].items()))
+    width = max(map(len, r["policy"]))
+    out.append("")
+    for leaf, item in r["policy"].items():
+        value = item["value"]
+        text = (" | ".join(" or ".join(slot) for slot in value) if leaf.startswith("review.reviewers.")
+                else ", ".join(value) if isinstance(value, list) else json.dumps(value) if isinstance(value, bool)
+                else str(value))
+        out.append(f"{leaf.ljust(width)}  {text or '(none)'}  [{item['source']}]")
+    out.append("")
+    out.append("--reviewers auto, by what's installed (a round also needs agy's quota and Copilot with no recent "
+               "quota error):")
+    for size, kinds in r["auto_reviewers"].items():
+        out.append(f"  {size}: {' + '.join(kinds) or 'nobody: a round of this size is refused'}")
+    return "\n".join(out)
+
+
+def cmd_routing(args: argparse.Namespace) -> int:
+    data = routing()
+    if args.json:
+        emit(data)
+    else:
+        print(render_routing(data))
+    return 1 if data["config"]["error"] else 0
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
@@ -11148,17 +11653,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_init)
 
     p = ident(sub.add_parser("spawn", help="start a worker agent in a herdr pane, or in the background"))
-    p.add_argument("--kind", choices=KINDS, default="agy", help="default: agy")
+    p.add_argument("--kind", choices=KINDS, help="default: agy, or claude when agy isn't installed")
     p.add_argument("--role", choices=ROLES, default="worker")
     p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
     p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
                                     "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
-    p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: agy flash, claude opus)")
+    p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: the kind's exec model, "
+                                         "`mesh routing`)")
     p.add_argument("--effort", choices=EFFORTS,
-                   help=f"effort for the whole task, planning and execution (default: {DEFAULT_EFFORT} planning, "
-                        f"{EXEC_EFFORT} executing)")
+                   help="effort for the whole task, planning and execution (default: the kind's plan_effort "
+                        "planning, exec_effort executing, `mesh routing`)")
     p.add_argument("--exec-effort", choices=EFFORTS,
-                   help=f"effort after `mesh approve` (default: --effort, else {EXEC_EFFORT})")
+                   help="effort after `mesh approve` (default: --effort, else the kind's exec_effort)")
     p.add_argument("--name", help="what goes after the repo in the agent's name (default: the worktree slug)")
     where = p.add_mutually_exclusive_group()
     where.add_argument("--worktree", metavar="SLUG", help="create a worktree on branch mesh/<run>/<SLUG>")
@@ -11285,7 +11791,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a fresh agent's CLI (default: the run's mode, or agy); copilot runs headless, read-only")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
     p.add_argument("--effort", choices=EFFORTS,
-                   help=f"default: the size's, or {REVIEW_EFFORT} for a fresh reviewer (not Copilot)")
+                   help="default: the size's, or review.effort for a fresh reviewer (not Copilot; `mesh routing`)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")
@@ -11356,21 +11862,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--via", default="command", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_reset)
 
+    p = sub.add_parser("routing", help="this machine's policy (models, efforts, reviewers, rounds, reserve, folders), "
+                                       "where each value comes from, and the installed CLIs")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_routing)
+
     p = ident(sub.add_parser("brief", help="one bounded view of the run for a fresh root: request, notes, board, "
                                            "workers, PRs, unread mail"))
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_brief)
 
     p = sub.add_parser("model", help="resolve the model a spawn would use")
-    p.add_argument("--kind", choices=KINDS, default="agy")
+    p.add_argument("--kind", choices=KINDS, help="default: as for spawn")
     p.add_argument("--model", help="default: auto")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS)
+    p.add_argument("--effort", choices=EFFORTS, help="default: the kind's plan_effort")
     p.set_defaults(func=cmd_model)
 
     p = sub.add_parser("usage", help="Claude's and agy's quotas, the reserve, and the models `auto` would plan and "
                                      "execute on")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS, help="planning effort")
-    p.add_argument("--exec-effort", default=EXEC_EFFORT, choices=EFFORTS)
+    p.add_argument("--effort", choices=EFFORTS, help="planning effort (default: agy's plan_effort)")
+    p.add_argument("--exec-effort", choices=EFFORTS, help="default: agy's exec_effort")
     p.add_argument("--refresh", action="store_true", help="skip the caches (agy's 5 minutes, Claude's 2)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_usage)
