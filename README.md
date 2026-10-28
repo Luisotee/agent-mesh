@@ -315,7 +315,7 @@ agent-mesh/install.sh                                # --uninstall reverses it
 | the skills | `~/.claude/skills/` (not when the plugin is installed, or with `--plugin`) and `~/.gemini/config/skills/` |
 | `herdr/mesh-notify` | herdr's plugins (`herdr plugin link`), when herdr is on PATH |
 
-It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Each CLI's skills and rules block go in only when that CLI is on PATH: `/delegate-agy` needs agy and `/delegate-claude` needs Claude Code, so a skill whose CLI is missing is left out (and a link of ours removed); re-run `install.sh` after installing the other one. Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
+It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Each CLI's skills and rules block go in only when that CLI is on PATH: `/delegate-agy` needs agy and `/delegate-claude` needs Claude Code, so a skill whose CLI is missing is left out; a re-run without a CLI on PATH adds nothing for it and removes nothing (only `--uninstall` does). Re-run `install.sh` after installing the other one. Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
 
 ### Claude Code only, agy only, or both
 

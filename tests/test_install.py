@@ -89,12 +89,14 @@ def test_a_claude_only_machine_gets_no_delegate_agy(tmp_path):
     assert gemini_skills(tmp_path) == [] and not (tmp_path / ".gemini" / "AGENTS.md").exists()
 
 
-def test_a_cli_gone_since_the_last_install_loses_its_skill(tmp_path):
+def test_a_cli_missing_from_path_on_a_rerun_removes_nothing(tmp_path):
+    """agy may be on another shell's PATH only: a re-run without it adds nothing for it and removes nothing."""
     assert install(tmp_path).returncode == 0
-    assert "delegate-agy" in claude_skills(tmp_path)
+    before = (claude_skills(tmp_path), gemini_skills(tmp_path), (tmp_path / ".gemini" / "AGENTS.md").read_text())
     (tmp_path / "fake-bin" / "agy").unlink()
-    assert install(tmp_path, clis=("claude",)).returncode == 0
-    assert "delegate-agy" not in claude_skills(tmp_path)  # our own link, removed
+    done = install(tmp_path, clis=("claude",))
+    assert done.returncode == 0 and "nothing new goes into" in done.stdout
+    assert (claude_skills(tmp_path), gemini_skills(tmp_path), (tmp_path / ".gemini" / "AGENTS.md").read_text()) == before
 
 
 def test_no_cli_at_all_warns(tmp_path):

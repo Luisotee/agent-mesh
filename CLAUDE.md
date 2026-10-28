@@ -34,7 +34,7 @@ uvx pytest -q tests/test_mesh.py::test_name      # one test
 ./install.sh            # symlink into place (--uninstall reverses it); safe to re-run
 ```
 
-To try `bin/mesh` by hand (reviewing a change, say), point `MESH_HOME`, `MESH_WORKTREES` and `MESH_PEERS_DIR` at temp dirs and `MESH_HERDR` (and `MESH_CLAUDE`) at a missing binary, as `tests/conftest.py` does: the defaults are the machine's real run state and herdr's real panes, which every agent uses. A worker that forgets is refused every command but its own (`check_worker`).
+To try `bin/mesh` by hand (reviewing a change, say), point `MESH_HOME`, `MESH_WORKTREES` and `MESH_PEERS_DIR` at temp dirs, `MESH_CONFIG_FILE` at a temp file, `MESH_HERDR` at a missing binary and `MESH_CLAUDE` at one that does nothing (`/bin/false`: a missing one makes Claude count as not installed), as `tests/conftest.py` does: the defaults are the machine's real run state and herdr's real panes, which every agent uses. A worker that forgets is refused every command but its own (`check_worker`).
 
 There is no build or lint step: `bin/mesh` is one Python 3.10+ script with no dependencies. Keep it stdlib-only.
 

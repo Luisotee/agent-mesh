@@ -60,19 +60,21 @@ SIZE_DEFAULTS = {
     ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
 }
-# A Claude worker whose plan the user approves in its own pane: Opus plans and executes, in plan mode first.
+# A Claude worker whose plan the user approves in its own pane plans and executes on one model, in plan mode
+# first: `models.claude.user_review` (built in: this).
 USER_REVIEW_MODEL = "opus"
-# A review is verification, which is where effort pays: a trivial or small reviewer gets high effort
-# instead of its size's (a large one plans at DEFAULT_EFFORT, high, anyway).
+# A review is verification, which is where effort pays: a trivial or small reviewer gets `review.effort` (built in:
+# this) instead of its size's (a large one plans at its kind's `plan_effort` anyway).
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
-# `--model auto`: plan on the first model of the chain with quota left at DEFAULT_EFFORT,
-# then execute on EXEC_MODEL at EXEC_EFFORT. Claude stays on Opus: a resume that changes only
-# the effort keeps the prompt cache, while a model switch re-reads the whole conversation.
+# `--model auto`: plan on the first model of `models.<kind>.plan` with quota left at its `plan_effort`, then
+# execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
+# on Opus: a resume that changes only the effort keeps the prompt cache, while a model switch re-reads the whole
+# conversation.
 PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
 EXEC_MODEL = {"agy": "flash", "claude": "opus"}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -203,7 +205,7 @@ REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a
                  "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
-# reviews the worktree's own branch). The level follows the review's size (REVIEW_LEVEL): higher levels mostly
+# reviews the worktree's own branch). The level follows the review's size (`review.level.<size>`): higher levels mostly
 # add speculative findings. Only with the PR head in the worker's repo: the skill reads files from its worktree's
 # repo, and gh takes a bare PR number as one of that repo's.
 REVIEW_LEVEL = {"trivial": "medium", "small": "medium", "large": "high"}
@@ -334,7 +336,7 @@ def _sizes(kind: str) -> dict:
 
 POLICY = {  # leaf: (built-in default, check)
     **{leaf: value for kind in KINDS for leaf, value in {
-        f"models.{kind}.plan": (list(PLAN_CHAIN[kind]), "strs"),
+        f"models.{kind}.plan": (list(PLAN_CHAIN[kind]), "chain"),
         f"models.{kind}.exec": (EXEC_MODEL[kind], "str"),
         f"models.{kind}.plan_effort": (DEFAULT_EFFORT, "effort"),
         f"models.{kind}.exec_effort": (EXEC_EFFORT, "effort"),
@@ -357,13 +359,17 @@ POLICY = {  # leaf: (built-in default, check)
     "copilot_model": (COPILOT_MODEL, "str"),
     "peers_dir": ("~/research", "str"),
     "repos_dir": ([], "strs"),  # folders a bare `--repo <name>` is looked up in, in order
-    "skip_permissions": (True, "bool"),  # workers start with --dangerously-skip-permissions
+    # Worker launches only (spawn, resume, swaps, --bg) start with --dangerously-skip-permissions; mesh's own
+    # headless calls that run no tools on a repo (`agy -p /usage`, `/compact`) keep it either way.
+    "skip_permissions": (True, "bool"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
+    "chain": (lambda v: isinstance(v, list) and bool(v) and all(isinstance(s, str) and s for s in v),
+              "a non-empty list of model names"),
     "effort": (lambda v: v in EFFORTS, "one of " + ", ".join(EFFORTS)),
     "view": (lambda v: v in VIEWS, "one of " + ", ".join(VIEWS)),
     "kinds": (lambda v: isinstance(v, list) and all(k in ASK_KINDS for k in v),
@@ -391,6 +397,8 @@ def _read_config(path: str, mtime: tuple[int, int]) -> dict:
         data = json.loads(Path(path).read_text())
     except ValueError as exc:
         raise MeshError(f"config {path} isn't valid JSON: {exc}") from None
+    except OSError as exc:  # unreadable, or a folder
+        raise MeshError(f"config {path}: {exc.strerror or exc}") from None
     if not isinstance(data, dict):
         raise MeshError(f"config {path}: expected a JSON object")
     leaves: dict = {}
@@ -461,7 +469,7 @@ def setting_with_source(leaf: str) -> tuple[object, str]:
 
 def plan_chain(kind: str) -> tuple[str, ...]:
     """The models a task plans on: agy takes the first with quota; Claude its first (its quota isn't per model)."""
-    return tuple(setting(f"models.{kind}.plan") or PLAN_CHAIN[kind])
+    return tuple(setting(f"models.{kind}.plan"))
 
 
 def exec_model_for(kind: str) -> str:
@@ -493,14 +501,29 @@ def skip_flags() -> list[str]:
 
 
 def resolve_repo(arg: str) -> Path:
-    """`--repo`'s top folder: an existing path as given, else a bare name looked up in `repos_dir`."""
+    """`--repo`'s top folder: a path as given, or a bare name looked up in `repos_dir`. A bare name that is also a
+    folder here counts as a path only when it is a repo's own top (a `tests/` subfolder would put the worker in this
+    repo instead); when both are repos, it's ambiguous."""
     path = Path(arg).expanduser()
-    if not path.exists() and "/" not in arg:
-        found = next((d / arg for d in repos_dirs() if (d / arg).is_dir()), None)
-        if not found:
-            where = ", ".join(str(d) for d in repos_dirs()) or "nowhere: `repos_dir` isn't set (`mesh routing`)"
-            raise MeshError(f"no repo {arg} here or in {where}")
-        path = found
+    bare = "/" not in arg and arg not in (".", "..") and not arg.startswith("~")
+    match = next((d / arg for d in repos_dirs() if (d / arg).is_dir()), None) if bare else None
+    local = None
+    if path.exists():
+        try:
+            local = Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
+        except MeshError:
+            if not match:
+                raise
+    if match and (local is None or local != path.resolve()):
+        path = match
+    elif match and local and local != Path(git("rev-parse", "--show-toplevel", cwd=match)).resolve():
+        raise MeshError(f"--repo {arg} is ambiguous: {local} here, and {match.resolve()} in repos_dir; pass a path "
+                        f"(./{arg}, or the full one)")
+    elif local:
+        return local
+    elif not match:
+        where = ", ".join(str(d) for d in repos_dirs()) or "nowhere: `repos_dir` isn't set (`mesh routing`)"
+        raise MeshError(f"no repo {arg} here or in {where}")
     return Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
 
 
@@ -2227,6 +2250,15 @@ def quota_stop() -> int:
     return setting("quota_stop")
 
 
+def quota_stop_text() -> str:
+    """Where the reserve's line comes from, for a message: `MESH_QUOTA_STOP=95`, `quota_stop=80 in <file>`…"""
+    value, source = setting_with_source("quota_stop")
+    if source.startswith("env "):
+        key = source[4:]
+        return f"{key}={os.environ[key]}"
+    return f"quota_stop={value}" + (f" in {config_path()}" if source == "config" else ", built in")
+
+
 def min_quota() -> int:
     """The percent left under which an agy model counts as spent (the reserve, seen from the other side)."""
     return 100 - quota_stop()
@@ -2408,12 +2440,12 @@ def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effor
     hit = reserve_hit(kind, model, effort)
     if hit:
         raise MeshError(f"{hit}: not starting {what}, since mesh keeps {100 - quota_stop()}% of every quota for "
-                        f"the user (MESH_QUOTA_STOP={quota_stop()}). Nothing was started or sent. Tell the user; "
+                        f"the user ({quota_stop_text()}). Nothing was started or sent. Tell the user; "
                         "`mesh reserve off` lets this run go on past it")
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
-    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (MESH_QUOTA_STOP) (Flash for a
+    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (`quota_stop`) (Flash for a
     trivial or small one, the plan chain for a large one), or `model` has (the one a reviewer asked again keeps),
     and why not. Unreadable quotas count as available, as for a spawn (choose_agy_model); agy not installed, or
     no model it can resolve, doesn't."""
@@ -2464,9 +2496,17 @@ def copilot_quota_error(events: list[dict]) -> str | None:
     return None
 
 
-def note_copilot_limit(message: str) -> None:
+def note_copilot_limit(message: str) -> str:
+    """Record a quota error Copilot answered with, and the `failed` text that says so."""
     now = time.time()
     write_atomic(copilot_limit_path(), json.dumps({"at": now, "until": now + COPILOT_LIMIT_HOLD, "message": message}))
+    return (f"Copilot is over its quota: {message}. mesh leaves it out of `--reviewers auto` for "
+            f"{COPILOT_LIMIT_HOLD // 3600} h, or until it next answers")
+
+
+def clear_copilot_limit() -> None:
+    """Copilot answered: whatever quota error it had is over (topped up, or reset)."""
+    copilot_limit_path().unlink(missing_ok=True)
 
 
 def reviewer_available(kind: str, size: str, model: str | None = None) -> tuple[bool, str]:
@@ -2482,23 +2522,26 @@ def reviewer_available(kind: str, size: str, model: str | None = None) -> tuple[
     return True, ""
 
 
-def pick_slots(size: str, exclude: set[str], notes: list[str]) -> list[str]:
+def pick_slots(size: str, exclude: set[str], notes: list[str],
+               available: Callable[[str, str], tuple[bool, str]] | None = None) -> list[str]:
     """A first round's reviewers: each slot of `review.reviewers.<size>` takes its first candidate that is
-    available and not picked or excluded; why each one passed over was, goes into `notes`."""
+    `available` (default reviewer_available) and not picked or excluded; why each one passed over was goes into
+    `notes`. `mesh routing` passes an installed-only check, so it shows what a round would start."""
+    available = available or reviewer_available
     picked: list[str] = []
     for slot in setting(f"review.reviewers.{'large' if size == 'large' else 'small'}"):
         passed = []
         for kind in slot:
             if kind in picked or kind in exclude:
                 continue
-            ok, why = reviewer_available(kind, size)
+            ok, why = available(kind, size)
             if ok:
                 picked.append(kind)
                 break
             passed.append(f"{kind}: {why}" if kind == "agy" else why)
         else:
             if passed:
-                notes.append("; ".join(passed) + ("" if picked else "; nobody left to review"))
+                notes.append("; ".join(passed))
             continue
         if passed:
             notes.append("; ".join(passed) + f"; {SHORT_NAMES[picked[-1]]} instead")
@@ -4059,7 +4102,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                             "plan needs a pane)")
         view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
-    # `mesh ask` says itself whether its effort was named (a sized reviewer's REVIEW_EFFORT isn't).
+    # `mesh ask` says itself whether its effort was named (a sized reviewer's `review.effort` isn't).
     pinned = getattr(args, "pinned", None)
     pinned = not exec_model and bool(named or args.effort if pinned is None else pinned)
     reserve_guard(run_id, args.kind, model, effort, name)
@@ -4229,9 +4272,18 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
                              f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
-    if entry.get("view") == "bg":
+    if entry.get("view") == "bg" and skip_flags():
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
                        message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift)
+    if entry.get("view") == "bg":  # skip_permissions turned off since it started: a pane can answer a prompt
+        wait_bg_idle(entry, wait_ms, strict)
+        stop_bg(entry)
+        log_event(run_id, "view_changed", name=name, view="pane",
+                  why="skip_permissions is off, and a background worker can't answer a permission prompt")
+        with editing_run(run_id) as run:
+            run["agents"][name].update(view="pane")
+            run["agents"][name].pop("bg_id", None)
+        entry = {**entry, "view": "pane", "bg_id": None}
     try:  # never cut a turn short: the conversation is only safe to reopen between turns
         herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
               timeout=wait_ms / 1000 + 10)
@@ -4263,7 +4315,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             *settings_argv(entry["kind"], env)]
     try:
         try:
-            herdr("pane", "close", entry["pane"])
+            if entry.get("pane"):  # none for a background worker moving to a pane
+                herdr("pane", "close", entry["pane"])
         except HerdrError as exc:
             if exc.code not in ("pane_not_found", "agent_not_found"):
                 raise
@@ -6322,7 +6375,7 @@ def reserve_alert(run_id: str, run: dict, events: list[dict]) -> tuple[int, str]
             continue
         log_event(run_id, "reserve", key=key)
         return 7, (f"ALERT {what}: mesh keeps {100 - quota_stop()}% of every quota for the user "
-                   f"(MESH_QUOTA_STOP={quota_stop()}), so it starts no new {vendor} work until then; running workers "
+                   f"({quota_stop_text()}), so it starts no new {vendor} work until then; running workers "
                    "finish their current task. Tell the user; don't stop or retire them (`mesh reserve off` lets "
                    "this run go on past it)")
     return None
@@ -7684,7 +7737,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
     PR number is gh's guess at the repo: it stays only where the PR's remote is `origin`, else the PR's link). The
     embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`). `size` is
-    the review's, which sets `/code-review`'s level (REVIEW_LEVEL; high when unknown)."""
+    the review's, which sets `/code-review`'s level (`review.level.<size>`; large's when unknown)."""
     skill = ""
     built = head_diff(repo, pr, head) if pr and repo and head else None
     if pr:
@@ -7872,11 +7925,6 @@ def turn_answer(events: list[dict]) -> tuple[str, str | None]:
     return text, model
 
 
-def copilot_answer(stdout: str) -> tuple[str, str | None]:
-    """The last thing Copilot said and the model it said it on, from its `--output-format json` lines."""
-    return turn_answer(json_events(stdout.splitlines()))
-
-
 @contextmanager
 def signals_raise(*signums: int):
     """Turn these signals into SystemExit while inside, so `finally` and `except` clauses (run_cli's
@@ -7924,10 +7972,9 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
         text, model = turn_answer(events)
         quota = copilot_quota_error(events)
         if quota:  # a monthly quota: no auto round picks Copilot until it may have reset (copilot_limit)
-            note_copilot_limit(quota)
-            report = ("failed", f"Copilot is over its quota: {quota}. mesh leaves it out of `--reviewers auto` "
-                                f"for {COPILOT_LIMIT_HOLD // 3600} h", None)
+            report = ("failed", note_copilot_limit(quota), None)
         elif text and result.returncode == 0:
+            clear_copilot_limit()
             report = ("done", text, model)
         elif result.returncode == 0:
             report = ("failed", "copilot gave no answer (exit 0)", None)
@@ -7982,9 +8029,13 @@ def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
     end = next((i for i, e in enumerate(turn) if e.get("type") == "session.shutdown"), None)
     if end is None:
         return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
+    quota = copilot_quota_error(turn[:end])
+    if quota:
+        return "failed", note_copilot_limit(quota), None
     text, model = turn_answer(turn[:end])
     if not text:
         return "failed", "copilot gave no answer (exit 0)", None
+    clear_copilot_limit()
     return "done", text, model
 
 
@@ -8313,10 +8364,10 @@ def asker_task(args: argparse.Namespace, run_id: str, repo: Path, target: tuple 
 
 def fresh_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, kind: str, task: str, body: str,
                 pr: str | None, number: int | None, base: str | None, collect: dict | None = None) -> dict:
-    """A fresh Claude or agy asker in `repo` (a reviewer: a pane at the PR head, at REVIEW_EFFORT when its
+    """A fresh Claude or agy asker in `repo` (a reviewer: a pane at the PR head, at `review.effort` when its
     size has no plan phase), spawned with its task; `collect` marks it for a fan-out."""
     slug = free_slug(run_id, repo, args.name or (f"review-{number}-{kind}" if pr else ask_slug(body)))
-    # A large reviewer already plans at DEFAULT_EFFORT; passing REVIEW_EFFORT there would read as a named
+    # A large reviewer already plans at its `plan_effort`; passing `review.effort` there would read as a named
     # effort and carry into the execution phase of a fix it is later given.
     sized = size_policy(kind, args.size or "large") is not None
     spawn = argparse.Namespace(
@@ -9804,8 +9855,9 @@ WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status",
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
 SANDBOX_HINT = ("To try mesh commands out (reviewing agent-mesh itself, say), point MESH_HOME, MESH_WORKTREES and "
-                "MESH_PEERS_DIR at temp dirs, and MESH_HERDR and MESH_CLAUDE at a missing binary: the defaults are "
-                "this machine's real state, which every agent uses. The user in a shell left with a worker's "
+                "MESH_PEERS_DIR at temp dirs, MESH_CONFIG_FILE at a temp file, MESH_HERDR at a missing binary and "
+                "MESH_CLAUDE at one that does nothing (/bin/false, so Claude still counts as installed): the "
+                "defaults are this machine's real state, which every agent uses. The user in a shell left with a worker's "
                 "variables runs `env -u MESH_RUN -u MESH_SELF -u MESH_PARENT -u MESH_ROLE mesh …`.")
 
 
@@ -10119,7 +10171,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
             print(f"  {note}")
     else:
         print("agy: `agy -p /usage` gave no quota rows")
-    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used (MESH_QUOTA_STOP)")
+    print(f"\nreserve: mesh starts nothing new on a quota once {quota_stop()}% of it is used ({quota_stop_text()})")
     return 0
 
 
@@ -10893,11 +10945,10 @@ def routing() -> dict:
         policy[leaf] = {"value": value, "source": source}
 
     def auto(size: str) -> list[str]:
-        picked: list[str] = []
-        for slot in policy[f"review.reviewers.{size}"]["value"]:
-            picked += [next(k for k in slot if k not in picked and installed(k))] if any(
-                k not in picked and installed(k) for k in slot) else []
-        return picked
+        if config_error:
+            return []
+        clis = {kind: installed(kind) for kind in ASK_KINDS}
+        return pick_slots(size, set(), [], lambda kind, _: (clis[kind], ""))
 
     return {"config": {"path": str(path), "exists": path.exists(), "error": config_error},
             "installed": {kind: shutil.which(cli_binary(kind)) for kind in ASK_KINDS},

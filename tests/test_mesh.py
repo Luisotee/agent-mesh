@@ -7986,7 +7986,7 @@ def test_run_cli_turns_a_launch_error_into_a_failed_run(monkeypatch):
 
 def test_copilot_answer_skips_lines_that_are_not_events(mesh):
     out = '[1, 2]\n"x"\n3\nnot json\n' + copilot_jsonl("Fine.")
-    assert mesh.copilot_answer(out) == ("Fine.", "gpt-5.6-luna")
+    assert mesh.turn_answer(mesh.json_events(out.splitlines())) == ("Fine.", "gpt-5.6-luna")
 
 
 def test_a_busy_copilot_asker_is_not_asked_or_opened_twice(mesh, fake, cli, run, repo, capsys):
@@ -10797,6 +10797,20 @@ def test_copilot_over_its_quota_is_left_out_of_auto_rounds(mesh, monkeypatch):
     limit = json.loads(mesh.copilot_limit_path().read_text())
     mesh.copilot_limit_path().write_text(json.dumps({**limit, "until": time.time() - 1}))  # it may have reset
     assert mesh.pick_reviewers("small")[0] == ["copilot"]
+    mesh.note_copilot_limit("quota")
+    mesh.clear_copilot_limit()  # what an answer from Copilot does: topped up
+    assert mesh.pick_reviewers("small")[0] == ["copilot"]
+
+
+def test_a_killed_asks_copilot_quota_error_sets_the_hold_too(mesh, tmp_path):
+    events = tmp_path / "events.jsonl"
+    events.write_text("\n".join(json.dumps(e) for e in [
+        {"type": "user.message", "data": {"content": "Review it."}},
+        {"type": "session.error", "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
+        {"type": "session.shutdown", "data": {}}]) + "\n")
+    kind, body, _ = mesh.copilot_turn({"events": str(events)}, "Review it.")
+    assert kind == "failed" and body.startswith("Copilot is over its quota: monthly quota")
+    assert mesh.copilot_limit()["message"] == "monthly quota"
 
 
 def test_a_bare_repo_name_is_looked_up_in_repos_dir(mesh, repo, monkeypatch, tmp_path):
@@ -10846,3 +10860,65 @@ def test_the_readmes_config_example_is_the_built_in_policy(mesh):
     config = mesh.load_config()
     assert set(config) == set(mesh.POLICY)
     assert {leaf for leaf in config if config[leaf] != mesh.POLICY[leaf][0]} == {"repos_dir"}
+
+
+def test_a_bg_worker_reopened_after_skip_permissions_went_off_moves_to_a_pane(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_worker(mesh, run, phase="plan", exec_model="opus", exec_effort="medium", repo=str(repo))
+    sent_plan(mesh, run)
+    bg_cli(cli, rows=[{"id": "abcdef12", "sessionId": "new-s", "status": "idle", "pid": 2}], short="abcdef12")
+    stub_new_pane(fake)
+    with_config({"skip_permissions": False})
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["view"] == "pane" and "bg_id" not in entry and entry["phase"] == "exec"
+    assert cli.called("stop") and not cli.called("--bg")
+    assert "--resume" in started(fake) and "--dangerously-skip-permissions" not in started(fake)
+    assert any(e["event"] == "view_changed" for e in mesh.read_log(run))
+    capsys.readouterr()
+
+
+def test_a_bare_name_prefers_repos_dir_over_a_subfolder_here_and_refuses_two_repos(mesh, repo, tmp_path, monkeypatch):
+    (repo / "tests").mkdir()
+    shelf = tmp_path / "shelf"
+    other = shelf / "tests"
+    other.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=other, check=True)
+    with_config({"repos_dir": [str(shelf)]})
+    monkeypatch.chdir(repo)
+    assert mesh.resolve_repo("tests") == other.resolve()  # not this repo's tests/ folder
+    assert mesh.resolve_repo("./tests") == repo.resolve()  # a path is a path
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path / "tests", check=True)
+    with pytest.raises(mesh.MeshError, match="--repo tests is ambiguous"):
+        mesh.resolve_repo("tests")
+
+
+def test_an_unfilled_slot_says_why_without_calling_the_round_empty(mesh, monkeypatch):
+    clis(monkeypatch, "agy", "copilot")
+    with_quotas(mesh, monkeypatch)
+    assert mesh.pick_reviewers("large") == (["agy"], ["Claude Code isn't installed"])
+
+
+def test_reserve_messages_name_where_the_line_comes_from(mesh, monkeypatch):
+    assert mesh.quota_stop_text() == "quota_stop=90, built in"
+    path = with_config({"quota_stop": 80})
+    assert mesh.quota_stop_text() == f"quota_stop=80 in {path}"
+    monkeypatch.setenv("MESH_MIN_QUOTA", "15")
+    assert mesh.quota_stop_text() == "MESH_MIN_QUOTA=15"
+
+
+def test_an_unreadable_config_is_a_mesh_error(mesh, capsys):
+    path = Path(os.environ["MESH_CONFIG_FILE"])
+    path.mkdir()  # a folder where the file should be
+    with pytest.raises(mesh.MeshError, match=f"config {re.escape(str(path))}: "):
+        mesh.setting("quota_stop")
+    assert mesh.main(["routing"]) == 1
+    assert "ERROR: config" in capsys.readouterr().out
+
+
+def test_an_empty_plan_chain_is_refused_not_replaced(mesh):
+    with_config({"models": {"agy": {"plan": []}}})
+    with pytest.raises(mesh.MeshError, match="models.agy.plan should be a non-empty list"):
+        mesh.plan_chain("agy")

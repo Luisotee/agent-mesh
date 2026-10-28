@@ -135,14 +135,15 @@ chmod +x "$REPO/bin/mesh"
 link "$REPO/bin/mesh" "$BIN_DIR/mesh"
 link "$REPO/protocol" "$CONFIG_LINK"
 # Each CLI's skills and rules go in only when it is installed, and a skill whose workers' CLI is missing is left
-# out (a link of ours already there is removed): re-run this after installing the other CLI.
+# out. A missing CLI only means no new links: what an earlier install put in place stays (the CLI may be on another
+# shell's PATH); only --uninstall removes it. Re-run this after installing the other CLI.
 for i in "${!SKILL_ROOTS[@]}"; do
   root="${SKILL_ROOTS[$i]}"
   for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   if has "${ROOT_CLIS[$i]}"; then
     set_block "${RULE_FILES[$i]}" 1
   else
-    echo "skip: ${ROOT_CLIS[$i]} is not on PATH, so nothing goes into $root or ${RULE_FILES[$i]}"
+    echo "skip: ${ROOT_CLIS[$i]} is not on PATH, so nothing new goes into $root or ${RULE_FILES[$i]}"
   fi
   if [[ "$PLUGIN" == 1 && "$root" == "$HOME/.claude/skills" ]]; then
     for skill in "${SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done  # the plugin has them
@@ -152,8 +153,6 @@ for i in "${!SKILL_ROOTS[@]}"; do
     need="$(skill_needs "$skill")"
     if has "${ROOT_CLIS[$i]}" && { [[ -z "$need" ]] || has "$need"; }; then
       link "$REPO/skills/$skill" "$root/$skill"
-    else
-      unlink_if_ours "$root/$skill"
     fi
   done
 done

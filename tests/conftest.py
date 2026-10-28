@@ -134,7 +134,7 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.delenv("MESH_MIN_FREE_MB", raising=False)
     # Never this machine's policy file or folders (a test that wants a config writes one here, see with_config).
     monkeypatch.setenv("MESH_CONFIG_FILE", str(tmp_path / "agent-mesh.json"))
-    for key in ("MESH_REPOS_DIR", "MESH_PEERS_DIR", "MESH_COPILOT_MODEL"):
+    for key in ("MESH_REPOS_DIR", "MESH_PEERS_DIR", "MESH_COPILOT_MODEL", "MESH_CLAUDE"):
         monkeypatch.delenv(key, raising=False)
     # Every CLI counts as installed, whatever this machine has; `clis()` narrows it.
     real_which = shutil.which
