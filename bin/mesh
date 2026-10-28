@@ -3944,6 +3944,9 @@ def cmd_send(args: argparse.Namespace) -> int:
                                                                                 stored=stored)
     if result.get("retired"):
         return send_resumed(run_id, me, to, args.type, body, Path(result["stored"]))
+    if args.type in FINAL_TYPES and not result.get("collected") \
+            and agent_entry(load_run(run_id), me).get("role") == "worker":
+        quietly(ensure_retirer, run_id)  # its idle retire, whether or not a watch runs (design §18)
     emit(result)
     if result.get("retiring"):
         print(f"warning: stored, not rung: {result['error']}", file=sys.stderr)
@@ -4790,6 +4793,40 @@ def retirable(run_id: str, name: str, entry: dict, events: list[dict]) -> dict |
     return report
 
 
+ATTACH_SCAN = 4  # how many of a `claude` process's first arguments `viewer` looks through for `attach`
+
+
+def viewer(name: str, entry: dict, table: list[dict] | None = None) -> str | None:
+    """Why the user may be looking at a worker, which holds its auto-retire (design §18, "Viewers"), else None.
+
+    A background worker: a `claude attach` client of its session is running (`mesh open` runs one). Claude Code
+    keeps its attach clients to itself, but the client is a process for as long as it is attached. Its argument
+    is the job id, the session id or part of the session name (the worker's name), so a short part of a name may
+    hold several workers: holding is the safe side. A pane worker: herdr has its pane focused (one pane at a time).
+    Anything unreadable (no /proc, a herdr error) holds nothing."""
+    if entry.get("view") == "bg":
+        keys = [k for k in (entry.get("bg_id"), entry.get("session")) if k]
+        for proc in process_table() if table is None else table:
+            argv = [a for a in proc["argv"] if a]
+            if agent_binary(argv) != "claude":
+                continue
+            args = argv[2:] if Path(argv[0]).name in INTERPRETERS else argv[1:]  # `node …/claude attach <id>`
+            at = next((i for i, a in enumerate(args[:ATTACH_SCAN]) if a == "attach"), None)  # `--debug attach`
+            if at is None or at + 1 >= len(args):
+                continue
+            target = args[at + 1]
+            if target in keys or target.lower() in name.lower():
+                return f"attached (`claude attach`, pid {proc['pid']})"
+        return None
+    if not entry.get("pane"):
+        return None
+    try:
+        pane = herdr("pane", "get", entry["pane"]).get("pane") or {}
+    except (HerdrError, MeshError):
+        return None
+    return "its pane is focused" if pane.get("focused") is True else None
+
+
 def declared_wait(events: list[dict], name: str) -> dict | None:
     """The wait `name` declared for its current task (its `send` event, `until` in ISO): sent since its last task
     or answer and after its newest report. A new task or answer, or a report, ends it. `turned` is set once the
@@ -5123,6 +5160,9 @@ class Watch:
         self.idle_at: float | None = None  # when this watch first read it idle, in the current run of idle readings
         self.retire_tried: str | None = None  # the report (its file) this watch last tried to retire it after
         self.auto_retired = False  # this watch retired it, idle after its report
+        self.retire_held: str | None = None  # the report (its file) whose retire a viewer held, logged once
+        self.gone_polls = 0  # the run's retirer: polls in a row it read this worker gone (retire_poll)
+        self.gone_after: str | None = None  # ...and the report after which it let it go as ended
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -5186,12 +5226,11 @@ class Watch:
         if state in ("idle", "done"):
             # One idle reading isn't the end of a turn: agy shows no spinner for a few seconds between steps.
             self.idle_for = 0.0 if self.idle_for is None else self.idle_for + interval
-            self.idle_at = self.idle_at or time.time()
             if self.idle_for >= self.grace and (self.worked or self.idle_from_start(events)):
                 event = self.stopped(entry, bg, events)
                 if event:
                     return event
-            self.maybe_retire(entry, bg, events)
+            self.idle_tick(entry, state, events)
             return None
         self.idle_for = None
         if state == "working":
@@ -5200,14 +5239,16 @@ class Watch:
             return self.hung(entry, bg, state, events)
         return None
 
-    def maybe_retire(self, entry: dict, bg: bool, events: list[dict]) -> None:
+    def maybe_retire(self, entry: dict, bg: bool, events: list[dict], report: dict | None = None) -> None:
         """Retire a worker that reported `done` or `failed` and has been idle `idle_retire` seconds since (design
         §18): an idle process holds memory and buys nothing over a resume, which `mesh send` and `mesh ask` do.
         Idle since its report and its last transcript write (this watch's first idle reading when it has none
-        to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane.
+        to read), so a restarted watch doesn't start the count again. Not while a user's draft is in its pane,
+        nor while the user looks at it (`viewer`: attached, or its pane focused).
         A failed retire is logged and not tried again for that report; one a new message called off is."""
         run_id, name = self.run_id, self.name
-        report = retirable(run_id, name, entry, events) if self.idle_retire else None
+        if report is None:
+            report = retirable(run_id, name, entry, events) if self.idle_retire else None
         if not report or report.get("file") == self.retire_tried:
             return
         progress = last_progress(entry, self.conversation(entry))
@@ -5216,6 +5257,13 @@ class Watch:
             return
         if not bg and human_draft(pane_lines(name, ansi=True)):
             return  # the user is typing to it
+        why = viewer(name, entry)
+        if why:  # the user is looking at it: retired once they leave, if it is still idle
+            if self.retire_held != report.get("file"):
+                self.retire_held = report.get("file")
+                log_event(run_id, "retire_held", name=name, file=report.get("file"), why=why)
+            return
+
         def still(agent: dict) -> bool:  # under the run lock: a message stored since stops it (see deliver)
             again = retirable(run_id, name, agent, read_log(run_id))
             return bool(again) and again.get("file") == report.get("file")
@@ -5229,6 +5277,15 @@ class Watch:
             return
         log_event(run_id, "auto_retire", name=name, file=report.get("file"), idle=int(idle))
         self.auto_retired = True
+
+    def idle_tick(self, entry: dict, state: str, events: list[dict], report: dict | None = None) -> None:
+        """The retire half of `tick`'s idle branch, for the run's retirer too (retire_poll, which passes the
+        `retirable` report it already has): no nudges, no alerts."""
+        if state not in ("idle", "done"):
+            self.idle_at = None
+            return
+        self.idle_at = self.idle_at or time.time()
+        self.maybe_retire(entry, entry.get("view") == "bg", events, report)
 
     def report_event(self, events: list[dict], alerts_only: bool) -> tuple[int, str] | None:
         """A report nobody has read yet (first tick only), or a `done`/`failed` sent since the watch started."""
@@ -5766,6 +5823,165 @@ def retire_worker(run_id: str, name: str, entry: dict, still=None) -> bool:
     return True
 
 
+# The run's retirer (design §18): a detached process a worker's `done`/`failed` starts, so a worker is retired
+# when idle whether or not a `mesh watch` runs (an agy root runs none, a Claude root's ends at its timeout).
+RETIRER_POLL = 30.0  # seconds between its polls
+
+
+def retirer_lock_path(run_id: str) -> Path:
+    return run_dir(run_id) / "retirer.lock"
+
+
+def ensure_retirer(run_id: str) -> int | None:
+    """Start the run's retirer unless one runs (it holds the lock) or idle retire is off; its pid, or None.
+    Called after the report is logged, so a retirer letting go of the lock re-checks and sees it (run_retirer)."""
+    if not idle_retire():
+        return None
+    handle = retirer_lock_path(run_id).open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    try:
+        return start_retirer(run_id, handle)
+    finally:
+        handle.close()  # the child holds the lock now: same open file, its own descriptor
+
+
+def start_retirer(run_id: str, handle) -> int:
+    """Start `mesh retirer` detached, handing it the locked `handle` (as start_reset does). It runs as
+    nobody: the starter is usually a worker, whose pane id `worker_caller` would map back to it (refused by
+    `check_worker`), and from the run dir, since `sweep_worktrees` stops ttyless orphans in a worktree."""
+    log = run_dir(run_id) / "logs" / "retirer.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    argv = [sys.executable, str(Path(__file__).absolute()), "retirer", "--run", run_id,
+            "--lock-fd", str(handle.fileno())]
+    with open(log, "a") as out:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=claude_env(),
+                                cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
+    log_event(run_id, "retirer_started", pid=proc.pid)
+    return proc.pid
+
+
+RETIRER_GONE_POLLS = 3  # polls in a row a reported worker must read gone before the retirer lets it go
+
+
+def retire_pass(run_id: str, watches: dict[str, "Watch"]) -> bool:
+    """One poll of the retirer; True while it should keep running (see retire_poll). A poll that fails on an
+    error (the process table, a lock file) is tried again at the next one."""
+    try:
+        return retire_poll(run_id, watches)
+    except (MeshError, OSError) as exc:
+        print(f"{now_iso()} {exc}", flush=True)
+        return True
+
+
+def gone_counts(entry: dict) -> bool:
+    """Whether a `gone` reading means the worker ended: not while it is being reopened (`starting` within
+    STARTING_GRACE, `relaunching`, `held`) or retired (`retiring`)."""
+    status = entry.get("status")
+    if status == "retiring" or entry.get("relaunching") or entry.get("held"):
+        return False
+    return not (status == "starting" and seconds_since(last_launch(entry)) < STARTING_GRACE)
+
+
+def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
+    """It keeps running for any worker whose newest report since its last task or answer is a `done` or `failed`,
+    that isn't retired, whose retire after that report didn't fail (here or in a watch: `auto_retire_failed`) and
+    that didn't read gone RETIRER_GONE_POLLS polls in a row: a state that only holds the retire for now (unread
+    mail, a wait, held, starting, retiring) keeps it, as nothing would start it again. Each such worker no `mesh
+    watch` covers is read every poll (a gone one too, while the retirer runs, so one resumed counts again); while
+    `retirable` names it, the watch's own path retires it (`Watch.idle_tick`, then `maybe_retire`). A poll that
+    can't read the background sessions (`read_claude_agents`) skips them. A worker that left (a new task, retired)
+    loses its Watch, so a stale idle count never retires it after a burst of work. While a `mesh stop` is under
+    way it retires nothing and keeps running, until the run is stopped (or the stop failed)."""
+    run = maybe_run(run_id)
+    if not run or run_stopped(run_id):
+        return False
+    events = read_log(run_id)
+    failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
+    candidates, pending = {}, set()
+    for name, entry in run["agents"].items():
+        report, _ = last_report(events, name)
+        if (entry.get("role") != "worker" or entry.get("view") == "headless" or entry.get("status") == "retired"
+                or not report or report.get("type") not in FINAL_TYPES
+                or report.get("file") in (failed.get(name), watches.get(name) and watches[name].retire_tried)):
+            continue
+        candidates[name] = (entry, report)
+        if not (name in watches and watches[name].gone_after == report.get("file")):
+            pending.add(name)
+    for name in set(watches) - set(candidates):
+        del watches[name]
+    if stop_under_way(events):
+        return True  # it is closing them: nothing to retire, and a failed stop leaves them to this retirer
+    unwatched_ones = {n: c for n, c in candidates.items() if not watched(run_id, n)}
+    for name in set(candidates) - set(unwatched_ones):
+        if name in watches:
+            watches[name].idle_at = None  # its watch judges it meanwhile
+    bg_rows = read_claude_agents() if any(e.get("view") == "bg" for e, _ in unwatched_ones.values()) else []
+    for name, (entry, report) in unwatched_ones.items():
+        if entry.get("view") == "bg" and bg_rows is None:
+            continue  # `claude agents` failed: can't tell this poll
+        if name not in watches:
+            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire())
+        watch = watches[name]
+        try:
+            state = agent_status(name, entry, bg_rows or [])
+        except (MeshError, OSError) as exc:  # herdr can't be read now: try at the next poll
+            print(f"{now_iso()} {name}: {exc}", flush=True)
+            continue
+        if state == "gone" and gone_counts(entry):
+            watch.idle_at, watch.gone_polls = None, watch.gone_polls + 1
+            if watch.gone_polls >= RETIRER_GONE_POLLS:  # ended after its report: nothing to retire
+                watch.gone_after = report.get("file")
+                pending.discard(name)
+            continue
+        if watch.gone_polls or watch.gone_after:  # back (resumed with no task): count it again
+            watch.gone_polls, watch.gone_after = 0, None
+            pending.add(name)
+        again = retirable(run_id, name, entry, events)
+        if again:
+            watch.idle_tick(entry, state, events, again)
+        else:
+            watch.idle_at = None  # may not be retired now (unread mail, a wait, held, starting…)
+    return bool(pending)
+
+
+def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.sleep) -> int:
+    """The retirer's loop, holding the run's retirer lock (`handle`), until no worker may be retired, the run
+    is gone or stopped, or idle retire is off. Before it exits it lets go of the lock and looks once more: a
+    report logged before that look is seen, and a `send` logged after it finds the lock free and starts one."""
+    watches: dict[str, Watch] = {}
+    while True:
+        if idle_retire() and retire_pass(run_id, watches):
+            sleep(poll)
+            continue
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        if not idle_retire() or not retire_pass(run_id, watches):
+            return 0
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0  # a newer retirer has it
+        sleep(poll)
+
+
+def cmd_retirer(args: argparse.Namespace) -> int:
+    """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
+    if args.lock_fd is not None:
+        handle = os.fdopen(args.lock_fd, "a")
+    else:  # by hand: only when none runs
+        handle = retirer_lock_path(args.run).open("a")
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("mesh: this run's retirer is already running", file=sys.stderr)
+            return 0
+    with handle:
+        return run_retirer(args.run, handle)
+
+
 # ── past workers: agents, resume, open ───────────────────────────────────
 
 
@@ -6273,13 +6489,17 @@ def owes_plan(run_id: str, name: str) -> bool:
 def resume_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
     started: list[dict] = []  # its `resuming` event, once logged, with its memory reservation
     try:
-        return reopen_worker(args, run_id, me, started)
+        result = reopen_worker(args, run_id, me, started)
     except BaseException:
         # only while nothing was launched (reopen_worker drops it from the event then)
         quietly(release_memory, [event.get("reservation") for event in started])
         for event in started:  # so a `mesh watch --any` stops waiting for it
             quietly(log_event, run_id, "resume_failed", from_name=event["name"], from_run=event["from_run"])
         raise
+    report, _ = last_report(read_log(run_id), result["name"])
+    if report and report.get("type") in FINAL_TYPES:  # reopened with nothing new: idle after its report again
+        quietly(ensure_retirer, run_id)
+    return result
 
 
 def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[dict]) -> dict:
@@ -9525,6 +9745,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = ident(sub.add_parser("retire", help="close a child's pane (its worktree stays)"))
     p.add_argument("agent")
     p.set_defaults(func=cmd_retire)
+    p = sub.add_parser("retirer", help="internal: the run's retirer, which a worker's report starts")
+    p.add_argument("--run", required=True)
+    p.add_argument("--lock-fd", type=int, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_retirer)
 
     p = sub.add_parser("agents", help="past and present workers of every run, with branches and PRs")
     p.add_argument("query", nargs="?", help="filter on name, repo, branch or PR link")

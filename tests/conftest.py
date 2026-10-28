@@ -142,6 +142,10 @@ def mesh(tmp_path, monkeypatch):
     # ...nor any other of its processes (the sweep), and never a real signal: a test that wants either fakes it.
     monkeypatch.setattr(module, "process_table", lambda: [])
     monkeypatch.setattr(module, "kill_process", refuse_kill)
+    # Never a real detached retirer (a worker's `done` starts one): `module.retirers` lists what would have started.
+    module.retirers = []
+    module.real_start_retirer = module.start_retirer
+    monkeypatch.setattr(module, "start_retirer", lambda run_id, handle: module.retirers.append(run_id) or 4242)
     return module
 
 
