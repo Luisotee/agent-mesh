@@ -390,3 +390,7 @@ Why a mailbox instead of an MCP server, why not Claude Code's native agent teams
 ```bash
 uvx pytest -q tests       # herdr is stubbed; git worktree tests use real temp repos
 ```
+
+## License
+
+[0BSD](LICENSE): use, copy, modify and distribute it for any purpose, no attribution required.
