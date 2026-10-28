@@ -6,9 +6,10 @@ description: >-
   first, and each PR gets one review (agy while it has quota, else Copilot, else Claude), or two for a large PR (Claude plus agy or Copilot), in one round (one root wake), except a
   trivial or small task's or group's PR of up to 150 lines touching nothing risky, which the root reviews itself. Also
   asks the registered peer projects a question. Use it, typed or not, when the user wants work or a question handed to
-  agents in other repos ("have agy do it", "delegate to Gemini", "ask the shop-api agent") and names no other CLI
+  agents, in this repo or others ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), or when you judge workers would do it better (several
+  repos, a task list, parallel work, a long job you would otherwise do inline), and names no other CLI
   (Claude, Opus, Sonnet, Fable); with none named, use it when you are agy. Not for a PR review the user asks for
-  (/delegate-review), a research round by the peers (/harvest-peers), work in your own repo alone, or a mesh worker
+  (/delegate-review), a research round by the peers (/harvest-peers), or a mesh worker
   (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>
 ---
