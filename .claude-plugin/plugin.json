@@ -6,7 +6,7 @@
   },
   "homepage": "https://github.com/Luisotee/agent-mesh",
   "repository": "https://github.com/Luisotee/agent-mesh",
-  "license": "0BSD",
+  "license": "MIT",
   "keywords": [
     "agents",
     "orchestration",

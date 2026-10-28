@@ -393,4 +393,4 @@ uvx pytest -q tests       # herdr is stubbed; git worktree tests use real temp r
 
 ## License
 
-[0BSD](LICENSE): use, copy, modify and distribute it for any purpose, no attribution required.
+[MIT](LICENSE).
