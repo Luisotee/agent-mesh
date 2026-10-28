@@ -1,0 +1,16 @@
+{
+  "name": "agent-mesh",
+  "owner": {
+    "name": "Luisotee"
+  },
+  "metadata": {
+    "description": "agent-mesh: delegate work, questions and PR reviews to agents running inside other repos."
+  },
+  "plugins": [
+    {
+      "name": "agent-mesh",
+      "source": "./",
+      "description": "agent-mesh's skills: delegate-claude, delegate-agy, delegate-review, check-plan, find-peers, harvest-peers, make-concise."
+    }
+  ]
+}
