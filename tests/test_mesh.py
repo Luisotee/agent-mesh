@@ -10819,10 +10819,10 @@ def test_a_bare_repo_name_is_looked_up_in_repos_dir(mesh, repo, monkeypatch, tmp
     with_config({"repos_dir": [str(tmp_path / "none"), str(tmp_path)]})
     assert mesh.resolve_repo("proj") == repo.resolve()
     assert mesh.resolve_repo(str(repo)) == repo.resolve()
-    with pytest.raises(mesh.MeshError, match="no repo nope here or in"):
+    with pytest.raises(mesh.MeshError, match="--repo nope: no repo of that name here or in"):
         mesh.resolve_repo("nope")
     monkeypatch.setenv("MESH_REPOS_DIR", str(tmp_path / "none"))  # the env var beats the file
-    with pytest.raises(mesh.MeshError, match="no repo proj"):
+    with pytest.raises(mesh.MeshError, match="--repo proj: no repo of that name"):
         mesh.resolve_repo("proj")
 
 
@@ -10922,3 +10922,109 @@ def test_an_empty_plan_chain_is_refused_not_replaced(mesh):
     with_config({"models": {"agy": {"plan": []}}})
     with pytest.raises(mesh.MeshError, match="models.agy.plan should be a non-empty list"):
         mesh.plan_chain("agy")
+
+
+def test_a_plain_folder_in_repos_dir_never_shadows_a_repo_here(mesh, repo, tmp_path, monkeypatch):
+    nested = repo / "x"
+    nested.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=nested, check=True)  # a nested clone: its own top
+    (tmp_path / "shelf" / "x").mkdir(parents=True)  # a plain folder of that name in repos_dir
+    with_config({"repos_dir": [str(tmp_path / "shelf")]})
+    monkeypatch.chdir(repo)
+    assert mesh.resolve_repo("x") == nested.resolve()
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mesh.MeshError, match=r"--repo x: no repo of that name here or in .*shelf \(.*shelf/x: a folder, not a repo's top\)"):
+        mesh.resolve_repo("x")
+
+
+def test_a_bare_name_that_is_a_plain_subfolder_here_is_refused(mesh, repo, monkeypatch):
+    (repo / "docs").mkdir()
+    monkeypatch.chdir(repo)
+    with pytest.raises(mesh.MeshError, match=r"a folder inside .*proj: pass ./docs if you mean that repo"):
+        mesh.resolve_repo("docs")
+    assert mesh.resolve_repo("./docs") == repo.resolve()
+    with pytest.raises(mesh.MeshError, match="isn't a folder"):
+        mesh.resolve_repo("./nope")
+
+
+def bg_asker_with_skip_off(mesh, run, repo, cli, stop=0):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(repo), repo=str(repo))
+    bg_cli(cli, rows=[{"id": "old1", "sessionId": "s-1", "status": "idle", "pid": 5}])
+    at_stop = []
+    cli.on("stop", returncode=stop,
+           effect=lambda argv: at_stop.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["status"]))
+    with_config({"skip_permissions": False})
+    return at_stop
+
+
+def test_a_direct_task_moves_a_bg_asker_to_a_pane_when_skip_permissions_is_off(mesh, fake, cli, run, repo, capsys):
+    at_stop = bg_asker_with_skip_off(mesh, run, repo, cli)
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["read_only_lifted"] is True and out["stored"]
+    assert at_stop == ["starting"]  # a watch polling during the stop excuses the gap
+    argv = fake.called("agent", "start")[-1]
+    assert "--resume" in argv and not deny_rules(argv) and "--dangerously-skip-permissions" not in argv
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["view"], entry["status"], entry.get("bg_id")) == ("pane", "running", None)
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1  # stored once, by the move, not again by the caller
+
+
+def test_a_failed_pane_after_the_bg_stop_keeps_the_task_for_a_resume(mesh, fake, cli, run, repo, capsys):
+    bg_asker_with_skip_off(mesh, run, repo, cli)
+    stub_new_pane(fake)
+    fake.on("agent", "start", errors=["cli_error"] * 10)  # its CLI never starts in the new pane
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
+    err = capsys.readouterr().err
+    assert "is in its mailbox" in err and "The task is stored, so don't send it again" in err
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1  # what the resume it points to reads
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["status"], entry["view"], entry["read_only"]) == ("swap_failed", "pane", False)
+    assert [e for e in mesh.read_log(run) if e["event"] == "swap_failed"]
+
+
+def test_a_bg_stop_that_fails_reopens_nothing_and_sends_nothing(mesh, fake, cli, run, repo, capsys):
+    bg_asker_with_skip_off(mesh, run, repo, cli, stop=1)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", DIRECT_FIX]) == 1
+    assert "would run in two processes" in capsys.readouterr().err
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["view"], entry["bg_id"], entry["status"], entry["read_only"]) == ("bg", "old1", "running", True)
+    assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
+
+
+def test_a_late_answer_from_before_copilots_quota_error_leaves_the_hold(mesh, tmp_path):
+    hour = 3600
+    mesh.note_copilot_limit("monthly quota", at=time.time() - hour)
+    mesh.clear_copilot_limit(at=time.time() - 2 * hour)  # an orphaned answer from before the error
+    assert mesh.copilot_limit()
+    mesh.note_copilot_limit("older error", at=time.time() - 3 * hour)  # doesn't move the hold back
+    assert mesh.copilot_limit()["message"] == "monthly quota"
+    events = tmp_path / "events.jsonl"
+    events.write_text("\n".join(json.dumps(e) for e in [
+        {"type": "user.message", "data": {"content": "Q"}, "timestamp": "2020-01-01T00:00:00Z"},
+        {"type": "assistant.message", "data": {"content": "A"}, "timestamp": "2020-01-01T00:00:05Z"},
+        {"type": "session.shutdown", "data": {}, "timestamp": "2020-01-01T00:00:06Z"}]) + "\n")
+    assert mesh.copilot_turn({"events": str(events)}, "Q")[0] == "done"
+    assert mesh.copilot_limit()  # dated by its events, 2020: before the hold
+    mesh.clear_copilot_limit()  # a live answer now
+    assert mesh.copilot_limit() is None
+
+
+def test_a_quota_error_filed_late_is_dated_by_its_events(mesh, tmp_path):
+    events = tmp_path / "events.jsonl"
+    when = time.time() - 600
+    stamp = datetime.fromtimestamp(when, timezone.utc).isoformat().replace("+00:00", "Z")
+    events.write_text("\n".join(json.dumps(e) for e in [
+        {"type": "user.message", "data": {"content": "Q"}, "timestamp": stamp},
+        {"type": "session.error", "data": {"errorType": "quota", "message": "monthly quota"}, "timestamp": stamp},
+        {"type": "session.shutdown", "data": {}, "timestamp": stamp}]) + "\n")
+    assert mesh.copilot_turn({"events": str(events)}, "Q")[0] == "failed"
+    assert abs(mesh.copilot_limit()["at"] - when) < 1
+
+
+def test_routing_shows_the_built_in_auto_reviewers_while_the_config_is_broken(mesh, capsys):
+    Path(os.environ["MESH_CONFIG_FILE"]).write_text("{oops")
+    assert mesh.main(["routing", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["auto_reviewers"] == {"small": ["agy"], "large": ["claude", "agy"]}

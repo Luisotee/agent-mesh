@@ -500,31 +500,45 @@ def skip_flags() -> list[str]:
     return ["--dangerously-skip-permissions"] if setting("skip_permissions") else []
 
 
+def repo_top(path: Path) -> Path | None:
+    """The top folder of the git repo `path` is in, or None when it isn't in one."""
+    try:
+        return Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
+    except (MeshError, OSError):
+        return None
+
+
 def resolve_repo(arg: str) -> Path:
-    """`--repo`'s top folder: a path as given, or a bare name looked up in `repos_dir`. A bare name that is also a
-    folder here counts as a path only when it is a repo's own top (a `tests/` subfolder would put the worker in this
-    repo instead); when both are repos, it's ambiguous."""
+    """`--repo`'s top folder. A path (`.`, `./x`, `~/x`, `/x`, anything with a slash) is taken as given. A bare name
+    is a repo in `repos_dir` (a folder there that is a repo's own top), or a folder here that is a repo's own top;
+    both is ambiguous, and a bare name that is only a plain folder here is refused, since its enclosing repo is
+    rarely what was meant (pass `./x` for that)."""
     path = Path(arg).expanduser()
-    bare = "/" not in arg and arg not in (".", "..") and not arg.startswith("~")
-    match = next((d / arg for d in repos_dirs() if (d / arg).is_dir()), None) if bare else None
-    local = None
-    if path.exists():
-        try:
-            local = Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
-        except MeshError:
-            if not match:
-                raise
-    if match and (local is None or local != path.resolve()):
-        path = match
-    elif match and local and local != Path(git("rev-parse", "--show-toplevel", cwd=match)).resolve():
+    if "/" in arg or arg in (".", "..") or arg.startswith("~"):
+        top = repo_top(path) if path.is_dir() else None
+        if not top:
+            raise MeshError(f"--repo {arg}: {path.resolve()} " + ("isn't in a git repo" if path.is_dir()
+                                                                  else "isn't a folder"))
+        return top
+    match = next((d / arg for d in repos_dirs() if (d / arg).is_dir() and repo_top(d / arg) == (d / arg).resolve()),
+                 None)
+    local = repo_top(path) if path.is_dir() else None
+    local_is_top = bool(local) and local == path.resolve()
+    if match and local_is_top and local != match.resolve():
         raise MeshError(f"--repo {arg} is ambiguous: {local} here, and {match.resolve()} in repos_dir; pass a path "
                         f"(./{arg}, or the full one)")
-    elif local:
+    if match:
+        return match.resolve()
+    if local_is_top:
         return local
-    elif not match:
-        where = ", ".join(str(d) for d in repos_dirs()) or "nowhere: `repos_dir` isn't set (`mesh routing`)"
-        raise MeshError(f"no repo {arg} here or in {where}")
-    return Path(git("rev-parse", "--show-toplevel", cwd=path)).resolve()
+    where = ", ".join(str(d) for d in repos_dirs()) or "nowhere, since `repos_dir` isn't set (`mesh routing`)"
+    if path.is_dir():
+        raise MeshError(f"--repo {arg}: no repo of that name in {where}, and {path.resolve()} is "
+                        + (f"a folder inside {local}: pass ./{arg} if you mean that repo" if local
+                           else "not in a git repo"))
+    plain = [str(d / arg) for d in repos_dirs() if (d / arg).is_dir()]
+    raise MeshError(f"--repo {arg}: no repo of that name here or in {where}"
+                    + (f" ({', '.join(plain)}: a folder, not a repo's top)" if plain else ""))
 
 
 CLI_NAMES = {"claude": "Claude Code", "agy": "agy", "copilot": "Copilot"}
@@ -2496,17 +2510,42 @@ def copilot_quota_error(events: list[dict]) -> str | None:
     return None
 
 
-def note_copilot_limit(message: str) -> str:
-    """Record a quota error Copilot answered with, and the `failed` text that says so."""
-    now = time.time()
-    write_atomic(copilot_limit_path(), json.dumps({"at": now, "until": now + COPILOT_LIMIT_HOLD, "message": message}))
+def events_time(events: list[dict]) -> float | None:
+    """When the last of these Copilot events was written (their `timestamp`), as epoch seconds."""
+    for event in reversed(events):
+        try:
+            return datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00")).timestamp()
+        except (KeyError, ValueError):
+            continue
+    return None
+
+
+def note_copilot_limit(message: str, at: float | None = None) -> str:
+    """Record a quota error Copilot answered with (`at`: when, if its events say; else now), and the `failed`
+    text that says so. An older error than the one recorded doesn't move the hold back."""
+    at = at or time.time()
+    held = copilot_limit_record()
+    if not held or float(held.get("at") or 0) <= at:
+        write_atomic(copilot_limit_path(), json.dumps({"at": at, "until": at + COPILOT_LIMIT_HOLD,
+                                                       "message": message}))
     return (f"Copilot is over its quota: {message}. mesh leaves it out of `--reviewers auto` for "
             f"{COPILOT_LIMIT_HOLD // 3600} h, or until it next answers")
 
 
-def clear_copilot_limit() -> None:
-    """Copilot answered: whatever quota error it had is over (topped up, or reset)."""
-    copilot_limit_path().unlink(missing_ok=True)
+def clear_copilot_limit(at: float | None = None) -> None:
+    """Copilot answered (`at`: when, if its events say; else now): a quota error recorded before that is over
+    (topped up, or reset). An answer filed late, from before the error, leaves the hold."""
+    held = copilot_limit_record()
+    if held and float(held.get("at") or 0) <= (at or time.time()):
+        copilot_limit_path().unlink(missing_ok=True)
+
+
+def copilot_limit_record() -> dict | None:
+    try:
+        held = json.loads(copilot_limit_path().read_text())
+        return held if isinstance(held, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def reviewer_available(kind: str, size: str, model: str | None = None) -> tuple[bool, str]:
@@ -2523,13 +2562,15 @@ def reviewer_available(kind: str, size: str, model: str | None = None) -> tuple[
 
 
 def pick_slots(size: str, exclude: set[str], notes: list[str],
-               available: Callable[[str, str], tuple[bool, str]] | None = None) -> list[str]:
+               available: Callable[[str, str], tuple[bool, str]] | None = None,
+               slots: list[list[str]] | None = None) -> list[str]:
     """A first round's reviewers: each slot of `review.reviewers.<size>` takes its first candidate that is
     `available` (default reviewer_available) and not picked or excluded; why each one passed over was goes into
-    `notes`. `mesh routing` passes an installed-only check, so it shows what a round would start."""
+    `notes`. `mesh routing` passes an installed-only check and the slots it shows, so it shows what a round
+    would start."""
     available = available or reviewer_available
     picked: list[str] = []
-    for slot in setting(f"review.reviewers.{'large' if size == 'large' else 'small'}"):
+    for slot in slots or setting(f"review.reviewers.{'large' if size == 'large' else 'small'}"):
         passed = []
         for kind in slot:
             if kind in picked or kind in exclude:
@@ -4219,12 +4260,20 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     """
     wait_bg_idle(entry, wait_ms, strict)
     sender, mtype, body = message
-    path = record(run_id, sender, name, mtype, body)
     with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
         e = run["agents"][name]
         e.update(model=model, effort=effort, status="starting", swapped=True, **lifted(entry, lift))
         e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    stop_bg(entry)
+    if not stop_bg(entry):  # a copy launched beside a live session would run its conversation twice
+        with editing_run(run_id) as run:
+            e = run["agents"][name]
+            e.update(model=entry.get("model"), effort=entry.get("effort"), status=entry.get("status") or "running",
+                     **lifted(entry, False))
+            e.pop("swapped", None)
+            e["models"].pop()
+        raise SwapNotStarted(f"`claude stop {entry.get('bg_id')}` failed, so {name} wasn't reopened: its "
+                             "conversation would run in two processes")
+    path = record(run_id, sender, name, mtype, body)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
@@ -4238,7 +4287,9 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
             e.pop("swapped", None)
             e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
-        raise MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry") from exc
+        err = MeshError(f"{name} was not reopened on {model} ({exc}); its {mtype} is in its mailbox, retry")
+        err.stored = path
+        raise err from exc
     with editing_run(run_id) as run:
         e = run["agents"][name]
         e.update(bg_id=bg_id, session=new_session, status="running", inbound=WORKER_INBOUND)
@@ -4275,45 +4326,57 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     if entry.get("view") == "bg" and skip_flags():
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
                        message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift)
+    moved = None  # a background worker moving to a pane: its message, stored once its session has stopped
     if entry.get("view") == "bg":  # skip_permissions turned off since it started: a pane can answer a prompt
         wait_bg_idle(entry, wait_ms, strict)
-        stop_bg(entry)
+        with editing_run(run_id) as run:  # "starting" before the stop, so `mesh watch` doesn't take the gap for an exit
+            run["agents"][name]["status"] = "starting"
+        if not stop_bg(entry):
+            with editing_run(run_id) as run:
+                run["agents"][name]["status"] = entry.get("status") or "running"
+            raise SwapNotStarted(f"`claude stop {entry.get('bg_id')}` failed, so {name} wasn't reopened in a pane: "
+                                 "its conversation would run in two processes")
         log_event(run_id, "view_changed", name=name, view="pane",
                   why="skip_permissions is off, and a background worker can't answer a permission prompt")
         with editing_run(run_id) as run:
             run["agents"][name].update(view="pane")
             run["agents"][name].pop("bg_id", None)
         entry = {**entry, "view": "pane", "bg_id": None}
-    try:  # never cut a turn short: the conversation is only safe to reopen between turns
-        herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
-              timeout=wait_ms / 1000 + 10)
-    except HerdrError as exc:
-        if exc.code == "agent_not_found" and not lost_ok:
-            raise SwapNotStarted(f"herdr doesn't know {name}, so its turn can't be waited for") from exc
-        if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
-            if exc.code == "timeout":
-                raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
-            raise
+        if message:
+            moved = record(run_id, message[0], name, message[1], message[2])
+    else:
+        try:  # never cut a turn short: the conversation is only safe to reopen between turns
+            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
+                  timeout=wait_ms / 1000 + 10)
+        except HerdrError as exc:
+            if exc.code == "agent_not_found" and not lost_ok:
+                raise SwapNotStarted(f"herdr doesn't know {name}, so its turn can't be waited for") from exc
+            if exc.code != "agent_not_found" and (strict or exc.code not in ("timeout", "cli_error")):
+                if exc.code == "timeout":
+                    raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
+                raise
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
     env = mesh_env(run_id, name, entry["parent"], entry["role"])
-    run = load_run(run_id)
-    side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
-    beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
-    if beside:
-        pane, tab, workspace_id = beside
-    else:  # a side worker's recorded workspace is the root's, so it goes to its project's (a peer's: the root's)
-        workspace_id = ((not side and entry.get("workspace"))
-                        or worker_workspace(run_id, Path(entry["repo"]), bool(entry.get("peer")))[0])
-        pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
-    with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
-        e = run["agents"][name]
-        e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                 status="starting", swapped=True, **lifted(entry, lift))
-        e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
-    argv = [*log_argv(entry.get("log")), *claude_deny({**entry, **lifted(entry, lift)}),
-            *resume_argv(entry["kind"], session, model, effort), *skip_flags(),
-            *settings_argv(entry["kind"], env)]
+    recorded = False
     try:
+        run = load_run(run_id)
+        side = bool(entry.get("tab")) and entry["tab"] == run["agents"][run["root"]].get("tab")
+        beside = side and beside_root(run_id, name, Path(entry["cwd"]), env, replacing=entry.get("pane"))
+        if beside:
+            pane, tab, workspace_id = beside
+        else:  # a side worker's recorded workspace is the root's, so it goes to its project's (a peer's: the root's)
+            workspace_id = ((not side and entry.get("workspace"))
+                            or worker_workspace(run_id, Path(entry["repo"]), bool(entry.get("peer")))[0])
+            pane, tab = new_pane(run_id, name, workspace_id, Path(entry["cwd"]), env)
+        with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
+            e = run["agents"][name]
+            e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
+                     status="starting", swapped=True, **lifted(entry, lift))
+            e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
+        recorded = True
+        argv = [*log_argv(entry.get("log")), *claude_deny({**entry, **lifted(entry, lift)}),
+                *resume_argv(entry["kind"], session, model, effort), *skip_flags(),
+                *settings_argv(entry["kind"], env)]
         try:
             if entry.get("pane"):  # none for a background worker moving to a pane
                 herdr("pane", "close", entry["pane"])
@@ -4328,15 +4391,27 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             e.update(model=entry.get("model"), effort=entry.get("effort"), status="swap_failed",
                      **lifted(entry, False))
             e.pop("swapped", None)
-            e["models"].pop()
+            if recorded:
+                e["models"].pop()
         log_event(run_id, "swap_failed", name=name, model=model, effort=effort, why=why, error=str(exc))
+        if moved:  # its session is stopped and its message stored: a resume brings it back, in a pane, to read it
+            err = MeshError(f"{name} was stopped in the background but not reopened in a pane on {model} ({exc}); "
+                            f"its {message[1]} is in its mailbox: `mesh resume {name}` reopens it to read it")
+            err.stored = moved
+            raise err from exc
         raise MeshError(f"{name} was not reopened on {model} ({exc}); look at it with "
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
     result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
     if started.get("held") and message:  # the caller would ring a pane at a startup screen: hold it instead
-        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=stored)
+        result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=moved or stored)
+    elif moved:  # stored above: ring it here, so the caller doesn't store it again
+        token = ring_token()
+        rang = ring_stored(run_id, message[0], name, [name, pane],
+                           doorbell_text(load_run(run_id), message[0], name, message[1], message[2], True, token),
+                           token, moved)
+        result["delivery"] = {"stored": str(moved), "rung": rang["rung"], "error": rang["error"], "via": rang["via"]}
     return result
 
 
@@ -4550,7 +4625,7 @@ def lift_read_only(run_id: str, me: str, to: str, mtype: str, body: str, stored=
         raise MeshError(f"{exc}. Nothing was sent: {to} is {what}, under a deny list that a direct task "
                         f"reopens it without once its turn has ended; send it again then") from exc
     except MeshError as exc:
-        if entry.get("view") != "bg":
+        if not getattr(exc, "stored", None):
             raise  # a pane is given its task only once it's back, so nothing was stored
         # A background worker's task went into its mailbox first, as the copy's opening prompt. That task is a
         # direct one, so neither reason holds any more: the resume this points to reopens it without the list.
@@ -8031,11 +8106,11 @@ def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
         return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
     quota = copilot_quota_error(turn[:end])
     if quota:
-        return "failed", note_copilot_limit(quota), None
+        return "failed", note_copilot_limit(quota, events_time(turn[:end])), None
     text, model = turn_answer(turn[:end])
     if not text:
         return "failed", "copilot gave no answer (exit 0)", None
-    clear_copilot_limit()
+    clear_copilot_limit(events_time(turn[:end]))
     return "done", text, model
 
 
@@ -10944,11 +11019,10 @@ def routing() -> dict:
             value, source = setting_with_source(leaf)
         policy[leaf] = {"value": value, "source": source}
 
-    def auto(size: str) -> list[str]:
-        if config_error:
-            return []
+    def auto(size: str) -> list[str]:  # from the slots shown: the built-ins while the file has an error
         clis = {kind: installed(kind) for kind in ASK_KINDS}
-        return pick_slots(size, set(), [], lambda kind, _: (clis[kind], ""))
+        return pick_slots(size, set(), [], lambda kind, _: (clis[kind], ""),
+                          slots=policy[f"review.reviewers.{size}"]["value"])
 
     return {"config": {"path": str(path), "exists": path.exists(), "error": config_error},
             "installed": {kind: shutil.which(cli_binary(kind)) for kind in ASK_KINDS},
