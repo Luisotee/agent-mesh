@@ -214,10 +214,10 @@ An old conversation has lost its prompt cache, so every turn of a follow-up woul
 
 The root lives longest, and every turn re-reads its whole context: a twentieth of the input price while the prompt cache is warm, the cache-write price (2× the input price on the 1 h cache, 1.25× on the 5-minute one) for all but the system prompt's ~25k (cached across sessions) once the cache has expired (an hour on a Claude subscription within its plan usage, five minutes on usage credits or an API key; mesh reads which from the root's session file). So mesh measures the root too, and the root resets itself, without asking anyone:
 
-- root commands print a `mesh: root context 452k, cache cold since 14:02 …` line when a reset pays: over 300k tokens (`MESH_ROOT_RESET_AT`) with a cold cache, or when the root is about to wait on workers; over twice that while warm. `mesh status` shows the size and cache state in its header;
+- root commands print a `mesh: root context 452k, cache cold since 14:02 …` line when a reset pays: over 200k tokens (`MESH_ROOT_RESET_AT`) with a cold cache, or when the root is about to wait on workers; over twice that while warm. `mesh status` shows the size and cache state in its header;
 - the root writes what the files can't hold to `$(mesh dir)/notes.md` (the user's standing instructions, decisions and why, what's next), runs `mesh reset --next "<what next>"` and ends its turn. A detached process waits until the turn has ended and the input box is empty (never over a draft), types `/clear` (or `/compact <focus>` with `--compact`) into the root's own pane, then a prompt that sends the fresh session to `mesh brief`;
 - `mesh brief` is one bounded view of the run for a fresh root: request, notes, board, each worker's state, what waits on it, PRs, unread mail headers and the old transcript's path, each part capped with a command for the rest;
-- with `MESH_ROOT_AUTORESET=1`, the root's own `mesh watch` resets an idle root over the threshold once its cache is cold.
+- the root's own `mesh watch` resets an idle root over the threshold with no unread report, warm or cold, once it has been quiet 5 minutes after a turn mesh started or 30 minutes after one you started (it may be waiting on you; it writes such a question into notes.md, and asks again after the reset). `MESH_ROOT_AUTORESET=0` turns it off.
 
 ## How it works
 

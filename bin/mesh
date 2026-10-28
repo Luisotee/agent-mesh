@@ -5765,7 +5765,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     is the child's count of final sends before its task was delivered, so a report that lands before the watch
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
     the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
-    `autoreset` (the root's own watch, with MESH_ROOT_AUTORESET=1) resets an idle root whose cache went cold.
+    `autoreset` (the root's own watch, unless MESH_ROOT_AUTORESET=0) resets an idle root over the threshold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
     report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
     retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
@@ -9724,7 +9724,7 @@ def cmd_reserve(args: argparse.Namespace) -> int:
 
 
 CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
-ROOT_RESET_AT = 300_000  # root context tokens past which mesh suggests `mesh reset`
+ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
 RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
@@ -9732,6 +9732,8 @@ CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
 CLEAR_FILE_GRACE = 5  # seconds the root's process file gets to follow a /clear herdr has already reported
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
 AUTORESET_BACKOFF = 3600  # seconds before a root watch starts another idle reset (a failing one shouldn't repeat)
+AUTORESET_QUIET = 300  # seconds a root must have been still after a turn mesh started before its watch resets it
+AUTORESET_USER_QUIET = 1800  # ...after a turn the user started (or when that can't be told): it may wait on them
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
 # herdr's `--lines N` is the screen's last N rows, blank ones under the content included: on a tall pane with
@@ -9780,7 +9782,52 @@ def root_reset_at() -> int:
 
 
 def autoreset_on() -> bool:
-    return os.environ.get("MESH_ROOT_AUTORESET") == "1"
+    """The root's watch resets an idle root (design §15): on unless MESH_ROOT_AUTORESET=0."""
+    return os.environ.get("MESH_ROOT_AUTORESET") != "0"
+
+
+def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) -> bool | None:
+    """Whether the newest turn of a Claude session file was started by the user: True for a prompt typed in the
+    pane (`origin.kind` "human", or none), False for one mesh or a tool brought (a socket doorbell is a `peer`
+    meta entry, a background watch's exit a `task-notification`, a typed doorbell starts with `📬 [mesh]`), None
+    when no prompt is found in the last `limit` bytes. Meta entries, tool results, interrupts and local command
+    output aren't prompts."""
+    try:
+        with open(path, "rb") as fh:
+            end, rest = fh.seek(0, os.SEEK_END), b""
+            stop = max(0, end - limit)
+            while end > stop:
+                start = max(stop, end - chunk)
+                fh.seek(start)
+                lines = (fh.read(end - start) + rest).split(b"\n")
+                rest = lines.pop(0) if start else b""
+                for line in reversed(lines):
+                    if b'"user"' not in line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("type") != "user":
+                        continue
+                    kind = (event.get("origin") or {}).get("kind")
+                    if kind not in (None, "human"):
+                        return False
+                    content = (event.get("message") or {}).get("content")
+                    if event.get("isMeta") or event.get("toolUseResult") is not None or (
+                            isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result"
+                                                              for c in content)):
+                        continue
+                    text = content if isinstance(content, str) else " ".join(
+                        c.get("text") or "" for c in content or [] if isinstance(c, dict))
+                    text = text.lstrip()
+                    if not text or text.startswith(("[Request interrupted", "<local-command")):
+                        continue
+                    return not text.startswith("📬 [mesh]")
+                end = start
+    except OSError:
+        return None
+    return None
 
 
 def pane_agent(pane: str) -> dict:
@@ -10257,8 +10304,11 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
 
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
-    """The root's own watch, with MESH_ROOT_AUTORESET=1: reset a root that is over the threshold, idle, cold and
-    owed nothing. Stricter than `mesh reset`: any unread report holds it, since it acts without the root's say.
+    """The root's own watch (unless MESH_ROOT_AUTORESET=0): reset a root that is over the threshold, idle, owed
+    nothing and quiet, warm or cold (design §15). Quiet is AUTORESET_QUIET since its last turn when mesh started
+    that turn, AUTORESET_USER_QUIET when the user did or it can't be told (`last_turn_by_user`): a root answering
+    the user may be waiting on them. Stricter than `mesh reset`: any unread report holds it, since it acts without
+    the root's say.
     A Claude root herdr reads `unknown` counts as idle when its own process says its turn is over
     (`lost_root_quiet`); when that can't be told, nothing starts, and the next poll looks again."""
     root = run.get("root")
@@ -10269,7 +10319,10 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     if last and age_seconds(last["time"]) < AUTORESET_BACKOFF:
         return False  # a failing one shouldn't repeat every minute (nor every 5 on a 5-minute cache)
     context = root_context(run)
-    if not context or context["tokens"] <= root_reset_at() or not context["cold"] or root_mail(run_id, root):
+    if not context or context["tokens"] <= root_reset_at() or context.get("idle") is None or root_mail(run_id, root):
+        return False
+    by_user = last_turn_by_user(Path(context["transcript"])) if entry.get("kind") == "claude" else None
+    if context["idle"] < (AUTORESET_QUIET if by_user is False else AUTORESET_USER_QUIET):
         return False
     status = pane_agent(entry["pane"]).get("agent_status")
     if status == "unknown" and entry.get("kind") == "claude":
@@ -10280,7 +10333,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
             return False
     elif status not in QUIET_STATES:
         return False
-    start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle with a cold cache",
+    start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle",
                 None, via="watch")
     return True
 

@@ -8851,6 +8851,30 @@ def test_autoreset_resets_a_big_idle_cold_root_owed_nothing(mesh, fake, run, mon
     assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))  # once per AUTORESET_BACKOFF
 
 
+def prompt_line(text, origin=None, meta=False):
+    return json.dumps({"type": "user", "message": {"role": "user", "content": text},
+                       **({"origin": {"kind": origin}} if origin else {}), **({"isMeta": True} if meta else {})})
+
+
+@pytest.mark.parametrize("prompt, quiet", [
+    (prompt_line("Another Claude session sent a message: 📬 [mesh] done from x", "peer", meta=True), 300),
+    (prompt_line("<task-notification>watch exited</task-notification>", "task-notification"), 300),
+    (prompt_line("📬 [mesh] You are repo-lead, the root …", "human"), 300),  # a doorbell typed into the pane
+    (prompt_line("What do you think about PR 31?", "human"), 1800),
+    (prompt_line("What do you think?"), 1800)])
+def test_autoreset_resets_a_warm_quiet_root_sooner_after_a_turn_mesh_started(mesh, fake, run, monkeypatch, prompt,
+                                                                            quiet):
+    for idle, resets in ((quiet - 60, False), (quiet + 60, True)):
+        started = autoreset_root(mesh, fake, monkeypatch, tokens=210_000, idle=idle)
+        path = mesh.claude_sessions_dir("/repo") / "root-s.jsonl"
+        lines = [prompt, prompt_line("[Request interrupted by user]"), prompt_line("note", meta=True),
+                 path.read_text().strip()]
+        path.write_text("\n".join(lines) + "\n")
+        os.utime(path, (time.time() - idle, time.time() - idle))
+        assert bool(mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run))) is resets
+        assert bool(started) is resets
+
+
 def test_autoreset_backs_off_an_hour_even_on_a_five_minute_cache(mesh, fake, run, monkeypatch):
     started = autoreset_root(mesh, fake, monkeypatch)
     path = mesh.claude_sessions_dir("/repo") / "root-s.jsonl"
@@ -8875,11 +8899,12 @@ def test_autoreset_leaves_a_root_alone(mesh, fake, run, monkeypatch, change):
 def test_only_the_roots_own_watch_autoresets(mesh, fake, run, monkeypatch, capsys):
     seen = []
     monkeypatch.setattr(mesh, "watch_agents", lambda *a, **k: seen.append(k["autoreset"]) or (0, "ok"))
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0  # on by default
+    monkeypatch.setenv("MESH_ROOT_AUTORESET", "0")
     assert mesh.main(["watch", "repo-fix-typo"]) == 0
-    monkeypatch.setenv("MESH_ROOT_AUTORESET", "1")
-    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    monkeypatch.delenv("MESH_ROOT_AUTORESET")
     assert mesh.main(["watch", "repo-fix-typo", "--as", "repo-fix-typo"]) == 0
-    assert seen == [False, True, False]
+    assert seen == [True, False, False]
 
 
 def test_brief_is_bounded_and_says_where_the_rest_is(mesh, fake, run, monkeypatch, capsys):
