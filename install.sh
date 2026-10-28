@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install (or --uninstall) agent-mesh for the current user by symlinking this
 # checkout into place and adding a marked block to both global rule files.
-# --plugin: Claude Code gets the skills from the agent-mesh plugin, so they are
-# not linked into ~/.claude/skills (and our old links there are removed).
+# Claude Code gets the skills from the agent-mesh plugin instead when it is
+# installed at user scope, or with --plugin (before installing it): then they
+# are not linked into ~/.claude/skills, and our old links there are removed.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,7 @@ SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
+INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
 PLUGIN_ID="local.mesh-notify"  # herdr/mesh-notify: desktop notifications without the workers' noise
 BEGIN="<!-- agent-mesh:begin (managed by agent-mesh/install.sh) -->"
 END="<!-- agent-mesh:end -->"
@@ -70,10 +72,40 @@ PY
   echo "$( [[ "$add" == 1 ]] && echo updated || echo cleaned ) $file"
 }
 
-PLUGIN=0
-[[ "${1:-}" == "--plugin" ]] && PLUGIN=1
+claude_plugin_installed() { # the agent-mesh Claude Code plugin, from any marketplace, at user scope
+  [[ -f "$INSTALLED_PLUGINS" ]] || return 1
+  python3 - "$INSTALLED_PLUGINS" <<'PY'
+import json, sys
+try:
+    plugins = json.load(open(sys.argv[1])).get("plugins") or {}
+    found = any(key.split("@")[0] == "agent-mesh" and isinstance(entries, list)
+                and any(isinstance(e, dict) and e.get("scope") == "user" for e in entries)
+                for key, entries in plugins.items())
+except (OSError, ValueError, AttributeError):
+    found = False
+sys.exit(0 if found else 1)
+PY
+}
 
-if [[ "${1:-}" == "--uninstall" ]]; then
+USAGE="usage: install.sh [--plugin | --uninstall]"
+PLUGIN=0 UNINSTALL=0
+for arg in "$@"; do
+  case "$arg" in
+    --plugin) PLUGIN=1 ;;
+    --uninstall) UNINSTALL=1 ;;
+    -h|--help) echo "$USAGE"; exit 0 ;;
+    *) echo "install.sh: unknown argument: $arg" >&2; echo "$USAGE" >&2; exit 2 ;;
+  esac
+done
+if [[ "$PLUGIN" == 1 && "$UNINSTALL" == 1 ]]; then
+  echo "install.sh: --plugin and --uninstall don't go together" >&2; echo "$USAGE" >&2; exit 2
+fi
+if [[ "$UNINSTALL" == 0 && "$PLUGIN" == 0 ]] && claude_plugin_installed; then
+  PLUGIN=1
+  echo "the agent-mesh Claude Code plugin is installed: its skills stay out of ~/.claude/skills"
+fi
+
+if [[ "$UNINSTALL" == 1 ]]; then
   unlink_if_ours "$BIN_DIR/mesh"
   unlink_if_ours "$CONFIG_LINK"
   for root in "${SKILL_ROOTS[@]}"; do

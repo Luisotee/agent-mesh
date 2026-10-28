@@ -312,10 +312,10 @@ agent-mesh/install.sh                                # --uninstall reverses it
 |---|---|
 | `bin/mesh` | `~/.local/bin/mesh` |
 | `protocol/` | `~/.config/agent-mesh` |
-| the skills | `~/.claude/skills/` (not with `--plugin`) and `~/.gemini/config/skills/` |
+| the skills | `~/.claude/skills/` (not when the plugin is installed, or with `--plugin`) and `~/.gemini/config/skills/` |
 | `herdr/mesh-notify` | herdr's plugins (`herdr plugin link`), when herdr is on PATH |
 
-It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
+It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
 
 ### Skills as a Claude Code plugin
 
@@ -326,7 +326,7 @@ Claude Code can take the skills from the repo's plugin marketplace instead of `~
 /plugin install agent-mesh@agent-mesh
 ```
 
-The plugin carries only the skills (named `/agent-mesh:delegate-claude` and so on). They run `mesh` and read `~/.config/agent-mesh/*.md`, so `install.sh` is still needed for the CLI, the protocol, the global rules block and agy's skills: run it as `install.sh --plugin`, which skips the links in `~/.claude/skills` (and removes ours there), or Claude Code lists every skill twice. The plugin updates from the repo's commits, the CLI from your clone: keep the clone pulled.
+The plugin carries only the skills (named `/agent-mesh:delegate-claude` and so on). They run `mesh` and read `~/.config/agent-mesh/*.md`, so `install.sh` is still needed for the CLI, the protocol, the global rules block and agy's skills: once the plugin is installed (at user scope), `install.sh` sees it and skips the links in `~/.claude/skills` (and removes ours there), so Claude Code doesn't list every skill twice; `install.sh --plugin` does the same before you install it. The CLI and protocol follow your clone, but the plugin is a cached copy: auto-update is off for a third-party marketplace, so after a `git pull` run `/plugin marketplace update agent-mesh` (or `claude plugin update agent-mesh@agent-mesh`), or turn on auto-update for it under `/plugin` → Marketplaces.
 
 `herdr/mesh-notify` sends a desktop notification (`notify-send`, or a Windows toast under WSL) when an agent finishes or needs input, without the run's noise: never for a worker, and for a root's finished turn only once no worker still owes it a report. Turn herdr's own popups and sounds off, or they fire for every worker too:
 

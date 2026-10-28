@@ -26,5 +26,5 @@ def test_marketplace_lists_the_repo_plugin():
     assert [(p["name"], p["source"]) for p in market["plugins"]] == [(plugin["name"], "./")]
     assert "skills" not in plugin  # a `skills` key adds folders; the default skills/ is the one install.sh links
     assert "version" not in plugin and "version" not in market["plugins"][0]  # users track commits, like the CLI
-    for skill in install_list("SKILLS"):
-        assert skill in market["plugins"][0]["description"]
+    named = set(re.findall(r"[\w-]+", market["plugins"][0]["description"]))
+    assert set(install_list("SKILLS")) <= named
