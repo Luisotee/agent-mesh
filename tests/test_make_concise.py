@@ -147,7 +147,10 @@ def test_cli_compares_directories(tmp_path):
     assert out.returncode == 0, out.stdout
     assert "CLAUDE.md:" in out.stdout and "sub/AGENTS.md:" in out.stdout
 
+    # a URL dropped from one file but still in another AFTER file counts as kept (C1)
     (after / "sub" / "AGENTS.md").write_text(AFTER.replace("https://example.com/docs and ", ""))
+    assert run(before, after).returncode == 0
+    (after / "CLAUDE.md").write_text(AFTER.replace("https://example.com/docs and ", ""))
     out = run(before, after)
     assert out.returncode == 1 and "ERROR URL missing" in out.stdout
 
@@ -163,4 +166,86 @@ def test_cli_files_and_usage(tmp_path):
     assert run(old, new).returncode == 0
     assert run(old, new, "--limit", "10").returncode == 1
     assert run(old, tmp_path / "nope.md").returncode == 2
-    assert run(old, tmp_path).returncode != 0
+    assert run(old, tmp_path).returncode == 2  # file vs directory is a usage error (C12)
+    assert run(old, new, "--also", tmp_path / "nope.md").returncode == 2
+
+
+def test_also_counts_detail_moved_to_a_new_doc(tmp_path):
+    """C1: detail moved out of a rules file into another document is kept, not lost."""
+    old, new, doc = tmp_path / "old.md", tmp_path / "CLAUDE.md", tmp_path / "design.md"
+    old.write_text(BEFORE)
+    new.write_text(AFTER.replace("```bash\n./install.sh --uninstall\n```\n", "See design.md.\n")
+                   .replace("`uvx pytest -q tests`", "the tests"))
+    doc.write_text("Run `uvx pytest -q tests`.\n\n```bash\n./install.sh --uninstall\n```\n")
+    out = run(old, new)
+    assert out.returncode == 1 and "fenced block" in out.stdout and "inline code missing" in out.stdout
+    out = run(old, new, "--also", doc)
+    assert out.returncode == 0, out.stdout
+
+
+def test_a_path_put_in_backticks_is_kept():
+    """C2: spans and paths are one set of kept tokens."""
+    assert check(AFTER.replace("and docs/design.md", "and `docs/design.md`"))[0] == []
+    before = "Run `make` in src/app/ first.\n"
+    assert check("Run make in `src/app/` first.\n", before=before)[0] == ["inline code missing: make"]
+
+
+def test_a_code_span_may_wrap_across_lines():
+    """C3: a hard-wrapped span is one span, with its inner whitespace normalised."""
+    before = "Run `uvx pytest\n  -q tests` and then `make`.\n"
+    assert check("Run `uvx pytest -q tests`, then `make`.\n", before=before) == ([], [])
+    # but not across a paragraph break
+    assert "b c" not in v.facts("a `b\n\nc` d\n").spans
+
+
+def test_crlf_is_read_as_is(tmp_path):
+    """C4: CRLF isn't translated, so sizes are real and a marked block that lost its CRs is changed."""
+    block = "<!-- BEGIN:x -->\r\nkeep\r\n<!-- END:x -->"
+    old, new = tmp_path / "old.md", tmp_path / "AGENTS.md"
+    old.write_bytes(f"Intro.\r\n{block}\r\n".encode())
+    new.write_bytes(f"Intro.\r\n{block}\r\n".encode())
+    out = run(old, new)
+    assert out.returncode == 0 and f"{len(old.read_bytes())} -> {len(new.read_bytes())} bytes" in out.stdout
+    new.write_bytes(f"Intro.\n{block.replace(chr(13), '')}\n".encode())
+    out = run(old, new)
+    assert out.returncode == 1 and "marked block 'x' changed" in out.stdout
+
+
+def test_every_marked_block_of_a_name_is_checked():
+    """C5: two blocks with one name: a change to the first one is caught."""
+    blk = "<!-- BEGIN:x -->\n{}\n<!-- END:x -->\n"
+    before = blk.format("one") + "middle\n" + blk.format("two")
+    assert check(before, before=before) == ([], [])
+    errors, _ = check(blk.format("ONE") + "middle\n" + blk.format("two"), before=before)
+    assert errors == ["marked block 'x' changed (must stay byte-identical)"]
+
+
+def test_an_indented_fence_is_a_fence():
+    """C6: a fence nested in a list item (indented 4+ spaces) is compared too."""
+    before = "1. Run:\n\n       ```bash\n       make all\n       ```\n"
+    assert v.fenced_blocks(before)[1] == ["       ```bash\n       make all\n       ```"]
+    errors, _ = check("1. Run:\n\n       ```bash\n       make\n       ```\n", before=before)
+    assert len(errors) == 1 and "fenced block" in errors[0]
+
+
+def test_a_final_fence_without_a_trailing_newline_is_unchanged():
+    """C7: the newline after the closing fence isn't part of the block."""
+    before = "Run:\n\n```\nmake\n```\n"
+    assert check(before.rstrip("\n"), before=before)[0] == []
+
+
+def test_imports_lose_trailing_punctuation_and_mentions_are_not_imports():
+    """C8: `@docs/x.md.` is the import `@docs/x.md`; `@alice` is a mention."""
+    f = v.facts("See @docs/x.md. Ask @alice, or @team (see @notes/y.md).\n")
+    assert f.imports == {"@docs/x.md", "@notes/y.md"}
+    assert check("@docs/x.md\n", before="Read @docs/x.md, first.\n")[0] == []
+
+
+def test_a_dropped_bare_name_only_warns():
+    """C9: `Next.js`, `github.com`, `os.path` look like file names: losing one is a warning."""
+    before = "This is Next.js on github.com, using os.path and run.json in src/x.py.\n"
+    errors, warnings = check("Uses src/x.py.\n", before=before)
+    assert errors == []
+    assert {"file name missing: Next.js", "file name missing: github.com",
+            "file name missing: os.path", "file name missing: run.json"} <= set(warnings)
+    assert check("Uses it.\n", before=before)[0] == ["path missing: src/x.py"]
