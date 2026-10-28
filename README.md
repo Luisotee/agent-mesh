@@ -25,7 +25,7 @@ your session in shop-web (root)            keeps building the badge
        └──── Argon / Opus ────┘            └──────── Flash ────────┘
 ```
 
-Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session. Large tasks run in [herdr](https://herdr.dev) panes, so you can watch them and type into them at any moment. Small Claude tasks run as Claude Code background sessions, which you can attach to with `mesh open`. Reviewers get a pane at any size, so you see the review happen.
+Every agent is an ordinary interactive [Claude Code](https://claude.com/claude-code) or [Antigravity CLI](https://antigravity.google) (`agy`) session. Large tasks run in [herdr](https://herdr.dev) panes, so you can watch them and type into them at any moment. Small Claude tasks run as Claude Code background sessions, which you can attach to with `mesh open`. Reviewers get a pane at any size, so you see the review happen. See [Requirements](#requirements) before you install: it needs herdr, GitHub and Linux (or WSL).
 
 ## Why
 
@@ -133,10 +133,10 @@ The agent is an ordinary worker, so it stays useful after it answers:
 - **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
-A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call and only answers. While it works, a pane beside yours follows it (`mesh peek <name> --follow`, which you can also run yourself) and closes once it has answered; past `MESH_SIDE_PANES` panes there's no room, and no peek pane. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (Copilot Student), Copilot picks the model.
+A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call and only answers. While it works, a pane beside yours follows it (`mesh peek <name> --follow`, which you can also run yourself) and closes once it has answered; past `MESH_SIDE_PANES` panes there's no room, and no peek pane. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (some Copilot plans do), Copilot picks the model.
 
 ```bash
-mesh ask --repo ~/projects/shop-api --body "How is restockedAt computed?"   # a fresh agent
+mesh ask --repo ../shop-api --body "How is restockedAt computed?"          # a fresh agent
 mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
 mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot, headless
 mesh ask --repo . --review 88 --size small --reviewers auto                 # a review round: reviewers by size and quota, one answers file
@@ -146,10 +146,10 @@ mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # th
 
 ### Standing peer askers
 
-Some repos are worth asking again and again: projects similar to yours that you cloned to learn from, say. `mesh peers` keeps a machine-wide list of them, each with one research asker whose conversation outlives every run:
+Some repos are worth asking again and again: projects similar to yours that you cloned to learn from, say. `mesh peers` keeps a machine-wide list of them, each with one research asker whose conversation outlives every run. A URL is cloned under `$MESH_PEERS_DIR` (default `~/research`), in a folder per group:
 
 ```bash
-mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into ~/research/orchestrators/swarm
+mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into $MESH_PEERS_DIR/orchestrators/swarm
 mesh ask swarm-research --size large --file brief.md                 # its first research brief
 mesh peers                                                           # what each is, what it last read, its size
 mesh peers edit swarm-research --about "A Rust daemon…; ask about delivery"   # whom to ask about what
@@ -270,7 +270,7 @@ A Claude root gets notified the moment the watch exits.
 
 ### Many agents on one machine
 
-Every agent is a whole CLI process with its own MCP servers. On 2026-10-27 two full runs filled a WSL VM's 15.5 GB of RAM and its 4 GB of swap and it hung, with no OOM kill. Measured idle afterwards, 22 sessions held 8.4 GB: `claude` about 195 MB each, the MCP servers each session starts (playwright ~83 MB, claude-code-explorer ~36 MB, shadcn ~76 MB) another 38 %, herdr and the pane shells ~0.3 GB; workers had also left four `next dev`/`next start` servers running (~1.5 GB). A background worker is the same process with the same servers, so fewer panes alone saves little.
+Every agent is a whole CLI process with its own MCP servers: an idle `claude` session takes about 200 MB, and each stdio MCP server it starts adds to that, per session. Two large runs can fill a small machine, and a Linux VM without an OOM killer (WSL, say) hangs instead of killing something; [design notes](docs/design.md) §17 has the measurements. A background worker is the same process with the same servers, so fewer panes alone saves little.
 
 - **Swap and an OOM killer.** Give the machine enough swap to absorb a spike, and run [earlyoom](https://github.com/rfjakob/earlyoom) (or systemd-oomd) so a full machine kills something instead of hanging. Tell it what to sacrifice and what to spare, e.g. `--prefer '(^|/)(next-server|node|pnpm)' --avoid '(^|/)(herdr|claude|agy)$'`.
 - **One MCP server per machine, not per session.** A stdio MCP server is started by every session that has it configured, so its memory multiplies by the agents running. Run a server that can be shared once, as a user service listening on a port (Playwright's MCP server takes `--port`), and point the user-scope entry at its URL; scope the others to the projects that use them (a project `.mcp.json`, or `claude mcp add --scope project` / `--scope local`) instead of the user scope. mesh launches workers with their repo's own MCP configuration and doesn't trim it (see [design notes](docs/design.md), §17).
@@ -289,18 +289,21 @@ Every agent is a whole CLI process with its own MCP servers. On 2026-10-27 two f
 - **Memory floor:** `spawn`, `resume` and `ask` (each peer of `ask --peers` too) start no agent while the machine's available memory plus free swap is under a floor: by default 10 % of RAM plus 10 % of swap (where earlyoom's defaults start killing) plus 1 GB, at least 2 GB; `MESH_MIN_FREE_MB` sets it, 0 turns it off. An agent started in the last two minutes, by any `mesh`, counts as 400 MB used, since it hasn't grown yet. They refuse before the agent's worktree or entry is made, naming the worker, and say to retire workers that have reported. `mesh open`, typed by you, isn't guarded. See [Many agents on one machine](#many-agents-on-one-machine).
 - **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice. "Running" means herdr lists an agent in its worktree, or, should herdr have lost it, a `claude`/`agy` process works there (in a shared main checkout, one naming its session).
 
+## Requirements
+
+- **[herdr](https://herdr.dev)**, with your root session running in a herdr pane: `mesh init` refuses to start a run outside one, so background Claude workers need it too.
+- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional, as a reviewer or asker.
+- **GitHub, with [`gh`](https://cli.github.com) logged in.** Workers open PRs with `gh`, and mesh reads PR links and remotes as `github.com` only; another forge works for local branches but loses PR tracking, resume onto a finished PR and review rounds.
+- **Linux or WSL.** The memory floor and the sweep of leftover processes read `/proc`. On macOS both are off (no agent start is refused for memory, and what a worker left running in its worktree is not killed), and mesh tells a running worker from herdr and `ps` instead; `herdr/mesh-notify` has no macOS notifier.
+- **Python 3.10+** and **git**. `bin/mesh` is one stdlib-only script.
+
+**Permissions.** Workers run with `--dangerously-skip-permissions` (agy's and Claude Code's), so they don't stop at every tool prompt. What still holds them: each works in its own git worktree on `mesh/<run>/<slug>`, never your checkout; a Claude worker that is planning or answering a read-only question runs under a `--disallowedTools` deny list (no edits in its worktree, no push, no PR comments) until its plan is approved; agy has no deny list, so its planners and askers are held by the prompt; workers are told to push only their own branch and open a PR, never to merge or deploy; a worker can't spawn agents or message anyone but its parent. Run it on repos and machines where that is acceptable. Claude Code delivers cross-session messages without asking only between sessions in the same permission mode, so run a Claude root in bypass-permissions mode too, or approve each worker's report as it arrives.
+
 ## Install
 
-Requirements:
-- [herdr](https://herdr.dev), with your agents running inside it
-- `python3` 3.10 or newer
-- `git`
-- `gh` (for PRs)
-- Claude Code and/or agy
-
 ```bash
-git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
-~/projects/agent-mesh/install.sh        # --uninstall reverses it
+git clone https://github.com/Luisotee/agent-mesh   # anywhere; install.sh links to wherever it is
+agent-mesh/install.sh                                # --uninstall reverses it
 ```
 
 `install.sh` symlinks:
@@ -312,9 +315,9 @@ git clone https://github.com/Luisotee/agent-mesh ~/projects/agent-mesh
 | the skills | `~/.claude/skills/` and `~/.gemini/config/skills/` |
 | `herdr/mesh-notify` | herdr's plugins (`herdr plugin link`), when herdr is on PATH |
 
-It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, and a short "Writing" rule (lead with the result, no narration or recap, keep every fact and reason that changes an action, code and errors verbatim): agy has no concise mode like Claude Code's `Concise` output style. Re-running it is safe.
+It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol, Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
 
-`herdr/mesh-notify` sends a desktop notification (a Windows toast under WSL, else `notify-send`) when an agent finishes or needs input, without the run's noise: never for a worker, and for a root's finished turn only once no worker still owes it a report. Turn herdr's own popups and sounds off, or they fire for every worker too:
+`herdr/mesh-notify` sends a desktop notification (`notify-send`, or a Windows toast under WSL) when an agent finishes or needs input, without the run's noise: never for a worker, and for a root's finished turn only once no worker still owes it a report. Turn herdr's own popups and sounds off, or they fire for every worker too:
 
 ```toml
 [ui.toast]
@@ -327,8 +330,6 @@ enabled = false
 `herdr plugin action invoke local.mesh-notify.test` sends a test notification; its decisions are logged in `~/.local/state/herdr/plugins/local.mesh-notify/notify.log`.
 
 `/make-concise`, run in any repo by that repo's own agent (or as a mesh task there), rewrites its `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` in concise plain English: every rule and its reason kept, examples of different cases kept, code, paths, URLs and marked blocks (the Next.js one) untouched, each file under agy's 24,000-byte limit. Its `validate.py` compares the files before and after and fails on anything code-like that went missing; it adds a size test and opens one PR for the repo's reviewers.
-
-Claude workers run with `--dangerously-skip-permissions`, and Claude Code delivers cross-session messages without asking only between sessions in the same permission mode. Run a Claude root in bypass-permissions mode too, or approve each worker's report as it arrives.
 
 Useful commands while a run is going:
 
