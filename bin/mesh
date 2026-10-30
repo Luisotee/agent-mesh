@@ -11857,7 +11857,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--next", help="what the fresh session does after `mesh brief` (default: the next step in "
                                   "notes.md)")
     p.add_argument("--compact", nargs="?", const="", metavar="FOCUS",
-                   help="type /compact [FOCUS] instead of /clear: for a root with its own repo's work in flight")
+                   help="type /compact [FOCUS] instead of /clear: for a root with work of its own in flight")
     p.add_argument("--detached", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--via", default="command", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_reset)

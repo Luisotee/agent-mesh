@@ -6,13 +6,13 @@ The full reference: every command, default and mechanism. Start with the [README
 
 Both commands work from Claude Code and from agy. Nothing starts until you say go: the root first proposes the work (what it does itself, each worker's repo, size, model and view, any routing), unless you told it to run on its own; a question or a review you asked for just runs.
 
-| Command | Worker for a large task (one per other repo), by default ([Configuration](#configuration) changes it) |
+| Command | Worker for a large task (one per repo), by default ([Configuration](#configuration) changes it) |
 |---|---|
 | `/delegate-agy` | agy: plans on Argon → Claude Opus → Flash (the first with quota left) at high effort, executes on Flash at medium |
 | `/delegate-claude` | Claude: plans on Opus at high effort, executes on Opus at medium |
 
 - **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
-- **The pane you type into is the root.** It keeps doing its own repo's part itself, and spawns a worker for every *other* repo the request touches. To have its own repo delegated too, say so.
+- **The pane you type into is the root.** It supervises and spawns a worker for every repo the request touches, its own included. Work you gave it before delegating stays with it. To have it do a part of the request itself, say so.
 - **Overrides:** naming a model in the request ("use Argon", "with Claude", "with Fable") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. Claude Fable 5.1 is never a default, since it draws on a capped share of your Claude limits: name it for an ambiguous root-cause hunt or an architecture decision. If a worker *fails*, the root tells you and suggests a stronger model or more effort; it doesn't pick a model on its own.
 
 ### Sizes
