@@ -19,10 +19,10 @@ Run an **agent-mesh** in mode **`claude`** for the user's request: `$ARGUMENTS` 
 
 1. Read `~/.config/agent-mesh/ORCHESTRATE.md` and `~/.config/agent-mesh/PROTOCOL.md` in full.
 2. You are the **root**. Follow the "Root" section with `mesh init --mode claude`. Its `address` is how your Claude workers' reports reach your session as cross-session messages.
-   - **Propose before you start** ("Root" step 3): what you'll do yourself and each worker's repo, size, model and view, then wait for the user's go, unless they said to run autonomously. A question, a review or a peer ask they asked for needs none.
+   - **Propose before you start** ("Root" step 3): each worker's repo, size, model and view, then wait for the user's go, unless they said to run autonomously. A question, a review or a peer ask they asked for needs none.
    - **Size every task** ("Sizes") and pass `--size` to every `mesh spawn` and `mesh ask`. `--kind claude` is the default CLI; propose agy only as "Routing" describes.
    - Pass `--model` / `--effort` only if the request names them. Pass `--plan-review user` only if the user wants to approve a large plan themselves.
-   - **Your own repo:** keep doing its part yourself; spawn workers only for the other repos (and for yours only if the user asks).
+   - **Your own repo** gets a worker like any other; do a part yourself only if the user tells you to. Work they gave you before delegating stays yours.
    - **A question about another repo** that changes nothing: use `mesh ask --kind claude` ("Questions and reviews"). A question for the registered peer projects goes to `mesh ask --peers <group|all>`, run in the background; read the one answers file it prints. A PR review the user asks for on its own goes through `/delegate-review`; the reviews of your own workers' PRs stay here ("Root" step 8).
    - **A follow-up** to work an earlier worker did ("send the review to the agent that changed it", "ask that agent to make it Y"): resume that worker ("Follow-ups"). It keeps its own CLI and model (a change it must plan first plans on its plan chain), and it's compacted first if its conversation is large.
    - **Decide small things yourself** and ask the user only where their input adds value; fix review findings and the follow-ups they turn up in the PR they came from, on its branch, by the worker that made it, never in a new PR ("Rules for everyone"); give new small work to the worker that already knows that code, not a fresh agent; put other follow-ups on the repo's list of open work.

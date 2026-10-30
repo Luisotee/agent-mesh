@@ -2,6 +2,7 @@
 
 Open work, kept short on purpose: whoever picks a task up works out the details. The reasons behind past decisions are in `docs/design.md`; the cost study's baseline, method, scripts and savings ledger are in `docs/cost-research/README.md`. If you have the peer projects registered (`mesh peers`), ask them before designing a mechanism they may have solved (see `CLAUDE.md`, "Peer projects").
 
+- [ ] `test_a_limit_reset_prefers_the_windows_own_time_and_never_misreads_a_date` hard-codes a reset at `2026-10-30T02:00:00+00:00`, now in the past, so it fails on every run: freeze the clock or derive the date from it.
 - [ ] Auto-retire's viewer hold misses an attach from Claude Code's agent view (`claude agents`, then a session: it runs in that TUI's process). No outside signal in 2.1.312 (design §18, "Limits"); look again when Claude Code exposes its daemon's attach clients. (Without `/proc`, `ps` now covers `claude attach`.)
 - [ ] From 2026-11-04, a week after Claude Code's `Concise` output style was turned on for the cost study: run `mesh cost --since 2026-10-28 --until 2026-11-04` (and the scripts in `docs/cost-research/scripts/` for per-turn and re-read figures), compare with the baseline, and fill the ledger's "Actual" column for every change that landed, noting what landed together.
 - Concise English (not telegraphic), ~3–5% of a week's spend (ledger #6). Third-party tools were checked and skipped (caveman exempts files and agent messages; caveman-compress and squeez drop the "why" clauses; `claude-md-improver` only adds).
