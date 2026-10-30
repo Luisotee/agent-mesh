@@ -9875,7 +9875,7 @@ def test_a_pane_worker_whose_pane_is_focused_is_held(mesh, fake, run, tmp_path, 
     assert bool(fake.called("pane", "close")) is not held
 
 
-@pytest.mark.parametrize("value, expected", [("-1", 0.0), ("0", 0.0), ("60", 60.0), ("x", 900.0), ("", 900.0)])
+@pytest.mark.parametrize("value, expected", [("-1", 0.0), ("0", 0.0), ("60", 60.0), ("x", 300.0), ("", 300.0)])
 def test_mesh_idle_retire_of_zero_or_less_means_never(mesh, monkeypatch, value, expected):
     monkeypatch.setenv("MESH_IDLE_RETIRE", value)
     assert mesh.idle_retire() == expected

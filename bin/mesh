@@ -247,7 +247,7 @@ BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
 RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 RETIRE_SETTLE = 120  # seconds `mesh watch --any` waits after a retire before it says nothing is left to watch
-IDLE_RETIRE = 900.0  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
+IDLE_RETIRE = 300.0  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
 # (MESH_IDLE_RETIRE; 0 = never)
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
