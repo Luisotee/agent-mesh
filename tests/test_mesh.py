@@ -11139,16 +11139,10 @@ def test_a_copilot_asker_is_pinned(mesh, fake, cli, run, repo, capsys):
     assert mesh.pins == [(cli.pid, [0, 1, 2])]
 
 
-def test_the_retirer_starts_with_the_machines_cores(mesh, run, monkeypatch):
-    popen = []
-
-    class Proc:
-        pid = NO_PID
-
-    monkeypatch.setattr(mesh.subprocess, "Popen", lambda *a, **k: popen.append(a) or Proc())
-    handle = mesh.retirer_lock_path(run).open("a")
-    assert mesh.real_start_retirer(run, handle) == NO_PID
-    assert popen and mesh.pins == [(NO_PID, list(range(12)))]
+def test_the_retirer_takes_the_machines_cores_back_first(mesh, run, monkeypatch):
+    monkeypatch.setattr(mesh, "run_retirer", lambda run_id, handle: mesh.pins.append("ran") or 0)
+    assert mesh.main(["retirer", "--run", run]) == 0
+    assert mesh.pins[0] == (os.getpid(), list(range(12))) and mesh.pins[-1] == "ran"
 
 
 # ── memory pressure ──────────────────────────────────────────────────────
@@ -11205,10 +11199,12 @@ def test_a_reviewer_reads_ci_first_and_runs_only_the_tests_the_change_touches(me
     fresh = mesh.ask_task("", url, 7, True, head="abc123")
     assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`" in fresh
     assert "run only the tests the change touches; run the full suite only when it has no CI" in fresh
-    for task in (mesh.ask_task("", url, 7, False, head="abc123"), mesh.ask_task("", url, 7, False)):
-        # not at the PR head: its tests would test other code
-        assert f"read their results first (`gh pr checks {url}`); run no tests" in task
-        assert "run only the tests the change touches" not in task
+    own_at = mesh.ask_task("", url, 7, False, head="abc123")  # from its own branch: tests only at that head
+    assert f"read their results first (`gh pr checks {url}`); run tests only if `git rev-parse HEAD`" in own_at
+    assert "is abc123, otherwise run none" in own_at
+    own = mesh.ask_task("", url, 7, False)  # no head known: its tests would test other code
+    assert f"read their results first (`gh pr checks {url}`); run no tests" in own
+    assert all("run only the tests the change touches" not in t for t in (own, own_at))
 
 
 # ── compaction by cache warmth ───────────────────────────────────────────
@@ -11242,6 +11238,8 @@ def test_a_claude_cache_is_cold_once_its_file_is_older_than_its_ttl(mesh, monkey
     assert not cold([usage(1000)], 3000) and cold([usage(1000)], 3700)  # no TTL recorded: 1 h
     monkeypatch.setenv("MESH_CACHE_TTL", "60")  # a live check fakes a short one
     assert cold([usage_ttl(1000, "1h")], 61)
+    monkeypatch.setenv("MESH_CACHE_TTL", "soon")  # not a number: the session's own TTL
+    assert not cold([usage_ttl(1000, "1h")], 61) and cold([usage_ttl(1000, "5m")], 301)
     assert not mesh.cache_cold(tmp_path / "missing.jsonl", None)
 
 

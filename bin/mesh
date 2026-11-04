@@ -204,12 +204,12 @@ REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run tests;
                 "no CI, or for what its CI doesn't cover.")
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
-              "and `git show FETCH_HEAD:<path>`. {checks}")
+              "and `git show FETCH_HEAD:<path>`. If the PR has CI checks, read their results first (`gh pr checks "
+              "{pr}`); run no tests: your worktree isn't at the PR head.")
 REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a file at its head with "
-                 "`git show {head}:<path>`. {checks}")
-# A reviewer whose worktree isn't at the PR head: its tests would test other code.
-REVIEW_OWN_CHECKS = ("If the PR has CI checks, read their results first (`gh pr checks {pr}`); run no tests: your "
-                     "worktree isn't at the PR head.")  # the head is in the shared object store (pr_head)
+                 "`git show {head}:<path>`. If the PR has CI checks, read their results first (`gh pr checks {pr}`); "
+                 "run tests only if `git rev-parse HEAD` in your worktree is {head}, otherwise run none: they would "
+                 "test other code.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
 # reviews the worktree's own branch). The level follows the review's size (`review.level.<size>`): higher levels mostly
@@ -3095,10 +3095,7 @@ def agy_context_tokens(session: str) -> int | None:
 
 def compact_at(kind: str | None = None) -> int:
     key, default = ("MESH_AGY_COMPACT_AT", AGY_COMPACT_AT) if kind == "agy" else ("MESH_COMPACT_AT", COMPACT_AT)
-    try:
-        return int(os.environ.get(key) or default)
-    except ValueError:
-        return default
+    return env_int(key, default)
 
 
 def compact_cold_at() -> int:
@@ -6883,7 +6880,6 @@ def start_retirer(run_id: str, handle) -> int:
     with open(log, "a") as out:
         proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=claude_env(),
                                 cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
-    unpin(proc.pid)  # a worker's CPU cap would reach whatever it reopens, and a Claude daemon it might start
     log_event(run_id, "retirer_started", pid=proc.pid)
     return proc.pid
 
@@ -7146,7 +7142,8 @@ def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.slee
 
 def cmd_retirer(args: argparse.Namespace) -> int:
     """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
-    unpin(os.getpid())  # its starter's CPU cap would reach what it reopens (start_retirer also does, from outside)
+    # Its starter is usually a worker, whose CPU cap would reach whatever it reopens and a Claude daemon it might start.
+    unpin(os.getpid())
     if args.lock_fd is not None:
         handle = os.fdopen(args.lock_fd, "a")
     else:  # by hand: only when none runs
@@ -8052,8 +8049,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
         show = f"git diff {built[1]}" if built else f"gh pr diff {pr}"
-        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show,
-                                                        checks=REVIEW_OWN_CHECKS.format(pr=pr))
+        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
         again = bool(last and head and last != head)
         if again:
             where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)
@@ -10549,11 +10545,9 @@ def env_int(key: str, default: int) -> int:
 
 
 def cache_ttl(session_ttl: int | None = None) -> int:
-    """The root's cache lifetime: MESH_CACHE_TTL when set (a live check fakes a short one), else what its session
-    file says Claude Code used (`line_ttl`), else CACHE_TTL."""
-    if os.environ.get("MESH_CACHE_TTL"):
-        return env_int("MESH_CACHE_TTL", CACHE_TTL)
-    return session_ttl or CACHE_TTL
+    """A Claude session's cache lifetime: MESH_CACHE_TTL when set to a number (a live check fakes a short one), else
+    what its session file says Claude Code used (`line_ttl`), else CACHE_TTL."""
+    return env_int("MESH_CACHE_TTL", session_ttl or CACHE_TTL)
 
 
 def root_reset_at() -> int:
