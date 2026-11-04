@@ -365,9 +365,12 @@ POLICY = {  # leaf: (built-in default, check)
     # The share of the machine's cores each agent mesh launches may use (at least one), as a CPU affinity mask its
     # test runners inherit (design §17); 0 or 100 turns it off.
     "worker_cpus": (25, "percent"),
+    # memory_guard refuses a new agent while /proc/pressure/memory's `full avg60` is over this; 0 turns it off.
+    "memory_pressure_max": (10, "percent"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
-              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS"}
+              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
+              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -1928,7 +1931,7 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
-               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS")
+               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -3727,6 +3730,24 @@ def meminfo() -> dict[str, int] | None:
     return info
 
 
+def memory_pressure() -> float | None:
+    """The share of the last minute in which every runnable task stalled on memory (`full avg60` of
+    `/proc/pressure/memory`, or `MESH_PRESSURE`), in percent; None without the file (no PSI: no signal)."""
+    try:
+        text = Path(os.environ.get("MESH_PRESSURE") or "/proc/pressure/memory").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        kind, *fields = line.split()
+        if kind == "full":
+            values = dict(f.partition("=")[::2] for f in fields)
+            try:
+                return float(values["avg60"])
+            except (KeyError, ValueError):
+                return None
+    return None
+
+
 def min_free_mb(info: dict[str, int]) -> int:
     """The floor under which no agent starts: `MESH_MIN_FREE_MB` (0 turns the guard off), else 10 % of RAM plus
     10 % of swap, where earlyoom (and, without it, the thrashing) begins, plus room for the agent itself."""
@@ -3748,7 +3769,19 @@ def memory_guard(what: str, reserve: bool = True) -> str | None:
     An agent any `mesh` process let start in the last RESERVE_FOR seconds hasn't grown into MemAvailable yet,
     so each one's reservation (in `reservations.json`, machine-wide, under a lock) counts as AGENT_MB used.
     With `reserve`, a pass adds this one's and returns its id, which `release_memory` takes back when the start
-    fails after all."""
+    fails after all.
+
+    It also refuses while memory pressure (`memory_pressure`) is over `memory_pressure_max`: with a large swap,
+    memory plus swap stays over the floor long after the machine has started thrashing."""
+    limit = setting("memory_pressure_max")
+    pressure = memory_pressure() if limit else None
+    if pressure is not None and pressure > limit:
+        raise MeshError(
+            f"not starting {what}: memory pressure is high (/proc/pressure/memory full avg60 {pressure:.1f} %, over "
+            f"memory_pressure_max {limit}): the machine is thrashing. It clears by itself once the pressure drops "
+            "(avg60 decays over a minute or two), so try again later; retiring workers that have reported (`mesh "
+            "status` shows them) and stopping leftover dev servers or test runs helps it drop. Or set "
+            "MESH_MEMORY_PRESSURE_MAX=0 to start it anyway")
     info = meminfo()
     if info is None or "MemAvailable" not in info:
         return None  # no /proc: nothing to tell by

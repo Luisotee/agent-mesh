@@ -132,6 +132,9 @@ def mesh(tmp_path, monkeypatch):
     write_meminfo(tmp_path / "meminfo", available=16 << 20, swap_free=16 << 20)
     monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "meminfo"))
     monkeypatch.delenv("MESH_MIN_FREE_MB", raising=False)
+    # ...nor its memory pressure: no file, no signal (see high_pressure for a thrashing one).
+    monkeypatch.setenv("MESH_PRESSURE", str(tmp_path / "no-pressure"))
+    monkeypatch.delenv("MESH_MEMORY_PRESSURE_MAX", raising=False)
     # Never this machine's policy file or folders (a test that wants a config writes one here, see with_config).
     monkeypatch.setenv("MESH_CONFIG_FILE", str(tmp_path / "agent-mesh.json"))
     for key in ("MESH_REPOS_DIR", "MESH_PEERS_DIR", "MESH_COPILOT_MODEL", "MESH_CLAUDE"):

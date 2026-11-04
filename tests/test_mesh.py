@@ -11146,3 +11146,45 @@ def test_the_retirer_starts_with_the_machines_cores(mesh, run, monkeypatch):
     handle = mesh.retirer_lock_path(run).open("a")
     assert mesh.real_start_retirer(run, handle) == NO_PID
     assert popen and mesh.pins == [(NO_PID, list(range(12)))]
+
+
+# ── memory pressure ──────────────────────────────────────────────────────
+
+
+def high_pressure(tmp_path, monkeypatch, avg60="12.50"):
+    """A /proc/pressure/memory whose `full avg60` is `avg60`."""
+    path = tmp_path / "pressure"
+    path.write_text(f"some avg10=30.00 avg60=20.00 avg300=5.00 total=99\n"
+                    f"full avg10=20.00 avg60={avg60} avg300=3.00 total=77\n")
+    monkeypatch.setenv("MESH_PRESSURE", str(path))
+
+
+def test_the_memory_guard_refuses_while_the_machine_thrashes(mesh, tmp_path, monkeypatch):
+    high_pressure(tmp_path, monkeypatch)
+    assert mesh.memory_pressure() == 12.5
+    with pytest.raises(mesh.MeshError) as exc:
+        mesh.memory_guard("proj-fix")  # plenty of memory and swap free: pressure alone refuses
+    text = str(exc.value)
+    assert "not starting proj-fix: memory pressure is high" in text and "full avg60 12.5 %" in text
+    assert "memory_pressure_max 10" in text and "clears by itself" in text and "MESH_MEMORY_PRESSURE_MAX=0" in text
+    assert not mesh.reservations_path().exists()  # refused before any reservation
+
+
+def test_spawn_under_memory_pressure_starts_nothing(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    high_pressure(tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "flash", "--worktree", "Fix", "--task", "x"]) == 1
+    assert "not starting proj-fix: memory pressure is high" in capsys.readouterr().err
+    assert not fake.called("agent", "start") and "proj-fix" not in mesh.load_run(run)["agents"]
+
+
+@pytest.mark.parametrize("how", ["no-file", "off", "under", "unreadable"])
+def test_memory_pressure_passes(mesh, tmp_path, monkeypatch, how):
+    if how == "off":
+        high_pressure(tmp_path, monkeypatch)
+        monkeypatch.setenv("MESH_MEMORY_PRESSURE_MAX", "0")
+    elif how == "under":
+        high_pressure(tmp_path, monkeypatch, avg60="9.99")
+    elif how == "unreadable":
+        high_pressure(tmp_path, monkeypatch, avg60="lots")
+    mesh.memory_guard("w")  # no error
