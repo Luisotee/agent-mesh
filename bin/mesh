@@ -362,9 +362,12 @@ POLICY = {  # leaf: (built-in default, check)
     # Worker launches only (spawn, resume, swaps, --bg) start with --dangerously-skip-permissions; mesh's own
     # headless calls that run no tools on a repo (`agy -p /usage`, `/compact`) keep it either way.
     "skip_permissions": (True, "bool"),
+    # The share of the machine's cores each agent mesh launches may use (at least one), as a CPU affinity mask its
+    # test runners inherit (design §17); 0 or 100 turns it off.
+    "worker_cpus": (25, "percent"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
-              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR"}
+              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -449,6 +452,12 @@ def env_setting(leaf: str) -> tuple[object, str] | None:
         return None
     if leaf == "repos_dir":
         return [p for p in os.environ[key].split(os.pathsep) if p], key
+    if POLICY[leaf][1] in ("int", "percent"):  # a value that doesn't parse or check is ignored
+        try:
+            value = int(os.environ[key])
+        except ValueError:
+            return None
+        return (value, key) if POLICY_CHECKS[POLICY[leaf][1]][0](value) else None
     return os.environ[key], key
 
 
@@ -1805,12 +1814,15 @@ def start_agent(name: str, kind: str, pane: str, argv: list[str], attempts: int 
     for _ in range(attempts):
         try:
             herdr("agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--", *argv)
-            return {}
+            started = {}
         except HerdrError as exc:
-            if exc.code in ("agent_not_ready", "timeout"):
-                return clear_startup(name, pane, peer)
-            last = exc
-            time.sleep(1)
+            if exc.code not in ("agent_not_ready", "timeout"):
+                last = exc
+                time.sleep(1)
+                continue
+            started = clear_startup(name, pane, peer)
+        confine_pane(pane, name)  # every pane launch of a worker comes through here (design §17)
+        return started
     raise MeshError(f"could not start {name}: {last}")
 
 
@@ -1916,7 +1928,7 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
-               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR")
+               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -2117,6 +2129,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     for _ in range(10):
         row = next((r for r in claude_agents() if r.get("id") == short), None)
         if row and row.get("sessionId"):
+            confine_agent(row.get("pid"), name)  # the session's own process (the daemon's claimed spare)
             return short, row["sessionId"]
         time.sleep(1)
     run_cli([claude_bin(), "stop", short], env=claude_env(), timeout=30)  # a stray session would do the task twice
@@ -3792,6 +3805,125 @@ def release_memory(ids: list[str | None]) -> None:
             write_atomic(reservations_path(), json.dumps([r for r in held if r.get("id") not in ids]))
         except (OSError, ValueError, TypeError, AttributeError):
             pass
+
+
+# CPU caps (design §17): module attributes, so tests stub them; None where the platform has no affinity calls.
+sched_setaffinity = getattr(os, "sched_setaffinity", None)
+sched_getaffinity = getattr(os, "sched_getaffinity", None)
+PIN_PASSES = 3  # passes over an agent's threads, for one it starts while the first is being pinned
+
+
+def machine_cpus() -> list[int]:
+    """The cores agents share: pid 1's mask, which no mesh launch narrows (a retirer started by a worker's
+    report carries that worker's own), else this process's; [] without the calls."""
+    if not sched_getaffinity:
+        return []
+    for pid in (1, 0):
+        try:
+            return sorted(sched_getaffinity(pid))
+        except OSError:
+            continue
+    return []
+
+
+def cpu_window() -> list[int] | None:
+    """The cores the next agent mesh launches gets (`worker_cpus` % of them, at least one), or None when the cap
+    is off (0 or 100, a window as large as the machine, no affinity calls). Each launch on the machine takes the
+    next window (`cpus.json`, under a lock), so agents spread over the cores."""
+    percent = setting("worker_cpus")
+    cpus = machine_cpus()
+    if not sched_setaffinity or percent in (0, 100) or not cpus:
+        return None
+    size = max(1, len(cpus) * percent // 100)
+    if size >= len(cpus):
+        return None
+    path = mesh_home() / "cpus.json"
+    with file_lock(mesh_home() / ".cpus.lock"):
+        try:
+            turn = int(json.loads(path.read_text()).get("next", 0))
+        except (OSError, ValueError, TypeError, AttributeError):
+            turn = 0
+        write_atomic(path, json.dumps({"next": turn + 1}))
+    start = turn * size % len(cpus)
+    return [cpus[(start + i) % len(cpus)] for i in range(size)]
+
+
+def cpu_list(cpus: list[int]) -> str:
+    """`[0, 1, 2, 5]` as `0-2,5`, as taskset writes it."""
+    spans: list[list[int]] = []
+    for cpu in cpus:
+        if spans and cpu == spans[-1][1] + 1:
+            spans[-1][1] = cpu
+        else:
+            spans.append([cpu, cpu])
+    return ",".join(f"{a}-{b}" if b > a else str(a) for a, b in spans)
+
+
+def agent_tree(pid: int) -> list[int]:
+    """`pid` and its descendants (the MCP servers an agent started before it was pinned), by `process_table`."""
+    children: dict[int, list[int]] = {}
+    for proc in process_table():
+        children.setdefault(proc["ppid"], []).append(proc["pid"])
+    tree, todo = [], [pid]
+    while todo:
+        p = todo.pop()
+        if p not in tree:
+            tree.append(p)
+            todo.extend(children.get(p, ()))
+    return tree
+
+
+def task_ids(pid: int) -> list[int]:
+    """A process's threads: an affinity mask is per thread, and a child inherits its forking thread's."""
+    try:
+        return [int(t) for t in os.listdir(f"/proc/{pid}/task")]
+    except (OSError, ValueError):
+        return [pid]
+
+
+def pin_cpus(pids: list[int], cpus: list[int]) -> int:
+    """Set every thread of `pids` to `cpus`; the threads set. One that exited meanwhile is skipped."""
+    done: set[int] = set()
+    for _ in range(PIN_PASSES):
+        new = [tid for pid in pids for tid in task_ids(pid) if tid not in done]
+        if not new:
+            break
+        for tid in new:
+            done.add(tid)
+            try:
+                sched_setaffinity(tid, cpus)
+            except OSError:
+                pass
+    return len(done)
+
+
+def confine_agent(pid: int | None, name: str) -> dict:
+    """Confine an agent mesh just launched (a worker, asker, peer or Copilot asker; never a root or `mesh open`):
+    its process and descendants to the next `cpu_window`, so the test runners it starts size their worker pools
+    by that many cores. What it set; never raises, since a launch must not fail on it."""
+    done: dict = {}
+    if not pid:
+        return done
+    try:
+        cpus = cpu_window()
+        if cpus:
+            pin_cpus(agent_tree(int(pid)), cpus)
+            done["cpus"] = cpu_list(cpus)
+    except (OSError, ValueError, TypeError, MeshError):
+        pass
+    return done
+
+
+def confine_pane(pane: str, name: str) -> dict:
+    """confine_agent for the agent in a pane: herdr's foreground process group leader is the CLI itself."""
+    return confine_agent((pane_process_info(pane) or {}).get("foreground_process_group_id"), name)
+
+
+def unpin(pid: int) -> None:
+    """Give a detached mesh process a worker started the machine's cores back (best effort)."""
+    cpus = machine_cpus()
+    if sched_setaffinity and cpus:
+        pin_cpus([pid], cpus)
 
 
 def process_table() -> list[dict]:
@@ -6653,6 +6785,7 @@ def start_retirer(run_id: str, handle) -> int:
     with open(log, "a") as out:
         proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=claude_env(),
                                 cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
+    unpin(proc.pid)  # a worker's CPU cap would reach whatever it reopens, and a Claude daemon it might start
     log_event(run_id, "retirer_started", pid=proc.pid)
     return proc.pid
 
@@ -8036,6 +8169,7 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     def started(pid: int) -> None:
         with editing_run(run_id) as run:
             run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
+        confine_agent(pid, name)
 
     report = None
     try:

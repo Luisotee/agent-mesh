@@ -320,7 +320,7 @@ mesh routing               # every setting, its value and where it comes from (b
 mesh routing --json
 ```
 
-An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated) and `MESH_COPILOT_MODEL`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
+An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated), `MESH_COPILOT_MODEL` and `MESH_WORKER_CPUS`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
 
 This file reproduces the built-in policy, plus a `repos_dir`:
 
@@ -351,7 +351,8 @@ This file reproduces the built-in policy, plus a `repos_dir`:
   "copilot_model": "auto",
   "peers_dir": "~/research",
   "repos_dir": ["~/projects"],
-  "skip_permissions": true
+  "skip_permissions": true,
+  "worker_cpus": 25
 }
 ```
 
@@ -360,6 +361,7 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 - **`review.rounds`, `review.tiny_pr_lines`:** the review→fix rounds a PR gets, and the line count under which a trivial or small task's PR gets the root's own review instead of reviewers.
 - **`quota_stop`:** the percent of a quota used at which mesh starts nothing new on it. **`repos_dir`:** the folders a bare `--repo <name>` is looked up in (none by default: pass paths). **`peers_dir`:** where `mesh peers add` clones a peer.
 - **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.
+- **`worker_cpus`:** the percent of the machine's cores each agent mesh starts may use (at least one core): a CPU affinity mask, so the test runners it starts size their worker pools to it. `0` or `100` turns it off. See [Many agents on one machine](#many-agents-on-one-machine).
 
 Useful commands while a run is going:
 

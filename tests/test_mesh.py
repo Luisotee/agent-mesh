@@ -11029,3 +11029,120 @@ def test_routing_shows_the_built_in_auto_reviewers_while_the_config_is_broken(me
     Path(os.environ["MESH_CONFIG_FILE"]).write_text("{oops")
     assert mesh.main(["routing", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["auto_reviewers"] == {"small": ["agy"], "large": ["claude", "agy"]}
+
+
+# ── CPU caps ─────────────────────────────────────────────────────────────
+
+NO_PID = 2 ** 22 + 11  # over Linux's pid_max: no real process, so its threads are just itself
+
+
+def test_each_launch_takes_the_next_window_of_a_quarter_of_the_cores(mesh, monkeypatch):
+    assert [mesh.cpu_list(mesh.cpu_window()) for _ in range(5)] == ["0-2", "3-5", "6-8", "9-11", "0-2"]
+    other = load_mesh()  # another `mesh` process carries on the same machine-wide rotation
+    monkeypatch.setattr(other, "sched_getaffinity", lambda pid: set(range(12)))
+    monkeypatch.setattr(other, "sched_setaffinity", lambda tid, cpus: None)
+    assert other.cpu_list(other.cpu_window()) == "3-5"
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: set(range(10)))
+    assert len(mesh.cpu_window()) == 2  # 25 % of 10, rounded down
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0, 1})
+    assert len(mesh.cpu_window()) == 1  # at least one core
+    assert mesh.cpu_list([0, 1, 2, 5, 7, 8]) == "0-2,5,7-8"
+
+
+@pytest.mark.parametrize("how", ["0", "100", "no-api", "one-core"])
+def test_the_cpu_cap_turns_off(mesh, monkeypatch, how):
+    if how in ("0", "100"):
+        monkeypatch.setenv("MESH_WORKER_CPUS", how)
+    elif how == "no-api":
+        monkeypatch.setattr(mesh, "sched_setaffinity", None)
+    else:
+        monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0})
+    assert mesh.cpu_window() is None
+    assert mesh.confine_agent(NO_PID, "w") == {} and mesh.pins == []
+
+
+def test_the_cores_are_the_machines_not_a_pinned_launchers(mesh, monkeypatch):
+    # A retirer a worker's report started carries that worker's mask; pid 1 has the machine's.
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: set(range(12)) if pid == 1 else {3, 4, 5})
+    assert mesh.machine_cpus() == list(range(12))
+    mesh.unpin(NO_PID)
+    assert mesh.pins == [(NO_PID, list(range(12)))]
+
+
+def test_a_pin_sets_every_thread_of_the_agent_and_its_children(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "process_table", lambda: [{"pid": 50, "ppid": 40}, {"pid": 60, "ppid": 50},
+                                                         {"pid": 70, "ppid": 1}])
+    threads = {40: [40, 41], 50: [50], 60: [60, 61, 62]}
+    monkeypatch.setattr(mesh, "task_ids", lambda pid: threads[pid])
+    assert mesh.confine_agent(40, "w") == {"cpus": "0-2"}
+    assert sorted(t for t, _ in mesh.pins) == [40, 41, 50, 60, 61, 62]
+    assert {tuple(c) for _, c in mesh.pins} == {(0, 1, 2)}
+    monkeypatch.setattr(mesh, "sched_setaffinity", lambda tid, cpus: (_ for _ in ()).throw(OSError("gone")))
+    assert mesh.confine_agent(40, "w") == {"cpus": "3-5"}  # a thread that exited never fails the launch
+
+
+def test_with_worker_cpus_set_by_env_or_config_routing_shows_it(mesh, monkeypatch, capsys):
+    assert mesh.setting_with_source("worker_cpus") == (25, "built-in")
+    with_config({"worker_cpus": 50})
+    assert mesh.setting_with_source("worker_cpus") == (50, "config")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "40")
+    assert mesh.setting_with_source("worker_cpus") == (40, "env MESH_WORKER_CPUS")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "lots")  # doesn't parse: ignored
+    assert mesh.setting_with_source("worker_cpus") == (50, "config")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "40")
+    assert mesh.main(["routing"]) == 0
+    assert re.search(r"^worker_cpus +40 +\[env MESH_WORKER_CPUS\]$", capsys.readouterr().out, re.M)
+
+
+def test_a_pane_worker_is_pinned_once_it_runs(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
+                      "--worktree", "fix", "--task", "Do it."]) == 0
+    assert fake.called("pane", "process-info", "--pane", "w9:p10")
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_background_worker_is_pinned_by_its_sessions_pid(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "ab12cd34-s", "status": "busy", "pid": NO_PID}])
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
+                      "--task", "Add the feature."]) == 0
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_swap_pins_the_reopened_worker(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    stub_panes(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    mesh.swap_model(run, "repo-fix-typo", "opus", "high", "quota")
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_resumed_background_worker_is_pinned(mesh, fake, cli, run, tmp_path, capsys):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
+    mesh.main(["retire", "repo-fix-typo"])
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": NO_PID}])
+    mesh.pins.clear()
+    assert mesh.main(["resume", "repo-fix-typo"]) == 0
+    assert mesh.pins and mesh.pins[-1][0] == NO_PID
+
+
+def test_a_copilot_asker_is_pinned(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert mesh.pins == [(cli.pid, [0, 1, 2])]
+
+
+def test_the_retirer_starts_with_the_machines_cores(mesh, run, monkeypatch):
+    popen = []
+
+    class Proc:
+        pid = NO_PID
+
+    monkeypatch.setattr(mesh.subprocess, "Popen", lambda *a, **k: popen.append(a) or Proc())
+    handle = mesh.retirer_lock_path(run).open("a")
+    assert mesh.real_start_retirer(run, handle) == NO_PID
+    assert popen and mesh.pins == [(NO_PID, list(range(12)))]

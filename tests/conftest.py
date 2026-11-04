@@ -160,6 +160,11 @@ def mesh(tmp_path, monkeypatch):
     module.real_agy_usage = module.agy_usage
     monkeypatch.setattr(module, "agy_usage", lambda force=False: None)
     # Never a real detached retirer (a worker's `done` starts one): `module.retirers` lists what would have started.
+    # Never a real CPU mask: `module.pins` records (thread, cores) for what would have been pinned, on a 12-core box.
+    module.pins = []
+    monkeypatch.setattr(module, "sched_setaffinity", lambda tid, cpus: module.pins.append((tid, sorted(cpus))))
+    monkeypatch.setattr(module, "sched_getaffinity", lambda pid: set(range(12)))
+    monkeypatch.delenv("MESH_WORKER_CPUS", raising=False)
     module.retirers = []
     module.real_start_retirer = module.start_retirer
     monkeypatch.setattr(module, "start_retirer", lambda run_id, handle: module.retirers.append(run_id) or 4242)
