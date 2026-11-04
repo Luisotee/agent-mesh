@@ -171,7 +171,9 @@ GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?
 ASK_PREFIX = ("Question (read-only): answer it from the code. Change no files, make no commits, push nothing "
               "and send no plan; reply with one `done` that holds the answer, or `failed`.")
 REVIEW_PREFIX = ("Review (read-only) of {pr}{at}: review this pull request. Change no files, make no commits, push "
-                 "nothing, send no plan and post nothing on GitHub. {where} Reply with one `done` that lists your "
+                 "nothing, send no plan and post nothing on GitHub. {where} If the PR has CI checks, read their "
+                 "results first (`gh pr checks {pr}`) and run only the tests the change touches; run the full suite "
+                 "only when it has no CI, or for what its CI doesn't cover. Reply with one `done` that lists your "
                  "findings, most severe first, each with file:line, the concrete failure (input or state, and what "
                  "goes wrong), why it matters and a suggested fix. Mark each one **blocking** (a defect you "
                  "reproduced or traced, with the input that makes it fail) or **advisory** (everything else). "
@@ -197,7 +199,8 @@ PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
 # ...and of the session events its answer is written to, from the end they had then (claim_copilot, copilot_turn).
 CLAIM_KEYS = (*PROCESS_KEYS, "events", "events_from")
 # `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
-REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `{show}` shows the change."
+REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run the tests the change touches; `{show}` "
+                "shows the change.")
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
               "and `git show FETCH_HEAD:<path>`.")
@@ -213,7 +216,7 @@ CODE_REVIEW = (
     "Run Claude Code's `/code-review {level} {target}` (the Skill tool, skill `code-review`) as the core of this "
     "review, never with `--fix`, `--comment` or `ultra`: you change and post nothing, and a tool denied to you is "
     "expected, not something to work around. It runs in the background and its findings come back as a "
-    "notification: meanwhile read the change (and run its tests, if your worktree has the PR head checked out), "
+    "notification: meanwhile read the change (and run the tests it touches, if your worktree has the PR head checked out), "
     "and if you end your turn before they arrive, first "
     "declare it (`mesh send parent --type wait --until 30m --body \"/code-review running\"`). Its findings are "
     "candidates: check each one yourself against the code at the PR head (trace it or run the failing case), mark "

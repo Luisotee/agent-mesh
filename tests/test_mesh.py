@@ -11188,3 +11188,12 @@ def test_memory_pressure_passes(mesh, tmp_path, monkeypatch, how):
     elif how == "unreadable":
         high_pressure(tmp_path, monkeypatch, avg60="lots")
     mesh.memory_guard("w")  # no error
+
+
+def test_a_reviewer_reads_ci_first_and_runs_only_the_tests_the_change_touches(mesh):
+    url = "https://github.com/acme/proj/pull/7"
+    for fresh in (True, False):
+        task = mesh.ask_task("", url, 7, fresh, head="abc123")
+        assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`)" in task
+        assert "run only the tests the change touches; run the full suite only when it has no CI" in task
+    assert "run the tests the change touches" in mesh.ask_task("", url, 7, True, head="abc123")
