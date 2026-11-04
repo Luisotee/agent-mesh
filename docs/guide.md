@@ -163,11 +163,11 @@ mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flag
 
 ### Compaction on the way back
 
-An old conversation has lost its prompt cache, so every turn of a follow-up would pay for all of it again. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
+Every turn of a follow-up re-reads the whole conversation, and one whose prompt cache has expired writes it all again first. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
 
-- a Claude conversation over 300k tokens, or an agy one over 100k (agy compacts itself at about 250k); twice that for a read-only question. An agy conversation whose size can't be read is compacted when it comes back from an earlier run;
+- a Claude conversation over 300k tokens, or over 200k once its cache has gone cold (it was last written longer ago than its cache's 5-minute or 1-hour lifetime), or an agy one over 100k (agy compacts itself at about 250k); twice that for a read-only question. An agy conversation whose size can't be read is compacted when it comes back from an earlier run;
 - the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
-- `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` / `MESH_AGY_COMPACT_AT` move the thresholds.
+- `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` / `MESH_COMPACT_COLD_AT` / `MESH_AGY_COMPACT_AT` move the thresholds.
 
 ### The root's own context
 

@@ -11197,3 +11197,69 @@ def test_a_reviewer_reads_ci_first_and_runs_only_the_tests_the_change_touches(me
         assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`)" in task
         assert "run only the tests the change touches; run the full suite only when it has no CI" in task
     assert "run the tests the change touches" in mesh.ask_task("", url, 7, True, head="abc123")
+
+
+# ── compaction by cache warmth ───────────────────────────────────────────
+
+
+def usage_ttl(n, ttl):
+    """A reply that wrote the cache with a `ttl` ("5m" or "1h") TTL."""
+    line = usage(n)
+    key = "ephemeral_5m_input_tokens" if ttl == "5m" else "ephemeral_1h_input_tokens"
+    line["message"]["usage"]["cache_creation"] = {key: 10}
+    return line
+
+
+def aged(mesh, entry, session, seconds):
+    path = mesh.claude_transcript(entry, session)
+    then = time.time() - seconds
+    os.utime(path, (then, then))
+
+
+def test_a_claude_cache_is_cold_once_its_file_is_older_than_its_ttl(mesh, monkeypatch, tmp_path):
+    entry = {"kind": "claude", "cwd": "/wt/proj-fix"}
+    assert mesh.cache_cold(entry, "s") is None  # no file
+    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage_ttl(1000, "5m")])
+    assert mesh.cache_cold(entry, "s") is False
+    aged(mesh, entry, "s", 301)
+    assert mesh.cache_cold(entry, "s") is True
+    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage_ttl(1000, "1h")])
+    aged(mesh, entry, "s", 1800)
+    assert mesh.cache_cold(entry, "s") is False
+    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage(1000)])  # no TTL recorded: 1 h
+    aged(mesh, entry, "s", 3000)
+    assert mesh.cache_cold(entry, "s") is False
+    aged(mesh, entry, "s", 3700)
+    assert mesh.cache_cold(entry, "s") is True
+
+
+def test_a_cold_claude_resume_compacts_from_the_lower_threshold(mesh, monkeypatch):
+    claude, agy = {"kind": "claude"}, {"kind": "agy"}
+    assert not mesh.should_compact("auto", claude, 250_000, False, True)  # warm: read from cache
+    assert mesh.should_compact("auto", claude, 250_000, False, True, cold=True)
+    assert not mesh.should_compact("auto", claude, 150_000, False, True, cold=True)
+    assert not mesh.should_compact("auto", claude, 350_000, True, True, cold=True)  # a question: twice that
+    assert mesh.should_compact("auto", claude, 250_000, True, True, peer=True, cold=True)
+    assert mesh.should_compact("auto", agy, 150_000, False, False, cold=True) == \
+        mesh.should_compact("auto", agy, 150_000, False, False)  # agy unchanged
+    monkeypatch.setenv("MESH_COMPACT_COLD_AT", "100000")
+    assert mesh.should_compact("auto", claude, 150_000, False, True, cold=True)
+    monkeypatch.setenv("MESH_COMPACT_AT", "50000")  # a lower warm threshold wins
+    assert mesh.should_compact("auto", claude, 60_000, False, True, cold=True)
+
+
+def test_resume_compacts_a_cold_conversation_but_not_a_warm_one(mesh, fake, cli, run, repo, monkeypatch,
+                                                                 tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage_ttl(250_000, "1h")])
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["compaction"]["cache_cold"] is False and not cli.called("-p")
+    assert mesh.main(["retire", "proj-fix"]) == 0
+    aged(mesh, {"kind": "claude", "cwd": str(path)}, "s-1", 2 * 3600)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the next review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["compaction"]["cache_cold"] is True and cli.called("-p")

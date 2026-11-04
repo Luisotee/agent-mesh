@@ -68,6 +68,7 @@ USER_REVIEW_MODEL = "opus"
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
+COMPACT_COLD_AT = 200_000  # ...one whose prompt cache has expired (`cache_cold`): it is written again in full anyway
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
@@ -1934,7 +1935,8 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
-               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX")
+               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
+               "MESH_COMPACT_COLD_AT")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -3093,19 +3095,44 @@ def compact_at(kind: str | None = None) -> int:
         return default
 
 
-def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, cross_run: bool,
-                   peer: bool = False) -> bool:
-    """`--compact auto`: compact a conversation that a resume would otherwise re-read in full, turn after turn.
+def compact_cold_at() -> int:
+    try:
+        return int(os.environ.get("MESH_COMPACT_COLD_AT") or COMPACT_COLD_AT)
+    except ValueError:
+        return COMPACT_COLD_AT
 
-    An old conversation's prompt cache has expired, so every turn of the follow-up pays for its whole
-    context. A question or two doesn't repay a compaction, so read-only tasks get twice the threshold, except
-    a standing peer asker's: it is asked question after question, each time cold (design §14).
+
+def cache_cold(entry: dict, session: str) -> bool | None:
+    """Whether a Claude conversation's prompt cache has expired: its session file was last written longer ago than
+    the TTL its replies wrote the cache with (`transcript_usage`; 1 h when none says). None without the file."""
+    path = claude_transcript(entry, session)
+    if not path:
+        return None
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return None
+    return age > (transcript_usage(path)[1] or 3600)
+
+
+def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, cross_run: bool,
+                   peer: bool = False, cold: bool = False) -> bool:
+    """`--compact auto`: compact a conversation that a resume would otherwise re-read, turn after turn.
+
+    Since idle workers retire 5 minutes after they report, most Claude resumes find the cache warm, and a warm
+    context is read at the cache price: compacting it only pays above COMPACT_AT. A `cold` one (`cache_cold`) is
+    written again in full on its first turn anyway, so it compacts from COMPACT_COLD_AT (the compaction turn's read
+    is a 5-minute write, the summary is small). A question or two doesn't repay a compaction, so read-only tasks get
+    twice the threshold, except a standing peer asker's: it is asked question after question (design §14). agy
+    has its own threshold, warm or not.
     """
     if mode != "auto":
         return mode == "yes"
-    if tokens is None and entry.get("kind") == "agy":
+    kind = entry.get("kind")
+    if tokens is None and kind == "agy":
         return cross_run and not read_only  # no size to go on: compact what comes back from an earlier run
-    return tokens is not None and tokens > compact_at(entry.get("kind")) * (2 if read_only and not peer else 1)
+    at = min(compact_cold_at(), compact_at()) if cold and kind != "agy" else compact_at(kind)
+    return tokens is not None and tokens > at * (2 if read_only and not peer else 1)
 
 
 def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
@@ -7416,8 +7443,10 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     mode = getattr(args, "compact", None) or "auto"
     read_only = getattr(args, "read_only", False) or read_only_task(task)
     tokens = context_tokens(entry, session)
-    report: dict = {"context_tokens": tokens, "compacted": False}
-    if not should_compact(mode, entry, tokens, read_only, cross_run, peer):
+    claude = entry.get("kind") != "agy"
+    cold = claude and bool(cache_cold(entry, session))
+    report: dict = {"context_tokens": tokens, "compacted": False, **({"cache_cold": cold} if claude and tokens else {})}
+    if not should_compact(mode, entry, tokens, read_only, cross_run, peer, cold):
         return report
     focus = getattr(args, "focus", None) or (
         PEER_FOCUS.format(repo=Path(entry.get("repo") or entry["cwd"]).name) if peer else COMPACT_FOCUS.format(
@@ -11801,6 +11830,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
                    help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
+                        f"{COMPACT_COLD_AT:,} once its prompt cache has expired, "
                         f"{AGY_COMPACT_AT:,} for agy, twice that for a question unless asked of a peer; an agy one whose size can't be "
                         "read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
