@@ -11263,3 +11263,34 @@ def test_resume_compacts_a_cold_conversation_but_not_a_warm_one(mesh, fake, cli,
     assert mesh.main(["resume", "proj-fix", "--task", "Apply the next review."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["compaction"]["cache_cold"] is True and cli.called("-p")
+
+
+# ── memory scopes ────────────────────────────────────────────────────────
+
+
+def test_no_memory_scope_by_default(mesh, cli):
+    assert mesh.confine_agent(NO_PID, "proj-fix") == {"cpus": "0-2"}
+    assert not cli.called("--user", "call")
+
+
+def test_with_worker_memory_high_an_agent_gets_its_own_scope(mesh, cli, monkeypatch):
+    monkeypatch.setenv("MESH_WORKER_MEMORY_HIGH", "2048")
+    monkeypatch.setattr(mesh, "process_table", lambda: [{"pid": 51, "ppid": 50}])
+    assert mesh.confine_agent(50, "proj-fix") == {"cpus": "0-2", "scope": "mesh-proj-fix-50.scope"}
+    [call] = cli.called("--user", "call")
+    assert call["argv"] == ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                            "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
+                            "mesh-proj-fix-50.scope", "fail", "2", "PIDs", "au", "2", "50", "51",
+                            "MemoryHigh", "t", str(2048 << 20), "0"]
+    cli.on("--user", returncode=127, stderr="busctl not found")  # no systemd: no scope, and no failure
+    assert mesh.confine_agent(50, "proj-fix") == {"cpus": "3-5"}
+
+
+def test_a_pane_worker_gets_its_scope_at_spawn(mesh, fake, cli, run, repo, monkeypatch, capsys):
+    with_config({"worker_memory_high": 4096})
+    stub_new_pane(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
+                      "--worktree", "fix", "--task", "Do it."]) == 0
+    assert f"mesh-proj-fix-{NO_PID}.scope" in cli.called("--user", "call")[0]["argv"]

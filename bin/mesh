@@ -371,10 +371,13 @@ POLICY = {  # leaf: (built-in default, check)
     "worker_cpus": (25, "percent"),
     # memory_guard refuses a new agent while /proc/pressure/memory's `full avg60` is over this; 0 turns it off.
     "memory_pressure_max": (10, "percent"),
+    # MB above which an agent mesh launches is throttled (a systemd user scope's MemoryHigh); 0, the default, is no
+    # scope.
+    "worker_memory_high": (0, "int"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
-              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX"}
+              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -1936,7 +1939,7 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
-               "MESH_COMPACT_COLD_AT")
+               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -3960,18 +3963,40 @@ def pin_cpus(pids: list[int], cpus: list[int]) -> int:
     return len(done)
 
 
+SYSTEMD = ("org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager")
+
+
+def memory_scope(pids: list[int], name: str) -> str | None:
+    """Move an agent's processes into a transient systemd user scope with `MemoryHigh` (`worker_memory_high` MB),
+    so a spike in what it runs is reclaimed into swap and throttled in that agent alone, not across the machine;
+    the processes it starts later join it. The scope's name, or None when it's off or systemd refused (no user
+    manager, no busctl). It ends by itself once its processes have exited."""
+    mb = setting("worker_memory_high")
+    if not mb or not pids:
+        return None
+    unit = f"mesh-{slugify(name, 60)}-{pids[0]}.scope"
+    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "2",
+            "PIDs", "au", str(len(pids)), *map(str, pids), "MemoryHigh", "t", str(mb << 20), "0"]
+    return unit if run_cli(argv, timeout=10).returncode == 0 else None
+
+
 def confine_agent(pid: int | None, name: str) -> dict:
     """Confine an agent mesh just launched (a worker, asker, peer or Copilot asker; never a root or `mesh open`):
     its process and descendants to the next `cpu_window`, so the test runners it starts size their worker pools
-    by that many cores. What it set; never raises, since a launch must not fail on it."""
+    by that many cores, and with `worker_memory_high` into a `memory_scope`. What it set; never raises, since a
+    launch must not fail on it."""
     done: dict = {}
     if not pid:
         return done
     try:
+        tree = agent_tree(int(pid))
         cpus = cpu_window()
         if cpus:
-            pin_cpus(agent_tree(int(pid)), cpus)
+            pin_cpus(tree, cpus)
             done["cpus"] = cpu_list(cpus)
+        scope = memory_scope(tree, name)
+        if scope:
+            done["scope"] = scope
     except (OSError, ValueError, TypeError, MeshError):
         pass
     return done

@@ -320,7 +320,7 @@ mesh routing               # every setting, its value and where it comes from (b
 mesh routing --json
 ```
 
-An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated), `MESH_COPILOT_MODEL`, `MESH_WORKER_CPUS` and `MESH_MEMORY_PRESSURE_MAX`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
+An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated), `MESH_COPILOT_MODEL`, `MESH_WORKER_CPUS`, `MESH_MEMORY_PRESSURE_MAX` and `MESH_WORKER_MEMORY_HIGH`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
 
 This file reproduces the built-in policy, plus a `repos_dir`:
 
@@ -353,7 +353,8 @@ This file reproduces the built-in policy, plus a `repos_dir`:
   "repos_dir": ["~/projects"],
   "skip_permissions": true,
   "worker_cpus": 25,
-  "memory_pressure_max": 10
+  "memory_pressure_max": 10,
+  "worker_memory_high": 0
 }
 ```
 
@@ -364,6 +365,7 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 - **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.
 - **`worker_cpus`:** the percent of the machine's cores each agent mesh starts may use (at least one core): a CPU affinity mask, so the test runners it starts size their worker pools to it. `0` or `100` turns it off. See [Many agents on one machine](#many-agents-on-one-machine).
 - **`memory_pressure_max`:** mesh starts no agent while the kernel's memory pressure (`full avg60` of `/proc/pressure/memory`: the share of the last minute in which every runnable task stalled on memory) is over this percent; `0` turns it off. The default is a first guess.
+- **`worker_memory_high`:** MB of memory above which an agent mesh starts, with everything it runs, is throttled: mesh moves it into a systemd user scope with `MemoryHigh`, so a spike there swaps and slows that agent instead of the whole machine. `0` (the default) creates no scope. It needs a running `systemd --user` and `busctl`; without them it does nothing. A worker held at its limit slows down, and a long stall can read as a hang to the watch.
 
 Useful commands while a run is going:
 

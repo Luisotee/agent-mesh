@@ -168,6 +168,7 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "sched_setaffinity", lambda tid, cpus: module.pins.append((tid, sorted(cpus))))
     monkeypatch.setattr(module, "sched_getaffinity", lambda pid: set(range(12)))
     monkeypatch.delenv("MESH_WORKER_CPUS", raising=False)
+    monkeypatch.delenv("MESH_WORKER_MEMORY_HIGH", raising=False)
     module.retirers = []
     module.real_start_retirer = module.start_retirer
     monkeypatch.setattr(module, "start_retirer", lambda run_id, handle: module.retirers.append(run_id) or 4242)
