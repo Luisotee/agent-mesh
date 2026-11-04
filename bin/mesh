@@ -172,9 +172,7 @@ GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+?)/([\w.-]+?)(?:\.git)?/?
 ASK_PREFIX = ("Question (read-only): answer it from the code. Change no files, make no commits, push nothing "
               "and send no plan; reply with one `done` that holds the answer, or `failed`.")
 REVIEW_PREFIX = ("Review (read-only) of {pr}{at}: review this pull request. Change no files, make no commits, push "
-                 "nothing, send no plan and post nothing on GitHub. {where} If the PR has CI checks, read their "
-                 "results first (`gh pr checks {pr}`) and run only the tests the change touches; run the full suite "
-                 "only when it has no CI, or for what its CI doesn't cover. Reply with one `done` that lists your "
+                 "nothing, send no plan and post nothing on GitHub. {where} Reply with one `done` that lists your "
                  "findings, most severe first, each with file:line, the concrete failure (input or state, and what "
                  "goes wrong), why it matters and a suggested fix. Mark each one **blocking** (a defect you "
                  "reproduced or traced, with the input that makes it fail) or **advisory** (everything else). "
@@ -200,13 +198,18 @@ PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
 # ...and of the session events its answer is written to, from the end they had then (claim_copilot, copilot_turn).
 CLAIM_KEYS = (*PROCESS_KEYS, "events", "events_from")
 # `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
-REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run the tests the change touches; `{show}` "
-                "shows the change.")
+REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run tests; `{show}` shows the change. If the "
+                "PR has CI checks, read their results first (`gh pr checks {pr}`, which shows the PR's latest head, "
+                "maybe past this one) and run only the tests the change touches; run the full suite only when it has "
+                "no CI, or for what its CI doesn't cover.")
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
-              "and `git show FETCH_HEAD:<path>`.")
+              "and `git show FETCH_HEAD:<path>`. {checks}")
 REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a file at its head with "
-                 "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
+                 "`git show {head}:<path>`. {checks}")
+# A reviewer whose worktree isn't at the PR head: its tests would test other code.
+REVIEW_OWN_CHECKS = ("If the PR has CI checks, read their results first (`gh pr checks {pr}`); run no tests: your "
+                     "worktree isn't at the PR head.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
 # reviews the worktree's own branch). The level follows the review's size (`review.level.<size>`): higher levels mostly
@@ -3099,23 +3102,27 @@ def compact_at(kind: str | None = None) -> int:
 
 
 def compact_cold_at() -> int:
-    try:
-        return int(os.environ.get("MESH_COMPACT_COLD_AT") or COMPACT_COLD_AT)
-    except ValueError:
-        return COMPACT_COLD_AT
+    return env_int("MESH_COMPACT_COLD_AT", COMPACT_COLD_AT)
 
 
-def cache_cold(entry: dict, session: str) -> bool | None:
+def cache_cold(path: Path, ttl: int | None) -> bool:
     """Whether a Claude conversation's prompt cache has expired: its session file was last written longer ago than
-    the TTL its replies wrote the cache with (`transcript_usage`; 1 h when none says). None without the file."""
-    path = claude_transcript(entry, session)
-    if not path:
-        return None
+    `ttl`, the TTL its replies wrote the cache with (`transcript_usage`), through `cache_ttl` (MESH_CACHE_TTL, else
+    1 h when unknown)."""
     try:
-        age = time.time() - path.stat().st_mtime
+        return time.time() - path.stat().st_mtime > cache_ttl(ttl)
     except OSError:
-        return None
-    return age > (transcript_usage(path)[1] or 3600)
+        return False
+
+
+def context_usage(entry: dict, session: str, warmth: bool) -> tuple[int | None, bool]:
+    """(context_tokens, and with `warmth` whether a Claude conversation's cache is cold), from one read of its
+    session file's tail."""
+    if entry.get("kind") == "agy" or not warmth:
+        return context_tokens(entry, session), False
+    path = claude_transcript(entry, session)
+    tokens, ttl = transcript_usage(path) if path else (None, None)
+    return tokens, tokens is not None and cache_cold(path, ttl)
 
 
 def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, cross_run: bool,
@@ -3771,7 +3778,7 @@ def memory_pressure() -> float | None:
     except OSError:
         return None
     for line in text.splitlines():
-        kind, *fields = line.split()
+        kind, *fields = line.split() or [""]
         if kind == "full":
             values = dict(f.partition("=")[::2] for f in fields)
             try:
@@ -3915,9 +3922,9 @@ def cpu_window() -> list[int] | None:
 
 
 def cpu_list(cpus: list[int]) -> str:
-    """`[0, 1, 2, 5]` as `0-2,5`, as taskset writes it."""
+    """`[0, 1, 2, 5]` (or a wrapped `[9, 0, 1]`) as `0-2,5` (`0-1,9`), as taskset writes it."""
     spans: list[list[int]] = []
-    for cpu in cpus:
+    for cpu in sorted(cpus):
         if spans and cpu == spans[-1][1] + 1:
             spans[-1][1] = cpu
         else:
@@ -3948,18 +3955,20 @@ def task_ids(pid: int) -> list[int]:
 
 
 def pin_cpus(pids: list[int], cpus: list[int]) -> int:
-    """Set every thread of `pids` to `cpus`; the threads set. One that exited meanwhile is skipped."""
+    """Set every thread of `pids` to `cpus`; how many took. One that exited meanwhile is skipped."""
     done: set[int] = set()
+    seen: set[int] = set()
     for _ in range(PIN_PASSES):
-        new = [tid for pid in pids for tid in task_ids(pid) if tid not in done]
+        new = [tid for pid in pids for tid in task_ids(pid) if tid not in seen]
         if not new:
             break
         for tid in new:
-            done.add(tid)
+            seen.add(tid)
             try:
                 sched_setaffinity(tid, cpus)
-            except OSError:
-                pass
+            except OSError:  # exited meanwhile, or cores a cpuset forbids
+                continue
+            done.add(tid)
     return len(done)
 
 
@@ -3989,10 +3998,11 @@ def confine_agent(pid: int | None, name: str) -> dict:
     if not pid:
         return done
     try:
-        tree = agent_tree(int(pid))
         cpus = cpu_window()
-        if cpus:
-            pin_cpus(tree, cpus)
+        if not cpus and not setting("worker_memory_high"):
+            return done  # both off: no /proc scan
+        tree = agent_tree(int(pid))
+        if cpus and pin_cpus(tree, cpus):
             done["cpus"] = cpu_list(cpus)
         scope = memory_scope(tree, name)
         if scope:
@@ -7136,6 +7146,7 @@ def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.slee
 
 def cmd_retirer(args: argparse.Namespace) -> int:
     """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
+    unpin(os.getpid())  # its starter's CPU cap would reach what it reopens (start_retirer also does, from outside)
     if args.lock_fd is not None:
         handle = os.fdopen(args.lock_fd, "a")
     else:  # by hand: only when none runs
@@ -7467,10 +7478,10 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     """`--compact`: compact the conversation before it is reopened, if it's worth it (see should_compact)."""
     mode = getattr(args, "compact", None) or "auto"
     read_only = getattr(args, "read_only", False) or read_only_task(task)
-    tokens = context_tokens(entry, session)
     claude = entry.get("kind") != "agy"
-    cold = claude and bool(cache_cold(entry, session))
-    report: dict = {"context_tokens": tokens, "compacted": False, **({"cache_cold": cold} if claude and tokens else {})}
+    tokens, cold = context_usage(entry, session, warmth=claude and mode == "auto")
+    report: dict = {"context_tokens": tokens, "compacted": False,
+                    **({"cache_cold": cold} if claude and tokens is not None and mode == "auto" else {})}
     if not should_compact(mode, entry, tokens, read_only, cross_run, peer, cold):
         return report
     focus = getattr(args, "focus", None) or (
@@ -8041,7 +8052,8 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
         show = f"git diff {built[1]}" if built else f"gh pr diff {pr}"
-        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
+        where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show,
+                                                        checks=REVIEW_OWN_CHECKS.format(pr=pr))
         again = bool(last and head and last != head)
         if again:
             where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)

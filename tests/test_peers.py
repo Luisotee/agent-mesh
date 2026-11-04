@@ -1127,7 +1127,7 @@ def test_a_removed_peer_asked_again_is_still_a_peer(mesh, fake, cli, run, repo, 
         data["agents"]["swarm-research"]["status"] = "retired"
     cwd = mesh.load_peers()["peers"]["swarm-research"]["cwd"]
     assert mesh.main(["peers", "remove", "swarm-research"]) == 0
-    monkeypatch.setattr(mesh, "context_tokens", lambda entry, session: 10 ** 9)
+    monkeypatch.setattr(mesh, "context_usage", lambda entry, session, warmth: (10 ** 9, False))
     started = []
     real_start = mesh.start_agent
     monkeypatch.setattr(mesh, "start_agent", lambda *a, **kw: started.append(kw) or real_start(*a, **kw))

@@ -11047,6 +11047,7 @@ def test_each_launch_takes_the_next_window_of_a_quarter_of_the_cores(mesh, monke
     monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0, 1})
     assert len(mesh.cpu_window()) == 1  # at least one core
     assert mesh.cpu_list([0, 1, 2, 5, 7, 8]) == "0-2,5,7-8"
+    assert mesh.cpu_list([9, 0, 1]) == "0-1,9"  # a window that wraps
 
 
 @pytest.mark.parametrize("how", ["0", "100", "no-api", "one-core"])
@@ -11058,7 +11059,8 @@ def test_the_cpu_cap_turns_off(mesh, monkeypatch, how):
     else:
         monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0})
     assert mesh.cpu_window() is None
-    assert mesh.confine_agent(NO_PID, "w") == {} and mesh.pins == []
+    monkeypatch.setattr(mesh, "process_table", lambda: (_ for _ in ()).throw(AssertionError("scanned /proc")))
+    assert mesh.confine_agent(NO_PID, "w") == {} and mesh.pins == []  # off: no /proc scan either
 
 
 def test_the_cores_are_the_machines_not_a_pinned_launchers(mesh, monkeypatch):
@@ -11077,8 +11079,9 @@ def test_a_pin_sets_every_thread_of_the_agent_and_its_children(mesh, monkeypatch
     assert mesh.confine_agent(40, "w") == {"cpus": "0-2"}
     assert sorted(t for t, _ in mesh.pins) == [40, 41, 50, 60, 61, 62]
     assert {tuple(c) for _, c in mesh.pins} == {(0, 1, 2)}
-    monkeypatch.setattr(mesh, "sched_setaffinity", lambda tid, cpus: (_ for _ in ()).throw(OSError("gone")))
-    assert mesh.confine_agent(40, "w") == {"cpus": "3-5"}  # a thread that exited never fails the launch
+    monkeypatch.setattr(mesh, "sched_setaffinity", lambda tid, cpus: (_ for _ in ()).throw(OSError("EINVAL")))
+    assert mesh.confine_agent(40, "w") == {}  # no pin took (a cpuset forbids those cores): none is reported
+    assert mesh.pin_cpus([40], [0]) == 0
 
 
 def test_with_worker_cpus_set_by_env_or_config_routing_shows_it(mesh, monkeypatch, capsys):
@@ -11190,13 +11193,22 @@ def test_memory_pressure_passes(mesh, tmp_path, monkeypatch, how):
     mesh.memory_guard("w")  # no error
 
 
+def test_memory_pressure_skips_blank_lines(mesh, tmp_path, monkeypatch):
+    path = tmp_path / "pressure"
+    path.write_text("some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n\nfull avg10=0.00 avg60=11.00 avg300=0.00 total=0\n\n")
+    monkeypatch.setenv("MESH_PRESSURE", str(path))
+    assert mesh.memory_pressure() == 11.0
+
+
 def test_a_reviewer_reads_ci_first_and_runs_only_the_tests_the_change_touches(mesh):
     url = "https://github.com/acme/proj/pull/7"
-    for fresh in (True, False):
-        task = mesh.ask_task("", url, 7, fresh, head="abc123")
-        assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`)" in task
-        assert "run only the tests the change touches; run the full suite only when it has no CI" in task
-    assert "run the tests the change touches" in mesh.ask_task("", url, 7, True, head="abc123")
+    fresh = mesh.ask_task("", url, 7, True, head="abc123")
+    assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`" in fresh
+    assert "run only the tests the change touches; run the full suite only when it has no CI" in fresh
+    for task in (mesh.ask_task("", url, 7, False, head="abc123"), mesh.ask_task("", url, 7, False)):
+        # not at the PR head: its tests would test other code
+        assert f"read their results first (`gh pr checks {url}`); run no tests" in task
+        assert "run only the tests the change touches" not in task
 
 
 # ── compaction by cache warmth ───────────────────────────────────────────
@@ -11218,19 +11230,19 @@ def aged(mesh, entry, session, seconds):
 
 def test_a_claude_cache_is_cold_once_its_file_is_older_than_its_ttl(mesh, monkeypatch, tmp_path):
     entry = {"kind": "claude", "cwd": "/wt/proj-fix"}
-    assert mesh.cache_cold(entry, "s") is None  # no file
-    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage_ttl(1000, "5m")])
-    assert mesh.cache_cold(entry, "s") is False
-    aged(mesh, entry, "s", 301)
-    assert mesh.cache_cold(entry, "s") is True
-    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage_ttl(1000, "1h")])
-    aged(mesh, entry, "s", 1800)
-    assert mesh.cache_cold(entry, "s") is False
-    session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", [usage(1000)])  # no TTL recorded: 1 h
-    aged(mesh, entry, "s", 3000)
-    assert mesh.cache_cold(entry, "s") is False
-    aged(mesh, entry, "s", 3700)
-    assert mesh.cache_cold(entry, "s") is True
+
+    def cold(lines, age):
+        session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", lines)
+        aged(mesh, entry, "s", age)
+        path = mesh.claude_transcript(entry, "s")
+        return mesh.cache_cold(path, mesh.transcript_usage(path)[1])
+
+    assert not cold([usage_ttl(1000, "5m")], 10) and cold([usage_ttl(1000, "5m")], 301)
+    assert not cold([usage_ttl(1000, "1h")], 1800)
+    assert not cold([usage(1000)], 3000) and cold([usage(1000)], 3700)  # no TTL recorded: 1 h
+    monkeypatch.setenv("MESH_CACHE_TTL", "60")  # a live check fakes a short one
+    assert cold([usage_ttl(1000, "1h")], 61)
+    assert not mesh.cache_cold(tmp_path / "missing.jsonl", None)
 
 
 def test_a_cold_claude_resume_compacts_from_the_lower_threshold(mesh, monkeypatch):
