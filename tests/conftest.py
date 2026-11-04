@@ -121,7 +121,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_AGY_CONVERSATIONS", str(tmp_path / "agy" / "conversations"))
     # CLAUDE_CODE_SESSION_ID, CLAUDE_PID, CLAUDE_CODE_MESSAGING_SOCKET: the suite may run inside Claude Code, whose
     # session would meet `inherited_identity` and whose socket `claude_address`.
-    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT",
+    for key in ("MESH_RUN", "MESH_SELF", "MESH_PARENT", "MESH_ROLE", "MESH_COMPACT_AT", "MESH_COMPACT_COLD_AT",
+                "MESH_AGY_COMPACT_AT",
                 "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                 "MESH_QUOTA_STOP", "MESH_MIN_QUOTA", "MESH_CLAUDE_USAGE",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_CODE_MESSAGING_SOCKET"):
@@ -132,6 +133,9 @@ def mesh(tmp_path, monkeypatch):
     write_meminfo(tmp_path / "meminfo", available=16 << 20, swap_free=16 << 20)
     monkeypatch.setenv("MESH_MEMINFO", str(tmp_path / "meminfo"))
     monkeypatch.delenv("MESH_MIN_FREE_MB", raising=False)
+    # ...nor its memory pressure: no file, no signal (see high_pressure for a thrashing one).
+    monkeypatch.setenv("MESH_PRESSURE", str(tmp_path / "no-pressure"))
+    monkeypatch.delenv("MESH_MEMORY_PRESSURE_MAX", raising=False)
     # Never this machine's policy file or folders (a test that wants a config writes one here, see with_config).
     monkeypatch.setenv("MESH_CONFIG_FILE", str(tmp_path / "agent-mesh.json"))
     for key in ("MESH_REPOS_DIR", "MESH_PEERS_DIR", "MESH_COPILOT_MODEL", "MESH_CLAUDE"):
@@ -159,6 +163,12 @@ def mesh(tmp_path, monkeypatch):
     # ...nor agy's quotas (the reserve reads them on every agy spawn): the tests of agy_usage use real_agy_usage.
     module.real_agy_usage = module.agy_usage
     monkeypatch.setattr(module, "agy_usage", lambda force=False: None)
+    # Never a real CPU mask: `module.pins` records (thread, cores) for what would have been pinned, on a 12-core box.
+    module.pins = []
+    monkeypatch.setattr(module, "sched_setaffinity", lambda tid, cpus: module.pins.append((tid, sorted(cpus))))
+    monkeypatch.setattr(module, "sched_getaffinity", lambda pid: set(range(12)))
+    monkeypatch.delenv("MESH_WORKER_CPUS", raising=False)
+    monkeypatch.delenv("MESH_WORKER_MEMORY_HIGH", raising=False)
     # Never a real detached retirer (a worker's `done` starts one): `module.retirers` lists what would have started.
     module.retirers = []
     module.real_start_retirer = module.start_retirer

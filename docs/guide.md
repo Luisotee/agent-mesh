@@ -163,11 +163,11 @@ mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flag
 
 ### Compaction on the way back
 
-An old conversation has lost its prompt cache, so every turn of a follow-up would pay for all of it again. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
+Every turn of a follow-up re-reads the whole conversation, and one whose prompt cache has expired writes it all again first. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
 
-- a Claude conversation over 300k tokens, or an agy one over 100k (agy compacts itself at about 250k); twice that for a read-only question. An agy conversation whose size can't be read is compacted when it comes back from an earlier run;
+- a Claude conversation over 300k tokens, or over `MESH_COMPACT_COLD_AT` tokens once its cache has gone cold (it was last written longer ago than its cache's 5-minute or 1-hour lifetime), or an agy one over 100k (agy compacts itself at about 250k); twice that for a read-only question. An agy conversation whose size can't be read is compacted when it comes back from an earlier run;
 - the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
-- `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` / `MESH_AGY_COMPACT_AT` move the thresholds.
+- `--compact yes|no` forces it either way, and `MESH_COMPACT_AT` / `MESH_COMPACT_COLD_AT` / `MESH_AGY_COMPACT_AT` move the thresholds.
 
 ### The root's own context
 
@@ -234,7 +234,9 @@ Every agent is a whole CLI process with its own MCP servers: an idle `claude` se
 - **Swap and an OOM killer.** Give the machine enough swap to absorb a spike, and run [earlyoom](https://github.com/rfjakob/earlyoom) (or systemd-oomd) so a full machine kills something instead of hanging. Tell it what to sacrifice and what to spare, e.g. `--prefer '(^|/)(next-server|node|pnpm)' --avoid '(^|/)(herdr|claude|agy)$'`.
 - **One MCP server per machine, not per session.** A stdio MCP server is started by every session that has it configured, so its memory multiplies by the agents running. Run a server that can be shared once, as a user service listening on a port (Playwright's MCP server takes `--port`), and point the user-scope entry at its URL; scope the others to the projects that use them (a project `.mcp.json`, or `claude mcp add --scope project` / `--scope local`) instead of the user scope. mesh launches workers with their repo's own MCP configuration and doesn't trim it (see [design notes](design.md), §17).
 - **Retire what has reported.** An idle worker holds its whole process; its conversation stays on disk, and `mesh resume` (or `mesh ask`) reopens it. `mesh status` shows who's done.
-- **What mesh does itself:** `spawn`, `resume` and `ask` refuse to start an agent under a memory floor, and `retire` and `stop` stop what a worker left running in its worktree (both under Safety rails below). Workers are asked to stop their own servers before reporting.
+- **What mesh does itself:** `spawn`, `resume` and `ask` refuse to start an agent under a memory floor or while the machine thrashes, and `retire` and `stop` stop what a worker left running in its worktree (both under Safety rails below). Workers are asked to stop their own servers before reporting, and reviewers to read the PR's CI results before running tests, then only the tests the change touches.
+- **A CPU cap per agent.** Test runners size their worker pools by the cores they see: in one run a reviewer's `vitest run` started 11 workers on a 12-core machine, each with its own database, about 7.7 GB at once. So every agent mesh starts (workers, askers, reviewers, peers, Copilot askers; never your root or a `mesh open`) gets a CPU affinity mask of `worker_cpus` % of the cores (at least one), each the next window over, and what it runs inherits it: Node's `os.availableParallelism()` (which vitest and jest size their pools by) and `nproc` report that many. A runner that counts cores another way ignores it; its own config (`maxWorkers`) stays the repo's business. `0` or `100` turns it off.
+- **A memory limit per agent (off by default).** With `worker_memory_high` set (MB), mesh also moves each agent it starts into a systemd user scope with `MemoryHigh`, so a spike in what one agent runs swaps and slows that agent instead of the whole machine. It needs `systemd --user` and `busctl`.
 
 ### Safety rails
 
@@ -245,7 +247,7 @@ Every agent is a whole CLI process with its own MCP servers: an idle `claude` se
 - **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
 - **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself (moving to "Yes" and reading the screen again before Enter, since Claude Code's default is "No, exit"), and answers no other startup screen. A worker that waits at one (Claude Code's Settings Warning for a malformed `.claude/settings.json` rule, its external CLAUDE.md imports question, or a screen mesh doesn't know) gets its task stored, not rung: `spawn`, `ask`, `resume`, `approve` and `switch` exit 4 with an `ALERT` and the pane's last lines, and once the user clears the screen a running `mesh watch` (or `mesh ring <worker>`) rings its doorbell. Messages sent to it meanwhile are stored, not typed. A CLI that exits during startup is an error, with the pane's last lines.
 - **Cleanup:** `mesh stop` stops background workers (their conversations are kept), removes only *clean* worktrees and never touches your own checkout. `mesh retire` and `mesh stop` also stop what a worker left running in its worktree (a dev server, a watcher: a process there whose parent has died), TERM then KILL, logged as `killed`; a live pane's shell, a live agent and its MCP servers, and your own terminal or tmux there (anything holding a terminal) are left alone, and so is a worktree another agent still works in. It keeps every branch that has a commit or was pushed; an asker's branch that got neither is deleted, and resuming that worker starts it again.
-- **Memory floor:** `spawn`, `resume` and `ask` (each peer of `ask --peers` too) start no agent while the machine's available memory plus free swap is under a floor: by default 10 % of RAM plus 10 % of swap (where earlyoom's defaults start killing) plus 1 GB, at least 2 GB; `MESH_MIN_FREE_MB` sets it, 0 turns it off. An agent started in the last two minutes, by any `mesh`, counts as 400 MB used, since it hasn't grown yet. They refuse before the agent's worktree or entry is made, naming the worker, and say to retire workers that have reported. `mesh open`, typed by you, isn't guarded. See [Many agents on one machine](#many-agents-on-one-machine).
+- **Memory floor:** `spawn`, `resume` and `ask` (each peer of `ask --peers` too) start no agent while the machine's available memory plus free swap is under a floor: by default 10 % of RAM plus 10 % of swap (where earlyoom's defaults start killing) plus 1 GB, at least 2 GB; `MESH_MIN_FREE_MB` sets it, 0 turns it off. They also start none while the kernel's memory pressure (`full avg60` in `/proc/pressure/memory`) is over `memory_pressure_max` %, which clears by itself as the pressure drops: try again a minute or two later. An agent started in the last two minutes, by any `mesh`, counts as 400 MB used, since it hasn't grown yet. They refuse before the agent's worktree or entry is made, naming the worker, and say to retire workers that have reported. `mesh open`, typed by you, isn't guarded. See [Many agents on one machine](#many-agents-on-one-machine).
 - **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice. "Running" means herdr lists an agent in its worktree, or, should herdr have lost it, a `claude`/`agy` process works there (in a shared main checkout, one naming its session).
 
 ## Requirements
@@ -320,7 +322,7 @@ mesh routing               # every setting, its value and where it comes from (b
 mesh routing --json
 ```
 
-An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated) and `MESH_COPILOT_MODEL`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
+An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated), `MESH_COPILOT_MODEL`, `MESH_WORKER_CPUS`, `MESH_MEMORY_PRESSURE_MAX` and `MESH_WORKER_MEMORY_HIGH`. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
 
 This file reproduces the built-in policy, plus a `repos_dir`:
 
@@ -351,7 +353,10 @@ This file reproduces the built-in policy, plus a `repos_dir`:
   "copilot_model": "auto",
   "peers_dir": "~/research",
   "repos_dir": ["~/projects"],
-  "skip_permissions": true
+  "skip_permissions": true,
+  "worker_cpus": 25,
+  "memory_pressure_max": 10,
+  "worker_memory_high": 0
 }
 ```
 
@@ -360,6 +365,9 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 - **`review.rounds`, `review.tiny_pr_lines`:** the review→fix rounds a PR gets, and the line count under which a trivial or small task's PR gets the root's own review instead of reviewers.
 - **`quota_stop`:** the percent of a quota used at which mesh starts nothing new on it. **`repos_dir`:** the folders a bare `--repo <name>` is looked up in (none by default: pass paths). **`peers_dir`:** where `mesh peers add` clones a peer.
 - **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.
+- **`worker_cpus`:** the percent of the machine's cores each agent mesh starts may use (at least one core): a CPU affinity mask, so the test runners it starts size their worker pools to it. `0` or `100` turns it off. See [Many agents on one machine](#many-agents-on-one-machine).
+- **`memory_pressure_max`:** mesh starts no agent while the kernel's memory pressure (`full avg60` of `/proc/pressure/memory`: the share of the last minute in which every runnable task stalled on memory) is over this percent; `0` turns it off. The default is a first guess.
+- **`worker_memory_high`:** MB of memory above which an agent mesh starts, with everything it runs, is throttled: mesh moves it into a systemd user scope with `MemoryHigh`, so a spike there swaps and slows that agent instead of the whole machine. `0` (the default) creates no scope. It needs a running `systemd --user` and `busctl`; without them it does nothing. A worker held at its limit slows down, and a long stall can read as a hang to the watch.
 
 Useful commands while a run is going:
 

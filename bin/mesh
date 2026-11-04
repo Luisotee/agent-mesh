@@ -68,6 +68,7 @@ USER_REVIEW_MODEL = "opus"
 REVIEW_EFFORT = "high"
 VIEWS = ("pane", "bg")  # a herdr pane, or a `claude --bg` session (`mesh open` attaches to it)
 COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a resumed Claude worker
+COMPACT_COLD_AT = 200_000  # ...one whose prompt cache has expired (`cache_cold`): it is written again in full anyway
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
@@ -197,12 +198,18 @@ PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
 # ...and of the session events its answer is written to, from the end they had then (claim_copilot, copilot_turn).
 CLAIM_KEYS = (*PROCESS_KEYS, "events", "events_from")
 # `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
-REVIEW_FRESH = "Its head is checked out in your worktree, so you can run its tests; `{show}` shows the change."
+REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run tests; `{show}` shows the change. If the "
+                "PR has CI checks, read their results first (`gh pr checks {pr}`, which shows the PR's latest head, "
+                "maybe past this one) and run only the tests the change touches; run the full suite only when it has "
+                "no CI, or for what its CI doesn't cover.")
 REVIEW_DIFF_MAX = 100_000  # characters of `gh pr diff` a review task carries; a longer one the reviewer reads itself
 REVIEW_OWN = ("Don't switch your branch: read the change with `gh pr diff {pr}`, or `git fetch origin pull/{n}/head` "
-              "and `git show FETCH_HEAD:<path>`.")
+              "and `git show FETCH_HEAD:<path>`. If the PR has CI checks, read their results first (`gh pr checks "
+              "{pr}`); run no tests: your worktree isn't at the PR head.")
 REVIEW_OWN_AT = ("Don't switch your branch: read the change with `{show}`, and a file at its head with "
-                 "`git show {head}:<path>`.")  # the head is in the shared object store (pr_head)
+                 "`git show {head}:<path>`. If the PR has CI checks, read their results first (`gh pr checks {pr}`); "
+                 "run tests only if `git rev-parse HEAD` in your worktree is {head}, otherwise run none: they would "
+                 "test other code.")  # the head is in the shared object store (pr_head)
 # Appended to a Claude reviewer's task: Claude Code's bundled `/code-review` skill is the core of its review
 # (design §10). Always name the level (it otherwise reuses the user's last one) and the target (it otherwise
 # reviews the worktree's own branch). The level follows the review's size (`review.level.<size>`): higher levels mostly
@@ -213,7 +220,7 @@ CODE_REVIEW = (
     "Run Claude Code's `/code-review {level} {target}` (the Skill tool, skill `code-review`) as the core of this "
     "review, never with `--fix`, `--comment` or `ultra`: you change and post nothing, and a tool denied to you is "
     "expected, not something to work around. It runs in the background and its findings come back as a "
-    "notification: meanwhile read the change (and run its tests, if your worktree has the PR head checked out), "
+    "notification: meanwhile read the change (and run the tests it touches, if your worktree has the PR head checked out), "
     "and if you end your turn before they arrive, first "
     "declare it (`mesh send parent --type wait --until 30m --body \"/code-review running\"`). Its findings are "
     "candidates: check each one yourself against the code at the PR head (trace it or run the failing case), mark "
@@ -362,9 +369,18 @@ POLICY = {  # leaf: (built-in default, check)
     # Worker launches only (spawn, resume, swaps, --bg) start with --dangerously-skip-permissions; mesh's own
     # headless calls that run no tools on a repo (`agy -p /usage`, `/compact`) keep it either way.
     "skip_permissions": (True, "bool"),
+    # The share of the machine's cores each agent mesh launches may use (at least one), as a CPU affinity mask its
+    # test runners inherit (design §17); 0 or 100 turns it off.
+    "worker_cpus": (25, "percent"),
+    # memory_guard refuses a new agent while /proc/pressure/memory's `full avg60` is over this; 0 turns it off.
+    "memory_pressure_max": (10, "percent"),
+    # MB above which an agent mesh launches is throttled (a systemd user scope's MemoryHigh); 0, the default, is no
+    # scope.
+    "worker_memory_high": (0, "int"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
-              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR"}
+              "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
+              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -449,6 +465,12 @@ def env_setting(leaf: str) -> tuple[object, str] | None:
         return None
     if leaf == "repos_dir":
         return [p for p in os.environ[key].split(os.pathsep) if p], key
+    if POLICY[leaf][1] in ("int", "percent"):  # a value that doesn't parse or check is ignored
+        try:
+            value = int(os.environ[key])
+        except ValueError:
+            return None
+        return (value, key) if POLICY_CHECKS[POLICY[leaf][1]][0](value) else None
     return os.environ[key], key
 
 
@@ -1805,12 +1827,15 @@ def start_agent(name: str, kind: str, pane: str, argv: list[str], attempts: int 
     for _ in range(attempts):
         try:
             herdr("agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--", *argv)
-            return {}
+            started = {}
         except HerdrError as exc:
-            if exc.code in ("agent_not_ready", "timeout"):
-                return clear_startup(name, pane, peer)
-            last = exc
-            time.sleep(1)
+            if exc.code not in ("agent_not_ready", "timeout"):
+                last = exc
+                time.sleep(1)
+                continue
+            started = clear_startup(name, pane, peer)
+        confine_pane(pane, name)  # every pane launch of a worker comes through here (design §17)
+        return started
     raise MeshError(f"could not start {name}: {last}")
 
 
@@ -1916,7 +1941,8 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_MIN_QUOTA", "MESH_QUOTA_STOP", "MESH_CLAUDE_USAGE", "MESH_COMPACT_AT", "MESH_AGY_COMPACT_AT", "MESH_AGY_SUMMARIES",
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
-               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR")
+               "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
+               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -2117,6 +2143,7 @@ def launch_bg(name: str, cwd: str | Path, model: str, effort: str, env: dict[str
     for _ in range(10):
         row = next((r for r in claude_agents() if r.get("id") == short), None)
         if row and row.get("sessionId"):
+            confine_agent(row.get("pid"), name)  # the session's own process (the daemon's claimed spare)
             return short, row["sessionId"]
         time.sleep(1)
     run_cli([claude_bin(), "stop", short], env=claude_env(), timeout=30)  # a stray session would do the task twice
@@ -3068,25 +3095,51 @@ def agy_context_tokens(session: str) -> int | None:
 
 def compact_at(kind: str | None = None) -> int:
     key, default = ("MESH_AGY_COMPACT_AT", AGY_COMPACT_AT) if kind == "agy" else ("MESH_COMPACT_AT", COMPACT_AT)
+    return env_int(key, default)
+
+
+def compact_cold_at() -> int:
+    return env_int("MESH_COMPACT_COLD_AT", COMPACT_COLD_AT)
+
+
+def cache_cold(path: Path, ttl: int | None) -> bool:
+    """Whether a Claude conversation's prompt cache has expired: its session file was last written longer ago than
+    `ttl`, the TTL its replies wrote the cache with (`transcript_usage`), through `cache_ttl` (MESH_CACHE_TTL, else
+    1 h when unknown)."""
     try:
-        return int(os.environ.get(key) or default)
-    except ValueError:
-        return default
+        return time.time() - path.stat().st_mtime > cache_ttl(ttl)
+    except OSError:
+        return False
+
+
+def context_usage(entry: dict, session: str, warmth: bool) -> tuple[int | None, bool]:
+    """(context_tokens, and with `warmth` whether a Claude conversation's cache is cold), from one read of its
+    session file's tail."""
+    if entry.get("kind") == "agy" or not warmth:
+        return context_tokens(entry, session), False
+    path = claude_transcript(entry, session)
+    tokens, ttl = transcript_usage(path) if path else (None, None)
+    return tokens, tokens is not None and cache_cold(path, ttl)
 
 
 def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, cross_run: bool,
-                   peer: bool = False) -> bool:
-    """`--compact auto`: compact a conversation that a resume would otherwise re-read in full, turn after turn.
+                   peer: bool = False, cold: bool = False) -> bool:
+    """`--compact auto`: compact a conversation that a resume would otherwise re-read, turn after turn.
 
-    An old conversation's prompt cache has expired, so every turn of the follow-up pays for its whole
-    context. A question or two doesn't repay a compaction, so read-only tasks get twice the threshold, except
-    a standing peer asker's: it is asked question after question, each time cold (design §14).
+    Since idle workers retire 5 minutes after they report, most Claude resumes find the cache warm, and a warm
+    context is read at the cache price: compacting it only pays above COMPACT_AT. A `cold` one (`cache_cold`) is
+    written again in full on its first turn anyway, so it compacts from COMPACT_COLD_AT (the compaction turn's read
+    is a 5-minute write, the summary is small). A question or two doesn't repay a compaction, so read-only tasks get
+    twice the threshold, except a standing peer asker's: it is asked question after question (design §14). agy
+    has its own threshold, warm or not.
     """
     if mode != "auto":
         return mode == "yes"
-    if tokens is None and entry.get("kind") == "agy":
+    kind = entry.get("kind")
+    if tokens is None and kind == "agy":
         return cross_run and not read_only  # no size to go on: compact what comes back from an earlier run
-    return tokens is not None and tokens > compact_at(entry.get("kind")) * (2 if read_only and not peer else 1)
+    at = min(compact_cold_at(), compact_at()) if cold and kind != "agy" else compact_at(kind)
+    return tokens is not None and tokens > at * (2 if read_only and not peer else 1)
 
 
 def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
@@ -3714,6 +3767,24 @@ def meminfo() -> dict[str, int] | None:
     return info
 
 
+def memory_pressure() -> float | None:
+    """The share of the last minute in which every runnable task stalled on memory (`full avg60` of
+    `/proc/pressure/memory`, or `MESH_PRESSURE`), in percent; None without the file (no PSI: no signal)."""
+    try:
+        text = Path(os.environ.get("MESH_PRESSURE") or "/proc/pressure/memory").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        kind, *fields = line.split() or [""]
+        if kind == "full":
+            values = dict(f.partition("=")[::2] for f in fields)
+            try:
+                return float(values["avg60"])
+            except (KeyError, ValueError):
+                return None
+    return None
+
+
 def min_free_mb(info: dict[str, int]) -> int:
     """The floor under which no agent starts: `MESH_MIN_FREE_MB` (0 turns the guard off), else 10 % of RAM plus
     10 % of swap, where earlyoom (and, without it, the thrashing) begins, plus room for the agent itself."""
@@ -3735,7 +3806,19 @@ def memory_guard(what: str, reserve: bool = True) -> str | None:
     An agent any `mesh` process let start in the last RESERVE_FOR seconds hasn't grown into MemAvailable yet,
     so each one's reservation (in `reservations.json`, machine-wide, under a lock) counts as AGENT_MB used.
     With `reserve`, a pass adds this one's and returns its id, which `release_memory` takes back when the start
-    fails after all."""
+    fails after all.
+
+    It also refuses while memory pressure (`memory_pressure`) is over `memory_pressure_max`: with a large swap,
+    memory plus swap stays over the floor long after the machine has started thrashing."""
+    limit = setting("memory_pressure_max")
+    pressure = memory_pressure() if limit else None
+    if pressure is not None and pressure > limit:
+        raise MeshError(
+            f"not starting {what}: memory pressure is high (/proc/pressure/memory full avg60 {pressure:.1f} %, over "
+            f"memory_pressure_max {limit}): the machine is thrashing. It clears by itself once the pressure drops "
+            "(avg60 decays over a minute or two), so try again later; retiring workers that have reported (`mesh "
+            "status` shows them) and stopping leftover dev servers or test runs helps it drop. Or set "
+            "MESH_MEMORY_PRESSURE_MAX=0 to start it anyway")
     info = meminfo()
     if info is None or "MemAvailable" not in info:
         return None  # no /proc: nothing to tell by
@@ -3792,6 +3875,150 @@ def release_memory(ids: list[str | None]) -> None:
             write_atomic(reservations_path(), json.dumps([r for r in held if r.get("id") not in ids]))
         except (OSError, ValueError, TypeError, AttributeError):
             pass
+
+
+# CPU caps (design §17): module attributes, so tests stub them; None where the platform has no affinity calls.
+sched_setaffinity = getattr(os, "sched_setaffinity", None)
+sched_getaffinity = getattr(os, "sched_getaffinity", None)
+PIN_PASSES = 3  # passes over an agent's threads, for one it starts while the first is being pinned
+
+
+def machine_cpus() -> list[int]:
+    """The cores agents share: pid 1's mask, which no mesh launch narrows (a retirer started by a worker's
+    report carries that worker's own), else this process's; [] without the calls."""
+    if not sched_getaffinity:
+        return []
+    for pid in (1, 0):
+        try:
+            return sorted(sched_getaffinity(pid))
+        except OSError:
+            continue
+    return []
+
+
+def cpu_window() -> list[int] | None:
+    """The cores the next agent mesh launches gets (`worker_cpus` % of them, at least one), or None when the cap
+    is off (0 or 100, a window as large as the machine, no affinity calls). Each launch on the machine takes the
+    next window (`cpus.json`, under a lock), so agents spread over the cores."""
+    percent = setting("worker_cpus")
+    cpus = machine_cpus()
+    if not sched_setaffinity or percent in (0, 100) or not cpus:
+        return None
+    size = max(1, len(cpus) * percent // 100)
+    if size >= len(cpus):
+        return None
+    path = mesh_home() / "cpus.json"
+    with file_lock(mesh_home() / ".cpus.lock"):
+        try:
+            turn = int(json.loads(path.read_text()).get("next", 0))
+        except (OSError, ValueError, TypeError, AttributeError):
+            turn = 0
+        write_atomic(path, json.dumps({"next": turn + 1}))
+    start = turn * size % len(cpus)
+    return [cpus[(start + i) % len(cpus)] for i in range(size)]
+
+
+def cpu_list(cpus: list[int]) -> str:
+    """`[0, 1, 2, 5]` (or a wrapped `[9, 0, 1]`) as `0-2,5` (`0-1,9`), as taskset writes it."""
+    spans: list[list[int]] = []
+    for cpu in sorted(cpus):
+        if spans and cpu == spans[-1][1] + 1:
+            spans[-1][1] = cpu
+        else:
+            spans.append([cpu, cpu])
+    return ",".join(f"{a}-{b}" if b > a else str(a) for a, b in spans)
+
+
+def agent_tree(pid: int) -> list[int]:
+    """`pid` and its descendants (the MCP servers an agent started before it was pinned), by `process_table`."""
+    children: dict[int, list[int]] = {}
+    for proc in process_table():
+        children.setdefault(proc["ppid"], []).append(proc["pid"])
+    tree, todo = [], [pid]
+    while todo:
+        p = todo.pop()
+        if p not in tree:
+            tree.append(p)
+            todo.extend(children.get(p, ()))
+    return tree
+
+
+def task_ids(pid: int) -> list[int]:
+    """A process's threads: an affinity mask is per thread, and a child inherits its forking thread's."""
+    try:
+        return [int(t) for t in os.listdir(f"/proc/{pid}/task")]
+    except (OSError, ValueError):
+        return [pid]
+
+
+def pin_cpus(pids: list[int], cpus: list[int]) -> int:
+    """Set every thread of `pids` to `cpus`; how many took. One that exited meanwhile is skipped."""
+    done: set[int] = set()
+    seen: set[int] = set()
+    for _ in range(PIN_PASSES):
+        new = [tid for pid in pids for tid in task_ids(pid) if tid not in seen]
+        if not new:
+            break
+        for tid in new:
+            seen.add(tid)
+            try:
+                sched_setaffinity(tid, cpus)
+            except OSError:  # exited meanwhile, or cores a cpuset forbids
+                continue
+            done.add(tid)
+    return len(done)
+
+
+SYSTEMD = ("org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager")
+
+
+def memory_scope(pids: list[int], name: str) -> str | None:
+    """Move an agent's processes into a transient systemd user scope with `MemoryHigh` (`worker_memory_high` MB),
+    so a spike in what it runs is reclaimed into swap and throttled in that agent alone, not across the machine;
+    the processes it starts later join it. The scope's name, or None when it's off or systemd refused (no user
+    manager, no busctl). It ends by itself once its processes have exited."""
+    mb = setting("worker_memory_high")
+    if not mb or not pids:
+        return None
+    unit = f"mesh-{slugify(name, 60)}-{pids[0]}.scope"
+    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "2",
+            "PIDs", "au", str(len(pids)), *map(str, pids), "MemoryHigh", "t", str(mb << 20), "0"]
+    return unit if run_cli(argv, timeout=10).returncode == 0 else None
+
+
+def confine_agent(pid: int | None, name: str) -> dict:
+    """Confine an agent mesh just launched (a worker, asker, peer or Copilot asker; never a root or `mesh open`):
+    its process and descendants to the next `cpu_window`, so the test runners it starts size their worker pools
+    by that many cores, and with `worker_memory_high` into a `memory_scope`. What it set; never raises, since a
+    launch must not fail on it."""
+    done: dict = {}
+    if not pid:
+        return done
+    try:
+        cpus = cpu_window()
+        if not cpus and not setting("worker_memory_high"):
+            return done  # both off: no /proc scan
+        tree = agent_tree(int(pid))
+        if cpus and pin_cpus(tree, cpus):
+            done["cpus"] = cpu_list(cpus)
+        scope = memory_scope(tree, name)
+        if scope:
+            done["scope"] = scope
+    except (OSError, ValueError, TypeError, MeshError):
+        pass
+    return done
+
+
+def confine_pane(pane: str, name: str) -> dict:
+    """confine_agent for the agent in a pane: herdr's foreground process group leader is the CLI itself."""
+    return confine_agent((pane_process_info(pane) or {}).get("foreground_process_group_id"), name)
+
+
+def unpin(pid: int) -> None:
+    """Give a detached mesh process a worker started the machine's cores back (best effort)."""
+    cpus = machine_cpus()
+    if sched_setaffinity and cpus:
+        pin_cpus([pid], cpus)
 
 
 def process_table() -> list[dict]:
@@ -6915,6 +7142,8 @@ def run_retirer(run_id: str, handle, poll: float = RETIRER_POLL, sleep=time.slee
 
 def cmd_retirer(args: argparse.Namespace) -> int:
     """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
+    # Its starter is usually a worker, whose CPU cap would reach whatever it reopens and a Claude daemon it might start.
+    unpin(os.getpid())
     if args.lock_fd is not None:
         handle = os.fdopen(args.lock_fd, "a")
     else:  # by hand: only when none runs
@@ -7246,9 +7475,11 @@ def maybe_compact(args: argparse.Namespace, entry: dict, session: str, model: st
     """`--compact`: compact the conversation before it is reopened, if it's worth it (see should_compact)."""
     mode = getattr(args, "compact", None) or "auto"
     read_only = getattr(args, "read_only", False) or read_only_task(task)
-    tokens = context_tokens(entry, session)
-    report: dict = {"context_tokens": tokens, "compacted": False}
-    if not should_compact(mode, entry, tokens, read_only, cross_run, peer):
+    claude = entry.get("kind") != "agy"
+    tokens, cold = context_usage(entry, session, warmth=claude and mode == "auto")
+    report: dict = {"context_tokens": tokens, "compacted": False,
+                    **({"cache_cold": cold} if claude and tokens is not None and mode == "auto" else {})}
+    if not should_compact(mode, entry, tokens, read_only, cross_run, peer, cold):
         return report
     focus = getattr(args, "focus", None) or (
         PEER_FOCUS.format(repo=Path(entry.get("repo") or entry["cwd"]).name) if peer else COMPACT_FOCUS.format(
@@ -8036,6 +8267,7 @@ def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> N
     def started(pid: int) -> None:
         with editing_run(run_id) as run:
             run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
+        confine_agent(pid, name)
 
     report = None
     try:
@@ -10313,11 +10545,9 @@ def env_int(key: str, default: int) -> int:
 
 
 def cache_ttl(session_ttl: int | None = None) -> int:
-    """The root's cache lifetime: MESH_CACHE_TTL when set (a live check fakes a short one), else what its session
-    file says Claude Code used (`line_ttl`), else CACHE_TTL."""
-    if os.environ.get("MESH_CACHE_TTL"):
-        return env_int("MESH_CACHE_TTL", CACHE_TTL)
-    return session_ttl or CACHE_TTL
+    """A Claude session's cache lifetime: MESH_CACHE_TTL when set to a number (a live check fakes a short one), else
+    what its session file says Claude Code used (`line_ttl`), else CACHE_TTL."""
+    return env_int("MESH_CACHE_TTL", session_ttl or CACHE_TTL)
 
 
 def root_reset_at() -> int:
@@ -11631,6 +11861,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
                    help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
+                        f"{COMPACT_COLD_AT:,} once its prompt cache has expired, "
                         f"{AGY_COMPACT_AT:,} for agy, twice that for a question unless asked of a peer; an agy one whose size can't be "
                         "read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")

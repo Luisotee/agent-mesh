@@ -11029,3 +11029,278 @@ def test_routing_shows_the_built_in_auto_reviewers_while_the_config_is_broken(me
     Path(os.environ["MESH_CONFIG_FILE"]).write_text("{oops")
     assert mesh.main(["routing", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["auto_reviewers"] == {"small": ["agy"], "large": ["claude", "agy"]}
+
+
+# ── CPU caps ─────────────────────────────────────────────────────────────
+
+NO_PID = 2 ** 22 + 11  # over Linux's pid_max: no real process, so its threads are just itself
+
+
+def test_each_launch_takes_the_next_window_of_a_quarter_of_the_cores(mesh, monkeypatch):
+    assert [mesh.cpu_list(mesh.cpu_window()) for _ in range(5)] == ["0-2", "3-5", "6-8", "9-11", "0-2"]
+    other = load_mesh()  # another `mesh` process carries on the same machine-wide rotation
+    monkeypatch.setattr(other, "sched_getaffinity", lambda pid: set(range(12)))
+    monkeypatch.setattr(other, "sched_setaffinity", lambda tid, cpus: None)
+    assert other.cpu_list(other.cpu_window()) == "3-5"
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: set(range(10)))
+    assert len(mesh.cpu_window()) == 2  # 25 % of 10, rounded down
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0, 1})
+    assert len(mesh.cpu_window()) == 1  # at least one core
+    assert mesh.cpu_list([0, 1, 2, 5, 7, 8]) == "0-2,5,7-8"
+    assert mesh.cpu_list([9, 0, 1]) == "0-1,9"  # a window that wraps
+
+
+@pytest.mark.parametrize("how", ["0", "100", "no-api", "one-core"])
+def test_the_cpu_cap_turns_off(mesh, monkeypatch, how):
+    if how in ("0", "100"):
+        monkeypatch.setenv("MESH_WORKER_CPUS", how)
+    elif how == "no-api":
+        monkeypatch.setattr(mesh, "sched_setaffinity", None)
+    else:
+        monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: {0})
+    assert mesh.cpu_window() is None
+    monkeypatch.setattr(mesh, "process_table", lambda: (_ for _ in ()).throw(AssertionError("scanned /proc")))
+    assert mesh.confine_agent(NO_PID, "w") == {} and mesh.pins == []  # off: no /proc scan either
+
+
+def test_the_cores_are_the_machines_not_a_pinned_launchers(mesh, monkeypatch):
+    # A retirer a worker's report started carries that worker's mask; pid 1 has the machine's.
+    monkeypatch.setattr(mesh, "sched_getaffinity", lambda pid: set(range(12)) if pid == 1 else {3, 4, 5})
+    assert mesh.machine_cpus() == list(range(12))
+    mesh.unpin(NO_PID)
+    assert mesh.pins == [(NO_PID, list(range(12)))]
+
+
+def test_a_pin_sets_every_thread_of_the_agent_and_its_children(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "process_table", lambda: [{"pid": 50, "ppid": 40}, {"pid": 60, "ppid": 50},
+                                                         {"pid": 70, "ppid": 1}])
+    threads = {40: [40, 41], 50: [50], 60: [60, 61, 62]}
+    monkeypatch.setattr(mesh, "task_ids", lambda pid: threads[pid])
+    assert mesh.confine_agent(40, "w") == {"cpus": "0-2"}
+    assert sorted(t for t, _ in mesh.pins) == [40, 41, 50, 60, 61, 62]
+    assert {tuple(c) for _, c in mesh.pins} == {(0, 1, 2)}
+    monkeypatch.setattr(mesh, "sched_setaffinity", lambda tid, cpus: (_ for _ in ()).throw(OSError("EINVAL")))
+    assert mesh.confine_agent(40, "w") == {}  # no pin took (a cpuset forbids those cores): none is reported
+    assert mesh.pin_cpus([40], [0]) == 0
+
+
+def test_with_worker_cpus_set_by_env_or_config_routing_shows_it(mesh, monkeypatch, capsys):
+    assert mesh.setting_with_source("worker_cpus") == (25, "built-in")
+    with_config({"worker_cpus": 50})
+    assert mesh.setting_with_source("worker_cpus") == (50, "config")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "40")
+    assert mesh.setting_with_source("worker_cpus") == (40, "env MESH_WORKER_CPUS")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "lots")  # doesn't parse: ignored
+    assert mesh.setting_with_source("worker_cpus") == (50, "config")
+    monkeypatch.setenv("MESH_WORKER_CPUS", "40")
+    assert mesh.main(["routing"]) == 0
+    assert re.search(r"^worker_cpus +40 +\[env MESH_WORKER_CPUS\]$", capsys.readouterr().out, re.M)
+
+
+def test_a_pane_worker_is_pinned_once_it_runs(mesh, fake, run, repo, monkeypatch, capsys):
+    stub_new_pane(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
+                      "--worktree", "fix", "--task", "Do it."]) == 0
+    assert fake.called("pane", "process-info", "--pane", "w9:p10")
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_background_worker_is_pinned_by_its_sessions_pid(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "ab12cd34-s", "status": "busy", "pid": NO_PID}])
+    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
+                      "--task", "Add the feature."]) == 0
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_swap_pins_the_reopened_worker(mesh, fake, run, capsys):
+    claude_planner(mesh, run)
+    stub_panes(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    mesh.swap_model(run, "repo-fix-typo", "opus", "high", "quota")
+    assert mesh.pins == [(NO_PID, [0, 1, 2])]
+
+
+def test_a_resumed_background_worker_is_pinned(mesh, fake, cli, run, tmp_path, capsys):
+    claude_root(mesh, run)
+    read_only_asker(mesh, run, view="bg", bg_id="old1", pane=None, cwd=str(tmp_path), repo=str(tmp_path))
+    mesh.main(["retire", "repo-fix-typo"])
+    bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "copy-s", "status": "busy", "pid": NO_PID}])
+    mesh.pins.clear()
+    assert mesh.main(["resume", "repo-fix-typo"]) == 0
+    assert mesh.pins and mesh.pins[-1][0] == NO_PID
+
+
+def test_a_copilot_asker_is_pinned(mesh, fake, cli, run, repo, capsys):
+    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
+    assert mesh.pins == [(cli.pid, [0, 1, 2])]
+
+
+def test_the_retirer_takes_the_machines_cores_back_first(mesh, run, monkeypatch):
+    monkeypatch.setattr(mesh, "run_retirer", lambda run_id, handle: mesh.pins.append("ran") or 0)
+    assert mesh.main(["retirer", "--run", run]) == 0
+    assert mesh.pins[0] == (os.getpid(), list(range(12))) and mesh.pins[-1] == "ran"
+
+
+# ── memory pressure ──────────────────────────────────────────────────────
+
+
+def high_pressure(tmp_path, monkeypatch, avg60="12.50"):
+    """A /proc/pressure/memory whose `full avg60` is `avg60`."""
+    path = tmp_path / "pressure"
+    path.write_text(f"some avg10=30.00 avg60=20.00 avg300=5.00 total=99\n"
+                    f"full avg10=20.00 avg60={avg60} avg300=3.00 total=77\n")
+    monkeypatch.setenv("MESH_PRESSURE", str(path))
+
+
+def test_the_memory_guard_refuses_while_the_machine_thrashes(mesh, tmp_path, monkeypatch):
+    high_pressure(tmp_path, monkeypatch)
+    assert mesh.memory_pressure() == 12.5
+    with pytest.raises(mesh.MeshError) as exc:
+        mesh.memory_guard("proj-fix")  # plenty of memory and swap free: pressure alone refuses
+    text = str(exc.value)
+    assert "not starting proj-fix: memory pressure is high" in text and "full avg60 12.5 %" in text
+    assert "memory_pressure_max 10" in text and "clears by itself" in text and "MESH_MEMORY_PRESSURE_MAX=0" in text
+    assert not mesh.reservations_path().exists()  # refused before any reservation
+
+
+def test_spawn_under_memory_pressure_starts_nothing(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    high_pressure(tmp_path, monkeypatch)
+    capsys.readouterr()
+    assert mesh.main(["spawn", "--repo", str(repo), "--model", "flash", "--worktree", "Fix", "--task", "x"]) == 1
+    assert "not starting proj-fix: memory pressure is high" in capsys.readouterr().err
+    assert not fake.called("agent", "start") and "proj-fix" not in mesh.load_run(run)["agents"]
+
+
+@pytest.mark.parametrize("how", ["no-file", "off", "under", "unreadable"])
+def test_memory_pressure_passes(mesh, tmp_path, monkeypatch, how):
+    if how == "off":
+        high_pressure(tmp_path, monkeypatch)
+        monkeypatch.setenv("MESH_MEMORY_PRESSURE_MAX", "0")
+    elif how == "under":
+        high_pressure(tmp_path, monkeypatch, avg60="9.99")
+    elif how == "unreadable":
+        high_pressure(tmp_path, monkeypatch, avg60="lots")
+    mesh.memory_guard("w")  # no error
+
+
+def test_memory_pressure_skips_blank_lines(mesh, tmp_path, monkeypatch):
+    path = tmp_path / "pressure"
+    path.write_text("some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n\nfull avg10=0.00 avg60=11.00 avg300=0.00 total=0\n\n")
+    monkeypatch.setenv("MESH_PRESSURE", str(path))
+    assert mesh.memory_pressure() == 11.0
+
+
+def test_a_reviewer_reads_ci_first_and_runs_only_the_tests_the_change_touches(mesh):
+    url = "https://github.com/acme/proj/pull/7"
+    fresh = mesh.ask_task("", url, 7, True, head="abc123")
+    assert f"If the PR has CI checks, read their results first (`gh pr checks {url}`" in fresh
+    assert "run only the tests the change touches; run the full suite only when it has no CI" in fresh
+    own_at = mesh.ask_task("", url, 7, False, head="abc123")  # from its own branch: tests only at that head
+    assert f"read their results first (`gh pr checks {url}`); run tests only if `git rev-parse HEAD`" in own_at
+    assert "is abc123, otherwise run none" in own_at
+    own = mesh.ask_task("", url, 7, False)  # no head known: its tests would test other code
+    assert f"read their results first (`gh pr checks {url}`); run no tests" in own
+    assert all("run only the tests the change touches" not in t for t in (own, own_at))
+
+
+# ── compaction by cache warmth ───────────────────────────────────────────
+
+
+def usage_ttl(n, ttl):
+    """A reply that wrote the cache with a `ttl` ("5m" or "1h") TTL."""
+    line = usage(n)
+    key = "ephemeral_5m_input_tokens" if ttl == "5m" else "ephemeral_1h_input_tokens"
+    line["message"]["usage"]["cache_creation"] = {key: 10}
+    return line
+
+
+def aged(mesh, entry, session, seconds):
+    path = mesh.claude_transcript(entry, session)
+    then = time.time() - seconds
+    os.utime(path, (then, then))
+
+
+def test_a_claude_cache_is_cold_once_its_file_is_older_than_its_ttl(mesh, monkeypatch, tmp_path):
+    entry = {"kind": "claude", "cwd": "/wt/proj-fix"}
+
+    def cold(lines, age):
+        session_file(mesh, monkeypatch, tmp_path, entry["cwd"], "s", lines)
+        aged(mesh, entry, "s", age)
+        path = mesh.claude_transcript(entry, "s")
+        return mesh.cache_cold(path, mesh.transcript_usage(path)[1])
+
+    assert not cold([usage_ttl(1000, "5m")], 10) and cold([usage_ttl(1000, "5m")], 301)
+    assert not cold([usage_ttl(1000, "1h")], 1800)
+    assert not cold([usage(1000)], 3000) and cold([usage(1000)], 3700)  # no TTL recorded: 1 h
+    monkeypatch.setenv("MESH_CACHE_TTL", "60")  # a live check fakes a short one
+    assert cold([usage_ttl(1000, "1h")], 61)
+    monkeypatch.setenv("MESH_CACHE_TTL", "soon")  # not a number: the session's own TTL
+    assert not cold([usage_ttl(1000, "1h")], 61) and cold([usage_ttl(1000, "5m")], 301)
+    assert not mesh.cache_cold(tmp_path / "missing.jsonl", None)
+
+
+def test_a_cold_claude_resume_compacts_from_the_lower_threshold(mesh, monkeypatch):
+    claude, agy = {"kind": "claude"}, {"kind": "agy"}
+    assert not mesh.should_compact("auto", claude, 250_000, False, True)  # warm: read from cache
+    assert mesh.should_compact("auto", claude, 250_000, False, True, cold=True)
+    assert not mesh.should_compact("auto", claude, 150_000, False, True, cold=True)
+    assert not mesh.should_compact("auto", claude, 350_000, True, True, cold=True)  # a question: twice that
+    assert mesh.should_compact("auto", claude, 250_000, True, True, peer=True, cold=True)
+    assert mesh.should_compact("auto", agy, 150_000, False, False, cold=True) == \
+        mesh.should_compact("auto", agy, 150_000, False, False)  # agy unchanged
+    monkeypatch.setenv("MESH_COMPACT_COLD_AT", "100000")
+    assert mesh.should_compact("auto", claude, 150_000, False, True, cold=True)
+    monkeypatch.setenv("MESH_COMPACT_AT", "50000")  # a lower warm threshold wins
+    assert mesh.should_compact("auto", claude, 60_000, False, True, cold=True)
+
+
+def test_resume_compacts_a_cold_conversation_but_not_a_warm_one(mesh, fake, cli, run, repo, monkeypatch,
+                                                                 tmp_path, capsys):
+    path, _ = archived_worker(mesh, repo, kind="claude", session="s-1")
+    session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage_ttl(250_000, "1h")])
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["compaction"]["cache_cold"] is False and not cli.called("-p")
+    assert mesh.main(["retire", "proj-fix"]) == 0
+    aged(mesh, {"kind": "claude", "cwd": str(path)}, "s-1", 2 * 3600)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix", "--task", "Apply the next review."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["compaction"]["cache_cold"] is True and cli.called("-p")
+
+
+# ── memory scopes ────────────────────────────────────────────────────────
+
+
+def test_no_memory_scope_by_default(mesh, cli):
+    assert mesh.confine_agent(NO_PID, "proj-fix") == {"cpus": "0-2"}
+    assert not cli.called("--user", "call")
+
+
+def test_with_worker_memory_high_an_agent_gets_its_own_scope(mesh, cli, monkeypatch):
+    monkeypatch.setenv("MESH_WORKER_MEMORY_HIGH", "2048")
+    monkeypatch.setattr(mesh, "process_table", lambda: [{"pid": 51, "ppid": 50}])
+    assert mesh.confine_agent(50, "proj-fix") == {"cpus": "0-2", "scope": "mesh-proj-fix-50.scope"}
+    [call] = cli.called("--user", "call")
+    assert call["argv"] == ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                            "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
+                            "mesh-proj-fix-50.scope", "fail", "2", "PIDs", "au", "2", "50", "51",
+                            "MemoryHigh", "t", str(2048 << 20), "0"]
+    cli.on("--user", returncode=127, stderr="busctl not found")  # no systemd: no scope, and no failure
+    assert mesh.confine_agent(50, "proj-fix") == {"cpus": "3-5"}
+
+
+def test_a_pane_worker_gets_its_scope_at_spawn(mesh, fake, cli, run, repo, monkeypatch, capsys):
+    with_config({"worker_memory_high": 4096})
+    stub_new_pane(fake)
+    fake.on("pane", "process-info", result={"process_info": {"foreground_process_group_id": NO_PID}})
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-3.8-{family}-{effort}")
+    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
+                      "--worktree", "fix", "--task", "Do it."]) == 0
+    assert f"mesh-proj-fix-{NO_PID}.scope" in cli.called("--user", "call")[0]["argv"]
