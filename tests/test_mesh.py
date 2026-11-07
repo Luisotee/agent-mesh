@@ -10281,6 +10281,27 @@ def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, ru
     assert "`/code-review high 7`" in mesh.parse_message(task)[1]  # a large review
 
 
+def test_a_review_round_says_which_round_it_was_and_offers_a_re_review_only_while_rounds_remain(
+        mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Nothing found."})
+    other = mesh.mesh_home() / "archive" / "old" / "reports"  # another PR's round, archived: not counted
+    other.mkdir(parents=True)
+    (other / "review-8-1.md").write_text("# Review of https://github.com/acme/proj/pull/8 at abc\n")
+    args = ["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude"]
+    assert mesh.main([*args, "--size", "large"]) == 0
+    out = capsys.readouterr().out
+    assert "(round 1 of at most 2 for a large PR (`review.rounds.large`): findings that need no fix" in out
+    assert "Only a fix you ask for gets a re-review" in out and "after a fix, run this round" not in out
+    assert mesh.review_rounds_done(pr) == 1
+    assert mesh.main([*args, "--size", "large"]) == 0
+    out = capsys.readouterr().out
+    assert "(round 2 of at most 2 for a large PR (`review.rounds.large`), its last: check any fix yourself" in out
+    assert "re-review" in out and "Only a fix you ask for" not in out
+    assert mesh.rounds_hint(pr, head, "small").startswith("(round 2 of at most 1 for a small PR")
+    with_config({"review": {"rounds": {"small": 3}}})
+    assert "Only a fix you ask for" in mesh.rounds_hint(pr, head, "trivial")  # a trivial review counts as small
+
+
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-agy": "Looks right."})
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0

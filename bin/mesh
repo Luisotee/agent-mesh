@@ -361,7 +361,8 @@ POLICY = {  # leaf: (built-in default, check)
     "review.re_review.skip": (["copilot"], "kinds"),  # Copilot's credits are kept for first looks
     "review.re_review.keep.small": ([], "kinds"),
     "review.re_review.keep.large": (["claude"], "kinds"),
-    # Read by the root's procedure (ORCHESTRATE), not by code: shown by `mesh routing`.
+    # Read by the root's procedure (ORCHESTRATE), shown by `mesh routing`; rounds is a ceiling, not a quota, and a
+    # round's last line says which one it was (rounds_hint).
     "review.rounds.small": (1, "int"),
     "review.rounds.large": (2, "int"),
     "review.tiny_pr_lines": (150, "int"),
@@ -9424,8 +9425,36 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
     print(f"answers: {path}")
     if answered < len(kinds) and not stopped:
         print("(a reviewer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
-    print("(ask one again: `mesh ask <name> --body …`; after a fix, run this round again for the re-review)")
+    print(rounds_hint(pr, head, args.size))
     return failed[0] if failed else 0
+
+
+def review_rounds_done(pr: str) -> int:
+    """How many review rounds `pr` has had, in any run, live or archived: its answers files
+    (`reports/review-*.md`), each read only to its header line (`# Review of <pr> at <head>`)."""
+    home, header = mesh_home(), f"# Review of {pr} at "
+    count = 0
+    for path in (*home.glob("*/reports/review-*.md"), *home.glob("archive/*/reports/review-*.md")):
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                count += handle.readline().startswith(header)
+        except OSError:
+            continue
+    return count
+
+
+def rounds_hint(pr: str, head: str, size: str | None) -> str:
+    """The line a review round ends with: `review.rounds.<size>` is a ceiling, not a quota (design §10), so it
+    says which round this was and offers a re-review only for a fix while rounds remain."""
+    key = "large" if size == "large" else "small"
+    most, done = setting(f"review.rounds.{key}"), review_rounds_done(pr)
+    where = f"round {done} of at most {most} for a {size or key} PR (`review.rounds.{key}`)"
+    if done >= most:
+        return (f"({where}, its last: check any fix yourself, `git diff {head[:9]}..<new head>`; no re-review. "
+                "Ask one reviewer again: `mesh ask <name> --body …`)")
+    return (f"({where}: findings that need no fix, none you agree with or only advisory ones you decline, end its "
+            "reviews. Only a fix you ask for gets a re-review: run this round again once it's pushed. Ask one "
+            "reviewer again: `mesh ask <name> --body …`)")
 
 
 def write_answers(run_id: str, prefix: str, parts: list[str]) -> Path:
