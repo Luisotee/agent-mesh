@@ -9875,8 +9875,8 @@ def test_a_pane_worker_whose_pane_is_focused_is_held(mesh, fake, run, tmp_path, 
     assert bool(fake.called("pane", "close")) is not held
 
 
-@pytest.mark.parametrize("value, expected", [("-1", 0.0), ("0", 0.0), ("60", 60.0), ("x", 300.0), ("", 300.0)])
-def test_mesh_idle_retire_of_zero_or_less_means_never(mesh, monkeypatch, value, expected):
+@pytest.mark.parametrize("value, expected", [("-1", 300.0), ("0", 0.0), ("60", 60.0), ("x", 300.0), ("", 300.0)])
+def test_mesh_idle_retire_of_zero_means_never_and_a_bad_value_is_ignored(mesh, monkeypatch, value, expected):
     monkeypatch.setenv("MESH_IDLE_RETIRE", value)
     assert mesh.idle_retire() == expected
 
@@ -10681,6 +10681,80 @@ def test_a_policy_value_comes_from_the_env_then_the_config_then_the_built_in(mes
     assert mesh.setting_with_source("quota_stop") == (95, "env MESH_QUOTA_STOP")
     monkeypatch.setenv("MESH_PEERS_DIR", "/y")
     assert mesh.peers_dir() == Path("/y")
+
+
+def nested(leaf: str, value) -> dict:
+    """{"a": {"b": value}} for leaf "a.b": a config file setting one leaf."""
+    for key in reversed(leaf.split(".")):
+        value = {key: value}
+    return value
+
+
+@pytest.mark.parametrize("leaf, env, reader, built_in, config, env_value, from_env", [
+    ("idle_retire", "MESH_IDLE_RETIRE", lambda m: m.idle_retire(), 300, 0, "60", 60),
+    ("hang_after", "MESH_HANG_AFTER", lambda m: m.hang_after(), 2400, 600, "1.5", 1.5),
+    ("held_wait", "MESH_HELD_WAIT", lambda m: m.held_wait(), 300, 30, "10", 10),
+    ("side_panes", "MESH_SIDE_PANES", lambda m: m.side_panes(), 3, 1, "2", 2),
+    ("compact.claude", "MESH_COMPACT_AT", lambda m: m.compact_at(), 300_000, 250_000, "1000", 1000),
+    ("compact.claude_cold", "MESH_COMPACT_COLD_AT", lambda m: m.compact_cold_at(), 200_000, 150_000, "9", 9),
+    ("compact.agy", "MESH_AGY_COMPACT_AT", lambda m: m.compact_at("agy"), 100_000, 80_000, "40000", 40_000),
+    ("root_reset.at", "MESH_ROOT_RESET_AT", lambda m: m.root_reset_at(), 200_000, 150_000, "100000", 100_000),
+    ("root_reset.auto", "MESH_ROOT_AUTORESET", lambda m: m.autoreset_on(), True, False, "yes", True),
+    ("root_reset.wait", "MESH_RESET_WAIT", lambda m: m.reset_wait(), 1800, 600, "0", 0),
+    ("min_free_mb", "MESH_MIN_FREE_MB", lambda m: m.min_free_mb({"MemTotal": 10 << 20}), 1024 + 500, 700, "0", 0),
+])
+def test_a_former_env_only_knob_is_a_leaf_env_over_config_over_built_in(mesh, monkeypatch, leaf, env, reader,
+                                                                       built_in, config, env_value, from_env):
+    monkeypatch.delenv(env, raising=False)
+    monkeypatch.setattr(mesh, "MIN_FREE_HEADROOM_MB", 500)
+    monkeypatch.setattr(mesh, "MIN_FREE_LEAST_MB", 0)
+    assert mesh.POLICY_ENV[leaf] == env and env in mesh.MESH_CONFIG  # a --bg worker gets it too
+    assert reader(mesh) == built_in
+    with_config(nested(leaf, config))
+    assert reader(mesh) == config and mesh.setting_with_source(leaf) == (config, "config")
+    monkeypatch.setenv(env, env_value)
+    assert reader(mesh) == from_env and mesh.setting_with_source(leaf) == (from_env, f"env {env}")
+    monkeypatch.setenv(env, "soon")  # not a value of its kind: ignored, so the file's value stands
+    assert reader(mesh) == config
+
+
+@pytest.mark.parametrize("text, value", [("0", False), ("false", False), ("Off", False), ("1", True),
+                                         ("on", True), ("maybe", None), ("", None)])
+def test_a_bool_leafs_env_var_reads_the_usual_words(mesh, monkeypatch, text, value):
+    monkeypatch.setenv("MESH_ROOT_AUTORESET", text)
+    assert mesh.env_setting("root_reset.auto") == (None if value is None else (value, "MESH_ROOT_AUTORESET"))
+
+
+def test_min_free_mb_takes_auto_from_the_env_and_the_file(mesh, monkeypatch):
+    with_config({"min_free_mb": 700})
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "auto")
+    assert mesh.setting_with_source("min_free_mb") == ("auto", "env MESH_MIN_FREE_MB")
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "-5")  # fails the check: ignored
+    assert mesh.setting("min_free_mb") == 700
+
+
+@pytest.mark.parametrize("data, error", [
+    ({"idle_retire": -1}, "idle_retire should be a number of seconds, 0 or more"),
+    ({"hang_after": True}, "hang_after should be a number of seconds"),
+    ({"min_free_mb": "lots"}, 'min_free_mb should be "auto" or a whole number of MB'),
+    ({"root_reset": {"auto": "no"}}, "root_reset.auto should be true or false"),
+    ({"compact": {"claud": 1}}, "unknown key compact.claud"),
+])
+def test_a_broken_new_leaf_is_an_error_naming_the_key(mesh, data, error):
+    with_config(data)
+    with pytest.raises(mesh.MeshError, match=re.escape(error)):
+        mesh.setting("idle_retire")
+
+
+def test_mesh_routing_shows_the_former_env_only_knobs(mesh, monkeypatch, capsys):
+    with_config({"compact": {"agy": 80000}, "root_reset": {"auto": False}})
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "60")
+    assert mesh.main(["routing"]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^compact\.agy +80000  \[config\]$", out, re.M)
+    assert re.search(r"^root_reset\.auto +false  \[config\]$", out, re.M)
+    assert re.search(r"^idle_retire +60  \[env MESH_IDLE_RETIRE\]$", out, re.M)
+    assert re.search(r"^min_free_mb +auto  \[built-in\]$", out, re.M)
 
 
 def test_a_nested_config_value_leaves_its_siblings_at_their_defaults(mesh):

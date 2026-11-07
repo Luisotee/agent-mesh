@@ -71,6 +71,9 @@ COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a r
 COMPACT_COLD_AT = 200_000  # ...one whose prompt cache has expired (`cache_cold`): it is written again in full anyway
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
+ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
+RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
+SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
 # `--model auto`: plan on the first model of `models.<kind>.plan` with quota left at its `plan_effort`, then
 # execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
@@ -151,8 +154,8 @@ SETTLE_GRACE = 30.0
 # room for a pane to boot and the doorbell's retries.
 START_GRACE_FACTOR = 4
 # A worker that reads `working` while its transcript stays unchanged this long gets one exit-8 alert per task
-# (`--hang`, MESH_HANG_AFTER; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
-HANG_AFTER = 2400.0
+# (`--hang`, else `hang_after`; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
+HANG_AFTER = 2400
 SESSION_RETRY = 60.0  # seconds before a watch looks again for a conversation it couldn't find
 AGENT_BINARIES = ("claude", "agy")  # the processes that run a worker (argv[0], auto-updates move the binary)
 INTERPRETERS = ("node", "bun", "deno")  # a CLI installed as a script runs under one of these
@@ -254,8 +257,8 @@ BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
 RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 RETIRE_SETTLE = 120  # seconds `mesh watch --any` waits after a retire before it says nothing is left to watch
-IDLE_RETIRE = 300.0  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
-# (MESH_IDLE_RETIRE; 0 = never)
+IDLE_RETIRE = 300  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
+# (`idle_retire`; 0 = never)
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -273,7 +276,7 @@ SETTINGS_CONTINUE_RE = re.compile(r"^\s*[❯>]\s*(?:\d\.\s*)?Continue\s*$", re.M
 STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
 TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
 HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
-HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen (MESH_HELD_WAIT)
+HELD_WAIT = 300  # seconds a fan-out waits for the user to clear a peer's startup screen (`held_wait`)
 STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 # The memory guard (design §17): a new agent starts only while MemAvailable plus SwapFree stays above a floor,
 # by default 10 % of RAM plus 10 % of swap (earlyoom's default trigger) plus room for the agent and a build in it.
@@ -330,8 +333,8 @@ def pane_key(pane_id: str) -> str:
 
 
 # ── policy ───────────────────────────────────────────────────────────────
-# The user's choices (models, efforts, reviewers, rounds, the reserve, folders) as data (design §21): every leaf
-# below may be set in a JSON config file, nested by its dots, and the ones with an env var there too. An env var
+# The user's choices (models, efforts, reviewers, rounds, the reserve, folders, thresholds) as data (design §21):
+# every leaf below may be set in a JSON config file, nested by its dots, and the ones with an env var there too. An env var
 # beats the file, which beats the built-in default here, leaf by leaf; with no file mesh behaves as these say.
 
 
@@ -377,10 +380,29 @@ POLICY = {  # leaf: (built-in default, check)
     # MB above which an agent mesh launches is throttled (a systemd user scope's MemoryHigh); 0, the default, is no
     # scope.
     "worker_memory_high": (0, "int"),
+    # MB of memory plus swap under which memory_guard starts no agent; "auto" is 10 % of RAM plus 10 % of swap plus
+    # room for the agent (min_free_mb), 0 turns the guard off.
+    "min_free_mb": ("auto", "mb_or_auto"),
+    "idle_retire": (IDLE_RETIRE, "seconds"),  # 0: never
+    "hang_after": (HANG_AFTER, "seconds"),  # 0: no hang alerts
+    "held_wait": (HELD_WAIT, "seconds"),
+    "side_panes": (SIDE_PANES, "int"),
+    # Context tokens over which `--compact auto` compacts a resumed worker (should_compact).
+    "compact.claude": (COMPACT_AT, "int"),
+    "compact.claude_cold": (COMPACT_COLD_AT, "int"),
+    "compact.agy": (AGY_COMPACT_AT, "int"),
+    "root_reset.at": (ROOT_RESET_AT, "int"),
+    "root_reset.auto": (True, "bool"),
+    "root_reset.wait": (RESET_WAIT, "seconds"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
-              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH"}
+              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH",
+              "min_free_mb": "MESH_MIN_FREE_MB", "idle_retire": "MESH_IDLE_RETIRE", "hang_after": "MESH_HANG_AFTER",
+              "held_wait": "MESH_HELD_WAIT", "side_panes": "MESH_SIDE_PANES", "compact.claude": "MESH_COMPACT_AT",
+              "compact.claude_cold": "MESH_COMPACT_COLD_AT", "compact.agy": "MESH_AGY_COMPACT_AT",
+              "root_reset.at": "MESH_ROOT_RESET_AT", "root_reset.auto": "MESH_ROOT_AUTORESET",
+              "root_reset.wait": "MESH_RESET_WAIT"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -396,7 +418,12 @@ POLICY_CHECKS = {
     "int": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a whole number, 0 or more"),
     "percent": (lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100, "a whole number 0-100"),
     "bool": (lambda v: isinstance(v, bool), "true or false"),
+    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
+                "a number of seconds, 0 or more"),
+    "mb_or_auto": (lambda v: v == "auto" or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
+                   "\"auto\" or a whole number of MB, 0 or more"),
 }
+ENV_BOOLS = {"0": False, "false": False, "no": False, "off": False, "1": True, "true": True, "yes": True, "on": True}
 
 
 def config_path() -> Path:
@@ -465,12 +492,21 @@ def env_setting(leaf: str) -> tuple[object, str] | None:
         return None
     if leaf == "repos_dir":
         return [p for p in os.environ[key].split(os.pathsep) if p], key
-    if POLICY[leaf][1] in ("int", "percent"):  # a value that doesn't parse or check is ignored
+    check, text = POLICY[leaf][1], os.environ[key].strip()
+    if check == "bool":
+        value = ENV_BOOLS.get(text.lower())
+        return None if value is None else (value, key)
+    if check in ("int", "percent", "seconds", "mb_or_auto"):  # a value that doesn't parse or check is ignored
         try:
-            value = int(os.environ[key])
+            value = int(text)
         except ValueError:
-            return None
-        return (value, key) if POLICY_CHECKS[POLICY[leaf][1]][0](value) else None
+            if check != "seconds" and not (check == "mb_or_auto" and text == "auto"):
+                return None
+            try:
+                value = text if check == "mb_or_auto" else float(text)
+            except ValueError:
+                return None
+        return (value, key) if POLICY_CHECKS[check][0](value) else None
     return os.environ[key], key
 
 
@@ -1379,11 +1415,8 @@ def tab_label(run: dict) -> str:
     return f"mesh: {label or (words[0][:28] if words else run['id'])}"
 
 
-SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
-
-
 def side_panes() -> int:
-    return int(os.environ.get("MESH_SIDE_PANES") or SIDE_PANES)
+    return setting("side_panes")
 
 
 def area(pane: dict) -> int:
@@ -1942,7 +1975,7 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
-               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH")
+               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH", "MESH_MIN_FREE_MB")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -3094,12 +3127,11 @@ def agy_context_tokens(session: str) -> int | None:
 
 
 def compact_at(kind: str | None = None) -> int:
-    key, default = ("MESH_AGY_COMPACT_AT", AGY_COMPACT_AT) if kind == "agy" else ("MESH_COMPACT_AT", COMPACT_AT)
-    return env_int(key, default)
+    return setting("compact.agy" if kind == "agy" else "compact.claude")
 
 
 def compact_cold_at() -> int:
-    return env_int("MESH_COMPACT_COLD_AT", COMPACT_COLD_AT)
+    return setting("compact.claude_cold")
 
 
 def cache_cold(path: Path, ttl: int | None) -> bool:
@@ -3786,12 +3818,11 @@ def memory_pressure() -> float | None:
 
 
 def min_free_mb(info: dict[str, int]) -> int:
-    """The floor under which no agent starts: `MESH_MIN_FREE_MB` (0 turns the guard off), else 10 % of RAM plus
+    """The floor under which no agent starts: `min_free_mb` (0 turns the guard off), or for "auto" 10 % of RAM plus
     10 % of swap, where earlyoom (and, without it, the thrashing) begins, plus room for the agent itself."""
-    try:
-        return max(0, int(os.environ["MESH_MIN_FREE_MB"]))
-    except (KeyError, ValueError):
-        pass
+    floor = setting("min_free_mb")
+    if floor != "auto":
+        return floor
     total = info.get("MemTotal", 0) + info.get("SwapTotal", 0)
     return max(MIN_FREE_LEAST_MB, total // 10 // 1024 + MIN_FREE_HEADROOM_MB)
 
@@ -3837,9 +3868,9 @@ def memory_guard(what: str, reserve: bool = True) -> str | None:
             starting = f", {len(held)} agent{'s' if len(held) > 1 else ''} still starting" if held else ""
             raise MeshError(
                 f"not starting {what}: {max(free, 0)} MB of memory and swap left{starting}, under the {floor} MB "
-                "floor (MESH_MIN_FREE_MB). Retire workers that have reported (`mesh status` shows them; `mesh "
+                "floor (min_free_mb). Retire workers that have reported (`mesh status` shows them; `mesh "
                 "retire <name>` keeps their conversations resumable) and stop leftover dev servers, then try "
-                "again, or set MESH_MIN_FREE_MB=0 to start it anyway")
+                "again, or set MESH_MIN_FREE_MB=0 (or `min_free_mb` in the config) to start it anyway")
         rid = None
         if reserve:
             rid = secrets.token_hex(6)
@@ -5677,7 +5708,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """Block until a child reports done/failed (exit 0) or something looks wrong (non-zero)."""
     run_id, me = caller(args, args.run_id)
     every, alerts = getattr(args, "any", False), getattr(args, "alerts", False)
-    root = me == (maybe_run(run_id) or {}).get("root")  # the root's own watch may reset it (MESH_ROOT_AUTORESET)
+    root = me == (maybe_run(run_id) or {}).get("root")  # the root's own watch may reset it (`root_reset.auto`)
     if bool(args.agent) == bool(every):
         raise MeshError("watch whom? name a worker, or pass --any for every live worker of the run")
     if every:
@@ -6495,10 +6526,10 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
     is the child's count of final sends before its task was delivered, so a report that lands before the watch
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
-    the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
-    `autoreset` (the root's own watch, unless MESH_ROOT_AUTORESET=0) resets an idle root over the threshold.
+    the transcript silence that raises exit 8 (default the `hang_after` setting; 0 turns it off).
+    `autoreset` (the root's own watch, unless `root_reset.auto` is false) resets an idle root over the threshold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
-    report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
+    report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, `idle_retire`)
     retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
     watch) raises exit 7 once when a quota its live workers draw on reaches the reserve (`reserve_alert`).
     """
@@ -6772,25 +6803,16 @@ def warn_unwatched(run_id: str, skip: tuple[str, ...] = ()) -> None:
 
 
 def hang_after() -> float:
-    try:
-        return float(os.environ.get("MESH_HANG_AFTER") or HANG_AFTER)
-    except ValueError:
-        return HANG_AFTER
+    return float(setting("hang_after"))
 
 
 def held_wait() -> float:
-    try:
-        return float(os.environ.get("MESH_HELD_WAIT") or HELD_WAIT)
-    except ValueError:
-        return HELD_WAIT
+    return float(setting("held_wait"))
 
 
 def idle_retire() -> float:
-    """MESH_IDLE_RETIRE, where 0 or less means never."""
-    try:
-        return max(0.0, float(os.environ.get("MESH_IDLE_RETIRE") or IDLE_RETIRE))
-    except ValueError:
-        return IDLE_RETIRE
+    """`idle_retire`, where 0 means never."""
+    return float(setting("idle_retire"))
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -10499,8 +10521,6 @@ def cmd_reserve(args: argparse.Namespace) -> int:
 
 
 CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
-ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
-RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
 CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
@@ -10551,12 +10571,16 @@ def cache_ttl(session_ttl: int | None = None) -> int:
 
 
 def root_reset_at() -> int:
-    return env_int("MESH_ROOT_RESET_AT", ROOT_RESET_AT)
+    return setting("root_reset.at")
 
 
 def autoreset_on() -> bool:
-    """The root's watch resets an idle root (design §15): on unless MESH_ROOT_AUTORESET=0."""
-    return os.environ.get("MESH_ROOT_AUTORESET") != "0"
+    """The root's watch resets an idle root (design §15): on unless `root_reset.auto` is false."""
+    return setting("root_reset.auto")
+
+
+def reset_wait() -> float:
+    return float(setting("root_reset.wait"))
 
 
 def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) -> bool | None:
@@ -10995,7 +11019,8 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
     entry = run["agents"][root]
     pane, kind = entry["pane"], entry.get("kind")
     context = quietly(root_context, run)
-    deadline = time.monotonic() + env_int("MESH_RESET_WAIT", RESET_WAIT)
+    wait = reset_wait()
+    deadline = time.monotonic() + wait
     quiet, why = 0, "it never read idle"
 
     def failed(event: str, reason: str) -> int:
@@ -11049,7 +11074,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                     break
             quiet = 0
         if time.monotonic() > deadline:
-            return failed("reset_failed", f"gave up after waiting {ago(env_int('MESH_RESET_WAIT', RESET_WAIT))}: "
+            return failed("reset_failed", f"gave up after waiting {ago(wait)}: "
                                           f"{why}")
         time.sleep(RESET_POLL)
     if compact is not None:
@@ -11088,7 +11113,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
 
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
-    """The root's own watch (unless MESH_ROOT_AUTORESET=0): reset a root that is over the threshold, idle, owed
+    """The root's own watch (unless `root_reset.auto` is false): reset a root that is over the threshold, idle, owed
     nothing and quiet, warm or cold (design §15). Quiet is AUTORESET_QUIET since its last turn when mesh started
     that turn, AUTORESET_USER_QUIET when the user did or it can't be told (`last_turn_by_user`): a root answering
     the user may be waiting on them. Stricter than `mesh reset`: any unread report holds it, since it acts without
@@ -11955,7 +11980,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
     p.add_argument("--hang", type=float, default=None,
                    help="seconds a worker may read working with its transcript unchanged before exit 8 "
-                        f"(default MESH_HANG_AFTER or {int(HANG_AFTER)}; 0 = never)")
+                        "(default: the hang_after setting, `mesh routing`; 0 = never)")
     p.set_defaults(func=cmd_watch)
 
     p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))
