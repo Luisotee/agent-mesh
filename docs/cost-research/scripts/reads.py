@@ -1,6 +1,7 @@
 exec(open('agg.py').read())
 ROOT=os.path.expanduser('~/.claude/projects')
-T0=datetime(2026,10,20,tzinfo=timezone.utc).timestamp()
+T0=SINCE or datetime(2026,10,20,tzinfo=timezone.utc).timestamp()
+T1=UNTIL or float("inf")
 pat=re.compile(r'(ORCHESTRATE\.md|PROTOCOL\.md|PLAN_TEMPLATE\.md|design\.md|SKILL\.md|mesh (?:status|inbox|watch|brief|peers|usage|whoami|dir|log)\b)')
 res=collections.defaultdict(collections.Counter)
 big=collections.defaultdict(collections.Counter)
@@ -14,7 +15,10 @@ for sid,s in sess.items():
         try: d=json.loads(l)
         except: continue
         if d.get('type')=='assistant':
+            t=datetime.fromisoformat(d['timestamp'].replace('Z','+00:00')).timestamp()
+            if t>=T1: break
             ncalls+=1
+            if t<T0: continue
             for b in d['message'].get('content') or []:
                 if isinstance(b,dict) and b.get('type')=='tool_use':
                     inp=json.dumps(b.get('input'))
