@@ -11050,6 +11050,44 @@ def test_each_launch_takes_the_next_window_of_a_quarter_of_the_cores(mesh, monke
     assert mesh.cpu_list([9, 0, 1]) == "0-1,9"  # a window that wraps
 
 
+def test_a_launch_takes_the_window_the_fewest_live_agents_hold(mesh, monkeypatch):
+    live = {101, 102, 103, 104}
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: pid in live)
+    assert [mesh.cpu_list(mesh.cpu_window(p)) for p in (101, 102, 103, 104)] == ["0-2", "3-5", "6-8", "9-11"]
+    live.discard(102)  # retired: its cores are idle now
+    assert mesh.cpu_list(mesh.cpu_window(105)) == "3-5"  # not 0-2, which 101 still holds
+    live.add(105)
+    assert mesh.cpu_list(mesh.cpu_window(106)) == "6-8"  # every window held once: on from where the last ended
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert sorted(h["pid"] for h in held) == [101, 103, 104, 105, 106]
+
+
+def test_a_window_held_by_a_reused_pid_is_free(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "proc_start", lambda pid: "100")
+    monkeypatch.setattr(mesh.os, "kill", lambda pid, sig: None)  # the pid runs, but as another process later
+    assert mesh.cpu_list(mesh.cpu_window(4242)) == "0-2"
+    monkeypatch.setattr(mesh, "proc_start", lambda pid: "200")
+    assert mesh.cpu_list(mesh.cpu_window(4242)) == "3-5"  # rotation, not 0-2 avoided: the old holder is gone
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert held == [{"pid": 4242, "start": "200", "cpus": [3, 4, 5]}]
+
+
+@pytest.mark.parametrize("stored", ['{"next": 71}', "{oops", '{"at": 3, "held": [{"cpus": [0]}]}'])
+def test_an_old_or_broken_cpus_file_reads_as_nothing_held(mesh, stored):
+    (mesh.mesh_home() / "cpus.json").parent.mkdir(parents=True, exist_ok=True)
+    (mesh.mesh_home() / "cpus.json").write_text(stored)
+    assert mesh.cpu_list(mesh.cpu_window()) == "0-2"
+
+
+def test_confining_an_agent_holds_its_window(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    monkeypatch.setattr(mesh, "process_table", lambda: [])
+    assert mesh.confine_agent(777, "w") == {"cpus": "0-2"}
+    assert mesh.confine_agent(778, "w2") == {"cpus": "3-5"}
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert [(h["pid"], h["cpus"]) for h in held] == [(777, [0, 1, 2]), (778, [3, 4, 5])]
+
+
 @pytest.mark.parametrize("how", ["0", "100", "no-api", "one-core"])
 def test_the_cpu_cap_turns_off(mesh, monkeypatch, how):
     if how in ("0", "100"):

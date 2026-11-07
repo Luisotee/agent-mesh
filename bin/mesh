@@ -3896,26 +3896,45 @@ def machine_cpus() -> list[int]:
     return []
 
 
-def cpu_window() -> list[int] | None:
+def cpu_window(pid: int | None = None) -> list[int] | None:
     """The cores the next agent mesh launches gets (`worker_cpus` % of them, at least one), or None when the cap
-    is off (0 or 100, a window as large as the machine, no affinity calls). Each launch on the machine takes the
-    next window (`cpus.json`, under a lock), so agents spread over the cores."""
+    is off (0 or 100, a window as large as the machine, no affinity calls).
+
+    It is the window whose cores the fewest live agents hold, so a new agent lands on idle cores after others
+    retired; among equals, the first from where the last window ended, so agents started together spread as a
+    rotation would. `cpus.json` (under a lock, machine-wide) keeps that offset and, per `pid` given, its holder
+    ({pid, start, cpus}), dropped once that process is gone (`pid_alive`, so a reused pid doesn't count)."""
     percent = setting("worker_cpus")
     cpus = machine_cpus()
     if not sched_setaffinity or percent in (0, 100) or not cpus:
         return None
-    size = max(1, len(cpus) * percent // 100)
-    if size >= len(cpus):
+    n = len(cpus)
+    size = max(1, n * percent // 100)
+    if size >= n:
         return None
     path = mesh_home() / "cpus.json"
     with file_lock(mesh_home() / ".cpus.lock"):
         try:
-            turn = int(json.loads(path.read_text()).get("next", 0))
-        except (OSError, ValueError, TypeError, AttributeError):
-            turn = 0
-        write_atomic(path, json.dumps({"next": turn + 1}))
-    start = turn * size % len(cpus)
-    return [cpus[(start + i) % len(cpus)] for i in range(size)]
+            stored = json.loads(path.read_text())
+            at = int(stored.get("at", 0)) % n
+            held = [h for h in stored.get("held", []) if pid_alive(int(h["pid"]), h.get("start"))]
+        except (OSError, ValueError, TypeError, AttributeError, KeyError):
+            at, held = 0, []  # none yet, the old {"next": …} form, or torn
+        load = {cpu: 0 for cpu in cpus}
+        for h in held:
+            for cpu in h.get("cpus", []):
+                if cpu in load:
+                    load[cpu] += 1
+
+        def window(offset: int) -> list[int]:
+            return [cpus[(offset + i) % n] for i in range(size)]
+
+        offset = min(range(n), key=lambda o: (sum(load[c] for c in window(o)), (o - at) % n))
+        chosen = window(offset)
+        if pid:
+            held.append({"pid": int(pid), "start": proc_start(int(pid)), "cpus": chosen})
+        write_atomic(path, json.dumps({"at": (offset + size) % n, "held": held}))
+    return chosen
 
 
 def cpu_list(cpus: list[int]) -> str:
@@ -4027,7 +4046,7 @@ def confine_agent(pid: int | None, name: str) -> dict:
     if not pid:
         return done
     try:
-        cpus = cpu_window()
+        cpus = cpu_window(int(pid))
         if not cpus and not setting("worker_memory_high"):
             return done  # both off: no /proc scan
         tree = agent_tree(int(pid))
