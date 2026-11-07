@@ -3930,26 +3930,57 @@ def machine_cpus() -> list[int]:
     return []
 
 
-def cpu_window() -> list[int] | None:
+def cpu_window(pid: int | None = None) -> list[int] | None:
     """The cores the next agent mesh launches gets (`worker_cpus` % of them, at least one), or None when the cap
-    is off (0 or 100, a window as large as the machine, no affinity calls). Each launch on the machine takes the
-    next window (`cpus.json`, under a lock), so agents spread over the cores."""
+    is off (0 or 100, a window as large as the machine, no affinity calls).
+
+    It is the window whose cores the fewest live agents hold, so a new agent lands on idle cores after others
+    retired; among equals, the first from where the last window ended, so agents started together spread as a
+    rotation would. `cpus.json` (under a lock, machine-wide) keeps that offset and, per `pid` given, its holder
+    ({pid, start, cpus}), dropped once that process is gone (`pid_alive`, so a reused pid doesn't count)."""
     percent = setting("worker_cpus")
     cpus = machine_cpus()
     if not sched_setaffinity or percent in (0, 100) or not cpus:
         return None
-    size = max(1, len(cpus) * percent // 100)
-    if size >= len(cpus):
+    n = len(cpus)
+    size = max(1, n * percent // 100)
+    if size >= n:
         return None
     path = mesh_home() / "cpus.json"
     with file_lock(mesh_home() / ".cpus.lock"):
         try:
-            turn = int(json.loads(path.read_text()).get("next", 0))
+            stored = json.loads(path.read_text())
+            at = int(stored.get("at", 0)) % n
+            entries = stored.get("held", [])
+            if not isinstance(entries, list):
+                entries = []
         except (OSError, ValueError, TypeError, AttributeError):
-            turn = 0
-        write_atomic(path, json.dumps({"next": turn + 1}))
-    start = turn * size % len(cpus)
-    return [cpus[(start + i) % len(cpus)] for i in range(size)]
+            at, entries = 0, []  # none yet, the old {"next": …} form, or torn
+        held = []
+        for h in entries:  # an entry that isn't one (hand-edited, say) drops out alone
+            try:
+                cores = h["cpus"]
+                if not (isinstance(cores, list) and all(isinstance(c, int) for c in cores)):
+                    continue
+                if pid_alive(int(h["pid"]), h.get("start")):
+                    held.append(h)
+            except (KeyError, TypeError, ValueError):
+                continue
+        load = {cpu: 0 for cpu in cpus}
+        for h in held:
+            for cpu in h.get("cpus", []):
+                if cpu in load:
+                    load[cpu] += 1
+
+        def window(offset: int) -> list[int]:
+            return [cpus[(offset + i) % n] for i in range(size)]
+
+        offset = min(range(n), key=lambda o: (sum(load[c] for c in window(o)), (o - at) % n))
+        chosen = window(offset)
+        if pid:
+            held.append({"pid": int(pid), "start": proc_start(int(pid)), "cpus": chosen})
+        write_atomic(path, json.dumps({"at": (offset + size) % n, "held": held}))
+    return chosen
 
 
 def cpu_list(cpus: list[int]) -> str:
@@ -4015,9 +4046,41 @@ def memory_scope(pids: list[int], name: str) -> str | None:
     if not mb or not pids:
         return None
     unit = f"mesh-{slugify(name, 60)}-{pids[0]}.scope"
-    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "2",
-            "PIDs", "au", str(len(pids)), *map(str, pids), "MemoryHigh", "t", str(mb << 20), "0"]
-    return unit if run_cli(argv, timeout=10).returncode == 0 else None
+    return unit if start_scope(unit, pids, ["MemoryHigh", "t", str(mb << 20)]) else None
+
+
+def start_scope(unit: str, pids: list[int], props: list[str]) -> bool:
+    """Move `pids` into a new transient systemd user scope `unit` with `props` (name, signature, value triples
+    flattened, as busctl takes them), next to the PIDs property. Whether systemd took it."""
+    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail",
+            str(1 + len(props) // 3), "PIDs", "au", str(len(pids)), *map(str, pids), *props, "0"]
+    return run_cli(argv, timeout=10).returncode == 0
+
+
+def own_cgroup() -> str | None:
+    """This process's cgroup v2 path (`0::<path>` in /proc/self/cgroup), or None where it can't be read."""
+    try:
+        lines = Path("/proc/self/cgroup").read_text().splitlines()
+    except OSError:
+        return None
+    return next((line[3:] for line in lines if line.startswith("0::")), None)
+
+
+AGENT_SCOPE_RE = re.compile(r"mesh-(?!retirer-).+\.scope")
+
+
+def leave_scope(run_id: str) -> str | None:
+    """Move this process out of an agent's `memory_scope` into a scope of its own, with no MemoryHigh: the run's
+    retirer, started by a worker's report, inherits that worker's cgroup (design §17). The new scope's name, or
+    None when it wasn't in one, or systemd refused; never raises."""
+    try:
+        cgroup = own_cgroup()
+        if not cgroup or not AGENT_SCOPE_RE.fullmatch(cgroup.rsplit("/", 1)[-1]):
+            return None
+        unit = f"mesh-retirer-{slugify(run_id, 40)}-{os.getpid()}.scope"
+        return unit if start_scope(unit, [os.getpid()], []) else None
+    except (OSError, ValueError, MeshError):
+        return None
 
 
 def confine_agent(pid: int | None, name: str) -> dict:
@@ -4029,7 +4092,7 @@ def confine_agent(pid: int | None, name: str) -> dict:
     if not pid:
         return done
     try:
-        cpus = cpu_window()
+        cpus = cpu_window(int(pid))
         if not cpus and not setting("worker_memory_high"):
             return done  # both off: no /proc scan
         tree = agent_tree(int(pid))
@@ -7188,6 +7251,7 @@ def cmd_retirer(args: argparse.Namespace) -> int:
         except BlockingIOError:
             print("mesh: this run's retirer is already running", file=sys.stderr)
             return 0
+    leave_scope(args.run)  # and its MemoryHigh scope, which a daemon it starts would join too: once it's the one
     with handle:
         return run_retirer(args.run, handle)
 
