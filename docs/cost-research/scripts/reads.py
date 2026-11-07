@@ -15,7 +15,10 @@ for sid,s in sess.items():
         try: d=json.loads(l)
         except: continue
         if d.get('type')=='assistant':
+            t=datetime.fromisoformat(d['timestamp'].replace('Z','+00:00')).timestamp()
+            if t>=T1: break
             ncalls+=1
+            if t<T0: continue
             for b in d['message'].get('content') or []:
                 if isinstance(b,dict) and b.get('type')=='tool_use':
                     inp=json.dumps(b.get('input'))

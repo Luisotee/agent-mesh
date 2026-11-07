@@ -68,8 +68,8 @@ for rid,(d,rdir) in runs.items():
         pr=None
         if ev in('send','rung','native','collected'):
             s,t=e.get('sender'),e.get('to')
-            m=re.search(r'-review-(\d+)-',(s or '')+'|'+(t or ''))
-            if m: pr=(rid,re.sub(r'-review-\d+-.*','',s if '-review-' in (s or '') else t),m.group(1))
+            m=re.search(r'-review-(\d+)(?:-|$|\|)',(s or '')+'|'+(t or ''))
+            if m: pr=(rid,re.sub(r'-review-\d+.*','',s if '-review-' in (s or '') else t),m.group(1))
         if ev=='send':
             ty=e.get('type'); s,t=e['sender'],e['to']
             worker=t if ty in('task','answer') else s

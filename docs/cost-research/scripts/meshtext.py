@@ -18,6 +18,7 @@ for sid,s in sess.items():
         try: d=json.loads(l)
         except: continue
         t=d.get('type')
+        if d.get('timestamp') and ts(d['timestamp'])>=T1: break  # calls after the window don't amortize its text
         if t=='system' and d.get('subtype')=='compact_boundary': compact_at.append(ncall); continue
         if t=='assistant':
             m=d['message']

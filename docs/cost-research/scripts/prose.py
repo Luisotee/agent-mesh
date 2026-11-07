@@ -5,7 +5,7 @@ import statistics
 ROOT=os.path.expanduser('~/.claude/projects')
 WINS=[w.split('..') for w in os.environ.get('WINDOWS','2026-10-21..2026-10-28,2026-10-28..2026-11-04').split(',')]
 WINS=[(a,b,_when(a),_when(b)) for a,b in WINS]
-acc=collections.defaultdict(collections.Counter); done=set(); seen={}  # message.id -> the file that counts it (across files, as extract.py)
+acc=collections.defaultdict(collections.Counter); done=set(); blocks=set(); seen={}  # message.id -> the file that counts it (across files, as extract.py)
 for (sid,f),s in S.items():
     k=K.get(sid) if not s['sub'] else 'subagent'
     k='subagent' if (k or '').startswith('subagent') else k
@@ -24,6 +24,10 @@ for (sid,f),s in S.items():
             done.add(mid); acc[key]['calls']+=1; acc[key]['out']+=m['usage'].get('output_tokens',0)
         for b in m.get('content') or []:
             if not isinstance(b,dict): continue
+            # one record per content block, all with the call's message.id; a rewritten record repeats a block
+            bk=(mid,b.get('id') or hash(json.dumps(b,sort_keys=True)))
+            if bk in blocks: continue
+            blocks.add(bk)
             if b.get('type')=='text': acc[key]['text']+=len(b.get('text',''))
             elif b.get('type')=='thinking': acc[key]['think']+=len(b.get('thinking',''))
             elif b.get('type')=='tool_use':
