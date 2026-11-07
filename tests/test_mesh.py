@@ -10287,19 +10287,56 @@ def test_a_review_round_says_which_round_it_was_and_offers_a_re_review_only_whil
     other = mesh.mesh_home() / "archive" / "old" / "reports"  # another PR's round, archived: not counted
     other.mkdir(parents=True)
     (other / "review-8-1.md").write_text("# Review of https://github.com/acme/proj/pull/8 at abc\n")
+    # This PR's round from before the mark, spelled as pasted: counted. One nobody reviewed: not counted.
+    (other / "review-7-1.md").write_text("# Review of https://github.com/Acme/Proj/pull/7 at abc\n\nAsked …\n")
+    (other / "review-7-2.md").write_text("# Review of https://github.com/acme/proj/pull/7 at abc\n"
+                                         "<!-- mesh: 0 reviews -->\n")
     args = ["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude"]
     assert mesh.main([*args, "--size", "large"]) == 0
     out = capsys.readouterr().out
-    assert "(round 1 of at most 2 for a large PR (`review.rounds.large`): findings that need no fix" in out
-    assert "Only a fix you ask for gets a re-review" in out and "after a fix, run this round" not in out
-    assert mesh.review_rounds_done(pr) == 1
-    assert mesh.main([*args, "--size", "large"]) == 0
-    out = capsys.readouterr().out
     assert "(round 2 of at most 2 for a large PR (`review.rounds.large`), its last: check any fix yourself" in out
-    assert "re-review" in out and "Only a fix you ask for" not in out
-    assert mesh.rounds_hint(pr, head, "small").startswith("(round 2 of at most 1 for a small PR")
+    assert "re-review" in out and "Only a fix you ask for" not in out and "after a fix, run this round" not in out
+    [path] = [p for p in mesh.Path(mesh.run_dir(run), "reports").glob("review-7-*.md")]
+    assert path.read_text().splitlines()[1] == "<!-- mesh: 1 reviews -->"
+    assert mesh.review_rounds_done(pr, 7) == mesh.review_rounds_done("https://github.com/ACME/proj/pull/7", 7) == 2
+    assert mesh.rounds_hint(pr, 7, head, "small").startswith("(round 2 of at most 1 for a small PR")
     with_config({"review": {"rounds": {"small": 3}}})
-    assert "Only a fix you ask for" in mesh.rounds_hint(pr, head, "trivial")  # a trivial review counts as small
+    assert "Only a fix you ask for" in mesh.rounds_hint(pr, 7, head, "trivial")  # a trivial review counts as small
+    assert "(round 2 of at most 3 for a trivial PR (`review.rounds.small`): findings that need no fix" in \
+        mesh.rounds_hint(pr, 7, head, "trivial")
+
+
+def test_a_review_round_nobody_answered_doesnt_count(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})  # nobody answers
+    monkeypatch.setattr(mesh, "watch_each", lambda run_id, names, *a, **k: {n: (3, f"{n}: stopped") for n in names})
+    mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
+    out = capsys.readouterr().out
+    assert out.startswith("0 of 1 reviewers answered")
+    assert "didn't count toward `review.rounds.small` (0 of at most 1 so far)" in out and "its last" not in out
+    assert mesh.review_rounds_done(pr, 7) == 0
+
+
+def test_a_reviewer_is_found_again_whatever_the_prs_spelling(mesh, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-claude"] = {"role": "worker", "kind": "claude",
+                                                  "review_checkout": "https://github.com/Acme/Proj/pull/7"}
+    assert set(mesh.earlier_reviewers("https://github.com/acme/proj/pull/7")) == {"claude"}
+
+
+@pytest.mark.parametrize("text", ["inf", "nan", "-inf"])
+def test_a_seconds_leaf_takes_only_a_finite_value(mesh, monkeypatch, text):
+    monkeypatch.setenv("MESH_IDLE_RETIRE", text)
+    assert mesh.idle_retire() == 300
+    with_config({"idle_retire": float(text)})
+    with pytest.raises(mesh.MeshError, match="finite number of seconds"):
+        mesh.setting("hang_after")
+
+
+def test_the_retirer_reads_the_built_in_idle_retire_when_the_config_is_broken(mesh):
+    with_config({"idle_retire": "soon"})
+    with pytest.raises(mesh.MeshError):
+        mesh.idle_retire()
+    assert mesh.idle_retire(fallback=True) == 300
 
 
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
@@ -10755,8 +10792,8 @@ def test_min_free_mb_takes_auto_from_the_env_and_the_file(mesh, monkeypatch):
 
 
 @pytest.mark.parametrize("data, error", [
-    ({"idle_retire": -1}, "idle_retire should be a number of seconds, 0 or more"),
-    ({"hang_after": True}, "hang_after should be a number of seconds"),
+    ({"idle_retire": -1}, "idle_retire should be a finite number of seconds, 0 or more"),
+    ({"hang_after": True}, "hang_after should be a finite number of seconds"),
     ({"min_free_mb": "lots"}, 'min_free_mb should be "auto" or a whole number of MB'),
     ({"root_reset": {"auto": "no"}}, "root_reset.auto should be true or false"),
     ({"compact": {"claud": 1}}, "unknown key compact.claud"),

@@ -20,6 +20,7 @@ import argparse
 import errno
 import fcntl
 import json
+import math
 import os
 import re
 import secrets
@@ -419,8 +420,8 @@ POLICY_CHECKS = {
     "int": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a whole number, 0 or more"),
     "percent": (lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100, "a whole number 0-100"),
     "bool": (lambda v: isinstance(v, bool), "true or false"),
-    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
-                "a number of seconds, 0 or more"),
+    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0,
+                "a finite number of seconds, 0 or more"),
     "mb_or_auto": (lambda v: v == "auto" or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
                    "\"auto\" or a whole number of MB, 0 or more"),
 }
@@ -501,10 +502,10 @@ def env_setting(leaf: str) -> tuple[object, str] | None:
         try:
             value = int(text)
         except ValueError:
-            if check != "seconds" and not (check == "mb_or_auto" and text == "auto"):
+            if check != "seconds" and not (check == "mb_or_auto" and text.lower() == "auto"):
                 return None
             try:
-                value = text if check == "mb_or_auto" else float(text)
+                value = "auto" if check == "mb_or_auto" else float(text)
             except ValueError:
                 return None
         return (value, key) if POLICY_CHECKS[check][0](value) else None
@@ -6811,9 +6812,15 @@ def held_wait() -> float:
     return float(setting("held_wait"))
 
 
-def idle_retire() -> float:
-    """`idle_retire`, where 0 means never."""
-    return float(setting("idle_retire"))
+def idle_retire(fallback: bool = False) -> float:
+    """`idle_retire`, where 0 means never. `fallback`: the built-in when the config file is broken, for the
+    detached retirer, which nobody would see die of it."""
+    try:
+        return float(setting("idle_retire"))
+    except MeshError:
+        if not fallback:
+            raise
+        return float(POLICY["idle_retire"][0])
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -6876,7 +6883,7 @@ def ensure_retirer(run_id: str) -> int | None:
     """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
     continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
     retirer letting go of the lock re-checks and sees it (run_retirer)."""
-    if not idle_retire():
+    if not idle_retire(fallback=True):
         events = read_log(run_id)
         if not any(due_continue(events, n) for n in load_run(run_id)["agents"]):
             return None
@@ -7094,7 +7101,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         return False
     events = read_log(run_id)
     continuing = continue_poll(run_id, run, events) if not stop_under_way(events) else False
-    if not idle_retire():
+    if not idle_retire(fallback=True):
         return continuing
     failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
     candidates, pending = {}, set()
@@ -7120,7 +7127,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         if entry.get("view") == "bg" and bg_rows is None:
             continue  # `claude agents` failed: can't tell this poll
         if name not in watches:
-            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire())
+            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire(fallback=True))
         watch = watches[name]
         try:
             state = agent_status(name, entry, bg_rows or [])
@@ -9220,7 +9227,7 @@ def earlier_reviewers(pr: str) -> dict[str, tuple[dict, Path, str, dict]]:
     found: dict[str, tuple[dict, Path, str, dict]] = {}
     for run, folder in all_runs():  # newest first; within a run, the latest of a kind
         for name, entry in reversed(run["agents"].items()):
-            if entry.get("review_checkout") == pr and entry.get("role") == "worker":
+            if pr_key(entry.get("review_checkout") or "") == pr_key(pr) and entry.get("role") == "worker":
                 found.setdefault(entry.get("kind"), (run, folder, name, entry))
     return found
 
@@ -9402,7 +9409,8 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
     replies = {kind: take_reply(run_id, me, asked[kind], folder) if kind in asked and outcomes[kind][0] == 0
                else None for kind in kinds}
     names = [asked.get(kind, kind) for kind in kinds]
-    parts = [f"# Review of {pr} at {head}", "",
+    reviewed = sum(1 for reply in replies.values() if reply and reply[0].get("type") == "done")
+    parts = [f"# Review of {pr} at {head}", ROUND_MARK.format(reviewed), "",
              f"Asked {now_iso()} in run {run_id}, size {args.size}, of {len(kinds)} reviewer{'s' if len(kinds) > 1 else ''}: "
              f"{', '.join(names)}.", *(["", "## Notes to the reviewers", "", body] if body else []), ""]
     lines, failed = [], []
@@ -9425,29 +9433,48 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
     print(f"answers: {path}")
     if answered < len(kinds) and not stopped:
         print("(a reviewer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
-    print(rounds_hint(pr, head, args.size))
+    print(rounds_hint(pr, number, head, args.size, reviewed))
     return failed[0] if failed else 0
 
 
-def review_rounds_done(pr: str) -> int:
+ROUND_MARK = "<!-- mesh: {} reviews -->"  # an answers file's second line: the reviews (`done`s) its round got
+ROUND_MARK_RE = re.compile(r"<!-- mesh: (\d+) reviews -->")
+
+
+def pr_key(pr: str) -> str:
+    """One spelling of a PR link for matching: `pr_ref` keeps a pasted link as typed and builds one from the
+    remote for a bare number, and GitHub's owner and repo names are case-insensitive."""
+    return pr.strip().rstrip("/").lower()
+
+
+def review_rounds_done(pr: str, number: int | None = None) -> int:
     """How many review rounds `pr` has had, in any run, live or archived: its answers files
-    (`reports/review-*.md`), each read only to its header line (`# Review of <pr> at <head>`)."""
-    home, header = mesh_home(), f"# Review of {pr} at "
+    (`reports/review-<number>-*.md`, `review-pr-*.md` without a number), each read to its first two lines, the
+    header (`# Review of <pr> at <head>`) and ROUND_MARK. A round with no review (every reviewer failed, was busy
+    or alerted) doesn't count; a file from before the mark does."""
+    home, header = mesh_home(), f"# review of {pr_key(pr)} at "
+    pattern = f"review-{number}-*.md" if number else "review-pr-*.md"
     count = 0
-    for path in (*home.glob("*/reports/review-*.md"), *home.glob("archive/*/reports/review-*.md")):
+    for path in (*home.glob(f"*/reports/{pattern}"), *home.glob(f"archive/*/reports/{pattern}")):
         try:
             with path.open(encoding="utf-8", errors="replace") as handle:
-                count += handle.readline().startswith(header)
+                first, second = handle.readline(), handle.readline()
         except OSError:
             continue
+        mark = ROUND_MARK_RE.match(second.strip())
+        count += first.lower().startswith(header) and (not mark or int(mark.group(1)) > 0)
     return count
 
 
-def rounds_hint(pr: str, head: str, size: str | None) -> str:
+def rounds_hint(pr: str, number: int | None, head: str, size: str | None, reviewed: int = 1) -> str:
     """The line a review round ends with: `review.rounds.<size>` is a ceiling, not a quota (design §10), so it
-    says which round this was and offers a re-review only for a fix while rounds remain."""
+    says which round this was and offers a re-review only for a fix while rounds remain. A round with no review
+    says it didn't count."""
     key = "large" if size == "large" else "small"
-    most, done = setting(f"review.rounds.{key}"), review_rounds_done(pr)
+    most, done = setting(f"review.rounds.{key}"), review_rounds_done(pr, number)
+    if not reviewed:
+        return (f"(no reviewer answered with a review, so this round didn't count toward `review.rounds.{key}` "
+                f"({done} of at most {most} so far): once the reviewers' lines are dealt with, run it again)")
     where = f"round {done} of at most {most} for a {size or key} PR (`review.rounds.{key}`)"
     if done >= most:
         return (f"({where}, its last: check any fix yourself, `git diff {head[:9]}..<new head>`; no re-review. "
@@ -11048,14 +11075,18 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
     entry = run["agents"][root]
     pane, kind = entry["pane"], entry.get("kind")
     context = quietly(root_context, run)
-    wait = reset_wait()
-    deadline = time.monotonic() + wait
     quiet, why = 0, "it never read idle"
 
     def failed(event: str, reason: str) -> int:
         log_event(run_id, event, name=root, reason=reason)
         print(f"mesh reset: {event}: {reason}", flush=True)
         return 1
+
+    try:
+        wait = reset_wait()
+    except MeshError as exc:  # a config broken since `mesh reset` read it
+        return failed("reset_failed", str(exc))
+    deadline = time.monotonic() + wait
 
     lost_since = None  # when herdr began reading it `unknown` with nothing else to judge it by
 
@@ -11914,10 +11945,10 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
-                   help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
-                        f"{COMPACT_COLD_AT:,} once its prompt cache has expired, "
-                        f"{AGY_COMPACT_AT:,} for agy, twice that for a question unless asked of a peer; an agy one whose size can't be "
-                        "read when it comes from another run)")
+                   help="compact the conversation before reopening it (auto: over the compact.claude setting's "
+                        "tokens for Claude, compact.claude_cold once its prompt cache has expired, compact.agy for "
+                        "agy, twice that for a question unless asked of a peer, see `mesh routing`; an agy one whose "
+                        "size can't be read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
 
 
