@@ -1,9 +1,13 @@
+import contextlib
+import faulthandler
 import importlib.machinery
 import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -105,6 +109,10 @@ def write_meminfo(path, available, swap_free, total=16 << 20, swap_total=32 << 2
                     f"SwapFree:       {swap_free} kB\n")
 
 
+# Seconds one test using the `mesh` fixture may take; the slowest healthy one takes about 2 (`--durations`).
+TEST_TIMEOUT = int(os.environ.get("MESH_TEST_TIMEOUT", 60))
+
+
 @pytest.fixture
 def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_HOME", str(tmp_path / "state"))
@@ -173,7 +181,30 @@ def mesh(tmp_path, monkeypatch):
     module.retirers = []
     module.real_start_retirer = module.start_retirer
     monkeypatch.setattr(module, "start_retirer", lambda run_id, handle: module.retirers.append(run_id) or 4242)
-    return module
+    with timeout_guard():
+        yield module
+
+
+@contextlib.contextmanager
+def timeout_guard():
+    """`time.sleep` is stubbed but the clock is not, so a test that reaches an age-gated wait (start grace, hang,
+    idle retire, a continue) would spin for real time. Past TEST_TIMEOUT, fail it instead, with every thread's
+    stack in its captured stderr. If the alarm can't interrupt it (stuck in C), faulthandler exits the process a
+    little later: its stack goes to the same captured stderr, which an exit loses, so the alarm comes first."""
+    def expire(signum, frame):
+        faulthandler.cancel_dump_traceback_later()
+        faulthandler.dump_traceback(file=sys.stderr)
+        pytest.fail(f"the test ran over {TEST_TIMEOUT}s (MESH_TEST_TIMEOUT): a real-time wait? Stacks in stderr.")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.alarm(TEST_TIMEOUT)
+    faulthandler.dump_traceback_later(TEST_TIMEOUT + 10, exit=True)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        faulthandler.cancel_dump_traceback_later()
+        signal.signal(signal.SIGALRM, previous)
 
 
 def refuse_kill(pid, sig):
