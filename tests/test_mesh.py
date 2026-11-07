@@ -10314,6 +10314,11 @@ def test_a_review_round_nobody_answered_doesnt_count(mesh, fake, cli, run, repo,
     assert out.startswith("0 of 1 reviewers answered")
     assert "didn't count toward `review.rounds.small` (0 of at most 1 so far)" in out and "its last" not in out
     assert mesh.review_rounds_done(pr, 7) == 0
+    reports = mesh.Path(mesh.run_dir(run), "reports")  # at the ceiling, an empty round offers no further one
+    (reports / "review-7-0.md").write_text(f"# Review of {pr} at abc\n<!-- mesh: 1 reviews -->\n")
+    hint = mesh.rounds_hint(pr, 7, head, "small", reviewed=0)
+    assert "are used up (1 of at most 1): no further round; check any fix yourself" in hint
+    assert "run it again" not in hint
 
 
 def test_a_reviewer_is_found_again_whatever_the_prs_spelling(mesh, run):
@@ -10332,11 +10337,63 @@ def test_a_seconds_leaf_takes_only_a_finite_value(mesh, monkeypatch, text):
         mesh.setting("hang_after")
 
 
-def test_the_retirer_reads_the_built_in_idle_retire_when_the_config_is_broken(mesh):
-    with_config({"idle_retire": "soon"})
+def test_the_retirer_retires_nothing_when_the_config_is_broken_and_logs_it_once(mesh, run):
+    with_config({"idle_retire": 0, "compact": {"claud": 1}})  # "never", plus a typo elsewhere
     with pytest.raises(mesh.MeshError):
         mesh.idle_retire()
-    assert mesh.idle_retire(fallback=True) == 300
+    assert mesh.idle_retire(run) == 0 and mesh.idle_retire(run) == 0
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "config_error"]
+    assert "unknown key compact.claud" in event["reason"]
+    assert mesh.ensure_retirer(run) is None  # no retirer started for it
+
+
+def test_a_huge_whole_number_of_seconds_is_checked_without_overflowing(mesh, monkeypatch):
+    with_config({"hang_after": 10 ** 400})
+    assert mesh.setting("hang_after") == 10 ** 400
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "1" + "0" * 400)
+    assert mesh.setting_with_source("idle_retire")[1] == "env MESH_IDLE_RETIRE"
+    assert mesh.main(["routing"]) == 0
+
+
+def test_pr_ref_gives_a_pasted_link_and_a_bare_number_one_spelling(mesh, monkeypatch, tmp_path):
+    monkeypatch.setattr(mesh, "git", lambda *a, **k: "git@github.com:Acme/Proj.git")
+    assert mesh.pr_ref("7", tmp_path) == mesh.pr_ref("see https://github.com/ACME/proj/pull/7", tmp_path) == \
+        ("https://github.com/acme/proj/pull/7", 7)
+
+
+def test_a_re_review_by_another_spelling_moves_the_reviewer_and_names_its_last_head(
+        mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "1. a finding."})
+    args = ["ask", "--repo", str(repo), "--size", "large", "--reviewers", "claude", "--review"]
+    assert mesh.main([*args, "https://github.com/ACME/Proj/pull/7"]) == 0  # pasted, mixed case
+    entry = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert entry["review_checkout"] == pr and entry["review_heads"] == {pr: head}  # one spelling recorded
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
+    new = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/pull/7/head", new], cwd=origin, check=True)
+    assert mesh.main([*args, pr]) == 0
+    assert "proj-review-7-claude again" in capsys.readouterr().err
+    entry = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert entry["review_heads"] == {pr: new} and entry["reviews"] == [pr]
+    tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
+    assert f"You last reviewed it at {head}" in mesh.parse_message(tasks[-1])[1]
+    worktree = mesh.Path(entry["cwd"])
+    assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True,
+                          text=True).stdout.strip() == new  # moved to the new head
+
+
+def test_a_reviewer_recorded_under_an_old_spelling_is_still_its_prs(mesh, run):
+    entry = {"review_checkout": "https://github.com/Acme/Proj/pull/7",
+             "review_heads": {"https://github.com/Acme/Proj/pull/7": "abc"},
+             "reviews": ["https://github.com/Acme/Proj/pull/7"]}
+    assert mesh.review_head(entry, "https://github.com/acme/proj/pull/7") == "abc"
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-claude"] = {"role": "worker", "kind": "claude", **entry}
+    mesh.record_review(run, "proj-review-7-claude", "https://github.com/acme/proj/pull/7", "def")
+    saved = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert saved["reviews"] == ["https://github.com/acme/proj/pull/7"]
+    assert saved["review_heads"] == {"https://github.com/acme/proj/pull/7": "def"}
 
 
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):

@@ -420,7 +420,8 @@ POLICY_CHECKS = {
     "int": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a whole number, 0 or more"),
     "percent": (lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100, "a whole number 0-100"),
     "bool": (lambda v: isinstance(v, bool), "true or false"),
-    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0,
+    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+                and (isinstance(v, int) or math.isfinite(v)) and v >= 0,
                 "a finite number of seconds, 0 or more"),
     "mb_or_auto": (lambda v: v == "auto" or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
                    "\"auto\" or a whole number of MB, 0 or more"),
@@ -5414,10 +5415,10 @@ def last_task(events: list[dict], name: str) -> dict | None:
 def report_prs(run_id: str, name: str, entry: dict, report: dict, events: list[dict]) -> list[str]:
     """The PRs a `done` names (not ones the worker reviewed), else those of its newest earlier `done` that
     named any: a fix round's report may not repeat the link. Plans and questions don't count."""
-    reviewed = set(entry.get("reviews") or ())
+    reviewed = {pr_key(r) for r in entry.get("reviews") or ()}
     dones = [e for e in events if e.get("event") == "send" and e.get("sender") == name and e.get("type") == "done"]
     for done in reversed(dones[: dones.index(report) + 1] if report in dones else [report]):
-        prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, done))) if u not in reviewed]
+        prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, done))) if pr_key(u) not in reviewed]
         if prs:
             return prs
     return []
@@ -5479,7 +5480,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
         if entry.get("reviews") and entry.get("status") != "retired" \
                 and not (report and report.get("type") in FINAL_TYPES):
             if url := reviewing_pr(run_id, entry, events, name):
-                reviewing.setdefault(url, []).append(name)
+                reviewing.setdefault(pr_key(url), []).append(name)
     for row in rows:
         if row["role"] == "root":
             continue
@@ -5509,7 +5510,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
                     parts.append("no PR")
                 if row.get("dirty"):
                     parts.append("worktree dirty")
-                reviewers = [r for u in urls for r in reviewing.get(u, []) if r != name]
+                reviewers = [r for u in urls for r in reviewing.get(pr_key(u), []) if r != name]
                 if reviewers:
                     parts.append(f"in review ({', '.join(dict.fromkeys(reviewers))})")
                     needs = "worker"
@@ -6812,15 +6813,19 @@ def held_wait() -> float:
     return float(setting("held_wait"))
 
 
-def idle_retire(fallback: bool = False) -> float:
-    """`idle_retire`, where 0 means never. `fallback`: the built-in when the config file is broken, for the
-    detached retirer, which nobody would see die of it."""
+def idle_retire(run_id: str | None = None) -> float:
+    """`idle_retire`, where 0 means never. With `run_id` (the detached retirer, which nobody would see die), a
+    broken config file retires nothing (0) instead of raising, and logs one `config_error` per error for
+    `mesh log` to show."""
     try:
         return float(setting("idle_retire"))
-    except MeshError:
-        if not fallback:
+    except MeshError as exc:
+        if run_id is None:
             raise
-        return float(POLICY["idle_retire"][0])
+        if not any(e.get("event") == "config_error" and e.get("reason") == str(exc)
+                   for e in quietly(read_log, run_id) or []):
+            quietly(log_event, run_id, "config_error", reason=str(exc))
+        return 0.0
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -6883,7 +6888,7 @@ def ensure_retirer(run_id: str) -> int | None:
     """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
     continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
     retirer letting go of the lock re-checks and sees it (run_retirer)."""
-    if not idle_retire(fallback=True):
+    if not idle_retire(run_id):
         events = read_log(run_id)
         if not any(due_continue(events, n) for n in load_run(run_id)["agents"]):
             return None
@@ -7101,7 +7106,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         return False
     events = read_log(run_id)
     continuing = continue_poll(run_id, run, events) if not stop_under_way(events) else False
-    if not idle_retire(fallback=True):
+    if not idle_retire(run_id):
         return continuing
     failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
     candidates, pending = {}, set()
@@ -7127,7 +7132,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         if entry.get("view") == "bg" and bg_rows is None:
             continue  # `claude agents` failed: can't tell this poll
         if name not in watches:
-            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire(fallback=True))
+            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire(run_id))
         watch = watches[name]
         try:
             state = agent_status(name, entry, bg_rows or [])
@@ -7204,13 +7209,13 @@ def all_runs() -> list[tuple[dict, Path]]:
 
 def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
     """PR links in the messages a worker sent; its `done` reports carry them. PRs it only reviewed don't count."""
-    reviewed = set((entry or {}).get("reviews") or ())
+    reviewed = {pr_key(r) for r in (entry or {}).get("reviews") or ()}
     prs: list[str] = []
     for path in sorted((folder / "inbox").glob("**/*.md")):
         meta, body = parse_message(path)
         if meta.get("from") == name:
             prs += PR_RE.findall(body)
-    return [url for url in dict.fromkeys(prs) if url not in reviewed]
+    return [url for url in dict.fromkeys(prs) if pr_key(url) not in reviewed]
 
 
 def gh_json(argv: list[str], cwd: str | Path | None = None) -> tuple[object, str | None]:
@@ -7254,7 +7259,7 @@ def worktree_branch(entry: dict) -> str | None:
 
 def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
     """Whether this worker's branch is the PR's head, in the PR's repo (unless the worker's repo has no remotes)."""
-    if live_branch and pr in (entry.get("reviews") or ()):
+    if live_branch and pr_key(pr) in {pr_key(r) for r in entry.get("reviews") or ()}:
         return False  # a reviewer that checked the PR's branch out isn't its author (one reviewing its own PR is)
     branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
     if not branch or branch != head:
@@ -7935,10 +7940,12 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 
 def pr_ref(review: str, repo: Path) -> tuple[str, int]:
-    """A PR's link and number, from a link or from a number and the repo's GitHub remote."""
+    """A PR's link and number, from a link or from a number and the repo's GitHub remote, in one spelling
+    (`pr_key`: GitHub's owner and repo names are case-insensitive), so a pasted link and a bare number record,
+    head and find the same reviewers and rounds."""
     match = PR_RE.search(review)
     if match:
-        return match.group(0), int(match.group(0).rsplit("/", 1)[1])
+        return pr_key(match.group(0)), int(match.group(0).rsplit("/", 1)[1])
     if not review.lstrip("#").isdigit():
         raise MeshError(f"--review takes a PR link or number, not {review}")
     try:
@@ -7949,7 +7956,7 @@ def pr_ref(review: str, repo: Path) -> tuple[str, int]:
     if not github:
         raise MeshError(f"{repo}'s origin ({remote}) is not on GitHub; pass the PR link")
     number = int(review.lstrip("#"))
-    return f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}", number
+    return pr_key(f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}"), number
 
 
 def review_remote(repo: Path, pr: str) -> str:
@@ -8126,7 +8133,7 @@ def plan_move(run_id: str, target: tuple, pr: str, head: str | None) -> tuple[di
     with no `git` is one already at the head: only its `base` is set."""
     old_run, _, name, entry = target
     cwd, repo, branch, base = entry.get("cwd"), entry.get("repo"), entry_branch(old_run, entry), entry.get("base")
-    mine = entry.get("review_checkout") == pr or base == (entry.get("review_heads") or {}).get(pr)
+    mine = pr_key(entry.get("review_checkout") or "") == pr_key(pr) or base == review_head(entry, pr)
     if (not head or not base or not mine or entry.get("peer") or not branch or not repo or not cwd
             or Path(cwd).resolve() == Path(repo).resolve()):
         return None, ""
@@ -8200,11 +8207,11 @@ def record_review(run_id: str, name: str, pr: str, head: str | None, checkout: b
         entry = run["agents"][name]
         if checkout:
             entry["review_checkout"] = pr
-        reviews = entry.setdefault("reviews", [])
-        if pr not in reviews:
-            reviews.append(pr)
+        reviews = [r for r in entry.get("reviews") or [] if pr_key(r) != pr_key(pr)]  # one spelling per PR
+        entry["reviews"] = [*reviews, pr]
         if head:
-            entry.setdefault("review_heads", {})[pr] = head
+            heads = {k: v for k, v in (entry.get("review_heads") or {}).items() if pr_key(k) != pr_key(pr)}
+            entry["review_heads"] = {**heads, pr: head}
 
 
 def take_reply(run_id: str, me: str, sender: str, folder: Path | None = None) -> tuple[dict, str] | None:
@@ -8762,7 +8769,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             head = pr_head(repo, pr, number) if target[3].get("repo") else None
         except (MeshError, OSError):
             pass
-        last = (target[3].get("review_heads") or {}).get(pr)
+        last = review_head(target[3], pr)
     gist = first_line(body) or f"a review of {pr}"
     # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
     if args.repo or copilot or (peer and not target) or (target and not_live(target)):
@@ -9315,7 +9322,7 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
         so its task reads as one, built in its own clone with the head fetched there (as cmd_ask does); the
         round's size goes to each, so a Copilot's effort follows it too."""
         target, where, at = targets.get(kind), repo, head
-        last = (target[3].get("review_heads") or {}).get(pr) if target else None
+        last = review_head(target[3], pr) if target else None
         if target and target[3].get("repo") and Path(target[3]["repo"]).resolve() != repo:
             where = Path(target[3]["repo"])
             try:  # into its clone's object store; a review without it still goes out
@@ -9422,7 +9429,7 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
         if not reply or reply[0].get("type") != "done":
             failed.append(1 if reply else status or 1)
         lines.append(f"  {name:<28} {what}")
-    path = write_answers(run_id, f"review-{number or 'pr'}", parts)
+    path = write_answers(run_id, f"review-{number}", parts)
     retire_answered(run_id, [asked[k] for k in panes if replies[k] and asked[k] in opened and not args.keep])
     stopped = run_stopped(run_id)
     if stopped:
@@ -9442,18 +9449,25 @@ ROUND_MARK_RE = re.compile(r"<!-- mesh: (\d+) reviews -->")
 
 
 def pr_key(pr: str) -> str:
-    """One spelling of a PR link for matching: `pr_ref` keeps a pasted link as typed and builds one from the
-    remote for a bare number, and GitHub's owner and repo names are case-insensitive."""
+    """One spelling of a PR link: GitHub's owner and repo names are case-insensitive. `pr_ref` returns it; the
+    comparisons with links `gh` prints (a worker's report) or that entries and files from before recorded use it
+    on both sides."""
     return pr.strip().rstrip("/").lower()
 
 
-def review_rounds_done(pr: str, number: int | None = None) -> int:
+def review_head(entry: dict, pr: str) -> str | None:
+    """The head a reviewer last read `pr` at (`review_heads`), however either was spelled."""
+    return next((head for key, head in (entry.get("review_heads") or {}).items() if pr_key(key) == pr_key(pr)),
+                None)
+
+
+def review_rounds_done(pr: str, number: int) -> int:
     """How many review rounds `pr` has had, in any run, live or archived: its answers files
-    (`reports/review-<number>-*.md`, `review-pr-*.md` without a number), each read to its first two lines, the
+    (`reports/review-<number>-*.md`), each read to its first two lines, the
     header (`# Review of <pr> at <head>`) and ROUND_MARK. A round with no review (every reviewer failed, was busy
     or alerted) doesn't count; a file from before the mark does."""
     home, header = mesh_home(), f"# review of {pr_key(pr)} at "
-    pattern = f"review-{number}-*.md" if number else "review-pr-*.md"
+    pattern = f"review-{number}-*.md"
     count = 0
     for path in (*home.glob(f"*/reports/{pattern}"), *home.glob(f"archive/*/reports/{pattern}")):
         try:
@@ -9466,12 +9480,15 @@ def review_rounds_done(pr: str, number: int | None = None) -> int:
     return count
 
 
-def rounds_hint(pr: str, number: int | None, head: str, size: str | None, reviewed: int = 1) -> str:
+def rounds_hint(pr: str, number: int, head: str, size: str | None, reviewed: int = 1) -> str:
     """The line a review round ends with: `review.rounds.<size>` is a ceiling, not a quota (design §10), so it
     says which round this was and offers a re-review only for a fix while rounds remain. A round with no review
     says it didn't count."""
     key = "large" if size == "large" else "small"
     most, done = setting(f"review.rounds.{key}"), review_rounds_done(pr, number)
+    if not reviewed and done >= most:
+        return (f"(no reviewer answered with a review, and this PR's `review.rounds.{key}` are used up ({done} of "
+                f"at most {most}): no further round; check any fix yourself, `git diff {head[:9]}..<new head>`)")
     if not reviewed:
         return (f"(no reviewer answered with a review, so this round didn't count toward `review.rounds.{key}` "
                 f"({done} of at most {most} so far): once the reviewers' lines are dealt with, run it again)")
