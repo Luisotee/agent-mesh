@@ -25,7 +25,8 @@ The first round ran on 2026-10-28 (run `mb3c1`). Its reports are under `~/.local
 In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (they read and write files in the current directory):
 
 1. `python3 <repo>/docs/cost-research/scripts/extract.py`: writes `msgs.jsonl` (one row per deduped API call: session, time, model, effort, query source, input, cache write 1h/5m, cache read, output) and `sessions.jsonl` (one per transcript: project, entrypoint, first user message, compactions, mesh commands used). Copy `classify.py` and `agg.py` beside them.
-2. `agg.py` loads both and classifies sessions (`kind()`) with prices (`cost()`); the others `exec` it: `turns.py` (per user turn / per task), `reads.py` (protocol and file reads), `events.py` then `reread.py` (re-reads after compaction, writes `events.pkl`), `meshtext.py` (inter-agent text's share).
+2. `agg.py` loads both and classifies sessions (`kind()`) with prices (`cost()`); the others `exec` it: `turns.py` (per user turn / per task), `reads.py` (protocol and file reads), `events.py` then `reread.py` (re-reads after compaction, writes `events.pkl`), `meshtext.py` (inter-agent text's share), `prose.py` (per kind and window: chars per call of prose, tool inputs and file edits, the part of output an output style can shorten), `window.py` (one window's output style share, output and context per call, first-call prefix; tasks, plans, questions, `failed`, message and file sizes, reviewers and root wakes per PR, run events; with `mesh cost --agents --json`'s file, $ and calls per task).
+3. A window: `SINCE=2026-10-28 UNTIL=2026-11-04` (ISO, UTC) in the environment sets it for `turns.py`, `reads.py`, `meshtext.py` and `window.py` (`prose.py` takes `WINDOWS=A..B,C..D`); unset, each keeps its first round's start and no end. `reads.py` still picks sessions by file mtime. `meshtext.py`'s prefix line uses the first round's skill description and snippet sizes.
 
 `sessions.jsonl` holds each session's first message, so the data stays out of git. The 2026-10-28 snapshot is in the run's `data/cost/`, and the language study's texts, counts and e2e runs in `data/lang/`.
 
@@ -65,22 +66,78 @@ In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (t
 
 ## Ledger: changes and expected savings
 
-Savings are per week at the baseline's volume, in API-equivalent dollars. "Check" is how to tell from the data. Fill "Landed" with the date and commit, and "Actual" a week after.
+Savings are per week at the baseline's volume, in API-equivalent dollars. "Check" is how to tell from the data. Fill "Landed" with the date and commit, and "Actual" a week after. All ten landed on 2026-10-28, so their effects can't be told apart; "Actual" is from the week of 10-28 → 11-04 (and 11-04 → 11-07 11:00 where noted), sourced in "Check 1" below.
 
 | # | Change | Expected | Check | Landed | Actual |
 |---|---|---|---|---|---|
-| 1 | Claude Code's built-in `Concise` output style, `"outputStyle": "Concise"` in `~/.claude/settings.json` (all sessions) | ~2–3% (output −13%, reports −31% in the e2e) | output tokens per call by kind; report and plan sizes in `reports/`, `plans/`; calls per task unchanged | 2026-10-28 | |
-| 2 | Fewer, lighter reviews: one reviewer for a small PR, Claude plus one for a large one; `/code-review` at medium for small | $90–120 (6–8%) plus ~⅓ of agy's review spend | reviewer $ per PR; reviewers per PR; agy review calls | 2026-10-28, PR #75 | |
-| 3 | One root wake per review round (one fan-out, one answers file) | part of $125 doorbell turns (~1.4 wakes per PR) | root turns started by a reviewer's `done` per PR | 2026-10-28, PR #75 | |
-| 4 | Root reset at 200k when idle and owed nothing, default on, warm or cold | $30–45 | root mean context per call; reset count | 2026-10-28, PR #76 | |
-| 5 | `promptCacheTtl: "5m"` for reviewers, peers, askers, small/bg workers, headless `-p` | ~$50 (3%): peers −19%, headless −20%, reviewers −6% | `ephemeral_5m` share per kind; cost per kind | 2026-10-28, PR #76 | |
-| 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise); PR #77 (this repo's files: already dense, ~1–3% smaller, so only a "write briefly" line in the plan, report and harvest guidance); other repos pending | |
-| 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | |
-| 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | 2026-10-28, PR #76 | |
-| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | |
-| 10 | Quota reserve: mesh starts nothing new on a quota once it is 90% used (`MESH_QUOTA_STOP`), for Claude's windows and agy's models (from the user, 2026-10-28) | none: keeps ~10% of each quota for the user's own sessions | no mesh spawn, ask or approve after a window passed 90% (`reserve` events, the usage endpoint's figures) | 2026-10-28, PR #76 | |
+| 1 | Claude Code's built-in `Concise` output style, `"outputStyle": "Concise"` in `~/.claude/settings.json` (all sessions) | ~2–3% (output −13%, reports −31% in the e2e) | output tokens per call by kind; report and plan sizes in `reports/`, `plans/`; calls per task unchanged | 2026-10-28 | Prose −11..−32% per call by kind, but output per call up (mix); reports not shorter; ~$4/wk (~0.5%). See "Check 1" |
+| 2 | Fewer, lighter reviews: one reviewer for a small PR, Claude plus one for a large one; `/code-review` at medium for small | $90–120 (6–8%) plus ~⅓ of agy's review spend | reviewer $ per PR; reviewers per PR; agy review calls | 2026-10-28, PR #75 | Reviewers per PR 1.55 → 1.24 (1.04 from 11-04); Claude review $/wk −50% with PRs −59%, so per reviewed PR +22% ($2.59 → $3.16); agy review calls per PR ×2.2. No per-PR saving |
+| 3 | One root wake per review round (one fan-out, one answers file) | part of $125 doorbell turns (~1.4 wakes per PR) | root turns started by a reviewer's `done` per PR | 2026-10-28, PR #75 | Root wakes by a reviewer's `done` per PR 1.31 → 0.46 (0.22 from 11-04); root doorbell turns $124 → $31/wk, $0.18 → $0.13 per worker task |
+| 4 | Root reset at 200k when idle and owed nothing, default on, warm or cold | $30–45 | root mean context per call; reset count | 2026-10-28, PR #76 | Resets 4 → 12/wk; root context per call in its run 215k → 176k (−18%); root $ per worker task $0.35 → $0.38 (flat) |
+| 5 | `promptCacheTtl: "5m"` for reviewers, peers, askers, small/bg workers, headless `-p` | ~$50 (3%): peers −19%, headless −20%, reviewers −6% | `ephemeral_5m` share per kind; cost per kind | 2026-10-28, PR #76 | 5m share: reviewers 87%, small bg 98%, peers 100%, askers 48%, headless 0%; written tokens per call rose (reviewers +73%, small bg +138%), write $ per call +17% and +50%. No saving shown; small bg likely worse |
+| 6 | Concise English: agy "Writing" rule, `make-concise` skill, then this repo's templates and protocol files, then each repo's rules files | ~2% from the text (base ~9%, −25% on ~8% of it) on top of #1; repo rules files are 3.7% | first-call prefix tokens per kind and repo; inbox body sizes | 2026-10-28, PR #73 (agy rule, make-concise); PR #77 (this repo's files: already dense, ~1–3% smaller, so only a "write briefly" line in the plan, report and harvest guidance); other repos pending | No prefix or message-size drop measurable (prefix grew 3–8k with Claude Code); no quality loss. See "Check 2" |
+| 7 | Shorter mesh skill descriptions (6.7k chars machine-wide) | ~$12 | static prefix size | 2026-10-28, PR #73 (6,586 → 4,440 chars) | Not measurable (prefix grew); the descriptions are 5,837 chars again |
+| 8 | Usage limits: wait for Claude's own auto-continue in panes; mesh continues agy (and `--bg`) itself at the reset | two root turns per limit hit (rare) | root turns after an exit 7 | 2026-10-28, PR #76 | Not exercised: no `continue` sent, 2 alerts all week |
+| 9 | `mesh cost` (per-agent spend) | none directly: makes this file's checks one command | — | 2026-10-28, PR #74 | Used for this check; its peer row and `reviewers_per_pr` look wrong (see "Check 1") |
+| 10 | Quota reserve: mesh starts nothing new on a quota once it is 90% used (`MESH_QUOTA_STOP`), for Claude's windows and agy's models (from the user, 2026-10-28) | none: keeps ~10% of each quota for the user's own sessions | no mesh spawn, ask or approve after a window passed 90% (`reserve` events, the usage endpoint's figures) | 2026-10-28, PR #76 | Holds: 3 `reserve` events (6 more after 11-04); no Claude agent started inside the 11-04 09:02–09:50 five-hour reserve |
 
 Total expected: roughly $250–350 a week, 15–20% of the baseline.
+
+### Check 1: the week of 2026-10-28 → 11-04 (measured 2026-11-07)
+
+Everything in the ledger landed on 10-28, in eight hours, and Claude Code moved from 2.1.312 to 2.1.317 during the week, so no figure below belongs to one change alone. The week's work also differed: a third of the tasks and output-heavy city-tour-app UI tasks (file-edit chars per large-worker call ×3). Per-call and per-task figures carry that mix; the 3.5 days after (11-04 → 11-07 11:00, before run me608) are given beside them as a second sample.
+
+**Commands**, from an empty scratch directory (`S=<repo>/docs/cost-research/scripts`):
+
+```bash
+mesh cost --since 2026-10-21 --until 2026-10-28 --agents --json > cost-b.json   # baseline; also without --json for the table
+mesh cost --since 2026-10-28 --until 2026-11-04 --agents --json > cost-a.json
+mesh cost --since 2026-11-04 --until 2026-11-07T11:00 --agents --json > cost-l.json
+python3 $S/extract.py && cp $S/*.py .
+SINCE=2026-10-21 UNTIL=2026-10-28 SKIP_RUNS=me608 python3 window.py cost-b.json   # and the other two windows
+SINCE=2026-10-21 UNTIL=2026-10-28 python3 turns.py; SINCE=2026-10-21 UNTIL=2026-10-28 python3 meshtext.py   # and 10-28 → 11-04
+WINDOWS=2026-10-21..2026-10-28,2026-10-28..2026-11-04,2026-11-04..2026-11-07T11:00 python3 prose.py
+```
+
+**Totals** (`mesh cost`): $1,527 → **$764** a week (−50%), $523 in the 3.5 days after (a $1,040/wk pace). Volume fell more: runs started 68 → 20, agents spawned 361 → 98, worker tasks 672 → 234 (192 in the 3.5 days). Mesh $ (every agent of a run) per worker task **$1.63 → $1.99** (+22%), $1.97 after 11-04. So per task, the week cost more, not less.
+
+| `mesh cost` kind | $ | calls | $/call | ctx/call | out/call | 5m % | prefix | after 11-04: $/call, ctx, out |
+|---|---|---|---|---|---|---|---|---|
+| worker large pane | 460 → 244 | 6,399 → 2,286 | 0.072 → 0.107 | 179k → 238k | 797 → 1,426 | 0 → 0 | 50k → 53k | 0.069, 196k, 646 |
+| user | 270 → 199 | 3,801 → 2,043 | 0.071 → 0.097 | 133k → 237k | 712 → 755 | 0 → 0 | 52k → 55k | 0.110, 227k, 561 |
+| root | 233 → 89 | 3,366 → 1,327 | 0.069 → 0.067 | 215k → 176k | 530 → 553 | 0 → 0 | 60k → 56k | 0.060, 183k, 382 |
+| reviewer | 212 → 81 | 3,408 → 982 | 0.062 → 0.083 | 113k → 141k | 702 → 1,261 | 0 → 87 | 49k → 53k | 0.056, 116k, 667 |
+| reviewer subagents | 101 → 76 | 1,636 → 756 | 0.062 → 0.101 | 88k → 99k | 944 → 1,831 | 100 | — | 0.058, 102k, 844 |
+| worker small bg | 71 → 42 | 1,048 → 474 | 0.067 → 0.088 | 139k → 141k | 658 → 1,017 | 0 → 98 | 49k → 55k | 0.071, 143k, 620 |
+| peer | 54 → 2 | 683 → 15 | — | — | — | 0 → 100 | — | — |
+| asker | 51 → 5 | 566 → 79 | 0.090 → 0.066 | 158k → 172k | 686 → 703 | 0 → 48 | 53k → 75k | — |
+| headless | 33 → 5 | 434 → 54 | 0.076 → 0.085 | 99k → 83k | 1,294 → 1,066 | 0 → 0 | 99k → 52k | — |
+
+`mesh cost`'s peer row is not the peers' spend: `classify.py` finds 353 peer-asker calls ($33, `turns.py`) that week, so resumed peer sessions land elsewhere (likely `user`), and `reviewers_per_pr` reads 1.0 in every window. Its `user` row also holds a root's calls outside its run's window: by `classify.py` roots were $375 → $234 and plain users $125 → $53.
+
+**#1 Concise style** (`window.py`, `prose.py`): the query source (`repl_main_thread:outputStyle:Concise`) shows it on 88% of root calls, 99% of large workers', 95% of reviewers', 81% of small bg workers' and 88% of plain users' that week (100% after 11-04, small bg 53%); never on subagents, and on 4% of peers' (sessions from before 10-28). Prose chars per call (text blocks; thinking is redacted, so it is in output tokens but not here):
+
+| Kind | Prose | Tool input (file edits) | Out tokens |
+|---|---|---|---|
+| root | 234 → 208 → 165 | 762 (127) → 767 (82) → 534 (19) | 628 → 661 → 493 |
+| large pane worker | 103 → 70 → 67 | 1,221 (209) → 2,581 (641) → 898 (118) | 806 → 1,418 → 642 |
+| small bg worker | 107 → 85 → 51 | 946 → 1,420 → 1,036 | 643 → 917 → 627 |
+| reviewer | 123 → 110 → 117 | 662 → 1,008 → 621 | 700 → 1,244 → 664 |
+| plain user | 244 → 168 → 361 (n=51) | 786 → 1,188 → 402 | 640 → 837 → 498 |
+
+Prose is 5–15% of output tokens, so a 10–35% cut moves output per call by 1–4%, under the mix's swing. Priced as output plus its later cache writes and reads (Δtokens × ($20 + $8 + $0.20 × the session's remaining calls)), the week's shorter prose saved **~$3.7** (roots $1.5, large workers $1.2, users $0.7): ~0.5%, against 2–3% expected. Written files didn't shrink: large-worker `done` median 2,434 → 3,029 chars (2,444 after 11-04), small 1,792 → 2,130 (1,429), plans 11.7k → 13.5k (13.6k), reviewer `done` 5.3k → 7.6k (6.4k), `reports/` files median 3,870 → 4,247 bytes (3,124). Calls per task: large 28.1 → 30.1 (36.0), small 16.8 → 16.1 (23.7). The e2e's −13% output and −31% report came from a short task whose output was mostly prose; mesh workers' output is mostly tool input.
+
+**#2 reviews** (`window.py`, PRs keyed by run, repo and number): 121 → 50 reviewed PRs (49 after 11-04); reviewer agents per PR 1.55 → 1.24 → 1.04 (2+ reviewers: 54 → 12 → 2 PRs); review tasks by CLI claude 140 / agy 74 / copilot 59 → 55 / 37 / 11 → 40 / 41 / 2. Claude review $ (reviewers plus their subagents) $313 → $158 a week, **$2.59 → $3.16 per reviewed PR** ($2.34 after 11-04); `mesh cost`'s $ per PR with a Claude reviewer $3.37 → $5.26 ($4.99), as Claude now reviews mostly large PRs. The `/code-review` subagents' output per call doubled (944 → 1,831). agy review calls per reviewed PR 18 → 40 (35), read tokens 182M → 226M a week: agy took the small PRs alone. Numbered findings per reviewer `done` 1.7 → 3.9 → 4.4, but PR #75 changed the review format, so not comparable.
+
+**#3 one wake per round:** root wakes by a reviewer's `done` (`rung`/`native` to the root) per PR 1.31 → 0.46 → 0.22, `collected` (no wake) 0 → 1.26 → 1.41. Root turns started by a doorbell (`turns.py`, `classify.py` kinds) $124 (1,859 calls) → $31 (454): $0.18 → $0.13 per worker task.
+
+**#4 root reset:** 4 → 12 resets a week (7 in the 3.5 days after). Root context per call in its run 215k → 176k (−18%), 183k after; by `classify.py` (whole root sessions) 189k → 230k → 220k. Root $ per worker task $0.35 → $0.38 → $0.33.
+
+**#5 5m TTL:** the 5m share reached reviewers (87%, 100% after 11-04), small bg workers (98%, 100%), peers (100%) and askers (48%); headless stayed 0% (3 sessions, none mesh's). Cache-written tokens per call rose: reviewers 3,268 → 5,655 (4,143 after), small bg 3,384 → 8,066 (5,879) at an unchanged context (139k → 141k), so pauses over 5 minutes re-write the prefix more than the cheaper write saves: write $ per call reviewers $0.026 → $0.031 ($0.021), small bg $0.027 → $0.041 ($0.029).
+
+**#8 limits:** no `continue` sent or `continue_due` set in either window; `alert` events 13 → 2 (1 after 11-04).
+
+**#10 reserve:** 3 `reserve` events that week, 6 after (Claude's five-hour window on 11-04 09:02 and 09:07, reset 09:50; agy flash, argon and opus models). No Claude agent started between 09:02 and 09:50 (the next resume was 09:51); agy kept starting on models with quota.
 
 ## Settled: measured and not worth doing (don't re-propose without new evidence)
 

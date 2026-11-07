@@ -1,6 +1,7 @@
 exec(open('agg.py').read())
 ROOT=os.path.expanduser('~/.claude/projects')
-T0=datetime(2026,10,20,tzinfo=timezone.utc).timestamp()
+T0=SINCE or datetime(2026,10,20,tzinfo=timezone.utc).timestamp()
+T1=UNTIL or float("inf")
 pat=re.compile(r'(ORCHESTRATE\.md|PROTOCOL\.md|PLAN_TEMPLATE\.md|design\.md|SKILL\.md|mesh (?:status|inbox|watch|brief|peers|usage|whoami|dir|log)\b)')
 res=collections.defaultdict(collections.Counter)
 big=collections.defaultdict(collections.Counter)
