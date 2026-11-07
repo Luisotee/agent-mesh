@@ -9875,8 +9875,8 @@ def test_a_pane_worker_whose_pane_is_focused_is_held(mesh, fake, run, tmp_path, 
     assert bool(fake.called("pane", "close")) is not held
 
 
-@pytest.mark.parametrize("value, expected", [("-1", 0.0), ("0", 0.0), ("60", 60.0), ("x", 300.0), ("", 300.0)])
-def test_mesh_idle_retire_of_zero_or_less_means_never(mesh, monkeypatch, value, expected):
+@pytest.mark.parametrize("value, expected", [("-1", 300.0), ("0", 0.0), ("60", 60.0), ("x", 300.0), ("", 300.0)])
+def test_mesh_idle_retire_of_zero_means_never_and_a_bad_value_is_ignored(mesh, monkeypatch, value, expected):
     monkeypatch.setenv("MESH_IDLE_RETIRE", value)
     assert mesh.idle_retire() == expected
 
@@ -10281,6 +10281,121 @@ def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, ru
     assert "`/code-review high 7`" in mesh.parse_message(task)[1]  # a large review
 
 
+def test_a_review_round_says_which_round_it_was_and_offers_a_re_review_only_while_rounds_remain(
+        mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Nothing found."})
+    other = mesh.mesh_home() / "archive" / "old" / "reports"  # another PR's round, archived: not counted
+    other.mkdir(parents=True)
+    (other / "review-8-1.md").write_text("# Review of https://github.com/acme/proj/pull/8 at abc\n")
+    # This PR's round from before the mark, spelled as pasted: counted. One nobody reviewed: not counted.
+    (other / "review-7-1.md").write_text("# Review of https://github.com/Acme/Proj/pull/7 at abc\n\nAsked …\n")
+    (other / "review-7-2.md").write_text("# Review of https://github.com/acme/proj/pull/7 at abc\n"
+                                         "<!-- mesh: 0 reviews -->\n")
+    args = ["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude"]
+    assert mesh.main([*args, "--size", "large"]) == 0
+    out = capsys.readouterr().out
+    assert "(round 2 of at most 2 for a large PR (`review.rounds.large`), its last: check any fix yourself" in out
+    assert "re-review" in out and "Only a fix you ask for" not in out and "after a fix, run this round" not in out
+    [path] = [p for p in mesh.Path(mesh.run_dir(run), "reports").glob("review-7-*.md")]
+    assert path.read_text().splitlines()[1] == "<!-- mesh: 1 reviews -->"
+    assert mesh.review_rounds_done(pr, 7) == mesh.review_rounds_done("https://github.com/ACME/proj/pull/7", 7) == 2
+    assert mesh.rounds_hint(pr, 7, head, "small").startswith("(round 2 of at most 1 for a small PR")
+    with_config({"review": {"rounds": {"small": 3}}})
+    assert "Only a fix you ask for" in mesh.rounds_hint(pr, 7, head, "trivial")  # a trivial review counts as small
+    assert "(round 2 of at most 3 for a trivial PR (`review.rounds.small`): findings that need no fix" in \
+        mesh.rounds_hint(pr, 7, head, "trivial")
+
+
+def test_a_review_round_nobody_answered_doesnt_count(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})  # nobody answers
+    monkeypatch.setattr(mesh, "watch_each", lambda run_id, names, *a, **k: {n: (3, f"{n}: stopped") for n in names})
+    mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
+    out = capsys.readouterr().out
+    assert out.startswith("0 of 1 reviewers answered")
+    assert "didn't count toward `review.rounds.small` (0 of at most 1 so far)" in out and "its last" not in out
+    assert mesh.review_rounds_done(pr, 7) == 0
+    reports = mesh.Path(mesh.run_dir(run), "reports")  # at the ceiling, an empty round offers no further one
+    (reports / "review-7-0.md").write_text(f"# Review of {pr} at abc\n<!-- mesh: 1 reviews -->\n")
+    hint = mesh.rounds_hint(pr, 7, head, "small", reviewed=0)
+    assert "are used up (1 of at most 1): no further round; check any fix yourself" in hint
+    assert "run it again" not in hint
+
+
+def test_a_reviewer_is_found_again_whatever_the_prs_spelling(mesh, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-claude"] = {"role": "worker", "kind": "claude",
+                                                  "review_checkout": "https://github.com/Acme/Proj/pull/7"}
+    assert set(mesh.earlier_reviewers("https://github.com/acme/proj/pull/7")) == {"claude"}
+
+
+@pytest.mark.parametrize("text", ["inf", "nan", "-inf"])
+def test_a_seconds_leaf_takes_only_a_finite_value(mesh, monkeypatch, text):
+    monkeypatch.setenv("MESH_IDLE_RETIRE", text)
+    assert mesh.idle_retire() == 300
+    with_config({"idle_retire": float(text)})
+    with pytest.raises(mesh.MeshError, match="finite number of seconds"):
+        mesh.setting("hang_after")
+
+
+def test_the_retirer_retires_nothing_when_the_config_is_broken_and_logs_it_once(mesh, run):
+    with_config({"idle_retire": 0, "compact": {"claud": 1}})  # "never", plus a typo elsewhere
+    with pytest.raises(mesh.MeshError):
+        mesh.idle_retire()
+    assert mesh.idle_retire(run) == 0 and mesh.idle_retire(run) == 0
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "config_error"]
+    assert "unknown key compact.claud" in event["reason"]
+    assert mesh.ensure_retirer(run) is None  # no retirer started for it
+
+
+def test_a_huge_whole_number_of_seconds_is_checked_without_overflowing(mesh, monkeypatch):
+    with_config({"hang_after": 10 ** 400})
+    assert mesh.setting("hang_after") == 10 ** 400
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "1" + "0" * 400)
+    assert mesh.setting_with_source("idle_retire")[1] == "env MESH_IDLE_RETIRE"
+    assert mesh.main(["routing"]) == 0
+
+
+def test_pr_ref_gives_a_pasted_link_and_a_bare_number_one_spelling(mesh, monkeypatch, tmp_path):
+    monkeypatch.setattr(mesh, "git", lambda *a, **k: "git@github.com:Acme/Proj.git")
+    assert mesh.pr_ref("7", tmp_path) == mesh.pr_ref("see https://github.com/ACME/proj/pull/7", tmp_path) == \
+        ("https://github.com/acme/proj/pull/7", 7)
+
+
+def test_a_re_review_by_another_spelling_moves_the_reviewer_and_names_its_last_head(
+        mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
+    head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "1. a finding."})
+    args = ["ask", "--repo", str(repo), "--size", "large", "--reviewers", "claude", "--review"]
+    assert mesh.main([*args, "https://github.com/ACME/Proj/pull/7"]) == 0  # pasted, mixed case
+    entry = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert entry["review_checkout"] == pr and entry["review_heads"] == {pr: head}  # one spelling recorded
+    origin = tmp_path / "origin"
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
+    new = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/pull/7/head", new], cwd=origin, check=True)
+    assert mesh.main([*args, pr]) == 0
+    assert "proj-review-7-claude again" in capsys.readouterr().err
+    entry = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert entry["review_heads"] == {pr: new} and entry["reviews"] == [pr]
+    tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
+    assert f"You last reviewed it at {head}" in mesh.parse_message(tasks[-1])[1]
+    worktree = mesh.Path(entry["cwd"])
+    assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True,
+                          text=True).stdout.strip() == new  # moved to the new head
+
+
+def test_a_reviewer_recorded_under_an_old_spelling_is_still_its_prs(mesh, run):
+    entry = {"review_checkout": "https://github.com/Acme/Proj/pull/7",
+             "review_heads": {"https://github.com/Acme/Proj/pull/7": "abc"},
+             "reviews": ["https://github.com/Acme/Proj/pull/7"]}
+    assert mesh.review_head(entry, "https://github.com/acme/proj/pull/7") == "abc"
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-claude"] = {"role": "worker", "kind": "claude", **entry}
+    mesh.record_review(run, "proj-review-7-claude", "https://github.com/acme/proj/pull/7", "def")
+    saved = mesh.load_run(run)["agents"]["proj-review-7-claude"]
+    assert saved["reviews"] == ["https://github.com/acme/proj/pull/7"]
+    assert saved["review_heads"] == {"https://github.com/acme/proj/pull/7": "def"}
+
+
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-agy": "Looks right."})
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
@@ -10542,13 +10657,14 @@ def test_the_reserve_alert_keys_on_the_window_not_the_requests_microseconds(mesh
 
 
 def test_a_family_window_applies_only_to_that_familys_workers(mesh, monkeypatch):
+    reset = mesh.iso_at(time.time() + 3 * 86400)  # from the clock: a fixed date goes stale and reads as past
     monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {
         "five_hour": {"utilization": 10, "resets_at": None},
-        "seven_day_sonnet": {"utilization": 100, "resets_at": "2026-11-01T00:00:00+00:00"}})
+        "seven_day_sonnet": {"utilization": 100, "resets_at": reset}})
     usage = mesh.claude_usage()
     assert mesh.claude_at_reserve(usage, "sonnet")[0] == "seven_day_sonnet"
     assert mesh.claude_at_reserve(usage, "opus") is None and mesh.claude_at_reserve(usage) is None
-    assert mesh.claude_limit_reset("claude-sonnet-5-5") == mesh.epoch("2026-11-01T00:00:00+00:00")
+    assert mesh.claude_limit_reset("claude-sonnet-5-5") == mesh.epoch(reset)
     assert mesh.claude_limit_reset("opus") is None
 
 
@@ -10559,13 +10675,14 @@ def test_a_limit_reset_prefers_the_windows_own_time_and_never_misreads_a_date(me
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
     fake.screen("repo-fix-typo", LIMIT_SCREEN)
+    reset = mesh.iso_at(time.time() + 2 * 3600)  # from the clock: a fixed date goes stale and reads as past
     monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {
-        "five_hour": {"utilization": 100, "resets_at": "2026-10-30T02:00:00+00:00"}})
+        "five_hour": {"utilization": 100, "resets_at": reset}})
     with mesh.editing_run(run) as data:
         data["over_reserve"] = True  # else the reserve's own exit 7 comes first
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     [due] = [e for e in mesh.read_log(run) if e["event"] == "continue_due"]
-    assert mesh.epoch(due["at"]) == mesh.epoch("2026-10-30T02:00:00+00:00") + mesh.CONTINUE_GRACE
+    assert mesh.epoch(due["at"]) == mesh.epoch(reset) + mesh.CONTINUE_GRACE
     capsys.readouterr()
 
 
@@ -10681,6 +10798,80 @@ def test_a_policy_value_comes_from_the_env_then_the_config_then_the_built_in(mes
     assert mesh.setting_with_source("quota_stop") == (95, "env MESH_QUOTA_STOP")
     monkeypatch.setenv("MESH_PEERS_DIR", "/y")
     assert mesh.peers_dir() == Path("/y")
+
+
+def nested(leaf: str, value) -> dict:
+    """{"a": {"b": value}} for leaf "a.b": a config file setting one leaf."""
+    for key in reversed(leaf.split(".")):
+        value = {key: value}
+    return value
+
+
+@pytest.mark.parametrize("leaf, env, reader, built_in, config, env_value, from_env", [
+    ("idle_retire", "MESH_IDLE_RETIRE", lambda m: m.idle_retire(), 300, 0, "60", 60),
+    ("hang_after", "MESH_HANG_AFTER", lambda m: m.hang_after(), 2400, 600, "1.5", 1.5),
+    ("held_wait", "MESH_HELD_WAIT", lambda m: m.held_wait(), 300, 30, "10", 10),
+    ("side_panes", "MESH_SIDE_PANES", lambda m: m.side_panes(), 3, 1, "2", 2),
+    ("compact.claude", "MESH_COMPACT_AT", lambda m: m.compact_at(), 300_000, 250_000, "1000", 1000),
+    ("compact.claude_cold", "MESH_COMPACT_COLD_AT", lambda m: m.compact_cold_at(), 200_000, 150_000, "9", 9),
+    ("compact.agy", "MESH_AGY_COMPACT_AT", lambda m: m.compact_at("agy"), 100_000, 80_000, "40000", 40_000),
+    ("root_reset.at", "MESH_ROOT_RESET_AT", lambda m: m.root_reset_at(), 200_000, 150_000, "100000", 100_000),
+    ("root_reset.auto", "MESH_ROOT_AUTORESET", lambda m: m.autoreset_on(), True, False, "yes", True),
+    ("root_reset.wait", "MESH_RESET_WAIT", lambda m: m.reset_wait(), 1800, 600, "0", 0),
+    ("min_free_mb", "MESH_MIN_FREE_MB", lambda m: m.min_free_mb({"MemTotal": 10 << 20}), 1024 + 500, 700, "0", 0),
+])
+def test_a_former_env_only_knob_is_a_leaf_env_over_config_over_built_in(mesh, monkeypatch, leaf, env, reader,
+                                                                       built_in, config, env_value, from_env):
+    monkeypatch.delenv(env, raising=False)
+    monkeypatch.setattr(mesh, "MIN_FREE_HEADROOM_MB", 500)
+    monkeypatch.setattr(mesh, "MIN_FREE_LEAST_MB", 0)
+    assert mesh.POLICY_ENV[leaf] == env and env in mesh.MESH_CONFIG  # a --bg worker gets it too
+    assert reader(mesh) == built_in
+    with_config(nested(leaf, config))
+    assert reader(mesh) == config and mesh.setting_with_source(leaf) == (config, "config")
+    monkeypatch.setenv(env, env_value)
+    assert reader(mesh) == from_env and mesh.setting_with_source(leaf) == (from_env, f"env {env}")
+    monkeypatch.setenv(env, "soon")  # not a value of its kind: ignored, so the file's value stands
+    assert reader(mesh) == config
+
+
+@pytest.mark.parametrize("text, value", [("0", False), ("false", False), ("Off", False), ("1", True),
+                                         ("on", True), ("maybe", None), ("", None)])
+def test_a_bool_leafs_env_var_reads_the_usual_words(mesh, monkeypatch, text, value):
+    monkeypatch.setenv("MESH_ROOT_AUTORESET", text)
+    assert mesh.env_setting("root_reset.auto") == (None if value is None else (value, "MESH_ROOT_AUTORESET"))
+
+
+def test_min_free_mb_takes_auto_from_the_env_and_the_file(mesh, monkeypatch):
+    with_config({"min_free_mb": 700})
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "auto")
+    assert mesh.setting_with_source("min_free_mb") == ("auto", "env MESH_MIN_FREE_MB")
+    monkeypatch.setenv("MESH_MIN_FREE_MB", "-5")  # fails the check: ignored
+    assert mesh.setting("min_free_mb") == 700
+
+
+@pytest.mark.parametrize("data, error", [
+    ({"idle_retire": -1}, "idle_retire should be a finite number of seconds, 0 or more"),
+    ({"hang_after": True}, "hang_after should be a finite number of seconds"),
+    ({"min_free_mb": "lots"}, 'min_free_mb should be "auto" or a whole number of MB'),
+    ({"root_reset": {"auto": "no"}}, "root_reset.auto should be true or false"),
+    ({"compact": {"claud": 1}}, "unknown key compact.claud"),
+])
+def test_a_broken_new_leaf_is_an_error_naming_the_key(mesh, data, error):
+    with_config(data)
+    with pytest.raises(mesh.MeshError, match=re.escape(error)):
+        mesh.setting("idle_retire")
+
+
+def test_mesh_routing_shows_the_former_env_only_knobs(mesh, monkeypatch, capsys):
+    with_config({"compact": {"agy": 80000}, "root_reset": {"auto": False}})
+    monkeypatch.setenv("MESH_IDLE_RETIRE", "60")
+    assert mesh.main(["routing"]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^compact\.agy +80000  \[config\]$", out, re.M)
+    assert re.search(r"^root_reset\.auto +false  \[config\]$", out, re.M)
+    assert re.search(r"^idle_retire +60  \[env MESH_IDLE_RETIRE\]$", out, re.M)
+    assert re.search(r"^min_free_mb +auto  \[built-in\]$", out, re.M)
 
 
 def test_a_nested_config_value_leaves_its_siblings_at_their_defaults(mesh):
@@ -11050,6 +11241,71 @@ def test_each_launch_takes_the_next_window_of_a_quarter_of_the_cores(mesh, monke
     assert mesh.cpu_list([9, 0, 1]) == "0-1,9"  # a window that wraps
 
 
+def test_a_launch_takes_the_window_the_fewest_live_agents_hold(mesh, monkeypatch):
+    live = {101, 102, 103, 104}
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: pid in live)
+    assert [mesh.cpu_list(mesh.cpu_window(p)) for p in (101, 102, 103, 104)] == ["0-2", "3-5", "6-8", "9-11"]
+    live.discard(102)  # retired: its cores are idle now
+    assert mesh.cpu_list(mesh.cpu_window(105)) == "3-5"  # not 0-2, which 101 still holds
+    live.add(105)
+    assert mesh.cpu_list(mesh.cpu_window(106)) == "6-8"  # every window held once: on from where the last ended
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert sorted(h["pid"] for h in held) == [101, 103, 104, 105, 106]
+
+
+def test_a_window_held_by_a_reused_pid_is_free(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "proc_start", lambda pid: "100")
+    monkeypatch.setattr(mesh.os, "kill", lambda pid, sig: None)  # the pid runs, but as another process later
+    assert mesh.cpu_list(mesh.cpu_window(4242)) == "0-2"
+    monkeypatch.setattr(mesh, "proc_start", lambda pid: "200")
+    assert mesh.cpu_list(mesh.cpu_window(4242)) == "3-5"  # rotation, not 0-2 avoided: the old holder is gone
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert held == [{"pid": 4242, "start": "200", "cpus": [3, 4, 5]}]
+
+
+@pytest.mark.parametrize("stored", ['{"next": 71}', "{oops", '{"at": 0, "held": [{"cpus": [0]}]}',
+                                    '{"at": 0, "held": {"pid": 1}}'])
+def test_an_old_or_broken_cpus_file_reads_as_nothing_held(mesh, stored):
+    (mesh.mesh_home() / "cpus.json").parent.mkdir(parents=True, exist_ok=True)
+    (mesh.mesh_home() / "cpus.json").write_text(stored)
+    assert mesh.cpu_list(mesh.cpu_window()) == "0-2"
+
+
+@pytest.mark.parametrize("bad", [{"pid": 102, "cpus": None}, {"pid": 102, "cpus": "3-5"}, {"pid": 102, "cpus": [3, "4"]},
+                                 "102", {"pid": "x", "cpus": [3]}])
+def test_a_broken_holder_drops_out_alone(mesh, monkeypatch, bad):
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    path = mesh.mesh_home() / "cpus.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"at": 0, "held": [{"pid": 101, "cpus": [0, 1, 2]}, bad]}))
+    assert mesh.cpu_list(mesh.cpu_window(103)) == "3-5"  # 101 still holds 0-2
+    held = json.loads(path.read_text())["held"]
+    assert [h["pid"] for h in held] == [101, 103]  # the file is rewritten without the bad entry
+    assert mesh.cpu_list(mesh.cpu_window()) == "6-8"
+
+
+def test_a_duplicate_retirer_never_leaves_the_scope(mesh, run, monkeypatch, capsys):
+    import fcntl
+    seen = []
+    monkeypatch.setattr(mesh, "leave_scope", lambda run_id: seen.append(run_id))
+    handle = mesh.retirer_lock_path(run).open("a")
+    fcntl.flock(handle, fcntl.LOCK_EX)  # another retirer runs
+    try:
+        assert mesh.main(["retirer", "--run", run]) == 0
+    finally:
+        handle.close()
+    assert seen == [] and "already running" in capsys.readouterr().err
+
+
+def test_confining_an_agent_holds_its_window(mesh, monkeypatch):
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    monkeypatch.setattr(mesh, "process_table", lambda: [])
+    assert mesh.confine_agent(777, "w") == {"cpus": "0-2"}
+    assert mesh.confine_agent(778, "w2") == {"cpus": "3-5"}
+    held = json.loads((mesh.mesh_home() / "cpus.json").read_text())["held"]
+    assert [(h["pid"], h["cpus"]) for h in held] == [(777, [0, 1, 2]), (778, [3, 4, 5])]
+
+
 @pytest.mark.parametrize("how", ["0", "100", "no-api", "one-core"])
 def test_the_cpu_cap_turns_off(mesh, monkeypatch, how):
     if how in ("0", "100"):
@@ -11304,3 +11560,33 @@ def test_a_pane_worker_gets_its_scope_at_spawn(mesh, fake, cli, run, repo, monke
     assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
                       "--worktree", "fix", "--task", "Do it."]) == 0
     assert f"mesh-proj-fix-{NO_PID}.scope" in cli.called("--user", "call")[0]["argv"]
+
+
+AGENT_CGROUP = "/user.slice/user-1000.slice/user@1000.service/app.slice/mesh-proj-fix-50.scope"
+
+
+def test_the_retirer_leaves_the_scope_of_the_worker_that_started_it(mesh, cli, monkeypatch):
+    monkeypatch.setattr(mesh, "own_cgroup", lambda: AGENT_CGROUP)
+    unit = f"mesh-retirer-mtest-{os.getpid()}.scope"
+    assert mesh.leave_scope("mtest") == unit
+    [call] = cli.called("--user", "call")
+    assert call["argv"] == ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                            "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", unit,
+                            "fail", "1", "PIDs", "au", "1", str(os.getpid()), "0"]  # no MemoryHigh
+    cli.on("--user", returncode=127, stderr="busctl not found")
+    assert mesh.leave_scope("mtest") is None  # systemd refused: it stays, and nothing fails
+
+
+@pytest.mark.parametrize("cgroup", ["/init.scope", "/user.slice/user-1000.slice/user@1000.service/app.slice/herdr.scope",
+                                    AGENT_CGROUP.replace("mesh-proj-fix-50", "mesh-retirer-mtest-7"), None])
+def test_the_retirer_stays_where_it_is_outside_an_agents_scope(mesh, cli, monkeypatch, cgroup):
+    monkeypatch.setattr(mesh, "own_cgroup", lambda: cgroup)
+    assert mesh.leave_scope("mtest") is None and not cli.called("--user", "call")
+
+
+def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypatch):
+    seen = []
+    monkeypatch.setattr(mesh, "leave_scope", lambda run_id: seen.append(("leave", run_id)))
+    monkeypatch.setattr(mesh, "run_retirer", lambda run_id, handle: seen.append(("run", run_id)) or 0)
+    assert mesh.main(["retirer", "--run", run]) == 0
+    assert seen == [("leave", run), ("run", run)]

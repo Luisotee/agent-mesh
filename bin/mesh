@@ -20,6 +20,7 @@ import argparse
 import errno
 import fcntl
 import json
+import math
 import os
 import re
 import secrets
@@ -71,6 +72,9 @@ COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a r
 COMPACT_COLD_AT = 200_000  # ...one whose prompt cache has expired (`cache_cold`): it is written again in full anyway
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
+ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
+RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
+SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
 # `--model auto`: plan on the first model of `models.<kind>.plan` with quota left at its `plan_effort`, then
 # execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
@@ -151,8 +155,8 @@ SETTLE_GRACE = 30.0
 # room for a pane to boot and the doorbell's retries.
 START_GRACE_FACTOR = 4
 # A worker that reads `working` while its transcript stays unchanged this long gets one exit-8 alert per task
-# (`--hang`, MESH_HANG_AFTER; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
-HANG_AFTER = 2400.0
+# (`--hang`, else `hang_after`; 0 turns it off): a hung tool call, or a registration herdr kept after it died.
+HANG_AFTER = 2400
 SESSION_RETRY = 60.0  # seconds before a watch looks again for a conversation it couldn't find
 AGENT_BINARIES = ("claude", "agy")  # the processes that run a worker (argv[0], auto-updates move the binary)
 INTERPRETERS = ("node", "bun", "deno")  # a CLI installed as a script runs under one of these
@@ -254,8 +258,8 @@ BG_STARTED_RE = re.compile(r"backgrounded · ([0-9a-f]{6,}) · ")
 COMPACT_TIMEOUT = 900
 RETIRE_WAIT_MS = 60_000  # how long `retire` lets a worker finish its turn before closing it
 RETIRE_SETTLE = 120  # seconds `mesh watch --any` waits after a retire before it says nothing is left to watch
-IDLE_RETIRE = 300.0  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
-# (MESH_IDLE_RETIRE; 0 = never)
+IDLE_RETIRE = 300  # seconds a worker idle since its `done`/`failed` stays open before the watch retires it
+# (`idle_retire`; 0 = never)
 # Folder-trust dialogs shown by agy and Claude Code on a first visit to a directory.
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
@@ -273,7 +277,7 @@ SETTINGS_CONTINUE_RE = re.compile(r"^\s*[❯>]\s*(?:\d\.\s*)?Continue\s*$", re.M
 STARTUP_SCREENS = 3  # screens one start may go through: trust, then e.g. a Settings Warning
 TRUST_GONE_READS = 30  # reads 0.5 s apart for the trust dialog to leave the screen after Enter
 HELD_RING_TRIES = 3  # watch polls that try a released worker's first doorbell before leaving it to the nudge
-HELD_WAIT = 300.0  # seconds a fan-out waits for the user to clear a peer's startup screen (MESH_HELD_WAIT)
+HELD_WAIT = 300  # seconds a fan-out waits for the user to clear a peer's startup screen (`held_wait`)
 STARTUP_SETTLE_READS = 5  # reads 1 s apart before a screen mesh doesn't know is held: a slow start, a stale state
 # The memory guard (design §17): a new agent starts only while MemAvailable plus SwapFree stays above a floor,
 # by default 10 % of RAM plus 10 % of swap (earlyoom's default trigger) plus room for the agent and a build in it.
@@ -330,8 +334,8 @@ def pane_key(pane_id: str) -> str:
 
 
 # ── policy ───────────────────────────────────────────────────────────────
-# The user's choices (models, efforts, reviewers, rounds, the reserve, folders) as data (design §21): every leaf
-# below may be set in a JSON config file, nested by its dots, and the ones with an env var there too. An env var
+# The user's choices (models, efforts, reviewers, rounds, the reserve, folders, thresholds) as data (design §21):
+# every leaf below may be set in a JSON config file, nested by its dots, and the ones with an env var there too. An env var
 # beats the file, which beats the built-in default here, leaf by leaf; with no file mesh behaves as these say.
 
 
@@ -358,7 +362,8 @@ POLICY = {  # leaf: (built-in default, check)
     "review.re_review.skip": (["copilot"], "kinds"),  # Copilot's credits are kept for first looks
     "review.re_review.keep.small": ([], "kinds"),
     "review.re_review.keep.large": (["claude"], "kinds"),
-    # Read by the root's procedure (ORCHESTRATE), not by code: shown by `mesh routing`.
+    # Read by the root's procedure (ORCHESTRATE), shown by `mesh routing`; rounds is a ceiling, not a quota, and a
+    # round's last line says which one it was (rounds_hint).
     "review.rounds.small": (1, "int"),
     "review.rounds.large": (2, "int"),
     "review.tiny_pr_lines": (150, "int"),
@@ -377,10 +382,29 @@ POLICY = {  # leaf: (built-in default, check)
     # MB above which an agent mesh launches is throttled (a systemd user scope's MemoryHigh); 0, the default, is no
     # scope.
     "worker_memory_high": (0, "int"),
+    # MB of memory plus swap under which memory_guard starts no agent; "auto" is 10 % of RAM plus 10 % of swap plus
+    # room for the agent (min_free_mb), 0 turns the guard off.
+    "min_free_mb": ("auto", "mb_or_auto"),
+    "idle_retire": (IDLE_RETIRE, "seconds"),  # 0: never
+    "hang_after": (HANG_AFTER, "seconds"),  # 0: no hang alerts
+    "held_wait": (HELD_WAIT, "seconds"),
+    "side_panes": (SIDE_PANES, "int"),
+    # Context tokens over which `--compact auto` compacts a resumed worker (should_compact).
+    "compact.claude": (COMPACT_AT, "int"),
+    "compact.claude_cold": (COMPACT_COLD_AT, "int"),
+    "compact.agy": (AGY_COMPACT_AT, "int"),
+    "root_reset.at": (ROOT_RESET_AT, "int"),
+    "root_reset.auto": (True, "bool"),
+    "root_reset.wait": (RESET_WAIT, "seconds"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
-              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH"}
+              "memory_pressure_max": "MESH_MEMORY_PRESSURE_MAX", "worker_memory_high": "MESH_WORKER_MEMORY_HIGH",
+              "min_free_mb": "MESH_MIN_FREE_MB", "idle_retire": "MESH_IDLE_RETIRE", "hang_after": "MESH_HANG_AFTER",
+              "held_wait": "MESH_HELD_WAIT", "side_panes": "MESH_SIDE_PANES", "compact.claude": "MESH_COMPACT_AT",
+              "compact.claude_cold": "MESH_COMPACT_COLD_AT", "compact.agy": "MESH_AGY_COMPACT_AT",
+              "root_reset.at": "MESH_ROOT_RESET_AT", "root_reset.auto": "MESH_ROOT_AUTORESET",
+              "root_reset.wait": "MESH_RESET_WAIT"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -396,7 +420,13 @@ POLICY_CHECKS = {
     "int": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a whole number, 0 or more"),
     "percent": (lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100, "a whole number 0-100"),
     "bool": (lambda v: isinstance(v, bool), "true or false"),
+    "seconds": (lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+                and (isinstance(v, int) or math.isfinite(v)) and v >= 0,
+                "a finite number of seconds, 0 or more"),
+    "mb_or_auto": (lambda v: v == "auto" or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
+                   "\"auto\" or a whole number of MB, 0 or more"),
 }
+ENV_BOOLS = {"0": False, "false": False, "no": False, "off": False, "1": True, "true": True, "yes": True, "on": True}
 
 
 def config_path() -> Path:
@@ -465,12 +495,21 @@ def env_setting(leaf: str) -> tuple[object, str] | None:
         return None
     if leaf == "repos_dir":
         return [p for p in os.environ[key].split(os.pathsep) if p], key
-    if POLICY[leaf][1] in ("int", "percent"):  # a value that doesn't parse or check is ignored
+    check, text = POLICY[leaf][1], os.environ[key].strip()
+    if check == "bool":
+        value = ENV_BOOLS.get(text.lower())
+        return None if value is None else (value, key)
+    if check in ("int", "percent", "seconds", "mb_or_auto"):  # a value that doesn't parse or check is ignored
         try:
-            value = int(os.environ[key])
+            value = int(text)
         except ValueError:
-            return None
-        return (value, key) if POLICY_CHECKS[POLICY[leaf][1]][0](value) else None
+            if check != "seconds" and not (check == "mb_or_auto" and text.lower() == "auto"):
+                return None
+            try:
+                value = "auto" if check == "mb_or_auto" else float(text)
+            except ValueError:
+                return None
+        return (value, key) if POLICY_CHECKS[check][0](value) else None
     return os.environ[key], key
 
 
@@ -1379,11 +1418,8 @@ def tab_label(run: dict) -> str:
     return f"mesh: {label or (words[0][:28] if words else run['id'])}"
 
 
-SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
-
-
 def side_panes() -> int:
-    return int(os.environ.get("MESH_SIDE_PANES") or SIDE_PANES)
+    return setting("side_panes")
 
 
 def area(pane: dict) -> int:
@@ -1942,7 +1978,7 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
-               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH")
+               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH", "MESH_MIN_FREE_MB")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -3094,12 +3130,11 @@ def agy_context_tokens(session: str) -> int | None:
 
 
 def compact_at(kind: str | None = None) -> int:
-    key, default = ("MESH_AGY_COMPACT_AT", AGY_COMPACT_AT) if kind == "agy" else ("MESH_COMPACT_AT", COMPACT_AT)
-    return env_int(key, default)
+    return setting("compact.agy" if kind == "agy" else "compact.claude")
 
 
 def compact_cold_at() -> int:
-    return env_int("MESH_COMPACT_COLD_AT", COMPACT_COLD_AT)
+    return setting("compact.claude_cold")
 
 
 def cache_cold(path: Path, ttl: int | None) -> bool:
@@ -3786,12 +3821,11 @@ def memory_pressure() -> float | None:
 
 
 def min_free_mb(info: dict[str, int]) -> int:
-    """The floor under which no agent starts: `MESH_MIN_FREE_MB` (0 turns the guard off), else 10 % of RAM plus
+    """The floor under which no agent starts: `min_free_mb` (0 turns the guard off), or for "auto" 10 % of RAM plus
     10 % of swap, where earlyoom (and, without it, the thrashing) begins, plus room for the agent itself."""
-    try:
-        return max(0, int(os.environ["MESH_MIN_FREE_MB"]))
-    except (KeyError, ValueError):
-        pass
+    floor = setting("min_free_mb")
+    if floor != "auto":
+        return floor
     total = info.get("MemTotal", 0) + info.get("SwapTotal", 0)
     return max(MIN_FREE_LEAST_MB, total // 10 // 1024 + MIN_FREE_HEADROOM_MB)
 
@@ -3837,9 +3871,9 @@ def memory_guard(what: str, reserve: bool = True) -> str | None:
             starting = f", {len(held)} agent{'s' if len(held) > 1 else ''} still starting" if held else ""
             raise MeshError(
                 f"not starting {what}: {max(free, 0)} MB of memory and swap left{starting}, under the {floor} MB "
-                "floor (MESH_MIN_FREE_MB). Retire workers that have reported (`mesh status` shows them; `mesh "
+                "floor (min_free_mb). Retire workers that have reported (`mesh status` shows them; `mesh "
                 "retire <name>` keeps their conversations resumable) and stop leftover dev servers, then try "
-                "again, or set MESH_MIN_FREE_MB=0 to start it anyway")
+                "again, or set MESH_MIN_FREE_MB=0 (or `min_free_mb` in the config) to start it anyway")
         rid = None
         if reserve:
             rid = secrets.token_hex(6)
@@ -3896,26 +3930,57 @@ def machine_cpus() -> list[int]:
     return []
 
 
-def cpu_window() -> list[int] | None:
+def cpu_window(pid: int | None = None) -> list[int] | None:
     """The cores the next agent mesh launches gets (`worker_cpus` % of them, at least one), or None when the cap
-    is off (0 or 100, a window as large as the machine, no affinity calls). Each launch on the machine takes the
-    next window (`cpus.json`, under a lock), so agents spread over the cores."""
+    is off (0 or 100, a window as large as the machine, no affinity calls).
+
+    It is the window whose cores the fewest live agents hold, so a new agent lands on idle cores after others
+    retired; among equals, the first from where the last window ended, so agents started together spread as a
+    rotation would. `cpus.json` (under a lock, machine-wide) keeps that offset and, per `pid` given, its holder
+    ({pid, start, cpus}), dropped once that process is gone (`pid_alive`, so a reused pid doesn't count)."""
     percent = setting("worker_cpus")
     cpus = machine_cpus()
     if not sched_setaffinity or percent in (0, 100) or not cpus:
         return None
-    size = max(1, len(cpus) * percent // 100)
-    if size >= len(cpus):
+    n = len(cpus)
+    size = max(1, n * percent // 100)
+    if size >= n:
         return None
     path = mesh_home() / "cpus.json"
     with file_lock(mesh_home() / ".cpus.lock"):
         try:
-            turn = int(json.loads(path.read_text()).get("next", 0))
+            stored = json.loads(path.read_text())
+            at = int(stored.get("at", 0)) % n
+            entries = stored.get("held", [])
+            if not isinstance(entries, list):
+                entries = []
         except (OSError, ValueError, TypeError, AttributeError):
-            turn = 0
-        write_atomic(path, json.dumps({"next": turn + 1}))
-    start = turn * size % len(cpus)
-    return [cpus[(start + i) % len(cpus)] for i in range(size)]
+            at, entries = 0, []  # none yet, the old {"next": …} form, or torn
+        held = []
+        for h in entries:  # an entry that isn't one (hand-edited, say) drops out alone
+            try:
+                cores = h["cpus"]
+                if not (isinstance(cores, list) and all(isinstance(c, int) for c in cores)):
+                    continue
+                if pid_alive(int(h["pid"]), h.get("start")):
+                    held.append(h)
+            except (KeyError, TypeError, ValueError):
+                continue
+        load = {cpu: 0 for cpu in cpus}
+        for h in held:
+            for cpu in h.get("cpus", []):
+                if cpu in load:
+                    load[cpu] += 1
+
+        def window(offset: int) -> list[int]:
+            return [cpus[(offset + i) % n] for i in range(size)]
+
+        offset = min(range(n), key=lambda o: (sum(load[c] for c in window(o)), (o - at) % n))
+        chosen = window(offset)
+        if pid:
+            held.append({"pid": int(pid), "start": proc_start(int(pid)), "cpus": chosen})
+        write_atomic(path, json.dumps({"at": (offset + size) % n, "held": held}))
+    return chosen
 
 
 def cpu_list(cpus: list[int]) -> str:
@@ -3981,9 +4046,41 @@ def memory_scope(pids: list[int], name: str) -> str | None:
     if not mb or not pids:
         return None
     unit = f"mesh-{slugify(name, 60)}-{pids[0]}.scope"
-    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "2",
-            "PIDs", "au", str(len(pids)), *map(str, pids), "MemoryHigh", "t", str(mb << 20), "0"]
-    return unit if run_cli(argv, timeout=10).returncode == 0 else None
+    return unit if start_scope(unit, pids, ["MemoryHigh", "t", str(mb << 20)]) else None
+
+
+def start_scope(unit: str, pids: list[int], props: list[str]) -> bool:
+    """Move `pids` into a new transient systemd user scope `unit` with `props` (name, signature, value triples
+    flattened, as busctl takes them), next to the PIDs property. Whether systemd took it."""
+    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail",
+            str(1 + len(props) // 3), "PIDs", "au", str(len(pids)), *map(str, pids), *props, "0"]
+    return run_cli(argv, timeout=10).returncode == 0
+
+
+def own_cgroup() -> str | None:
+    """This process's cgroup v2 path (`0::<path>` in /proc/self/cgroup), or None where it can't be read."""
+    try:
+        lines = Path("/proc/self/cgroup").read_text().splitlines()
+    except OSError:
+        return None
+    return next((line[3:] for line in lines if line.startswith("0::")), None)
+
+
+AGENT_SCOPE_RE = re.compile(r"mesh-(?!retirer-).+\.scope")
+
+
+def leave_scope(run_id: str) -> str | None:
+    """Move this process out of an agent's `memory_scope` into a scope of its own, with no MemoryHigh: the run's
+    retirer, started by a worker's report, inherits that worker's cgroup (design §17). The new scope's name, or
+    None when it wasn't in one, or systemd refused; never raises."""
+    try:
+        cgroup = own_cgroup()
+        if not cgroup or not AGENT_SCOPE_RE.fullmatch(cgroup.rsplit("/", 1)[-1]):
+            return None
+        unit = f"mesh-retirer-{slugify(run_id, 40)}-{os.getpid()}.scope"
+        return unit if start_scope(unit, [os.getpid()], []) else None
+    except (OSError, ValueError, MeshError):
+        return None
 
 
 def confine_agent(pid: int | None, name: str) -> dict:
@@ -3995,7 +4092,7 @@ def confine_agent(pid: int | None, name: str) -> dict:
     if not pid:
         return done
     try:
-        cpus = cpu_window()
+        cpus = cpu_window(int(pid))
         if not cpus and not setting("worker_memory_high"):
             return done  # both off: no /proc scan
         tree = agent_tree(int(pid))
@@ -5381,10 +5478,10 @@ def last_task(events: list[dict], name: str) -> dict | None:
 def report_prs(run_id: str, name: str, entry: dict, report: dict, events: list[dict]) -> list[str]:
     """The PRs a `done` names (not ones the worker reviewed), else those of its newest earlier `done` that
     named any: a fix round's report may not repeat the link. Plans and questions don't count."""
-    reviewed = set(entry.get("reviews") or ())
+    reviewed = {pr_key(r) for r in entry.get("reviews") or ()}
     dones = [e for e in events if e.get("event") == "send" and e.get("sender") == name and e.get("type") == "done"]
     for done in reversed(dones[: dones.index(report) + 1] if report in dones else [report]):
-        prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, done))) if u not in reviewed]
+        prs = [u for u in dict.fromkeys(PR_RE.findall(message_body(run_id, done))) if pr_key(u) not in reviewed]
         if prs:
             return prs
     return []
@@ -5446,7 +5543,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
         if entry.get("reviews") and entry.get("status") != "retired" \
                 and not (report and report.get("type") in FINAL_TYPES):
             if url := reviewing_pr(run_id, entry, events, name):
-                reviewing.setdefault(url, []).append(name)
+                reviewing.setdefault(pr_key(url), []).append(name)
     for row in rows:
         if row["role"] == "root":
             continue
@@ -5476,7 +5573,7 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
                     parts.append("no PR")
                 if row.get("dirty"):
                     parts.append("worktree dirty")
-                reviewers = [r for u in urls for r in reviewing.get(u, []) if r != name]
+                reviewers = [r for u in urls for r in reviewing.get(pr_key(u), []) if r != name]
                 if reviewers:
                     parts.append(f"in review ({', '.join(dict.fromkeys(reviewers))})")
                     needs = "worker"
@@ -5677,7 +5774,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """Block until a child reports done/failed (exit 0) or something looks wrong (non-zero)."""
     run_id, me = caller(args, args.run_id)
     every, alerts = getattr(args, "any", False), getattr(args, "alerts", False)
-    root = me == (maybe_run(run_id) or {}).get("root")  # the root's own watch may reset it (MESH_ROOT_AUTORESET)
+    root = me == (maybe_run(run_id) or {}).get("root")  # the root's own watch may reset it (`root_reset.auto`)
     if bool(args.agent) == bool(every):
         raise MeshError("watch whom? name a worker, or pass --any for every live worker of the run")
     if every:
@@ -6495,10 +6592,10 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     A report one of them sent that its parent hasn't read yet returns 0 at once. `finals_at_start` (one name only)
     is the child's count of final sends before its task was delivered, so a report that lands before the watch
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
-    the transcript silence that raises exit 8 (default HANG_AFTER, or MESH_HANG_AFTER; 0 turns it off).
-    `autoreset` (the root's own watch, unless MESH_ROOT_AUTORESET=0) resets an idle root over the threshold.
+    the transcript silence that raises exit 8 (default the `hang_after` setting; 0 turns it off).
+    `autoreset` (the root's own watch, unless `root_reset.auto` is false) resets an idle root over the threshold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
-    report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, MESH_IDLE_RETIRE)
+    report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, `idle_retire`)
     retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
     watch) raises exit 7 once when a quota its live workers draw on reaches the reserve (`reserve_alert`).
     """
@@ -6772,25 +6869,26 @@ def warn_unwatched(run_id: str, skip: tuple[str, ...] = ()) -> None:
 
 
 def hang_after() -> float:
-    try:
-        return float(os.environ.get("MESH_HANG_AFTER") or HANG_AFTER)
-    except ValueError:
-        return HANG_AFTER
+    return float(setting("hang_after"))
 
 
 def held_wait() -> float:
-    try:
-        return float(os.environ.get("MESH_HELD_WAIT") or HELD_WAIT)
-    except ValueError:
-        return HELD_WAIT
+    return float(setting("held_wait"))
 
 
-def idle_retire() -> float:
-    """MESH_IDLE_RETIRE, where 0 or less means never."""
+def idle_retire(run_id: str | None = None) -> float:
+    """`idle_retire`, where 0 means never. With `run_id` (the detached retirer, which nobody would see die), a
+    broken config file retires nothing (0) instead of raising, and logs one `config_error` per error for
+    `mesh log` to show."""
     try:
-        return max(0.0, float(os.environ.get("MESH_IDLE_RETIRE") or IDLE_RETIRE))
-    except ValueError:
-        return IDLE_RETIRE
+        return float(setting("idle_retire"))
+    except MeshError as exc:
+        if run_id is None:
+            raise
+        if not any(e.get("event") == "config_error" and e.get("reason") == str(exc)
+                   for e in quietly(read_log, run_id) or []):
+            quietly(log_event, run_id, "config_error", reason=str(exc))
+        return 0.0
 
 
 def watch_agent(run_id: str, name: str, timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
@@ -6853,7 +6951,7 @@ def ensure_retirer(run_id: str) -> int | None:
     """Start the run's retirer unless one runs (it holds the lock), or idle retire is off and no worker waits to be
     continued at a reset; its pid, or None. Called after the report (or the `continue_due`) is logged, so a
     retirer letting go of the lock re-checks and sees it (run_retirer)."""
-    if not idle_retire():
+    if not idle_retire(run_id):
         events = read_log(run_id)
         if not any(due_continue(events, n) for n in load_run(run_id)["agents"]):
             return None
@@ -7071,7 +7169,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         return False
     events = read_log(run_id)
     continuing = continue_poll(run_id, run, events) if not stop_under_way(events) else False
-    if not idle_retire():
+    if not idle_retire(run_id):
         return continuing
     failed = {e.get("name"): e.get("file") for e in events if e.get("event") == "auto_retire_failed"}
     candidates, pending = {}, set()
@@ -7097,7 +7195,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
         if entry.get("view") == "bg" and bg_rows is None:
             continue  # `claude agents` failed: can't tell this poll
         if name not in watches:
-            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire())
+            watches[name] = Watch(run_id, name, SETTLE_GRACE, idle_retire=idle_retire(run_id))
         watch = watches[name]
         try:
             state = agent_status(name, entry, bg_rows or [])
@@ -7153,6 +7251,7 @@ def cmd_retirer(args: argparse.Namespace) -> int:
         except BlockingIOError:
             print("mesh: this run's retirer is already running", file=sys.stderr)
             return 0
+    leave_scope(args.run)  # and its MemoryHigh scope, which a daemon it starts would join too: once it's the one
     with handle:
         return run_retirer(args.run, handle)
 
@@ -7174,13 +7273,13 @@ def all_runs() -> list[tuple[dict, Path]]:
 
 def worker_prs(folder: Path, name: str, entry: dict | None = None) -> list[str]:
     """PR links in the messages a worker sent; its `done` reports carry them. PRs it only reviewed don't count."""
-    reviewed = set((entry or {}).get("reviews") or ())
+    reviewed = {pr_key(r) for r in (entry or {}).get("reviews") or ()}
     prs: list[str] = []
     for path in sorted((folder / "inbox").glob("**/*.md")):
         meta, body = parse_message(path)
         if meta.get("from") == name:
             prs += PR_RE.findall(body)
-    return [url for url in dict.fromkeys(prs) if url not in reviewed]
+    return [url for url in dict.fromkeys(prs) if pr_key(url) not in reviewed]
 
 
 def gh_json(argv: list[str], cwd: str | Path | None = None) -> tuple[object, str | None]:
@@ -7224,7 +7323,7 @@ def worktree_branch(entry: dict) -> str | None:
 
 def opened_pr(pr: str, head: str, run: dict, entry: dict, live_branch: bool = False) -> bool:
     """Whether this worker's branch is the PR's head, in the PR's repo (unless the worker's repo has no remotes)."""
-    if live_branch and pr in (entry.get("reviews") or ()):
+    if live_branch and pr_key(pr) in {pr_key(r) for r in entry.get("reviews") or ()}:
         return False  # a reviewer that checked the PR's branch out isn't its author (one reviewing its own PR is)
     branch = worktree_branch(entry) if live_branch else entry_branch(run, entry)
     if not branch or branch != head:
@@ -7905,10 +8004,12 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 
 def pr_ref(review: str, repo: Path) -> tuple[str, int]:
-    """A PR's link and number, from a link or from a number and the repo's GitHub remote."""
+    """A PR's link and number, from a link or from a number and the repo's GitHub remote, in one spelling
+    (`pr_key`: GitHub's owner and repo names are case-insensitive), so a pasted link and a bare number record,
+    head and find the same reviewers and rounds."""
     match = PR_RE.search(review)
     if match:
-        return match.group(0), int(match.group(0).rsplit("/", 1)[1])
+        return pr_key(match.group(0)), int(match.group(0).rsplit("/", 1)[1])
     if not review.lstrip("#").isdigit():
         raise MeshError(f"--review takes a PR link or number, not {review}")
     try:
@@ -7919,7 +8020,7 @@ def pr_ref(review: str, repo: Path) -> tuple[str, int]:
     if not github:
         raise MeshError(f"{repo}'s origin ({remote}) is not on GitHub; pass the PR link")
     number = int(review.lstrip("#"))
-    return f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}", number
+    return pr_key(f"https://github.com/{github.group(1)}/{github.group(2)}/pull/{number}"), number
 
 
 def review_remote(repo: Path, pr: str) -> str:
@@ -8096,7 +8197,7 @@ def plan_move(run_id: str, target: tuple, pr: str, head: str | None) -> tuple[di
     with no `git` is one already at the head: only its `base` is set."""
     old_run, _, name, entry = target
     cwd, repo, branch, base = entry.get("cwd"), entry.get("repo"), entry_branch(old_run, entry), entry.get("base")
-    mine = entry.get("review_checkout") == pr or base == (entry.get("review_heads") or {}).get(pr)
+    mine = pr_key(entry.get("review_checkout") or "") == pr_key(pr) or base == review_head(entry, pr)
     if (not head or not base or not mine or entry.get("peer") or not branch or not repo or not cwd
             or Path(cwd).resolve() == Path(repo).resolve()):
         return None, ""
@@ -8170,11 +8271,11 @@ def record_review(run_id: str, name: str, pr: str, head: str | None, checkout: b
         entry = run["agents"][name]
         if checkout:
             entry["review_checkout"] = pr
-        reviews = entry.setdefault("reviews", [])
-        if pr not in reviews:
-            reviews.append(pr)
+        reviews = [r for r in entry.get("reviews") or [] if pr_key(r) != pr_key(pr)]  # one spelling per PR
+        entry["reviews"] = [*reviews, pr]
         if head:
-            entry.setdefault("review_heads", {})[pr] = head
+            heads = {k: v for k, v in (entry.get("review_heads") or {}).items() if pr_key(k) != pr_key(pr)}
+            entry["review_heads"] = {**heads, pr: head}
 
 
 def take_reply(run_id: str, me: str, sender: str, folder: Path | None = None) -> tuple[dict, str] | None:
@@ -8732,7 +8833,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             head = pr_head(repo, pr, number) if target[3].get("repo") else None
         except (MeshError, OSError):
             pass
-        last = (target[3].get("review_heads") or {}).get(pr)
+        last = review_head(target[3], pr)
     gist = first_line(body) or f"a review of {pr}"
     # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
     if args.repo or copilot or (peer and not target) or (target and not_live(target)):
@@ -9197,7 +9298,7 @@ def earlier_reviewers(pr: str) -> dict[str, tuple[dict, Path, str, dict]]:
     found: dict[str, tuple[dict, Path, str, dict]] = {}
     for run, folder in all_runs():  # newest first; within a run, the latest of a kind
         for name, entry in reversed(run["agents"].items()):
-            if entry.get("review_checkout") == pr and entry.get("role") == "worker":
+            if pr_key(entry.get("review_checkout") or "") == pr_key(pr) and entry.get("role") == "worker":
                 found.setdefault(entry.get("kind"), (run, folder, name, entry))
     return found
 
@@ -9285,7 +9386,7 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
         so its task reads as one, built in its own clone with the head fetched there (as cmd_ask does); the
         round's size goes to each, so a Copilot's effort follows it too."""
         target, where, at = targets.get(kind), repo, head
-        last = (target[3].get("review_heads") or {}).get(pr) if target else None
+        last = review_head(target[3], pr) if target else None
         if target and target[3].get("repo") and Path(target[3]["repo"]).resolve() != repo:
             where = Path(target[3]["repo"])
             try:  # into its clone's object store; a review without it still goes out
@@ -9379,7 +9480,8 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
     replies = {kind: take_reply(run_id, me, asked[kind], folder) if kind in asked and outcomes[kind][0] == 0
                else None for kind in kinds}
     names = [asked.get(kind, kind) for kind in kinds]
-    parts = [f"# Review of {pr} at {head}", "",
+    reviewed = sum(1 for reply in replies.values() if reply and reply[0].get("type") == "done")
+    parts = [f"# Review of {pr} at {head}", ROUND_MARK.format(reviewed), "",
              f"Asked {now_iso()} in run {run_id}, size {args.size}, of {len(kinds)} reviewer{'s' if len(kinds) > 1 else ''}: "
              f"{', '.join(names)}.", *(["", "## Notes to the reviewers", "", body] if body else []), ""]
     lines, failed = [], []
@@ -9391,7 +9493,7 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
         if not reply or reply[0].get("type") != "done":
             failed.append(1 if reply else status or 1)
         lines.append(f"  {name:<28} {what}")
-    path = write_answers(run_id, f"review-{number or 'pr'}", parts)
+    path = write_answers(run_id, f"review-{number}", parts)
     retire_answered(run_id, [asked[k] for k in panes if replies[k] and asked[k] in opened and not args.keep])
     stopped = run_stopped(run_id)
     if stopped:
@@ -9402,8 +9504,65 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
     print(f"answers: {path}")
     if answered < len(kinds) and not stopped:
         print("(a reviewer that didn't answer is still open: follow it up as its line says, then `mesh retire` it)")
-    print("(ask one again: `mesh ask <name> --body …`; after a fix, run this round again for the re-review)")
+    print(rounds_hint(pr, number, head, args.size, reviewed))
     return failed[0] if failed else 0
+
+
+ROUND_MARK = "<!-- mesh: {} reviews -->"  # an answers file's second line: the reviews (`done`s) its round got
+ROUND_MARK_RE = re.compile(r"<!-- mesh: (\d+) reviews -->")
+
+
+def pr_key(pr: str) -> str:
+    """One spelling of a PR link: GitHub's owner and repo names are case-insensitive. `pr_ref` returns it; the
+    comparisons with links `gh` prints (a worker's report) or that entries and files from before recorded use it
+    on both sides."""
+    return pr.strip().rstrip("/").lower()
+
+
+def review_head(entry: dict, pr: str) -> str | None:
+    """The head a reviewer last read `pr` at (`review_heads`), however either was spelled."""
+    return next((head for key, head in (entry.get("review_heads") or {}).items() if pr_key(key) == pr_key(pr)),
+                None)
+
+
+def review_rounds_done(pr: str, number: int) -> int:
+    """How many review rounds `pr` has had, in any run, live or archived: its answers files
+    (`reports/review-<number>-*.md`), each read to its first two lines, the
+    header (`# Review of <pr> at <head>`) and ROUND_MARK. A round with no review (every reviewer failed, was busy
+    or alerted) doesn't count; a file from before the mark does."""
+    home, header = mesh_home(), f"# review of {pr_key(pr)} at "
+    pattern = f"review-{number}-*.md"
+    count = 0
+    for path in (*home.glob(f"*/reports/{pattern}"), *home.glob(f"archive/*/reports/{pattern}")):
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                first, second = handle.readline(), handle.readline()
+        except OSError:
+            continue
+        mark = ROUND_MARK_RE.match(second.strip())
+        count += first.lower().startswith(header) and (not mark or int(mark.group(1)) > 0)
+    return count
+
+
+def rounds_hint(pr: str, number: int, head: str, size: str | None, reviewed: int = 1) -> str:
+    """The line a review round ends with: `review.rounds.<size>` is a ceiling, not a quota (design §10), so it
+    says which round this was and offers a re-review only for a fix while rounds remain. A round with no review
+    says it didn't count."""
+    key = "large" if size == "large" else "small"
+    most, done = setting(f"review.rounds.{key}"), review_rounds_done(pr, number)
+    if not reviewed and done >= most:
+        return (f"(no reviewer answered with a review, and this PR's `review.rounds.{key}` are used up ({done} of "
+                f"at most {most}): no further round; check any fix yourself, `git diff {head[:9]}..<new head>`)")
+    if not reviewed:
+        return (f"(no reviewer answered with a review, so this round didn't count toward `review.rounds.{key}` "
+                f"({done} of at most {most} so far): once the reviewers' lines are dealt with, run it again)")
+    where = f"round {done} of at most {most} for a {size or key} PR (`review.rounds.{key}`)"
+    if done >= most:
+        return (f"({where}, its last: check any fix yourself, `git diff {head[:9]}..<new head>`; no re-review. "
+                "Ask one reviewer again: `mesh ask <name> --body …`)")
+    return (f"({where}: findings that need no fix, none you agree with or only advisory ones you decline, end its "
+            "reviews. Only a fix you ask for gets a re-review: run this round again once it's pushed. Ask one "
+            "reviewer again: `mesh ask <name> --body …`)")
 
 
 def write_answers(run_id: str, prefix: str, parts: list[str]) -> Path:
@@ -10499,8 +10658,6 @@ def cmd_reserve(args: argparse.Namespace) -> int:
 
 
 CACHE_TTL = 3600  # seconds a prompt cache lives when the session file doesn't say (`line_ttl`), and for agy
-ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
-RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 RESET_POLL = 2.0
 RESET_QUIET_READS = 2  # idle reads in a row before typing: a gap between two tool calls isn't the turn's end
 CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
@@ -10551,12 +10708,16 @@ def cache_ttl(session_ttl: int | None = None) -> int:
 
 
 def root_reset_at() -> int:
-    return env_int("MESH_ROOT_RESET_AT", ROOT_RESET_AT)
+    return setting("root_reset.at")
 
 
 def autoreset_on() -> bool:
-    """The root's watch resets an idle root (design §15): on unless MESH_ROOT_AUTORESET=0."""
-    return os.environ.get("MESH_ROOT_AUTORESET") != "0"
+    """The root's watch resets an idle root (design §15): on unless `root_reset.auto` is false."""
+    return setting("root_reset.auto")
+
+
+def reset_wait() -> float:
+    return float(setting("root_reset.wait"))
 
 
 def last_turn_by_user(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) -> bool | None:
@@ -10995,13 +11156,18 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
     entry = run["agents"][root]
     pane, kind = entry["pane"], entry.get("kind")
     context = quietly(root_context, run)
-    deadline = time.monotonic() + env_int("MESH_RESET_WAIT", RESET_WAIT)
     quiet, why = 0, "it never read idle"
 
     def failed(event: str, reason: str) -> int:
         log_event(run_id, event, name=root, reason=reason)
         print(f"mesh reset: {event}: {reason}", flush=True)
         return 1
+
+    try:
+        wait = reset_wait()
+    except MeshError as exc:  # a config broken since `mesh reset` read it
+        return failed("reset_failed", str(exc))
+    deadline = time.monotonic() + wait
 
     lost_since = None  # when herdr began reading it `unknown` with nothing else to judge it by
 
@@ -11049,7 +11215,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                     break
             quiet = 0
         if time.monotonic() > deadline:
-            return failed("reset_failed", f"gave up after waiting {ago(env_int('MESH_RESET_WAIT', RESET_WAIT))}: "
+            return failed("reset_failed", f"gave up after waiting {ago(wait)}: "
                                           f"{why}")
         time.sleep(RESET_POLL)
     if compact is not None:
@@ -11088,7 +11254,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
 
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
-    """The root's own watch (unless MESH_ROOT_AUTORESET=0): reset a root that is over the threshold, idle, owed
+    """The root's own watch (unless `root_reset.auto` is false): reset a root that is over the threshold, idle, owed
     nothing and quiet, warm or cold (design §15). Quiet is AUTORESET_QUIET since its last turn when mesh started
     that turn, AUTORESET_USER_QUIET when the user did or it can't be told (`last_turn_by_user`): a root answering
     the user may be waiting on them. Stricter than `mesh reset`: any unread report holds it, since it acts without
@@ -11860,10 +12026,10 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
 def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--compact", choices=("auto", "yes", "no"), default="auto",
-                   help=f"compact the conversation before reopening it (auto: over {COMPACT_AT:,} tokens for Claude, "
-                        f"{COMPACT_COLD_AT:,} once its prompt cache has expired, "
-                        f"{AGY_COMPACT_AT:,} for agy, twice that for a question unless asked of a peer; an agy one whose size can't be "
-                        "read when it comes from another run)")
+                   help="compact the conversation before reopening it (auto: over the compact.claude setting's "
+                        "tokens for Claude, compact.claude_cold once its prompt cache has expired, compact.agy for "
+                        "agy, twice that for a question unless asked of a peer, see `mesh routing`; an agy one whose "
+                        "size can't be read when it comes from another run)")
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
 
 
@@ -11955,7 +12121,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
     p.add_argument("--hang", type=float, default=None,
                    help="seconds a worker may read working with its transcript unchanged before exit 8 "
-                        f"(default MESH_HANG_AFTER or {int(HANG_AFTER)}; 0 = never)")
+                        "(default: the hang_after setting, `mesh routing`; 0 = never)")
     p.set_defaults(func=cmd_watch)
 
     p = ident(sub.add_parser("approve", help="approve a worker's plan, moving an auto worker to its exec model"))
