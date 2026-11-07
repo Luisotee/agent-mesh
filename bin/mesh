@@ -3981,9 +3981,41 @@ def memory_scope(pids: list[int], name: str) -> str | None:
     if not mb or not pids:
         return None
     unit = f"mesh-{slugify(name, 60)}-{pids[0]}.scope"
-    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "2",
-            "PIDs", "au", str(len(pids)), *map(str, pids), "MemoryHigh", "t", str(mb << 20), "0"]
-    return unit if run_cli(argv, timeout=10).returncode == 0 else None
+    return unit if start_scope(unit, pids, ["MemoryHigh", "t", str(mb << 20)]) else None
+
+
+def start_scope(unit: str, pids: list[int], props: list[str]) -> bool:
+    """Move `pids` into a new transient systemd user scope `unit` with `props` (name, signature, value triples
+    flattened, as busctl takes them), next to the PIDs property. Whether systemd took it."""
+    argv = ["busctl", "--user", "call", *SYSTEMD, "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail",
+            str(1 + len(props) // 3), "PIDs", "au", str(len(pids)), *map(str, pids), *props, "0"]
+    return run_cli(argv, timeout=10).returncode == 0
+
+
+def own_cgroup() -> str | None:
+    """This process's cgroup v2 path (`0::<path>` in /proc/self/cgroup), or None where it can't be read."""
+    try:
+        lines = Path("/proc/self/cgroup").read_text().splitlines()
+    except OSError:
+        return None
+    return next((line[3:] for line in lines if line.startswith("0::")), None)
+
+
+AGENT_SCOPE_RE = re.compile(r"mesh-(?!retirer-).+\.scope")
+
+
+def leave_scope(run_id: str) -> str | None:
+    """Move this process out of an agent's `memory_scope` into a scope of its own, with no MemoryHigh: the run's
+    retirer, started by a worker's report, inherits that worker's cgroup (design §17). The new scope's name, or
+    None when it wasn't in one, or systemd refused; never raises."""
+    try:
+        cgroup = own_cgroup()
+        if not cgroup or not AGENT_SCOPE_RE.fullmatch(cgroup.rsplit("/", 1)[-1]):
+            return None
+        unit = f"mesh-retirer-{slugify(run_id, 40)}-{os.getpid()}.scope"
+        return unit if start_scope(unit, [os.getpid()], []) else None
+    except (OSError, ValueError, MeshError):
+        return None
 
 
 def confine_agent(pid: int | None, name: str) -> dict:
@@ -7144,6 +7176,7 @@ def cmd_retirer(args: argparse.Namespace) -> int:
     """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
     # Its starter is usually a worker, whose CPU cap would reach whatever it reopens and a Claude daemon it might start.
     unpin(os.getpid())
+    leave_scope(args.run)  # and its MemoryHigh scope, which a daemon it starts would join too
     if args.lock_fd is not None:
         handle = os.fdopen(args.lock_fd, "a")
     else:  # by hand: only when none runs

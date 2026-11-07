@@ -11304,3 +11304,33 @@ def test_a_pane_worker_gets_its_scope_at_spawn(mesh, fake, cli, run, repo, monke
     assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--model", "flash", "--effort", "medium",
                       "--worktree", "fix", "--task", "Do it."]) == 0
     assert f"mesh-proj-fix-{NO_PID}.scope" in cli.called("--user", "call")[0]["argv"]
+
+
+AGENT_CGROUP = "/user.slice/user-1000.slice/user@1000.service/app.slice/mesh-proj-fix-50.scope"
+
+
+def test_the_retirer_leaves_the_scope_of_the_worker_that_started_it(mesh, cli, monkeypatch):
+    monkeypatch.setattr(mesh, "own_cgroup", lambda: AGENT_CGROUP)
+    unit = f"mesh-retirer-mtest-{os.getpid()}.scope"
+    assert mesh.leave_scope("mtest") == unit
+    [call] = cli.called("--user", "call")
+    assert call["argv"] == ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                            "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", unit,
+                            "fail", "1", "PIDs", "au", "1", str(os.getpid()), "0"]  # no MemoryHigh
+    cli.on("--user", returncode=127, stderr="busctl not found")
+    assert mesh.leave_scope("mtest") is None  # systemd refused: it stays, and nothing fails
+
+
+@pytest.mark.parametrize("cgroup", ["/init.scope", "/user.slice/user-1000.slice/user@1000.service/app.slice/herdr.scope",
+                                    AGENT_CGROUP.replace("mesh-proj-fix-50", "mesh-retirer-mtest-7"), None])
+def test_the_retirer_stays_where_it_is_outside_an_agents_scope(mesh, cli, monkeypatch, cgroup):
+    monkeypatch.setattr(mesh, "own_cgroup", lambda: cgroup)
+    assert mesh.leave_scope("mtest") is None and not cli.called("--user", "call")
+
+
+def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypatch):
+    seen = []
+    monkeypatch.setattr(mesh, "leave_scope", lambda run_id: seen.append(("leave", run_id)))
+    monkeypatch.setattr(mesh, "run_retirer", lambda run_id, handle: seen.append(("run", run_id)) or 0)
+    assert mesh.main(["retirer", "--run", run]) == 0
+    assert seen == [("leave", run), ("run", run)]
