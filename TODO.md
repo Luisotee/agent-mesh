@@ -2,7 +2,6 @@
 
 Open work, kept short on purpose: whoever picks a task up works out the details. The reasons behind past decisions are in `docs/design.md`; the cost study's baseline, method, scripts and savings ledger are in `docs/cost-research/README.md`. If you have the peer projects registered (`mesh peers`), ask them before designing a mechanism they may have solved (see `CLAUDE.md`, "Peer projects").
 
-- [ ] `test_a_limit_reset_prefers_the_windows_own_time_and_never_misreads_a_date` hard-codes a reset at `2026-10-30T02:00:00+00:00`, now in the past, so it fails on every run, and `test_a_family_window_applies_only_to_that_familys_workers` likewise expects a reset at `2026-11-01T00:00:00+00:00`: freeze the clock or derive the date from it.
 - [ ] The CPU cap (`worker_cpus`, design §17): on a real run, check that agy's own child processes and a worker's test runner see the mask (`taskset -p <pid>`), and that a bg launch doesn't pin Claude Code's daemon.
 - [ ] With `worker_memory_high` set, the retirer a worker's report starts stays in that worker's MemoryHigh scope (design §17); move it out (a scope of its own, or the user manager's `app.slice`) when it starts.
 - [ ] `cpu_window` rotates a machine-wide counter, so after workers retire a new one may share a window with a live one while other cores idle; pick the window fewest live agents hold instead.
