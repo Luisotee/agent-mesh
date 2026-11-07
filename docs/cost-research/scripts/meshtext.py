@@ -1,6 +1,7 @@
 exec(open('agg.py').read())
 ROOT=os.path.expanduser('~/.claude/projects')
-T0=datetime(2026,10,21,tzinfo=timezone.utc).timestamp()
+T0=SINCE or datetime(2026,10,21,tzinfo=timezone.utc).timestamp()
+T1=UNTIL or float("inf")
 CPT=3.3   # prose chars per token (assumption)
 MESHCMD=re.compile(r'(?:^|[;&|(\s])mesh (\w+)')
 FIXED_PATH=re.compile(r'\.config/agent-mesh/|/skills/(delegate-|check-plan|find-peers|harvest-peers)')
@@ -17,6 +18,7 @@ for sid,s in sess.items():
         try: d=json.loads(l)
         except: continue
         t=d.get('type')
+        if d.get('timestamp') and ts(d['timestamp'])>=T1: break  # calls after the window don't amortize its text
         if t=='system' and d.get('subtype')=='compact_boundary': compact_at.append(ncall); continue
         if t=='assistant':
             m=d['message']
@@ -34,17 +36,17 @@ for sid,s in sess.items():
                     elif mm: cls='agent: mesh inbox' if mm.group(1)=='inbox' else 'fixed: mesh cmd output'
                     if mm and mm.group(1)=='send':
                         bm=re.search(r'--body\s+(["\'])(.*?)\1',cmd,re.S)
-                        if bm and ts(d['timestamp'])>=T0: out_agent+=len(bm.group(2))
+                        if bm and T0<=ts(d['timestamp'])<T1: out_agent+=len(bm.group(2))
                 elif name=='Read':
                     fp=inp.get('file_path','')
                     if FIXED_PATH.search(fp): cls='fixed: protocol/skill read'
                     elif RUNDIR.search(fp): cls='agent: plan/report/task read'
                 elif name=='Write':
                     fp=inp.get('file_path','')
-                    if RUNDIR.search(fp) and ts(d['timestamp'])>=T0: out_agent+=len(inp.get('content',''))
+                    if RUNDIR.search(fp) and T0<=ts(d['timestamp'])<T1: out_agent+=len(inp.get('content',''))
                 if cls: pend[b['id']]=cls
         elif t=='user':
-            if ts(d['timestamp'])<T0: continue
+            if not T0<=ts(d['timestamp'])<T1: continue
             c=d['message'].get('content')
             if isinstance(c,list):
                 for b in c:
@@ -70,10 +72,10 @@ for sid,s in sess.items():
         agg[cls+' tok']+=tok
 # static prefix share of mesh text: global snippet + mesh skill descriptions, every main/worker call
 pref_chars=1274+6673
-calls7=sum(1 for r in M if r['t']>=T0 and not K[r['s']].startswith('subagent') and K[r['s']]!='headless -p')
+calls7=sum(1 for r in M if T0<=r['t']<T1 and not K[r['s']].startswith('subagent') and K[r['s']]!='headless -p')
 agg['fixed: prefix (skill descriptions, CLAUDE.md snippet)']=calls7*pref_chars/CPT*0.2/1e6
 agg['agent: written (output tokens)']=out_agent/CPT*20/1e6
-tot=1614
+tot=sum(cost(r) for r in M if T0<=r['t']<T1)  # was 1614, the baseline week as first measured
 f=sum(v for k,v in agg.items() if k.startswith('fixed') and not k.endswith('tok'))
 a=sum(v for k,v in agg.items() if k.startswith('agent') and not k.endswith('tok'))
 for k,v in sorted(agg.items(),key=lambda x:-x[1]):
