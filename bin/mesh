@@ -3917,9 +3917,21 @@ def cpu_window(pid: int | None = None) -> list[int] | None:
         try:
             stored = json.loads(path.read_text())
             at = int(stored.get("at", 0)) % n
-            held = [h for h in stored.get("held", []) if pid_alive(int(h["pid"]), h.get("start"))]
-        except (OSError, ValueError, TypeError, AttributeError, KeyError):
-            at, held = 0, []  # none yet, the old {"next": …} form, or torn
+            entries = stored.get("held", [])
+            if not isinstance(entries, list):
+                entries = []
+        except (OSError, ValueError, TypeError, AttributeError):
+            at, entries = 0, []  # none yet, the old {"next": …} form, or torn
+        held = []
+        for h in entries:  # an entry that isn't one (hand-edited, say) drops out alone
+            try:
+                cores = h["cpus"]
+                if not (isinstance(cores, list) and all(isinstance(c, int) for c in cores)):
+                    continue
+                if pid_alive(int(h["pid"]), h.get("start")):
+                    held.append(h)
+            except (KeyError, TypeError, ValueError):
+                continue
         load = {cpu: 0 for cpu in cpus}
         for h in held:
             for cpu in h.get("cpus", []):
@@ -7195,7 +7207,6 @@ def cmd_retirer(args: argparse.Namespace) -> int:
     """The run's retirer (started by a worker's report, `ensure_retirer`): retire its idle workers."""
     # Its starter is usually a worker, whose CPU cap would reach whatever it reopens and a Claude daemon it might start.
     unpin(os.getpid())
-    leave_scope(args.run)  # and its MemoryHigh scope, which a daemon it starts would join too
     if args.lock_fd is not None:
         handle = os.fdopen(args.lock_fd, "a")
     else:  # by hand: only when none runs
@@ -7205,6 +7216,7 @@ def cmd_retirer(args: argparse.Namespace) -> int:
         except BlockingIOError:
             print("mesh: this run's retirer is already running", file=sys.stderr)
             return 0
+    leave_scope(args.run)  # and its MemoryHigh scope, which a daemon it starts would join too: once it's the one
     with handle:
         return run_retirer(args.run, handle)
 

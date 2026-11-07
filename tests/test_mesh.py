@@ -11072,11 +11072,38 @@ def test_a_window_held_by_a_reused_pid_is_free(mesh, monkeypatch):
     assert held == [{"pid": 4242, "start": "200", "cpus": [3, 4, 5]}]
 
 
-@pytest.mark.parametrize("stored", ['{"next": 71}', "{oops", '{"at": 3, "held": [{"cpus": [0]}]}'])
+@pytest.mark.parametrize("stored", ['{"next": 71}', "{oops", '{"at": 0, "held": [{"cpus": [0]}]}',
+                                    '{"at": 0, "held": {"pid": 1}}'])
 def test_an_old_or_broken_cpus_file_reads_as_nothing_held(mesh, stored):
     (mesh.mesh_home() / "cpus.json").parent.mkdir(parents=True, exist_ok=True)
     (mesh.mesh_home() / "cpus.json").write_text(stored)
     assert mesh.cpu_list(mesh.cpu_window()) == "0-2"
+
+
+@pytest.mark.parametrize("bad", [{"pid": 102, "cpus": None}, {"pid": 102, "cpus": "3-5"}, {"pid": 102, "cpus": [3, "4"]},
+                                 "102", {"pid": "x", "cpus": [3]}])
+def test_a_broken_holder_drops_out_alone(mesh, monkeypatch, bad):
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    path = mesh.mesh_home() / "cpus.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"at": 0, "held": [{"pid": 101, "cpus": [0, 1, 2]}, bad]}))
+    assert mesh.cpu_list(mesh.cpu_window(103)) == "3-5"  # 101 still holds 0-2
+    held = json.loads(path.read_text())["held"]
+    assert [h["pid"] for h in held] == [101, 103]  # the file is rewritten without the bad entry
+    assert mesh.cpu_list(mesh.cpu_window()) == "6-8"
+
+
+def test_a_duplicate_retirer_never_leaves_the_scope(mesh, run, monkeypatch, capsys):
+    import fcntl
+    seen = []
+    monkeypatch.setattr(mesh, "leave_scope", lambda run_id: seen.append(run_id))
+    handle = mesh.retirer_lock_path(run).open("a")
+    fcntl.flock(handle, fcntl.LOCK_EX)  # another retirer runs
+    try:
+        assert mesh.main(["retirer", "--run", run]) == 0
+    finally:
+        handle.close()
+    assert seen == [] and "already running" in capsys.readouterr().err
 
 
 def test_confining_an_agent_holds_its_window(mesh, monkeypatch):
