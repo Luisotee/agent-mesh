@@ -10565,11 +10565,11 @@ def test_the_reserve_alert_keys_on_the_window_not_the_requests_microseconds(mesh
 def test_a_family_window_applies_only_to_that_familys_workers(mesh, monkeypatch):
     monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {
         "five_hour": {"utilization": 10, "resets_at": None},
-        "seven_day_sonnet": {"utilization": 100, "resets_at": "2099-11-01T00:00:00+00:00"}})  # a future reset
+        "seven_day_sonnet": {"utilization": 100, "resets_at": "2026-11-01T00:00:00+00:00"}})
     usage = mesh.claude_usage()
     assert mesh.claude_at_reserve(usage, "sonnet")[0] == "seven_day_sonnet"
     assert mesh.claude_at_reserve(usage, "opus") is None and mesh.claude_at_reserve(usage) is None
-    assert mesh.claude_limit_reset("claude-sonnet-5-5") == mesh.epoch("2099-11-01T00:00:00+00:00")
+    assert mesh.claude_limit_reset("claude-sonnet-5-5") == mesh.epoch("2026-11-01T00:00:00+00:00")
     assert mesh.claude_limit_reset("opus") is None
 
 
@@ -10581,12 +10581,12 @@ def test_a_limit_reset_prefers_the_windows_own_time_and_never_misreads_a_date(me
     monkeypatch.setattr(mesh, "agent_status", lambda name, *_: "blocked")
     fake.screen("repo-fix-typo", LIMIT_SCREEN)
     monkeypatch.setattr(mesh, "fetch_claude_usage", lambda: {
-        "five_hour": {"utilization": 100, "resets_at": "2099-10-30T02:00:00+00:00"}})  # a future reset
+        "five_hour": {"utilization": 100, "resets_at": "2026-10-30T02:00:00+00:00"}})
     with mesh.editing_run(run) as data:
         data["over_reserve"] = True  # else the reserve's own exit 7 comes first
     assert mesh.main(["watch", "repo-fix-typo"]) == 7
     [due] = [e for e in mesh.read_log(run) if e["event"] == "continue_due"]
-    assert mesh.epoch(due["at"]) == mesh.epoch("2099-10-30T02:00:00+00:00") + mesh.CONTINUE_GRACE
+    assert mesh.epoch(due["at"]) == mesh.epoch("2026-10-30T02:00:00+00:00") + mesh.CONTINUE_GRACE
     capsys.readouterr()
 
 
