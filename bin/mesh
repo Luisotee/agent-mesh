@@ -58,8 +58,8 @@ SIZES = ("trivial", "small", "large")
 SIZE_DEFAULTS = {
     ("claude", "trivial"): {"model": "opus", "effort": "medium", "view": "bg"},
     ("claude", "small"): {"model": "opus", "effort": "medium", "view": "bg"},
-    ("agy", "trivial"): {"model": "flash", "effort": "low", "view": "pane"},
-    ("agy", "small"): {"model": "flash", "effort": "high", "view": "pane"},
+    ("agy", "trivial"): {"model": "hydrogen", "effort": "low", "view": "pane"},
+    ("agy", "small"): {"model": "hydrogen", "effort": "high", "view": "pane"},
 }
 # A Claude worker whose plan the user approves in its own pane plans and executes on one model, in plan mode
 # first: `models.claude.user_review` (built in: this).
@@ -80,8 +80,8 @@ AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conve
 # execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
 # on Opus: a resume that changes only the effort keeps the prompt cache, while a model switch re-reads the whole
 # conversation.
-PLAN_CHAIN = {"agy": ("argon", "opus", "flash"), "claude": ("opus",)}
-EXEC_MODEL = {"agy": "flash", "claude": "opus"}
+PLAN_CHAIN = {"agy": ("argon", "opus", "hydrogen"), "claude": ("opus",)}
+EXEC_MODEL = {"agy": "hydrogen", "claude": "opus"}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
@@ -90,8 +90,8 @@ TYPES = ("task", "plan", "question", "answer", "done", "failed", "info", "wait")
 FINAL_TYPES = ("done", "failed")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # agy model ids: gemini-<version>-<family>-<effort> and claude-<family>-<version>-<effort>.
-GEMINI_ID_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high)$")
-CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high)$")
+GEMINI_ID_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high|xhigh|max)$")
+CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-([\d-]+)-(low|medium|high|xhigh|max)$")
 AGY_MODELS_TTL = 6 * 3600
 AGY_USAGE_TTL = 300
 AGY_USAGE_RETRY = 60  # seconds before a failed `agy -p /usage` is tried again
@@ -2234,7 +2234,7 @@ def listing_names(listing: str) -> dict[str, str]:
 
 
 def pick_agy_model(listing: str, family: str, effort: str) -> str:
-    """The newest `<family>` id with that effort in `agy models` output (argon, flash, opus, sonnet, ...)."""
+    """The newest `<family>` id with that effort in `agy models` output (argon, hydrogen, flash, opus, sonnet, ...)."""
     ids = list(listing_names(listing))
     if family in ids:
         return family
@@ -2522,7 +2522,7 @@ def reserve_guard(run_id: str | None, kind: str | None, model: str | None, effor
 
 
 def agy_has_quota(size: str, model: str | None = None) -> tuple[bool, str]:
-    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (`quota_stop`) (Flash for a
+    """Whether a fresh agy reviewer of this size would run on a model over the quota reserve (`quota_stop`) (Hydrogen for a
     trivial or small one, the plan chain for a large one), or `model` has (the one a reviewer asked again keeps),
     and why not. Unreadable quotas count as available, as for a spawn (choose_agy_model); agy not installed, or
     no model it can resolve, doesn't."""
@@ -12054,7 +12054,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role", choices=ROLES, default="worker")
     p.add_argument("--repo", default=".", help="repo the agent works on (default: cwd)")
     p.add_argument("--model", help="auto (default: plan on the best model with quota, execute on --exec-model), "
-                                    "or one model throughout: claude alias, agy family (argon, flash, opus, sonnet) or exact id")
+                                    "or one model throughout: claude alias, agy family (argon, hydrogen, flash, opus, sonnet) or exact id")
     p.add_argument("--exec-model", help="model after `mesh approve` (default with auto: the kind's exec model, "
                                          "`mesh routing`)")
     p.add_argument("--effort", choices=EFFORTS,

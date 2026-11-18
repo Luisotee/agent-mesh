@@ -8,7 +8,7 @@ Both commands work from Claude Code and from agy. Nothing starts until you say g
 
 | Command | Worker for a large task (one per repo), by default ([Configuration](#configuration) changes it) |
 |---|---|
-| `/delegate-agy` | agy: plans on Argon → Claude Opus → Flash (the first with quota left) at high effort, executes on Flash at medium |
+| `/delegate-agy` | agy: plans on Argon → Claude Opus → Hydrogen (the first with quota left) at high effort, executes on Hydrogen at medium |
 | `/delegate-claude` | Claude: plans on Opus at high effort, executes on Opus at medium |
 
 - **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
@@ -21,8 +21,8 @@ The root sizes every task before it starts a worker (the models, efforts and vie
 
 | Size | For | Claude worker | agy worker | Plan reviewed? |
 |---|---|---|---|---|
-| trivial | translations, copy, config | Opus, medium effort, background | Flash, low | no |
-| small | a bug fix, a UI tweak, a test | Opus, medium effort, background | Flash, high | no |
+| trivial | translations, copy, config | Opus, medium effort, background | Hydrogen, low | no |
+| small | a bug fix, a UI tweak, a test | Opus, medium effort, background | Hydrogen, high | no |
 | large | a feature, a cross-repo contract | the table above, in a pane | the table above, in a pane | yes |
 
 - **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
@@ -48,8 +48,8 @@ Background workers report to a Claude root as cross-session messages, so the roo
 A worker on the default (`--model auto`) has two phases in one conversation:
 
 - **Planning** runs on the first model in the chain (`models.<kind>.plan`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Flash (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model. A Claude worker plans with file edits and `git push` denied (its shell still runs set-up and tests), and the reopen is what lifts that, so approve reopens it even with `--keep-model`; agy is held by the prompt.
-- **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Flash, so a Flash quota hit is reported to you with its reset time.
+- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Hydrogen (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model. A Claude worker plans with file edits and `git push` denied (its shell still runs set-up and tests), and the reopen is what lifts that, so approve reopens it even with `--keep-model`; agy is held by the prompt.
+- **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Hydrogen, so a Hydrogen quota hit is reported to you with its reset time.
 - **The quota reserve:** mesh keeps the last 10% of every quota for you by default. Once a quota is 90% used (`quota_stop` in the config, or `MESH_QUOTA_STOP`; `100` turns the reserve off), it starts nothing new on it: `spawn`, `ask`, `resume` with a task, `send --type task` and `approve` are refused with the window, its use and its reset, and nothing is started or sent. Answers still go, and running workers finish their current task: the root's `mesh watch` exits 7 once per window when a quota they draw on reaches the reserve, and nothing is stopped. Claude's usage comes live from the endpoint Claude Code's `/usage` reads (`/api/oauth/usage`, with the login Claude Code keeps in `~/.claude/.credentials.json`; never refreshed by mesh), shared machine-wide for 2 minutes, else from a cached copy at most 15 minutes old; `MESH_CLAUDE_USAGE=off` keeps mesh off the network. agy's comes from `agy -p /usage`. A quota mesh can't read never blocks. For a run you want finished anyway, `mesh reserve off` lets it past the reserve (`mesh reserve on` holds it again).
 
 ```bash
@@ -331,9 +331,9 @@ This file reproduces the built-in policy, plus a `repos_dir`:
   "_comment": "Every key is optional: a missing one keeps its built-in value. These are the built-ins, plus repos_dir.",
   "models": {
     "agy": {
-      "plan": ["argon", "opus", "flash"], "exec": "flash", "plan_effort": "high", "exec_effort": "medium",
-      "trivial": {"model": "flash", "effort": "low", "view": "pane"},
-      "small": {"model": "flash", "effort": "high", "view": "pane"}
+      "plan": ["argon", "opus", "hydrogen"], "exec": "hydrogen", "plan_effort": "high", "exec_effort": "medium",
+      "trivial": {"model": "hydrogen", "effort": "low", "view": "pane"},
+      "small": {"model": "hydrogen", "effort": "high", "view": "pane"}
     },
     "claude": {
       "plan": ["opus"], "exec": "opus", "plan_effort": "high", "exec_effort": "medium", "user_review": "opus",

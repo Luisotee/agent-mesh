@@ -7,7 +7,7 @@ description: >-
   `mesh routing`), the same ones again for a re-review of a fix, all run by one command that wakes you once; `all` is every
   installed one. Use it, typed or not,
   for any PR review the user asks for, their own included ("review my PR", "have Copilot review PR 42", "second opinion
-  from Gemini and GPT"). Gemini, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the
+  from Gemini and GPT"). Gemini, Hydrogen, Flash, Argon → agy; GPT, Copilot → copilot; Opus, Sonnet, Fable → claude. Not for the
   reviews a `/delegate-*` run gives its own workers' PRs, or a mesh worker (your task came by a `📬 [mesh]` doorbell).
 argument-hint: "[all | claude agy copilot (any of them)] [PR link or number]"
 ---

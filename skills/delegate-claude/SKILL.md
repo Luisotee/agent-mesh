@@ -6,7 +6,7 @@ description: >-
   group, which the root reviews itself. Also asks the registered peer
   projects a question. Use it, typed or not, when the user wants work or a question handed to agents, in this repo or others
   ("have Claude do it", "delegate this", "ask the shop-api agent"), or when you judge workers would do it better (several
-  repos, a task list, parallel work, a long job you would otherwise do inline), and names no other CLI (agy, Gemini, Argon, Flash);
+  repos, a task list, parallel work, a long job you would otherwise do inline), and names no other CLI (agy, Gemini, Argon, Hydrogen, Flash);
   with none named, use it when you are Claude Code. Not for a PR review the user asks for (/delegate-review), a research
   round by the peers (/harvest-peers), or a mesh worker (your task came by a `📬 [mesh]`
   doorbell).

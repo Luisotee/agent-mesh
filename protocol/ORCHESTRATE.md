@@ -26,7 +26,7 @@ The mode sets the CLI for new workers, and the table is what a **large** task ge
   - **The quota reserve:** mesh keeps the rest of every quota for the user once `quota_stop` percent of it is used (`mesh routing`). Past it, `spawn`, `ask`, `resume` with a task, `send --type task` and `approve` are refused for that vendor, and nothing is started or sent: tell the user which window and when it resets, and wait. Answers still go. Only when the user says to finish the run anyway, run `mesh reserve off` (`on` undoes it).
 - **User overrides:** if the request names a model, agent or effort ("use Argon", "do it with Claude"), pass it as `--model`. That one model then runs the whole task, with no switch (at the kind's `plan_effort`). A named effort goes in `--effort` and covers planning and execution alike, with or without `--model`. Otherwise don't pass `--model`.
   - **Fable** (`--model fable`, Claude only) runs the whole task on Claude Fable 5.1, Anthropic's strongest model, which pays off on ambiguous root-cause hunts and architecture decisions. Use it only when the user names it: it draws on a capped share of the user's Claude limits.
-- **Resolution:** `mesh` resolves the agy families `argon` / `flash` / `opus` / `sonnet` to the newest matching model. `mesh model --kind agy` shows what a spawn would use, and why.
+- **Resolution:** `mesh` resolves the agy families `argon` / `hydrogen` / `flash` / `opus` / `sonnet` to the newest matching model. `mesh model --kind agy` shows what a spawn would use, and why.
 
 ### Sizes
 

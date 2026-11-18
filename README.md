@@ -73,7 +73,7 @@ Your Claude Code session can be the root and hand the work to agy, so the planni
 /delegate-agy add tests for the date parser in shop-web and admin-web
 ```
 
-agy workers plan on the strongest model that still has quota (Argon, then Claude Opus through agy, then Flash) and execute on Gemini Flash. Copilot can take reviews on your GitHub plan. mesh reads Claude's and agy's quotas, plans on the best model with quota left, and by default starts nothing new on a quota once it is 90% used. Which model does what is [yours to set](docs/guide.md#configuration).
+agy workers plan on the strongest model that still has quota (Argon, then Claude Opus through agy, then Hydrogen) and execute on Gemini 4 Hydrogen, the successor to Gemini Flash. Copilot can take reviews on your GitHub plan. mesh reads Claude's and agy's quotas, plans on the best model with quota left, and by default starts nothing new on a quota once it is 90% used. Which model does what is [yours to set](docs/guide.md#configuration).
 
 ![A Claude root opening a PR and starting an agy reviewer in a pane beside it](docs/media/delegate.webp)
 <sub>A Claude root opens a PR and has agy review it: the reviewer starts on Gemini Flash in a pane beside the root, in its own worktree.</sub>
