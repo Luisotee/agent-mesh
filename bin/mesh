@@ -1203,7 +1203,9 @@ def installed(kind: str) -> bool:
 
 def installed_text() -> str:
     found = [CLI_NAMES[k] for k in ASK_KINDS if installed(k)]
-    return f"installed: {', '.join(found)}" if found else "none of Claude Code, agy or Copilot is on PATH"
+    names = list(CLI_NAMES.values())
+    return (f"installed: {', '.join(found)}" if found
+            else f"none of {', '.join(names[:-1])} or {names[-1]} is on PATH")
 
 
 def require_cli(kind: str, what: str) -> None:
@@ -11874,8 +11876,8 @@ def render_routing(r: dict) -> str:
                 else str(value))
         out.append(f"{leaf.ljust(width)}  {text or '(none)'}  [{item['source']}]")
     out.append("")
-    out.append("--reviewers auto, by what's installed (a round also needs agy's quota and Copilot with no recent "
-               "quota error):")
+    out.append("--reviewers auto, by what's installed (a round also needs agy's quota, Copilot with no recent "
+               "quota error and an OpenCode model not at its limit):")
     for size, kinds in r["auto_reviewers"].items():
         out.append(f"  {size}: {' + '.join(kinds) or 'nobody: a round of this size is refused'}")
     return "\n".join(out)

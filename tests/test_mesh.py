@@ -10704,7 +10704,7 @@ def test_neither_cli_is_a_clear_error(mesh, monkeypatch):
     clis(monkeypatch)
     with pytest.raises(mesh.MeshError, match="neither Claude Code"):
         mesh.default_kind()
-    with pytest.raises(mesh.MeshError, match="none of Claude Code, agy or Copilot is on PATH"):
+    with pytest.raises(mesh.MeshError, match="none of Claude Code, agy, Copilot or OpenCode is on PATH"):
         mesh.pick_reviewers("small")
 
 

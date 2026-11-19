@@ -23,7 +23,7 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 2. **A worker starts inside `shop-api`,** in its own git worktree, in a terminal pane next to yours. It loads that repo's rules, skills and hooks.
 3. **It researches and sends a plan.** Your session reviews it (right files, right contract, real tests) and approves it or sends it back. Nothing is edited before approval.
 4. **The same agent does the work,** in the same conversation, switched to its execution model, so no research is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
-5. **Reviewers read the PR:** Claude, Gemini (agy) or Copilot, picked by the PR's size, each inside the repo at the PR's head. Findings go back to the worker that wrote it.
+5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, picked by the PR's size, each inside the repo at the PR's head. Findings go back to the worker that wrote it.
 6. **You get one report** with the PR link, what changed and the checks that passed. Meanwhile your session kept building the badge.
 
 ```
@@ -35,7 +35,7 @@ your session in shop-web (root)                     keeps building the badge
 
 ## Quick start
 
-You need [herdr](https://herdr.dev) (your session runs in a herdr pane), [Claude Code](https://claude.com/claude-code) or the [Antigravity CLI](https://antigravity.google) (`agy`) or both, GitHub with [`gh`](https://cli.github.com) logged in, Linux or WSL, Python 3.10+ and git. The [Copilot CLI](https://github.com/github/copilot-cli) is optional, as a reviewer.
+You need [herdr](https://herdr.dev) (your session runs in a herdr pane), [Claude Code](https://claude.com/claude-code) or the [Antigravity CLI](https://antigravity.google) (`agy`) or both, GitHub with [`gh`](https://cli.github.com) logged in, Linux or WSL, Python 3.10+ and git. The [Copilot CLI](https://github.com/github/copilot-cli) and [OpenCode](https://opencode.ai) are optional workers (reviewers by default; OpenCode runs on its free models, no account needed, or your own providers).
 
 > [!WARNING]
 > Workers run with `--dangerously-skip-permissions`, so they can run any command on your machine without asking. What holds them: each works only in its own git worktree on a `mesh/<run>/<slug>` branch, Claude planners and reviewers run under a deny list (no edits, no push), while agy has none and its planners are held only by their instructions; and workers are told to push only their own branch and open a PR, never to merge or deploy. Use it on repos and machines where that is acceptable, or set `"skip_permissions": false` in the [config](docs/guide.md#configuration) and answer the prompts yourself.
