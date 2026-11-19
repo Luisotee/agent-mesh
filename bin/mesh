@@ -54,6 +54,7 @@ COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an 
 OPENCODE_FREE = "free"
 OPENCODE_LIMIT_HOLD = 5 * 3600  # seconds an OpenCode model counts as spent when its limit names no reset
 OPENCODE_RATE_HOLD = 10 * 60  # seconds a model OpenCode is still retrying a 429 on counts as spent (a rate limit)
+MODEL_LIMIT_KEEP = 86400  # seconds an ended hold's record (its evidence) is kept in model-limits.json
 # `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
 # Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
@@ -138,11 +139,15 @@ LOGIN_ERROR = "authentication_failed"
 # OpenCode's limits, on its pane while it retries ("Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]",
 # OpenCode Go's "<name> usage limit reached. It will reset in 3 hours …") or a 429 it is still retrying, from its
 # third attempt (a passing rate limit retries away by then). Started as LIMIT_RE is, the Go limit's name as at most
-# four words (`opencode/kimi-k2`, `Kimi K2 (Go)`) and the 429 after at most an error's name (`Error:`,
-# `API Error: 429`), so a line quoting one in a sentence doesn't count.
+# four words (`opencode/kimi-k2`, `Kimi K2 (Go)`; a `:` only inside a `provider/model:tag` token) and the 429
+# after at most an error's name (`Error:`, `API Error: 429`): a bare `429` right before its `[retrying`, or
+# `Too Many Requests` / `Rate limit reached|exceeded` with at most 160 characters to it, so a line quoting one in a
+# sentence doesn't count.
 OPENCODE_LIMIT_RE = re.compile(SCREEN_START + r"(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*"
-                               r"|(?:[\w./:()-]+\s+){0,4}usage limit reached\. It will reset in [^\n]*"
-                               r"|(?P<rate>(?:(?:\w+ ?)?Error:?\s+)?(?:429|Too Many Requests|rate limit)[^\n\[]*?"
+                               r"|(?:(?:[\w./-]+(?::[\w./-]+)?|\(\w[\w ]*\))\s+){0,4}"
+                               r"usage limit reached\. It will reset in [^\n]*"
+                               r"|(?P<rate>(?:(?:\w+ ?)?Error:?\s+)?(?:429(?:\s+Too Many Requests)?\s*"
+                               r"|(?:Too Many Requests|Rate limit (?:reached|exceeded))[^\n\[]{0,160}?)"
                                r"\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]))",
                                re.IGNORECASE | re.MULTILINE)
 # A limit's reset: "reset in", or the free tier's retry (OpenCode waits for its reset); a 429's retry delay says
@@ -878,17 +883,25 @@ class OpenCodeCli(Cli):
         lines = pane_lines(watch.name) if entry.get("view") != "bg" else None
         tail = (lines or [])[-LIMIT_LINES:]
         hit = next((m for m in map(OPENCODE_LIMIT_RE.search, reversed(tail)) if m), None)
-        if hit and session and not opencode_replied_since(session, model, since):
-            hit = None
-        text = hit.group(0) if hit else opencode_limit_error(session, model, since)
-        if text is None:
-            return None
-        rate = bool(hit and hit.group("rate"))
+        if hit and session and opencode_replies(session, model, since) == []:
+            hit = None  # its model hasn't replied since (a failed read, None, keeps it)
+        if hit:
+            text, rate, evidence = hit.group(0), bool(hit.group("rate")), f"pane:{squeeze(hit.group(0))}"
+        else:
+            error = opencode_limit_error(session, model, since)
+            if error is None:
+                return None
+            text, rate, evidence = error
+        # Each poll sees the same evidence again: the first sighting sets the hold, and evidence a hold already
+        # covered (the reply or line it was set from, still there when the hold runs out) never sets another.
         reset = None if rate else OPENCODE_RESET_RE.search(text)
-        # Every poll sees it again: the first sighting sets the hold, so one with no reset text still ends.
-        if not model_limit("opencode", model):
+        record = model_limit_record("opencode", model)
+        if record and record.get("evidence") == evidence:
+            if float(record.get("until") or 0) <= time.time():
+                return None
+        else:
             hold = parse_duration(reset.group(1)) if reset else OPENCODE_RATE_HOLD if rate else OPENCODE_LIMIT_HOLD
-            note_model_limit("opencode", model, text, time.time() + hold)
+            note_model_limit("opencode", model, text, time.time() + hold, evidence)
         return reset.group(1).strip() if reset else ""
 
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
@@ -3897,31 +3910,31 @@ def opencode_session(name: str, run_id: str, cwd: str | None) -> str | None:
     return rows[0][0] if rows else None
 
 
-def opencode_replies(session: str, model: str, since: float) -> list[dict]:
-    """Its replies on `model` (`provider/model`) started after `since` (epoch), newest first."""
+def opencode_replies(session: str, model: str, since: float) -> list[dict] | None:
+    """Its replies on `model` (`provider/model`) started after `since` (epoch), newest first, each with its row's
+    `time_created` (ms) as `_at`; None when the db can't be read."""
     rows = opencode_query("select data, time_created from message where session_id = ? and time_created > ? "
                           "order by time_created desc limit 20", (session, int(since * 1000)))
-    replies = (json_object(data) for data, _ in rows or [])
+    if rows is None:
+        return None
+    replies = ({**json_object(data), "_at": at} for data, at in rows)
     return [m for m in replies if m.get("role") == "assistant"
             and f"{m.get('providerID') or ''}/{m.get('modelID') or ''}" == model]
 
 
-def opencode_replied_since(session: str, model: str, since: float) -> bool:
-    return bool(opencode_replies(session, model, since))
-
-
-def opencode_limit_error(session: str | None, model: str, since: float = 0.0) -> str | None:
-    """The limit its last reply on `model` (`provider/model`) since `since` ended on, as OpenCode stored it once its
-    retries ran out: a 429, or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db
-    can't say. Replies on another model don't count: after `mesh switch` the one before it still ends on its old
-    model's 429."""
-    for message in opencode_replies(session, model, since) if session else []:
+def opencode_limit_error(session: str | None, model: str, since: float = 0.0) -> tuple[str, bool, str] | None:
+    """(its text, whether it is a plain rate limit, the reply's identity) for the limit its last reply on `model`
+    (`provider/model`) since `since` ended on, as OpenCode stored it once its retries ran out: a 429 (a rate limit),
+    or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db can't say. Replies on
+    another model don't count: after `mesh switch` the one before it still ends on its old model's 429."""
+    for message in (opencode_replies(session, model, since) or []) if session else []:
         error = message.get("error") or {}
         detail = error.get("data") or {}
         body = str(detail.get("responseBody") or "")
         text = str(detail.get("message") or error.get("name") or "")
-        if detail.get("statusCode") == 429 or "FreeUsageLimitError" in body or "GoUsageLimitError" in body:
-            return text or "rate limited (429)"
+        spent = "FreeUsageLimitError" in body or "GoUsageLimitError" in body
+        if detail.get("statusCode") == 429 or spent:
+            return text or "rate limited (429)", not spent, f"reply:{message.get('id') or message['_at']}"
         return None  # the newest reply decides
     return None
 
@@ -4030,18 +4043,34 @@ def model_limits_path() -> Path:
     return mesh_home() / "model-limits.json"
 
 
-def note_model_limit(kind: str, model: str, message: str, until: float) -> None:
+def note_model_limit(kind: str, model: str, message: str, until: float, evidence: str | None = None) -> None:
     """Record, machine-wide, that a model is at a limit until `until` (an OpenCode free model: every worker's
-    `mesh switch` and spawn skip it meanwhile)."""
+    `mesh switch` and spawn skip it meanwhile), and the evidence it was seen by (`evidence`: a stored reply's id, or
+    the pane line). A hold only lengthens; a record stays MODEL_LIMIT_KEEP past its end, so the same evidence, still
+    there when it ends, isn't taken for a new limit."""
     with file_lock(mesh_home() / "locks" / "model-limits.lock"):
         try:
             limits = json.loads(model_limits_path().read_text())
         except (OSError, ValueError):
             limits = {}
         now = time.time()
-        limits = {k: v for k, v in limits.items() if isinstance(v, dict) and float(v.get("until") or 0) > now}
-        limits[f"{kind}:{model}"] = {"at": now, "until": until, "message": message[:300]}
+        limits = {k: v for k, v in limits.items()
+                  if isinstance(v, dict) and float(v.get("until") or 0) + MODEL_LIMIT_KEEP > now}
+        old = limits.get(f"{kind}:{model}") or {}
+        if float(old.get("until") or 0) > now:
+            until = max(until, float(old["until"]))
+        limits[f"{kind}:{model}"] = {"at": now, "until": until, "message": message[:300],
+                                     **({"evidence": evidence} if evidence else {})}
         write_atomic(model_limits_path(), json.dumps(limits))
+
+
+def model_limit_record(kind: str, model: str) -> dict | None:
+    """Its newest limit record, expired or not."""
+    try:
+        limit = json.loads(model_limits_path().read_text()).get(f"{kind}:{model}")
+        return limit if isinstance(limit, dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def model_limit(kind: str, model: str) -> dict | None:
