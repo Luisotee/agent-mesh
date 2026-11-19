@@ -2882,6 +2882,22 @@ AGY_PLACEHOLDER = ("\x1b[0m\x1b[38;5;12m> \x1b[0m\x1b[38;5;8mAuto mode: edits & 
                    "\x1b[0m")  # agy 1.5.12's empty box: colour 8, not dim
 
 
+COPILOT_TRUST = """│ Do you trust the files in this folder?                                                │
+│                                                                                       │
+│ ❯ 1. Yes                                                                              │
+│   2. Yes, and remember this folder for future sessions                                │
+│   3. No (Esc)                                                                         │
+│                                                                                       │
+│ ↑/↓ to navigate · enter to select · esc to cancel                                     │
+"""  # Copilot CLI 1.0.114, in a box
+
+
+def test_copilots_boxed_trust_dialog_is_answered_yes(mesh):
+    assert mesh.trust_keys(COPILOT_TRUST) == ["enter"]
+    assert mesh.trust_keys(COPILOT_TRUST.replace("❯ 1. Yes ", "  1. Yes ").replace("  3. No (Esc)", "❯ 3. No (Esc)")) \
+        == ["up", "up", "enter"]
+
+
 def test_ghost_text_is_each_clis_own(mesh):
     assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER), "agy") == ""
     assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER + "\x1b[39m typed"), "agy") == "typed"  # back to the default

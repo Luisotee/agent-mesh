@@ -264,7 +264,8 @@ IDLE_RETIRE = 300  # seconds a worker idle since its `done`/`failed` stays open 
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
 )
-TRUST_OPTION_RE = re.compile(r"^\s*[❯>]?\s*(Yes|No)\b")
+# An option row: inside a box (Copilot draws one: "│ ❯ 1. Yes"), the cursor glyph, a number (Claude's, Copilot's).
+TRUST_OPTION_RE = re.compile(r"^\s*│?\s*([❯>]?)\s*(?:\d\.\s*)?(Yes|No)\b")
 # Startup screens that wait for the user and that mesh never answers: (label, heading, one of its own option or
 # footer lines). Both must show, so text that only quotes a heading (a diff, a CLAUDE.md) doesn't match.
 STARTUP_DIALOGS = (
@@ -2136,13 +2137,13 @@ def pane_probe(pane: str | None, kind: str | None) -> str | None:
 def trust_keys(screen: str) -> list[str] | None:
     """Keys that select "Yes, … trust" in a folder-trust dialog, or None if it isn't one.
 
-    The CLIs differ: agy highlights "Yes" by default, Claude Code highlights "No, exit".
+    The CLIs differ: agy highlights "Yes" by default, Claude Code highlights "No, exit", Copilot "1. Yes" (in a box).
     """
     if not TRUST_PROMPT_RE.search(screen):
         return None
-    options = [line.strip() for line in screen.splitlines() if TRUST_OPTION_RE.match(line)]
-    yes = next((i for i, line in enumerate(options) if line.lstrip("❯> ").startswith("Yes")), None)
-    cursor = next((i for i, line in enumerate(options) if line[0] in "❯>"), None)
+    options = [m for m in map(TRUST_OPTION_RE.match, screen.splitlines()) if m]
+    yes = next((i for i, m in enumerate(options) if m.group(2) == "Yes"), None)
+    cursor = next((i for i, m in enumerate(options) if m.group(1)), None)
     if yes is None or cursor is None:
         return None
     step = "down" if yes > cursor else "up"
