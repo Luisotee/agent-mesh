@@ -363,6 +363,9 @@ class Cli:
     plan_review_user = False  # `--plan-review user`: its own plan mode, approved in its pane
     code_review = False  # its reviewers run a bundled `/code-review` (CODE_REVIEW)
     auto_continue_first = False  # in a pane it continues at a usage limit's reset by itself, before mesh would
+    # How its TUI draws ghost text (a placeholder) in an empty input box, which isn't a human's draft (typed_text):
+    # "dim" (SGR 2) and/or "grey" (foreground colour 8: `38;5;8`, or SGR 90).
+    ghost_styles: tuple[str, ...] = ("dim",)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
     measures_cache = False  # its context size and cache warmth come from one read of its session file
@@ -563,6 +566,8 @@ class ClaudeCli(Cli):
 
 class AgyCli(Cli):
     kind, name, short, processes = "agy", "agy", "agy", ("agy",)
+    # agy 1.5.12's empty box shows "Auto mode: edits & safe commands auto-approved (shif…" in colour 8, not dim.
+    ghost_styles = ("dim", "grey")
     worker_log = records_session_on_send = compacts_unmeasured = True
     compact_leaf, counts_cost, cost_tally, cost_prefix = "compact.agy", True, "agy", "agy "
 
@@ -1986,12 +1991,13 @@ def above_input_box(lines: list[str]) -> list[str]:
     return lines[:at - 1] if at is not None else []
 
 
-def visible_chars(row: str) -> list[tuple[str, bool]]:
-    """Each visible character of an ANSI row, with whether it is drawn dim (SGR 2), as ghost text is."""
-    chars, dim, pos = [], False, 0
+def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str, bool]]:
+    """Each visible character of an ANSI row, with whether it is drawn as ghost text is in `ghost` styles: "dim"
+    (SGR 2) and/or "grey" (foreground colour 8, `38;5;8` or SGR 90)."""
+    chars, dim, grey, pos = [], False, False, 0
     for match in [*SGR_RE.finditer(row), None]:
         end = match.start() if match else len(row)
-        chars.extend((c, dim) for c in row[pos:end])
+        chars.extend((c, (dim and "dim" in ghost) or (grey and "grey" in ghost)) for c in row[pos:end])
         if not match:
             break
         pos = match.end()
@@ -2000,24 +2006,34 @@ def visible_chars(row: str) -> list[tuple[str, bool]]:
         while i < len(params):
             p = params[i]
             if p in (38, 48, 58):  # an extended colour: its index or RGB values aren't attributes
+                if p == 38:
+                    grey = params[i + 1:i + 3] == [5, 8]
                 i += 3 if params[i + 1:i + 2] == [5] else 5 if params[i + 1:i + 2] == [2] else 1
                 continue
-            if p in (0, 22):
+            if p == 0:
+                dim = grey = False
+            elif p == 22:
                 dim = False
             elif p == 2:
                 dim = True
+            elif 30 <= p <= 37 or 91 <= p <= 97 or p == 39:  # another foreground, or the default one
+                grey = False
+            elif p == 90:
+                grey = True
             i += 1
     return chars
 
 
-def typed_text(lines: list[str]) -> str | None:
+def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     """What is typed in the agent's input box, from an ANSI read: "" when it's empty, None when it can't be told.
 
     The input line is the prompt glyph, a space (an NBSP in Claude Code) and the text; a long text wraps onto rows
-    with a gutter, down to the box's closing rule. Dim text is ghost text (Claude's "Try …" placeholder), not
-    typed; any other styling counts as typed (Claude colours a slash command). No box, no closing rule (what
-    follows may be a footer) or an escape other than SGR and OSC in the box: None.
+    with a gutter, down to the box's closing rule. Ghost text in the styles the CLI draws it in (`kind`'s
+    `ghost_styles`: dim for Claude's "Try …" placeholder, colour 8 too for agy's) isn't typed; any other styling
+    counts as typed (Claude colours a slash command). No box, no closing rule (what follows may be a footer) or
+    an escape other than SGR and OSC in the box: None.
     """
+    ghost = cli(kind).ghost_styles if kind in CLIS else ("dim",)
     plain = [strip_sgr(line) for line in lines]
     at = input_box_at(plain)
     if at is None:
@@ -2029,20 +2045,20 @@ def typed_text(lines: list[str]) -> str | None:
         row = OSC_RE.sub("", row)
         if "\x1b" in SGR_RE.sub("", row):
             return None
-        chars = visible_chars(row)
+        chars = visible_chars(row, ghost)
         if not n:
             chars = chars[1:]  # the glyph
         typed.append("".join(c if not dim else " " for c, dim in chars))
     return None
 
 
-def human_draft(lines: list[str] | None) -> bool:
+def human_draft(lines: list[str] | None, kind: str | None = None) -> bool:
     """Whether a pane positively shows a human's draft in its input box; anything unclear isn't one (design §3).
 
     A doorbell left in the box by an earlier try is ours: typing after it fuses two doorbells, which one
     `mesh inbox` answers.
     """
-    text = typed_text(lines) if lines is not None else None
+    text = typed_text(lines, kind) if lines is not None else None
     return bool(text) and not text.startswith(DOORBELL_PREFIX)
 
 
@@ -3678,7 +3694,7 @@ def ring_lock(key: str):
 
 
 def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
-         delays: tuple[int, ...] = RING_DELAYS) -> dict:
+         delays: tuple[int, ...] = RING_DELAYS, kind: str | None = None) -> dict:
     """Type the doorbell into the first reachable target, retrying while it is busy, and say how it got through.
 
     `via` is "working" (herdr saw the agent start), "pane" (the doorbell's token showed up above the input box),
@@ -3706,7 +3722,7 @@ def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
                     before[target] = doorbells_shown(plain, needle)
                 elif before[target] is not None and (doorbells_shown(plain, needle) or 0) > before[target]:
                     return {"rung": True, "error": None, "via": "pane", "tries": tries}  # queued after the last try
-                if human_draft(lines):
+                if human_draft(lines, kind):  # `kind`: the recipient's CLI, whose ghost text isn't a draft
                     last_error = "human_draft"
                     break
                 try:
@@ -3739,7 +3755,8 @@ def ring_stored(run_id: str, sender: str, to: str, targets: list[str], text: str
 
     The event has no `type` field: a ring is never counted as a send.
     """
-    result = ring(targets, text, token, read=read or (path,), delays=delays)
+    kind = (((maybe_run(run_id) or {}).get("agents") or {}).get(to) or {}).get("kind")
+    result = ring(targets, text, token, read=read or (path,), delays=delays, kind=kind)
     if result["rung"]:
         log_event(run_id, "rung", sender=sender, to=to, file=path.name, via=result["via"], tries=result["tries"])
     else:
@@ -6637,7 +6654,7 @@ class Watch:
         idle = time.time() - max(epoch(report.get("time")), progress if progress is not None else self.idle_at or 0)
         if idle < self.idle_retire:
             return
-        if not bg and human_draft(pane_lines(name, ansi=True)):
+        if not bg and human_draft(pane_lines(name, ansi=True), entry.get("kind")):
             return  # the user is typing to it
         why = viewer(name, entry)
         if why:  # the user is looking at it: retired once they leave, if it is still idle
@@ -10938,7 +10955,7 @@ def quiet_box(pane: str, entry: dict | None = None, lost_ok: bool = True) -> tup
     elif status not in QUIET_STATES:
         return False, f"it reads {status}"
     lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
-    typed = typed_text(lines) if lines is not None else None
+    typed = typed_text(lines, (entry or {}).get("kind")) if lines is not None else None
     if typed is None:
         return False, "its input box can't be read"
     if typed:
@@ -11097,7 +11114,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
     token = ring_token()
-    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token)
+    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token, kind=kind)
     if not result["rung"]:
         return failed("reset_failed", f"its session was reset, but the prompt to run `mesh brief` didn't get "
                                       f"through ({result['error']})")

@@ -2878,6 +2878,26 @@ def test_only_a_human_draft_holds_a_doorbell(mesh):
     assert not mesh.human_draft(None)  # unreadable: type
 
 
+AGY_PLACEHOLDER = ("\x1b[0m\x1b[38;5;12m> \x1b[0m\x1b[38;5;8mAuto mode: edits & safe commands auto-approved (shif"
+                   "\x1b[0m")  # agy 1.5.12's empty box: colour 8, not dim
+
+
+def test_ghost_text_is_each_clis_own(mesh):
+    assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER), "agy") == ""
+    assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER + "\x1b[39m typed"), "agy") == "typed"  # back to the default
+    assert mesh.typed_text(agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[90mgrey\x1b[0m"), "agy") == ""  # SGR 90 too
+    # Claude draws its placeholder dim only: colour 8 there is typed text (a coloured command, say).
+    assert mesh.typed_text(claude_pane("❯\xa0\x1b[38;5;8m/model\x1b[0m"), "claude") == "/model"
+    assert not mesh.human_draft(agy_pane(AGY_PLACEHOLDER), "agy")
+    assert mesh.cli("agy").ghost_styles == ("dim", "grey") and mesh.cli("claude").ghost_styles == ("dim",)
+
+
+def test_a_doorbell_rings_past_agys_placeholder(mesh, fake, run):
+    fake.screen("repo-fix-typo", "\n".join(agy_pane(AGY_PLACEHOLDER)))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert fake.called("agent", "prompt")  # an agy worker's empty box isn't a human's draft
+
+
 def test_a_draft_holds_the_doorbell_until_it_is_sent(mesh, fake, run):
     busy_draft = "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[0mbusy draft"))
     fake.screen("repo-fix-typo", busy_draft, busy_draft, "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m>\x1b[0m")))
@@ -5018,7 +5038,7 @@ def test_the_plan_phase_is_recorded_before_the_doorbell_rings(mesh, fake, run, m
     as_worker(monkeypatch, run)
     seen = []
 
-    def ring(targets, text, token, read=(), delays=()):
+    def ring(targets, text, token, read=(), delays=(), kind=None):
         seen.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"])
         return {"rung": True, "error": None, "via": "working", "tries": 1}
 
@@ -9159,7 +9179,7 @@ def test_the_watch_leaves_a_worker_open_unless_it_is_idle_after_a_final_report(m
         until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
         mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md", until=until)
     if case == "draft":
-        monkeypatch.setattr(mesh, "human_draft", lambda lines: True)
+        monkeypatch.setattr(mesh, "human_draft", lambda lines, kind=None: True)
     if case == "starting":
         with mesh.editing_run(run) as data:
             data["agents"]["repo-fix-typo"]["status"] = "starting"
