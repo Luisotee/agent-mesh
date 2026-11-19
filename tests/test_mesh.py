@@ -6040,7 +6040,7 @@ def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, cop
     with_quotas(mesh, monkeypatch, usage or "")
     if usage is None:
         monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)
-    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot, "claude": True}[cmd]
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot, "claude": True}.get(cmd)
                         else None)
     picked, notes = mesh.pick_reviewers(size)
     assert picked == kinds
@@ -10020,7 +10020,8 @@ def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, ru
                                   {"review-7-claude": "1. a.py:1 claude's finding.", "review-7-agy": "Nothing found.",
                                    "review-7-copilot": "1. b.py:2 copilot's finding."})
     capsys.readouterr()
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "all"]) == 0
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers",
+                      "claude,agy,copilot"]) == 0
     out = capsys.readouterr().out
     assert out.startswith(f"3 of 3 reviewers answered: {pr} at {head[:9]}")
     path = mesh.Path(next(line for line in out.splitlines() if line.startswith("answers: ")).removeprefix("answers: "))
@@ -10752,7 +10753,7 @@ def test_mesh_routing_shows_each_value_and_its_source(mesh, monkeypatch, capsys)
     assert re.search(r"^models\.agy\.exec +sonnet  \[config\]$", out, re.M)
     assert re.search(r"^review\.tiny_pr_lines +200  \[config\]$", out, re.M)
     assert re.search(r"^quota_stop +95  \[env MESH_QUOTA_STOP\]$", out, re.M)
-    assert re.search(r"^review\.reviewers\.large +claude \| agy or copilot  \[built-in\]$", out, re.M)
+    assert re.search(r"^review\.reviewers\.large +claude \| agy or copilot or opencode  \[built-in\]$", out, re.M)
     assert "Claude Code missing" in out and "large: agy\n" in out  # agy and Copilot share a slot
     assert mesh.main(["routing", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
