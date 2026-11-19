@@ -129,3 +129,7 @@ def test_opencode_gets_the_block_only_where_it_wouldnt_hide_claude_md(tmp_path):
     other.mkdir()
     assert install(other, clis=("agy", "opencode")).returncode == 0  # no Claude Code: OpenCode's own file
     assert "agent-mesh:begin" in (other / ".config" / "opencode" / "AGENTS.md").read_text()
+    assert install(other, "--uninstall", clis=("agy", "opencode")).returncode == 0
+    assert not (other / ".config" / "opencode" / "AGENTS.md").exists()  # empty, it would still hide CLAUDE.md
+    assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
+    assert rules.read_text().strip() == "# my OpenCode rules"  # the user's own rules stay

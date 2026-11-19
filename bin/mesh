@@ -136,12 +136,18 @@ LOGIN_RE = re.compile(SCREEN_START + f"(?:\\w[^·\\n{QUOTES}]*|API Error: 40[13]
 LOGIN_ERROR = "authentication_failed"
 # OpenCode's limits, on its pane while it retries ("Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]",
 # OpenCode Go's "<name> usage limit reached. It will reset in 3 hours …") or a 429 it is still retrying, from its
-# third attempt (a passing rate limit retries away by then). Started as LIMIT_RE is.
+# third attempt (a passing rate limit retries away by then). Started as LIMIT_RE is, the Go limit's name as at most
+# four words and the 429 after at most an error's name (`API Error: 429`), so a line quoting one in a sentence
+# doesn't count.
 OPENCODE_LIMIT_RE = re.compile(SCREEN_START + r"(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*"
-                               r"|[^\n]*usage limit reached\. It will reset in [^\n]*"
-                               r"|[^\n]*(?:429|Too Many Requests|rate limit)[^\n]*\[retrying[^\]]*attempt #[3-9]\d*\])",
+                               r"|(?:[\w.-]+\s+){0,4}usage limit reached\. It will reset in [^\n]*"
+                               r"|(?P<rate>(?:\w+ ?Error:?\s+)?(?:429|Too Many Requests|rate limit)[^\n\[]{0,60}"
+                               r"\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]))",
                                re.IGNORECASE | re.MULTILINE)
-OPENCODE_RESET_RE = re.compile(r"(?:reset in|retrying in) ((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)", re.IGNORECASE)
+# A limit's reset: "reset in", or the free tier's retry (OpenCode waits for its reset); a 429's retry delay says
+# nothing of when the limit ends.
+OPENCODE_RESET_RE = re.compile(r"(?:reset in|Free (?:usage exceeded|limit reached)[^\n]*retrying in) "
+                               r"((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)", re.IGNORECASE)
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
@@ -385,6 +391,7 @@ class Cli:
     # Its input box: "rules" (a `─` rule above and below a prompt at column 0: Claude, agy) or "gutter" (`┃` rows
     # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text.
     input_box, box_status_rows = "rules", 0
+    reads_drafts = True  # its box was checked live with a draft in it: typed_text reads it (else None: unclear)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
     measures_cache = False  # its context size and cache warmth come from one read of its session file
@@ -706,7 +713,8 @@ class CopilotCli(Cli):
     by `--deny-tool`, no Stop hook (the watch sees its turn ends, as agy's)."""
     kind, name, short, processes = "copilot", "Copilot", "Copilot", ("copilot",)
     enforces_read_only = True
-    input_box = "gutter"  # `╻▄▄` / `┃` / `╹▀▀` (seen on 1.0.114, empty only)
+    input_box = "gutter"  # `╻▄▄` / `┃` / `╹▀▀` (seen on 1.0.114, empty only: where a doorbell shows)
+    reads_drafts = False  # a draft in it wasn't seen live: unclear, so a doorbell is typed as into any unread box
 
     def default_model(self, value: str, source: str) -> str:
         # The old leaf, when set, stands in for every built-in Copilot model (never for one named, nor for a
@@ -861,12 +869,15 @@ class OpenCodeCli(Cli):
         lines = pane_lines(watch.name) if entry.get("view") != "bg" else None
         tail = (lines or [])[-LIMIT_LINES:]
         hit = next((m for m in map(OPENCODE_LIMIT_RE.search, reversed(tail)) if m), None)
-        text = hit.group(0) if hit else opencode_limit_error(watch.conversation(entry))
+        model = entry.get("model") or ""
+        text = hit.group(0) if hit else opencode_limit_error(watch.conversation(entry), model)
         if text is None:
             return None
-        reset = OPENCODE_RESET_RE.search(text)
-        note_model_limit("opencode", entry.get("model") or "", text,
-                         time.time() + (parse_duration(reset.group(1)) if reset else OPENCODE_LIMIT_HOLD))
+        reset = None if hit and hit.group("rate") else OPENCODE_RESET_RE.search(text)
+        # Every poll sees it again: the first sighting sets the hold, so one with no reset text still ends.
+        if not model_limit("opencode", model):
+            note_model_limit("opencode", model, text,
+                             time.time() + (parse_duration(reset.group(1)) if reset else OPENCODE_LIMIT_HOLD))
         return reset.group(1).strip() if reset else ""
 
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
@@ -2173,7 +2184,7 @@ def above_input_box(lines: list[str]) -> list[str]:
 def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str, bool]]:
     """Each visible character of an ANSI row, with whether it is drawn as ghost text is in `ghost` styles: "dim"
     (SGR 2), "grey" (foreground colour 8, `38;5;8` or SGR 90) and/or "rgb-grey" (a true-colour grey foreground,
-    `38;2;128;128;128` as OpenCode draws its placeholder)."""
+    `38;2;128;128;128` as OpenCode draws its placeholder, or a near-grey of mid luminance a theme may use)."""
     chars, dim, grey, pos = [], False, False, 0
     for match in [*SGR_RE.finditer(row), None]:
         end = match.start() if match else len(row)
@@ -2190,7 +2201,8 @@ def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str
                 if p == 38:
                     rgb = params[i + 2:i + 5] if params[i + 1:i + 2] == [2] else []
                     grey = params[i + 1:i + 3] == [5, 8] or (
-                        "rgb-grey" in ghost and len(rgb) == 3 and len(set(rgb)) == 1 and 96 <= rgb[0] <= 160)
+                        "rgb-grey" in ghost and len(rgb) == 3 and max(rgb) - min(rgb) <= 24
+                        and 96 <= sum(rgb) / 3 <= 160)
                 i += 3 if params[i + 1:i + 2] == [5] else 5 if params[i + 1:i + 2] == [2] else 1
                 continue
             if p == 0:
@@ -2217,6 +2229,8 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     an escape other than SGR and OSC in the box: None.
     """
     ghost = cli(kind).ghost_styles if kind in CLIS else ("dim",)
+    if kind in CLIS and not CLIS[kind].reads_drafts:
+        return None
     if kind in CLIS and CLIS[kind].input_box == "gutter":
         return gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
     plain = [strip_sgr(line) for line in lines]
@@ -3872,14 +3886,16 @@ def opencode_session(name: str, run_id: str, cwd: str | None) -> str | None:
     return rows[0][0] if rows else None
 
 
-def opencode_limit_error(session: str | None) -> str | None:
-    """The limit its last reply ended on, as OpenCode stored it once its retries ran out: a 429, or its free tier's
-    or OpenCode Go's limit error. None when the last reply was fine, or the db can't say."""
-    rows = opencode_query("select data from message where session_id = ? order by time_created desc limit 5",
+def opencode_limit_error(session: str | None, model: str) -> str | None:
+    """The limit its last reply on `model` (`provider/model`) ended on, as OpenCode stored it once its retries ran
+    out: a 429, or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db can't say.
+    Replies on another model don't count: after `mesh switch` the one before it still ends on its old model's 429."""
+    rows = opencode_query("select data from message where session_id = ? order by time_created desc limit 20",
                           (session,)) if session else None
     for (data,) in rows or []:
         message = json_object(data)
-        if message.get("role") != "assistant":
+        if message.get("role") != "assistant" or (
+                f"{message.get('providerID') or ''}/{message.get('modelID') or ''}" != model):
             continue
         error = message.get("error") or {}
         detail = error.get("data") or {}
@@ -8812,7 +8828,8 @@ def cmd_open(args: argparse.Namespace) -> int:
             if recreated and not peer else "")
     print(f"mesh: opening {name} from run {run['id']} ({entry['kind']} {model}) in {entry['cwd']}"
           f" on {branch or 'its checkout'}{note}", file=sys.stderr)
-    env = {k: v for k, v in os.environ.items() if not k.startswith("MESH_")}
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("MESH_")},
+           **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort})}
     os.chdir(entry["cwd"])
     os.execvpe(argv[0], argv, env)
     return 0  # not reached

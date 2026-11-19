@@ -128,6 +128,10 @@ if [[ "$UNINSTALL" == 1 ]]; then
     for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
   for file in "${RULE_FILES[@]}" "${WORKER_RULE_FILES[@]}" "$OPENCODE_RULES"; do set_block "$file" 0; done
+  # An OpenCode file left with nothing but the block would, empty, still hide ~/.claude/CLAUDE.md from OpenCode.
+  if [[ -f "$OPENCODE_RULES" ]] && ! grep -q '[^[:space:]]' "$OPENCODE_RULES"; then
+    rm -f "$OPENCODE_RULES" && echo "removed $OPENCODE_RULES (only the block was in it)"
+  fi
   if command -v herdr >/dev/null && herdr plugin list 2>/dev/null | grep -qF "$PLUGIN_ID"; then
     herdr plugin unlink "$PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $PLUGIN_ID"
   fi
