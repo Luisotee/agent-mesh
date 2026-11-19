@@ -2878,6 +2878,42 @@ def test_only_a_human_draft_holds_a_doorbell(mesh):
     assert not mesh.human_draft(None)  # unreadable: type
 
 
+AGY_PLACEHOLDER = ("\x1b[0m\x1b[38;5;12m> \x1b[0m\x1b[38;5;8mAuto mode: edits & safe commands auto-approved (shif"
+                   "\x1b[0m")  # agy 1.5.12's empty box: colour 8, not dim
+
+
+COPILOT_TRUST = """│ Do you trust the files in this folder?                                                │
+│                                                                                       │
+│ ❯ 1. Yes                                                                              │
+│   2. Yes, and remember this folder for future sessions                                │
+│   3. No (Esc)                                                                         │
+│                                                                                       │
+│ ↑/↓ to navigate · enter to select · esc to cancel                                     │
+"""  # Copilot CLI 1.0.114, in a box
+
+
+def test_copilots_boxed_trust_dialog_is_answered_yes(mesh):
+    assert mesh.trust_keys(COPILOT_TRUST) == ["enter"]
+    assert mesh.trust_keys(COPILOT_TRUST.replace("❯ 1. Yes ", "  1. Yes ").replace("  3. No (Esc)", "❯ 3. No (Esc)")) \
+        == ["up", "up", "enter"]
+
+
+def test_ghost_text_is_each_clis_own(mesh):
+    assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER), "agy") == ""
+    assert mesh.typed_text(agy_pane(AGY_PLACEHOLDER + "\x1b[39m typed"), "agy") == "typed"  # back to the default
+    assert mesh.typed_text(agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[90mgrey\x1b[0m"), "agy") == ""  # SGR 90 too
+    # Claude draws its placeholder dim only: colour 8 there is typed text (a coloured command, say).
+    assert mesh.typed_text(claude_pane("❯\xa0\x1b[38;5;8m/model\x1b[0m"), "claude") == "/model"
+    assert not mesh.human_draft(agy_pane(AGY_PLACEHOLDER), "agy")
+    assert mesh.cli("agy").ghost_styles == ("dim", "grey") and mesh.cli("claude").ghost_styles == ("dim",)
+
+
+def test_a_doorbell_rings_past_agys_placeholder(mesh, fake, run):
+    fake.screen("repo-fix-typo", "\n".join(agy_pane(AGY_PLACEHOLDER)))
+    assert mesh.main(["send", "repo-fix-typo", "--type", "info", "--body", "hi"]) == 0
+    assert fake.called("agent", "prompt")  # an agy worker's empty box isn't a human's draft
+
+
 def test_a_draft_holds_the_doorbell_until_it_is_sent(mesh, fake, run):
     busy_draft = "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m> \x1b[0mbusy draft"))
     fake.screen("repo-fix-typo", busy_draft, busy_draft, "\n".join(agy_pane("\x1b[0m\x1b[38;5;12m>\x1b[0m")))
@@ -3842,7 +3878,7 @@ def test_process_holder_matches_the_worktree_or_the_session(mesh, tmp_path):
     assert mesh.live_holder("w", shared, agents=[], procs=procs) is None
     procs.append({"pid": 4, "argv": ["claude", "--resume", "s1"], "cwd": str(repo)})
     assert mesh.live_holder("w", shared, agents=[], procs=procs)["process"] == 4
-    # a Copilot asker holds its session through its pid claim, never through some process in its worktree
+    # only a process of the worker's own CLI holds it: these claude ones don't hold a Copilot worker's session
     assert mesh.live_holder("w", {**entry, "kind": "copilot"}, agents=[], procs=procs) is None
 
 
@@ -5018,7 +5054,7 @@ def test_the_plan_phase_is_recorded_before_the_doorbell_rings(mesh, fake, run, m
     as_worker(monkeypatch, run)
     seen = []
 
-    def ring(targets, text, token, read=(), delays=()):
+    def ring(targets, text, token, read=(), delays=(), kind=None):
         seen.append(mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"])
         return {"rung": True, "error": None, "via": "working", "tries": 1}
 
@@ -7602,7 +7638,7 @@ def test_a_failed_or_dead_stop_no_longer_holds_off_alerts(mesh, run):
 
 
 def test_a_stop_that_fails_midway_says_so(mesh, fake, run, monkeypatch, capsys):
-    monkeypatch.setattr(mesh, "file_orphans", lambda *_: (_ for _ in ()).throw(mesh.MeshError("disk full")))
+    monkeypatch.setattr(mesh, "sweep_worktrees", lambda *_: (_ for _ in ()).throw(mesh.MeshError("disk full")))
     assert mesh.main(["stop"]) == 1
     assert [e["event"] for e in mesh.read_log(run)][-2:] == ["stopping", "stop_failed"]
     assert not mesh.stop_under_way(mesh.read_log(run))
@@ -7897,363 +7933,10 @@ def test_brief_says_a_running_any_watch_takes_on_an_unwatched_worker(mesh, fake,
         handle.close()
 
 
-def copilot_jsonl(text, model="gpt-5.6-luna"):
-    """What `copilot -p --output-format json` prints: a tool turn with no text, then the answer."""
-    events = [{"type": "session.auto_mode_resolved", "data": {"chosenModel": model}},
-              {"type": "assistant.message", "data": {"model": model, "content": "", "toolRequests": [{"name": "bash"}]}},
-              {"type": "assistant.message", "data": {"model": model, "content": text}},
-              {"type": "result", "sessionId": "s", "exitCode": 0}]
-    return "".join(json.dumps(e) + "\n" for e in events)
-
-
-def test_ask_copilot_reviews_headless_and_resumes_for_a_follow_up(mesh, fake, cli, run, repo, tmp_path, capsys):
-    head = pr_origin(tmp_path, repo)
-    pr = "https://github.com/acme/proj/pull/7"
-    cli.on("--output-format", stdout=copilot_jsonl("1. x.py:3 crashes on empty input."))
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--kind", "copilot"]) == 0
-    captured = capsys.readouterr()
-    assert "── done from proj-review-7-copilot ──\n1. x.py:3 crashes" in captured.out and "apply" not in captured.err
-    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
-    assert (entry["kind"], entry["view"], entry["status"], entry["model"], entry["reviews"], entry["base"]) == (
-        "copilot", "headless", "retired", "gpt-5.6-luna", [pr], head)
-    [call] = cli.called("--output-format")
-    argv = call["argv"]
-    assert "-p" not in argv  # the prompt goes on stdin, since a diff can outgrow one argument
-    assert call["input"].startswith(f"Review (read-only) of {pr} at {head}:") and "checked out in your worktree" in call["input"]
-    assert entry["review_heads"] == {pr: head}
-    assert call["input"].endswith(mesh.COPILOT_NOTE) and "/code-review" not in call["input"]
-    assert call["cwd"] == entry["cwd"] and "MESH_RUN" not in call["env"] and "pid" not in entry
-    denied = argv[argv.index("--deny-tool") + 1: argv.index("--no-ask-user")]
-    assert denied[0] == "write" and "shell(git push:*)" in denied and "shell(gh pr comment:*)" in denied
-    assert argv[argv.index("--session-id") + 1] == entry["session"]
-    assert argv[argv.index("--model") + 1] == "auto" and "--auto-tier" in argv and "--reasoning-effort" not in argv
-    assert not fake.called("agent", "start") and not mesh.unread(run, "proj-review-7-copilot")
-
-    cli.on("--output-format", stdout=copilot_jsonl("Because the list can be empty."))
-    assert mesh.main(["ask", "proj-review-7-copilot", "--body", "Why?"]) == 0
-    assert "Because the list can be empty." in capsys.readouterr().out
-    follow = cli.called("--output-format")[-1]
-    # The same --session-id resumes the session it started.
-    assert follow["argv"][follow["argv"].index("--session-id") + 1] == entry["session"]
-    assert "--resume" not in follow["argv"] and follow["cwd"] == entry["cwd"]
-
-
-def test_ask_copilot_reports_a_failed_run(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", returncode=1, stderr='Error: Model "gpt-x" from --model flag is not available.\n')
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--model", "gpt-x", "--size", "large",
-                      "--body", "Where is auth?"]) == 1
-    out = capsys.readouterr().out
-    assert "── failed from proj-ask-auth ──" in out and "not available" in out
-    argv = cli.called("--output-format")[0]["argv"]
-    assert argv[argv.index("--reasoning-effort") + 1] == "high" and "--auto-tier" not in argv
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert (entry["status"], "pid" in entry) == ("retired", False)
-
-    cli.on("--output-format", stdout="")  # exit 0, nothing said
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "Again?"]) == 1
-    assert "copilot gave no answer (exit 0)" in capsys.readouterr().out
-
-
-def test_a_copilot_ask_starts_its_run_in_the_roots_own_mode(mesh, fake, cli, repo, monkeypatch, capsys):
-    monkeypatch.setenv("HERDR_ENV", "1")
-    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-    fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    run_id = capsys.readouterr().err.split("started run ")[1].split()[0]
-    assert mesh.load_run(run_id)["mode"] == "claude"
-
-
-def test_copilot_askers_only_answer_and_stop_leaves_them_be(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    cwd = mesh.load_run(run)["agents"]["proj-ask-auth"]["cwd"]
-    with pytest.raises(SystemExit):
-        mesh.main(["spawn", "--kind", "copilot", "--repo", str(repo)])
-    capsys.readouterr()
-    assert mesh.main(["resume", "proj-ask-auth", "--task", "Fix it."]) == 1
-    assert "only answers" in capsys.readouterr().err
-    assert mesh.resume_argv("copilot", "s1", "auto", "medium") == ["--resume", "s1", "--model", "auto",
-                                                                   "--auto-tier", "intelligence"]
-    assert mesh.main(["stop"]) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert "proj-ask-auth" not in out["closed"] and cwd in [w["path"] for w in out["worktrees_removed"]]
-
-
-def test_run_cli_turns_a_launch_error_into_a_failed_run(monkeypatch):
-    module = load_mesh()  # the real run_cli; the `mesh` fixture replaces it with FakeCli
-
-    def too_long(*args, **kwargs):
-        raise OSError(7, "Argument list too long")
-    monkeypatch.setattr(module.subprocess, "Popen", too_long)
-    result = module.run_cli(["copilot", "x"])
-    assert result.returncode == 126 and "Argument list too long" in result.stderr
-
-
-def test_copilot_answer_skips_lines_that_are_not_events(mesh):
-    out = '[1, 2]\n"x"\n3\nnot json\n' + copilot_jsonl("Fine.")
-    assert mesh.turn_answer(mesh.json_events(out.splitlines())) == ("Fine.", "gpt-5.6-luna")
-
-
-def test_a_busy_copilot_asker_is_not_asked_or_opened_twice(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
-    capsys.readouterr()
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
-    assert mesh.main(["open", "proj-ask-auth"]) == 1
-    assert capsys.readouterr().err.count("still answering in mesh process") == 2
-    assert len(cli.called("--output-format")) == 1
-
-    with mesh.editing_run(run) as data:  # a `running` left by a killed `mesh ask`
-        data["agents"]["proj-ask-auth"]["pid"] = 2 ** 22 + 7
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
-    assert len(cli.called("--output-format")) == 2
-
-
-def test_only_mesh_ask_reaches_a_copilot_asker(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    before = len(list(mesh.inbox_dir(run, "proj-ask-auth").rglob("*.md")))
-    capsys.readouterr()
-    for argv in (["send", "proj-ask-auth", "--type", "task", "--body", "Fix it."], ["ring", "proj-ask-auth"],
-                 ["switch", "proj-ask-auth", "--model", "auto"], ["approve", "proj-ask-auth"]):
-        assert mesh.main(argv) == 1, argv
-        assert "headless Copilot asker" in capsys.readouterr().err
-    assert len(list(mesh.inbox_dir(run, "proj-ask-auth").rglob("*.md"))) == before
-    assert not fake.called("pane", "close")
-
-
-def test_a_copilot_asker_counts_as_working_until_its_answer_is_filed(mesh, fake, cli, run, repo, capsys):
-    seen = []
-
-    def during(argv):
-        entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-        seen.append((mesh.agent_status("proj-ask-auth", entry), entry["pid"]))
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=during)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    assert seen == [("working", os.getpid())]
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert mesh.agent_status("proj-ask-auth", entry) == "gone"
-    # The `done` was filed before the entry stopped counting as working, so a watch on it ends with the report.
-    events = [e["event"] for e in mesh.read_log(run) if e.get("name") == "proj-ask-auth" or e.get("sender") == "proj-ask-auth"]
-    assert events[-1] == "send"
-
-
-def test_stop_waits_for_a_copilot_asker_that_is_answering(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    cwd = mesh.load_run(run)["agents"]["proj-ask-auth"]["cwd"]
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
-    capsys.readouterr()
-    assert mesh.main(["stop"]) == 1
-    assert "still answering in mesh process" in capsys.readouterr().err
-    assert mesh.run_dir(run).exists() and Path(cwd).exists()
-    with mesh.editing_run(run) as data:  # its `mesh ask` was killed: stale, and its peek pane left open
-        data["agents"]["proj-ask-auth"].update(pid=2 ** 22 + 7, pane="w1:p7")
-    assert mesh.main(["stop"]) == 0 and not Path(cwd).exists()
-    assert fake.called("pane", "close", "w1:p7")
-
-
-def test_a_copilot_left_by_a_killed_ask_keeps_its_asker_busy(mesh, fake, cli, run, repo, capsys):
-    seen = []
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."),
-           effect=lambda argv: seen.append(dict(mesh.load_run(run)["agents"]["proj-ask-auth"])))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    assert (seen[0]["pid"], seen[0]["copilot_pid"]) == (os.getpid(), cli.pid)  # recorded while copilot runs
-    assert seen[0]["pid_start"] == mesh.proc_start(os.getpid())
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert not any(key in entry for key in mesh.PROCESS_KEYS)
-
-    me = os.getpid()  # stands in for the orphaned copilot: alive, though its `mesh ask` is gone
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"].update(status="running", pid=2 ** 22 + 7, copilot_pid=me,
-                                               copilot_pid_start=mesh.proc_start(me))
-    capsys.readouterr()
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
-    assert mesh.main(["stop"]) == 1
-    err = capsys.readouterr().err
-    assert err.count(f"still answering in copilot process {me}") == 2 and f"kill -- -{me}" in err
-    assert len(cli.called("--output-format")) == 1
-
-    with mesh.editing_run(run) as data:  # a later process at the same pid isn't that copilot
-        data["agents"]["proj-ask-auth"]["copilot_pid_start"] = "1"
-    assert mesh.agent_status("proj-ask-auth", mesh.load_run(run)["agents"]["proj-ask-auth"]) == "gone"
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
-
-
-def copilot_turn_events(task, answer="", shutdown=True, model="gpt-5.6-luna", content=None):
-    """One ask as Copilot writes it to its session's events.jsonl: the prompt, a tool turn, the answer, the exit."""
-    events = [{"type": "session.resume", "data": {}},
-              {"type": "user.message", "data": {"content": content or f"{task}\n\nYou are not in an agent-mesh session"}},
-              {"type": "assistant.message", "data": {"model": model, "content": "", "toolRequests": [{"name": "bash"}]}}]
-    if answer:
-        events.append({"type": "assistant.message", "data": {"model": model, "content": answer, "phase": "final_answer"}})
-    if shutdown:
-        events.append({"type": "session.shutdown", "data": {"shutdownType": "routine"}})
-    return events
-
-
 def write_events(path, events):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as f:
         f.writelines(json.dumps(e) + "\n" for e in events)
-
-
-def orphan_copilot(mesh, run, name, task, events, copilot_pid=2 ** 22 + 8, before=()):
-    """`name` as a SIGKILLed `mesh ask` leaves it: claimed after its session holds `before`, `task` recorded and
-    unanswered, the entry `running`, and its copilot (dead unless `copilot_pid` says otherwise) having written
-    `events` to its session since."""
-    write_events(mesh.copilot_events(mesh.load_run(run)["agents"][name]), before)
-    with mesh.editing_run(run) as data:
-        mesh.claim_copilot(data["agents"][name])
-        data["agents"][name].update(pid=2 ** 22 + 7, pid_start=None, copilot_pid=copilot_pid,
-                                    copilot_pid_start=mesh.proc_start(copilot_pid))
-    root = mesh.load_run(run)["root"]
-    mesh.mark_read(mesh.record(run, root, name, "task", task))
-    write_events(Path(mesh.load_run(run)["agents"][name]["events"]), events)
-
-
-def sends_of(mesh, run, name, mtype="done"):
-    return [mesh.message_body(run, e).strip() for e in mesh.read_log(run)
-            if e.get("event") == "send" and e.get("sender") == name and e.get("type") == mtype]
-
-
-def test_the_answer_of_a_copilot_left_by_a_killed_ask_is_filed_once(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?",
-                   copilot_turn_events("And sessions?", "In sessions.py.", model="gpt-9"))
-    capsys.readouterr()
-    # `mesh status` derives, never files: it says the answer waits.
-    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})  # repo-fix-typo's pane
-    assert mesh.main(["status", "--json"]) == 0
-    row = next(r for r in json.loads(capsys.readouterr().out)["agents"] if r["name"] == "proj-ask-auth")
-    assert row["waiting"] == "report waiting: `mesh inbox` files it" and row["needs"] == "root"
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py."]
-    # A watch on it files it and ends with the report instead of taking it for gone.
-    assert mesh.watch_agent(run, "proj-ask-auth", interval=0.01) == (
-        0, "proj-ask-auth reported done: read it with `mesh inbox`")
-    assert "filed proj-ask-auth's `done`" in capsys.readouterr().err
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert entry["status"] == "retired" and entry["model"] == "gpt-9"
-    assert not any(key in entry for key in mesh.CLAIM_KEYS)
-    # Whoever comes next finds nothing left to file.
-    assert mesh.file_orphan(run, "proj-ask-auth") is None and mesh.main(["inbox"]) == 0
-    assert "In sessions.py." in capsys.readouterr().out
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
-    assert [e["type"] for e in mesh.read_log(run) if e["event"] == "copilot_filed"] == ["done"]
-
-
-def test_the_roots_inbox_and_the_next_ask_file_an_orphaned_copilot_answer(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."))
-    capsys.readouterr()
-    assert mesh.main(["inbox", "--peek"]) == 0  # a peek changes nothing
-    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "running"
-    assert mesh.main(["inbox"]) == 0
-    assert "In sessions.py." in capsys.readouterr().out
-
-    orphan_copilot(mesh, run, "proj-ask-auth", "And tokens?", copilot_turn_events("And tokens?", "In tokens.py."))
-    cli.on("--output-format", stdout=copilot_jsonl("In cookies.py."))
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And cookies?"]) == 0
-    captured = capsys.readouterr()
-    assert "filed proj-ask-auth's `done`" in captured.err and "── done from proj-ask-auth ──\nIn cookies.py." in captured.out
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py.", "In tokens.py.", "In cookies.py."]
-
-
-@pytest.mark.parametrize("before, events, failure", [
-    ([], copilot_turn_events("And sessions?", "In sessions.py.", shutdown=False), "stopped before it finished answering"),
-    ([], copilot_turn_events("And sessions?", shutdown=True), "gave no answer"),
-    ([], copilot_turn_events("Where is auth?", "In auth.py."), "never got the task"),  # another question only
-    ([], [], "never got the task"),
-    # The same question asked and answered before this ask's claim: not this ask's answer.
-    (copilot_turn_events("And sessions?", "In sessions.py."), [{"type": "session.resume", "data": {}}],
-     "never got the task"),
-    # ...nor when another ask followed it, whose answer isn't this ask's either.
-    (copilot_turn_events("And sessions?", "In sessions.py.") + copilot_turn_events("And tokens?", "In tokens.py."), [],
-     "never got the task"),
-])
-def test_an_orphaned_copilot_that_did_not_answer_files_failed(mesh, fake, cli, run, repo, before, events, failure):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", events, before=before)
-    assert mesh.file_orphan(run, "proj-ask-auth") == "failed"
-    assert failure in sends_of(mesh, run, "proj-ask-auth", "failed")[0]
-    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "retired"
-
-
-def test_an_orphaned_copilot_is_filed_only_once_dead_and_only_when_owed(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    # Still answering: busy as before, nothing filed.
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."),
-                   copilot_pid=os.getpid())
-    assert mesh.file_orphan(run, "proj-ask-auth") is None and mesh.main(["inbox"]) == 0
-    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "running"
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py."]
-    # Its `mesh ask` died after filing the answer: only released.
-    mesh.record(run, "proj-ask-auth", mesh.load_run(run)["root"], "done", "In sessions.py.")
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"]["copilot_pid_start"] = "1"
-    assert mesh.file_orphan(run, "proj-ask-auth") is None
-    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["status"] == "retired"
-    assert sends_of(mesh, run, "proj-ask-auth") == ["In auth.py.", "In sessions.py."]
-
-
-def test_an_orphaned_copilot_answer_is_read_where_its_ask_had_copilot_write_it(mesh, fake, cli, run, repo,
-                                                                               tmp_path, monkeypatch):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?",
-                   copilot_turn_events("And sessions?", "In sessions.py.")
-                   + [{"type": "session.resume", "data": {}},  # past its end: not part of the turn
-                      {"type": "assistant.message", "data": {"content": "Something later."}}])
-    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "elsewhere"))  # the root's inbox, run from another shell
-    assert mesh.file_orphan(run, "proj-ask-auth") == "done"
-    assert sends_of(mesh, run, "proj-ask-auth")[-1] == "In sessions.py."
-
-
-def test_looking_for_an_orphan_takes_no_lock_while_there_is_none(mesh, fake, cli, run, repo, monkeypatch):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    saves = []
-    save_run = mesh.save_run
-    monkeypatch.setattr(mesh, "save_run", lambda *a: (saves.append(a), save_run(*a)))
-    watch = mesh.Watch(run, "proj-ask-auth", grace=60)
-    watch.tick(0.01)  # retired
-    assert saves == []
-    with mesh.editing_run(run) as data:  # answering
-        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid(), pid_start=mesh.proc_start(os.getpid()))
-    saves.clear()
-    watch.tick(0.01)
-    assert mesh.file_orphan(run, "proj-ask-auth") is None and saves == []
-
-
-def test_an_interrupted_copilot_ask_files_failed_and_releases_its_asker(mesh, fake, cli, run, repo, capsys):
-    def interrupted(argv):
-        raise KeyboardInterrupt
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=interrupted)
-    with pytest.raises(KeyboardInterrupt):
-        mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"])
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert entry["status"] == "retired" and not any(key in entry for key in mesh.CLAIM_KEYS)
-    assert sends_of(mesh, run, "proj-ask-auth", "failed") == [
-        "interrupted: its `mesh ask` was stopped before copilot answered"]
-    assert mesh.file_orphan(run, "proj-ask-auth") is None
-
-
-def test_stop_files_an_orphaned_copilot_answer_into_the_archived_run(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    orphan_copilot(mesh, run, "proj-ask-auth", "And sessions?", copilot_turn_events("And sessions?", "In sessions.py."))
-    assert mesh.main(["stop"]) == 0
-    archive = mesh.mesh_home() / "archive" / run
-    assert any("In sessions.py." in p.read_text() for p in archive.rglob("*-proj-ask-auth-done.md"))
 
 
 def test_pid_alive_tells_a_reused_pid_from_the_process_recorded(mesh):
@@ -8264,149 +7947,22 @@ def test_pid_alive_tells_a_reused_pid_from_the_process_recorded(mesh):
     assert not mesh.pid_alive(2 ** 22 + 7) and not mesh.pid_alive(None)
 
 
-def test_run_cli_starts_a_recorded_cli_in_its_own_session_and_kills_its_group():
-    module = load_mesh()  # the real run_cli
-    sessions = []
-    result = module.run_cli(["sh", "-c", "cat"], input="hi", started=lambda pid: sessions.append((pid, os.getsid(pid))))
-    assert result.stdout == "hi" and sessions[0][0] == sessions[0][1]
-    started = []
-    result = module.run_cli(["sh", "-c", "sleep 30 & wait"], timeout=0.5, started=started.append)
-    assert result.returncode == 124 and group_gone(started[0])  # its `sleep` went with it
+def test_run_cli_turns_a_launch_error_into_a_failed_run(monkeypatch):
+    module = load_mesh()  # the real run_cli; the `mesh` fixture replaces it with FakeCli
 
-
-def group_gone(pgid, within=3.0):
-    """Whether process group `pgid` empties within a few seconds; zombies (not reaped yet) don't count."""
-    import time
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(pgid, 0)
-        except ProcessLookupError:
-            return True
-        live = []
-        for stat in Path("/proc").glob("[0-9]*/stat"):
-            try:
-                fields = stat.read_text().rsplit(")", 1)[1].split()
-            except (OSError, IndexError):
-                continue
-            if fields[2] == str(pgid) and fields[0] != "Z":
-                live.append(stat)
-        if Path("/proc/self").exists() and not live:
-            return True
-        time.sleep(0.05)
-    return False
+    def too_long(*args, **kwargs):
+        raise OSError(7, "Argument list too long")
+    monkeypatch.setattr(module.subprocess, "Popen", too_long)
+    result = module.run_cli(["claude", "-p", "x"])
+    assert result.returncode == 126 and "Argument list too long" in result.stderr
 
 
 def test_run_cli_timeout_does_not_wait_for_a_grandchild_holding_its_pipes():
     import time
     module = load_mesh()
-    for started in (None, lambda pid: None):  # `setsid`: out of the group a recorded CLI's kill reaches
-        begun = time.monotonic()
-        result = module.run_cli(["sh", "-c", "setsid sleep 5 & sleep 5"], timeout=1, started=started)
-        assert result.returncode == 124 and time.monotonic() - begun < 3
-
-
-def test_a_sigterm_to_mesh_ask_takes_its_copilot_group_with_it():
-    import signal
-    module = load_mesh()
-    before = signal.getsignal(signal.SIGTERM)
-    started = []
-
-    def record_and_get_killed(pid):
-        started.append(pid)
-        os.kill(os.getpid(), signal.SIGTERM)  # someone kills `mesh ask` while copilot answers
-    with pytest.raises(SystemExit) as exc:
-        with module.signals_raise(signal.SIGTERM, signal.SIGHUP):
-            module.run_cli(["sh", "-c", "sleep 30 & wait"], started=record_and_get_killed)
-    assert exc.value.code == 128 + signal.SIGTERM and group_gone(started[0])
-    assert signal.getsignal(signal.SIGTERM) == before
-
-
-def test_peek_shows_what_a_copilot_asker_is_doing(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    session = mesh.load_run(run)["agents"]["proj-ask-auth"]["session"]
-    capsys.readouterr()
-    assert mesh.main(["peek", "proj-ask-auth"]) == 1
-    assert "no Copilot session yet" in capsys.readouterr().err
-    events = tmp_path / "copilot" / "session-state" / session / "events.jsonl"
-    events.parent.mkdir(parents=True)
-    events.write_text("".join(json.dumps(e) + "\n" for e in [
-        {"type": "tool.execution_start", "timestamp": "2026-10-25T06:35:16.000Z",
-         "data": {"toolName": "bash", "arguments": {"command": "uvx pytest -q", "description": "Run the tests"}}},
-        {"type": "tool.execution_start", "timestamp": "2026-10-25T06:35:20.000Z",
-         "data": {"toolName": "view", "arguments": {"path": "/wt/bin/mesh"}}},
-        {"type": "assistant.message", "timestamp": "2026-10-25T06:35:49.000Z", "data": {"content": "done\n\n1. x"}},
-        [1, 2],
-    ]) + '{"type": "assistant.mess')  # a line Copilot is still writing
-    assert mesh.main(["peek", "proj-ask-auth", "--lines", "2"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["06:35:20 view: /wt/bin/mesh", "06:35:49 says: done"]
-    assert mesh.main(["peek", "proj-ask-auth", "--follow"]) == 0  # it isn't answering, so --follow ends at once
-    assert "is not answering now" in capsys.readouterr().out
-    assert mesh.main(["peek", "repo-fix-typo"]) == 1
-    assert "herdr agent read repo-fix-typo" in capsys.readouterr().err
-
-
-def test_a_copilot_asker_gets_a_peek_pane_beside_the_root_while_it_answers(mesh, fake, cli, run, repo, monkeypatch,
-                                                                         capsys):
-    monkeypatch.setenv("MESH_SIDE_PANES", "2")
-    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
-    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
-    seen = []
-
-    def during(argv):
-        seen.append((mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"], bool(fake.called("pane", "close"))))
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."), effect=during)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    assert "follow it in pane w1:p2" in capsys.readouterr().err
-    assert seen == [("w1:p2", False)]  # open while it answers
-    [ran] = fake.called("pane", "run")
-    assert ran == ("pane", "run", "w1:p2", "mesh peek proj-ask-auth --from-run mtest --follow")
-    assert fake.called("pane", "split")[-1][2] == "w1:p1" and fake.called("pane", "rename", "w1:p2")
-    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
-    assert fake.called("pane", "close", "w1:p2") and (entry["pane"], entry["tab"]) == (None, None)
-
-    # herdr refuses the command: the split is closed again and the hint is the way to follow it
-    fake.on("pane", "run", error="pane_not_found")
-    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 0
-    assert "follow it with `mesh peek proj-ask-auth --follow`" in capsys.readouterr().err
-    assert fake.called("pane", "close", "w1:p3")
-
-    # no room beside the root: no pane anywhere else
-    monkeypatch.setenv("MESH_SIDE_PANES", "0")
-    splits = len(fake.called("pane", "split"))
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
-    assert len(fake.called("pane", "split")) == splits and not fake.called("tab", "create")
-
-
-def test_a_peek_pane_is_closed_when_copilot_fails_and_a_stale_one_when_it_is_asked_again(mesh, fake, cli, run, repo,
-                                                                                         monkeypatch, capsys):
-    monkeypatch.setenv("MESH_SIDE_PANES", "3")
-    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
-    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p2"}})
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-
-    def boom(*args, **kwargs):
-        raise mesh.MeshError("copilot vanished")
-    real = mesh.copilot_ask
-    monkeypatch.setattr(mesh, "copilot_ask", boom)
-    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p3"}})
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And sessions?"]) == 1
-    assert fake.called("pane", "close", "w1:p3")  # the finally path
-    monkeypatch.setattr(mesh, "copilot_ask", real)
-
-    with mesh.editing_run(run) as data:  # a `mesh ask` killed mid-answer left its pane and a dead pid
-        data["agents"]["proj-ask-auth"].update(status="running", pid=2 ** 22 + 7, pane="w1:p7", tab="w1:t1",
-                                               workspace="w1")
-    fake.on("pane", "split", result={"pane": {"pane_id": "w1:p8"}})
-    assert mesh.main(["ask", "proj-ask-auth", "--body", "And tokens?"]) == 0
-    closed = [c[2] for c in fake.called("pane", "close")]
-    assert closed[-2:] == ["w1:p7", "w1:p8"]  # the stale one before the new one opened, the new one after
-    assert mesh.load_run(run)["agents"]["proj-ask-auth"]["pane"] is None
-    capsys.readouterr()
+    begun = time.monotonic()
+    result = module.run_cli(["sh", "-c", "setsid sleep 5 & sleep 5"], timeout=1)
+    assert result.returncode == 124 and time.monotonic() - begun < 3
 
 
 def test_panes_beside_the_root_are_counted_split_and_recorded_under_one_lock(mesh, fake, run, monkeypatch):
@@ -8464,32 +8020,203 @@ def test_parallel_new_panes_make_the_runs_tab_once(mesh, fake, run, monkeypatch)
     assert all(data["agents"][n]["tab"] == "w9:t4" for n in got)
 
 
-def test_peek_follow_waits_for_the_copilot_session_to_start(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    with mesh.editing_run(run) as data:
-        data["agents"]["proj-ask-auth"].update(status="running", pid=os.getpid())
-    session = mesh.load_run(run)["agents"]["proj-ask-auth"]["session"]
-    events = tmp_path / "copilot" / "session-state" / session / "events.jsonl"
-    sleeps = []
+# ── Copilot as a full worker (design §22) ────────────────────────────────
 
-    def sleep(_):
-        sleeps.append(events.exists())
-        if not events.exists():  # Copilot starts the session
-            events.parent.mkdir(parents=True)
-            events.write_text(json.dumps({"type": "assistant.message", "timestamp": "2026-10-25T06:35:49.000Z",
-                                          "data": {"content": "Looking."}}) + "\n")
-        else:  # and answers
-            with mesh.editing_run(run) as data:
-                data["agents"]["proj-ask-auth"]["status"] = "retired"
-    monkeypatch.setattr(mesh.time, "sleep", sleep)
-    capsys.readouterr()
-    assert mesh.main(["peek", "proj-ask-auth", "--follow"]) == 0
-    assert sleeps == [False, True]
-    assert capsys.readouterr().out.splitlines() == ["06:35:49 says: Looking.",
-                                                    "(proj-ask-auth is not answering now: its answer is what "
-                                                    "`mesh ask` printed, or `mesh inbox`)"]
+
+def test_a_copilot_at_its_monthly_quota_is_continued_only_once_the_hold_ends(mesh, fake, run, tmp_path):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="copilot", session="s-9", cwd=str(tmp_path), model="auto")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review it.")
+    write_events(tmp_path / "copilot" / "session-state" / "s-9" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "Review it."}},
+        {"type": "session.error", "timestamp": "2026-11-19T11:00:03Z",
+         "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}}])
+    fake.screen("repo-fix-typo", "> ")
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")
+    status, line = watch.limit_alert(entry, False, watch.limited(entry, False), mesh.read_log(run))
+    held = mesh.copilot_limit()
+    due = mesh.due_continue(mesh.read_log(run), "repo-fix-typo")
+    assert status == 7 and "Copilot's usage limit" in line
+    assert abs(mesh.epoch(due["at"]) - held["until"] - mesh.CONTINUE_GRACE) < 5  # at the hold's end, not in 5 h
+    assert mesh.still_limited(entry)  # and while it stands, a continue with no reset time waits
+
+
+def test_an_old_headless_asker_reopened_with_no_task_keeps_a_deny_list(mesh, fake, run, repo):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"] = {
+            "role": "worker", "kind": "copilot", "model": "auto", "effort": "medium", "view": "headless",
+            "repo": str(repo), "cwd": str(repo), "session": "u-2", "parent": "repo-lead", "status": "retired",
+            "pane": None, "tab": None, "workspace": None}
+    assert mesh.lifted(mesh.agent_entry(mesh.load_run(run), "proj-ask-auth"), False)["read_only"] is True
+    assert mesh.lifted(mesh.agent_entry(mesh.load_run(run), "proj-ask-auth"), True)["read_only"] is False
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-ask-auth"]) == 0
+    assert "--deny-tool" in started(fake) and mesh.load_run(run)["agents"]["proj-ask-auth"]["read_only"]
+
+
+def test_a_copilot_rate_limit_line_left_after_an_answer_is_old(mesh, fake, run, tmp_path):
+    entry = {"kind": "copilot", "pane": "w2:p5", "session": "s-3", "cwd": str(tmp_path)}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    fake.screen("repo-fix-typo", "  ⎿  You've hit your session rate limit. Your limit resets 7pm (UTC)\n> ")
+    write_events(tmp_path / "copilot" / "session-state" / "s-3" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T12:00:00Z", "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": "2026-11-19T12:00:04Z", "data": {"content": "Carrying on."}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) is None
+    write_events(tmp_path / "copilot" / "session-state" / "s-3" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T12:10:00Z", "data": {"content": "go on"}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "7pm (UTC)")  # no answer since: current
+
+
+def test_a_copilot_answer_with_no_time_lifts_no_hold(mesh):
+    mesh.note_copilot_limit("monthly quota")
+    assert mesh.current_quota_error([{"type": "assistant.message", "data": {"content": "hi"}}]) is None
+    assert mesh.copilot_limit()  # an answer of unknown date can't tell it came after the hold
+
+
+def test_routing_shows_copilot_model_standing_in_for_the_built_ins(mesh, monkeypatch, capsys):
+    monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
+    policy = mesh.routing()["policy"]
+    assert policy["models.copilot.exec"] == {"value": "gpt-5.6-luna", "source": "copilot_model"}
+    assert policy["models.copilot.plan"] == {"value": ["gpt-5.6-luna"], "source": "copilot_model"}
+    assert policy["models.claude.exec"]["source"] == "built-in"
+
+
+
+
+def test_a_copilot_reviewer_is_a_pane_worker_under_its_deny_list(mesh, fake, cli, run, repo, tmp_path, capsys):
+    head = pr_origin(tmp_path, repo)
+    stub_new_pane(fake)
+    pr = "https://github.com/acme/proj/pull/7"
+    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--kind", "copilot", "--no-wait"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    entry = mesh.load_run(run)["agents"][out["name"]]
+    assert (entry["kind"], entry["view"], entry["read_only"], entry["base"]) == ("copilot", "pane", True, head)
+    start = fake.called("agent", "start")[-1]
+    assert start[start.index("--kind") + 1] == "copilot"
+    argv = list(started(fake))
+    denied = argv[argv.index("--deny-tool") + 1: argv.index("--session-id")]
+    assert denied[0] == "write" and "shell(git push:*)" in denied and "shell(gh pr comment:*)" in denied
+    assert argv[argv.index("--session-id") + 1] == entry["session"] and len(entry["session"]) == 36
+    assert argv[argv.index("--model") + 1] == "auto" and "--auto-tier" in argv and argv[-1] == "--yolo"
+    assert not cli.called("--output-format")  # nothing headless any more
+    task = mesh.parse_message(mesh.unread(run, out["name"])[0])[1]
+    assert task.startswith(f"Review (read-only) of {pr} at {head}:") and "/code-review" not in task
+
+
+def test_a_copilot_worker_plans_under_the_deny_list_and_a_direct_task_has_none(mesh, fake, run, repo, capsys):
+    stub_new_pane(fake)
+    assert mesh.main(["spawn", "--kind", "copilot", "--repo", str(repo), "--worktree", "feature",
+                      "--task", "Add a dark mode."]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-feature"]
+    assert (entry["planning"], entry["phase"], entry["model"], entry["exec_model"]) == (True, "plan", "auto", "auto")
+    assert "--deny-tool" in started(fake)
+    assert mesh.main(["spawn", "--kind", "copilot", "--size", "small", "--repo", str(repo), "--worktree", "typo",
+                      "--task", "Fix the typo."]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-typo"]
+    assert (entry["planning"], entry["read_only"], entry["view"]) == (False, False, "pane")
+    assert "--deny-tool" not in started(fake)
+    # A plain `skip_permissions: false` launch asks in its pane, as the others do.
+    with_config({"skip_permissions": False})
+    assert mesh.cli("copilot").skip_argv() == []
+
+
+def test_a_copilot_ask_starts_its_run_in_the_roots_own_mode(mesh, fake, cli, repo, monkeypatch, capsys):
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
+    stub_new_pane(fake)
+    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?", "--no-wait"]) == 0
+    run_id = capsys.readouterr().err.split("started run ")[1].split()[0]
+    assert mesh.load_run(run_id)["mode"] == "claude"  # no root runs on Copilot
+
+
+def test_a_headless_copilot_asker_from_before_reopens_in_a_pane(mesh, fake, run, repo, tmp_path, capsys):
+    wt = tmp_path / "wt-asker"
+    subprocess.run(["git", "worktree", "add", "-q", "-b", "mesh/old/ask", str(wt)], cwd=repo, check=True)
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"] = {
+            "role": "worker", "kind": "copilot", "model": "gpt-5.6-luna", "requested_model": "auto", "effort": "medium",
+            "size": "small", "view": "headless", "repo": str(repo), "cwd": str(wt), "branch": "mesh/old/ask",
+            "session": "0cb916db-26aa-40f2-86b5-1ba81b225fd2", "parent": "repo-lead", "status": "retired"}
+    assert mesh.agent_status("proj-ask-auth", mesh.load_run(run)["agents"]["proj-ask-auth"]) == "gone"
+    stub_new_pane(fake)
+    assert mesh.main(["ask", "proj-ask-auth", "--body", "Why?", "--no-wait"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert entry["view"] == "pane" and entry["session"] == "0cb916db-26aa-40f2-86b5-1ba81b225fd2"
+    argv = started(fake)
+    assert argv[argv.index("--session-id") + 1] == entry["session"]  # the same conversation
+    assert argv[argv.index("--model") + 1] == "auto"  # what it asked for, not what Copilot said it used
+
+
+def test_copilot_limits_read_from_its_pane_and_its_events(mesh, fake, run, tmp_path):
+    entry = {"kind": "copilot", "pane": "w2:p5", "session": "s-1", "cwd": str(tmp_path)}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    fake.screen("repo-fix-typo", "● Working\n  ⎿  You've hit your session rate limit. Your limit resets 7pm (UTC)\n> ")
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "7pm (UTC)")
+    fake.screen("repo-fix-typo", "● The docs say \"You've hit your session rate limit\" when it happens\n> ")
+    assert mesh.cli("copilot").limited(watch, entry, False) is None  # quoted, not shown
+    write_events(tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl", [
+        {"type": "session.error", "timestamp": "2026-11-19T10:00:00Z",
+         "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota exceeded"}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
+    held = mesh.copilot_limit()  # auto rounds leave it out meanwhile, dated by its event
+    assert held["message"] == "monthly quota exceeded" and held["at"] == mesh.epoch("2026-11-19T10:00:00+00:00")
+    assert mesh.cli("copilot").progress_files(entry, "s-1") == [
+        tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl"]
+
+
+def test_a_copilot_quota_error_counts_only_until_a_later_turn(mesh, fake, run, tmp_path):
+    entry = {"kind": "copilot", "pane": "w2:p5", "session": "s-2", "cwd": str(tmp_path)}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    fake.screen("repo-fix-typo", "> ")
+    events = tmp_path / "copilot" / "session-state" / "s-2" / "events.jsonl"
+    old = mesh.epoch("2026-11-19T08:00:00+00:00")
+    mesh.note_copilot_limit("monthly quota", at=old)
+    write_events(events, [
+        {"type": "session.error", "timestamp": "2026-11-19T08:00:00Z",
+         "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
+        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": "2026-11-19T11:00:05Z", "data": {"content": "Done."}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) is None  # topped up: it answered since
+    assert mesh.copilot_limit() is None  # and the hold from before that answer is lifted
+    write_events(events, [{"type": "user.message", "timestamp": "2026-11-19T11:30:00Z", "data": {"content": "go"}},
+                          {"type": "session.error", "timestamp": "2026-11-19T11:30:02Z",
+                           "data": {"errorType": "quota", "message": "monthly quota again"}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
+    held = mesh.copilot_limit()
+    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch("2026-11-19T11:30:02+00:00")
+
+
+def test_a_swap_records_a_headless_asker_it_reopens_as_a_pane_worker(mesh, fake, run, repo, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"] = {
+            "role": "worker", "kind": "copilot", "model": "auto", "effort": "high", "view": "headless",
+            "repo": str(repo), "cwd": str(repo), "session": "u-1", "parent": "repo-lead", "status": "retired",
+            "pane": None, "tab": None, "workspace": None}
+    stub_new_pane(fake)
+    fake.on("agent", "wait", error="agent_not_found")
+    mesh.swap_model(run, "proj-ask-auth", "auto", "medium", "test")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert entry["view"] == "pane" and entry["pane"] and mesh.agent_status("proj-ask-auth", entry) != "gone"
+
+
+def test_copilot_is_never_the_default_cli_and_copilot_model_stands_in_for_the_built_ins(mesh, monkeypatch):
+    clis(monkeypatch, "copilot")
+    with pytest.raises(mesh.MeshError, match="neither Claude Code"):
+        mesh.default_kind()
+    assert mesh.cli("copilot").plan_model("high", None)[0] == "auto"
+    monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
+    copilot = mesh.cli("copilot")
+    assert copilot.plan_model("high", None)[0] == mesh.exec_model_for("copilot") == "gpt-5.6-luna"
+    assert mesh.size_policy("copilot", "small")["model"] == "gpt-5.6-luna"
+    assert copilot.resumed_model({"kind": "copilot"}, None, "high") == ("gpt-5.6-luna", "high")
+    # ...but never for a model named on the command line, nor a models.copilot.* leaf set in the config.
+    assert copilot.resumed_model({"kind": "copilot"}, "gpt-x", "high") == ("gpt-x", "high")
+    assert copilot.launch_argv("gpt-x", "high", None)[1] == "gpt-x"
+    with_config({"models": {"copilot": {"exec": "gpt-y"}}})
+    assert mesh.exec_model_for("copilot") == "gpt-y"
 
 
 # ── root context: measuring, resetting and briefing the root ─────────────
@@ -9653,7 +9380,7 @@ def test_the_watch_leaves_a_worker_open_unless_it_is_idle_after_a_final_report(m
         until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
         mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="wait", file="w.md", until=until)
     if case == "draft":
-        monkeypatch.setattr(mesh, "human_draft", lambda lines: True)
+        monkeypatch.setattr(mesh, "human_draft", lambda lines, kind=None: True)
     if case == "starting":
         with mesh.editing_run(run) as data:
             data["agents"]["repo-fix-typo"]["status"] = "starting"
@@ -10263,8 +9990,8 @@ def review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, answers):
 def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
                                                              capsys):
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
-                                  {"review-7-claude": "1. a.py:1 claude's finding.", "review-7-agy": "Nothing found."})
-    cli.on("--output-format", stdout=copilot_jsonl("1. b.py:2 copilot's finding."))
+                                  {"review-7-claude": "1. a.py:1 claude's finding.", "review-7-agy": "Nothing found.",
+                                   "review-7-copilot": "1. b.py:2 copilot's finding."})
     capsys.readouterr()
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "all"]) == 0
     out = capsys.readouterr().out
@@ -10276,7 +10003,7 @@ def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, ru
                           ("proj-review-7-copilot", "copilot's finding")):
         assert f"## {name} (" in text and finding in text
     events = mesh.read_log(run)
-    assert sum(e["event"] == "collected" for e in events) == 2  # Claude's and agy's: no doorbell to the root
+    assert sum(e["event"] == "collected" for e in events) == 3  # every reviewer's: no doorbell to the root
     assert not mesh.unread(run, "repo-lead")
     agents = mesh.load_run(run)["agents"]
     for name in ("proj-review-7-claude", "proj-review-7-agy", "proj-review-7-copilot"):
@@ -10413,8 +10140,7 @@ def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_
 def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
                                                                capsys):
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
-                                  {"review-7-claude": "1. a.py:1 a finding.", "review-7-copilot": "-"})
-    cli.on("--output-format", stdout=copilot_jsonl("1. b.py:2 another finding."))
+                                  {"review-7-claude": "1. a.py:1 a finding.", "review-7-copilot": "1. b.py:2 another."})
     monkeypatch.setattr(mesh, "agy_has_quota", lambda size, model=None: (False, "gemini has 3% left"))
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
     assert "proj-review-7-copilot" in capsys.readouterr().out  # agy is out: Claude plus Copilot
@@ -10425,7 +10151,8 @@ def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, 
     assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
     captured = capsys.readouterr()
     assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-claude again" in captured.err
-    assert len(cli.called("--output-format")) == 1  # Copilot isn't asked again
+    to_copilot = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "proj-review-7-copilot"]
+    assert len(to_copilot) == 1  # Copilot isn't asked again
     agents = mesh.load_run(run)["agents"]
     assert agents["proj-review-7-claude"]["review_heads"] == {pr: new}
     tasks = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "proj-review-7-claude"]
@@ -10473,11 +10200,11 @@ def test_an_interrupted_review_round_clears_its_marks(mesh, fake, cli, run, repo
 
 def test_a_review_rounds_copilot_reviews_at_the_rounds_size(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
                                                             capsys):
-    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
-    cli.on("--output-format", stdout=copilot_jsonl("Nothing found."))
+    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-copilot": "Nothing found."})
     assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers",
-                      "copilot"]) == 0  # no --size: large
-    assert mesh.load_run(run)["agents"]["proj-review-7-copilot"]["effort"] == mesh.COPILOT_EFFORT["large"]
+                      "copilot"]) == 0  # no --size: large, which plans first
+    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
+    assert (entry["size"], entry["effort"], entry["read_only"]) == ("large", mesh.plan_effort_for("copilot"), True)
 
 
 def test_a_round_of_several_clis_refuses_one_clis_flags(mesh, fake, run, repo, monkeypatch, capsys):
@@ -10505,34 +10232,6 @@ def test_earlier_reviewers_are_the_newest_of_each_kind_across_runs(mesh, run):
     found = mesh.earlier_reviewers(pr)
     assert (found["claude"][0]["id"], found["claude"][2]) == (run, "repo-fix-typo")  # the newer copy
     assert found["copilot"][0]["id"] == "mold"  # merged by kind: the older run still gives its Copilot
-
-def test_an_interrupted_round_never_starts_its_copilot(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
-    review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})
-    gate = mesh.threading.Event()
-    real_asker, real_clear = mesh.copilot_asker, mesh.clear_marks
-
-    def asker(*args, **kwargs):
-        gate.wait(5)  # until the round has been interrupted
-        return real_asker(*args, **kwargs)
-
-    def clear(*args):
-        gate.set()  # the round's `finally` has set its stop event by now
-        return real_clear(*args)
-
-    def interrupted(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(mesh, "copilot_asker", asker)
-    monkeypatch.setattr(mesh, "clear_marks", clear)
-    monkeypatch.setattr(mesh, "watch_each", interrupted)
-    with pytest.raises(KeyboardInterrupt):
-        mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--size", "large",
-                   "--reviewers", "claude,copilot"])
-    entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
-    assert entry["status"] == "retired" and "pid" not in entry  # claimed, then released unasked
-    assert not {"reviews", "review_heads", "review_checkout"} & set(entry)  # no review recorded: it never did one
-    assert not cli.called("--output-format")
-
 
 def test_a_re_review_round_with_no_size_keeps_the_earlier_reviewers(mesh, fake, cli, run, repo, tmp_path,
                                                                     monkeypatch, capsys):
@@ -10994,20 +10693,6 @@ def test_copilot_over_its_quota_is_left_out_of_auto_rounds(mesh, monkeypatch):
     limit = json.loads(mesh.copilot_limit_path().read_text())
     mesh.copilot_limit_path().write_text(json.dumps({**limit, "until": time.time() - 1}))  # it may have reset
     assert mesh.pick_reviewers("small")[0] == ["copilot"]
-    mesh.note_copilot_limit("quota")
-    mesh.clear_copilot_limit()  # what an answer from Copilot does: topped up
-    assert mesh.pick_reviewers("small")[0] == ["copilot"]
-
-
-def test_a_killed_asks_copilot_quota_error_sets_the_hold_too(mesh, tmp_path):
-    events = tmp_path / "events.jsonl"
-    events.write_text("\n".join(json.dumps(e) for e in [
-        {"type": "user.message", "data": {"content": "Review it."}},
-        {"type": "session.error", "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
-        {"type": "session.shutdown", "data": {}}]) + "\n")
-    kind, body, _ = mesh.copilot_turn({"events": str(events)}, "Review it.")
-    assert kind == "failed" and body.startswith("Copilot is over its quota: monthly quota")
-    assert mesh.copilot_limit()["message"] == "monthly quota"
 
 
 def test_a_bare_repo_name_is_looked_up_in_repos_dir(mesh, repo, monkeypatch, tmp_path):
@@ -11191,34 +10876,11 @@ def test_a_bg_stop_that_fails_reopens_nothing_and_sends_nothing(mesh, fake, cli,
     assert not mesh.unread(run, "repo-fix-typo") and not fake.called("agent", "start")
 
 
-def test_a_late_answer_from_before_copilots_quota_error_leaves_the_hold(mesh, tmp_path):
+def test_an_older_copilot_quota_error_doesnt_move_the_hold_back(mesh):
     hour = 3600
     mesh.note_copilot_limit("monthly quota", at=time.time() - hour)
-    mesh.clear_copilot_limit(at=time.time() - 2 * hour)  # an orphaned answer from before the error
-    assert mesh.copilot_limit()
-    mesh.note_copilot_limit("older error", at=time.time() - 3 * hour)  # doesn't move the hold back
+    mesh.note_copilot_limit("older error", at=time.time() - 3 * hour)
     assert mesh.copilot_limit()["message"] == "monthly quota"
-    events = tmp_path / "events.jsonl"
-    events.write_text("\n".join(json.dumps(e) for e in [
-        {"type": "user.message", "data": {"content": "Q"}, "timestamp": "2020-01-01T00:00:00Z"},
-        {"type": "assistant.message", "data": {"content": "A"}, "timestamp": "2020-01-01T00:00:05Z"},
-        {"type": "session.shutdown", "data": {}, "timestamp": "2020-01-01T00:00:06Z"}]) + "\n")
-    assert mesh.copilot_turn({"events": str(events)}, "Q")[0] == "done"
-    assert mesh.copilot_limit()  # dated by its events, 2020: before the hold
-    mesh.clear_copilot_limit()  # a live answer now
-    assert mesh.copilot_limit() is None
-
-
-def test_a_quota_error_filed_late_is_dated_by_its_events(mesh, tmp_path):
-    events = tmp_path / "events.jsonl"
-    when = time.time() - 600
-    stamp = datetime.fromtimestamp(when, timezone.utc).isoformat().replace("+00:00", "Z")
-    events.write_text("\n".join(json.dumps(e) for e in [
-        {"type": "user.message", "data": {"content": "Q"}, "timestamp": stamp},
-        {"type": "session.error", "data": {"errorType": "quota", "message": "monthly quota"}, "timestamp": stamp},
-        {"type": "session.shutdown", "data": {}, "timestamp": stamp}]) + "\n")
-    assert mesh.copilot_turn({"events": str(events)}, "Q")[0] == "failed"
-    assert abs(mesh.copilot_limit()["at"] - when) < 1
 
 
 def test_routing_shows_the_built_in_auto_reviewers_while_the_config_is_broken(mesh, capsys):
@@ -11392,12 +11054,6 @@ def test_a_resumed_background_worker_is_pinned(mesh, fake, cli, run, tmp_path, c
     mesh.pins.clear()
     assert mesh.main(["resume", "repo-fix-typo"]) == 0
     assert mesh.pins and mesh.pins[-1][0] == NO_PID
-
-
-def test_a_copilot_asker_is_pinned(mesh, fake, cli, run, repo, capsys):
-    cli.on("--output-format", stdout=copilot_jsonl("In auth.py."))
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?"]) == 0
-    assert mesh.pins == [(cli.pid, [0, 1, 2])]
 
 
 def test_the_retirer_takes_the_machines_cores_back_first(mesh, run, monkeypatch):

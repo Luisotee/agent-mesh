@@ -45,9 +45,10 @@ from typing import Callable
 
 VERSION = "0.7.0"
 MODES = ("agy", "claude")
-COPILOT_MODEL = "auto"  # the only model some plans (Copilot Student) may pick; MESH_COPILOT_MODEL overrides it
+# Copilot's built-in model: `auto`, the only one some plans (Copilot Student) may pick. The `copilot_model` leaf
+# (MESH_COPILOT_MODEL), when set, stands in for each built-in Copilot model leaf, never a named one (design §22).
+COPILOT_MODEL = "auto"
 COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
-COPILOT_EFFORT = {"trivial": "low", "small": "medium", "large": "high"}
 # `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
 # Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
@@ -56,6 +57,8 @@ SIZE_DEFAULTS = {
     ("claude", "small"): {"model": "opus", "effort": "medium", "view": "bg"},
     ("agy", "trivial"): {"model": "hydrogen", "effort": "low", "view": "pane"},
     ("agy", "small"): {"model": "hydrogen", "effort": "high", "view": "pane"},
+    ("copilot", "trivial"): {"model": COPILOT_MODEL, "effort": "low", "view": "pane"},
+    ("copilot", "small"): {"model": COPILOT_MODEL, "effort": "medium", "view": "pane"},
 }
 # A Claude worker whose plan the user approves in its own pane plans and executes on one model, in plan mode
 # first: `models.claude.user_review` (built in: this).
@@ -76,8 +79,8 @@ AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conve
 # execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
 # on Opus: a resume that changes only the effort keeps the prompt cache, while a model switch re-reads the whole
 # conversation.
-PLAN_CHAIN = {"agy": ("argon", "opus", "hydrogen"), "claude": ("opus",)}
-EXEC_MODEL = {"agy": "hydrogen", "claude": "opus"}
+PLAN_CHAIN = {"agy": ("argon", "opus", "hydrogen"), "claude": ("opus",), "copilot": (COPILOT_MODEL,)}
+EXEC_MODEL = {"agy": "hydrogen", "claude": "opus", "copilot": COPILOT_MODEL}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
@@ -187,15 +190,17 @@ REVIEW_AGAIN_WHOLE = ("You last reviewed it at {last}, but the branch was rebase
 PUBLISH_COMMANDS = ("git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close",
                     "gh issue comment")
 # Copilot: a shell rule needs `:*` to match the command with any arguments; Copilot ignores a bare
-# three-word `shell(gh pr comment)`.
+# three-word `shell(gh pr comment)`. `write` is denied whole: a read-only or planning Copilot writes its report or
+# plan under `$(mesh dir)` with the shell (or sends it with `--body`).
 COPILOT_DENY = ("write", *(f"shell({cmd}:*)" for cmd in PUBLISH_COMMANDS))
-# Appended to a Copilot asker's prompt, which never reads PROTOCOL.md (see copilot_ask).
-COPILOT_NOTE = ("You are not in an agent-mesh session: there is no `mesh send` to run. Your final message is your "
-                "answer (your `done`).")
-# What a Copilot asker's entry records of the processes answering for it, while it runs (live_holder).
-PROCESS_KEYS = ("pid", "pid_start", "copilot_pid", "copilot_pid_start")
-# ...and of the session events its answer is written to, from the end they had then (claim_copilot, copilot_turn).
-CLAIM_KEYS = (*PROCESS_KEYS, "events", "events_from")
+# Copilot's rate-limit messages (`copilot help limits`): "You've hit the rate limit for this model.", "You've hit
+# your session rate limit.", "You've reached your weekly rate limit.", "You've hit your rate limit." Started as
+# LIMIT_RE is, so the agent quoting one doesn't count.
+COPILOT_LIMIT_RE = re.compile(SCREEN_START + r"You've (?:hit (?:your|the) .*rate limit|reached your weekly rate limit)",
+                              re.IGNORECASE | re.MULTILINE)
+# A view only Copilot askers from before every CLI became a worker have (design §22): such an entry counts as
+# closed, and reopens in a pane when it is asked, sent or resumed again.
+HEADLESS = "headless"
 # `{show}` is the diff of the head the task names when git can build it (`head_diff`), else `gh pr diff`.
 REVIEW_FRESH = ("Its head is checked out in your worktree, so you can run tests; `{show}` shows the change. If the "
                 "PR has CI checks, read their results first (`gh pr checks {pr}`, which shows the PR's latest head, "
@@ -259,7 +264,8 @@ IDLE_RETIRE = 300  # seconds a worker idle since its `done`/`failed` stays open 
 TRUST_PROMPT_RE = re.compile(
     r"trust (the contents of this project|the files in this folder|this folder)", re.IGNORECASE
 )
-TRUST_OPTION_RE = re.compile(r"^\s*[❯>]?\s*(Yes|No)\b")
+# An option row: inside a box (Copilot draws one: "│ ❯ 1. Yes"), the cursor glyph, a number (Claude's, Copilot's).
+TRUST_OPTION_RE = re.compile(r"^\s*│?\s*([❯>]?)\s*(?:\d\.\s*)?(Yes|No)\b")
 # Startup screens that wait for the user and that mesh never answers: (label, heading, one of its own option or
 # footer lines). Both must show, so text that only quotes a heading (a diff, a CLAUDE.md) doesn't match.
 STARTUP_DIALOGS = (
@@ -351,13 +357,16 @@ class Cli:
     name = ""  # in messages ("Claude Code")
     short = ""  # in routing notes ("Claude")
     processes: tuple[str, ...] = ()  # argv[0] names of its running agent (by name: an auto-update moves the binary)
-    worker = True  # takes any task in a pane; False: answers questions and reviews only (Copilot: headless)
     views: tuple[str, ...] = ("pane",)
     stop_hook = False  # its launches carry mesh's Stop hook (worker_hooks); else the watch sees its turn ends
     native_inbox = False  # mesh writes its doorbell into its inbox socket, and it can SendMessage (native_route)
     enforces_read_only = False  # a read-only or planning worker runs under a deny list (deny_argv)
     plan_review_user = False  # `--plan-review user`: its own plan mode, approved in its pane
     code_review = False  # its reviewers run a bundled `/code-review` (CODE_REVIEW)
+    auto_continue_first = False  # in a pane it continues at a usage limit's reset by itself, before mesh would
+    # How its TUI draws ghost text (a placeholder) in an empty input box, which isn't a human's draft (typed_text):
+    # "dim" (SGR 2) and/or "grey" (foreground colour 8: `38;5;8`, or SGR 90).
+    ghost_styles: tuple[str, ...] = ("dim",)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
     measures_cache = False  # its context size and cache warmth come from one read of its session file
@@ -382,6 +391,10 @@ class Cli:
     def plan_model(self, effort: str, run_id: str | None) -> tuple[str, list[str]]:
         """The model a task plans on, and notes on the choice."""
         return plan_chain(self.kind)[0], []
+
+    def default_model(self, value: str, source: str) -> str:
+        """A model policy leaf's value (`source`: where setting_with_source found it), as this CLI reads it."""
+        return value
 
     def effort_of(self, model: str) -> str | None:
         """The effort an exact model id carries, if its ids carry one."""
@@ -411,6 +424,10 @@ class Cli:
     def settings_argv(self, env: dict[str, str]) -> list[str]:
         """What a pane worker's launch adds for its hooks and settings."""
         return []
+
+    def skip_argv(self) -> list[str]:
+        """What a worker's launch passes to skip permission prompts (`skip_permissions`)."""
+        return skip_flags()
 
     def compact_argv(self, session: str, model: str, prompt: str) -> list[str]:
         raise MeshError(f"mesh doesn't compact {self.name} conversations")
@@ -446,6 +463,10 @@ class Cli:
         """The quota that stopped it, scheduled with no reset time, still reads spent (unknown: no)."""
         return False
 
+    def limit_reset(self, entry: dict, reset: str) -> float | None:
+        """When a usage limit it showed (`reset`: the time it named, or "") is over (epoch), for the continue."""
+        return parse_reset(reset) or time.time() + LIMIT_UNKNOWN_RESET
+
     def reserve_hit(self, model: str | None, effort: str | None) -> str | None:
         """What of its quota is at the reserve, as a phrase, or None (also when it can't be read)."""
         return None
@@ -463,7 +484,7 @@ class Cli:
 class ClaudeCli(Cli):
     kind, name, short, processes = "claude", "Claude Code", "Claude", ("claude",)
     views = ("pane", "bg")
-    stop_hook = native_inbox = enforces_read_only = plan_review_user = code_review = True
+    stop_hook = native_inbox = enforces_read_only = plan_review_user = code_review = auto_continue_first = True
     measures_cache, compact_leaf, counts_cost, cost_tally = True, "compact.claude", True, "claude"
 
     def binary(self) -> str:
@@ -523,6 +544,12 @@ class ClaudeCli(Cli):
     def auto_continues(self, entry: dict, name: str) -> bool:
         return entry.get("view") != "bg" and bool(AUTO_CONTINUE_RE.search("\n".join(pane_lines(name) or [])))
 
+    def limit_reset(self, entry: dict, reset: str) -> float | None:
+        when = claude_limit_reset(entry.get("model")) or parse_reset(reset)
+        if when is None and claude_usage() is None:  # nothing to tell the reset by: the 5-hour window's worst
+            when = time.time() + LIMIT_UNKNOWN_RESET
+        return when
+
     def still_limited(self, entry: dict) -> bool:
         return any(w["used"] >= 100 for w in claude_windows_for(claude_usage(), entry.get("model")).values())
 
@@ -544,6 +571,8 @@ class ClaudeCli(Cli):
 
 class AgyCli(Cli):
     kind, name, short, processes = "agy", "agy", "agy", ("agy",)
+    # agy 1.5.12's empty box shows "Auto mode: edits & safe commands auto-approved (shif…" in colour 8, not dim.
+    ghost_styles = ("dim", "grey")
     worker_log = records_session_on_send = compacts_unmeasured = True
     compact_leaf, counts_cost, cost_tally, cost_prefix = "compact.agy", True, "agy", "agy "
 
@@ -621,15 +650,73 @@ class AgyCli(Cli):
 
 
 class CopilotCli(Cli):
-    """Copilot answers questions and reviews headless, inside `mesh ask` (design §10)."""
-    kind, name, short = "copilot", "Copilot", "Copilot"
-    worker = False
+    """GitHub Copilot CLI, a pane worker like the others (design §22): its session id chosen at launch, read-only
+    by `--deny-tool`, no Stop hook (the watch sees its turn ends, as agy's)."""
+    kind, name, short, processes = "copilot", "Copilot", "Copilot", ("copilot",)
+    enforces_read_only = True
+
+    def default_model(self, value: str, source: str) -> str:
+        # The old leaf, when set, stands in for every built-in Copilot model (never for one named, nor for a
+        # models.copilot.* leaf set in the config).
+        override, where = setting_with_source("copilot_model")
+        return override if source == "built-in" and where != "built-in" else value
+
+    def first_model(self) -> str:
+        chain, source = setting_with_source("models.copilot.plan")
+        return self.default_model(chain[0], source)
+
+    def plan_model(self, effort: str, run_id: str | None) -> tuple[str, list[str]]:
+        return self.first_model(), []
 
     def resumed_model(self, entry: dict, model: str | None, effort: str) -> tuple[str, str]:
-        return model or entry.get("requested_model") or setting("copilot_model"), effort
+        # `requested_model`: what an asker from before design §22 asked for (`model` is what Copilot said it used)
+        return (model or entry.get("requested_model") or entry.get("model")
+                or self.first_model()), effort
+
+    def launch_argv(self, model: str, effort: str, log: str | None) -> tuple[list[str], str, str | None]:
+        # As for Claude: the id chosen up front is how `mesh resume` finds the conversation (`--session-id` starts
+        # a session with it, and reopens it after).
+        session = str(uuid.uuid4())
+        return ["--session-id", session, *copilot_model_argv(model, effort), *self.skip_argv()], model, session
 
     def resume_argv(self, session: str, model: str, effort: str) -> list[str]:
-        return ["--resume", session, *copilot_model_argv(model, effort)]
+        return ["--session-id", session, *copilot_model_argv(model, effort)]
+
+    def skip_argv(self) -> list[str]:
+        return ["--yolo"] if setting("skip_permissions") else []
+
+    def deny_argv(self, entry: dict) -> list[str]:
+        # `--deny-tool` takes several values, so callers put another flag after it; deny rules win over --yolo.
+        return ["--deny-tool", *COPILOT_DENY] if entry.get("read_only") or entry.get("planning") else []
+
+    def progress_files(self, entry: dict, session: str | None) -> list[Path]:
+        return [copilot_events({**entry, "session": session})] if session else []
+
+    def limited(self, watch: "Watch", entry: dict, bg: bool) -> tuple[str, str] | None:
+        """A rate limit on its pane's last lines, or a quota error (402, its monthly quota) in its session's events,
+        which also holds Copilot out of `--reviewers auto` (note_copilot_limit)."""
+        session = watch.conversation(entry)
+        if session:
+            current = current_quota_error(json_events(tail_lines(copilot_events({**entry, "session": session}))))
+            if current:
+                return "limit", ""
+        lines = pane_lines(watch.name)
+        if lines is None and entry.get("pane"):
+            lines = pane_lines(entry["pane"])
+        tail = (lines or [])[-LIMIT_LINES:]
+        if not any(COPILOT_LIMIT_RE.search(line) for line in tail):
+            return None
+        if session and answered_since_prompt(json_events(tail_lines(copilot_events({**entry, "session": session})))):
+            return None  # it answered the turn after the limit (a continue): the line on the pane is old
+        reset = next((m for m in map(LIMIT_RESET_RE.search, reversed(tail)) if m), None)
+        return "limit", reset.group(1).strip() if reset else ""
+
+    def limit_reset(self, entry: dict, reset: str) -> float | None:
+        held = copilot_limit()  # a 402 quota: the machine-wide hold it recorded, not a rate limit's 5 h
+        return float(held["until"]) if held else super().limit_reset(entry, reset)
+
+    def still_limited(self, entry: dict) -> bool:
+        return copilot_limit() is not None
 
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
         if not self.installed():
@@ -641,9 +728,8 @@ class CopilotCli(Cli):
 
 
 CLIS: dict[str, Cli] = {c.kind: c for c in (ClaudeCli(), AgyCli(), CopilotCli())}
-KINDS = tuple(kind for kind, c in CLIS.items() if c.worker)  # the CLIs a worker may run on
-# `mesh ask` also takes the ones that only answer (Copilot, headless and read-only: design §10).
-ASK_KINDS = tuple(CLIS)
+KINDS = tuple(CLIS)  # every CLI runs full workers: changes, questions and reviews (design §22)
+ASK_KINDS = KINDS  # what `mesh ask --kind` and review slots take: the same, since design §22
 AGENT_BINARIES = tuple(name for c in CLIS.values() for name in c.processes)  # the processes that run a worker
 CLI_NAMES = {kind: c.name for kind, c in CLIS.items()}
 SHORT_NAMES = {kind: c.short for kind, c in CLIS.items()}  # in routing notes
@@ -870,7 +956,14 @@ def plan_chain(kind: str) -> tuple[str, ...]:
 
 
 def exec_model_for(kind: str) -> str:
-    return setting(f"models.{kind}.exec")
+    return default_model(kind, f"models.{kind}.exec")
+
+
+def default_model(kind: str, leaf: str) -> str:
+    """A model leaf's value, as the kind's adapter has its defaults read (Copilot: `copilot_model`, when set,
+    stands in for a built-in model leaf); a model named on the command line never comes through here."""
+    value, source = setting_with_source(leaf)
+    return CLIS[kind].default_model(value, source) if kind in CLIS else value
 
 
 def plan_effort_for(kind: str | None) -> str:
@@ -885,7 +978,8 @@ def size_policy(kind: str, size: str | None) -> dict | None:
     """A trivial or small task's one model, effort and view (no plan phase); None for a large one."""
     if kind not in KINDS or size not in ("trivial", "small"):
         return None
-    return {field: setting(f"models.{kind}.{size}.{field}") for field in ("model", "effort", "view")}
+    return {field: default_model(kind, f"models.{kind}.{size}.{field}") if field == "model"
+            else setting(f"models.{kind}.{size}.{field}") for field in ("model", "effort", "view")}
 
 
 def repos_dirs() -> list[Path]:
@@ -960,7 +1054,7 @@ def require_cli(kind: str, what: str) -> None:
 
 def default_kind(preferred: str = "agy") -> str:
     """A new agent's CLI when none is named: `preferred` when installed, else the other one."""
-    for kind in (preferred, *(k for k in KINDS if k != preferred)):
+    for kind in (preferred, *(k for k in MODES if k != preferred)):  # a root's CLIs: agy, then Claude
         if installed(kind):
             return kind
     raise MeshError("neither Claude Code (`claude`) nor agy is on PATH: mesh needs at least one")
@@ -1004,19 +1098,12 @@ def git(*args: str, cwd: str | Path) -> str:
 
 
 def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] | None = None,
-            timeout: float | None = 120, input: str | None = None,
-            started: Callable[[int], None] | None = None) -> subprocess.CompletedProcess:
-    """Run an agent CLI (`claude`, `agy`, `copilot`) to completion; one that can't start or times out is a failed run.
-
-    With `started`, the CLI runs in a session of its own and `started` gets its pid once it runs, for the
-    caller to record: a caller killed outright leaves it running, and then the record is what shows it busy.
-    A timeout or an exception here (Ctrl-C, or a signal signals_raise turned into one) kills its whole
-    process group, tools it started included.
-    """
+            timeout: float | None = 120, input: str | None = None) -> subprocess.CompletedProcess:
+    """Run an agent CLI (`claude`, `agy`, `opencode`) to completion; one that can't start or times out is a failed
+    run. A timeout or an exception here (Ctrl-C, or a signal signals_raise turned into one) kills it."""
     try:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                stdin=subprocess.PIPE if input is not None else None,
-                                start_new_session=started is not None)
+                                stdin=subprocess.PIPE if input is not None else None)
     except FileNotFoundError:
         return subprocess.CompletedProcess(argv, 127, "", f"{argv[0]} not found")
     except OSError as exc:  # e.g. an argument over the kernel's per-argument limit
@@ -1024,11 +1111,11 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
 
     def kill() -> None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL) if started else proc.kill()
+            proc.kill()
         except OSError:
             pass  # gone already
-        # Not communicate(): a grandchild outside the group (or any, without `started`) may still hold
-        # the pipes, and reading them to EOF would wait for it (as subprocess.run does).
+        # Not communicate(): a grandchild may still hold the pipes, and reading them to EOF would wait for it (as
+        # subprocess.run does).
         proc.wait()
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
             if pipe:
@@ -1038,8 +1125,6 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
                     pass
 
     try:
-        if started:
-            started(proc.pid)
         out, err = proc.communicate(input, timeout=timeout)
     except subprocess.TimeoutExpired:
         kill()
@@ -1923,12 +2008,13 @@ def above_input_box(lines: list[str]) -> list[str]:
     return lines[:at - 1] if at is not None else []
 
 
-def visible_chars(row: str) -> list[tuple[str, bool]]:
-    """Each visible character of an ANSI row, with whether it is drawn dim (SGR 2), as ghost text is."""
-    chars, dim, pos = [], False, 0
+def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str, bool]]:
+    """Each visible character of an ANSI row, with whether it is drawn as ghost text is in `ghost` styles: "dim"
+    (SGR 2) and/or "grey" (foreground colour 8, `38;5;8` or SGR 90)."""
+    chars, dim, grey, pos = [], False, False, 0
     for match in [*SGR_RE.finditer(row), None]:
         end = match.start() if match else len(row)
-        chars.extend((c, dim) for c in row[pos:end])
+        chars.extend((c, (dim and "dim" in ghost) or (grey and "grey" in ghost)) for c in row[pos:end])
         if not match:
             break
         pos = match.end()
@@ -1937,24 +2023,34 @@ def visible_chars(row: str) -> list[tuple[str, bool]]:
         while i < len(params):
             p = params[i]
             if p in (38, 48, 58):  # an extended colour: its index or RGB values aren't attributes
+                if p == 38:
+                    grey = params[i + 1:i + 3] == [5, 8]
                 i += 3 if params[i + 1:i + 2] == [5] else 5 if params[i + 1:i + 2] == [2] else 1
                 continue
-            if p in (0, 22):
+            if p == 0:
+                dim = grey = False
+            elif p == 22:
                 dim = False
             elif p == 2:
                 dim = True
+            elif 30 <= p <= 37 or 91 <= p <= 97 or p == 39:  # another foreground, or the default one
+                grey = False
+            elif p == 90:
+                grey = True
             i += 1
     return chars
 
 
-def typed_text(lines: list[str]) -> str | None:
+def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     """What is typed in the agent's input box, from an ANSI read: "" when it's empty, None when it can't be told.
 
     The input line is the prompt glyph, a space (an NBSP in Claude Code) and the text; a long text wraps onto rows
-    with a gutter, down to the box's closing rule. Dim text is ghost text (Claude's "Try …" placeholder), not
-    typed; any other styling counts as typed (Claude colours a slash command). No box, no closing rule (what
-    follows may be a footer) or an escape other than SGR and OSC in the box: None.
+    with a gutter, down to the box's closing rule. Ghost text in the styles the CLI draws it in (`kind`'s
+    `ghost_styles`: dim for Claude's "Try …" placeholder, colour 8 too for agy's) isn't typed; any other styling
+    counts as typed (Claude colours a slash command). No box, no closing rule (what follows may be a footer) or
+    an escape other than SGR and OSC in the box: None.
     """
+    ghost = cli(kind).ghost_styles if kind in CLIS else ("dim",)
     plain = [strip_sgr(line) for line in lines]
     at = input_box_at(plain)
     if at is None:
@@ -1966,20 +2062,20 @@ def typed_text(lines: list[str]) -> str | None:
         row = OSC_RE.sub("", row)
         if "\x1b" in SGR_RE.sub("", row):
             return None
-        chars = visible_chars(row)
+        chars = visible_chars(row, ghost)
         if not n:
             chars = chars[1:]  # the glyph
         typed.append("".join(c if not dim else " " for c, dim in chars))
     return None
 
 
-def human_draft(lines: list[str] | None) -> bool:
+def human_draft(lines: list[str] | None, kind: str | None = None) -> bool:
     """Whether a pane positively shows a human's draft in its input box; anything unclear isn't one (design §3).
 
     A doorbell left in the box by an earlier try is ours: typing after it fuses two doorbells, which one
     `mesh inbox` answers.
     """
-    text = typed_text(lines) if lines is not None else None
+    text = typed_text(lines, kind) if lines is not None else None
     return bool(text) and not text.startswith(DOORBELL_PREFIX)
 
 
@@ -2057,13 +2153,13 @@ def pane_probe(pane: str | None, kind: str | None) -> str | None:
 def trust_keys(screen: str) -> list[str] | None:
     """Keys that select "Yes, … trust" in a folder-trust dialog, or None if it isn't one.
 
-    The CLIs differ: agy highlights "Yes" by default, Claude Code highlights "No, exit".
+    The CLIs differ: agy highlights "Yes" by default, Claude Code highlights "No, exit", Copilot "1. Yes" (in a box).
     """
     if not TRUST_PROMPT_RE.search(screen):
         return None
-    options = [line.strip() for line in screen.splitlines() if TRUST_OPTION_RE.match(line)]
-    yes = next((i for i, line in enumerate(options) if line.lstrip("❯> ").startswith("Yes")), None)
-    cursor = next((i for i, line in enumerate(options) if line[0] in "❯>"), None)
+    options = [m for m in map(TRUST_OPTION_RE.match, screen.splitlines()) if m]
+    yes = next((i for i, m in enumerate(options) if m.group(2) == "Yes"), None)
+    cursor = next((i for i, m in enumerate(options) if m.group(1)), None)
     if yes is None or cursor is None:
         return None
     step = "down" if yes > cursor else "up"
@@ -2461,7 +2557,7 @@ def pane_claude(entry: dict) -> dict | None:
     """The Claude process running a Claude pane worker's pane (herdr's foreground leader, or the pane's one Claude
     when herdr names no leader), or None: not such a worker (a root's Claude is the user's own, never started by
     mesh), herdr can't say, or no Claude leads the pane (or several, and no leader is named)."""
-    if (entry.get("role") != "worker" or entry.get("kind") != "claude" or entry.get("view") in ("bg", "headless")
+    if (entry.get("role") != "worker" or entry.get("kind") != "claude" or entry.get("view") in ("bg", HEADLESS)
             or not entry.get("pane") or entry.get("status") == "starting"):
         return None
     info = pane_process_info(entry["pane"])
@@ -2898,6 +2994,44 @@ def copilot_quota_error(events: list[dict]) -> str | None:
     return None
 
 
+def current_quota_error(events: list[dict]) -> str | None:
+    """The quota error a Copilot session is stopped at: its newest 402 with no user or assistant message after it
+    (the turn after a top-up answers), recording the hold (note_copilot_limit) dated by that error's own event.
+    A later answer shows the quota is back: a hold from before it is lifted (clear_copilot_limit)."""
+    for i in range(len(events) - 1, -1, -1):
+        event = events[i]
+        if event.get("type") == "assistant.message" and (event.get("data") or {}).get("content"):
+            when = events_time([event])
+            if when:  # an answer of unknown date can't tell whether it came after the hold
+                clear_copilot_limit(when)
+            return None
+        if event.get("type") == "user.message":
+            return None
+        quota = copilot_quota_error([event])
+        if quota:
+            note_copilot_limit(quota, events_time([event]))
+            return quota
+    return None
+
+
+def answered_since_prompt(events: list[dict]) -> bool:
+    """Whether a Copilot session's newest user message got an answer (an `assistant.message` with text)."""
+    for event in reversed(events):
+        if event.get("type") == "user.message":
+            return False
+        if event.get("type") == "assistant.message" and (event.get("data") or {}).get("content"):
+            return True
+    return False
+
+
+def clear_copilot_limit(at: float | None = None) -> None:
+    """Copilot answered (`at`: when, by its event; else now): a quota error recorded before that is over (topped
+    up, or reset). An answer from before the error leaves the hold."""
+    held = copilot_limit_record()
+    if held and float(held.get("at") or 0) <= (at or time.time()):
+        copilot_limit_path().unlink(missing_ok=True)
+
+
 def events_time(events: list[dict]) -> float | None:
     """When the last of these Copilot events was written (their `timestamp`), as epoch seconds."""
     for event in reversed(events):
@@ -2918,14 +3052,6 @@ def note_copilot_limit(message: str, at: float | None = None) -> str:
                                                        "message": message}))
     return (f"Copilot is over its quota: {message}. mesh leaves it out of `--reviewers auto` for "
             f"{COPILOT_LIMIT_HOLD // 3600} h, or until it next answers")
-
-
-def clear_copilot_limit(at: float | None = None) -> None:
-    """Copilot answered (`at`: when, if its events say; else now): a quota error recorded before that is over
-    (topped up, or reset). An answer filed late, from before the error, leaves the hold."""
-    held = copilot_limit_record()
-    if held and float(held.get("at") or 0) <= (at or time.time()):
-        copilot_limit_path().unlink(missing_ok=True)
 
 
 def copilot_limit_record() -> dict | None:
@@ -3182,6 +3308,8 @@ def agy_conversation_file(session: str) -> Path:
 def progress_files(entry: dict, session: str | None) -> list[Path]:
     """The files a worker writes as it makes progress (Cli.progress_files): Claude's session file; agy's
     conversation db and its own `--log-file`."""
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return []  # a kind this checkout doesn't know: nothing to read
     return cli(entry.get("kind")).progress_files(entry, session)
 
 
@@ -3272,6 +3400,8 @@ def context_tokens(entry: dict, session: str) -> int | None:
 
     None when its conversation file can't be read.
     """
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return None
     return cli(entry.get("kind")).context_tokens(entry, session)
 
 
@@ -3623,7 +3753,7 @@ def ring_lock(key: str):
 
 
 def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
-         delays: tuple[int, ...] = RING_DELAYS) -> dict:
+         delays: tuple[int, ...] = RING_DELAYS, kind: str | None = None) -> dict:
     """Type the doorbell into the first reachable target, retrying while it is busy, and say how it got through.
 
     `via` is "working" (herdr saw the agent start), "pane" (the doorbell's token showed up above the input box),
@@ -3651,7 +3781,7 @@ def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
                     before[target] = doorbells_shown(plain, needle)
                 elif before[target] is not None and (doorbells_shown(plain, needle) or 0) > before[target]:
                     return {"rung": True, "error": None, "via": "pane", "tries": tries}  # queued after the last try
-                if human_draft(lines):
+                if human_draft(lines, kind):  # `kind`: the recipient's CLI, whose ghost text isn't a draft
                     last_error = "human_draft"
                     break
                 try:
@@ -3684,7 +3814,8 @@ def ring_stored(run_id: str, sender: str, to: str, targets: list[str], text: str
 
     The event has no `type` field: a ring is never counted as a send.
     """
-    result = ring(targets, text, token, read=read or (path,), delays=delays)
+    kind = (((maybe_run(run_id) or {}).get("agents") or {}).get(to) or {}).get("kind")
+    result = ring(targets, text, token, read=read or (path,), delays=delays, kind=kind)
     if result["rung"]:
         log_event(run_id, "rung", sender=sender, to=to, file=path.name, via=result["via"], tries=result["tries"])
     else:
@@ -3876,13 +4007,6 @@ def delivered(delivery: dict) -> bool:
                 or delivery.get("collected"))
 
 
-def refuse_headless(name: str, entry: dict, what: str) -> None:
-    """A Copilot asker has no pane, mailbox reader or model swap: only `mesh ask` reaches it."""
-    if entry.get("view") == "headless":
-        raise MeshError(f"{name} is a headless Copilot asker, which {what} doesn't reach: "
-                        f"ask it again with `mesh ask {name} --body …`")
-
-
 RELAUNCH_WAIT = 60  # seconds deliver waits for a relaunched pane worker's turn to end before reopening it
 
 
@@ -3959,7 +4083,6 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
     """
     run = load_run(run_id)
     entry = agent_entry(run, to)
-    refuse_headless(to, entry, f"a `{mtype}` message")
     path = record(run_id, sender, to, mtype, body)
     if stored:
         stored()
@@ -4370,7 +4493,7 @@ def leave_scope(run_id: str) -> str | None:
 
 
 def confine_agent(pid: int | None, name: str) -> dict:
-    """Confine an agent mesh just launched (a worker, asker, peer or Copilot asker; never a root or `mesh open`):
+    """Confine an agent mesh just launched (a worker, asker or peer; never a root or `mesh open`):
     its process and descendants to the next `cpu_window`, so the test runners it starts size their worker pools
     by that many cores, and with `worker_memory_high` into a `memory_scope`. What it set; never raises, since a
     launch must not fail on it."""
@@ -4749,8 +4872,8 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     view = getattr(args, "view", None) or (sized["view"] if sized else "pane")
     if view == "bg" and ("bg" not in cli(args.kind).views or user_review):
         if getattr(args, "view", None):
-            raise MeshError("--view bg is for Claude workers (agy has no background sessions; a user-reviewed "
-                            "plan needs a pane)")
+            raise MeshError(f"--view bg is for Claude workers ({cli(args.kind).name} has no background sessions; a "
+                            "user-reviewed plan needs a pane)")
         view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
     # `mesh ask` says itself whether its effort was named (a sized reviewer's `review.effort` isn't).
@@ -4910,7 +5033,10 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
 
 def lifted(entry: dict, lift: bool) -> dict:
     """The deny-list reasons (deny_argv) a reopen records: none when it lifts the list, else the entry's own."""
-    return {key: False if lift else bool(entry.get(key)) for key in ("read_only", "planning")}
+    reasons = {key: False if lift else bool(entry.get(key)) for key in ("read_only", "planning")}
+    if entry.get("view") == HEADLESS and not lift:  # a Copilot asker from before design §22 recorded none
+        reasons["read_only"] = True
+    return reasons
 
 
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
@@ -4926,7 +5052,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     both of its reasons; otherwise it keeps whatever it had.
     """
     entry = agent_entry(load_run(run_id), name)
-    refuse_headless(name, entry, "a model swap")
+    cli(entry.get("kind"))  # an unknown kind is refused as such, before the conversation lookup
     session = find_session(run_id, name, entry)
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
@@ -4979,11 +5105,12 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
             e = run["agents"][name]
             e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                     status="starting", swapped=True, **lifted(entry, lift))
+                     status="starting", swapped=True, **lifted(entry, lift),
+                     **({"view": "pane"} if entry.get("view") == HEADLESS else {}))  # an old asker: a pane now
             e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
         recorded = True
         argv = [*log_argv(entry.get("log")), *deny_argv({**entry, **lifted(entry, lift)}),
-                *resume_argv(entry["kind"], session, model, effort), *skip_flags(),
+                *resume_argv(entry["kind"], session, model, effort), *cli(entry["kind"]).skip_argv(),
                 *settings_argv(entry["kind"], env)]
         try:
             if entry.get("pane"):  # none for a background worker moving to a pane
@@ -5074,7 +5201,6 @@ def cmd_approve(args: argparse.Namespace) -> int:
     """Approve a worker's plan; a worker on `auto` moves to its exec model first, keeping its conversation."""
     run_id, me = identity(args)
     entry = require_parent(load_run(run_id), me, args.agent, "approve")
-    refuse_headless(args.agent, entry, "`mesh approve`")
     refuse_no_plan(run_id, args.agent, entry)
     reserve_guard(run_id, entry.get("kind"), entry.get("exec_model") or entry.get("model"),
                   entry.get("exec_effort") or entry.get("effort"), f"{args.agent}'s execution")
@@ -5135,7 +5261,6 @@ def cmd_switch(args: argparse.Namespace) -> int:
     """Move a worker that hit a quota to the next model with quota left, and tell it to carry on."""
     run_id, me = identity(args)
     entry = require_parent(load_run(run_id), me, args.agent, "switch")
-    refuse_headless(args.agent, entry, "`mesh switch`")
     effort = entry.get("effort") or plan_effort_for(entry["kind"])
     if entry.get("phase") == "exec" and not args.model:  # after `approve --keep-model` it still has the plan's
         effort = entry.get("exec_effort") or exec_effort_for(entry["kind"])
@@ -5553,8 +5678,6 @@ def quoted_body(text: str) -> str:
 
 def cmd_inbox(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
-    if not args.peek:
-        file_orphans(run_id, me)  # an answer a killed `mesh ask` left with its Copilot asker
     folder = inbox_dir(run_id, me)
     paths = unread(run_id, me)
     if args.all and (folder / "read").exists():
@@ -5598,7 +5721,6 @@ def cmd_ring(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     run = load_run(run_id)
     entry = agent_entry(run, args.agent)
-    refuse_headless(args.agent, entry, "a doorbell")
     count = len(unread(run_id, args.agent))
     held = entry.get("held")
     if not count:
@@ -5653,9 +5775,8 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
     """
     if entry and entry.get("view") == "bg":
         return bg_status(entry, bg_rows)
-    if entry and entry.get("view") == "headless":
-        # A Copilot asker works while the `mesh ask` that asks it, or the copilot that one started, lives.
-        return "working" if live_holder(name, entry) else "gone"
+    if entry and entry.get("view") == HEADLESS:  # a Copilot asker from before design §22: closed
+        return "gone"
     try:
         return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
     except HerdrError as exc:
@@ -5865,8 +5986,6 @@ def waiting_rows(run_id: str, run: dict, rows: list[dict], events: list[dict]) -
             mtype, since = received["type"], received.get("time")
             if retired:
                 text, needs = "retired before reporting", None
-            elif entry.get("view") == "headless" and entry.get("status") == "running" and row["state"] == "gone":
-                text, needs = "report waiting: `mesh inbox` files it", "root"  # a killed `mesh ask` (file_orphan)
             elif (inbox_dir(run_id, name) / str(received.get("file"))).exists():
                 text, needs = f"{mtype} unread {ago(age_seconds(since))}", "worker"
                 if doorbell_failed(events, name, received.get("file")):
@@ -6117,7 +6236,7 @@ def retirable(run_id: str, name: str, entry: dict, events: list[dict]) -> dict |
     task or answer is a `done` or `failed`, it runs, nothing waits in its mailbox, it declared no wait, and no
     fan-out is collecting it. How long it has been idle is the watch's to judge (Watch.maybe_retire)."""
     if (entry.get("role") != "worker" or entry.get("status") != "running" or entry.get("held")
-            or entry.get("relaunching") or entry.get("view") == "headless"):
+            or entry.get("relaunching") or entry.get("view") == HEADLESS):
         return None
     report, _ = last_report(events, name)
     if not report or report.get("type") not in FINAL_TYPES or live_wait(events, name):
@@ -6474,7 +6593,6 @@ class Watch:
         # baseline is the count before its question, and which reads the reply itself).
         self.unread_report = None if finals_at_start is not None else unread_report(run_id, entry.get("parent"), name)
         self.log = entry.get("log")
-        self.headless = entry.get("view") == "headless"
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.session: str | None = None  # its conversation, once found (see conversation)
         self.session_tried: float | None = None
@@ -6505,8 +6623,6 @@ class Watch:
         """(status, line) once there is something to say, else None. `events` is this poll's read of the log."""
         run_id, name = self.run_id, self.name
         events = read_log(run_id) if events is None else events
-        if self.headless and file_orphan(run_id, name):  # a killed `mesh ask` left its answer unfiled
-            events = read_log(run_id)
         event = self.report_event(events, alerts_only) or self.quota_event()
         if event:
             return event
@@ -6602,7 +6718,7 @@ class Watch:
         idle = time.time() - max(epoch(report.get("time")), progress if progress is not None else self.idle_at or 0)
         if idle < self.idle_retire:
             return
-        if not bg and human_draft(pane_lines(name, ansi=True)):
+        if not bg and human_draft(pane_lines(name, ansi=True), entry.get("kind")):
             return  # the user is typing to it
         why = viewer(name, entry)
         if why:  # the user is looking at it: retired once they leave, if it is still idle
@@ -6686,12 +6802,10 @@ class Watch:
                        f"user to run `/login` in {where}, then `mesh send {self.name} --type task "
                        f"--body \"You're logged in again: continue where you stopped.\"`")
         when = f" (resets {reset})" if reset else ""
-        when_reset = claude_limit_reset(entry.get("model")) or parse_reset(reset)
-        if when_reset is None and claude_usage() is None:  # nothing to tell the reset by: the 5-hour window's worst
-            when_reset = time.time() + LIMIT_UNKNOWN_RESET
-        due = schedule_continue(self.run_id, self.name, "limit", when_reset)
-        how = "" if bg else " (Claude Code's own auto-continue first, in its pane)"
-        return 7, (f"ALERT {self.name} hit Claude's usage limit{when}; mesh continues it after the reset"
+        adapter = cli(entry.get("kind"))
+        due = schedule_continue(self.run_id, self.name, "limit", adapter.limit_reset(entry, reset))
+        how = "" if bg or not adapter.auto_continue_first else " (Claude Code's own auto-continue first, in its pane)"
+        return 7, (f"ALERT {self.name} hit {adapter.short}'s usage limit{when}; mesh continues it after the reset"
                    f"{how}, {continue_text(due)}: tell the user, and send it nothing")
 
     def hung(self, entry: dict, bg: bool, state: str, events: list[dict]) -> tuple[int, str] | None:
@@ -7077,7 +7191,7 @@ def unwatched(run_id: str, skip: tuple[str, ...] = ()) -> list[str]:
     events = read_log(run_id)
     owing = []
     for name, entry in run["agents"].items():
-        if (entry.get("role") != "worker" or name in skip or entry.get("view") == "headless"
+        if (entry.get("role") != "worker" or name in skip or entry.get("view") == HEADLESS
                 or entry.get("status") in ("retiring", "retired")):
             continue
         if owes_report(events, name) and not alerted(events, name, since_last_task(events, name)[0], "gone") \
@@ -7281,6 +7395,8 @@ def claude_limit_reset(model: str | None = None) -> float | None:
 
 def still_limited(entry: dict) -> bool:
     """Whether the quota that stopped a worker scheduled with no reset time still reads spent (unknown: no)."""
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return False
     return cli(entry.get("kind")).still_limited(entry)
 
 
@@ -7423,7 +7539,7 @@ def retire_poll(run_id: str, watches: dict[str, "Watch"]) -> bool:
     candidates, pending = {}, set()
     for name, entry in run["agents"].items():
         report, _ = last_report(events, name)
-        if (entry.get("role") != "worker" or entry.get("view") == "headless" or entry.get("status") == "retired"
+        if (entry.get("role") != "worker" or entry.get("view") == HEADLESS or entry.get("status") == "retired"
                 or not report or report.get("type") not in FINAL_TYPES
                 or report.get("file") in (failed.get(name), watches.get(name) and watches[name].retire_tried)):
             continue
@@ -7646,15 +7762,6 @@ def live_holder(name: str, entry: dict, agents: list[dict] | None = None,
         row = bg_row(entry, bg_rows)
         if row and row.get("status"):
             return {"name": name, "pane_id": None, "bg_id": row.get("id")}
-    if entry.get("view") == "headless":
-        # Busy while the `mesh ask` running it lives, or the copilot it started, which a killed one leaves
-        # running (copilot_ask); a `running` they both left is an answer file_orphan files.
-        if entry.get("status") != "running":
-            return None
-        for key, answering in (("pid", "mesh process"), ("copilot_pid", "copilot process")):
-            if pid_alive(entry.get(key), entry.get(f"{key}_start")):
-                return {"name": name, "pane_id": None, "pid": entry[key], "answering": answering}
-        return None
     cwd, unasked = entry.get("cwd"), None
     if agents is None:
         try:
@@ -7682,7 +7789,7 @@ def process_holder(name: str, entry: dict, top: Path | None, procs: list[dict] |
     """
     kind, session = entry.get("kind"), entry.get("session")
     if not cli_has(kind, "processes"):
-        return None  # a Copilot asker holds its session through its `mesh ask` pid (claim_copilot)
+        return None
     procs = agent_processes() if procs is None else procs
     for proc in procs:
         if agent_binary(proc.get("argv")) != kind:
@@ -7750,6 +7857,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
 def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dict, str]:
     """Find a past worker and its conversation, refusing one that is still running."""
     run, _, name, entry = find_worker(ref, from_run)
+    cli(entry.get("kind"))  # a kind this checkout doesn't know: say so, not that its conversation is lost
     session = find_session(run["id"], name, entry)
     if not session:
         raise MeshError(
@@ -7757,9 +7865,6 @@ def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dic
             f"`mesh spawn --cwd {entry.get('cwd')}` and give it the old plan and report"
         )
     holder = live_hint(name, entry)
-    if holder and holder.get("pid"):
-        raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; "
-                        "ask it again once that finishes")
     if holder and holder.get("process"):
         raise MeshError(f"{name}'s conversation may still be open in process {holder['process']} (a {entry.get('kind')} "
                         f"running in {holder.get('cwd')}, "
@@ -8046,9 +8151,6 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
     # By the entry too: a resume that was given a `-2` name is still that peer.
     peer_name, peer = worker_peer(old_name, old, getattr(args, "peer", None))
-    if not cli(old["kind"]).worker:
-        raise MeshError(f"{old_name} is a Copilot asker, which only answers: ask it again with `mesh ask {old_name}`, "
-                        "or give the change to the PR's author or a fresh worker")
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
         raise MeshError(f"{old_name} is a peer asker, which only answers questions about its project: ask it with "
                         f"`mesh ask {peer_name if peer else old_name}`, and give a change to a worker in that repo "
@@ -8067,9 +8169,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         model, notes = plan_model(old["kind"], effort, run_id)
     else:
         model, effort = resumed_model(old, args.model, args.effort)
-    view = getattr(args, "view", None) or old.get("view") or "pane"
+    view = getattr(args, "view", None) or (old.get("view") if old.get("view") != HEADLESS else None) or "pane"
     if view == "bg" and "bg" not in cli(old["kind"]).views:
-        raise MeshError("--view bg is for Claude workers; agy has no background sessions")
+        raise MeshError(f"--view bg is for Claude workers; {cli(old['kind']).name} has no background sessions")
     named_bg, root = bool(getattr(args, "view", None)), current["agents"][current["root"]]
     view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
@@ -8129,7 +8231,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     # the list if it owes a plan. A direct task gets no list.
     enforced = cli(old["kind"]).enforces_read_only
     read_only = enforced and (getattr(args, "read_only", False) or read_only_task(task)
-                                             or bool(peer_name) or (not task and bool(old.get("read_only"))))
+                                             or bool(peer_name)
+                                             or (not task and (bool(old.get("read_only")) or old.get("view") == HEADLESS)))
     planning = enforced and not read_only and (
         planned_task(task) if task else bool(old.get("planning") or mid_plan))
     deny = deny_argv({**old, "read_only": read_only, "planning": planning})
@@ -8189,7 +8292,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
 
     started[-1]["reservation"] = None  # launching: its reservation stands
     started = start_agent(name, old["kind"], pane, [*log_argv(log), *deny, *resume_argv(old["kind"], session, model, effort),
-                                                    *skip_flags(), *settings_argv(old["kind"], env)],
+                                                    *cli(old["kind"]).skip_argv(), *settings_argv(old["kind"], env)],
                           peer=bool(peer_name))
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
@@ -8496,7 +8599,7 @@ def apply_move(move: dict, undo: bool = False) -> None:
         for wt in run.get("worktrees", []):
             if Path(wt["path"]) == Path(move["cwd"]) and wt.get("base") in (other, at):
                 wt["base"] = at
-    move["entry"]["base"] = at  # the entry ask_copilot reuses (resume_worker reads the run again)
+    move["entry"]["base"] = at
 
 
 def moving(move: dict | None, reach: Callable[[], object]) -> object:
@@ -8558,8 +8661,21 @@ def copilot_model_argv(model: str, effort: str) -> list[str]:
     return ["--model", model, *(["--auto-tier", COPILOT_TIER] if model == "auto" else ["--reasoning-effort", effort])]
 
 
+def tail_lines(path: Path, size: int = 1 << 18) -> list[str]:
+    """The last `size` bytes of a file as lines (the first, likely cut, dropped when the file is longer); [] when it
+    can't be read."""
+    try:
+        with open(path, "rb") as fh:
+            end = fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, end - size))
+            lines = fh.read().decode(errors="replace").splitlines()
+    except OSError:
+        return []
+    return lines[1:] if end > size else lines
+
+
 def json_events(lines: list[str]) -> list[dict]:
-    """The events among Copilot's JSON lines (its output, or its session's events file), skipping any other line."""
+    """The events among Copilot's JSON lines (its session's events file), skipping any other line."""
     events = []
     for line in lines:
         try:
@@ -8569,16 +8685,6 @@ def json_events(lines: list[str]) -> list[dict]:
         if isinstance(event, dict):
             events.append(event)
     return events
-
-
-def turn_answer(events: list[dict]) -> tuple[str, str | None]:
-    """The last thing Copilot said in these events and the model it said it on."""
-    text, model = "", None
-    for event in events:
-        data = event.get("data")
-        if event.get("type") == "assistant.message" and isinstance(data, dict) and (data.get("content") or "").strip():
-            text, model = data["content"].strip(), data.get("model") or model
-    return text, model
 
 
 @contextmanager
@@ -8598,329 +8704,10 @@ def signals_raise(*signums: int):
             signal.signal(signum, handler)
 
 
-def copilot_ask(run_id: str, me: str, name: str, task: str, timeout: float) -> None:
-    """Put one read-only task to a Copilot asker, headless, and file its answer as its `done` (or `failed`).
-
-    The caller has marked the entry `running` with this process's pid (`claim_copilot`), and copilot's own
-    pid joins it while it runs, in a session of its own: a killed `mesh ask` leaves it answering, live_holder
-    then still finds it busy, and file_orphan files its answer once it exits. Every task goes
-    under the session id recorded at spawn, which starts the session the first time and
-    resumes it after, so the asker keeps what it read. The prompt goes on stdin: a review's diff can be
-    larger than one command-line argument may be.
-    """
-    entry = agent_entry(load_run(run_id), name)
-    mark_read(record(run_id, me, name, "task", task))  # kept as the record; it reaches Copilot as the prompt
-    argv = ["copilot", "--output-format", "json", "--allow-all-tools", "--deny-tool", *COPILOT_DENY, "--no-ask-user",
-            "--session-id", entry["session"], *copilot_model_argv(entry["requested_model"], entry["effort"])]
-    log_event(run_id, "copilot", name=name)
-
-    def started(pid: int) -> None:
-        with editing_run(run_id) as run:
-            run["agents"][name].update(copilot_pid=pid, copilot_pid_start=proc_start(pid))
-        confine_agent(pid, name)
-
-    report = None
-    try:
-        # No mesh identity: it answers through its output, never with `mesh send`.
-        with signals_raise(signal.SIGTERM, signal.SIGHUP):  # so a killed or hung-up `mesh ask` takes copilot with it
-            result = run_cli(argv, cwd=entry["cwd"], env=env_without_identity(keep_herdr=False),
-                             timeout=timeout or None, input=f"{task}\n\n{COPILOT_NOTE}", started=started)
-        events = json_events(result.stdout.splitlines())
-        text, model = turn_answer(events)
-        quota = copilot_quota_error(events)
-        if quota:  # a monthly quota: no auto round picks Copilot until it may have reset (copilot_limit)
-            report = ("failed", note_copilot_limit(quota), None)
-        elif text and result.returncode == 0:
-            clear_copilot_limit()
-            report = ("done", text, model)
-        elif result.returncode == 0:
-            report = ("failed", "copilot gave no answer (exit 0)", None)
-        else:
-            error = result.stderr.strip().splitlines()[-1:] or [f"exit {result.returncode}"]
-            report = ("failed", f"copilot exited {result.returncode}: {error[0]}", None)
-    finally:
-        # Ctrl-C, a SIGTERM or a hang-up stopped it (run_cli killed copilot): say so now, not as an orphan later.
-        report = report or ("failed", "interrupted: its `mesh ask` was stopped before copilot answered", None)
-        # The answer is filed while the entry still counts as working, so a `mesh watch` on it sees the report.
-        with editing_run(run_id) as run:
-            release_copilot(run_id, run, name, lambda agent, asked: report)
-
-
-def release_copilot(run_id: str, run: dict, name: str,
-                    report: Callable[[dict, str], tuple[str, str, str | None]]) -> str | None:
-    """Release a Copilot asker (`run` held with editing_run), filing first the report it owes on its last task:
-    `report(entry, task)` gives it as (type, body, model). Nothing is filed when that task has its report already
-    (a `mesh ask` killed between filing and releasing), or when there is none (killed before recording it).
-    The type filed, or None."""
-    agent = run["agents"][name]
-    last, received = last_report(read_log(run_id), name)
-    filed = None
-    if received and received.get("type") == "task" and not (last and last.get("type") in FINAL_TYPES):
-        filed, body, model = report(agent, message_body(run_id, received))
-        record(run_id, name, received["sender"], filed, body)
-        agent["model"] = model or agent["model"]
-    agent["status"] = "retired"
-    for key in CLAIM_KEYS:
-        agent.pop(key, None)
-    return filed
-
-
-def copilot_turn(entry: dict, task: str) -> tuple[str, str, str | None]:
-    """The report copilot_ask would have filed for `task`, read back from the asker's session events once copilot
-    has exited: (type, body, model). Copilot writes each ask there as a `user.message` holding the prompt mesh
-    piped in, then the turn's events, then `session.shutdown` when it exits on its own (none when it is killed).
-    Only what it wrote since the claim counts (`events`, `events_from`), and only its last ask, so an earlier
-    turn asking the same is never taken for this one."""
-    path = Path(entry["events"]) if entry.get("events") else copilot_events(entry)
-    try:
-        with path.open("rb") as f:
-            f.seek(entry.get("events_from") or 0)
-            events = json_events(f.read().decode(errors="replace").splitlines())
-    except OSError:
-        events = []
-    asked = [i for i, e in enumerate(events) if e.get("type") == "user.message"]
-    data = events[asked[-1]].get("data") if asked else None
-    if not (isinstance(data, dict) and str(data.get("content") or "").lstrip().startswith(task.strip())):
-        return "failed", "copilot never got the task: its `mesh ask` was killed", None
-    turn = events[asked[-1] + 1:]
-    end = next((i for i, e in enumerate(turn) if e.get("type") == "session.shutdown"), None)
-    if end is None:
-        return "failed", "copilot stopped before it finished answering: its `mesh ask` was killed", None
-    quota = copilot_quota_error(turn[:end])
-    if quota:
-        return "failed", note_copilot_limit(quota, events_time(turn[:end])), None
-    text, model = turn_answer(turn[:end])
-    if not text:
-        return "failed", "copilot gave no answer (exit 0)", None
-    clear_copilot_limit(events_time(turn[:end]))
-    return "done", text, model
-
-
-def orphaned(name: str, entry: dict) -> bool:
-    """A Copilot asker still marked `running` whose `mesh ask` and copilot are both gone."""
-    return entry.get("view") == "headless" and entry.get("status") == "running" and not live_holder(name, entry)
-
-
-def file_orphan(run_id: str, name: str) -> str | None:
-    """File the report a Copilot asker owes when a SIGKILLed `mesh ask` left copilot answering and copilot has
-    exited since (copilot_turn), and release the asker as copilot_ask would. Under the run lock, and only while the
-    entry is still `running` with neither process alive, so whoever finds it first (the next ask, a watch, the
-    root's inbox, stop) files it, once. The type filed, or None."""
-    entry = (maybe_run(run_id) or {}).get("agents", {}).get(name)  # None once archived
-    if not entry or not orphaned(name, entry):
-        return None  # checked without the lock first: a watch asks on every poll
-    with editing_run(run_id) as run:
-        if not orphaned(name, run["agents"][name]):
-            return None
-        filed = release_copilot(run_id, run, name, copilot_turn)
-    if filed:
-        log_event(run_id, "copilot_filed", name=name, type=filed)
-        print(f"mesh: filed {name}'s `{filed}` from its Copilot session, which a killed `mesh ask` left answering "
-              "(`mesh inbox` shows it)", file=sys.stderr)
-    return filed
-
-
-def file_orphans(run_id: str, parent: str | None = None) -> None:
-    """file_orphan for each Copilot asker of the run (of `parent`'s only, when given) that may be one."""
-    for name, entry in (maybe_run(run_id) or {}).get("agents", {}).items():
-        if entry.get("view") == "headless" and entry.get("status") == "running" \
-                and (parent is None or entry.get("parent") == parent):
-            file_orphan(run_id, name)
-
-
-def refuse_busy(name: str, entry: dict) -> None:
-    holder = live_holder(name, entry)
-    if holder and holder.get("pid"):
-        raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; "
-                        "ask it again once that finishes")
-
-
-def claim_copilot(entry: dict) -> None:
-    """Mark a Copilot asker busy for this `mesh ask` (see live_holder); copilot_ask releases it. Its session's
-    events file and where it ends now are recorded too, so whoever files the answer of a copilot this `mesh ask`
-    leaves (file_orphan) reads the file it writes, and only this ask in it (copilot_turn)."""
-    for key in CLAIM_KEYS:
-        entry.pop(key, None)  # a copilot a killed `mesh ask` left is gone by now (refuse_busy), its answer filed
-    events = copilot_events(entry)
-    try:
-        size = events.stat().st_size
-    except OSError:
-        size = 0  # a session copilot hasn't started yet
-    entry.update(status="running", pid=os.getpid(), pid_start=proc_start(os.getpid()), events=str(events),
-                 events_from=size)
-
-
-def open_peek(run_id: str, name: str, cwd: Path) -> str | None:
-    """A pane beside the root that follows a Copilot asker (`mesh peek --follow`), so the user sees it work.
-
-    Only beside the root, where the user is looking; None when that tab is full or gone, or herdr refuses.
-    """
-    if stale := agent_entry(load_run(run_id), name).get("pane"):  # left by a `mesh ask` that was killed
-        close_peek(run_id, name, stale)
-    env = {key: os.environ[key] for key in ("MESH_HOME", "COPILOT_HOME") if os.environ.get(key)}
-    try:
-        beside = beside_root(run_id, name, cwd, env)
-    except MeshError:
-        return None
-    if not beside:
-        return None
-    pane, tab, workspace = beside
-    try:
-        herdr("pane", "rename", pane, f"{name} (Copilot)")
-        herdr("pane", "run", pane, shlex.join(["mesh", "peek", name, "--from-run", run_id, "--follow"]))
-    except MeshError:
-        close_peek(run_id, name, pane)
-        return None
-    with editing_run(run_id) as run:
-        run["agents"][name].update(pane=pane, tab=tab, workspace=workspace)
-    return pane
-
-
-def close_peek(run_id: str, name: str, pane: str) -> None:
-    try:
-        herdr("pane", "close", pane)
-    except MeshError:
-        pass  # the user closed it already
-    with editing_run(run_id) as run:
-        run["agents"][name].update(pane=None, tab=None, workspace=None)
-
-
-def ask_copilot(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, task: str,
-                pr: str | None, number: int | None, base: str | None, body: str, head: str | None = None) -> int:
-    """`mesh ask` for Copilot: no pane and no doorbell, the answer is what `copilot` prints (copilot_ask)."""
-    ignored = [flag for flag, on in (("--keep", args.keep), ("--no-wait", args.no_wait), ("--wait", args.wait),
-                                     ("--view", args.view), ("--compact", args.compact != "auto"),
-                                     ("--focus", args.focus)) if on]
-    if ignored:
-        print(f"mesh: {', '.join(ignored)} don't apply to a headless Copilot asker", file=sys.stderr)
-    name, how = copilot_asker(args, run_id, me, repo, target, pr, number, base, body, head)
-    peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
-    follow = f"in pane {peek}" if peek else f"with `mesh peek {name} --follow`"
-    print(f"mesh: {how} {name} (Copilot, headless); waiting for its answer (follow it {follow})", file=sys.stderr)
-    try:
-        copilot_ask(run_id, me, name, task, args.timeout)
-    finally:
-        if peek:
-            close_peek(run_id, name, peek)
-    meta, text = take_reply(run_id, me, name)
-    print(f"── {meta.get('type')} from {name} ──\n{quoted_body(text)}\n")
-    print(f"(ask again: `mesh ask {name} --body …`, which resumes its Copilot session)")
-    return 0 if meta.get("type") == "done" else 1
-
-
-def copilot_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, target, pr: str | None,
-                  number: int | None, base: str | None, body: str, head: str | None = None) -> tuple[str, str]:
-    """The Copilot asker `mesh ask` puts its task to, claimed for this process (claim_copilot): `target` brought
-    into this run, or a fresh one in its own worktree. (name, how: "asked" or "started")."""
-    if target:
-        old_run, _, old_name, old = target
-        file_orphan(old_run["id"], old_name)  # its last answer first, so this one isn't taken for it
-        old = agent_entry(load_run(old_run["id"]), old_name)
-        if old_run["id"] != run_id:
-            refuse_busy(old_name, old)
-        branch = entry_branch(old_run, old)
-        ensure_worktree(old, branch)
-        name = old_name
-        with editing_run(run_id) as run:
-            if old_run["id"] != run_id:
-                # A Copilot asker from an earlier run comes back as this run's, as `mesh resume` brings a worker.
-                taken, n = set(run["agents"]) | live_agent_names(), 2
-                while name in taken:
-                    name, n = f"{old_name[:29]}-{n}", n + 1
-                run["agents"][name] = {**old, "parent": me, "resumed_from": {"run": old_run["id"], "name": old_name}}
-                worktrees = run.setdefault("worktrees", [])
-                if branch and not any(Path(w["path"]) == Path(old["cwd"]) for w in worktrees):
-                    base_sha = {"base": old["base"]} if old.get("base") else {}
-                    worktrees.append({"path": old["cwd"], "repo": old["repo"], "branch": branch, **base_sha})
-            else:
-                refuse_busy(name, run["agents"][name])  # checked and claimed under one lock (below)
-            if args.model or args.effort:
-                run["agents"][name].update(requested_model=args.model or old["requested_model"],
-                                           effort=args.effort or old["effort"])
-            claim_copilot(run["agents"][name])
-        how = "asked"
-    else:
-        taken = set(load_run(run_id)["agents"]) | live_agent_names()
-        slug = free_slug(run_id, repo, args.name or (f"review-{number}-copilot" if pr else ask_slug(body)))
-        name = agent_name(repo.name, slug, taken)
-        cwd, branch, base = add_worktree(run_id, repo, slugify(slug, 24), base)
-        model = args.model or setting("copilot_model")
-        size = args.size or "small"
-        effort = args.effort or COPILOT_EFFORT[size]
-        with editing_run(run_id) as run:
-            run["agents"][name] = {
-                "role": "worker", "kind": "copilot", "model": model, "requested_model": model, "effort": effort,
-                "size": size, "view": "headless", "repo": str(repo), "cwd": str(cwd), "branch": branch,
-                "base": base, "session": str(uuid.uuid4()), "pane": None, "tab": None, "workspace": None,
-                "parent": me, "status": "starting", "spawned": now_iso(), "log": None, "phase": None,
-                "models": [{"model": model, "effort": effort, "at": now_iso(), "why": "spawn"}],
-            }
-            claim_copilot(run["agents"][name])
-        log_event(run_id, "spawn", name=name, kind="copilot", role="worker", model=model, view="headless", parent=me)
-        how = "started"
-    if pr:
-        record_review(run_id, name, pr, head, checkout=how == "started")
-    return name, how
-
-
 def copilot_events(entry: dict) -> Path:
-    """The file Copilot writes every event of an asker's session to."""
+    """The file Copilot writes every event of a worker's session to (its progress, and its quota errors)."""
     home = Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot")
     return home / "session-state" / entry["session"] / "events.jsonl"
-
-
-def peek_line(line: str) -> str | None:
-    """One Copilot event as a line of `mesh peek`: a tool it started, or something it said."""
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(event, dict) or not isinstance(event.get("data"), dict):
-        return None
-    data, at = event["data"], str(event.get("timestamp") or "")[11:19]
-    if event.get("type") == "tool.execution_start":
-        args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
-        what = next((args[k] for k in ("description", "command", "path", "pattern") if args.get(k)), "")
-        return f"{at} {data.get('toolName')}: {first_line(str(what), 140)}"
-    if event.get("type") == "assistant.message" and (data.get("content") or "").strip():
-        return f"{at} says: {first_line(data['content'], 140)}"
-    return None
-
-
-def cmd_peek(args: argparse.Namespace) -> int:
-    """Show what a Copilot asker is doing, from its session's events, since it has no pane to look at."""
-    _, folder, name, entry = find_worker(args.ref, args.from_run)
-    if entry.get("kind") != "copilot":
-        look = f"`claude attach {entry['bg_id']}`" if entry.get("bg_id") else f"`herdr agent read {name}`"
-        raise MeshError(f"{name} is a {entry.get('kind')} worker; look at it with {look}")
-    path = copilot_events(entry)
-    while args.follow and not path.exists() and agent_status(name, entry) == "working":
-        time.sleep(1)  # Copilot writes the file once the session starts
-        entry = json.loads((folder / "run.json").read_text())["agents"][name]
-    if not path.exists():
-        raise MeshError(f"{name} has no Copilot session yet ({path})")
-    with path.open() as f:
-        lines = [shown for shown in map(peek_line, f) if shown]
-        offset = f.tell()
-    for shown in lines[-args.lines:]:
-        print(shown)
-    if not args.follow:
-        return 0
-    pending = ""  # a line Copilot is still writing
-    while True:
-        with path.open() as f:
-            f.seek(offset)
-            pending += f.read()
-            offset = f.tell()
-        *complete, pending = pending.split("\n")
-        for shown in map(peek_line, complete):
-            if shown:
-                print(shown, flush=True)
-        entry = json.loads((folder / "run.json").read_text())["agents"][name]
-        if agent_status(name, entry) != "working":
-            print(f"({name} is not answering now: its answer is what `mesh ask` printed, or `mesh inbox`)")
-            return 0
-        time.sleep(1)
 
 
 def ask_identity(args: argparse.Namespace, body: str, mode: str | None) -> tuple[str, str]:
@@ -9048,7 +8835,6 @@ def cmd_ask(args: argparse.Namespace) -> int:
                         "agent, or --peers for the peer askers")
     if args.kind and args.ref:
         raise MeshError("--kind is for a fresh agent (--repo); a worker keeps its own CLI")
-    copilot = args.kind == "copilot"
     if args.kind:
         require_cli(args.kind, f"`--kind {args.kind}`")
     body = (read_body(args.body, args.file) or "").strip()
@@ -9069,7 +8855,6 @@ def cmd_ask(args: argparse.Namespace) -> int:
     else:
         target = find_worker(args.ref)
         repo = Path(target[3]["repo"]) if target[3].get("repo") else Path.cwd()
-        copilot = target[3].get("kind") == "copilot"
         cwd = target[3].get("cwd")
         if cwd and not Path(cwd).exists() and not repo.is_dir():  # nothing to recreate its worktree from
             raise gone_clone(cwd, repo)
@@ -9085,37 +8870,30 @@ def cmd_ask(args: argparse.Namespace) -> int:
         last = review_head(target[3], pr)
     gist = first_line(body) or f"a review of {pr}"
     # Sure (or, for a worker that isn't live, likely) to start an agent: refuse before a run is made.
-    if args.repo or copilot or (peer and not target) or (target and not_live(target)):
+    if args.repo or (peer and not target) or (target and not_live(target)):
         memory_guard(args.ref or f"an asker in {repo.name}", reserve=False)
     # The reserve, before a run is made (a fresh agy agent is checked again by its spawn, once its model is known).
     # A peer's registry entry records no model, so an agy peer's model is checked when its resume picks one.
     own_run = (quietly(identity, args) or (None,))[0]
-    if target and not copilot:
+    if target:
         reserve_guard(own_run, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
                       f"a question for {target[2]}")
     elif peer:
         reserve_guard(own_run, peer.get("kind") or "claude", peer.get("model"), None, f"a question for {args.ref}")
-    elif not copilot and (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
+    elif (args.kind or ((maybe_run(own_run) or {}).get("mode") if own_run else None)) == "claude":
         reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else plan_chain("claude")[0],
                       args.effort, f"an asker in {repo.name}")
-    # a Copilot asker's run is in the root's own mode
-    run_id, me = ask_identity(args, body or f"review {pr}", None if copilot else args.kind or default_kind())
+    # a run this starts is in the asker's mode; one for a kind no root runs on (Copilot), in the root's own
+    asked_kind = args.kind or (target[3].get("kind") if target else None)
+    run_id, me = ask_identity(args, body or f"review {pr}",
+                              None if asked_kind and asked_kind not in MODES else args.kind or default_kind())
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
     # A worker keeps its CLI; a fresh agent is of --kind, else the run's mode.
-    kind = "copilot" if copilot else ((target[3].get("kind") if target else None) or args.kind
-                                      or load_run(run_id)["mode"])
+    kind = (target[3].get("kind") if target else None) or args.kind or load_run(run_id)["mode"]
     task, move, body = asker_task(args, run_id, repo, target, kind, body, pr, number, head, last)
     base = head if args.repo else None
-    if copilot:  # it starts a copilot process either way, which is gone once it has answered
-        reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
-        try:
-            return moving(move, lambda: ask_copilot(args, run_id, me, repo, target, task, pr, number, base, body,
-                                                    head))
-        finally:
-            release_memory([reservation])
-
     if args.repo:
         result, finals, how = fresh_asker(args, run_id, me, repo, kind, task, body, pr, number, base), 0, "started"
     elif peer and not target:
@@ -9151,8 +8929,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
               f"retry with `mesh ring {name}`, then `mesh watch {name}`", file=sys.stderr)
         return 2
     entry = agent_entry(load_run(run_id), name)
-    # A worker that answers by the inbox socket: its answer reaches this session as a cross-session message.
-    # (native_route to the root never looks at the sender, so the asked worker's own capability is checked here.)
+    # A worker that answers by the inbox socket: its answer reaches this session as a cross-session message, so
+    # `ask` may return at once. Any other (agy, Copilot) is watched here: its quota alert (exit 7) is seen, and the
+    # asker this call opened is closed once it has answered. native_route alone says only how the root is reached.
     if not args.wait and cli_has(entry.get("kind"), "native_inbox") and native_route(load_run(run_id), name, me):
         args.no_wait = True
     warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
@@ -9553,20 +9332,6 @@ def earlier_reviewers(pr: str) -> dict[str, tuple[dict, Path, str, dict]]:
     return found
 
 
-def stop_copilot(run_id: str, name: str) -> None:
-    """Stop the copilot a Copilot asker's `mesh ask` started (its own process group), so its thread files a
-    `failed` before the asker is released."""
-    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(name) or {}
-    pid = entry.get("copilot_pid")
-    if pid and pid_alive(pid, entry.get("copilot_pid_start")):
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except OSError:
-            pass
-
-
-REVIEW_KEYS = ("reviews", "review_heads", "review_checkout")  # what record_review writes on an asker's entry
-COPILOT_STOP_WAIT = 5.0  # seconds an interrupted review round waits for its Copilot thread to file its `failed`
 
 
 def ask_reviewers(args: argparse.Namespace) -> int:
@@ -9602,31 +9367,19 @@ def ask_reviewers(args: argparse.Namespace) -> int:
                                                   for k in kinds), file=sys.stderr)
     mark = collector(me)
     asked: dict[str, str] = {}  # kind → the reviewer's name
-    stopping = threading.Event()  # set once the round ends, so a Copilot thread not yet asking never starts
-    helpers: list[threading.Thread] = []
     try:
         with signals_raise(signal.SIGTERM, signal.SIGHUP):  # a killed round still clears its marks
             return review_round(args.__class__(**{**vars(args), "size": size}), run_id, me, repo, pr, number, head,
-                                body, kinds, targets, mark, asked, stopping, helpers)
+                                body, kinds, targets, mark, asked)
     finally:
-        stopping.set()
-        clear_marks(run_id, [name for kind, name in list(asked.items()) if kind != "copilot"])
-        for helper in helpers:  # still asking only when interrupted: stop it, and let it file its `failed`
-            for _ in range(2):  # again, for a copilot that recorded its pid during the first wait
-                if not helper.is_alive():
-                    break
-                if "copilot" in asked:
-                    stop_copilot(run_id, asked["copilot"])
-                helper.join(COPILOT_STOP_WAIT)
+        clear_marks(run_id, list(asked.values()))
 
 
 def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr: str, number: int | None,
                  head: str, body: str, kinds: list[str], targets: dict[str, tuple], mark: dict,
-                 asked: dict[str, str], stopping: threading.Event, helpers: list[threading.Thread]) -> int:
-    """ask_reviewers' work; `asked` is filled in as reviewers are reached, and `helpers` with the Copilot thread,
-    for its caller to clean up after. Claude and agy reviewers are reached in threads under the `collect` mark
-    and watched with watch_each; Copilot answers in a thread of its own, headless, as `mesh ask` runs it, and
-    starts only while `stopping` isn't set."""
+                 asked: dict[str, str]) -> int:
+    """ask_reviewers' work; `asked` is filled in as reviewers are reached, for its caller to clean up after.
+    Every reviewer is reached in a thread under the `collect` mark and watched with watch_each."""
     from concurrent.futures import ThreadPoolExecutor
 
     outcomes: dict[str, tuple[int, str]] = {}
@@ -9655,9 +9408,8 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
                 state = asker_status(target[2], target[3]) if live else None
                 if live and owes_answer(run_id, target[2], target[3], events, state):
                     return None, 0, "busy with its previous task; ask it again once it answers"
-                if target[3].get("kind") != "copilot":
-                    reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
-                                  f"a review by {target[2]}")
+                reserve_guard(run_id, target[3].get("kind"), target[3].get("model"), target[3].get("effort"),
+                              f"a review by {target[2]}")
                 result, finals, how = moving(move, lambda: reach_worker(ask, run_id, me, target, task,
                                                                         f"a review of {pr}", collect=mark,
                                                                         events=events, state=state))
@@ -9670,42 +9422,7 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
         record_review(run_id, result["name"], pr, at, checkout=not target)
         return result, finals, how
 
-    def copilot() -> None:
-        try:
-            if stopping.is_set():
-                raise MeshError("the round was stopped first")
-            ask, target, task, move, text, at = prepared("copilot")
-            reservation = memory_guard(target[2] if target else f"a Copilot asker in {repo.name}")
-            try:
-                before = {key: target[3][key] for key in REVIEW_KEYS if key in target[3]} if target else {}
-                name, how = moving(move, lambda: copilot_asker(ask, run_id, me, repo, target, pr, number,
-                                                               None if target else head, text, at))
-                asked["copilot"] = name
-                if stopping.is_set():  # claimed, never asked: release it, with no review recorded
-                    with editing_run(run_id) as run:
-                        release_copilot(run_id, run, name, lambda agent, task: ("failed", "interrupted", None))
-                        entry = run["agents"][name]
-                        for key in REVIEW_KEYS:
-                            entry.pop(key, None)
-                        entry.update(before)
-                    raise MeshError("the round was stopped before copilot started")
-                peek = open_peek(run_id, name, Path(agent_entry(load_run(run_id), name)["cwd"]))
-                print(f"mesh: {how} {name} (Copilot, headless)" + (f", followed in pane {peek}" if peek else ""),
-                      file=sys.stderr)
-                try:
-                    copilot_ask(run_id, me, name, task, args.timeout)
-                finally:
-                    if peek:
-                        close_peek(run_id, name, peek)
-            finally:
-                release_memory([reservation])
-        except Exception as exc:  # noqa: BLE001 - that reviewer's outcome, not the round's
-            outcomes["copilot"] = 1, f"copilot: not asked ({exc})"
-
-    if "copilot" in kinds:  # a daemon: an interrupted round waits for it only COPILOT_STOP_WAIT, twice
-        helpers.append(threading.Thread(target=copilot, name="copilot-review", daemon=True))
-        helpers[0].start()
-    panes = [kind for kind in kinds if kind != "copilot"]
+    panes = list(kinds)
     reached: dict[str, tuple] = {}
     if panes:
         with ThreadPoolExecutor(max_workers=len(panes)) as pool:
@@ -9722,9 +9439,6 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
                          on_outcome=lambda n, status, line: status and print(line.splitlines()[0], file=sys.stderr))
     for name, outcome in watched.items():
         outcomes[by_name[name]] = outcome
-    for helper in helpers:
-        helper.join()
-        outcomes.setdefault("copilot", (0, ""))
 
     folder = run_folder(run_id)  # archived by a `mesh stop`, which closed the reviewers: the answers are in it
     replies = {kind: take_reply(run_id, me, asked[kind], folder) if kind in asked and outcomes[kind][0] == 0
@@ -10566,7 +10280,7 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
 # What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
 # agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
 WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
-                             "peek", "brief", "model", "usage", "cost", "routing", "peers list"})
+                             "brief", "model", "usage", "cost", "routing", "peers list"})
 # Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
@@ -10654,14 +10368,6 @@ def cmd_stop(args: argparse.Namespace) -> int:
         raise MeshError(f"{caller} is a worker of run {caller_run}, and only a root stops a run: report "
                         "`done` to your parent, which stops it (the root, if this isn't a worker: pass --as <root>)")
     run = load_run(run_id)
-    for name, entry in run["agents"].items():
-        if entry.get("view") == "headless":
-            # Removing its worktree and archiving the run under it would lose the answer.
-            holder = live_holder(name, entry)
-            if holder:
-                kill = "kill it" if holder["answering"] == "mesh process" else f"kill it with `kill -- -{holder['pid']}`"
-                raise MeshError(f"{name} is still answering in {holder['answering']} {holder['pid']}; wait for "
-                                f"it to finish (or {kill}), then stop the run")
     # Watches end with 0 from here (`stop_under_way`), not with alerts on the panes this closes; a stop that
     # fails says so, and one killed outright stops counting with its process.
     log_event(run_id, "stopping", pid=os.getpid(), start=proc_start(os.getpid()))
@@ -10675,12 +10381,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 def stop_run(args: argparse.Namespace, run_id: str, run: dict) -> int:
     """`mesh stop` past its checks: close the agents, remove clean worktrees, archive the run."""
-    file_orphans(run_id)  # into the run's mailboxes, archived with it, rather than lost
     closed, kept, removed, deleted = [], [], [], []
     for name, entry in run["agents"].items():
-        if entry.get("view") == "headless" and entry.get("pane"):  # a peek pane a killed `mesh ask` left open
-            close_peek(run_id, name, entry["pane"])
-        if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == "headless":
+        if entry["role"] == "root" or entry.get("status") == "retired" or entry.get("view") == HEADLESS:
             continue
         if entry.get("view") == "bg":
             if stop_bg(entry):  # the conversation is kept, so it can be resumed
@@ -11256,7 +10959,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
     if entry.get("role") != "root":
         raise MeshError("only a run's root resets itself: `mesh reset` clears its own pane (a worker's context "
                         "is compacted by `mesh resume`)")
-    if entry.get("kind") not in KINDS or not entry.get("pane"):
+    if entry.get("kind") not in MODES or not entry.get("pane"):  # a root's CLIs only (design §22)
         raise MeshError(f"{me} has no Claude or agy pane to reset")
     if waits := root_mail(run_id, me, BLOCKING_TYPES):
         raise MeshError(f"{mail_text(waits)} waits on you: answer it first (`mesh inbox`), then reset")
@@ -11321,7 +11024,7 @@ def quiet_box(pane: str, entry: dict | None = None, lost_ok: bool = True) -> tup
     elif status not in QUIET_STATES:
         return False, f"it reads {status}"
     lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
-    typed = typed_text(lines) if lines is not None else None
+    typed = typed_text(lines, (entry or {}).get("kind")) if lines is not None else None
     if typed is None:
         return False, "its input box can't be read"
     if typed:
@@ -11480,7 +11183,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
     token = ring_token()
-    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token)
+    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token, kind=kind)
     if not result["rung"]:
         return failed("reset_failed", f"its session was reset, but the prompt to run `mesh brief` didn't get "
                                       f"through ({result['error']})")
@@ -11513,7 +11216,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     (`lost_root_quiet`); when that can't be told, nothing starts, and the next poll looks again."""
     root = run.get("root")
     entry = run["agents"].get(root) or {}
-    if entry.get("kind") not in KINDS or not entry.get("pane") or reset_pending(run_id):
+    if entry.get("kind") not in MODES or not entry.get("pane") or reset_pending(run_id):
         return False
     last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
     if last and age_seconds(last["time"]) < AUTORESET_BACKOFF:
@@ -11663,6 +11366,13 @@ def routing() -> dict:
             value, source = found and (found[0], f"env {found[1]}") or (POLICY[leaf][0], "built-in")
         else:
             value, source = setting_with_source(leaf)
+        kind = leaf.split(".")[1] if leaf.startswith("models.") else None
+        if not config_error and kind in CLIS and leaf.endswith((".plan", ".exec", ".model")) and source == "built-in":
+            # What a launch reads (default_model): Copilot's `copilot_model`, when set, stands in for these.
+            stood = [CLIS[kind].default_model(v, source) for v in value] if isinstance(value, list) \
+                else CLIS[kind].default_model(value, source)
+            if stood != value:
+                value, source = stood, "copilot_model"
         policy[leaf] = {"value": value, "source": source}
 
     def auto(size: str) -> list[str]:  # from the slots shown: the built-ins while the file has an error
@@ -12420,13 +12130,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("extra", nargs=argparse.REMAINDER, help="after --: more arguments for the CLI")
     p.set_defaults(func=cmd_open)
 
-    p = sub.add_parser("peek", help="show what a Copilot asker is doing: its latest tool calls and messages")
-    p.add_argument("ref", help="the asker's name or branch (see `mesh agents`)")
-    p.add_argument("--from-run", help="look only in this run (default: the newest match)")
-    p.add_argument("--lines", type=int, default=15, help="how many past events to show (default: 15)")
-    p.add_argument("--follow", action="store_true", help="keep printing new events until it stops answering")
-    p.set_defaults(func=cmd_peek)
-
     p = ident(sub.add_parser("ask", help="ask a worker, or a fresh agent in a repo, a question or for a PR review, "
                                          "and wait for the answer"))
     p.add_argument("ref", nargs="?", help="an existing worker: name, branch or PR link (see `mesh agents`)")
@@ -12435,10 +12138,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--body", help="the question, or notes for the review")
     p.add_argument("--file", help="the question from a file (- for stdin)")
     p.add_argument("--kind", choices=ASK_KINDS,
-                   help="a fresh agent's CLI (default: the run's mode, or agy); copilot runs headless, read-only")
+                   help="a fresh agent's CLI (default: the run's mode, or agy)")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
     p.add_argument("--effort", choices=EFFORTS,
-                   help="default: the size's, or review.effort for a fresh reviewer (not Copilot; `mesh routing`)")
+                   help="default: the size's, or review.effort for a fresh reviewer (`mesh routing`)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")

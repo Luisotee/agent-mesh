@@ -102,3 +102,15 @@ def test_a_cli_missing_from_path_on_a_rerun_removes_nothing(tmp_path):
 def test_no_cli_at_all_warns(tmp_path):
     done = install(tmp_path, clis=())
     assert done.returncode == 0 and "neither Claude Code (claude) nor agy is on PATH" in done.stderr
+
+
+def test_copilot_gets_the_rules_block_and_no_skills(tmp_path):
+    rules = tmp_path / ".copilot" / "copilot-instructions.md"
+    assert install(tmp_path).returncode == 0
+    assert not rules.exists()  # Copilot isn't on PATH: nothing new for it
+    assert install(tmp_path, clis=("claude", "agy", "copilot")).returncode == 0
+    text = rules.read_text()
+    assert "<!-- agent-mesh:begin" in text and "📬 [mesh]" in text
+    assert not (tmp_path / ".copilot" / "skills").exists()
+    assert install(tmp_path, "--uninstall").returncode == 0
+    assert "agent-mesh:begin" not in rules.read_text()

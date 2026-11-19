@@ -92,12 +92,12 @@ The agent is an ordinary worker, so it stays useful after it answers:
 - **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
 - **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
 
-A **Copilot** asker (`--kind copilot`) is the exception: it runs headless inside the `mesh ask` call and only answers. While it works, a pane beside yours follows it (`mesh peek <name> --follow`, which you can also run yourself) and closes once it has answered; past `side_panes` panes there's no room, and no peek pane. Asking it again resumes its session, but it can't take a change. On a plan that only offers `auto` (some Copilot plans do), Copilot picks the model.
+A **Copilot** agent (`--kind copilot`) is a worker like the others: it runs in a pane, answers, reviews and makes changes, and asking it again reopens its session. Read-only and planning, it runs under `--deny-tool` (no file writes, no publishing commands). It has no Stop hook, so the watch sees its turns end, as agy's. On a plan that only offers `auto` (some Copilot plans do), Copilot picks the model. A Copilot asker recorded before this (a `headless` one) reopens in a pane, in the same session, the next time it is asked.
 
 ```bash
 mesh ask --repo ../shop-api --body "How is restockedAt computed?"          # a fresh agent
 mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
-mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot, headless
+mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot
 mesh ask --repo . --review 88 --size small --reviewers auto                 # a review round: reviewers by size and quota, one answers file
 mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
@@ -235,7 +235,7 @@ Every agent is a whole CLI process with its own MCP servers: an idle `claude` se
 - **One MCP server per machine, not per session.** A stdio MCP server is started by every session that has it configured, so its memory multiplies by the agents running. Run a server that can be shared once, as a user service listening on a port (Playwright's MCP server takes `--port`), and point the user-scope entry at its URL; scope the others to the projects that use them (a project `.mcp.json`, or `claude mcp add --scope project` / `--scope local`) instead of the user scope. mesh launches workers with their repo's own MCP configuration and doesn't trim it (see [design notes](design.md), §17).
 - **Retire what has reported.** An idle worker holds its whole process; its conversation stays on disk, and `mesh resume` (or `mesh ask`) reopens it. `mesh status` shows who's done.
 - **What mesh does itself:** `spawn`, `resume` and `ask` refuse to start an agent under a memory floor or while the machine thrashes, and `retire` and `stop` stop what a worker left running in its worktree (both under Safety rails below). Workers are asked to stop their own servers before reporting, and reviewers to read the PR's CI results before running tests, then only the tests the change touches.
-- **A CPU cap per agent.** Test runners size their worker pools by the cores they see: in one run a reviewer's `vitest run` started 11 workers on a 12-core machine, each with its own database, about 7.7 GB at once. So every agent mesh starts (workers, askers, reviewers, peers, Copilot askers; never your root or a `mesh open`) gets a CPU affinity mask of `worker_cpus` % of the cores (at least one), on the cores the fewest running agents share, and what it runs inherits it: Node's `os.availableParallelism()` (which vitest and jest size their pools by) and `nproc` report that many. A runner that counts cores another way ignores it; its own config (`maxWorkers`) stays the repo's business. `0` or `100` turns it off.
+- **A CPU cap per agent.** Test runners size their worker pools by the cores they see: in one run a reviewer's `vitest run` started 11 workers on a 12-core machine, each with its own database, about 7.7 GB at once. So every agent mesh starts (workers, askers, reviewers and peers, Copilot ones too; never your root or a `mesh open`) gets a CPU affinity mask of `worker_cpus` % of the cores (at least one), on the cores the fewest running agents share, and what it runs inherits it: Node's `os.availableParallelism()` (which vitest and jest size their pools by) and `nproc` report that many. A runner that counts cores another way ignores it; its own config (`maxWorkers`) stays the repo's business. `0` or `100` turns it off.
 - **A memory limit per agent (off by default).** With `worker_memory_high` set (MB), mesh also moves each agent it starts into a systemd user scope with `MemoryHigh`, so a spike in what one agent runs swaps and slows that agent instead of the whole machine. It needs `systemd --user` and `busctl`.
 
 ### Safety rails
@@ -253,7 +253,7 @@ Every agent is a whole CLI process with its own MCP servers: an idle `claude` se
 ## Requirements
 
 - **[herdr](https://herdr.dev)**, with your root session running in a herdr pane: `mesh init` refuses to start a run outside one, so background Claude workers need it too.
-- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional, as a reviewer or asker.
+- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional: a worker kind like the others (never a root), used by default only as a reviewer.
 - **GitHub, with [`gh`](https://cli.github.com) logged in.** Workers open PRs with `gh`, and mesh reads PR links and remotes as `github.com` only; another forge works for local branches but loses PR tracking, resume onto a finished PR and review rounds.
 - **Linux or WSL.** The memory floor and the sweep of leftover processes read `/proc`. On macOS both are off (no agent start is refused for memory, and what a worker left running in its worktree is not killed), and mesh tells a running worker from herdr and `ps` instead; `herdr/mesh-notify` has no macOS notifier.
 - **Python 3.10+** and **git**. `bin/mesh` is one stdlib-only script.
@@ -339,6 +339,11 @@ This file reproduces the built-in policy, plus a `repos_dir`:
       "plan": ["opus"], "exec": "opus", "plan_effort": "high", "exec_effort": "medium", "user_review": "opus",
       "trivial": {"model": "opus", "effort": "medium", "view": "bg"},
       "small": {"model": "opus", "effort": "medium", "view": "bg"}
+    },
+    "copilot": {
+      "plan": ["auto"], "exec": "auto", "plan_effort": "high", "exec_effort": "medium",
+      "trivial": {"model": "auto", "effort": "low", "view": "pane"},
+      "small": {"model": "auto", "effort": "medium", "view": "pane"}
     }
   },
   "review": {
@@ -391,7 +396,6 @@ mesh inbox                 # (as an agent) read your messages
 mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
 mesh agents [query] [--run <id>]  # every past worker, live or archived, with branch, PRs and reviews
-mesh peek <asker> [--follow]  # what a Copilot asker is doing: its latest tool calls and messages
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
 mesh approve <worker>      # (root) approve the plan it sent; an auto worker moves to its exec model
                            #   --keep-model: execute on the current model when that move can't start
