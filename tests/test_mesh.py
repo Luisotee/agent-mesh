@@ -5879,6 +5879,33 @@ def test_a_reviewer_that_couldnt_move_moves_on_a_later_ask(mesh, fake, run, repo
     assert "checked out in your worktree" in mesh.parse_message(mesh.unread(run, name)[-1])[1]
 
 
+def test_a_stale_index_doesnt_stop_the_move(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
+    """A file whose stat info changed (a power cut, a `touch`) leaves a clean worktree's index stale: `git reset
+    --keep` then fails ("Entry 'f' not uptodate"), and mesh's own `git status` can't fix it (no optional locks)."""
+    name, cwd, *_ = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    origin, pr = tmp_path / "origin", "https://github.com/acme/proj/pull/7"
+
+    def push_fix(text):
+        (origin / "f.txt").write_text(text)
+        subprocess.run(["git", "add", "f.txt"], cwd=origin, check=True)
+        subprocess.run(["git", "commit", "-qm", text], cwd=origin, check=True)
+        head = mesh.git("rev-parse", "HEAD", cwd=origin)
+        subprocess.run(["git", "update-ref", "refs/pull/7/head", head], cwd=origin, check=True)
+        return head
+
+    push_fix("one\n")
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0 and (cwd / "f.txt").exists()
+    head = push_fix("two\n")
+    subprocess.run(["git", "fetch", "-q", str(origin), head], cwd=cwd, check=True)
+    os.utime(cwd / "f.txt", (1_000_000_000, 1_000_000_000))  # same content, other stat info
+    stale = subprocess.run(["git", "reset", "-q", "--keep", head], cwd=cwd, capture_output=True, text=True,
+                           env=mesh.git_env())
+    assert "not uptodate" in stale.stderr  # what the move hit before it refreshed the index
+    assert mesh.main(["ask", name, "--review", pr, "--no-wait"]) == 0
+    assert worktree_head(cwd) == head and mesh.load_run(run)["agents"][name]["base"] == head
+
+
 def test_a_failed_ask_moves_the_reviewer_back(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
     name, cwd, last, head = fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsys)
 

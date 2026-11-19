@@ -8587,10 +8587,19 @@ def plan_move(run_id: str, target: tuple, pr: str, head: str | None) -> tuple[di
     return move, ""
 
 
+def refresh_index(cwd: str | Path) -> None:
+    """Bring a worktree's index up to date with its files' stat info before `reset --keep`, which, unlike
+    `checkout` and `switch`, doesn't refresh it: a file whose stat changed with its content (a power cut, a
+    `touch`) fails it with "Entry '<file>' not uptodate". mesh's own `git status` can't fix that, as it runs with no
+    optional locks (`git_env`). Its exit code is ignored: it is 1 whenever a file really changed."""
+    subprocess.run(["git", "update-index", "-q", "--refresh"], cwd=cwd, capture_output=True, env=git_env())
+
+
 def apply_move(move: dict, undo: bool = False) -> None:
     """Move the reviewer's checkout (`plan_move`) to its new head, or with `undo` back where it was."""
     at, other = (move["from"], move["to"]) if undo else (move["to"], move["from"])
     if move["git"] and move["exists"]:
+        refresh_index(move["cwd"])
         git("reset", "-q", "--keep", at, cwd=move["cwd"])
     elif move["git"] and move.get("tip"):
         git("branch", "-f", move["branch"], at, cwd=move["repo"])
