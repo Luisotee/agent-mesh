@@ -49,6 +49,12 @@ MODES = ("agy", "claude")
 # (MESH_COPILOT_MODEL), when set, stands in for each built-in Copilot model leaf, never a named one (design §22).
 COPILOT_MODEL = "auto"
 COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
+# OpenCode's built-in model: the family `free`, OpenCode's own models that cost nothing (no account needed),
+# newest first; `mesh switch` moves a worker to the next one as each hits its limit (design §22).
+OPENCODE_FREE = "free"
+OPENCODE_LIMIT_HOLD = 5 * 3600  # seconds an OpenCode model counts as spent when its limit names no reset
+OPENCODE_RATE_HOLD = 10 * 60  # seconds a model OpenCode is still retrying a 429 on counts as spent (a rate limit)
+MODEL_LIMIT_KEEP = 86400  # seconds an ended hold's record (its evidence) is kept in model-limits.json
 # `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
 # Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
@@ -59,6 +65,8 @@ SIZE_DEFAULTS = {
     ("agy", "small"): {"model": "hydrogen", "effort": "high", "view": "pane"},
     ("copilot", "trivial"): {"model": COPILOT_MODEL, "effort": "low", "view": "pane"},
     ("copilot", "small"): {"model": COPILOT_MODEL, "effort": "medium", "view": "pane"},
+    ("opencode", "trivial"): {"model": OPENCODE_FREE, "effort": "low", "view": "pane"},
+    ("opencode", "small"): {"model": OPENCODE_FREE, "effort": "medium", "view": "pane"},
 }
 # A Claude worker whose plan the user approves in its own pane plans and executes on one model, in plan mode
 # first: `models.claude.user_review` (built in: this).
@@ -79,8 +87,9 @@ AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conve
 # execute on `models.<kind>.exec` at its `exec_effort`; these are the built-ins (POLICY, design §21). Claude stays
 # on Opus: a resume that changes only the effort keeps the prompt cache, while a model switch re-reads the whole
 # conversation.
-PLAN_CHAIN = {"agy": ("argon", "opus", "hydrogen"), "claude": ("opus",), "copilot": (COPILOT_MODEL,)}
-EXEC_MODEL = {"agy": "hydrogen", "claude": "opus", "copilot": COPILOT_MODEL}
+PLAN_CHAIN = {"agy": ("argon", "opus", "hydrogen"), "claude": ("opus",), "copilot": (COPILOT_MODEL,),
+              "opencode": (OPENCODE_FREE,)}
+EXEC_MODEL = {"agy": "hydrogen", "claude": "opus", "copilot": COPILOT_MODEL, "opencode": OPENCODE_FREE}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "high"
 EXEC_EFFORT = "medium"
@@ -127,6 +136,24 @@ LIMIT_LINES = 20
 LOGIN_RE = re.compile(SCREEN_START + f"(?:\\w[^·\\n{QUOTES}]*|API Error: 40[13]\\b[^\\n]*?)"
                       + r"·\s*Please run /login\b", re.IGNORECASE | re.MULTILINE)
 LOGIN_ERROR = "authentication_failed"
+# OpenCode's limits, on its pane while it retries ("Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]",
+# OpenCode Go's "<name> usage limit reached. It will reset in 3 hours …") or a 429 it is still retrying, from its
+# third attempt (a passing rate limit retries away by then). Started as LIMIT_RE is, the Go limit's name as at most
+# four words (`opencode/kimi-k2`, `Kimi K2 (Go)`; a `:` only inside a `provider/model:tag` token) and the 429
+# after at most an error's name (`Error:`, `API Error: 429`): a bare `429` right before its `[retrying`, or
+# `Too Many Requests` / `Rate limit reached|exceeded` with at most 160 characters to it, so a line quoting one in a
+# sentence doesn't count.
+OPENCODE_LIMIT_RE = re.compile(SCREEN_START + r"(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*"
+                               r"|(?:(?:[\w./-]+(?::[\w./-]+)?|\(\w[\w ]*\))\s+){0,4}"
+                               r"usage limit reached\. It will reset in [^\n]*"
+                               r"|(?P<rate>(?:(?:\w+ ?)?Error:?\s+)?(?:429(?:\s+Too Many Requests)?\s*"
+                               r"|(?:Too Many Requests|Rate limit (?:reached|exceeded))[^\n\[]{0,160}?)"
+                               r"\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]))",
+                               re.IGNORECASE | re.MULTILINE)
+# A limit's reset: "reset in", or the free tier's retry (OpenCode waits for its reset); a 429's retry delay says
+# nothing of when the limit ends.
+OPENCODE_RESET_RE = re.compile(r"(?:reset in|Free (?:usage exceeded|limit reached)[^\n]*retrying in) "
+                               r"((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)", re.IGNORECASE)
 # Doorbell retry delays in seconds (about one minute in total).
 RING_DELAYS = (1, 2, 4, 8, 15, 30)
 RETRYABLE_RING_ERRORS = ("agent_blocked", "agent_prompt_stalled", "timeout", "cli_error")
@@ -367,6 +394,10 @@ class Cli:
     # How its TUI draws ghost text (a placeholder) in an empty input box, which isn't a human's draft (typed_text):
     # "dim" (SGR 2) and/or "grey" (foreground colour 8: `38;5;8`, or SGR 90).
     ghost_styles: tuple[str, ...] = ("dim",)
+    # Its input box: "rules" (a `─` rule above and below a prompt at column 0: Claude, agy) or "gutter" (`┃` rows
+    # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text.
+    input_box, box_status_rows = "rules", 0
+    reads_drafts = True  # its box was checked live with a draft in it: typed_text reads it (else None: unclear)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
     measures_cache = False  # its context size and cache warmth come from one read of its session file
@@ -429,6 +460,11 @@ class Cli:
         """What a worker's launch passes to skip permission prompts (`skip_permissions`)."""
         return skip_flags()
 
+    def launch_env(self, entry: dict) -> dict[str, str]:
+        """What a pane launch of this worker (`entry`: its kind, model, effort, deny reasons, cwd) adds to the pane's
+        environment: OpenCode's per-launch config; nothing for the others."""
+        return {}
+
     def compact_argv(self, session: str, model: str, prompt: str) -> list[str]:
         raise MeshError(f"mesh doesn't compact {self.name} conversations")
 
@@ -442,6 +478,16 @@ class Cli:
         """The files it writes as it makes progress (the hang check's evidence)."""
         return []
 
+    def progress_time(self, entry: dict, session: str | None) -> float | None:
+        """When it last made progress (epoch), or None: its newest `progress_files` write by default."""
+        times = []
+        for path in progress_files(entry, session):
+            try:
+                times.append(path.stat().st_mtime)
+            except OSError:
+                continue
+        return max(times, default=None)
+
     def context_tokens(self, entry: dict, session: str) -> int | None:
         return None
 
@@ -449,6 +495,11 @@ class Cli:
 
     def limited(self, watch: "Watch", entry: dict, bg: bool) -> tuple[str, str] | None:
         """("limit", reset) or ("login", "") when it is stopped until something outside it changes, else None."""
+        return None
+
+    def quota_hit(self, watch: "Watch", entry: dict) -> str | None:
+        """The reset ("" if unknown) when its model is at a limit `mesh switch` moves it past, read from what it
+        shows (agy's is its log: Watch.quota_event reads that for every kind); else None."""
         return None
 
     def limit_over(self, entry: dict) -> bool:
@@ -479,6 +530,14 @@ class Cli:
         if not self.installed():
             return False, f"{self.name} isn't installed"
         return True, ""
+
+    def token_calls(self, session: str) -> list[dict]:
+        """A session's calls for `mesh cost`'s tokens-only tally (`cost_tally` "agy")."""
+        return []
+
+    def recent_sessions(self, since: float | None) -> set[str]:
+        """Its sessions written since `since`, for a `mesh cost --since` window."""
+        return set()
 
 
 class ClaudeCli(Cli):
@@ -648,12 +707,20 @@ class AgyCli(Cli):
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
         return agy_has_quota(size, model)
 
+    def token_calls(self, session: str) -> list[dict]:
+        return agy_calls(session)
+
+    def recent_sessions(self, since: float | None) -> set[str]:
+        return {p.stem for p in recent_files(agy_conversation_file("x").parent.glob("*.db"), since)}
+
 
 class CopilotCli(Cli):
     """GitHub Copilot CLI, a pane worker like the others (design §22): its session id chosen at launch, read-only
     by `--deny-tool`, no Stop hook (the watch sees its turn ends, as agy's)."""
     kind, name, short, processes = "copilot", "Copilot", "Copilot", ("copilot",)
     enforces_read_only = True
+    input_box = "gutter"  # `╻▄▄` / `┃` / `╹▀▀` (seen on 1.0.114, empty only: where a doorbell shows)
+    reads_drafts = False  # a draft in it wasn't seen live: unclear, so a doorbell is typed as into any unread box
 
     def default_model(self, value: str, source: str) -> str:
         # The old leaf, when set, stands in for every built-in Copilot model (never for one named, nor for a
@@ -727,7 +794,134 @@ class CopilotCli(Cli):
         return True, ""
 
 
-CLIS: dict[str, Cli] = {c.kind: c for c in (ClaudeCli(), AgyCli(), CopilotCli())}
+class OpenCodeCli(Cli):
+    """OpenCode (`opencode`), a pane worker on any model OpenCode can reach: its own free ones, or a provider the
+    user configured in it (design §22). Its session id can't be chosen, so it is found in OpenCode's db by the
+    first doorbell, as agy's is; a model switch rotates through `models.opencode.*` (exit 7, `mesh switch`)."""
+    kind, name, short, processes = "opencode", "OpenCode", "OpenCode", ("opencode", "opencode.exe")
+    enforces_read_only = records_session_on_send = True
+    # Its empty box shows a placeholder in grey (`38;2;128;128;128`); typed text is near-white. The box is a `┃`
+    # gutter down to `╹▀▀…`, whose last row is the agent and model (the status, not typed).
+    ghost_styles = ("dim", "grey", "rgb-grey")
+    input_box, box_status_rows = "gutter", 1
+    counts_cost, cost_tally, cost_prefix = True, "agy", "opencode "
+
+    def resolve(self, model: str, effort: str) -> str:
+        return opencode_pick([model], skip=())[0]
+
+    def plan_model(self, effort: str, run_id: str | None) -> tuple[str, list[str]]:
+        return opencode_pick(list(plan_chain("opencode")), skip=())
+
+    def switch_model(self, entry: dict, effort: str) -> tuple[str, list[str]]:
+        chain = (list(plan_chain("opencode")) if entry.get("phase") != "exec"
+                 else [entry.get("exec_model") or exec_model_for("opencode")])
+        try:
+            return opencode_pick(chain, skip=models_tried(entry))
+        except MeshError as exc:  # every model it could move to is spent or tried: it waits for the first reset
+            raise NoModelLeft(str(exc), opencode_next_reset()) from exc
+
+    def resumed_model(self, entry: dict, model: str | None, effort: str) -> tuple[str, str]:
+        return (self.resolve(model, effort) if model else entry.get("model") or self.plan_model(effort, None)[0]), effort
+
+    def launch_argv(self, model: str, effort: str, log: str | None) -> tuple[list[str], str, str | None]:
+        model = self.resolve(model, effort)
+        return ["--agent", opencode_agent(model, effort), "-m", model, *self.skip_argv()], model, None
+
+    def resume_argv(self, session: str, model: str, effort: str) -> list[str]:
+        # The TUI reopening a session takes its last message's model, unless that message's agent is gone from
+        # this launch's config: each (model, effort) has its own agent name, so a swap gets the model it asks.
+        return ["--agent", opencode_agent(model, effort), "-m", model, "-s", session]
+
+    def skip_argv(self) -> list[str]:
+        return ["--auto"] if setting("skip_permissions") else []  # approves what isn't denied
+
+    def launch_env(self, entry: dict) -> dict[str, str]:
+        """The pane's OpenCode config: the launch's agent (its model, and the effort as the model's variant when it
+        has one), the deny rules of a read-only or planning worker (`OPENCODE_PERMISSION`), and no self-update."""
+        model, effort = entry.get("model") or "", entry.get("effort") or ""
+        agent = {"mode": "primary", "model": model,
+                 **({"variant": effort} if effort in opencode_variants(model) else {})}
+        env = {"OPENCODE_CONFIG_CONTENT": json.dumps({"agent": {opencode_agent(model, effort): agent}}),
+               "OPENCODE_DISABLE_AUTOUPDATE": "1"}
+        if entry.get("read_only") or entry.get("planning"):
+            env["OPENCODE_PERMISSION"] = json.dumps(opencode_permission(entry))
+        return env
+
+    def lookup_session(self, run_id: str, name: str, entry: dict, pinned_only: bool = False) -> str | None:
+        cwd = entry.get("cwd")
+        shared = bool(cwd and entry.get("repo")) and Path(cwd).resolve() == Path(entry["repo"]).resolve()
+        return opencode_session(name, run_id, None if pinned_only or shared else cwd)
+
+    def progress_time(self, entry: dict, session: str | None) -> float | None:
+        # Its db is shared by every OpenCode session, so its mtime says nothing of this one: the session's own
+        # last update does.
+        row = opencode_query("select time_updated from session where id = ?", (session,)) if session else None
+        return row[0][0] / 1000 if row else None
+
+    def context_tokens(self, entry: dict, session: str) -> int | None:
+        rows = opencode_query("select data from message where session_id = ? order by time_created desc limit 20",
+                              (session,))
+        for (data,) in rows or []:
+            message = json_object(data)
+            tokens = message.get("tokens") or {}
+            if message.get("role") == "assistant" and tokens.get("output"):
+                cache = tokens.get("cache") or {}
+                return sum(int(v or 0) for v in (tokens.get("input"), cache.get("read"), cache.get("write")))
+        return None
+
+    def quota_hit(self, watch: "Watch", entry: dict) -> str | None:
+        """The reset ("" if not shown) when its model is at a limit `mesh switch` moves it past: OpenCode's free tier
+        or OpenCode Go's limit, or a 429 on the pane while it retries, or as the error its last reply ended with.
+
+        Only evidence from after its last task or answer counts (a switch and a continue deliver one): the reply
+        stored since, and a pane line once its model has started a reply since (when its session is known). So the
+        old model's limit isn't charged to the one a switch moved to, and a hold that ran out isn't set again from
+        the same reply when the continue at its end arrives."""
+        model = entry.get("model") or ""
+        since = epoch(since_last_task(read_log(watch.run_id), watch.name)[2])
+        session = watch.conversation(entry)
+        lines = pane_lines(watch.name) if entry.get("view") != "bg" else None
+        tail = (lines or [])[-LIMIT_LINES:]
+        hit = next((m for m in map(OPENCODE_LIMIT_RE.search, reversed(tail)) if m), None)
+        if hit and session and opencode_replies(session, model, since) == []:
+            hit = None  # its model hasn't replied since (a failed read, None, keeps it)
+        if hit:
+            text, rate, evidence = hit.group(0), bool(hit.group("rate")), f"pane:{squeeze(hit.group(0))}"
+        else:
+            error = opencode_limit_error(session, model, since)
+            if error is None:
+                return None
+            text, rate, evidence = error
+        # Each poll sees the same evidence again: the first sighting sets the hold, and evidence a hold already
+        # covered (the reply or line it was set from, still there when the hold runs out) never sets another.
+        reset = None if rate else OPENCODE_RESET_RE.search(text)
+        record = model_limit_record("opencode", model)
+        if record and record.get("evidence") == evidence:
+            if float(record.get("until") or 0) <= time.time():
+                return None
+        else:
+            hold = parse_duration(reset.group(1)) if reset else OPENCODE_RATE_HOLD if rate else OPENCODE_LIMIT_HOLD
+            note_model_limit("opencode", model, text, time.time() + hold, evidence)
+        return reset.group(1).strip() if reset else ""
+
+    def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
+        if not self.installed():
+            return False, f"{self.name} isn't installed"
+        try:
+            opencode_pick([model] if model else list(plan_chain("opencode")), skip=())
+        except MeshError as exc:
+            return False, f"OpenCode: {exc}"
+        return True, ""
+
+    def token_calls(self, session: str) -> list[dict]:
+        return opencode_calls(session)
+
+    def recent_sessions(self, since: float | None) -> set[str]:
+        rows = opencode_query("select id from session where time_updated >= ?", (int((since or 0) * 1000),))
+        return {row[0] for row in rows or []}
+
+
+CLIS: dict[str, Cli] = {c.kind: c for c in (ClaudeCli(), AgyCli(), CopilotCli(), OpenCodeCli())}
 KINDS = tuple(CLIS)  # every CLI runs full workers: changes, questions and reviews (design §22)
 ASK_KINDS = KINDS  # what `mesh ask --kind` and review slots take: the same, since design §22
 AGENT_BINARIES = tuple(name for c in CLIS.values() for name in c.processes)  # the processes that run a worker
@@ -779,8 +973,9 @@ POLICY = {  # leaf: (built-in default, check)
     "review.effort": (REVIEW_EFFORT, "effort"),
     **{f"review.level.{size}": (REVIEW_LEVEL[size], "effort") for size in SIZES},
     # Each slot takes its first candidate that is available and not picked yet (pick_reviewers).
-    "review.reviewers.small": ([["agy", "copilot", "claude"]], "slots"),
-    "review.reviewers.large": ([["claude"], ["agy", "copilot"]], "slots"),
+    # OpenCode is the last non-Claude candidate: it takes a slot only when agy and Copilot can't (design §22).
+    "review.reviewers.small": ([["agy", "copilot", "opencode", "claude"]], "slots"),
+    "review.reviewers.large": ([["claude"], ["agy", "copilot", "opencode"]], "slots"),
     "review.re_review.skip": (["copilot"], "kinds"),  # Copilot's credits are kept for first looks
     "review.re_review.keep.small": ([], "kinds"),
     "review.re_review.keep.large": (["claude"], "kinds"),
@@ -1043,7 +1238,9 @@ def installed(kind: str) -> bool:
 
 def installed_text() -> str:
     found = [CLI_NAMES[k] for k in ASK_KINDS if installed(k)]
-    return f"installed: {', '.join(found)}" if found else "none of Claude Code, agy or Copilot is on PATH"
+    names = list(CLI_NAMES.values())
+    return (f"installed: {', '.join(found)}" if found
+            else f"none of {', '.join(names[:-1])} or {names[-1]} is on PATH")
 
 
 def require_cli(kind: str, what: str) -> None:
@@ -2010,11 +2207,13 @@ def above_input_box(lines: list[str]) -> list[str]:
 
 def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str, bool]]:
     """Each visible character of an ANSI row, with whether it is drawn as ghost text is in `ghost` styles: "dim"
-    (SGR 2) and/or "grey" (foreground colour 8, `38;5;8` or SGR 90)."""
+    (SGR 2), "grey" (foreground colour 8, `38;5;8` or SGR 90) and/or "rgb-grey" (a true-colour grey foreground,
+    `38;2;128;128;128` as OpenCode draws its placeholder, or a near-grey of mid luminance a theme may use)."""
     chars, dim, grey, pos = [], False, False, 0
     for match in [*SGR_RE.finditer(row), None]:
         end = match.start() if match else len(row)
-        chars.extend((c, (dim and "dim" in ghost) or (grey and "grey" in ghost)) for c in row[pos:end])
+        chars.extend((c, (dim and "dim" in ghost) or (grey and ("grey" in ghost or "rgb-grey" in ghost)))
+                     for c in row[pos:end])
         if not match:
             break
         pos = match.end()
@@ -2024,7 +2223,10 @@ def visible_chars(row: str, ghost: tuple[str, ...] = ("dim",)) -> list[tuple[str
             p = params[i]
             if p in (38, 48, 58):  # an extended colour: its index or RGB values aren't attributes
                 if p == 38:
-                    grey = params[i + 1:i + 3] == [5, 8]
+                    rgb = params[i + 2:i + 5] if params[i + 1:i + 2] == [2] else []
+                    grey = params[i + 1:i + 3] == [5, 8] or (
+                        "rgb-grey" in ghost and len(rgb) == 3 and max(rgb) - min(rgb) <= 24
+                        and 96 <= sum(rgb) / 3 <= 160)
                 i += 3 if params[i + 1:i + 2] == [5] else 5 if params[i + 1:i + 2] == [2] else 1
                 continue
             if p == 0:
@@ -2051,6 +2253,10 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     an escape other than SGR and OSC in the box: None.
     """
     ghost = cli(kind).ghost_styles if kind in CLIS else ("dim",)
+    if kind in CLIS and not CLIS[kind].reads_drafts:
+        return None
+    if kind in CLIS and CLIS[kind].input_box == "gutter":
+        return gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
     plain = [strip_sgr(line) for line in lines]
     at = input_box_at(plain)
     if at is None:
@@ -2067,6 +2273,39 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
             chars = chars[1:]  # the glyph
         typed.append("".join(c if not dim else " " for c, dim in chars))
     return None
+
+
+def gutter_box(plain: list[str]) -> tuple[int, int] | None:
+    """(first, last) row of a `┃`-gutter input box (Copilot's, OpenCode's), its last `┃` row just above a `╹`
+    bottom, found from the bottom (output above can hold `┃` rows of its own, but no bottom after them)."""
+    for end in range(len(plain) - 1, 0, -1):
+        if plain[end].lstrip().startswith("╹") and plain[end - 1].lstrip().startswith("┃"):
+            start = end - 1
+            while start > 0 and plain[start - 1].lstrip().startswith("┃"):
+                start -= 1
+            return start, end - 1
+    return None
+
+
+def gutter_typed(lines: list[str], ghost: tuple[str, ...], status_rows: int) -> str | None:
+    """typed_text for a `┃`-gutter box: what follows each row's gutter, ghost text left out, without the box's last
+    `status_rows` rows (OpenCode's agent and model line); None when no such box is on the screen."""
+    box = gutter_box([strip_sgr(line) for line in lines])
+    if box is None:
+        return None
+    rows = lines[box[0]:box[1] + 1]
+    rows = rows[:len(rows) - status_rows] if status_rows else rows
+    typed = []
+    for row in rows:
+        row = OSC_RE.sub("", row)
+        if "\x1b" in SGR_RE.sub("", row):
+            return None
+        chars = visible_chars(row, ghost)
+        at = next((i for i, (c, _) in enumerate(chars) if c == "┃"), None)
+        if at is None:
+            return None
+        typed.append("".join(c if not dim else " " for c, dim in chars[at + 1:]))
+    return squeeze(" ".join(typed))
 
 
 def human_draft(lines: list[str] | None, kind: str | None = None) -> bool:
@@ -2088,11 +2327,16 @@ def ring_needle(token: str) -> str:
     return f"ref{token}"
 
 
-def doorbells_shown(lines: list[str] | None, needle: str) -> int | None:
+def doorbells_shown(lines: list[str] | None, needle: str, kind: str | None = None) -> int | None:
     """Copies of the doorbell above the input box in a plain read, or None if the pane couldn't be read."""
     if lines is None:
         return None
-    return "".join("".join(above_input_box(lines)).split()).count(needle)
+    if kind in CLIS and CLIS[kind].input_box == "gutter":
+        box = gutter_box(lines)
+        above = lines[:box[0]] if box else []
+    else:
+        above = above_input_box(lines)
+    return "".join("".join(above).split()).count(needle)
 
 
 def pane_tail(target: str, count: int = ALERT_TAIL_LINES) -> str:
@@ -3314,14 +3558,11 @@ def progress_files(entry: dict, session: str | None) -> list[Path]:
 
 
 def last_progress(entry: dict, session: str | None) -> float | None:
-    """When the worker last wrote any of its `progress_files` (epoch seconds), or None if none can be read."""
-    times = []
-    for path in progress_files(entry, session):
-        try:
-            times.append(path.stat().st_mtime)
-        except OSError:
-            continue
-    return max(times, default=None)
+    """When the worker last made progress (epoch seconds), or None if nothing can tell (Cli.progress_time: its
+    `progress_files`' newest write, or OpenCode's session row)."""
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return None
+    return cli(entry.get("kind")).progress_time(entry, session)
 
 
 LIMIT_NOTE = "usage_limit_note"  # transcript_stop's code for Claude Code's usage-limit notice
@@ -3593,6 +3834,8 @@ def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, 
     if mode != "auto":
         return mode == "yes"
     kind = entry.get("kind")
+    if kind in CLIS and not CLIS[kind].compact_leaf:
+        return False  # it compacts itself (Copilot, OpenCode): mesh never does
     if tokens is None and cli(kind).compacts_unmeasured:
         return cross_run and not read_only  # no size to go on: compact what comes back from an earlier run
     at = min(compact_cold_at(), compact_at()) if cold and cli(kind).measures_cache else compact_at(kind)
@@ -3601,10 +3844,269 @@ def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, 
 
 def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
     """Compact a stopped worker's conversation headless, in its own directory, before it is reopened."""
-    argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}")
+    try:
+        argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}")
+    except MeshError as exc:  # a CLI that compacts itself (Copilot, OpenCode)
+        return False, str(exc)
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
     proc = run_cli(argv, cwd=entry["cwd"], env=claude_env(), timeout=COMPACT_TIMEOUT)
     return proc.returncode == 0, (proc.stderr or proc.stdout).strip()[-300:]
+
+
+# ── OpenCode: models, limits and its session db ──────────────────────────
+# OpenCode keeps every session in one SQLite db (`session`: id, directory, model, time_updated; `message` and `part`:
+# JSON `data`), read read-only as agy's index is. Its models are `provider/model`; the family `free` is OpenCode's
+# own models that cost nothing (`opencode models --verbose`), newest first, which `mesh switch` rotates through as
+# each hits its limit (design §22).
+
+
+def opencode_db() -> Path:
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return Path(os.environ.get("MESH_OPENCODE_DB") or base / "opencode" / "opencode.db")
+
+
+def opencode_query(sql: str, params: tuple = ()) -> list[tuple] | None:
+    """Rows of a read-only query on OpenCode's db, or None when it can't be read (no db yet, locked, changed)."""
+    try:
+        import sqlite3
+    except ImportError:
+        return None
+    path = opencode_db()
+    if not path.exists():
+        return None
+    try:
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
+        try:
+            return db.execute(sql, params).fetchall()
+        finally:
+            db.close()
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+def json_object(text) -> dict:
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def opencode_session(name: str, run_id: str, cwd: str | None) -> str | None:
+    """An OpenCode worker's session: the one whose first doorbell names it and its run (in any directory), else the
+    newest top-level session in `cwd` (None: no fallback, as in a shared main checkout)."""
+    run_re = re.compile(rf"\brun {re.escape(run_id)}\b")
+    start = f"📬 [mesh] {first_doorbell(name)}"
+    rows = opencode_query("select session_id, data from part where data like ? order by time_created",
+                          (f"%{first_doorbell(name)}%",))
+    for session, data in rows or []:
+        text = str(json_object(data).get("text") or "")
+        if text.startswith(start) and run_re.search(text):
+            return session
+    if not cwd:
+        return None
+    rows = opencode_query("select id from session where directory = ? and parent_id is null "
+                          "order by time_created desc limit 1", (str(Path(cwd).resolve()),))
+    return rows[0][0] if rows else None
+
+
+def opencode_replies(session: str, model: str, since: float) -> list[dict] | None:
+    """Its replies on `model` (`provider/model`) started after `since` (epoch), newest first, each with its row's
+    `time_created` (ms) as `_at`; None when the db can't be read."""
+    rows = opencode_query("select data, time_created from message where session_id = ? and time_created > ? "
+                          "order by time_created desc limit 20", (session, int(since * 1000)))
+    if rows is None:
+        return None
+    replies = ({**json_object(data), "_at": at} for data, at in rows)
+    return [m for m in replies if m.get("role") == "assistant"
+            and f"{m.get('providerID') or ''}/{m.get('modelID') or ''}" == model]
+
+
+def opencode_limit_error(session: str | None, model: str, since: float = 0.0) -> tuple[str, bool, str] | None:
+    """(its text, whether it is a plain rate limit, the reply's identity) for the limit its last reply on `model`
+    (`provider/model`) since `since` ended on, as OpenCode stored it once its retries ran out: a 429 (a rate limit),
+    or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db can't say. Replies on
+    another model don't count: after `mesh switch` the one before it still ends on its old model's 429."""
+    for message in (opencode_replies(session, model, since) or []) if session else []:
+        error = message.get("error") or {}
+        detail = error.get("data") or {}
+        body = str(detail.get("responseBody") or "")
+        text = str(detail.get("message") or error.get("name") or "")
+        spent = "FreeUsageLimitError" in body or "GoUsageLimitError" in body
+        if detail.get("statusCode") == 429 or spent:
+            return text or "rate limited (429)", not spent, f"reply:{message.get('id') or message['_at']}"
+        return None  # the newest reply decides
+    return None
+
+
+def opencode_listing() -> dict[str, dict]:
+    """`opencode models --verbose`, cached for AGY_MODELS_TTL: each `provider/model` and what OpenCode knows of it
+    (cost, variants, capabilities, release date). Stale is better than failing a spawn; {} when it never ran."""
+    cache = mesh_home() / "opencode-models.json"
+    try:
+        if time.time() - cache.stat().st_mtime < AGY_MODELS_TTL:
+            return json.loads(cache.read_text())
+    except (OSError, ValueError):
+        pass
+    proc = run_cli(["opencode", "models", "--verbose"], timeout=60)
+    models = parse_opencode_models(proc.stdout) if proc.returncode == 0 else {}
+    if models:
+        write_atomic(cache, json.dumps(models))
+        return models
+    try:
+        return json.loads(cache.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def parse_opencode_models(text: str) -> dict[str, dict]:
+    """`opencode models --verbose` prints each model's `provider/model` line, then its JSON object."""
+    models, decoder, pos = {}, json.JSONDecoder(), 0
+    for match in re.finditer(r"^([\w.-]+/[\w.:@/-]+)\s*$", text, re.M):
+        if match.start() < pos:
+            continue
+        rest = text[match.end():].lstrip()
+        try:
+            info, used = decoder.raw_decode(rest)
+        except ValueError:
+            models[match.group(1)] = {}
+            continue
+        pos = match.end() + (len(text[match.end():]) - len(rest)) + used
+        models[match.group(1)] = info if isinstance(info, dict) else {}
+    return models
+
+
+def opencode_free(listing: dict[str, dict]) -> list[str]:
+    """OpenCode's own models that cost nothing and can call tools, newest first."""
+    def free(info: dict) -> bool:
+        cost = info.get("cost") or {}
+        return (cost.get("input") == 0 and cost.get("output") == 0 and info.get("status", "active") == "active"
+                and (info.get("capabilities") or {}).get("toolcall", True))
+    found = [(info.get("release_date") or "", model) for model, info in listing.items()
+             if model.startswith("opencode/") and free(info)]
+    return [model for _, model in sorted(found, reverse=True)]
+
+
+def opencode_variants(model: str) -> set[str]:
+    return set(((opencode_listing().get(model) or {}).get("variants") or {}))
+
+
+def opencode_pick(chain: list[str], skip: tuple[str, ...] = ()) -> tuple[str, list[str]]:
+    """The first model of `chain` (the family `free` expanded) that isn't in `skip` and has no limit recorded,
+    and notes on what was passed over. A named model OpenCode doesn't list is taken as given (a provider's)."""
+    notes, seen = [], set()
+    for item in chain:
+        candidates = opencode_free(opencode_listing()) if item == OPENCODE_FREE else [item]
+        if item == OPENCODE_FREE and not candidates:
+            notes.append("OpenCode lists no free model (`opencode models opencode`)")
+        for model in candidates:
+            if model in seen:
+                continue
+            seen.add(model)
+            if model in skip:
+                continue
+            limit = model_limit("opencode", model)
+            if limit:
+                notes.append(f"{model} is at its limit until {datetime.fromtimestamp(limit['until']).strftime('%H:%M')}")
+                continue
+            return model, notes
+    raise MeshError("no OpenCode model left to run on: " + ("; ".join(notes) or "all tried in this task")
+                    + " (add a provider's models to `models.opencode.plan`, see `mesh routing`)")
+
+
+def opencode_agent(model: str, effort: str) -> str:
+    """The agent name a launch defines for its model and effort (see OpenCodeCli.resume_argv)."""
+    return "mesh-" + uuid.uuid5(uuid.NAMESPACE_URL, f"{model}|{effort}").hex[:6]
+
+
+def opencode_permission(entry: dict) -> dict:
+    """A read-only or planning worker's deny rules: no edits in its worktree or the main checkout (patterns are
+    relative to the worktree's top; the last matching rule wins, so `$(mesh dir)`, outside it, stays writable),
+    and none of the publishing commands. Checked live (design §22)."""
+    edit = {"*": "deny", "../*": "allow"}
+    cwd, repo = entry.get("cwd"), entry.get("repo")
+    if cwd and repo and Path(cwd).resolve() != Path(repo).resolve():
+        edit[os.path.relpath(Path(repo).resolve(), Path(cwd).resolve()) + "/*"] = "deny"
+    return {"edit": edit, "bash": {f"{cmd}*": "deny" for cmd in PUBLISH_COMMANDS}}
+
+
+def parse_duration(text: str) -> float:
+    """Seconds in "4h", "12m30s", "3 hours 20 minutes", "2 days"; 0 when nothing parses."""
+    units = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+    total = 0.0
+    for number, unit in re.findall(r"(\d+(?:\.\d+)?)\s*(d|h|m|s)[a-z]*", text.lower()):
+        total += float(number) * units[unit]
+    return total
+
+
+def model_limits_path() -> Path:
+    return mesh_home() / "model-limits.json"
+
+
+def note_model_limit(kind: str, model: str, message: str, until: float, evidence: str | None = None) -> None:
+    """Record, machine-wide, that a model is at a limit until `until` (an OpenCode free model: every worker's
+    `mesh switch` and spawn skip it meanwhile), and the evidence it was seen by (`evidence`: a stored reply's id, or
+    the pane line). A hold only lengthens; a record stays MODEL_LIMIT_KEEP past its end, so the same evidence, still
+    there when it ends, isn't taken for a new limit."""
+    with file_lock(mesh_home() / "locks" / "model-limits.lock"):
+        try:
+            limits = json.loads(model_limits_path().read_text())
+        except (OSError, ValueError):
+            limits = {}
+        now = time.time()
+        limits = {k: v for k, v in limits.items()
+                  if isinstance(v, dict) and float(v.get("until") or 0) + MODEL_LIMIT_KEEP > now}
+        old = limits.get(f"{kind}:{model}") or {}
+        if float(old.get("until") or 0) > now:
+            until = max(until, float(old["until"]))
+        limits[f"{kind}:{model}"] = {"at": now, "until": until, "message": message[:300],
+                                     **({"evidence": evidence} if evidence else {})}
+        write_atomic(model_limits_path(), json.dumps(limits))
+
+
+def model_limit_record(kind: str, model: str) -> dict | None:
+    """Its newest limit record, expired or not."""
+    try:
+        limit = json.loads(model_limits_path().read_text()).get(f"{kind}:{model}")
+        return limit if isinstance(limit, dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def model_limit(kind: str, model: str) -> dict | None:
+    try:
+        limit = json.loads(model_limits_path().read_text()).get(f"{kind}:{model}")
+        return limit if limit and time.time() < float(limit["until"]) else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def opencode_next_reset() -> float | None:
+    """When the soonest OpenCode limit recorded ends (the continue a switch with nowhere to go schedules)."""
+    try:
+        limits = json.loads(model_limits_path().read_text())
+    except (OSError, ValueError):
+        return None
+    ends = [float(v["until"]) for k, v in limits.items() if k.startswith("opencode:") and isinstance(v, dict)
+            and float(v.get("until") or 0) > time.time()]
+    return min(ends, default=None)
+
+
+def opencode_calls(session: str) -> list[dict]:
+    """An OpenCode session's model calls, oldest first, in tokens (its own `cost` isn't priced here)."""
+    rows = opencode_query("select data from message where session_id = ? order by time_created", (session,))
+    calls = []
+    for (data,) in rows or []:
+        message = json_object(data)
+        tokens = message.get("tokens") or {}
+        created = (message.get("time") or {}).get("created")
+        if message.get("role") != "assistant" or not created or not tokens:
+            continue
+        cache = tokens.get("cache") or {}
+        calls.append({"id": message.get("id"), "t": created / 1000, "model": "agy", "input": int(tokens.get("input") or 0),
+                      "w5": 0, "w1": 0, "read": int(cache.get("read") or 0),
+                      "output": int(tokens.get("output") or 0) + int(tokens.get("reasoning") or 0)})
+    return calls
 
 
 # ── worktrees ────────────────────────────────────────────────────────────
@@ -3778,8 +4280,8 @@ def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
                 lines = pane_lines(target, ansi=True)
                 plain = None if lines is None else [strip_sgr(line) for line in lines]
                 if target not in before:
-                    before[target] = doorbells_shown(plain, needle)
-                elif before[target] is not None and (doorbells_shown(plain, needle) or 0) > before[target]:
+                    before[target] = doorbells_shown(plain, needle, kind)
+                elif before[target] is not None and (doorbells_shown(plain, needle, kind) or 0) > before[target]:
                     return {"rung": True, "error": None, "via": "pane", "tries": tries}  # queued after the last try
                 if human_draft(lines, kind):  # `kind`: the recipient's CLI, whose ghost text isn't a draft
                     last_error = "human_draft"
@@ -3799,7 +4301,7 @@ def ring(targets: list[str], text: str, token: str, read: tuple[Path, ...] = (),
                     if exc.code == "agent_not_found":
                         continue  # try the next target (the pane id)
                     if exc.code in TYPED_RING_ERRORS and before[target] is not None:
-                        shown = doorbells_shown(pane_lines(target), needle)
+                        shown = doorbells_shown(pane_lines(target), needle, kind)
                         if shown is not None and shown > before[target]:
                             return {"rung": True, "error": None, "via": "pane", "tries": tries}
                     if exc.code not in RETRYABLE_RING_ERRORS:
@@ -4963,6 +5465,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                 held.clear()  # it runs: its reservation stands
 
         if not launched:
+            env = {**env, **cli(args.kind).launch_env(agent_entry(load_run(run_id), name))}
             pane, tab, workspace_id, created_ws = place_pane(run_id, name, repo_top, cwd, env, bool(peer))
             with editing_run(run_id) as run:
                 run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
@@ -5105,7 +5608,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                     raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
                 raise
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
-    env = mesh_env(run_id, name, entry["parent"], entry["role"])
+    env = {**mesh_env(run_id, name, entry["parent"], entry["role"]),
+           **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort, **lifted(entry, lift)})}
     recorded = False
     try:
         run = load_run(run_id)
@@ -6780,11 +7284,21 @@ class Watch:
         return None
 
     def quota_event(self) -> tuple[int, str] | None:
-        """A quota error agy logged since the last poll."""
+        """A quota error agy logged since the last poll, or one the worker's CLI shows (Cli.quota_hit: OpenCode's
+        limits), once per task."""
         reset, self.log_offset = quota_hit(self.log, self.log_offset)
+        entry = agent_entry(load_run(self.run_id), self.name)
+        if reset is None and entry.get("kind") in CLIS:
+            reset = cli(entry["kind"]).quota_hit(self, entry)
+            if reset is not None:
+                events = read_log(self.run_id)
+                received = since_last_task(events, self.name)[0]
+                if alerted(events, self.name, received, "quota"):
+                    return None  # the root knows: `mesh switch` moves it, and its task re-arms this
+                record_alert(self.run_id, self.name, received, "quota")
         if reset is None:
             return None
-        model = agent_entry(load_run(self.run_id), self.name).get("model")
+        model = entry.get("model")
         return 7, (f"ALERT {self.name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
                    + f"; move it to the next model with `mesh switch {self.name}`")
 
@@ -8298,6 +8812,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     else:
         path = stored
 
+    env = {**env, **cli(old["kind"]).launch_env(agent_entry(load_run(run_id), name))}
     pane, tab, workspace_id, _ = place_pane(run_id, name, repo_top, Path(cwd), env, bool(peer_name))
     with editing_run(run_id) as run:
         run["agents"][name].update(view="pane", pane=pane, tab=tab, workspace=workspace_id)
@@ -8361,7 +8876,9 @@ def cmd_open(args: argparse.Namespace) -> int:
             if recreated and not peer else "")
     print(f"mesh: opening {name} from run {run['id']} ({entry['kind']} {model}) in {entry['cwd']}"
           f" on {branch or 'its checkout'}{note}", file=sys.stderr)
-    env = {k: v for k, v in os.environ.items() if not k.startswith("MESH_")}
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("MESH_")},
+           **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort, "read_only": False,
+                                            "planning": False})}  # the user's: no deny rules, as for Claude
     os.chdir(entry["cwd"])
     os.execvpe(argv[0], argv, env)
     return 0  # not reached
@@ -11425,8 +11942,8 @@ def render_routing(r: dict) -> str:
                 else str(value))
         out.append(f"{leaf.ljust(width)}  {text or '(none)'}  [{item['source']}]")
     out.append("")
-    out.append("--reviewers auto, by what's installed (a round also needs agy's quota and Copilot with no recent "
-               "quota error):")
+    out.append("--reviewers auto, by what's installed (a round also needs agy's quota, Copilot with no recent "
+               "quota error and an OpenCode model not at its limit):")
     for size, kinds in r["auto_reviewers"].items():
         out.append(f"  {size}: {' + '.join(kinds) or 'nobody: a round of this size is refused'}")
     return "\n".join(out)
@@ -11726,7 +12243,7 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
             segment = {"run": run["id"], "name": name, "kind": cost_kind(name, entry, root), "root": root,
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
-                       "agy": cli(entry.get("kind")).cost_tally == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
+                       "agy": cli(entry.get("kind")).cost_tally == "agy", "cli": entry.get("kind") or "claude", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
                        "who": one_agent((run["id"], name))}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)
@@ -11907,10 +12424,11 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
         files = {path for s, cwd in claude.items() for path in session_files(s, cwd)}
         if window["cwd"]:
             files |= recent_files(claude_sessions_dir(window["cwd"]).glob("*.jsonl"), window["start"])
-        agy = {s for s, segs in segments.items() for seg in segs if seg["run"] == run_id and seg["agy"]}
+        agy = {s: seg["cli"] for s, segs in segments.items() for seg in segs if seg["run"] == run_id and seg["agy"]}
     else:
         files = recent_files((claude_home() / "projects").glob("*/*.jsonl"), since)
-        agy = {p.stem for p in recent_files(agy_conversation_file("x").parent.glob("*.db"), since)}
+        # Every tokens-only CLI's sessions of the window (agy's conversation dbs, OpenCode's session rows).
+        agy = {s: kind for kind, c in CLIS.items() if c.cost_tally == "agy" for s in c.recent_sessions(since)}
     # A background swap or resume copies the conversation into a new session file, its calls' ids included, and so
     # do other forks (a `/resume` that branches, a relaunch): each call counts once. A file run state names goes
     # first (its calls belong to that agent), then the one whose calls start first, or on a tie (a copy keeps the
@@ -11924,17 +12442,18 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
     for path, calls, info, sub, session in sorted(read, key=lambda r: (r[4] not in segments, *((r[1][0]["t"], r[1][-1]["t"]) if r[1] else (0, 0)),
                                                        str(r[0]))):
         tally_session(tally, session, calls, sub, placer(session, info, path, sub), since, until, seen)
-    for session in sorted(agy):
+    for session, kind in sorted(agy.items()):
         mine = segments.get(session, [])
+        user = f"{cli(kind).cost_prefix or 'agy '}user"
 
-        def place_agy(call: dict, mine=mine):
+        def place_agy(call: dict, mine=mine, user=user):
             segment = segment_at(mine, call["t"]) if mine else None
             if segment:
                 if run_id and segment["run"] != run_id:
                     return None
                 return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
-            return None if run_id else ("agy user", ("", "agy user"), "")
-        tally_session(agy_tally, session, agy_calls(session), False, place_agy, since, until, set())
+            return None if run_id else (user, ("", user), "")
+        tally_session(agy_tally, session, cli(kind).token_calls(session), False, place_agy, since, until, set())
     inside = lambda t: (since is None or t >= since) and (until is None or t < until)  # noqa: E731
     resets = [t for r, w in windows.items() if not run_id or r == run_id for t in w["resets"] if inside(t)]
     reviewers: dict[str, set] = {}  # PR: (reviewer, kind), from the review tasks sent in the window or the run

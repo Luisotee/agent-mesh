@@ -15,6 +15,9 @@ ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to
 # CLIs that run workers but no root (no skills): only the rules block, so a pane worker knows a doorbell (design §22).
 WORKER_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")  # where Copilot reads them
 WORKER_CLIS=(copilot)
+# OpenCode reads the first of ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md: the block goes into its own file
+# only when that exists or CLAUDE.md lacks the block, since creating it would hide the user's CLAUDE.md from OpenCode.
+OPENCODE_RULES="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/AGENTS.md"
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
@@ -124,7 +127,14 @@ if [[ "$UNINSTALL" == 1 ]]; then
   for root in "${SKILL_ROOTS[@]}"; do
     for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
-  for file in "${RULE_FILES[@]}" "${WORKER_RULE_FILES[@]}"; do set_block "$file" 0; done
+  opencode_had_block=0
+  grep -qF "$BEGIN" "$OPENCODE_RULES" 2>/dev/null && opencode_had_block=1
+  for file in "${RULE_FILES[@]}" "${WORKER_RULE_FILES[@]}" "$OPENCODE_RULES"; do set_block "$file" 0; done
+  # An OpenCode file left with nothing but the block would, empty, still hide ~/.claude/CLAUDE.md from OpenCode
+  # (one the user left empty themselves stays).
+  if [[ "$opencode_had_block" == 1 && -f "$OPENCODE_RULES" ]] && ! grep -q '[^[:space:]]' "$OPENCODE_RULES"; then
+    rm -f "$OPENCODE_RULES" && echo "removed $OPENCODE_RULES (only the block was in it)"
+  fi
   if command -v herdr >/dev/null && herdr plugin list 2>/dev/null | grep -qF "$PLUGIN_ID"; then
     herdr plugin unlink "$PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $PLUGIN_ID"
   fi
@@ -166,5 +176,14 @@ for i in "${!WORKER_RULE_FILES[@]}"; do
     echo "skip: ${WORKER_CLIS[$i]} is not on PATH, so nothing new goes into ${WORKER_RULE_FILES[$i]}"
   fi
 done
+if has opencode; then
+  if [[ -f "$OPENCODE_RULES" ]] || ! grep -qF "$BEGIN" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
+    set_block "$OPENCODE_RULES" 1
+  else
+    echo "OpenCode reads the block from ~/.claude/CLAUDE.md (creating $OPENCODE_RULES would hide that file from it)"
+  fi
+else
+  echo "skip: opencode is not on PATH, so nothing new goes into $OPENCODE_RULES"
+fi
 link_plugin
 echo "agent-mesh installed. Try: mesh --version"

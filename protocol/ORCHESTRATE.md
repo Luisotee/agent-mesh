@@ -222,16 +222,17 @@ mesh ask --repo <path> --size small --body "<question>"       # a fresh agent in
 mesh ask --repo <path> --size small --review <PR link | number>  # a fresh reviewer, with the PR head checked out
 mesh ask <name | branch | PR link> --body "<question>"        # a worker you already have, live or past
 mesh ask <name | branch | PR link> --review <PR link>         # it reviews a PR without leaving its branch
-mesh ask --repo <path> --size <size> --review <PR> --reviewers auto|all|claude,agy,copilot   # a review round
+mesh ask --repo <path> --size <size> --review <PR> --reviewers auto|all|claude,agy,copilot,opencode   # a review round
 ```
 
 - **A review round** (`--reviewers`) is how every review of a PR starts, yours and the user's: one command runs all its reviewers at once, `auto` picking them by `--size` and agy's quota ("Routing"; it says on stderr what it picked and why), or the CLIs named. Their answers don't come one by one: it blocks until each has answered or alerted, prints one line per reviewer and the path of **one** answers file (`reports/review-<n>-<stamp>.md`), and closes the reviewers that answered. So a Claude root runs it with `run_in_background` and wakes once; an agy root runs it in the foreground. A reviewer that alerts (hung, stopped, held at a startup screen, out of quota) gets its line there with what to do, stays open, and its later answer comes to your inbox as usual. Run the same command again after a fix, in this run or a later one: it asks the PR's earlier reviewers again (for `auto`, minus Copilot, and minus agy without quota, Claude taking its place) on the commits since, and starts a fresh one only for a CLI the PR had none of. `--model` and `--view` are refused for a round of more than one CLI.
 
-- **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot`, a CLI no root runs on, or a review round, your own CLI).
+- **No run needed:** without one, `ask` starts it (mode `--kind`, default agy; for `--kind copilot` or `opencode`, CLIs no root runs on, or a review round, your own CLI).
 - **Your own repo too:** a review of your own PR goes to a fresh agent in your repo (`--repo .`). It's a second pair of eyes that changes nothing.
 - **Tests in a review:** a fresh reviewer has the PR head checked out, so it can run tests. Its task has it read the PR's CI results first (`gh pr checks`) and run only the tests the change touches; the full suite only when the PR has no CI, or for what CI doesn't cover. A reviewer reading the PR from its own branch reads the CI results and runs tests only when its worktree is at the head under review. Several reviewers each running a whole suite at once was the machine's largest memory use.
 - **A fresh agent** follows the mode table and `--size`, like a spawn, except that a fresh reviewer opens in a pane at any size and runs at high effort when it is trivial or small ("Sizes"). Pass `--kind` for the CLI, and `--model` / `--effort` only if the user named them.
 - **Copilot** (`--kind copilot`: a default reviewer where its slot reaches it, otherwise only when the user names it) is a worker like Claude and agy, in a pane: it answers, reviews and can take a change (resume it with a task), read-only under `--deny-tool` while it answers or plans. It has no Stop hook, so the watch nudges it as it does agy. On a plan that offers only `auto` (some Copilot plans do), Copilot picks the model.
+- **OpenCode** (`--kind opencode`: the last non-Claude candidate of the review slots, otherwise only when the user names it) is a worker the same way, on OpenCode's free models (`free`, no account needed) or a provider the user configured in OpenCode (`models.opencode.*`). A free model at its limit gives exit 7 like an agy quota: run `mesh switch`, which moves the same conversation to the next model of its chain that isn't spent, executing too.
 - **Asking an existing worker** reuses all its context: the agent that wrote a PR knows why it's written that way.
   - A PR link names the worker that opened the PR (the one on its head branch); a reviewer is found by its name.
   - A worker busy on another task answers once that's done: `ask` then returns at once, and the answer comes later.
@@ -241,7 +242,7 @@ mesh ask --repo <path> --size <size> --review <PR> --reviewers auto|all|claude,a
   - **A Claude worker under a Claude root:** `ask` returns once the question is delivered (pass `--wait` to block anyway), and the answer arrives as a cross-session message.
   - **An agy worker, Claude root:** run `ask` with `run_in_background`, and the answer arrives as the notification.
   - **agy root:** run it in the foreground, or pass `--no-wait` and wait for the doorbell.
-  - Exit codes are those of `mesh watch`; on 7 (an agy quota), `mesh switch` the worker and `mesh watch` it; on a Claude usage limit, tell the user (mesh continues it at the reset), and on an expired login, have the user log in, as in "Supervise".
+  - Exit codes are those of `mesh watch`; on 7 (an agy quota, or an OpenCode model at its limit), `mesh switch` the worker and `mesh watch` it; on a Claude usage limit, tell the user (mesh continues it at the reset), and on an expired login, have the user log in, as in "Supervise".
   - Exit 4 with `ALERT <name> is waiting at a startup screen` comes before any waiting: the agent's pane stopped at a screen mesh doesn't answer (a Settings Warning for a malformed `.claude/settings.json` rule, say), and the question is stored. Tell the user to clear it in that pane, and don't answer it yourself. Then `mesh watch <name>` rings it once the screen is gone and waits for the answer; read it with `mesh inbox`, then `mesh retire <name>` once you have no follow-up for it.
 
 Then:

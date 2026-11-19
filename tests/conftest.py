@@ -98,7 +98,7 @@ class RefuseAgentClis(subprocess.Popen):
 
     def __init__(self, args, *rest, **kwargs):
         binary = Path(args[0] if isinstance(args, (list, tuple)) else str(args).split()[0]).name
-        assert binary not in ("agy", "claude", "copilot", "herdr"), f"a test started a real {binary}: {args}"
+        assert binary not in ("agy", "claude", "copilot", "opencode", "herdr"), f"a test started a real {binary}: {args}"
         super().__init__(args, *rest, **kwargs)
 
 
@@ -123,6 +123,8 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_SIDE_PANES", "0")
     # Never Copilot's real session events: a test that wants some writes them here (see copilot_events).
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
+    # ...nor OpenCode's real session db (a test that wants one builds it here, see opencode_db in test_kinds).
+    monkeypatch.setenv("MESH_OPENCODE_DB", str(tmp_path / "opencode" / "opencode.db"))
     # Never agy's real conversation index, prompt history or conversations: a test that wants one writes its own.
     monkeypatch.setenv("MESH_AGY_SUMMARIES", str(tmp_path / "agy" / "conversation_summaries.db"))
     monkeypatch.setenv("MESH_AGY_HISTORY", str(tmp_path / "agy" / "history.jsonl"))
@@ -150,7 +152,7 @@ def mesh(tmp_path, monkeypatch):
         monkeypatch.delenv(key, raising=False)
     # Every CLI counts as installed, whatever this machine has; `clis()` narrows it.
     real_which = shutil.which
-    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: f"/bin/{cmd}" if cmd in ("agy", "claude", "copilot")
+    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: f"/bin/{cmd}" if cmd in ("agy", "claude", "copilot", "opencode")
                         else real_which(cmd, *a, **k))
     # A path that bypasses the fakes below fails instead of reaching a real herdr pane or agent CLI.
     monkeypatch.setenv("MESH_HERDR", str(tmp_path / "no-herdr"))
@@ -299,4 +301,4 @@ def clis(monkeypatch, *kinds: str) -> None:
     """Only these agent CLIs count as installed (claude, agy, copilot)."""
     real = shutil.which
     monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: (f"/bin/{cmd}" if cmd in kinds else None)
-                        if cmd in ("agy", "claude", "copilot") else real(cmd, *a, **k))
+                        if cmd in ("agy", "claude", "copilot", "opencode") else real(cmd, *a, **k))

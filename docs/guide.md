@@ -94,10 +94,13 @@ The agent is an ordinary worker, so it stays useful after it answers:
 
 A **Copilot** agent (`--kind copilot`) is a worker like the others: it runs in a pane, answers, reviews and makes changes, and asking it again reopens its session. Read-only and planning, it runs under `--deny-tool` (no file writes, no publishing commands). It has no Stop hook, so the watch sees its turns end, as agy's. On a plan that only offers `auto` (some Copilot plans do), Copilot picks the model. A Copilot asker recorded before this (a `headless` one) reopens in a pane, in the same session, the next time it is asked.
 
+An **OpenCode** agent (`--kind opencode`) is one too, on any model [OpenCode](https://opencode.ai) reaches: by default `free`, OpenCode's own models that cost nothing and need no account, newest first; or a `provider/model` from any provider you set up in OpenCode, an OpenAI-compatible endpoint included (`models.opencode.*`). The free models are rate-limited: when one hits its limit (`Free usage exceeded`, OpenCode Go's limit, a 429 still retried at the third attempt), the watch exits 7 and `mesh switch` moves the same conversation to the next model of its chain that isn't spent, while executing too; the spent model is skipped machine-wide until the reset it names (else 5 h). If the free limit is per IP rather than per model, every free model spends at once: put a provider's model in the chain. Read-only and planning, it runs under `OPENCODE_PERMISSION` rules (no edits in its worktree or your checkout, no publishing commands). It has no Stop hook, and compacts itself.
+
 ```bash
 mesh ask --repo ../shop-api --body "How is restockedAt computed?"          # a fresh agent
 mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
 mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot
+mesh ask --repo . --review 88 --kind opencode                               # by OpenCode, on a free model
 mesh ask --repo . --review 88 --size small --reviewers auto                 # a review round: reviewers by size and quota, one answers file
 mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
@@ -253,7 +256,7 @@ Every agent is a whole CLI process with its own MCP servers: an idle `claude` se
 ## Requirements
 
 - **[herdr](https://herdr.dev)**, with your root session running in a herdr pane: `mesh init` refuses to start a run outside one, so background Claude workers need it too.
-- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional: a worker kind like the others (never a root), used by default only as a reviewer.
+- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional: a worker kind like the others (never a root), used by default only as a reviewer. [OpenCode](https://opencode.ai) (`opencode`) is optional the same way, on its free models or your own providers.
 - **GitHub, with [`gh`](https://cli.github.com) logged in.** Workers open PRs with `gh`, and mesh reads PR links and remotes as `github.com` only; another forge works for local branches but loses PR tracking, resume onto a finished PR and review rounds.
 - **Linux or WSL.** The memory floor and the sweep of leftover processes read `/proc`. On macOS both are off (no agent start is refused for memory, and what a worker left running in its worktree is not killed), and mesh tells a running worker from herdr and `ps` instead; `herdr/mesh-notify` has no macOS notifier.
 - **Python 3.10+** and **git**. `bin/mesh` is one stdlib-only script.
@@ -280,7 +283,7 @@ It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENT
 
 ### Claude Code only, agy only, or both
 
-mesh works with whichever is installed; Copilot is optional.
+mesh works with whichever is installed; Copilot and OpenCode are optional.
 
 - **Claude Code only:** use `/delegate-claude` and `/delegate-review`. Workers, askers and reviewers are Claude (Copilot too, if installed). Background workers and `--plan-review user` are Claude features, so all of it works.
 - **agy only:** use `/delegate-agy` and `/delegate-review`. Workers and reviewers are agy (Copilot too, if installed); every worker runs in a pane, and `--plan-review user` (Claude Code's plan mode) is refused.
@@ -344,12 +347,17 @@ This file reproduces the built-in policy, plus a `repos_dir`:
       "plan": ["auto"], "exec": "auto", "plan_effort": "high", "exec_effort": "medium",
       "trivial": {"model": "auto", "effort": "low", "view": "pane"},
       "small": {"model": "auto", "effort": "medium", "view": "pane"}
+    },
+    "opencode": {
+      "plan": ["free"], "exec": "free", "plan_effort": "high", "exec_effort": "medium",
+      "trivial": {"model": "free", "effort": "low", "view": "pane"},
+      "small": {"model": "free", "effort": "medium", "view": "pane"}
     }
   },
   "review": {
     "effort": "high",
     "level": {"trivial": "medium", "small": "medium", "large": "high"},
-    "reviewers": {"small": [["agy", "copilot", "claude"]], "large": [["claude"], ["agy", "copilot"]]},
+    "reviewers": {"small": [["agy", "copilot", "opencode", "claude"]], "large": [["claude"], ["agy", "copilot", "opencode"]]},
     "re_review": {"skip": ["copilot"], "keep": {"small": [], "large": ["claude"]}},
     "rounds": {"small": 1, "large": 2},
     "tiny_pr_lines": 150
@@ -373,7 +381,7 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 ```
 
 - **`models.<kind>`:** `plan` is the planning chain (agy takes the first with quota left over the reserve, Claude its first), `exec` the model `mesh approve` moves a large task to, `plan_effort` / `exec_effort` the two phases' efforts; `trivial` and `small` are the one model, effort and view (`pane`, or `bg` for a Claude background session) of a task with no plan; `claude.user_review` runs `--plan-review user`. Models are families (`argon`, `flash`, `opus`, `sonnet`), Claude aliases or exact ids.
-- **`review.reviewers.<size>`:** a list of slots, each taking the first CLI in it that is installed and available (agy with quota, Copilot with no quota error in the last day) and not picked yet; a trivial review uses `small`. `re_review`: a re-review asks the earlier reviewers again minus `skip`, plus `keep.<size>`, and fills the slots again when that leaves nobody. `effort` is a fresh reviewer's effort, `level` a Claude reviewer's `/code-review` level.
+- **`review.reviewers.<size>`:** a list of slots, each taking the first CLI in it that is installed and available (agy with quota, Copilot with no quota error in the last day, OpenCode with a model of its chain not at its limit) and not picked yet; a trivial review uses `small`. `re_review`: a re-review asks the earlier reviewers again minus `skip`, plus `keep.<size>`, and fills the slots again when that leaves nobody. `effort` is a fresh reviewer's effort, `level` a Claude reviewer's `/code-review` level.
 - **`review.rounds`, `review.tiny_pr_lines`:** the most review→fix rounds a PR gets (a round that needs no fix ends them sooner), and the line count under which a trivial or small task's PR gets the root's own review instead of reviewers.
 - **`quota_stop`:** the percent of a quota used at which mesh starts nothing new on it. **`repos_dir`:** the folders a bare `--repo <name>` is looked up in (none by default: pass paths). **`peers_dir`:** where `mesh peers add` clones a peer.
 - **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.

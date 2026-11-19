@@ -5,10 +5,10 @@ import pytest
 
 
 def test_registry_keeps_the_kind_tables(mesh):
-    assert mesh.KINDS == mesh.ASK_KINDS == ("claude", "agy", "copilot")  # one kind of agent: every CLI a worker
-    assert mesh.AGENT_BINARIES == ("claude", "agy", "copilot")
-    assert mesh.CLI_NAMES == {"claude": "Claude Code", "agy": "agy", "copilot": "Copilot"}
-    assert mesh.SHORT_NAMES == {"claude": "Claude", "agy": "agy", "copilot": "Copilot"}
+    assert mesh.KINDS == mesh.ASK_KINDS == ("claude", "agy", "copilot", "opencode")  # every CLI a worker
+    assert mesh.AGENT_BINARIES == ("claude", "agy", "copilot", "opencode", "opencode.exe")
+    assert mesh.CLI_NAMES == {"claude": "Claude Code", "agy": "agy", "copilot": "Copilot", "opencode": "OpenCode"}
+    assert mesh.SHORT_NAMES == {"claude": "Claude", "agy": "agy", "copilot": "Copilot", "opencode": "OpenCode"}
     assert all(c.kind == kind for kind, c in mesh.CLIS.items())
     assert set(mesh.MODES) <= set(mesh.KINDS)  # a root's CLI is a worker's too
 
@@ -22,11 +22,11 @@ def test_cli_defaults_to_claude_for_an_entry_without_a_kind(mesh):
 
 def test_an_unknown_kind_is_an_error_not_claude(mesh, run):
     """A run a newer mesh wrote (a kind this checkout doesn't know) must not get Claude's argv."""
-    with pytest.raises(mesh.MeshError, match="unknown agent kind 'opencode'"):
-        mesh.cli("opencode")
+    with pytest.raises(mesh.MeshError, match="unknown agent kind 'zed'"):
+        mesh.cli("zed")
     with pytest.raises(mesh.MeshError, match="unknown agent kind"):
-        mesh.resume_argv("opencode", "ses_1", "big-pickle", "high")
-    assert not mesh.cli_has("opencode", "stop_hook")  # a reading: no such capability here
+        mesh.resume_argv("zed", "ses_1", "zed-1", "high")
+    assert not mesh.cli_has("zed", "stop_hook")  # a reading: no such capability here
 
 
 def test_capabilities_per_kind(mesh):
@@ -38,14 +38,15 @@ def test_capabilities_per_kind(mesh):
                    "measures_cache", "counts_cost"},
         "agy": {"worker_log", "records_session_on_send", "compacts_unmeasured", "counts_cost"},
         "copilot": {"enforces_read_only"},
+        "opencode": {"enforces_read_only", "records_session_on_send", "counts_cost"},
     }
     assert {kind: c.views for kind, c in mesh.CLIS.items()} == {"claude": ("pane", "bg"), "agy": ("pane",),
-                                                                "copilot": ("pane",)}
+                                                                "copilot": ("pane",), "opencode": ("pane",)}
 
 
 def test_binaries(mesh, monkeypatch):
     monkeypatch.setenv("MESH_CLAUDE", "/opt/claude")
-    assert [mesh.cli_binary(k) for k in mesh.ASK_KINDS] == ["/opt/claude", "agy", "copilot"]
+    assert [mesh.cli_binary(k) for k in mesh.ASK_KINDS] == ["/opt/claude", "agy", "copilot", "opencode"]
 
 
 def test_launch_argv(mesh, monkeypatch):
@@ -176,10 +177,10 @@ def test_ask_waits_for_an_agy_worker_even_when_the_root_takes_frames(mesh, fake,
 
 
 def test_the_readings_have_nothing_for_an_unknown_kind_and_the_actions_name_it(mesh, run):
-    entry = {"kind": "opencode", "session": "ses_1", "cwd": "/wt"}
+    entry = {"kind": "zed", "session": "ses_1", "cwd": "/wt"}
     assert mesh.progress_files(entry, "ses_1") == [] and mesh.context_tokens(entry, "ses_1") is None
     assert mesh.still_limited(entry) is False
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-new"] = {"role": "worker", "kind": "opencode", "parent": "repo-lead", "status": "running"}
-    with pytest.raises(mesh.MeshError, match="unknown agent kind 'opencode'"):
+        data["agents"]["repo-new"] = {"role": "worker", "kind": "zed", "parent": "repo-lead", "status": "running"}
+    with pytest.raises(mesh.MeshError, match="unknown agent kind 'zed'"):
         mesh.swap_model(run, "repo-new", "x", "high", "test")

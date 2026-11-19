@@ -114,3 +114,25 @@ def test_copilot_gets_the_rules_block_and_no_skills(tmp_path):
     assert not (tmp_path / ".copilot" / "skills").exists()
     assert install(tmp_path, "--uninstall").returncode == 0
     assert "agent-mesh:begin" not in rules.read_text()
+
+
+def test_opencode_gets_the_block_only_where_it_wouldnt_hide_claude_md(tmp_path):
+    rules = tmp_path / ".config" / "opencode" / "AGENTS.md"
+    done = install(tmp_path, clis=("claude", "agy", "opencode"))
+    assert done.returncode == 0 and not rules.exists()  # it reads the block from ~/.claude/CLAUDE.md
+    assert "OpenCode reads the block from ~/.claude/CLAUDE.md" in done.stdout
+    rules.parent.mkdir(parents=True)
+    rules.write_text("# my OpenCode rules\n")
+    assert install(tmp_path, clis=("claude", "agy", "opencode")).returncode == 0
+    assert rules.read_text().startswith("# my OpenCode rules") and "agent-mesh:begin" in rules.read_text()
+    other = tmp_path / "noclaude"
+    other.mkdir()
+    assert install(other, clis=("agy", "opencode")).returncode == 0  # no Claude Code: OpenCode's own file
+    assert "agent-mesh:begin" in (other / ".config" / "opencode" / "AGENTS.md").read_text()
+    assert install(other, "--uninstall", clis=("agy", "opencode")).returncode == 0
+    assert not (other / ".config" / "opencode" / "AGENTS.md").exists()  # empty, it would still hide CLAUDE.md
+    assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
+    assert rules.read_text().strip() == "# my OpenCode rules"  # the user's own rules stay
+    rules.write_text("")
+    assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
+    assert rules.exists()  # one the user left empty, with no block in it, stays
