@@ -40,7 +40,7 @@ for f in glob.glob(ST+'/*/run.json')+glob.glob(ST+'/archive/*/run.json'):
     runs[d['id']]=(d,os.path.dirname(f))
 def cat(a,name):
     if a.get('role')=='root': return 'root'
-    if a.get('peer') or name.endswith('-research'): return 'peer'
+    if a.get('peer') or name in PEERS: return 'peer'
     if a.get('review_heads') or re.search(r'-review-\d+',name): return 'review'
     if a.get('kind')=='copilot' or a.get('view')=='headless': return 'asker' if a.get('read_only') else 'copilot'
     if a.get('read_only'): return 'asker'
@@ -69,7 +69,9 @@ for rid,(d,rdir) in runs.items():
         if ev in('send','rung','native','collected'):
             s,t=e.get('sender'),e.get('to')
             m=re.search(r'-review-(\d+)(?:-|$|\|)',(s or '')+'|'+(t or ''))
-            if m: pr=(rid,re.sub(r'-review-\d+.*','',s if '-review-' in (s or '') else t),m.group(1))
+            # by the reviewer's repo, not its name: names cut the repo short by suffix (city-tour-a-review-112-claude)
+            rv=s if '-review-' in (s or '') else t
+            if m: pr=(rid,os.path.basename((ag.get(rv,{}).get('repo') or re.sub(r'-review-\d+.*','',rv)).rstrip('/')),m.group(1))
         if ev=='send':
             ty=e.get('type'); s,t=e['sender'],e['to']
             worker=t if ty in('task','answer') else s

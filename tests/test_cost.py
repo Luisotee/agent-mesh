@@ -54,6 +54,12 @@ def root(session, cwd="/repo"):
     return {"role": "root", "kind": "claude", "session": session, "cwd": cwd}
 
 
+def task(minutes, to, pr="repo#7", sender="a-lead"):
+    """A logged task; a review task names its PR, as `record` logs it."""
+    return {"time": iso(minutes), "event": "send", "sender": sender, "to": to, "type": "task", "file": "t.md",
+            **({"pr": pr} if pr else {})}
+
+
 def cost(mesh, capsys, *argv):
     capsys.readouterr()
     assert mesh.main(["cost", *argv, "--json"]) == 0
@@ -277,11 +283,12 @@ def test_an_unstopped_runs_window_ends_at_its_last_event(mesh, capsys):
 def test_a_reviewer_resumed_in_a_later_run_is_one_reviewer(mesh, capsys):
     review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
     write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7": worker("v", 1, **review)},
-              events=[{"time": iso(30), "event": "stop"}], archived=True)
-    write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7": worker("v", 60, **review)}, created=50)
+              events=[task(1, "repo-review-7"), {"time": iso(30), "event": "stop"}], archived=True)
+    write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7": worker("v", 60, **review)}, created=50,
+              events=[task(60, "repo-review-7")])
     transcript(mesh, "/wt", "v", reply(2, "a", output=1000), reply(61, "b", output=1000))
     reviews = cost(mesh, capsys, "--since", iso(-5))["reviews"]
-    assert reviews["prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
+    assert reviews["prs"] == 1 and reviews["reviewed_prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
 
 
 def test_a_worker_resumed_in_its_own_run_keeps_its_earlier_calls(mesh, capsys):
@@ -300,13 +307,14 @@ def test_calls_before_the_first_phase_mark_have_no_phase(mesh):
 def test_a_reviewer_renamed_on_resume_is_one_reviewer(mesh, capsys):
     review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
     write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7-claude": worker("v", 1, **review)},
-              events=[{"time": iso(30), "event": "stop"}], archived=True)
+              events=[task(1, "repo-review-7-claude"), {"time": iso(30), "event": "stop"}], archived=True)
     write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7-claude-2": worker(
-        "v2", 60, resumed_from={"run": "mone", "name": "repo-review-7-claude"}, **review)}, created=50)
+        "v2", 60, resumed_from={"run": "mone", "name": "repo-review-7-claude"}, **review)}, created=50,
+        events=[task(60, "repo-review-7-claude-2")])
     transcript(mesh, "/wt", "v", reply(2, "a", output=1000))
     transcript(mesh, "/wt", "v2", reply(61, "b", output=1000))
     reviews = cost(mesh, capsys, "--since", iso(-5))["reviews"]
-    assert reviews["prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
+    assert reviews["prs"] == 1 and reviews["reviewed_prs"] == 1 and reviews["reviewers_per_pr"] == 1.0
 
 
 def test_an_unstopped_run_ends_where_the_next_run_of_its_root_starts(mesh, capsys):
@@ -315,3 +323,63 @@ def test_an_unstopped_run_ends_where_the_next_run_of_its_root_starts(mesh, capsy
     transcript(mesh, "/repo", "r1", reply(10, "a", output=1000), reply(45, "b", output=1000))
     assert by(cost(mesh, capsys, "mold")["agents"], "name", "repo-lead")["calls"] == 1
     assert by(cost(mesh, capsys, "mnew")["agents"], "name", "repo-lead")["calls"] == 1
+
+
+def test_reviewers_per_pr_counts_every_cli_from_review_tasks(mesh, capsys):
+    """Copilot and agy reviewers have no Claude calls; their review tasks still count. A fresh Claude reviewer
+    of the same PR in a later run (another session) is a second reviewer; a re-review by the same one is not."""
+    review = dict(repo="/src/repo")
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7-claude": worker("v", 1, **review),
+                             "repo-review-7-agy": {**worker(None, 1, **review), "kind": "agy"},
+                             "repo-review-8-copilot": {**worker("c", 1, **review), "kind": "copilot"}},
+              events=[task(1, "repo-review-7-claude"), task(2, "repo-review-7-agy"), task(3, "repo-review-8-copilot", "repo#8"),
+                      task(20, "repo-review-7-claude"), {"time": iso(30), "event": "stop"}], archived=True)
+    write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7-claude": worker("w", 60, **review)}, created=50,
+              events=[task(60, "repo-review-7-claude")])
+    transcript(mesh, "/wt", "v", reply(2, "a", output=1000))
+    reviews = cost(mesh, capsys, "--since", iso(-5))["reviews"]
+    assert reviews["reviewed_prs"] == 2 and reviews["reviewers_per_pr"] == 2.0  # #7: 2 Claude + agy; #8: Copilot
+    assert reviews["by_cli"] == {"agy": 0.5, "claude": 1.0, "copilot": 0.5}
+    assert reviews["prs"] == 1  # Claude review $ is over the PRs with Claude review calls
+    assert cost(mesh, capsys, "mone")["reviews"]["reviewers_per_pr"] == 1.5  # one run's tasks only
+    assert cost(mesh, capsys, "--since", iso(40))["reviews"]["by_cli"] == {"claude": 1.0}
+    capsys.readouterr()
+    assert mesh.main(["cost", "--since", iso(-5)]) == 0
+    assert "reviews: 2 PRs, 2.0 reviewers per PR (agy 0.5, claude 1.0, copilot 0.5)" in capsys.readouterr().out
+
+
+def test_a_worker_asked_to_review_counts_for_each_pr_its_tasks_name(mesh, capsys):
+    """A worker asked with `ask <worker> --review` has no `-review-<n>` name: each review task's PR counts, the
+    one its event names or, in a log from before, the one its stored task starts with; other tasks never do."""
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-fix": worker("v", 1, repo="/src/repo")},
+              events=[task(1, "repo-fix", None), task(2, "repo-fix", "repo#7"), task(3, "repo-fix", None),
+                      task(4, "repo-fix", None)])
+    box = mesh.mesh_home() / "mone" / "inbox" / "repo-fix" / "read"
+    box.mkdir(parents=True)
+    old = mesh.REVIEW_PREFIX.format(pr="https://github.com/o/Repo/pull/8", at=" at " + "a" * 40, where="")
+    (box / "old.md").write_text("---\nrun: mone\ntype: task\n---\n" + old + "\n")
+    (box / "change.md").write_text("---\nrun: mone\ntype: task\n---\nDirect task (no plan). Fix it.\n")
+    log = mesh.mesh_home() / "mone" / "log.jsonl"
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    events[2]["file"], events[3]["file"] = "old.md", "change.md"  # an old log's review task, then a change task
+    log.write_text("".join(json.dumps(e) + "\n" for e in events))
+    reviews = cost(mesh, capsys, "mone")["reviews"]
+    assert reviews["reviewed_prs"] == 2 and reviews["reviewers_per_pr"] == 1.0  # repo#7 and repo#8, once each
+
+
+def test_record_names_a_review_tasks_pr(mesh, run):
+    body = mesh.REVIEW_PREFIX.format(pr="https://github.com/acme/Proj/pull/7", at="", where="")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", body)
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan). Fix the typo.")
+    sends = [e for e in mesh.read_log(run) if e.get("event") == "send"]
+    assert sends[-2]["pr"] == "proj#7" and "pr" not in sends[-1]
+
+
+def test_the_review_lines_follow_a_blank_line(mesh, capsys):
+    review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7": worker("v", 1, **review)})  # no task logged
+    transcript(mesh, "/wt", "v", reply(2, "a", output=1000))
+    capsys.readouterr()
+    assert mesh.main(["cost", "--since", iso(-5)]) == 0
+    out = capsys.readouterr().out
+    assert "\n\nClaude reviews: 1 PRs" in out and "reviews: 0" not in out
