@@ -3868,10 +3868,25 @@ def doorbell_text(run: dict, sender: str, to: str, mtype: str, body: str, first:
 
 
 def record(run_id: str, sender: str, to: str, mtype: str, body: str) -> Path:
-    """Store a message in `to`'s mailbox and log it, without telling anyone."""
+    """Store a message in `to`'s mailbox and log it, without telling anyone. A review task's event names its PR
+    (`review_task_pr`), which `mesh cost` counts reviewers by."""
     path = store_message(run_id, sender, to, mtype, body)
-    log_event(run_id, "send", sender=sender, to=to, type=mtype, file=path.name)
+    pr = review_task_pr(body) if mtype == "task" else None
+    log_event(run_id, "send", sender=sender, to=to, type=mtype, file=path.name, **({"pr": pr} if pr else {}))
     return path
+
+
+REVIEW_TASK_RE = re.compile(r"\s*Review \(read-only\) of (.+?)(?: at [0-9a-f]{7,40})?: review this pull request")
+
+
+def review_task_pr(body: str) -> str | None:
+    """The PR a review task (`REVIEW_PREFIX`) is of, as `repo#n` (the repo's name from its link, lowercased), or
+    None for any other task."""
+    found = REVIEW_TASK_RE.match(body)
+    if not found:
+        return None
+    link = re.search(r"([^/\s]+)/pull/(\d+)/?$", found.group(1).strip())
+    return f"{link.group(1).lower()}#{link.group(2)}" if link else pr_key(found.group(1))
 
 
 def native_route(run: dict, sender: str, to: str, claude=UNREAD, rows=UNREAD) -> dict | None:
@@ -11634,6 +11649,22 @@ def phase_at(marks: list[tuple[float, str]], t: float) -> str:
     return phase
 
 
+def logged_review_pr(folder: Path, event: dict) -> str | None:
+    """The PR a logged task is a review of, for a log from before `record` named it: read from the start of the
+    stored task, in `folder` (a live or archived run's)."""
+    box = folder / "inbox" / str(event.get("to"))
+    path = next((p for p in (box / str(event.get("file")), box / "read" / str(event.get("file"))) if p.is_file()),
+                None)
+    if path is None:
+        return None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            head = handle.read(2048)
+    except OSError:
+        return None
+    return review_task_pr(head.split("\n---\n", 1)[-1] if head.startswith("---\n") else head)
+
+
 def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
     """Where each conversation's calls belong, from every run, live and archived: {session: [segment]} and
     {run: its window}.
@@ -11674,7 +11705,7 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                                run["agents"][e["to"]].get("kind") or "claude")
                               for e in events if e.get("event") == "send" and e.get("type") == "task"
                               and e.get("to") in run["agents"] and epoch(e.get("time"))
-                              for pr in reviewed_pr(e["to"], run["agents"][e["to"]])]}
+                              and (pr := e.get("pr") or logged_review_pr(folder, e))]}
         windows[run["id"]] = window
         for name, entry in run["agents"].items():
             if not cli_has(entry.get("kind"), "counts_cost"):
@@ -12007,9 +12038,11 @@ def cmd_cost(args: argparse.Namespace) -> int:
         print_table([{**a, **{k: tokens_text(a[k]) for k in ("input", "read", "output")}} for a in report["agy"]],
                     ("kind", "sessions", "calls", "input", "read", "output"))
     reviews = report["reviews"]
+    if reviews["reviewed_prs"] or reviews["prs"]:
+        print()
     if reviews["reviewed_prs"]:
         by_cli = ", ".join(f"{k} {n}" for k, n in reviews["by_cli"].items())
-        print(f"\nreviews: {reviews['reviewed_prs']} PRs, {reviews['reviewers_per_pr']} reviewers per PR ({by_cli})")
+        print(f"reviews: {reviews['reviewed_prs']} PRs, {reviews['reviewers_per_pr']} reviewers per PR ({by_cli})")
     if reviews["prs"]:
         print(f"Claude reviews: {reviews['prs']} PRs, ${reviews['usd']:.2f} (${reviews['usd_per_pr']:.2f} per PR)")
     print(f"root resets: {report['resets']}")

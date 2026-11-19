@@ -54,8 +54,10 @@ def root(session, cwd="/repo"):
     return {"role": "root", "kind": "claude", "session": session, "cwd": cwd}
 
 
-def task(minutes, to, sender="a-lead"):
-    return {"time": iso(minutes), "event": "send", "sender": sender, "to": to, "type": "task", "file": "t.md"}
+def task(minutes, to, pr="repo#7", sender="a-lead"):
+    """A logged task; a review task names its PR, as `record` logs it."""
+    return {"time": iso(minutes), "event": "send", "sender": sender, "to": to, "type": "task", "file": "t.md",
+            **({"pr": pr} if pr else {})}
 
 
 def cost(mesh, capsys, *argv):
@@ -330,7 +332,7 @@ def test_reviewers_per_pr_counts_every_cli_from_review_tasks(mesh, capsys):
     write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7-claude": worker("v", 1, **review),
                              "repo-review-7-agy": {**worker(None, 1, **review), "kind": "agy"},
                              "repo-review-8-copilot": {**worker("c", 1, **review), "kind": "copilot"}},
-              events=[task(1, "repo-review-7-claude"), task(2, "repo-review-7-agy"), task(3, "repo-review-8-copilot"),
+              events=[task(1, "repo-review-7-claude"), task(2, "repo-review-7-agy"), task(3, "repo-review-8-copilot", "repo#8"),
                       task(20, "repo-review-7-claude"), {"time": iso(30), "event": "stop"}], archived=True)
     write_run(mesh, "mtwo", {"a-lead": root("r2"), "repo-review-7-claude": worker("w", 60, **review)}, created=50,
               events=[task(60, "repo-review-7-claude")])
@@ -344,3 +346,40 @@ def test_reviewers_per_pr_counts_every_cli_from_review_tasks(mesh, capsys):
     capsys.readouterr()
     assert mesh.main(["cost", "--since", iso(-5)]) == 0
     assert "reviews: 2 PRs, 2.0 reviewers per PR (agy 0.5, claude 1.0, copilot 0.5)" in capsys.readouterr().out
+
+
+def test_a_worker_asked_to_review_counts_for_each_pr_its_tasks_name(mesh, capsys):
+    """A worker asked with `ask <worker> --review` has no `-review-<n>` name: each review task's PR counts, the
+    one its event names or, in a log from before, the one its stored task starts with; other tasks never do."""
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-fix": worker("v", 1, repo="/src/repo")},
+              events=[task(1, "repo-fix", None), task(2, "repo-fix", "repo#7"), task(3, "repo-fix", None),
+                      task(4, "repo-fix", None)])
+    box = mesh.mesh_home() / "mone" / "inbox" / "repo-fix" / "read"
+    box.mkdir(parents=True)
+    old = mesh.REVIEW_PREFIX.format(pr="https://github.com/o/Repo/pull/8", at=" at " + "a" * 40, where="")
+    (box / "old.md").write_text("---\nrun: mone\ntype: task\n---\n" + old + "\n")
+    (box / "change.md").write_text("---\nrun: mone\ntype: task\n---\nDirect task (no plan). Fix it.\n")
+    log = mesh.mesh_home() / "mone" / "log.jsonl"
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    events[2]["file"], events[3]["file"] = "old.md", "change.md"  # an old log's review task, then a change task
+    log.write_text("".join(json.dumps(e) + "\n" for e in events))
+    reviews = cost(mesh, capsys, "mone")["reviews"]
+    assert reviews["reviewed_prs"] == 2 and reviews["reviewers_per_pr"] == 1.0  # repo#7 and repo#8, once each
+
+
+def test_record_names_a_review_tasks_pr(mesh, run):
+    body = mesh.REVIEW_PREFIX.format(pr="https://github.com/acme/Proj/pull/7", at="", where="")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", body)
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan). Fix the typo.")
+    sends = [e for e in mesh.read_log(run) if e.get("event") == "send"]
+    assert sends[-2]["pr"] == "proj#7" and "pr" not in sends[-1]
+
+
+def test_the_review_lines_follow_a_blank_line(mesh, capsys):
+    review = dict(reviews=["https://github.com/o/repo/pull/7"], repo="/src/repo")
+    write_run(mesh, "mone", {"a-lead": root("r1"), "repo-review-7": worker("v", 1, **review)})  # no task logged
+    transcript(mesh, "/wt", "v", reply(2, "a", output=1000))
+    capsys.readouterr()
+    assert mesh.main(["cost", "--since", iso(-5)]) == 0
+    out = capsys.readouterr().out
+    assert "\n\nClaude reviews: 1 PRs" in out and "reviews: 0" not in out
