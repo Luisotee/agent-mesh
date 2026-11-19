@@ -13,7 +13,7 @@ SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
 # CLIs that run workers but no root (no skills): only the rules block, so a pane worker knows a doorbell (design §22).
-WORKER_RULE_FILES=("$HOME/.copilot/copilot-instructions.md")
+WORKER_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")  # where Copilot reads them
 WORKER_CLIS=(copilot)
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall

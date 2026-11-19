@@ -8024,14 +8024,57 @@ def test_copilot_limits_read_from_its_pane_and_its_events(mesh, fake, run, tmp_p
         tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl"]
 
 
-def test_copilot_is_never_the_default_cli_and_copilot_model_still_overrides(mesh, monkeypatch):
+def test_a_copilot_quota_error_counts_only_until_a_later_turn(mesh, fake, run, tmp_path):
+    entry = {"kind": "copilot", "pane": "w2:p5", "session": "s-2", "cwd": str(tmp_path)}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    fake.screen("repo-fix-typo", "> ")
+    events = tmp_path / "copilot" / "session-state" / "s-2" / "events.jsonl"
+    old = mesh.epoch("2026-11-19T08:00:00+00:00")
+    mesh.note_copilot_limit("monthly quota", at=old)
+    write_events(events, [
+        {"type": "session.error", "timestamp": "2026-11-19T08:00:00Z",
+         "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
+        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": "2026-11-19T11:00:05Z", "data": {"content": "Done."}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) is None  # topped up: it answered since
+    assert mesh.copilot_limit() is None  # and the hold from before that answer is lifted
+    write_events(events, [{"type": "user.message", "timestamp": "2026-11-19T11:30:00Z", "data": {"content": "go"}},
+                          {"type": "session.error", "timestamp": "2026-11-19T11:30:02Z",
+                           "data": {"errorType": "quota", "message": "monthly quota again"}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
+    held = mesh.copilot_limit()
+    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch("2026-11-19T11:30:02+00:00")
+
+
+def test_a_swap_records_a_headless_asker_it_reopens_as_a_pane_worker(mesh, fake, run, repo, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"] = {
+            "role": "worker", "kind": "copilot", "model": "auto", "effort": "high", "view": "headless",
+            "repo": str(repo), "cwd": str(repo), "session": "u-1", "parent": "repo-lead", "status": "retired",
+            "pane": None, "tab": None, "workspace": None}
+    stub_new_pane(fake)
+    fake.on("agent", "wait", error="agent_not_found")
+    mesh.swap_model(run, "proj-ask-auth", "auto", "medium", "test")
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    entry = mesh.load_run(run)["agents"]["proj-ask-auth"]
+    assert entry["view"] == "pane" and entry["pane"] and mesh.agent_status("proj-ask-auth", entry) != "gone"
+
+
+def test_copilot_is_never_the_default_cli_and_copilot_model_stands_in_for_the_built_ins(mesh, monkeypatch):
     clis(monkeypatch, "copilot")
     with pytest.raises(mesh.MeshError, match="neither Claude Code"):
         mesh.default_kind()
-    assert mesh.cli("copilot").resolve("auto", "high") == "auto"
+    assert mesh.cli("copilot").plan_model("high", None)[0] == "auto"
     monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
-    assert mesh.cli("copilot").resolve("auto", "high") == "gpt-5.6-luna"
-    assert mesh.cli("copilot").launch_argv("auto", "high", None)[1] == "gpt-5.6-luna"
+    copilot = mesh.cli("copilot")
+    assert copilot.plan_model("high", None)[0] == mesh.exec_model_for("copilot") == "gpt-5.6-luna"
+    assert mesh.size_policy("copilot", "small")["model"] == "gpt-5.6-luna"
+    assert copilot.resumed_model({"kind": "copilot"}, None, "high") == ("gpt-5.6-luna", "high")
+    # ...but never for a model named on the command line, nor a models.copilot.* leaf set in the config.
+    assert copilot.resumed_model({"kind": "copilot"}, "gpt-x", "high") == ("gpt-x", "high")
+    assert copilot.launch_argv("gpt-x", "high", None)[1] == "gpt-x"
+    with_config({"models": {"copilot": {"exec": "gpt-y"}}})
+    assert mesh.exec_model_for("copilot") == "gpt-y"
 
 
 # ── root context: measuring, resetting and briefing the root ─────────────

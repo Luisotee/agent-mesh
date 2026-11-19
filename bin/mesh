@@ -46,7 +46,7 @@ from typing import Callable
 VERSION = "0.7.0"
 MODES = ("agy", "claude")
 # Copilot's built-in model: `auto`, the only one some plans (Copilot Student) may pick. The `copilot_model` leaf
-# (MESH_COPILOT_MODEL), when set, overrides every Copilot model, as it did when Copilot only answered (design §22).
+# (MESH_COPILOT_MODEL), when set, stands in for each built-in Copilot model leaf, never a named one (design §22).
 COPILOT_MODEL = "auto"
 COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an effort instead
 # `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
@@ -392,6 +392,10 @@ class Cli:
         """The model a task plans on, and notes on the choice."""
         return plan_chain(self.kind)[0], []
 
+    def default_model(self, value: str, source: str) -> str:
+        """A model policy leaf's value (`source`: where setting_with_source found it), as this CLI reads it."""
+        return value
+
     def effort_of(self, model: str) -> str | None:
         """The effort an exact model id carries, if its ids carry one."""
         return None
@@ -651,22 +655,28 @@ class CopilotCli(Cli):
     kind, name, short, processes = "copilot", "Copilot", "Copilot", ("copilot",)
     enforces_read_only = True
 
-    def resolve(self, model: str, effort: str) -> str:
-        value, source = setting_with_source("copilot_model")
-        return value if source != "built-in" else model  # the old leaf, when set, names every Copilot model
+    def default_model(self, value: str, source: str) -> str:
+        # The old leaf, when set, stands in for every built-in Copilot model (never for one named, nor for a
+        # models.copilot.* leaf set in the config).
+        override, where = setting_with_source("copilot_model")
+        return override if source == "built-in" and where != "built-in" else value
+
+    def first_model(self) -> str:
+        chain, source = setting_with_source("models.copilot.plan")
+        return self.default_model(chain[0], source)
 
     def plan_model(self, effort: str, run_id: str | None) -> tuple[str, list[str]]:
-        return self.resolve(plan_chain("copilot")[0], effort), []
+        return self.first_model(), []
 
     def resumed_model(self, entry: dict, model: str | None, effort: str) -> tuple[str, str]:
         # `requested_model`: what an asker from before design §22 asked for (`model` is what Copilot said it used)
-        return self.resolve(model or entry.get("requested_model") or entry.get("model") or plan_chain("copilot")[0],
-                            effort), effort
+        return (model or entry.get("requested_model") or entry.get("model")
+                or self.first_model()), effort
 
     def launch_argv(self, model: str, effort: str, log: str | None) -> tuple[list[str], str, str | None]:
         # As for Claude: the id chosen up front is how `mesh resume` finds the conversation (`--session-id` starts
         # a session with it, and reopens it after).
-        session, model = str(uuid.uuid4()), self.resolve(model, effort)
+        session = str(uuid.uuid4())
         return ["--session-id", session, *copilot_model_argv(model, effort), *self.skip_argv()], model, session
 
     def resume_argv(self, session: str, model: str, effort: str) -> list[str]:
@@ -687,10 +697,8 @@ class CopilotCli(Cli):
         which also holds Copilot out of `--reviewers auto` (note_copilot_limit)."""
         session = watch.conversation(entry)
         if session:
-            events = json_events(tail_lines(copilot_events({**entry, "session": session})))
-            quota = copilot_quota_error(events)
-            if quota:
-                note_copilot_limit(quota, events_time(events))
+            current = current_quota_error(json_events(tail_lines(copilot_events({**entry, "session": session}))))
+            if current:
                 return "limit", ""
         lines = pane_lines(watch.name)
         if lines is None and entry.get("pane"):
@@ -939,7 +947,14 @@ def plan_chain(kind: str) -> tuple[str, ...]:
 
 
 def exec_model_for(kind: str) -> str:
-    return setting(f"models.{kind}.exec")
+    return default_model(kind, f"models.{kind}.exec")
+
+
+def default_model(kind: str, leaf: str) -> str:
+    """A model leaf's value, as the kind's adapter has its defaults read (Copilot: `copilot_model`, when set,
+    stands in for a built-in model leaf); a model named on the command line never comes through here."""
+    value, source = setting_with_source(leaf)
+    return CLIS[kind].default_model(value, source) if kind in CLIS else value
 
 
 def plan_effort_for(kind: str | None) -> str:
@@ -954,7 +969,8 @@ def size_policy(kind: str, size: str | None) -> dict | None:
     """A trivial or small task's one model, effort and view (no plan phase); None for a large one."""
     if kind not in KINDS or size not in ("trivial", "small"):
         return None
-    return {field: setting(f"models.{kind}.{size}.{field}") for field in ("model", "effort", "view")}
+    return {field: default_model(kind, f"models.{kind}.{size}.{field}") if field == "model"
+            else setting(f"models.{kind}.{size}.{field}") for field in ("model", "effort", "view")}
 
 
 def repos_dirs() -> list[Path]:
@@ -2976,6 +2992,32 @@ def copilot_quota_error(events: list[dict]) -> str | None:
                 or data.get("errorCode") == "quota_exceeded"):
             return str(data.get("message") or "quota exceeded")
     return None
+
+
+def current_quota_error(events: list[dict]) -> str | None:
+    """The quota error a Copilot session is stopped at: its newest 402 with no user or assistant message after it
+    (the turn after a top-up answers), recording the hold (note_copilot_limit) dated by that error's own event.
+    A later answer shows the quota is back: a hold from before it is lifted (clear_copilot_limit)."""
+    for i in range(len(events) - 1, -1, -1):
+        event = events[i]
+        if event.get("type") == "assistant.message" and (event.get("data") or {}).get("content"):
+            clear_copilot_limit(events_time([event]))
+            return None
+        if event.get("type") == "user.message":
+            return None
+        quota = copilot_quota_error([event])
+        if quota:
+            note_copilot_limit(quota, events_time([event]))
+            return quota
+    return None
+
+
+def clear_copilot_limit(at: float | None = None) -> None:
+    """Copilot answered (`at`: when, by its event; else now): a quota error recorded before that is over (topped
+    up, or reset). An answer from before the error leaves the hold."""
+    held = copilot_limit_record()
+    if held and float(held.get("at") or 0) <= (at or time.time()):
+        copilot_limit_path().unlink(missing_ok=True)
 
 
 def events_time(events: list[dict]) -> float | None:
@@ -5043,7 +5085,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
         with editing_run(run_id) as run:  # "starting" first, so `mesh watch` doesn't take the gap for an exit
             e = run["agents"][name]
             e.update(model=model, effort=effort, pane=pane, tab=tab, workspace=workspace_id, session=session,
-                     status="starting", swapped=True, **lifted(entry, lift))
+                     status="starting", swapped=True, **lifted(entry, lift),
+                     **({"view": "pane"} if entry.get("view") == HEADLESS else {}))  # an old asker: a pane now
             e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why})
         recorded = True
         argv = [*log_argv(entry.get("log")), *deny_argv({**entry, **lifted(entry, lift)}),
@@ -8105,7 +8148,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         model, effort = resumed_model(old, args.model, args.effort)
     view = getattr(args, "view", None) or (old.get("view") if old.get("view") != HEADLESS else None) or "pane"
     if view == "bg" and "bg" not in cli(old["kind"]).views:
-        raise MeshError("--view bg is for Claude workers; agy has no background sessions")
+        raise MeshError(f"--view bg is for Claude workers; {cli(old['kind']).name} has no background sessions")
     named_bg, root = bool(getattr(args, "view", None)), current["agents"][current["root"]]
     view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
@@ -8817,8 +8860,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
         reserve_guard(own_run, "claude", args.model if args.model not in (None, "auto") else plan_chain("claude")[0],
                       args.effort, f"an asker in {repo.name}")
     # a run this starts is in the asker's mode; one for a kind no root runs on (Copilot), in the root's own
+    asked_kind = args.kind or (target[3].get("kind") if target else None)
     run_id, me = ask_identity(args, body or f"review {pr}",
-                              None if args.kind and args.kind not in MODES else args.kind or default_kind())
+                              None if asked_kind and asked_kind not in MODES else args.kind or default_kind())
     if peer:  # only once the caller is known to be a root: it fetches and moves the peer's checkout
         prep = prepare_peer(args.ref, peer, refresh=not args.no_refresh)
         body = f"{body}\n\n{prep['note']}"
@@ -12066,7 +12110,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a fresh agent's CLI (default: the run's mode, or agy)")
     p.add_argument("--model", help="a fresh agent's model (default: auto), or a resumed worker's")
     p.add_argument("--effort", choices=EFFORTS,
-                   help="default: the size's, or review.effort for a fresh reviewer (not Copilot; `mesh routing`)")
+                   help="default: the size's, or review.effort for a fresh reviewer (`mesh routing`)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     p.add_argument("--view", choices=VIEWS, help="a fresh or resumed agent's view")
