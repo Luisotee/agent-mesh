@@ -3878,7 +3878,7 @@ def test_process_holder_matches_the_worktree_or_the_session(mesh, tmp_path):
     assert mesh.live_holder("w", shared, agents=[], procs=procs) is None
     procs.append({"pid": 4, "argv": ["claude", "--resume", "s1"], "cwd": str(repo)})
     assert mesh.live_holder("w", shared, agents=[], procs=procs)["process"] == 4
-    # a Copilot asker holds its session through its pid claim, never through some process in its worktree
+    # only a process of the worker's own CLI holds it: these claude ones don't hold a Copilot worker's session
     assert mesh.live_holder("w", {**entry, "kind": "copilot"}, agents=[], procs=procs) is None
 
 
@@ -7939,7 +7939,149 @@ def write_events(path, events):
         f.writelines(json.dumps(e) + "\n" for e in events)
 
 
+def test_pid_alive_tells_a_reused_pid_from_the_process_recorded(mesh):
+    me = os.getpid()
+    start = mesh.proc_start(me)
+    assert start and mesh.proc_start(me) == start and mesh.proc_start(2 ** 22 + 7) is None
+    assert mesh.pid_alive(me) and mesh.pid_alive(me, start) and not mesh.pid_alive(me, start + "0")
+    assert not mesh.pid_alive(2 ** 22 + 7) and not mesh.pid_alive(None)
+
+
+def test_run_cli_turns_a_launch_error_into_a_failed_run(monkeypatch):
+    module = load_mesh()  # the real run_cli; the `mesh` fixture replaces it with FakeCli
+
+    def too_long(*args, **kwargs):
+        raise OSError(7, "Argument list too long")
+    monkeypatch.setattr(module.subprocess, "Popen", too_long)
+    result = module.run_cli(["claude", "-p", "x"])
+    assert result.returncode == 126 and "Argument list too long" in result.stderr
+
+
+def test_run_cli_timeout_does_not_wait_for_a_grandchild_holding_its_pipes():
+    import time
+    module = load_mesh()
+    begun = time.monotonic()
+    result = module.run_cli(["sh", "-c", "setsid sleep 5 & sleep 5"], timeout=1)
+    assert result.returncode == 124 and time.monotonic() - begun < 3
+
+
+def test_panes_beside_the_root_are_counted_split_and_recorded_under_one_lock(mesh, fake, run, monkeypatch):
+    import fcntl
+    monkeypatch.setenv("MESH_SIDE_PANES", "2")
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w1:p1", "rect": {"width": 200, "height": 50}}]}})
+    held = []
+
+    def split_at(target, cwd, env):
+        with open(mesh.run_dir(run) / ".panes.lock", "w") as fh:  # what a parallel `mesh` call would try
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+        assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w2:p5"  # not recorded yet
+        return "w1:p2"
+    monkeypatch.setattr(mesh, "split_at", split_at)
+    assert mesh.beside_root(run, "repo-fix-typo", Path("/x"), {}) == ("w1:p2", "w1:t1", "w1")
+    assert held == [True]
+    # recorded before the lock is let go, so the next placement counts it
+    assert mesh.load_run(run)["agents"]["repo-fix-typo"]["pane"] == "w1:p2"
+
+
+def test_parallel_new_panes_make_the_runs_tab_once(mesh, fake, run, monkeypatch):
+    import threading
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-two"] = {**data["agents"]["repo-fix-typo"], "pane": None}
+    fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
+    fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
+    fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
+    both = threading.Barrier(2)
+
+    def herdr(*args, **kw):  # without the lock, both would be creating the tab at once
+        if args[:2] == ("tab", "create") and not both.broken:
+            try:
+                both.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+        return fake(*args, **kw)
+
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    got = {}
+    threads = [threading.Thread(target=lambda n=n: got.update({n: mesh.new_pane(run, n, "w9", Path("/x"), {})}))
+               for n in ("repo-fix-typo", "repo-two")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(fake.called("tab", "create")) == 1
+    assert sorted(got.values()) == [("w9:p10", "w9:t4"), ("w9:p11", "w9:t4")]
+    data = mesh.load_run(run)
+    assert data["tabs"] == {"w9": "w9:t4"}
+    assert {data["agents"][n]["pane"] for n in got} == {"w9:p10", "w9:p11"}  # each recorded under the lock
+    assert all(data["agents"][n]["tab"] == "w9:t4" for n in got)
+
+
 # ── Copilot as a full worker (design §22) ────────────────────────────────
+
+
+def test_a_copilot_at_its_monthly_quota_is_continued_only_once_the_hold_ends(mesh, fake, run, tmp_path):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="copilot", session="s-9", cwd=str(tmp_path), model="auto")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review it.")
+    write_events(tmp_path / "copilot" / "session-state" / "s-9" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "Review it."}},
+        {"type": "session.error", "timestamp": "2026-11-19T11:00:03Z",
+         "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}}])
+    fake.screen("repo-fix-typo", "> ")
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")
+    status, line = watch.limit_alert(entry, False, watch.limited(entry, False), mesh.read_log(run))
+    held = mesh.copilot_limit()
+    due = mesh.due_continue(mesh.read_log(run), "repo-fix-typo")
+    assert status == 7 and "Copilot's usage limit" in line
+    assert abs(mesh.epoch(due["at"]) - held["until"] - mesh.CONTINUE_GRACE) < 5  # at the hold's end, not in 5 h
+    assert mesh.still_limited(entry)  # and while it stands, a continue with no reset time waits
+
+
+def test_an_old_headless_asker_reopened_with_no_task_keeps_a_deny_list(mesh, fake, run, repo):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-ask-auth"] = {
+            "role": "worker", "kind": "copilot", "model": "auto", "effort": "medium", "view": "headless",
+            "repo": str(repo), "cwd": str(repo), "session": "u-2", "parent": "repo-lead", "status": "retired",
+            "pane": None, "tab": None, "workspace": None}
+    assert mesh.lifted(mesh.agent_entry(mesh.load_run(run), "proj-ask-auth"), False)["read_only"] is True
+    assert mesh.lifted(mesh.agent_entry(mesh.load_run(run), "proj-ask-auth"), True)["read_only"] is False
+    stub_new_pane(fake)
+    assert mesh.main(["resume", "proj-ask-auth"]) == 0
+    assert "--deny-tool" in started(fake) and mesh.load_run(run)["agents"]["proj-ask-auth"]["read_only"]
+
+
+def test_a_copilot_rate_limit_line_left_after_an_answer_is_old(mesh, fake, run, tmp_path):
+    entry = {"kind": "copilot", "pane": "w2:p5", "session": "s-3", "cwd": str(tmp_path)}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    fake.screen("repo-fix-typo", "  ⎿  You've hit your session rate limit. Your limit resets 7pm (UTC)\n> ")
+    write_events(tmp_path / "copilot" / "session-state" / "s-3" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T12:00:00Z", "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": "2026-11-19T12:00:04Z", "data": {"content": "Carrying on."}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) is None
+    write_events(tmp_path / "copilot" / "session-state" / "s-3" / "events.jsonl", [
+        {"type": "user.message", "timestamp": "2026-11-19T12:10:00Z", "data": {"content": "go on"}}])
+    assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "7pm (UTC)")  # no answer since: current
+
+
+def test_a_copilot_answer_with_no_time_lifts_no_hold(mesh):
+    mesh.note_copilot_limit("monthly quota")
+    assert mesh.current_quota_error([{"type": "assistant.message", "data": {"content": "hi"}}]) is None
+    assert mesh.copilot_limit()  # an answer of unknown date can't tell it came after the hold
+
+
+def test_routing_shows_copilot_model_standing_in_for_the_built_ins(mesh, monkeypatch, capsys):
+    monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
+    policy = mesh.routing()["policy"]
+    assert policy["models.copilot.exec"] == {"value": "gpt-5.6-luna", "source": "copilot_model"}
+    assert policy["models.copilot.plan"] == {"value": ["gpt-5.6-luna"], "source": "copilot_model"}
+    assert policy["models.claude.exec"]["source"] == "built-in"
+
+
 
 
 def test_a_copilot_reviewer_is_a_pane_worker_under_its_deny_list(mesh, fake, cli, run, repo, tmp_path, capsys):

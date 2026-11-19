@@ -706,8 +706,17 @@ class CopilotCli(Cli):
         tail = (lines or [])[-LIMIT_LINES:]
         if not any(COPILOT_LIMIT_RE.search(line) for line in tail):
             return None
+        if session and answered_since_prompt(json_events(tail_lines(copilot_events({**entry, "session": session})))):
+            return None  # it answered the turn after the limit (a continue): the line on the pane is old
         reset = next((m for m in map(LIMIT_RESET_RE.search, reversed(tail)) if m), None)
         return "limit", reset.group(1).strip() if reset else ""
+
+    def limit_reset(self, entry: dict, reset: str) -> float | None:
+        held = copilot_limit()  # a 402 quota: the machine-wide hold it recorded, not a rate limit's 5 h
+        return float(held["until"]) if held else super().limit_reset(entry, reset)
+
+    def still_limited(self, entry: dict) -> bool:
+        return copilot_limit() is not None
 
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
         if not self.installed():
@@ -1089,19 +1098,12 @@ def git(*args: str, cwd: str | Path) -> str:
 
 
 def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] | None = None,
-            timeout: float | None = 120, input: str | None = None,
-            started: Callable[[int], None] | None = None) -> subprocess.CompletedProcess:
-    """Run an agent CLI (`claude`, `agy`, `copilot`) to completion; one that can't start or times out is a failed run.
-
-    With `started`, the CLI runs in a session of its own and `started` gets its pid once it runs, for the
-    caller to record: a caller killed outright leaves it running, and then the record is what shows it busy.
-    A timeout or an exception here (Ctrl-C, or a signal signals_raise turned into one) kills its whole
-    process group, tools it started included.
-    """
+            timeout: float | None = 120, input: str | None = None) -> subprocess.CompletedProcess:
+    """Run an agent CLI (`claude`, `agy`, `opencode`) to completion; one that can't start or times out is a failed
+    run. A timeout or an exception here (Ctrl-C, or a signal signals_raise turned into one) kills it."""
     try:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                stdin=subprocess.PIPE if input is not None else None,
-                                start_new_session=started is not None)
+                                stdin=subprocess.PIPE if input is not None else None)
     except FileNotFoundError:
         return subprocess.CompletedProcess(argv, 127, "", f"{argv[0]} not found")
     except OSError as exc:  # e.g. an argument over the kernel's per-argument limit
@@ -1109,11 +1111,11 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
 
     def kill() -> None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL) if started else proc.kill()
+            proc.kill()
         except OSError:
             pass  # gone already
-        # Not communicate(): a grandchild outside the group (or any, without `started`) may still hold
-        # the pipes, and reading them to EOF would wait for it (as subprocess.run does).
+        # Not communicate(): a grandchild may still hold the pipes, and reading them to EOF would wait for it (as
+        # subprocess.run does).
         proc.wait()
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
             if pipe:
@@ -1123,8 +1125,6 @@ def run_cli(argv: list[str], cwd: str | Path | None = None, env: dict[str, str] 
                     pass
 
     try:
-        if started:
-            started(proc.pid)
         out, err = proc.communicate(input, timeout=timeout)
     except subprocess.TimeoutExpired:
         kill()
@@ -3001,7 +3001,9 @@ def current_quota_error(events: list[dict]) -> str | None:
     for i in range(len(events) - 1, -1, -1):
         event = events[i]
         if event.get("type") == "assistant.message" and (event.get("data") or {}).get("content"):
-            clear_copilot_limit(events_time([event]))
+            when = events_time([event])
+            if when:  # an answer of unknown date can't tell whether it came after the hold
+                clear_copilot_limit(when)
             return None
         if event.get("type") == "user.message":
             return None
@@ -3010,6 +3012,16 @@ def current_quota_error(events: list[dict]) -> str | None:
             note_copilot_limit(quota, events_time([event]))
             return quota
     return None
+
+
+def answered_since_prompt(events: list[dict]) -> bool:
+    """Whether a Copilot session's newest user message got an answer (an `assistant.message` with text)."""
+    for event in reversed(events):
+        if event.get("type") == "user.message":
+            return False
+        if event.get("type") == "assistant.message" and (event.get("data") or {}).get("content"):
+            return True
+    return False
 
 
 def clear_copilot_limit(at: float | None = None) -> None:
@@ -4860,8 +4872,8 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
     view = getattr(args, "view", None) or (sized["view"] if sized else "pane")
     if view == "bg" and ("bg" not in cli(args.kind).views or user_review):
         if getattr(args, "view", None):
-            raise MeshError("--view bg is for Claude workers (agy has no background sessions; a user-reviewed "
-                            "plan needs a pane)")
+            raise MeshError(f"--view bg is for Claude workers ({cli(args.kind).name} has no background sessions; a "
+                            "user-reviewed plan needs a pane)")
         view = "pane"
     # A named model or effort with no exec phase covers the whole task, a later one included (has_phases).
     # `mesh ask` says itself whether its effort was named (a sized reviewer's `review.effort` isn't).
@@ -5021,7 +5033,10 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
 
 def lifted(entry: dict, lift: bool) -> dict:
     """The deny-list reasons (deny_argv) a reopen records: none when it lifts the list, else the entry's own."""
-    return {key: False if lift else bool(entry.get(key)) for key in ("read_only", "planning")}
+    reasons = {key: False if lift else bool(entry.get(key)) for key in ("read_only", "planning")}
+    if entry.get("view") == HEADLESS and not lift:  # a Copilot asker from before design §22 recorded none
+        reasons["read_only"] = True
+    return reasons
 
 
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
@@ -8216,7 +8231,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     # the list if it owes a plan. A direct task gets no list.
     enforced = cli(old["kind"]).enforces_read_only
     read_only = enforced and (getattr(args, "read_only", False) or read_only_task(task)
-                                             or bool(peer_name) or (not task and bool(old.get("read_only"))))
+                                             or bool(peer_name)
+                                             or (not task and (bool(old.get("read_only")) or old.get("view") == HEADLESS)))
     planning = enforced and not read_only and (
         planned_task(task) if task else bool(old.get("planning") or mid_plan))
     deny = deny_argv({**old, "read_only": read_only, "planning": planning})
@@ -9316,7 +9332,6 @@ def earlier_reviewers(pr: str) -> dict[str, tuple[dict, Path, str, dict]]:
     return found
 
 
-REVIEW_KEYS = ("reviews", "review_heads", "review_checkout")  # what record_review writes on an asker's entry
 
 
 def ask_reviewers(args: argparse.Namespace) -> int:
@@ -10944,7 +10959,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
     if entry.get("role") != "root":
         raise MeshError("only a run's root resets itself: `mesh reset` clears its own pane (a worker's context "
                         "is compacted by `mesh resume`)")
-    if entry.get("kind") not in KINDS or not entry.get("pane"):
+    if entry.get("kind") not in MODES or not entry.get("pane"):  # a root's CLIs only (design §22)
         raise MeshError(f"{me} has no Claude or agy pane to reset")
     if waits := root_mail(run_id, me, BLOCKING_TYPES):
         raise MeshError(f"{mail_text(waits)} waits on you: answer it first (`mesh inbox`), then reset")
@@ -11201,7 +11216,7 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
     (`lost_root_quiet`); when that can't be told, nothing starts, and the next poll looks again."""
     root = run.get("root")
     entry = run["agents"].get(root) or {}
-    if entry.get("kind") not in KINDS or not entry.get("pane") or reset_pending(run_id):
+    if entry.get("kind") not in MODES or not entry.get("pane") or reset_pending(run_id):
         return False
     last = next((e for e in reversed(events) if e.get("event") == "reset_requested"), None)
     if last and age_seconds(last["time"]) < AUTORESET_BACKOFF:
@@ -11351,6 +11366,13 @@ def routing() -> dict:
             value, source = found and (found[0], f"env {found[1]}") or (POLICY[leaf][0], "built-in")
         else:
             value, source = setting_with_source(leaf)
+        kind = leaf.split(".")[1] if leaf.startswith("models.") else None
+        if not config_error and kind in CLIS and leaf.endswith((".plan", ".exec", ".model")) and source == "built-in":
+            # What a launch reads (default_model): Copilot's `copilot_model`, when set, stands in for these.
+            stood = [CLIS[kind].default_model(v, source) for v in value] if isinstance(value, list) \
+                else CLIS[kind].default_model(value, source)
+            if stood != value:
+                value, source = stood, "copilot_model"
         policy[leaf] = {"value": value, "source": source}
 
     def auto(size: str) -> list[str]:  # from the slots shown: the built-ins while the file has an error
