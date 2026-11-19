@@ -650,13 +650,19 @@ SHORT_NAMES = {kind: c.short for kind, c in CLIS.items()}  # in routing notes
 
 
 def cli(kind: str | None) -> Cli:
-    """A kind's adapter; Claude's for an entry that names none, as mesh always read one."""
-    return CLIS.get(kind or "claude") or CLIS["claude"]
+    """A kind's adapter. An entry that names no kind is Claude's, as mesh always read one (every entry mesh writes
+    names its kind); a kind this checkout doesn't know (a run a newer mesh wrote) is an error, never Claude's."""
+    if not kind:
+        return CLIS["claude"]
+    if kind not in CLIS:
+        raise MeshError(f"unknown agent kind {kind!r} (this mesh knows {', '.join(CLIS)}): was the run written by a "
+                        "newer agent-mesh?")
+    return CLIS[kind]
 
 
 def cli_has(kind: str | None, flag: str) -> bool:
-    """Whether a known kind's adapter has this capability (`stop_hook`, `native_inbox`, …): False for no kind."""
-    return kind in CLIS and bool(getattr(CLIS[kind], flag))
+    """Whether a kind's adapter has this capability (`stop_hook`, `native_inbox`, …), with cli()'s default."""
+    return bool(getattr(cli(kind), flag))
 
 
 # ── policy ───────────────────────────────────────────────────────────────
@@ -2040,7 +2046,7 @@ def pane_probe(pane: str | None, kind: str | None) -> str | None:
     procs = info.get("foreground_processes")
     if not procs:
         return None
-    want = (kind,) if cli_has(kind, "processes") else tuple(k for k, c in CLIS.items() if c.processes)
+    want = (kind,) if kind in CLIS and CLIS[kind].processes else tuple(k for k, c in CLIS.items() if c.processes)
     return "alive" if any(agent_binary(p.get("argv")) in want for p in procs) else "dead"
 
 
@@ -2950,7 +2956,7 @@ def pick_slots(size: str, exclude: set[str], notes: list[str],
             if ok:
                 picked.append(kind)
                 break
-            passed.append(f"{kind}: {why}" if kind == "agy" else why)
+            passed.append(why if why.startswith(CLI_NAMES[kind]) else f"{kind}: {why}")
         else:
             if passed:
                 notes.append("; ".join(passed))
@@ -9139,8 +9145,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
               f"retry with `mesh ring {name}`, then `mesh watch {name}`", file=sys.stderr)
         return 2
     entry = agent_entry(load_run(run_id), name)
-    if (not args.wait and entry.get("kind") == "claude"
-            and native_route(load_run(run_id), name, me)):  # its answer reaches this session as a cross-session message
+    if not args.wait and native_route(load_run(run_id), name, me):  # its answer reaches this session as a cross-session message
         args.no_wait = True
     warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
     if args.no_wait:

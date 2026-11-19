@@ -15,10 +15,20 @@ def test_registry_keeps_the_kind_tables(mesh):
 
 
 def test_cli_defaults_to_claude_for_an_entry_without_a_kind(mesh):
-    assert mesh.cli(None) is mesh.CLIS["claude"]
+    assert mesh.cli(None) is mesh.cli("") is mesh.CLIS["claude"]
     assert mesh.cli("agy") is mesh.CLIS["agy"]
-    assert not mesh.cli_has(None, "stop_hook")
+    assert mesh.cli_has(None, "stop_hook")  # the same default as cli()
     assert mesh.cli_has("claude", "stop_hook") and not mesh.cli_has("agy", "stop_hook")
+
+
+def test_an_unknown_kind_is_an_error_not_claude(mesh, run):
+    """A run a newer mesh wrote (a kind this checkout doesn't know) must not get Claude's argv."""
+    with pytest.raises(mesh.MeshError, match="unknown agent kind 'opencode'"):
+        mesh.cli("opencode")
+    with pytest.raises(mesh.MeshError, match="unknown agent kind"):
+        mesh.resume_argv("opencode", "ses_1", "big-pickle", "high")
+    with pytest.raises(mesh.MeshError, match="unknown agent kind"):
+        mesh.cli_has("opencode", "stop_hook")
 
 
 def test_capabilities_per_kind(mesh):
