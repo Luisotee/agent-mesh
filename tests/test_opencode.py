@@ -158,22 +158,31 @@ def test_opencodes_free_limit_reads_as_a_quota_and_switch_rotates(mesh, fake, ru
     assert left.value.reset and left.value.reset - time.time() < 700  # the soonest reset
 
 
+def now_ms(offset=0.0):
+    return int((time.time() + offset) * 1000)
+
+
+def reply(model, error=None):
+    provider, _, name = model.partition("/")
+    return {"role": "assistant", "providerID": provider, "modelID": name, **({"error": error} if error else {})}
+
+
 def test_a_429_reply_and_a_passing_rate_limit(mesh, fake, run, tmp_path):
     entry = {"kind": "opencode", "pane": "w2:p5", "session": "ses_1", "model": "opencode/big-pickle"}
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    opencode_db(mesh, messages=[("ses_1", reply("opencode/big-pickle"), now_ms())])  # the reply it is retrying
     fake.screen("repo-fix-typo", "  ┃  Too Many Requests [retrying in 8s attempt #1]\n")
     assert mesh.cli("opencode").quota_hit(watch, entry) is None  # a passing rate limit retries away
     fake.screen("repo-fix-typo", "  ┃  Too Many Requests [retrying in 30s attempt #4]\n")
     assert mesh.cli("opencode").quota_hit(watch, entry) == ""  # its retry delay isn't the limit's reset
     limit = mesh.model_limit("opencode", "opencode/big-pickle")
-    assert limit and abs(limit["until"] - time.time() - mesh.OPENCODE_LIMIT_HOLD) < 5
+    assert limit and abs(limit["until"] - time.time() - mesh.OPENCODE_RATE_HOLD) < 5  # a rate limit's own hold
     fake.screen("repo-fix-typo", "  ┃  API Error: 429 [retrying in 2s attempt #12]\n")
     assert mesh.cli("opencode").quota_hit(watch, entry) == ""
     (mesh.mesh_home() / "model-limits.json").unlink()
     fake.screen("repo-fix-typo", "  ┃\n")
-    opencode_db(mesh, messages=[("ses_1", {"role": "assistant", "providerID": "opencode", "modelID": "big-pickle",
-                                           "error": {"name": "APIError", "data": {
-        "statusCode": 429, "message": "Rate limit", "responseBody": '{"error":"FreeUsageLimitError"}'}}}, 1)])
+    opencode_db(mesh, messages=[("ses_1", reply("opencode/big-pickle", {"name": "APIError", "data": {
+        "statusCode": 429, "message": "Rate limit", "responseBody": '{"error":"FreeUsageLimitError"}'}}), now_ms(1))])
     watch.session = "ses_1"
     assert mesh.cli("opencode").quota_hit(watch, entry) == ""
 
@@ -184,20 +193,42 @@ def test_after_a_switch_the_old_models_stored_429_isnt_the_new_ones(mesh, fake, 
     watch.session = "ses_1"
     fake.screen("repo-fix-typo", "  ┃\n")
     error = {"name": "APIError", "data": {"statusCode": 429, "message": "Rate limit"}}
-    opencode_db(mesh, messages=[
-        ("ses_1", {"role": "assistant", "providerID": "opencode", "modelID": "big-pickle", "error": error}, 1),
-        ("ses_1", {"role": "user"}, 2)])  # the switch's reopen: the new model hasn't answered yet
+    opencode_db(mesh, messages=[("ses_1", reply("opencode/big-pickle", error), now_ms(-5)),
+                                ("ses_1", {"role": "user"}, now_ms(-4))])
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Go on.")  # the switch's task
+    assert mesh.cli("opencode").quota_hit(watch, entry) is None  # the new model hasn't answered yet
+    # A limit line still on the pane is the old model's too, until the new one has started a reply.
+    fake.screen("repo-fix-typo", "  ┃  Too Many Requests [retrying in 30s attempt #4]\n")
     assert mesh.cli("opencode").quota_hit(watch, entry) is None
     assert mesh.model_limit("opencode", "opencode/beam-free") is None
-    opencode_db(mesh, messages=[
-        ("ses_1", {"role": "assistant", "providerID": "opencode", "modelID": "beam-free", "error": error}, 3)])
+    fake.screen("repo-fix-typo", "  ┃\n")
+    opencode_db(mesh, messages=[("ses_1", reply("opencode/beam-free", error), now_ms(1))])
     assert mesh.cli("opencode").quota_hit(watch, entry) == ""  # its own
+
+
+def test_a_hold_that_ran_out_isnt_set_again_by_the_continue(mesh, fake, run, monkeypatch):
+    entry = {"kind": "opencode", "pane": "w2:p5", "session": "ses_1", "model": "opencode/big-pickle"}
+    watch = mesh.Watch(run, "repo-fix-typo", grace=1)
+    watch.session = "ses_1"
+    fake.screen("repo-fix-typo", "  ┃\n")
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
+    error = {"name": "APIError", "data": {"statusCode": 429, "message": "Free",
+                                          "responseBody": '{"error":"FreeUsageLimitError"}'}}
+    opencode_db(mesh, messages=[("ses_1", reply("opencode/big-pickle", error), now_ms())])
+    assert mesh.cli("opencode").quota_hit(watch, entry) == ""
+    assert mesh.model_limit("opencode", "opencode/big-pickle")
+    mesh.note_model_limit("opencode", "opencode/big-pickle", "free", time.time() - 1)  # the hold ran out
+    later = mesh.datetime.now(mesh.timezone.utc) + mesh.timedelta(seconds=5)  # the log keeps whole seconds
+    monkeypatch.setattr(mesh, "now_iso", lambda: later.isoformat(timespec="seconds"))
+    mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "continue")  # continue_worker's, at the reset
+    assert mesh.cli("opencode").quota_hit(watch, entry) is None
+    assert mesh.model_limit("opencode", "opencode/big-pickle") is None
 
 
 def test_a_limit_with_no_reset_is_held_from_its_first_sighting(mesh, fake, run, monkeypatch):
     entry = {"kind": "opencode", "pane": "w2:p5", "model": "opencode/big-pickle"}
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
-    fake.screen("repo-fix-typo", "  ┃  Too Many Requests [retrying in 30s attempt #4]\n")
+    fake.screen("repo-fix-typo", "  ┃  Free limit reached\n")
     start = time.time()
     assert mesh.cli("opencode").quota_hit(watch, entry) == ""
     monkeypatch.setattr(mesh.time, "time", lambda: start + 3600)  # the next poll, an hour on
@@ -213,7 +244,12 @@ def test_a_line_quoting_a_limit_mid_sentence_isnt_one(mesh):
         assert not mesh.OPENCODE_LIMIT_RE.search(line), line
     for line in ["  ┃  Kimi K2 usage limit reached. It will reset in 3 hours.",
                  "  ┃  API Error: 429 [retrying in 2s attempt #10]",
-                 "  ┃  Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]"]:
+                 "  ┃  Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]",
+                 "  ┃  Rate limit reached for gpt-4o in organization org-abc on tokens per min (TPM): Limit 30000, "
+                 "Used 29000 [retrying in 2s attempt #3]",
+                 "  ┃  Error: Too Many Requests [retrying in 5s attempt #3]",
+                 "  ┃  opencode/kimi-k2 usage limit reached. It will reset in 3 hours.",
+                 "  ┃  Kimi K2 (Go) usage limit reached. It will reset in 3 hours."]:
         assert mesh.OPENCODE_LIMIT_RE.search(line), line
     assert mesh.OPENCODE_RESET_RE.search("Kimi K2 usage limit reached. It will reset in 3 hours.").group(1) == "3 hours"
     assert not mesh.OPENCODE_RESET_RE.search("Too Many Requests [retrying in 30s attempt #4]")

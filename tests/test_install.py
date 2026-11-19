@@ -133,3 +133,6 @@ def test_opencode_gets_the_block_only_where_it_wouldnt_hide_claude_md(tmp_path):
     assert not (other / ".config" / "opencode" / "AGENTS.md").exists()  # empty, it would still hide CLAUDE.md
     assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
     assert rules.read_text().strip() == "# my OpenCode rules"  # the user's own rules stay
+    rules.write_text("")
+    assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
+    assert rules.exists()  # one the user left empty, with no block in it, stays

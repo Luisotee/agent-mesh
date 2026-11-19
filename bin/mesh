@@ -53,6 +53,7 @@ COPILOT_TIER = "intelligence"  # Auto's routing profile; a named model takes an 
 # newest first; `mesh switch` moves a worker to the next one as each hits its limit (design §22).
 OPENCODE_FREE = "free"
 OPENCODE_LIMIT_HOLD = 5 * 3600  # seconds an OpenCode model counts as spent when its limit names no reset
+OPENCODE_RATE_HOLD = 10 * 60  # seconds a model OpenCode is still retrying a 429 on counts as spent (a rate limit)
 # `--size`: trivial and small tasks run on one model with no plan phase; large is `auto` (below).
 # Claude runs Opus at every size, at medium: Sonnet at its best only matches Opus at low (design §9).
 SIZES = ("trivial", "small", "large")
@@ -137,11 +138,11 @@ LOGIN_ERROR = "authentication_failed"
 # OpenCode's limits, on its pane while it retries ("Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]",
 # OpenCode Go's "<name> usage limit reached. It will reset in 3 hours …") or a 429 it is still retrying, from its
 # third attempt (a passing rate limit retries away by then). Started as LIMIT_RE is, the Go limit's name as at most
-# four words and the 429 after at most an error's name (`API Error: 429`), so a line quoting one in a sentence
-# doesn't count.
+# four words (`opencode/kimi-k2`, `Kimi K2 (Go)`) and the 429 after at most an error's name (`Error:`,
+# `API Error: 429`), so a line quoting one in a sentence doesn't count.
 OPENCODE_LIMIT_RE = re.compile(SCREEN_START + r"(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*"
-                               r"|(?:[\w.-]+\s+){0,4}usage limit reached\. It will reset in [^\n]*"
-                               r"|(?P<rate>(?:\w+ ?Error:?\s+)?(?:429|Too Many Requests|rate limit)[^\n\[]{0,60}"
+                               r"|(?:[\w./:()-]+\s+){0,4}usage limit reached\. It will reset in [^\n]*"
+                               r"|(?P<rate>(?:(?:\w+ ?)?Error:?\s+)?(?:429|Too Many Requests|rate limit)[^\n\[]*?"
                                r"\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]))",
                                re.IGNORECASE | re.MULTILINE)
 # A limit's reset: "reset in", or the free tier's retry (OpenCode waits for its reset); a 429's retry delay says
@@ -865,19 +866,29 @@ class OpenCodeCli(Cli):
 
     def quota_hit(self, watch: "Watch", entry: dict) -> str | None:
         """The reset ("" if not shown) when its model is at a limit `mesh switch` moves it past: OpenCode's free tier
-        or OpenCode Go's limit, or a 429 on the pane while it retries, or as the error its last reply ended with."""
+        or OpenCode Go's limit, or a 429 on the pane while it retries, or as the error its last reply ended with.
+
+        Only evidence from after its last task or answer counts (a switch and a continue deliver one): the reply
+        stored since, and a pane line once its model has started a reply since (when its session is known). So the
+        old model's limit isn't charged to the one a switch moved to, and a hold that ran out isn't set again from
+        the same reply when the continue at its end arrives."""
+        model = entry.get("model") or ""
+        since = epoch(since_last_task(read_log(watch.run_id), watch.name)[2])
+        session = watch.conversation(entry)
         lines = pane_lines(watch.name) if entry.get("view") != "bg" else None
         tail = (lines or [])[-LIMIT_LINES:]
         hit = next((m for m in map(OPENCODE_LIMIT_RE.search, reversed(tail)) if m), None)
-        model = entry.get("model") or ""
-        text = hit.group(0) if hit else opencode_limit_error(watch.conversation(entry), model)
+        if hit and session and not opencode_replied_since(session, model, since):
+            hit = None
+        text = hit.group(0) if hit else opencode_limit_error(session, model, since)
         if text is None:
             return None
-        reset = None if hit and hit.group("rate") else OPENCODE_RESET_RE.search(text)
+        rate = bool(hit and hit.group("rate"))
+        reset = None if rate else OPENCODE_RESET_RE.search(text)
         # Every poll sees it again: the first sighting sets the hold, so one with no reset text still ends.
         if not model_limit("opencode", model):
-            note_model_limit("opencode", model, text,
-                             time.time() + (parse_duration(reset.group(1)) if reset else OPENCODE_LIMIT_HOLD))
+            hold = parse_duration(reset.group(1)) if reset else OPENCODE_RATE_HOLD if rate else OPENCODE_LIMIT_HOLD
+            note_model_limit("opencode", model, text, time.time() + hold)
         return reset.group(1).strip() if reset else ""
 
     def reviewer_available(self, size: str, model: str | None) -> tuple[bool, str]:
@@ -3886,17 +3897,25 @@ def opencode_session(name: str, run_id: str, cwd: str | None) -> str | None:
     return rows[0][0] if rows else None
 
 
-def opencode_limit_error(session: str | None, model: str) -> str | None:
-    """The limit its last reply on `model` (`provider/model`) ended on, as OpenCode stored it once its retries ran
-    out: a 429, or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db can't say.
-    Replies on another model don't count: after `mesh switch` the one before it still ends on its old model's 429."""
-    rows = opencode_query("select data from message where session_id = ? order by time_created desc limit 20",
-                          (session,)) if session else None
-    for (data,) in rows or []:
-        message = json_object(data)
-        if message.get("role") != "assistant" or (
-                f"{message.get('providerID') or ''}/{message.get('modelID') or ''}" != model):
-            continue
+def opencode_replies(session: str, model: str, since: float) -> list[dict]:
+    """Its replies on `model` (`provider/model`) started after `since` (epoch), newest first."""
+    rows = opencode_query("select data, time_created from message where session_id = ? and time_created > ? "
+                          "order by time_created desc limit 20", (session, int(since * 1000)))
+    replies = (json_object(data) for data, _ in rows or [])
+    return [m for m in replies if m.get("role") == "assistant"
+            and f"{m.get('providerID') or ''}/{m.get('modelID') or ''}" == model]
+
+
+def opencode_replied_since(session: str, model: str, since: float) -> bool:
+    return bool(opencode_replies(session, model, since))
+
+
+def opencode_limit_error(session: str | None, model: str, since: float = 0.0) -> str | None:
+    """The limit its last reply on `model` (`provider/model`) since `since` ended on, as OpenCode stored it once its
+    retries ran out: a 429, or its free tier's or OpenCode Go's limit error. None when that reply was fine, or the db
+    can't say. Replies on another model don't count: after `mesh switch` the one before it still ends on its old
+    model's 429."""
+    for message in opencode_replies(session, model, since) if session else []:
         error = message.get("error") or {}
         detail = error.get("data") or {}
         body = str(detail.get("responseBody") or "")
@@ -8829,7 +8848,8 @@ def cmd_open(args: argparse.Namespace) -> int:
     print(f"mesh: opening {name} from run {run['id']} ({entry['kind']} {model}) in {entry['cwd']}"
           f" on {branch or 'its checkout'}{note}", file=sys.stderr)
     env = {**{k: v for k, v in os.environ.items() if not k.startswith("MESH_")},
-           **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort})}
+           **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort, "read_only": False,
+                                            "planning": False})}  # the user's: no deny rules, as for Claude
     os.chdir(entry["cwd"])
     os.execvpe(argv[0], argv, env)
     return 0  # not reached
