@@ -161,7 +161,7 @@ def test_ask_waits_for_an_agy_worker_even_when_the_root_takes_frames(mesh, fake,
     socket lets `ask` return at once; an agy worker's ask is watched (so its quota alerts are seen)."""
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     monkeypatch.setattr(mesh, "native_route",
-                        lambda run, to, sender, *a, **k: {"socket": "uds:/x"} if to == "repo-lead" else None)
+                        lambda run, sender, to, *a, **k: {"socket": "uds:/x"} if to == "repo-lead" else None)
     watched = []
 
     def watch(run_id, name, *a, **k):
@@ -173,3 +173,13 @@ def test_ask_waits_for_an_agy_worker_even_when_the_root_takes_frames(mesh, fake,
     assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?", "--keep"]) == 0
     assert watched == ["repo-fix-typo"]
     assert "── done from repo-fix-typo ──\nBecause of the spec." in capsys.readouterr().out
+
+
+def test_the_readings_have_nothing_for_an_unknown_kind_and_the_actions_name_it(mesh, run):
+    entry = {"kind": "opencode", "session": "ses_1", "cwd": "/wt"}
+    assert mesh.progress_files(entry, "ses_1") == [] and mesh.context_tokens(entry, "ses_1") is None
+    assert mesh.still_limited(entry) is False
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-new"] = {"role": "worker", "kind": "opencode", "parent": "repo-lead", "status": "running"}
+    with pytest.raises(mesh.MeshError, match="unknown agent kind 'opencode'"):
+        mesh.swap_model(run, "repo-new", "x", "high", "test")

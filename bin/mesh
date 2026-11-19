@@ -3296,6 +3296,8 @@ def agy_conversation_file(session: str) -> Path:
 def progress_files(entry: dict, session: str | None) -> list[Path]:
     """The files a worker writes as it makes progress (Cli.progress_files): Claude's session file; agy's
     conversation db and its own `--log-file`."""
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return []  # a kind this checkout doesn't know: nothing to read
     return cli(entry.get("kind")).progress_files(entry, session)
 
 
@@ -3386,6 +3388,8 @@ def context_tokens(entry: dict, session: str) -> int | None:
 
     None when its conversation file can't be read.
     """
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return None
     return cli(entry.get("kind")).context_tokens(entry, session)
 
 
@@ -5033,6 +5037,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     both of its reasons; otherwise it keeps whatever it had.
     """
     entry = agent_entry(load_run(run_id), name)
+    cli(entry.get("kind"))  # an unknown kind is refused as such, before the conversation lookup
     session = find_session(run_id, name, entry)
     if not session:
         raise SwapNotStarted(f"can't find {name}'s {entry.get('kind')} conversation, so its model can't be switched; "
@@ -7375,6 +7380,8 @@ def claude_limit_reset(model: str | None = None) -> float | None:
 
 def still_limited(entry: dict) -> bool:
     """Whether the quota that stopped a worker scheduled with no reset time still reads spent (unknown: no)."""
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return False
     return cli(entry.get("kind")).still_limited(entry)
 
 
@@ -7835,6 +7842,7 @@ def cmd_agents(args: argparse.Namespace) -> int:
 def resumable(ref: str, from_run: str | None, live_hint) -> tuple[dict, str, dict, str]:
     """Find a past worker and its conversation, refusing one that is still running."""
     run, _, name, entry = find_worker(ref, from_run)
+    cli(entry.get("kind"))  # a kind this checkout doesn't know: say so, not that its conversation is lost
     session = find_session(run["id"], name, entry)
     if not session:
         raise MeshError(
@@ -8905,8 +8913,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
               f"retry with `mesh ring {name}`, then `mesh watch {name}`", file=sys.stderr)
         return 2
     entry = agent_entry(load_run(run_id), name)
-    # A worker that answers by the inbox socket: its answer reaches this session as a cross-session message.
-    # (native_route to the root never looks at the sender, so the asked worker's own capability is checked here.)
+    # A worker that answers by the inbox socket: its answer reaches this session as a cross-session message, so
+    # `ask` may return at once. Any other (agy, Copilot) is watched here: its quota alert (exit 7) is seen, and the
+    # asker this call opened is closed once it has answered. native_route alone says only how the root is reached.
     if not args.wait and cli_has(entry.get("kind"), "native_inbox") and native_route(load_run(run_id), name, me):
         args.no_wait = True
     warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
