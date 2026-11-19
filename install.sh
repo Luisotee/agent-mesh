@@ -12,6 +12,9 @@ CONFIG_LINK="$HOME/.config/agent-mesh"
 SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
+# CLIs that run workers but no root (no skills): only the rules block, so a pane worker knows a doorbell (design §22).
+WORKER_RULE_FILES=("$HOME/.copilot/copilot-instructions.md")
+WORKER_CLIS=(copilot)
 SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
@@ -121,7 +124,7 @@ if [[ "$UNINSTALL" == 1 ]]; then
   for root in "${SKILL_ROOTS[@]}"; do
     for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
-  for file in "${RULE_FILES[@]}"; do set_block "$file" 0; done
+  for file in "${RULE_FILES[@]}" "${WORKER_RULE_FILES[@]}"; do set_block "$file" 0; done
   if command -v herdr >/dev/null && herdr plugin list 2>/dev/null | grep -qF "$PLUGIN_ID"; then
     herdr plugin unlink "$PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $PLUGIN_ID"
   fi
@@ -155,6 +158,13 @@ for i in "${!SKILL_ROOTS[@]}"; do
       link "$REPO/skills/$skill" "$root/$skill"
     fi
   done
+done
+for i in "${!WORKER_RULE_FILES[@]}"; do
+  if has "${WORKER_CLIS[$i]}"; then
+    set_block "${WORKER_RULE_FILES[$i]}" 1
+  else
+    echo "skip: ${WORKER_CLIS[$i]} is not on PATH, so nothing new goes into ${WORKER_RULE_FILES[$i]}"
+  fi
 done
 link_plugin
 echo "agent-mesh installed. Try: mesh --version"
