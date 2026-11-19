@@ -661,7 +661,11 @@ def cli(kind: str | None) -> Cli:
 
 
 def cli_has(kind: str | None, flag: str) -> bool:
-    """Whether a kind's adapter has this capability (`stop_hook`, `native_inbox`, …), with cli()'s default."""
+    """Whether a kind's adapter has this capability (`stop_hook`, `native_inbox`, …): with cli()'s default for no
+    kind, and False for a kind this checkout doesn't know. Only cli(), which builds argv, refuses that: a root
+    recorded with herdr's own kind (codex, …) or a newer mesh's worker in a listing must not break the readings."""
+    if kind and kind not in CLIS:
+        return False
     return bool(getattr(cli(kind), flag))
 
 
@@ -3157,6 +3161,8 @@ def claude_session(name: str, cwd: str) -> str | None:
 def find_session(run_id: str, name: str, entry: dict) -> str | None:
     if entry.get("session"):
         return entry["session"]
+    if entry.get("kind") and entry["kind"] not in CLIS:
+        return None  # a kind this checkout doesn't know: nothing to look its conversation up with
     return cli(entry.get("kind")).lookup_session(run_id, name, entry)
 
 
@@ -3758,7 +3764,7 @@ def native_route(run: dict, sender: str, to: str, claude=UNREAD, rows=UNREAD) ->
     entry = run["agents"][to]
     if not cli_has(entry.get("kind"), "native_inbox"):
         return None
-    claude_sender = cli_has(run["agents"].get(sender, {}).get("kind"), "native_inbox")
+    claude_sender = sender in run["agents"] and cli_has(run["agents"][sender].get("kind"), "native_inbox")
     if entry.get("role") == "root":
         if not root_reachable(entry):
             return None
@@ -9145,7 +9151,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
               f"retry with `mesh ring {name}`, then `mesh watch {name}`", file=sys.stderr)
         return 2
     entry = agent_entry(load_run(run_id), name)
-    if not args.wait and native_route(load_run(run_id), name, me):  # its answer reaches this session as a cross-session message
+    # A worker that answers by the inbox socket: its answer reaches this session as a cross-session message.
+    # (native_route to the root never looks at the sender, so the asked worker's own capability is checked here.)
+    if not args.wait and cli_has(entry.get("kind"), "native_inbox") and native_route(load_run(run_id), name, me):
         args.no_wait = True
     warn_unwatched(run_id, skip=() if args.no_wait else (name,))  # without --no-wait this call watches it
     if args.no_wait:
@@ -11949,8 +11957,8 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
             if root:
                 sessions += [e.get(key) for e in events if e.get("event") == "reset" and e.get("name") == name
                              for key in ("old_session", "new_session")]
-            elif cli(entry["kind"]).records_session_on_send and not entry.get("session"):
-                sessions.append(quietly(cli(entry["kind"]).lookup_session, run["id"], name, entry, True))
+            elif cli(entry.get("kind")).records_session_on_send and not entry.get("session"):
+                sessions.append(quietly(cli(entry.get("kind")).lookup_session, run["id"], name, entry, True))
             # A resume in the same run writes a fresh entry: the log keeps when the agent first started in it.
             starts = [epoch(t) for t in (entry.get("spawned"), *(m.get("at") for m in entry.get("models") or ()),
                                          *(e.get("time") for e in events
@@ -11959,7 +11967,7 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
             segment = {"run": run["id"], "name": name, "kind": cost_kind(name, entry, root), "root": root,
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
-                       "agy": cli(entry["kind"]).cost_tally == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
+                       "agy": cli(entry.get("kind")).cost_tally == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
                        "who": first_name((run["id"], name))}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)

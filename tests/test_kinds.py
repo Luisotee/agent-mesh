@@ -27,8 +27,7 @@ def test_an_unknown_kind_is_an_error_not_claude(mesh, run):
         mesh.cli("opencode")
     with pytest.raises(mesh.MeshError, match="unknown agent kind"):
         mesh.resume_argv("opencode", "ses_1", "big-pickle", "high")
-    with pytest.raises(mesh.MeshError, match="unknown agent kind"):
-        mesh.cli_has("opencode", "stop_hook")
+    assert not mesh.cli_has("opencode", "stop_hook")  # a reading: no such capability here
 
 
 def test_capabilities_per_kind(mesh):
@@ -141,3 +140,35 @@ def test_agent_binary_names_the_kind(mesh):
     assert mesh.agent_binary(["/home/u/.local/bin/agy", "--conversation", "c"]) == "agy"
     assert mesh.agent_binary(["copilot", "-p", "x"]) is None  # a headless asker holds no pane
     assert mesh.agent_binary(["bash"]) is None
+
+
+def test_a_root_recorded_with_herdrs_own_kind_still_gets_its_reports(mesh, fake, run):
+    """A root started from a pane herdr names another agent in (codex, …) has that kind recorded: reports to it
+    are rung into its pane, as before, rather than refused as an unknown kind."""
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "codex"
+    assert not mesh.cli_has("codex", "native_inbox")  # the readings: False, as for any CLI without it
+    with pytest.raises(mesh.MeshError, match="unknown agent kind 'codex'"):
+        mesh.cli("codex")  # only argv building refuses it
+    result = mesh.deliver(run, "repo-fix-typo", "repo-lead", "done", "Fixed.")
+    assert result["stored"] and fake.called("agent", "prompt")
+    assert mesh.find_session(run, "repo-lead", {"kind": "codex"}) is None
+
+
+def test_ask_waits_for_an_agy_worker_even_when_the_root_takes_frames(mesh, fake, run, monkeypatch, capsys):
+    """native_route to the root doesn't look at the sender: only a worker that itself answers by the inbox
+    socket lets `ask` return at once; an agy worker's ask is watched (so its quota alerts are seen)."""
+    fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
+    monkeypatch.setattr(mesh, "native_route",
+                        lambda run, to, sender, *a, **k: {"socket": "uds:/x"} if to == "repo-lead" else None)
+    watched = []
+
+    def watch(run_id, name, *a, **k):
+        watched.append(name)
+        mesh.record(run_id, name, "repo-lead", "done", "Because of the spec.")
+        return 0, f"{name} reported done"
+
+    monkeypatch.setattr(mesh, "watch_agent", watch)
+    assert mesh.main(["ask", "repo-fix-typo", "--body", "Why?", "--keep"]) == 0
+    assert watched == ["repo-fix-typo"]
+    assert "── done from repo-fix-typo ──\nBecause of the spec." in capsys.readouterr().out
