@@ -6,5 +6,6 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 - [ ] `mesh cost`: count Copilot workers' calls (`session.usage_record` in their `events.jsonl`).
 - [ ] One kind of agent, step 3: OpenCode as a worker kind (free-model rotation on `mesh switch`, policy leaves, review slots, its global rules).
 - [ ] `review_head`'s move of a reviewer checkout: refresh the index (`git update-index -q --refresh`) before its `git reset --keep`; a clean reviewer worktree failed with `Entry bin/mesh not uptodate` after a power outage.
-- [ ] `mesh cost`: its `peer` row missed most peer calls over 2026-10-28 → 11-04 (15 calls vs 353 by the cost study's `classify.py`; resumed peer sessions likely count as `user`), and `reviewers_per_pr` reads 1.0 in every window. See `docs/cost-research/README.md`, "Check 1".
 - [ ] The 5m cache TTL (ledger #5) raised written tokens per call for small bg workers 3,384 → 8,066 at the same context, and their write $ per call +50% (+8% from 11-04): measure their gaps and decide whether they go back to 1h.
+- [ ] `read_log` warns on every read about a log line a power cut left NUL-filled or torn (`m46c2/log.jsonl` line 24): seal or quarantine such lines once, so the warning comes once.
+- [ ] `mesh cost`: agy workers whose entries have no `size` show as `agy worker ? pane` (1,064 calls over 2026-10-28 → 11-04): record or derive their size.

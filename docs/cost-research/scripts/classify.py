@@ -11,6 +11,9 @@ def cost(r):
     w5=r['w5']; w1=r['w1']
     if w5+w1==0: w1=r['w']  # unknown split -> 1h
     return (r['i']*p[0]+w5*p[1]+w1*p[2]+r['r']*p[3]+r['o']*p[4])/1e6
+# Peers are the registry's names (or an entry marked `peer`), not any name ending in -research: askers get such names too.
+try: PEERS=set(json.load(open(ST+'/peers.json')).get('peers',{}))
+except Exception: PEERS=set()
 agents={}
 for f in glob.glob(ST+'/*/run.json')+glob.glob(ST+'/archive/*/run.json'):
     try: d=json.load(open(f))
@@ -33,7 +36,7 @@ def kind(s):
     a=agents.get(s['s']); proj=s['proj']; first=s['first'] or ''
     if a:
         if a.get('role')=='root': return 'mesh root'
-        if a.get('peer') or a['name'].endswith('-research'): return 'peer asker'
+        if a.get('peer') or a['name'] in PEERS: return 'peer asker'
         if a.get('review_heads') or re.search(r'-review-\d+',a['name']): return 'reviewer'
         if a.get('read_only'): return 'asker (question)'
         return 'worker '+(a.get('view') or 'pane')+' '+str(a.get('size'))

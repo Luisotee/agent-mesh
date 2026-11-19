@@ -11641,13 +11641,16 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                  for run, _ in runs for name, entry in run["agents"].items()
                  if isinstance(entry.get("resumed_from"), dict)}
 
-    def first_name(key: tuple) -> str:
-        """The name an agent had before any resume renamed it (`<name>-2`)."""
+    entries = {(run["id"], name): entry for run, _ in runs for name, entry in run["agents"].items()}
+
+    def one_agent(key: tuple):
+        """One agent through its resumes, across runs: the session of the entry it started as (before any resume
+        renamed it `<name>-2`), else that entry's (run, name). A fresh agent of the same name is another one."""
         for _ in range(len(came_from) + 1):
             if key not in came_from or came_from[key] == key:
                 break
             key = came_from[key]
-        return key[1]
+        return (entries.get(key) or {}).get("session") or key
 
     for run, folder in runs:
         events = read_log(run["id"], folder)
@@ -11656,7 +11659,13 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
         window = {"start": epoch(run.get("created")), "end": max(stops) if stops else last + CACHE_TTL,
                   "root": run.get("root"), "cwd": (run["agents"].get(run.get("root")) or {}).get("cwd"),
                   "stopped": bool(stops),
-                  "resets": [epoch(e.get("time")) for e in events if e.get("event") == "reset"]}
+                  "resets": [epoch(e.get("time")) for e in events if e.get("event") == "reset"],
+                  # every review task the run sent, any CLI's (Copilot's too): (time, PR, reviewer, kind)
+                  "reviews": [(epoch(e.get("time")), pr, one_agent((run["id"], e["to"])),
+                               run["agents"][e["to"]].get("kind") or "claude")
+                              for e in events if e.get("event") == "send" and e.get("type") == "task"
+                              and e.get("to") in run["agents"] and epoch(e.get("time"))
+                              for pr in reviewed_pr(e["to"], run["agents"][e["to"]])]}
         windows[run["id"]] = window
         for name, entry in run["agents"].items():
             if not cli_has(entry.get("kind"), "counts_cost"):
@@ -11678,7 +11687,7 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
                        "agy": cli(entry.get("kind")).cost_tally == "agy", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
-                       "who": first_name((run["id"], name))}
+                       "who": one_agent((run["id"], name))}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)
     # A run never stopped ends a cache lifetime after its last event, or where the next run in its root's
@@ -11886,12 +11895,21 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
                 return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
             return None if run_id else ("agy user", ("", "agy user"), "")
         tally_session(agy_tally, session, agy_calls(session), False, place_agy, since, until, set())
-    resets = [t for r, w in windows.items() if not run_id or r == run_id for t in w["resets"]
-              if (since is None or t >= since) and (until is None or t < until)]
-    return cost_report(tally, agy_tally, reviewed, len(resets))
+    inside = lambda t: (since is None or t >= since) and (until is None or t < until)  # noqa: E731
+    resets = [t for r, w in windows.items() if not run_id or r == run_id for t in w["resets"] if inside(t)]
+    reviewers: dict[str, set] = {}  # PR: (reviewer, kind), from the review tasks sent in the window or the run
+    for r, w in windows.items():
+        for t, pr, who, kind in w["reviews"]:
+            if (not run_id or r == run_id) and inside(t):
+                reviewers.setdefault(pr, set()).add((who, kind))
+    return cost_report(tally, agy_tally, reviewed, len(resets), reviewers)
 
 
-def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set], resets: int) -> dict:
+def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set], resets: int,
+                reviewers: dict[str, set]) -> dict:
+    """The report `mesh cost` prints. `reviews`: Claude review $ over the PRs with Claude review calls
+    (`prs`, `usd_per_pr`), and the PRs that got a review task (`reviewed_prs`) with their reviewers of every CLI
+    per PR (`reviewers_per_pr`, and `by_cli`)."""
     total = sum(r["usd"] for r in tally.kinds.values())
 
     def kind_row(kind: str, r: dict) -> dict:
@@ -11913,6 +11931,10 @@ def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set]
                "cold_usd": round(r["cold_usd"], 2)}
               for (run, name), r in tally.agents.items()]
     review_usd = sum(r["usd"] for k, r in tally.kinds.items() if k.startswith("reviewer"))
+    by_cli: dict[str, int] = {}
+    for found in reviewers.values():
+        for _, kind in found:
+            by_cli[kind] = by_cli.get(kind, 0) + 1
     return {"prices_as_of": PRICES_AS_OF, "usd": round(total, 2),
             "agents": sorted(agents, key=lambda a: -(a["usd"] + a["sub_usd"])),
             "kinds": sorted((kind_row(k, r) for k, r in tally.kinds.items()), key=lambda r: -r["usd"]),
@@ -11921,8 +11943,10 @@ def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set]
                           key=lambda r: -(r["input"] + r["read"])),
             "reviews": {"prs": len(reviewed), "usd": round(review_usd, 2),
                         "usd_per_pr": round(review_usd / len(reviewed), 2) if reviewed else None,
-                        "reviewers_per_pr": round(sum(map(len, reviewed.values())) / len(reviewed), 1)
-                        if reviewed else None},
+                        "reviewed_prs": len(reviewers),
+                        "reviewers_per_pr": round(sum(map(len, reviewers.values())) / len(reviewers), 2)
+                        if reviewers else None,
+                        "by_cli": {k: round(n / len(reviewers), 2) for k, n in sorted(by_cli.items())}},
             "resets": resets}
 
 
@@ -11945,7 +11969,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     scope = f"run {run_id}" if run_id else "every session"
     if since is not None or until is not None:
         def edge(t: float | None, none: str) -> str:
-            return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%d %H:%M") if t else none
+            return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%d %H:%M %z") if t else none
         scope += f", {edge(since, 'start')} → {edge(until, 'now')}"
     report["scope"] = scope
     if args.json:
@@ -11974,9 +11998,11 @@ def cmd_cost(args: argparse.Namespace) -> int:
         print_table([{**a, **{k: tokens_text(a[k]) for k in ("input", "read", "output")}} for a in report["agy"]],
                     ("kind", "sessions", "calls", "input", "read", "output"))
     reviews = report["reviews"]
+    if reviews["reviewed_prs"]:
+        by_cli = ", ".join(f"{k} {n}" for k, n in reviews["by_cli"].items())
+        print(f"\nreviews: {reviews['reviewed_prs']} PRs, {reviews['reviewers_per_pr']} reviewers per PR ({by_cli})")
     if reviews["prs"]:
-        print(f"\nreviews: {reviews['prs']} PRs, ${reviews['usd']:.2f} (${reviews['usd_per_pr']:.2f} per PR, "
-              f"{reviews['reviewers_per_pr']} Claude reviewers per PR)")
+        print(f"Claude reviews: {reviews['prs']} PRs, ${reviews['usd']:.2f} (${reviews['usd_per_pr']:.2f} per PR)")
     print(f"root resets: {report['resets']}")
     return 0
 
