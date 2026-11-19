@@ -5,9 +5,8 @@ import pytest
 
 
 def test_registry_keeps_the_kind_tables(mesh):
-    assert mesh.KINDS == ("claude", "agy")
-    assert mesh.ASK_KINDS == ("claude", "agy", "copilot")
-    assert mesh.AGENT_BINARIES == ("claude", "agy")
+    assert mesh.KINDS == mesh.ASK_KINDS == ("claude", "agy", "copilot")  # one kind of agent: every CLI a worker
+    assert mesh.AGENT_BINARIES == ("claude", "agy", "copilot")
     assert mesh.CLI_NAMES == {"claude": "Claude Code", "agy": "agy", "copilot": "Copilot"}
     assert mesh.SHORT_NAMES == {"claude": "Claude", "agy": "agy", "copilot": "Copilot"}
     assert all(c.kind == kind for kind, c in mesh.CLIS.items())
@@ -31,14 +30,14 @@ def test_an_unknown_kind_is_an_error_not_claude(mesh, run):
 
 
 def test_capabilities_per_kind(mesh):
-    flags = ("worker", "stop_hook", "native_inbox", "enforces_read_only", "plan_review_user", "code_review",
+    flags = ("stop_hook", "native_inbox", "enforces_read_only", "plan_review_user", "code_review",
              "worker_log", "records_session_on_send", "measures_cache", "compacts_unmeasured", "counts_cost")
     have = {kind: {f for f in flags if getattr(c, f)} for kind, c in mesh.CLIS.items()}
     assert have == {
-        "claude": {"worker", "stop_hook", "native_inbox", "enforces_read_only", "plan_review_user", "code_review",
+        "claude": {"stop_hook", "native_inbox", "enforces_read_only", "plan_review_user", "code_review",
                    "measures_cache", "counts_cost"},
-        "agy": {"worker", "worker_log", "records_session_on_send", "compacts_unmeasured", "counts_cost"},
-        "copilot": set(),
+        "agy": {"worker_log", "records_session_on_send", "compacts_unmeasured", "counts_cost"},
+        "copilot": {"enforces_read_only"},
     }
     assert {kind: c.views for kind, c in mesh.CLIS.items()} == {"claude": ("pane", "bg"), "agy": ("pane",),
                                                                 "copilot": ("pane",)}
@@ -66,9 +65,9 @@ def test_resume_argv(mesh):
                                                                   "medium"]
     assert mesh.resume_argv("agy", "c1", "gemini-4-hydrogen-medium", "medium") == [
         "--conversation", "c1", "--model", "gemini-4-hydrogen-medium"]
-    assert mesh.resume_argv("copilot", "u1", "auto", "high") == ["--resume", "u1", "--model", "auto", "--auto-tier",
-                                                                 "intelligence"]
-    assert mesh.resume_argv("copilot", "u1", "gpt-5", "high") == ["--resume", "u1", "--model", "gpt-5",
+    assert mesh.resume_argv("copilot", "u1", "auto", "high") == ["--session-id", "u1", "--model", "auto",
+                                                                 "--auto-tier", "intelligence"]
+    assert mesh.resume_argv("copilot", "u1", "gpt-5", "high") == ["--session-id", "u1", "--model", "gpt-5",
                                                                   "--reasoning-effort", "high"]
 
 
@@ -138,7 +137,9 @@ def test_reserve_and_reviewers(mesh):
 def test_agent_binary_names_the_kind(mesh):
     assert mesh.agent_binary(["node", "/usr/lib/claude", "--resume", "x"]) == "claude"
     assert mesh.agent_binary(["/home/u/.local/bin/agy", "--conversation", "c"]) == "agy"
-    assert mesh.agent_binary(["copilot", "-p", "x"]) is None  # a headless asker holds no pane
+    # Copilot's npm loader runs under node, and starts its native binary, also named `copilot`.
+    assert mesh.agent_binary(["node", "/usr/lib/node_modules/.bin/copilot", "--session-id", "u"]) == "copilot"
+    assert mesh.agent_binary(["/x/@github/copilot-linux-x64/copilot", "--session-id", "u"]) == "copilot"
     assert mesh.agent_binary(["bash"]) is None
 
 
