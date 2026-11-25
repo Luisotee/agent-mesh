@@ -7869,7 +7869,7 @@ class Watch:
 
     def lost_report(self, events: list[dict]) -> tuple[int, str] | None:
         """Exit 0 for a report (plan, question, done, failed) that has sat unread in its parent's mailbox for
-        REPORT_LOST_AFTER with no doorbell rung for it: a `native` delivery (a `send_message` handed back to the
+        REPORT_LOST_AFTER with no doorbell rung for it (and not collected by a fan-out): a `native` delivery (a `send_message` handed back to the
         worker) the worker never made reaches the root's session otherwise never. Once per report."""
         if not self.lost_check:
             return None
@@ -7881,8 +7881,8 @@ class Watch:
             return None
         if not (inbox_dir(self.run_id, last.get("to")) / file).exists():
             return None  # read
-        if any(e.get("event") == "rung" and str(e.get("file")) == file for e in events):
-            return None
+        if any(e.get("event") in ("rung", "collected") and str(e.get("file")) == file for e in events):
+            return None  # rung, or an answer a fan-out collects (it is stored and never rung)
         self.lost_noted.add(file)
         return 0, (f"{self.name}'s {last['type']} has sat unread for {ago(age_seconds(last.get('time')))} and its "
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
@@ -12855,16 +12855,24 @@ def end_root_claude(pane: str, plan: dict) -> str:
     """After a typed /exit: wait until the old Claude is gone, and say why not (else ""). It may take minutes
     (run mfb6a, 2026-11-25: one outlived its /exit by far longer than 20 s, its screen already closed, and a
     reset that gave up then left the user a pane with no root). A Claude still alive after `RELAUNCH_EXIT` is
-    judged by its screen: one that still shows an idle empty input box, or is working, didn't take the /exit, so
-    it is left running, as it was; one whose screen is gone is exiting, so it gets `RELAUNCH_EXIT_LATE` more,
-    then SIGTERM and SIGKILL (its conversation is on disk already): a reset must end with a root or the old one."""
+    judged by its screen: one that still shows its input box (idle, working or with a draft) didn't take the
+    /exit, so it is left running, as it was; one whose screen has no box is exiting, so it gets
+    `RELAUNCH_EXIT_LATE` more, then SIGTERM and SIGKILL (its conversation is on disk already): a reset must end
+    with a root or the old one. herdr's agent status isn't consulted: it can stay `working` after the screen is gone."""
+
+    def screen_up() -> bool:
+        lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
+        return lines is not None and typed_text(lines, "claude") is not None
+
+    still = "it was sent /exit, but its Claude still runs and shows its input box; nothing else was typed"
     if wait_gone(plan, RELAUNCH_EXIT):
         return ""
-    ok, _ = quiet_box(pane)
-    if ok or pane_agent(pane).get("agent_status") in ("working", "blocked"):
-        return "it was sent /exit, but its Claude still runs and answers on its screen; nothing else was typed"
+    if screen_up():
+        return still
     if wait_gone(plan, RELAUNCH_EXIT_LATE):
         return ""
+    if screen_up():
+        return still
     for sig in (signal.SIGTERM, signal.SIGKILL):
         if pid_alive(plan["pid"], plan["start"]):
             print(f"mesh reset: the old root's Claude ({plan['pid']}) outlived its /exit: {sig.name}", flush=True)

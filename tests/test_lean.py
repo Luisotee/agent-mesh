@@ -465,16 +465,17 @@ def test_a_root_that_doesnt_exit_gets_nothing_more_typed(mesh, fake, run, lean, 
 
 def slow_exit(mesh, fake, monkeypatch, waits, screen_gone=True):
     """A root whose /exit takes longer: `wait_gone` answers from `waits` in turn (the 60 s look, the late wait,
-    each signal's wait), and after the /exit its screen reads gone (no input box, herdr `unknown`)."""
+    each signal's wait), and after the /exit its screen reads gone (no input box; herdr may still say working)."""
     sent = []
     replies = list(waits)
     monkeypatch.setattr(mesh, "wait_gone", lambda plan, seconds: replies.pop(0))
     monkeypatch.setattr(mesh.os, "kill", lambda pid, sig: sent.append(sig))
-    real_quiet, real_agent = mesh.quiet_box, mesh.pane_agent
+    real_lines = mesh.pane_lines
     typed = lambda: any(c[:4] == ("agent", "prompt", "w1:p1", "/exit") for c in fake.calls)
-    monkeypatch.setattr(mesh, "quiet_box", lambda *a, **k: (False, "its input box can't be read") if
-                        screen_gone and typed() else real_quiet(*a, **k))
-    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {**real_agent(pane), "agent_status": "unknown"} if
+    monkeypatch.setattr(mesh, "pane_lines", lambda *a, **k: ["Goodbye!", "Resume this session with:"] if
+                        screen_gone and typed() else real_lines(*a, **k))
+    real_agent = mesh.pane_agent  # and herdr keeps reading it working after the /exit: the screen decides
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {**real_agent(pane), "agent_status": "working"} if
                         screen_gone and typed() else real_agent(pane))
     return sent
 

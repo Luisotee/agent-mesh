@@ -282,6 +282,9 @@ def test_the_net_stays_quiet_for_a_rung_a_read_or_a_fresh_report(mesh, fake, run
     mesh.log_event(run, "rung", sender="repo-fix-typo", to="repo-lead", file=path.name, via="socket", tries=1)
     assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True) is None  # a doorbell rang
     path, _ = native_report(mesh, run, "done")
+    mesh.log_event(run, "collected", sender="repo-fix-typo", to="repo-lead", file=path.name)
+    assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True) is None  # a fan-out collects it
+    path, _ = native_report(mesh, run, "done")
     assert lost(mesh, run, monkeypatch, after=3600).report_event(mesh.read_log(run), True) is None  # too new
     mesh.mark_read(path)
     assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True) is None  # read
