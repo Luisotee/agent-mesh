@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Event, Run } from './gen/agentmesh/v1/types_pb'
 import { AgentState } from './gen/agentmesh/v1/types_pb'
+import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
 
 export interface LogLine {
@@ -11,6 +12,8 @@ export interface LogLine {
 /** One host as the app knows it: what its snapshot and event stream said, and the state of the connection. */
 export interface HostState {
   conn: ConnState
+  /** What the host last said about itself, kept while it is unreachable so the view doesn't change under the user. */
+  daemon?: HelloResponse
   /** True once a snapshot or a resume arrived on the current connection. */
   synced: boolean
   runs: Record<string, Run>
@@ -102,7 +105,7 @@ export function createHostStore(): HostStore {
 export function storeSink(store: HostStore) {
   return {
     onState: (conn: ConnState) =>
-      store.setState((s) => (conn.kind === 'ready' ? { conn } : { conn, synced: false })),
+      store.setState(() => (conn.kind === 'ready' ? { conn, daemon: conn.hello } : { conn, synced: false })),
     onFrame: (f: Frame) => store.setState((s) => applyFrame(s, f)),
     cursor: () => store.getState().cursor,
     log: (text: string) =>

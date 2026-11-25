@@ -129,6 +129,15 @@ describe('AgentPanel', () => {
   })
 })
 
+describe('AgentPanel without a terminal', () => {
+  it('shows the overview, with no tabs', () => {
+    const { host, wrap } = fixture()
+    render(wrap(<AgentPanel host={host} agentId="w1" />))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByLabelText('Message', { exact: true })).toBeVisible()
+  })
+})
+
 describe('ConnectionBanner', () => {
   it('is silent while connected', () => {
     const { host, wrap } = fixture()

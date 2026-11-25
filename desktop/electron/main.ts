@@ -1,9 +1,10 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, app, ipcMain, session } from 'electron'
-import type { BridgeEvent, BridgeRequest, NewHost } from '../shared/api.js'
+import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
+import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
+import { openSocket, type Socket } from './socket.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -14,6 +15,7 @@ if (userData) app.setPath('userData', userData)
 const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), process.env.AGENT_MESH_DESKTOP_STATE)
 
 const aborts = new Map<string, () => void>()
+const sockets = new Map<string, Socket>()
 
 /** Ends every host request a renderer has open (it reloaded or closed): its ids start over, and nobody reads the chunks. */
 function abortAll(senderId: number): void {
@@ -21,6 +23,12 @@ function abortAll(senderId: number): void {
     if (key.startsWith(`${senderId}:`)) {
       abort()
       aborts.delete(key)
+    }
+  }
+  for (const [key, s] of sockets) {
+    if (key.startsWith(`${senderId}:`)) {
+      s.close()
+      sockets.delete(key)
     }
   }
 }
@@ -46,6 +54,34 @@ function wire(): void {
     const abort = forward(hosts.get(hostId), req, emit)
     // A request refused on the spot has finished before it returns: there is nothing to keep.
     if (!finished) aborts.set(key, abort)
+  })
+  ipcMain.on('socket:open', (e, id: unknown, hostId: unknown, p: unknown) => {
+    if (typeof id !== 'string' || typeof hostId !== 'string') return
+    const key = `${e.sender.id}:${id}`
+    let finished = false
+    const emit = (ev: SocketEvent) => {
+      if (!e.sender.isDestroyed()) e.sender.send('socket:event', id, ev)
+      if (ev.type === 'close' || ev.type === 'error') {
+        finished = true
+        sockets.delete(key)
+      }
+    }
+    const sock = openSocket(hosts.get(hostId), p, emit)
+    // A refusal on the spot has finished before it returns: nothing to keep.
+    if (!finished) sockets.set(key, sock)
+  })
+  ipcMain.on('socket:send', (e, id: unknown, data: unknown) => {
+    if (typeof id === 'string' && data instanceof Uint8Array) sockets.get(`${e.sender.id}:${id}`)?.send(data)
+  })
+  ipcMain.on('socket:close', (e, id: unknown) => {
+    if (typeof id !== 'string') return
+    const key = `${e.sender.id}:${id}`
+    sockets.get(key)?.close()
+    sockets.delete(key)
+  })
+  ipcMain.on('shell:openExternal', (_e, url: unknown) => {
+    // Links in a terminal open in the user's browser; only web links.
+    if (typeof url === 'string' && /^https?:\/\//i.test(url) && url.length < 2048) void shell.openExternal(url)
   })
   ipcMain.on('bridge:abort', (e, id: unknown) => {
     if (typeof id !== 'string') return

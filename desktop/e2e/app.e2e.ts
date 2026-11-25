@@ -103,3 +103,48 @@ async function agentId(name: string): Promise<string> {
   })
   return id
 }
+
+test('a terminal streams the agent, takes typing, and carries on across a daemon restart', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: /repo-lead/ }).click()
+  const panel = page.getByRole('article', { name: 'repo-lead' })
+  await panel.getByRole('tab', { name: 'terminal' }).click()
+  // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.
+  expect(await panel.getByRole('tab', { name: 'terminal' }).getAttribute('aria-selected')).toBe('true')
+  await panel.getByRole('tabpanel', { name: 'terminal' }).waitFor({ state: 'visible' })
+  expect(await panel.getByRole('tabpanel', { name: 'overview' }).count()).toBe(0)
+  const status = panel.getByTestId('terminal-status')
+  const screen = panel.locator('.xterm-rows')
+  await expect.poll(() => status.innerText(), { timeout: 20_000 }).toBe('Live')
+  await expect.poll(() => screen.innerText()).toContain('fake claude')
+
+  // Typing reaches the program, and its answer comes back.
+  await panel.getByTestId('terminal').click()
+  await page.keyboard.type('hello')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => screen.innerText(), { timeout: 20_000 }).toContain('done: hello')
+
+  // A permission prompt: the sidebar says it needs you, and answering in the terminal clears it.
+  await page.keyboard.type('/ask')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toContain('Needs you')
+  await page.keyboard.type('y')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toContain('Idle')
+  await page.screenshot({ path: path.join(shots, 'terminal.png') })
+
+  // The daemon restarts; the terminal host and its program keep running, the stream comes back by offset
+  // (the screen is not wiped and not repeated), and typing still works.
+  await host.stopDaemon()
+  await expect.poll(() => status.innerText(), { timeout: 20_000 }).toMatch(/^Reconnecting/)
+  await host.start()
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe('Live')
+  // xterm draws what it was written a moment after the stream says live: wait for the screen, then check it
+  // wasn't repeated.
+  await expect.poll(() => screen.innerText(), { timeout: 10_000 }).toContain('done: hello')
+  expect((await screen.innerText()).match(/done: hello/g)).toHaveLength(1)
+  await panel.getByTestId('terminal').click()
+  await page.keyboard.type('again')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => screen.innerText(), { timeout: 20_000 }).toContain('done: again')
+})
