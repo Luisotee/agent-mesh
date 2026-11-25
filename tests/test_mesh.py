@@ -1513,7 +1513,7 @@ def test_watch_any_reports_a_gone_workers_unread_report(mesh, fake, run, monkeyp
     assert capsys.readouterr().out.startswith("repo-fix-typo sent a done you haven't read yet")
     for path in mesh.unread(run, "repo-lead"):
         mesh.mark_read(path)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert capsys.readouterr().out.startswith("no live workers to watch")
 
 
@@ -7243,7 +7243,7 @@ def test_watch_any_returns_the_first_event_and_alerts_only_keeps_going(mesh, fak
         return "working"
 
     monkeypatch.setattr(mesh, "agent_status", status)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out
 
     def status2(name, *_):
@@ -7717,7 +7717,7 @@ def test_watch_any_reads_claude_agents_once_per_poll(mesh, fake, cli, run, capsy
             mesh.log_event(run, "send", sender="repo-two", to="repo-lead", type="done", file="x.md")
 
     cli.on("agents", stdout=lambda: json.dumps(rows), effect=agents_call)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out
     assert len(cli.called("agents")) == 3  # one to list the live workers, then one per poll
 
@@ -7743,7 +7743,7 @@ def test_watch_any_takes_on_a_worker_spawned_after_it_started(mesh, fake, run, m
         return real(self, *a)
 
     monkeypatch.setattr(mesh.Watch, "tick", tick)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out and seen["covered"]
     assert not mesh.watched(run, "repo-two") and not mesh.watched(run, mesh.ANY_WATCH)
 
@@ -7754,7 +7754,7 @@ def archive_run(mesh, run):
     os.replace(mesh.run_dir(run), mesh.mesh_home() / "archive" / run)
 
 
-@pytest.mark.parametrize("argv", [["watch", "--any"], ["watch", "repo-fix-typo"]])
+@pytest.mark.parametrize("argv", [["watch", "--any", "--reports"], ["watch", "repo-fix-typo"]])
 def test_a_watch_ends_cleanly_once_mesh_stop_archives_its_run(mesh, fake, run, monkeypatch, capsys, argv):
     monkeypatch.setattr(mesh, "agent_status", lambda *_: "working")
     polls = {"n": 0}
@@ -7882,7 +7882,7 @@ def test_watch_any_lets_a_retired_worker_go_and_takes_it_back_when_resumed(mesh,
         return real(self, *a)
 
     monkeypatch.setattr(mesh.Watch, "tick", tick)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-two reported done" in capsys.readouterr().out
     assert seen == [False]  # it left, its lock released
     assert len(watches) == 2  # a fresh Watch once resumed
@@ -8007,7 +8007,7 @@ def test_watch_any_started_mid_resume_waits_for_the_worker(mesh, fake, run, monk
         return real(self, *a)
 
     monkeypatch.setattr(mesh.Watch, "tick", tick)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-fix-typo reported done" in capsys.readouterr().out
 
 
@@ -8023,7 +8023,7 @@ def test_watch_any_takes_on_a_starting_worker_it_read_as_gone(mesh, fake, run, m
         return real(self, *a)
 
     monkeypatch.setattr(mesh.Watch, "tick", tick)
-    assert mesh.main(["watch", "--any"]) == 0
+    assert mesh.main(["watch", "--any", "--reports"]) == 0
     assert "repo-fix-typo reported done" in capsys.readouterr().out
 
 
@@ -8460,16 +8460,16 @@ def test_root_context_finds_a_session_file_outside_its_cwd(mesh, run, monkeypatc
 
 
 def test_root_line_weighs_size_against_cache_state(mesh, run, monkeypatch):
-    root_transcript_file(mesh, monkeypatch, 400_000, idle=60)
+    root_transcript_file(mesh, monkeypatch, 280_000, idle=60)
     assert mesh.root_line(run)[0] is None  # warm and under twice the threshold: not worth a reset yet
     line = mesh.root_line(run, about_to_wait=True)[0]
-    assert "root context 400k, cache warm" in line and "about to wait" in line and "mesh reset --next" in line
-    root_transcript_file(mesh, monkeypatch, 400_000, idle=4000)
+    assert "root context 280k, cache warm" in line and "about to wait" in line and "mesh reset --next" in line
+    root_transcript_file(mesh, monkeypatch, 280_000, idle=4000)
     line = mesh.root_line(run)[0]
     assert "cache cold since" in line and "re-reads all of it" in line
-    root_transcript_file(mesh, monkeypatch, 700_000, idle=60)
+    root_transcript_file(mesh, monkeypatch, 350_000, idle=60)
     assert "next quiet point" in mesh.root_line(run)[0]
-    root_transcript_file(mesh, monkeypatch, 200_000, idle=4000)
+    root_transcript_file(mesh, monkeypatch, 140_000, idle=4000)
     assert mesh.root_line(run)[0] is None  # small: cold or not, a reset saves little
     monkeypatch.setenv("MESH_ROOT_RESET_AT", "100000")
     assert "cache cold" in mesh.root_line(run)[0]
@@ -8477,9 +8477,9 @@ def test_root_line_weighs_size_against_cache_state(mesh, run, monkeypatch):
 
 def test_root_line_waits_for_what_waits_on_the_root(mesh, run, monkeypatch):
     mesh.store_message(run, "repo-fix-typo", "repo-lead", "plan", "my plan")
-    root_transcript_file(mesh, monkeypatch, 400_000, idle=60)
+    root_transcript_file(mesh, monkeypatch, 280_000, idle=60)
     assert mesh.root_line(run, about_to_wait=True)[0] is None  # a plan to review first: not about to wait
-    root_transcript_file(mesh, monkeypatch, 400_000, idle=4000)
+    root_transcript_file(mesh, monkeypatch, 280_000, idle=4000)
     assert "once you've handled a plan from repo-fix-typo" in mesh.root_line(run)[0]
 
 
@@ -8821,9 +8821,10 @@ def test_brief_is_bounded_and_says_where_the_rest_is(mesh, fake, run, monkeypatc
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     assert mesh.main(["brief"]) == 0
     out = capsys.readouterr().out
-    assert "you are the run's root: follow ~/.config/agent-mesh/ORCHESTRATE.md" in out
+    assert "you are the run's root: act on the root card below" in out and "## Root card" in out
     assert "the user wants Copilot on every review" in out
-    assert "more characters: cat " + str(folder / "board.md") in out and len(out) < 9000
+    assert "more characters: cat " + str(folder / "board.md") in out
+    assert len(out) - len(mesh.protocol_sections()["root-card"]) < 9000  # the card is on top of the bound
     assert "- repo-fix-typo (agy ?, large, pane): working; no task" in out
     assert "info from repo-fix-typo at" in out and "note 0" in out and "more lines" not in out
     assert "… 2 more: mesh inbox --peek" in out
@@ -10687,7 +10688,7 @@ def nested(leaf: str, value) -> dict:
     ("compact.claude", "MESH_COMPACT_AT", lambda m: m.compact_at(), 300_000, 250_000, "1000", 1000),
     ("compact.claude_cold", "MESH_COMPACT_COLD_AT", lambda m: m.compact_cold_at(), 200_000, 150_000, "9", 9),
     ("compact.agy", "MESH_AGY_COMPACT_AT", lambda m: m.compact_at("agy"), 100_000, 80_000, "40000", 40_000),
-    ("root_reset.at", "MESH_ROOT_RESET_AT", lambda m: m.root_reset_at(), 200_000, 150_000, "100000", 100_000),
+    ("root_reset.at", "MESH_ROOT_RESET_AT", lambda m: m.root_reset_at(), 150_000, 120_000, "100000", 100_000),
     ("root_reset.auto", "MESH_ROOT_AUTORESET", lambda m: m.autoreset_on(), True, False, "yes", True),
     ("root_reset.wait", "MESH_RESET_WAIT", lambda m: m.reset_wait(), 1800, 600, "0", 0),
     ("min_free_mb", "MESH_MIN_FREE_MB", lambda m: m.min_free_mb({"MemTotal": 10 << 20}), 1024 + 500, 700, "0", 0),

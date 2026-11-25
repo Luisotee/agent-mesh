@@ -457,9 +457,73 @@ def test_a_root_that_doesnt_exit_gets_nothing_more_typed(mesh, fake, run, lean, 
     lean_root(mesh, run, monkeypatch, tmp_path)
     scripted_root(mesh, fake, monkeypatch)
     relaunching(mesh, fake, monkeypatch, exits=False)
+    monkeypatch.setattr(mesh, "RELAUNCH_EXIT", 0)  # no waiting: its idle screen is judged at once
     assert mesh.reset_root(run, "repo-lead", None, None) == 1
     assert prompts(fake) == ["/exit"] and not fake.called("agent", "start")
     assert "still runs" in mesh.read_log(run)[-1]["reason"]
+
+
+def slow_exit(mesh, fake, monkeypatch, waits, screen_gone=True):
+    """A root whose /exit takes longer: `wait_gone` answers from `waits` in turn (the 60 s look, the late wait,
+    each signal's wait), and after the /exit its screen reads gone (no input box, herdr `unknown`)."""
+    sent = []
+    replies = list(waits)
+    monkeypatch.setattr(mesh, "wait_gone", lambda plan, seconds: replies.pop(0))
+    monkeypatch.setattr(mesh.os, "kill", lambda pid, sig: sent.append(sig))
+    real_quiet, real_agent = mesh.quiet_box, mesh.pane_agent
+    typed = lambda: any(c[:4] == ("agent", "prompt", "w1:p1", "/exit") for c in fake.calls)
+    monkeypatch.setattr(mesh, "quiet_box", lambda *a, **k: (False, "its input box can't be read") if
+                        screen_gone and typed() else real_quiet(*a, **k))
+    monkeypatch.setattr(mesh, "pane_agent", lambda pane: {**real_agent(pane), "agent_status": "unknown"} if
+                        screen_gone and typed() else real_agent(pane))
+    return sent
+
+
+def test_a_root_slow_to_exit_with_its_screen_gone_is_waited_for_then_relaunched(mesh, fake, run, lean, monkeypatch,
+                                                                              tmp_path, capsys):
+    """Run mfb6a: /exit outlived the old 20 s check and the reset gave up, leaving the user no root."""
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch, exits=False)
+    sent = slow_exit(mesh, fake, monkeypatch, [False, True])  # gone by itself, in the late wait
+    assert mesh.reset_root(run, "repo-lead", "carry on", None) == 0
+    assert sent == [] and fake.called("agent", "start")
+    assert mesh.load_run(run)["agents"]["repo-lead"]["pid"] == 201
+    assert mesh.read_log(run)[-1]["relaunched"] is True
+
+
+def test_a_root_that_never_finishes_exiting_is_terminated_then_killed_and_relaunched(mesh, fake, run, lean,
+                                                                                    monkeypatch, tmp_path, capsys):
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch, exits=False)
+    sent = slow_exit(mesh, fake, monkeypatch, [False, False, False, True])  # TERM changed nothing, KILL did
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert sent == [mesh.signal.SIGTERM, mesh.signal.SIGKILL] and fake.called("agent", "start")
+    assert "outlived its /exit: SIGTERM" in capsys.readouterr().out
+
+
+def test_a_root_that_survives_sigkill_fails_the_reset_without_starting_a_second(mesh, fake, run, lean, monkeypatch,
+                                                                              tmp_path):
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch, exits=False)
+    slow_exit(mesh, fake, monkeypatch, [False, False, False, False])
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    assert mesh.reset_root(run, "repo-lead", None, None) == 1
+    assert prompts(fake) == ["/exit"] and not fake.called("agent", "start")
+    assert "SIGKILL" in mesh.read_log(run)[-1]["reason"]
+
+
+def test_a_root_still_answering_after_the_exit_is_left_running_not_killed(mesh, fake, run, lean, monkeypatch,
+                                                                         tmp_path):
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch, status="working")  # it took no /exit: it is working
+    relaunching(mesh, fake, monkeypatch, exits=False)
+    sent = slow_exit(mesh, fake, monkeypatch, [False], screen_gone=False)
+    assert mesh.end_root_claude("w1:p1", {"pid": 99, "start": "1"}).startswith("it was sent /exit, but its Claude still")
+    assert sent == []
 
 
 def test_a_root_that_cant_be_relaunched_is_cleared(mesh, fake, run, lean, monkeypatch, tmp_path):
