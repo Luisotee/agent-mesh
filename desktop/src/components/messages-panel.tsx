@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
 import { useHostState } from '@/context'
-import { MESSAGE_LABEL, messagesOf, waitingOnYou } from '@/derive'
+import { MESSAGE_LABEL, messagesOf } from '@/derive'
 import { MessageType, type Message } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { Markdown } from './markdown'
@@ -23,10 +23,9 @@ function stamp(m: Message): string {
 /** The conversation of one agent: what it sent and was sent, with plans and questions awaiting the user answerable in place. */
 export function MessagesPanel({ host, agentId }: { host: HostRuntime; agentId: string }) {
   const messages = useHostState(host, (s) => s.messages)
-  const agents = useHostState(host, (s) => s.agents)
-  const runs = useHostState(host, (s) => s.runs)
+  const waiting = useHostState(host, (s) => s.waiting)
   const mine = useMemo(() => messagesOf(messages, agentId), [messages, agentId])
-  const open = useMemo(() => new Set(waitingOnYou(runs, agents, messages).flatMap((w) => (w.message ? [w.message.id] : []))), [runs, agents, messages])
+  const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
   if (mine.length === 0) {
     return <p className="py-6 text-center text-xs text-muted-foreground">No messages yet. Plans, questions and reports of this agent appear here.</p>
   }

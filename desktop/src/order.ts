@@ -13,5 +13,3 @@ export function compareMessages(a: Message, b: Message): number {
   if (x !== y) return x < y ? -1 : 1
   return a.id === b.id ? 0 : a.id < b.id ? -1 : 1
 }
-
-export const isBefore = (a: Message, b: Message): boolean => compareMessages(a, b) < 0

@@ -14,6 +14,7 @@ import type { ConnState } from './connection'
 import { AppContext } from './context'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
+import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { createHostStore } from './store'
 
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
@@ -174,6 +175,21 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: /Host home/ })).toBeInTheDocument()
   })
 
+  it('adds a host by pairing link, with the name this device gives itself', async () => {
+    const add = vi.fn(async () => ({ id: 'x', name: 'Home', kind: 'paired' as const, target: '10.0.0.2:9443' }))
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    render(<App api={api} />)
+    await userEvent.selectOptions(await screen.findByLabelText('How to reach it'), 'pair')
+    // The host's own name is optional here, and there is no field for a pasted token.
+    expect(screen.queryByLabelText(/token/i)).toBeNull()
+    fireEvent.change(screen.getByLabelText('Pairing link'), { target: { value: ' agentmesh://pair?v=1&h=h_1 ' } })
+    await userEvent.clear(screen.getByLabelText("This device's name"))
+    await userEvent.type(screen.getByLabelText("This device's name"), 'Work laptop')
+    await userEvent.click(screen.getByRole('button', { name: 'Add host' }))
+    expect(add).toHaveBeenCalledWith({ name: '', kind: 'pair', link: 'agentmesh://pair?v=1&h=h_1', deviceName: 'Work laptop' })
+    expect(await screen.findByRole('button', { name: /Host Home/ })).toBeInTheDocument()
+  })
+
   it('shows why a host was refused', async () => {
     const add = vi.fn(async () => {
       throw new Error("Error invoking remote method 'hosts:add': Error: the state dir must be an absolute path")
@@ -200,11 +216,36 @@ describe('SpawnDialog', () => {
     await userEvent.type(screen.getByLabelText('Slug'), 'lead')
     await userEvent.click(screen.getByRole('button', { name: 'Start agent' }))
     await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
-    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', repo: '/p/app', slug: 'lead', role: AgentRole.ROOT, kind: 'claude' })
-    // The lead now exists: reopening offers a worker.
+    // A lead may take the CLI's default: no tier, no model.
+    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', repo: '/p/app', slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: '', model: '' })
+    // The lead now exists: reopening offers a worker, which the host only starts on a tier or a model.
     host.store.setState({ agents: { lead: agent('lead', { role: AgentRole.ROOT }) } })
     await userEvent.click(await screen.findByRole('button', { name: 'add' }))
     expect(screen.getByLabelText('Role')).toHaveValue(String(AgentRole.WORKER))
+    expect(screen.getByLabelText('Tier')).toHaveValue('mid')
+    expect(within(screen.getByLabelText('Tier')).queryByRole('option', { name: "The CLI's default" })).toBeNull()
+    await userEvent.type(screen.getByLabelText('Repository'), '/p/app')
+    await userEvent.type(screen.getByLabelText('Slug'), 'fix')
+    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
+    await userEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(2))
+    expect(client.spawnAgent.mock.calls[1]![0]).toMatchObject({ role: AgentRole.WORKER, tier: 'strong' })
+  })
+
+  it('offers the tiers the host defines for the CLI, and never leaves a worker with none', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState({ agents: {}, settings: Object.fromEntries(['tiers.claude.light.model', 'tiers.claude.deep.effort', 'tiers.agy.fast.model'].map((k) => [k, {} as never])) })
+    const { SpawnDialog, tiersOf } = await import('./components/spawn-dialogs')
+    expect(tiersOf(host.store.getState().settings, 'claude')).toEqual(['light', 'deep'])
+    expect(tiersOf({}, 'claude')).toEqual(['light', 'mid', 'strong', 'top'])
+    render(wrap(<SpawnDialog host={host} runId="r1" trigger={<button type="button">add</button>} />))
+    await userEvent.click(screen.getByRole('button', { name: 'add' }))
+    expect(screen.getByLabelText('Tier')).toHaveValue('')
+    // Switching the lead to a worker picks a tier (this host has no mid, so its first); back to a lead, the default.
+    await userEvent.selectOptions(screen.getByLabelText('Role'), String(AgentRole.WORKER))
+    expect(screen.getByLabelText('Tier')).toHaveValue('light')
+    await userEvent.selectOptions(screen.getByLabelText('Role'), String(AgentRole.ROOT))
+    expect(screen.getByLabelText('Tier')).toHaveValue('')
   })
 })
 
@@ -213,10 +254,16 @@ const msg = (id: string, type: MessageType, from: string, to: string, ms: number
   create(MessageSchema, { id, runId: 'r1', type, body, toId: to, toName: to, createdAt: timestampFromMs(ms), from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: 0, runId: 'r1' } })
 const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host.store.setState((s) => ({ messages: { ...s.messages, ...Object.fromEntries(ms.map((m) => [m.id, m])) } }))
 
+/** What the host says waits: a row per plan or question, as ListWaiting returns them. */
+const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) =>
+  host.store.setState({ waiting: ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m })) })
+
 describe('MessagesPanel', () => {
   it('shows a plan awaiting the user and approves it with an answer to its author', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b'))
+    const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b')
+    putMessages(host, plan)
+    waitOn(host, plan)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     const card = screen.getByRole('article', { name: 'Plan from w1' })
     expect(within(card).getByRole('heading', { name: 'The plan' })).toBeInTheDocument()
@@ -225,15 +272,19 @@ describe('MessagesPanel', () => {
     await userEvent.click(within(card).getByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
     expect(client.sendMessage.mock.calls[0]![0]).toMatchObject({ to: 'w1', type: MessageType.ANSWER, body: 'approved' })
-    // The answer arrives as an event: the item closes by itself.
+    // The answer arrives as an event, the host is asked again and says nothing waits: the item closes by itself.
     putMessages(host, msg('a1', MessageType.ANSWER, 'lead', 'w1', 2000, 'approved'))
+    host.store.setState({ waiting: [] })
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Answer the plan' })).toBeNull())
     expect(screen.getByRole('article', { name: 'Plan from w1' })).not.toHaveTextContent('waiting for you')
   })
 
   it('asks for changes only with some text, and answers a question', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?'))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    const q1 = msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?')
+    putMessages(host, p1, q1)
+    waitOn(host, p1, q1)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     const plan = screen.getByRole('form', { name: 'Answer the plan' })
     expect(within(plan).getByRole('button', { name: 'Request changes' })).toBeDisabled()
@@ -252,7 +303,9 @@ describe('MessagesPanel', () => {
 
   it('does not approve over text typed for changes', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    waitOn(host, p1)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     await userEvent.type(screen.getByLabelText('Changes to ask for'), 'also add tests')
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
@@ -261,7 +314,9 @@ describe('MessagesPanel', () => {
 
   it('answers once on a double click, and shows a rejection', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    waitOn(host, p1)
     let release!: () => void
     client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
@@ -315,8 +370,12 @@ describe('Markdown in messages', () => {
 describe('WaitingList', () => {
   it('lists what waits on the user and opens the agent on its messages (or terminal)', async () => {
     const { host, wrap, model } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
-    host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, name: 'app-fix', parentId: 'lead', state: AgentState.IDLE }), w2: agent('w2', { role: AgentRole.WORKER, name: 'app-two', parentId: 'lead', state: AgentState.NEEDS_INPUT, needsInput: 1 }) } }))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    host.store.setState((s) => ({
+      agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, name: 'app-fix', parentId: 'lead', state: AgentState.IDLE }), w2: agent('w2', { role: AgentRole.WORKER, name: 'app-two', parentId: 'lead', state: AgentState.NEEDS_INPUT, needsInput: 1 }) },
+      waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w1', message: p1 }), create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId: 'w2' })],
+    }))
     render(wrap(<WaitingList host={host} />))
     const list = screen.getByRole('region', { name: 'Waiting on you' })
     expect(list).toHaveTextContent('app-fix sent a plan')

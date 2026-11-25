@@ -85,6 +85,14 @@ public interface MeshServiceClientInterface {
   public suspend fun listMessages(request: ListMessagesRequest, headers: Headers = emptyMap()): ResponseMessage<ListMessagesResponse>
 
   /**
+   *  What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+   *  to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+   *  and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+   *  lead reads its own run's.
+   */
+  public suspend fun listWaiting(request: ListWaitingRequest, headers: Headers = emptyMap()): ResponseMessage<ListWaitingResponse>
+
+  /**
    *  The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
    *  ends the stream, so a client resumes from its cursor after any other close.
    */

@@ -240,6 +240,24 @@ public class MeshServiceClient(
 
 
   /**
+   *  What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+   *  to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+   *  and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+   *  lead reads its own run's.
+   */
+  override suspend fun listWaiting(request: ListWaitingRequest, headers: Headers): ResponseMessage<ListWaitingResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListWaiting",
+      dev.agentmesh.gen.agentmesh.v1.ListWaitingRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListWaitingResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
    *  ends the stream, so a client resumes from its cursor after any other close.
    */

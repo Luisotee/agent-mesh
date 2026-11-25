@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
-import { AgentState } from './gen/agentmesh/v1/types_pb'
-import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
+import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
+import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
+import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
 
 export interface LogLine {
@@ -24,6 +24,10 @@ export interface HostState {
   messages: Record<string, Message>
   /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
   settings: Record<string, Setting>
+  /** What the host says waits on the user (ListWaiting), kept up to date by `refresh.ts`; empty until it first answers. */
+  waiting: WaitingRow[]
+  /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
+  devices: Device[]
   cursor?: Cursor
   log: LogLine[]
 }
@@ -31,7 +35,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], devices: [], clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -115,9 +119,45 @@ function applyEvent(s: HostState, e: Event): HostState {
       const a = s.agents[e.agentId]
       return a ? { ...next, agents: { ...s.agents, [a.id]: { ...a, terminalId: p.value.terminalId } } } : next
     }
+    // A model change reopens the same conversation (daemon/internal/daemon/reopen.go): the agent keeps its identity
+    // and gets the new model, terminal and session.
+    case 'agentReopenRequested':
+      return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: p.value.reopen }))
+    case 'agentReopenDropped':
+      return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: undefined }))
+    case 'agentReopened':
+      return withAgent(next, e.agentId, (a) => ({
+        ...a,
+        pendingReopen: undefined,
+        terminalId: p.value.terminalId,
+        sessionId: p.value.sessionId,
+        model: p.value.reopen?.model ?? a.model,
+        effort: p.value.reopen?.effort ?? a.effort,
+        denyEdits: p.value.reopen?.denyEdits ?? a.denyEdits,
+      }))
+    case 'agentPhaseChanged':
+      return withAgent(next, e.agentId, (a) => ({ ...a, phase: p.value.to }))
+    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
+    case 'agentRetired':
+      return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
+    case 'runStopped': {
+      const r = s.runs[e.runId]
+      return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
+    }
+    case 'devicePaired': {
+      const d = p.value.device
+      return d && !s.devices.some((x) => x.id === d.id) ? { ...next, devices: [...s.devices, d] } : next
+    }
+    case 'deviceRevoked':
+      return { ...next, devices: s.devices.filter((x) => x.id !== p.value.deviceId) }
     default:
       return next
   }
+}
+
+function withAgent(s: HostState, id: string, change: (a: Agent) => Agent): HostState {
+  const a = s.agents[id]
+  return a ? { ...s, agents: { ...s.agents, [id]: change(a) } } : s
 }
 
 /** Adds messages (a loaded page) to the ones we have; one we already have, which events may have updated, is kept. */
@@ -125,6 +165,16 @@ export function mergeMessages(s: HostState, page: Message[]): Partial<HostState>
   const messages = { ...s.messages }
   for (const m of page) messages[m.id] ??= m
   return { messages }
+}
+
+/** The host's list of paired devices, which replaces the last one. */
+export function setDevices(devices: Device[]): Partial<HostState> {
+  return { devices }
+}
+
+/** The host's answer to ListWaiting, which replaces the last one. */
+export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
+  return { waiting }
 }
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */

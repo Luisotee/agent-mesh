@@ -3,17 +3,17 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
-import { Input, Select } from '@/components/ui/input'
+import { Input, Select, Textarea } from '@/components/ui/input'
 import { useApp } from '@/context'
 
-/** The form for a host: a state dir of a daemon on this machine, or a loopback/VPN address with its token. */
+/** The form for a host: the state dir of a daemon on this machine, or a pairing link from another host's "Pair a device" screen. */
 export function AddHostForm({ onDone }: { onDone?: () => void }) {
   const app = useApp()
-  const [kind, setKind] = useState<'state-dir' | 'tcp'>('state-dir')
+  const [kind, setKind] = useState<'state-dir' | 'pair'>('state-dir')
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
-  const [address, setAddress] = useState('')
-  const [token, setToken] = useState('')
+  const [link, setLink] = useState('')
+  const [deviceName, setDeviceName] = useState('Desktop')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function submit(e: React.FormEvent) {
@@ -21,7 +21,7 @@ export function AddHostForm({ onDone }: { onDone?: () => void }) {
     setBusy(true)
     setError('')
     try {
-      await app.addHost(kind === 'state-dir' ? { name, kind, path: path.trim() } : { name, kind, address: address.trim(), token })
+      await app.addHost(kind === 'state-dir' ? { name, kind, path: path.trim() } : { name, kind, link: link.trim(), deviceName })
       onDone?.()
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(err))
@@ -32,12 +32,12 @@ export function AddHostForm({ onDone }: { onDone?: () => void }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">
       <Field label="Name">
-        <Input autoFocus required value={name} onChange={(e) => setName(e.target.value)} placeholder="home" />
+        <Input autoFocus required={kind === 'state-dir'} value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'pair' ? "the host's own name" : 'home'} />
       </Field>
       <Field label="How to reach it">
         <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
           <option value="state-dir">A daemon on this machine (its state dir)</option>
-          <option value="tcp">A loopback address with its token</option>
+          <option value="pair">Another machine, by a pairing link</option>
         </Select>
       </Field>
       {kind === 'state-dir' ? (
@@ -46,11 +46,11 @@ export function AddHostForm({ onDone }: { onDone?: () => void }) {
         </Field>
       ) : (
         <>
-          <Field label="Address" hint="host:port of meshd's --tcp listener. Loopback only: the token travels unencrypted until the connection is.">
-            <Input required value={address} onChange={(e) => setAddress(e.target.value)} placeholder="127.0.0.1:7777" />
+          <Field label="Pairing link" hint="From the other host's Pair a device screen (or meshctl pair). It works once, for a few minutes.">
+            <Textarea required value={link} onChange={(e) => setLink(e.target.value)} placeholder="agentmesh://pair?v=1&h=…" spellCheck={false} />
           </Field>
-          <Field label="Device token" hint="Stored on this machine in the app's data folder, readable only by you.">
-            <Input required type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+          <Field label="This device's name" hint="What the host calls this app in its list of paired devices.">
+            <Input required value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
           </Field>
         </>
       )}

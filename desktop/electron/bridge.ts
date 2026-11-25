@@ -1,8 +1,10 @@
 import http from 'node:http'
+import type { Duplex } from 'node:stream'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { BridgeErrorCode, BridgeEvent, BridgeRequest } from '../shared/api.js'
 import type { StoredHost } from './hosts.js'
+import { RouteError, dialerFor, type Dialer } from './route.js'
 
 /**
  * The host bridge: the renderer's only way to a host. meshd refuses any request a browser made (an Origin
@@ -35,6 +37,8 @@ interface Target {
   socketPath?: string
   host?: string
   port?: number
+  /** A paired host: a pinned TLS connection, made per request. */
+  dialer?: Dialer
   token: string
 }
 
@@ -49,6 +53,7 @@ class BridgeError extends Error {
 
 /** Where a host listens and the token to use, read at call time so a restarted daemon or a new token works. */
 export async function resolve(h: StoredHost): Promise<Target> {
+  if (h.kind === 'paired') return { dialer: dialerFor(h, h.route), token: h.token }
   if (h.kind === 'tcp') {
     const i = h.address.lastIndexOf(':')
     // An IPv6 literal is bracketed in the address and bare for http.request.
@@ -61,6 +66,18 @@ export async function resolve(h: StoredHost): Promise<Target> {
     throw new BridgeError('no-token', `no device token in ${h.path}: is meshd started with this state dir?`)
   }
   return { socketPath: path.join(h.path, 'meshd.sock'), token }
+}
+
+/** `http.request`'s `createConnection` (the callback form) over a paired host's dialer. */
+export function connectWith(dialer: Dialer) {
+  return (_options: unknown, cb: (err: Error | null, socket: Duplex) => void): null => {
+    dialer.connect().then(
+      (s) => cb(null, s),
+      (e: unknown) => cb(e instanceof Error ? e : new Error(String(e)), undefined as never),
+    )
+    // The socket comes through the callback, once the connection is pinned.
+    return null
+  }
 }
 
 /** Runs one request; returns an abort. Events always end with `end` or `error`, once. */
@@ -89,7 +106,12 @@ export function forward(
     fail('refused', `the bridge forwards only registry calls, not ${req.method} ${req.path}`)
     return () => {}
   }
-  const start = (t: Target) => {
+  /**
+   * `fresh`: the retry after a kept-alive socket turned out dead. It dials its own connection, bypassing the agent's
+   * pool. A call is safe to send twice (every mutation carries its own id, `src/actions.ts`), and only one that failed
+   * before any answer is retried.
+   */
+  const start = (t: Target, fresh = false) => {
     const headers: Record<string, string> = {}
     for (const [k, v] of Object.entries(req.headers)) if (FORWARDED.test(k)) headers[k.toLowerCase()] = v
     headers.authorization = `Bearer ${t.token}`
@@ -100,11 +122,15 @@ export function forward(
       socketPath: t.socketPath,
       host: t.host,
       port: t.port,
+      // A paired host's connections are the dialer's (pinned TLS, through the relay if need be, kept alive), not by address.
+      ...(t.dialer ? (fresh ? { createConnection: connectWith(t.dialer) } : { agent: t.dialer.agent }) : {}),
       headers: { ...headers, host: 'meshd' },
     })
     abort = () => out.destroy()
+    let answered = false
     out.on('response', (res) => {
       if (done) return
+      answered = true
       const h: Record<string, string> = {}
       for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) h[k] = Array.isArray(v) ? v.join(', ') : v
       emit({ type: 'head', status: res.statusCode ?? 0, headers: h })
@@ -116,7 +142,17 @@ export function forward(
       res.on('aborted', () => fail('failed', 'the connection closed'))
     })
     out.on('error', (e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
+      // A kept-alive connection the far end (a relay, a NAT) dropped while it was idle: the first write finds out.
+      if (!fresh && !answered && !done && t.dialer && out.reusedSocket && (e.code === 'ECONNRESET' || e.code === 'EPIPE')) {
+        try {
+          start(t, true)
+        } catch (err) {
+          fail('failed', err instanceof Error ? err.message : String(err))
+        }
+        return
+      }
+      if (e instanceof RouteError) fail(e.code, e.message)
+      else if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
       else fail('failed', e.message)
     })
     out.end(req.body ? Buffer.from(req.body) : undefined)

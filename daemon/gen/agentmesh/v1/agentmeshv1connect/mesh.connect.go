@@ -65,6 +65,8 @@ const (
 	// MeshServiceListMessagesProcedure is the fully-qualified name of the MeshService's ListMessages
 	// RPC.
 	MeshServiceListMessagesProcedure = "/agentmesh.v1.MeshService/ListMessages"
+	// MeshServiceListWaitingProcedure is the fully-qualified name of the MeshService's ListWaiting RPC.
+	MeshServiceListWaitingProcedure = "/agentmesh.v1.MeshService/ListWaiting"
 	// MeshServiceSubscribeEventsProcedure is the fully-qualified name of the MeshService's
 	// SubscribeEvents RPC.
 	MeshServiceSubscribeEventsProcedure = "/agentmesh.v1.MeshService/SubscribeEvents"
@@ -127,6 +129,11 @@ type MeshServiceClient interface {
 	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
 	// page's `after_id`.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
+	// What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+	// to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+	// and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+	// lead reads its own run's.
+	ListWaiting(context.Context, *connect.Request[v1.ListWaitingRequest]) (*connect.Response[v1.ListWaitingResponse], error)
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest]) (*connect.ServerStreamForClient[v1.SubscribeEventsResponse], error)
@@ -251,6 +258,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ListMessages")),
 			connect.WithClientOptions(opts...),
 		),
+		listWaiting: connect.NewClient[v1.ListWaitingRequest, v1.ListWaitingResponse](
+			httpClient,
+			baseURL+MeshServiceListWaitingProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListWaiting")),
+			connect.WithClientOptions(opts...),
+		),
 		subscribeEvents: connect.NewClient[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse](
 			httpClient,
 			baseURL+MeshServiceSubscribeEventsProcedure,
@@ -325,6 +338,7 @@ type meshServiceClient struct {
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
 	listMessages    *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
+	listWaiting     *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
 	subscribeEvents *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
 	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
 	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
@@ -411,6 +425,11 @@ func (c *meshServiceClient) ListMessages(ctx context.Context, req *connect.Reque
 	return c.listMessages.CallUnary(ctx, req)
 }
 
+// ListWaiting calls agentmesh.v1.MeshService.ListWaiting.
+func (c *meshServiceClient) ListWaiting(ctx context.Context, req *connect.Request[v1.ListWaitingRequest]) (*connect.Response[v1.ListWaitingResponse], error) {
+	return c.listWaiting.CallUnary(ctx, req)
+}
+
 // SubscribeEvents calls agentmesh.v1.MeshService.SubscribeEvents.
 func (c *meshServiceClient) SubscribeEvents(ctx context.Context, req *connect.Request[v1.SubscribeEventsRequest]) (*connect.ServerStreamForClient[v1.SubscribeEventsResponse], error) {
 	return c.subscribeEvents.CallServerStream(ctx, req)
@@ -492,6 +511,11 @@ type MeshServiceHandler interface {
 	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
 	// page's `after_id`.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
+	// What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+	// to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+	// and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+	// lead reads its own run's.
+	ListWaiting(context.Context, *connect.Request[v1.ListWaitingRequest]) (*connect.Response[v1.ListWaitingResponse], error)
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error
@@ -612,6 +636,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ListMessages")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListWaitingHandler := connect.NewUnaryHandler(
+		MeshServiceListWaitingProcedure,
+		svc.ListWaiting,
+		connect.WithSchema(meshServiceMethods.ByName("ListWaiting")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceSubscribeEventsHandler := connect.NewServerStreamHandler(
 		MeshServiceSubscribeEventsProcedure,
 		svc.SubscribeEvents,
@@ -698,6 +728,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
 		case MeshServiceListMessagesProcedure:
 			meshServiceListMessagesHandler.ServeHTTP(w, r)
+		case MeshServiceListWaitingProcedure:
+			meshServiceListWaitingHandler.ServeHTTP(w, r)
 		case MeshServiceSubscribeEventsProcedure:
 			meshServiceSubscribeEventsHandler.ServeHTTP(w, r)
 		case MeshServiceListSettingsProcedure:
@@ -783,6 +815,10 @@ func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Reque
 
 func (UnimplementedMeshServiceHandler) ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMessages is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListWaiting(context.Context, *connect.Request[v1.ListWaitingRequest]) (*connect.Response[v1.ListWaitingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListWaiting is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error {

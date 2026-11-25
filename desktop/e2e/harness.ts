@@ -2,6 +2,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import net from 'node:net'
 import { createClient } from '@connectrpc/connect'
 import { createConnectTransport } from '@connectrpc/connect-node'
 import { MeshService } from '../src/gen/agentmesh/v1/mesh_pb'
@@ -24,13 +25,14 @@ const baseEnv = (): NodeJS.ProcessEnv => {
   return env
 }
 
-/** Builds meshd, mesh-term, meshctl and the fake claude into `dir`. */
+/** Builds meshd, mesh-term, meshctl, mesh-relay and the fake claude into `dir`. */
 export function buildBinaries(dir: string): void {
   mkdirSync(dir, { recursive: true })
   const targets: Record<string, string> = {
     meshd: './cmd/meshd',
     'mesh-term': './cmd/mesh-term',
     meshctl: './cmd/meshctl',
+    'mesh-relay': './cmd/mesh-relay',
     claude: './internal/testutil/fakeclaude',
   }
   for (const [out, pkg] of Object.entries(targets)) {
@@ -54,7 +56,57 @@ export interface Host {
   agentToken(id: string): string
 }
 
-export function makeHost(bins: string): Host {
+/** A TCP port nobody listens on right now (the OS picks it; another process could take it before it is used). */
+export async function freePort(): Promise<number> {
+  const s = net.createServer()
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r))
+  const port = (s.address() as net.AddressInfo).port
+  await new Promise((r) => s.close(r))
+  return port
+}
+
+/** A real mesh-relay (docs/relay.md) on loopback: its HTTP/WebSocket port, its raw TCP port for clients, its secret. */
+export interface Relay {
+  url: string
+  tcp: string
+  tokenFile: string
+  stop(): Promise<void>
+}
+
+export async function startRelay(bins: string, dir: string): Promise<Relay> {
+  mkdirSync(dir, { recursive: true })
+  const tokenFile = path.join(dir, 'relay.token')
+  const token = execFileSync(path.join(bins, 'mesh-relay'), ['--gen-token'], { stdio: 'pipe' }).toString().trim()
+  writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 })
+  const http = await freePort()
+  const tcp = await freePort()
+  const proc = spawn(path.join(bins, 'mesh-relay'), ['--listen', `127.0.0.1:${http}`, '--client-listen', `127.0.0.1:${tcp}`, '--token-file', tokenFile, '--max-lifetime', '10m'], { stdio: ['ignore', 'ignore', 'pipe'] })
+  let err = ''
+  proc.stderr?.on('data', (b: Buffer) => (err += b.toString()))
+  await until('mesh-relay to listen', async () => {
+    if (proc.exitCode != null) throw new Error(`mesh-relay exited: ${err}`)
+    return fetch(`http://127.0.0.1:${http}/healthz`).then((r) => r.ok, () => false)
+  }, 10_000)
+  return {
+    url: `http://127.0.0.1:${http}`,
+    tcp: `127.0.0.1:${tcp}`,
+    tokenFile,
+    async stop() {
+      proc.kill('SIGTERM')
+      await new Promise((r) => (proc.exitCode != null ? r(null) : proc.once('exit', r)))
+    },
+  }
+}
+
+/** What a host is started with besides the basics: a direct TLS listener, a relay. */
+export interface HostOptions {
+  /** meshd's `--listen` address (TLS, loopback in tests). */
+  listen?: string
+  relay?: Pick<Relay, 'url' | 'tcp' | 'tokenFile'>
+  hostName?: string
+}
+
+export function makeHost(bins: string, opts: HostOptions = {}): Host {
   // A unix socket path holds about 107 bytes, so the state dir is short.
   const base = mkdtempSync(path.join(os.tmpdir(), 'amd-'))
   const state = path.join(base, 's')
@@ -81,7 +133,10 @@ export function makeHost(bins: string): Host {
         path.join(bins, 'meshd'),
         ['--state', state, '--tcp', '127.0.0.1:0', '--max-lifetime', '10m', '--term-launch', 'detached',
           '--term-binary', path.join(bins, 'mesh-term'), '--meshctl', path.join(bins, 'meshctl'),
-          '--cli', `claude=${path.join(bins, 'claude')}`, '--worktrees', worktrees],
+          '--cli', `claude=${path.join(bins, 'claude')}`, '--worktrees', worktrees,
+          ...(opts.listen ? ['--listen', opts.listen] : []),
+          ...(opts.hostName ? ['--host-name', opts.hostName] : []),
+          ...(opts.relay ? ['--relay-url', opts.relay.url, '--relay-tcp', opts.relay.tcp, '--relay-token-file', opts.relay.tokenFile] : [])],
         { env: { ...baseEnv(), HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }, stdio: ['ignore', 'ignore', 'pipe'] },
       )
       let err = ''

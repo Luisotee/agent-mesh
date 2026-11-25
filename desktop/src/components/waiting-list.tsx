@@ -1,7 +1,7 @@
 import { CircleAlert, ClipboardList, MessageCircleQuestion } from 'lucide-react'
 import { useMemo } from 'react'
 import { useApp, useHostState } from '@/context'
-import { waitingOnYou, type Waiting } from '@/derive'
+import { joinWaiting, type Waiting } from '@/derive'
 import type { HostRuntime } from '@/model'
 
 const LABEL: Record<Waiting['kind'], string> = {
@@ -19,10 +19,10 @@ const ICON = {
 /** What waits on the user, across the host's open runs: the plans and questions to answer, the prompts to deal with. */
 export function WaitingList({ host }: { host: HostRuntime }) {
   const app = useApp()
+  const rows = useHostState(host, (s) => s.waiting)
   const runs = useHostState(host, (s) => s.runs)
   const agents = useHostState(host, (s) => s.agents)
-  const messages = useHostState(host, (s) => s.messages)
-  const items = useMemo(() => waitingOnYou(runs, agents, messages), [runs, agents, messages])
+  const items = useMemo(() => joinWaiting(rows, runs, agents), [rows, runs, agents])
   if (items.length === 0) return null
   return (
     <section aria-label="Waiting on you" className="border-b px-2 pb-2">

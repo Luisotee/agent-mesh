@@ -37,7 +37,7 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
       retries.delete(runId)
     } catch (e) {
       log(`couldn't load the messages of run ${runId}: ${e instanceof Error ? e.message : String(e)}`)
-      // What waits on the user is derived from the history: try again, a few times, with a growing wait.
+      // The Messages tab reads the history: try again, a few times, with a growing wait.
       const n = retries.get(runId) ?? 0
       if (n < MAX_RETRIES) {
         retries.set(runId, n + 1)

@@ -1,4 +1,4 @@
-import { Settings } from 'lucide-react'
+import { QrCode, Settings } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -8,8 +8,9 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
+import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
-import { waitingOnYou } from '@/derive'
+import { joinWaiting } from '@/derive'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -86,7 +87,7 @@ const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-st
 
 function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
   const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => waitingOnYou(s.runs, s.agents, s.messages).length)
+  const waiting = useHostState(host, (s) => joinWaiting(s.waiting, s.runs, s.agents).length)
   return (
     <button
       type="button"
@@ -107,6 +108,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
   const app = useApp()
   const conn = useHostState(host, (s) => s.conn)
   const open = useAppState((s) => s.settingsOpen)
+  const pairOpen = useAppState((s) => s.pairOpen)
+  // Only the host's own device may pair devices, so only there is the screen offered.
+  const mayPair = useHostState(host, () => canPair(host.store))
   return (
     <header className="flex items-start gap-2 border-b px-3 py-2.5">
       <div className="min-w-0 flex-1">
@@ -115,6 +119,11 @@ function HostHeader({ host }: { host: HostRuntime }) {
           {conn.kind === 'ready' ? `daemon ${conn.hello.version} · you are ${conn.hello.actor?.name || 'a device'}` : conn.kind}
         </p>
       </div>
+      {mayPair && (
+        <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
+          <QrCode />
+        </Button>
+      )}
       <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
         <Settings />
       </Button>
@@ -124,8 +133,10 @@ function HostHeader({ host }: { host: HostRuntime }) {
 
 function MainPane({ host }: { host: HostRuntime }) {
   const settingsOpen = useAppState((s) => s.settingsOpen)
+  const pairOpen = useAppState((s) => s.pairOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
   if (settingsOpen) return <SettingsPanel host={host} />
+  if (pairOpen) return <PairPanel host={host} />
   if (!agentId) {
     return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">Pick an agent in a run to see it here.</div>
   }

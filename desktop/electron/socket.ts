@@ -1,7 +1,8 @@
 import path from 'node:path'
 import WebSocket from 'ws'
 import type { BridgeErrorCode, SocketEvent } from '../shared/api.js'
-import { resolve } from './bridge.js'
+import { connectWith, resolve } from './bridge.js'
+import { RouteError } from './route.js'
 import type { StoredHost } from './hosts.js'
 
 /**
@@ -58,8 +59,9 @@ export function openSocket(host: StoredHost | undefined, p: unknown, emit: (e: S
     (t) => {
       if (closeRequested) return
       // The ticket in the path is the credential; the host's token isn't sent. No Origin header is set.
-      const url = t.socketPath ? `ws+unix://${path.resolve(t.socketPath)}:${p}` : `ws://${t.host!.includes(':') ? `[${t.host}]` : t.host}:${t.port}${p}`
-      ws = new WebSocket(url, { perMessageDeflate: false, maxPayload: 16 << 20 })
+      // A paired host is `ws://meshd`: the dialer's pinned TLS connection stands in for the address.
+      const url = t.dialer ? `ws://meshd${p}` : t.socketPath ? `ws+unix://${path.resolve(t.socketPath)}:${p}` : `ws://${t.host!.includes(':') ? `[${t.host}]` : t.host}:${t.port}${p}`
+      ws = new WebSocket(url, { perMessageDeflate: false, maxPayload: 16 << 20, ...(t.dialer ? { createConnection: connectWith(t.dialer) as never } : {}) })
       ws.binaryType = 'nodebuffer'
       ws.on('open', () => {
         if (!done) emit({ type: 'open' })
@@ -74,7 +76,8 @@ export function openSocket(host: StoredHost | undefined, p: unknown, emit: (e: S
         fail(res.statusCode === 401 ? 'refused' : 'failed', `the host answered ${res.statusCode}`)
       })
       ws.on('error', (e: NodeJS.ErrnoException) => {
-        if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
+        if (e instanceof RouteError) fail(e.code, e.message)
+        else if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
         else fail('failed', e.message)
       })
     },

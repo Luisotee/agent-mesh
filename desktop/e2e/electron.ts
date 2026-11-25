@@ -15,10 +15,10 @@ export interface App {
 }
 
 /**
- * Starts the built app with a state dir for its one host and a user-data dir of its own, and drives it over the
+ * Starts the built app with a state dir for its one host (or none: a host list of its own, to add hosts to) and a user-data dir of its own, and drives it over the
  * Chrome DevTools Protocol. `--no-sandbox` is for the test machine only (WSL has no SUID helper for Chromium).
  */
-export async function launchApp(opts: { state: string; home: string }): Promise<App> {
+export async function launchApp(opts: { state?: string; home: string }): Promise<App> {
   const userData = path.join(opts.home, 'userData')
   const shellLog = path.join(opts.home, 'shell.log')
   mkdirSync(userData, { recursive: true })
@@ -31,7 +31,8 @@ export async function launchApp(opts: { state: string; home: string }): Promise<
       XDG_CONFIG_HOME: path.join(opts.home, '.config'),
       XDG_CACHE_HOME: path.join(opts.home, '.cache'),
       XDG_DATA_HOME: path.join(opts.home, '.local/share'),
-      AGENT_MESH_DESKTOP_STATE: opts.state,
+      // Without a state dir the app has no fixed host: the host list is its own, in its user-data dir.
+      ...(opts.state ? { AGENT_MESH_DESKTOP_STATE: opts.state } : {}),
       AGENT_MESH_DESKTOP_USERDATA: userData,
       AGENT_MESH_DESKTOP_SHELL_LOG: shellLog,
       ELECTRON_ENABLE_LOGGING: '1',

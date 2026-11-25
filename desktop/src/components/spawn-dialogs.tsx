@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { useState, type ReactElement } from 'react'
+import { useMemo, useState, type ReactElement } from 'react'
 import { spawnAgent, startRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
@@ -59,9 +59,22 @@ const ROLES: Array<[AgentRole, string]> = [
   [AgentRole.REVIEWER, 'Reviewer (read-only)'],
 ]
 
+const FALLBACK_TIERS = ['light', 'mid', 'strong', 'top']
+
+/** The tiers a host defines for a CLI (`tiers.<cli>.<tier>.*` settings), or the usual four before they are loaded. */
+export function tiersOf(settings: Record<string, unknown>, kind: string): string[] {
+  const found = new Set<string>()
+  for (const key of Object.keys(settings)) {
+    const m = /^tiers\.([^.]+)\.([^.]+)\./.exec(key)
+    if (m && m[1] === kind) found.add(m[2]!)
+  }
+  return found.size > 0 ? [...found] : FALLBACK_TIERS
+}
+
 /** SpawnAgent: start an agent in a new worktree of a repo on the host. */
 export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId: string; trigger: ReactElement }) {
   const agents = useHostState(host, (s) => s.agents)
+  const settings = useHostState(host, (s) => s.settings)
   const hasLead = Object.values(agents).some((a) => a.runId === runId && a.role === AgentRole.ROOT)
   const [open, setOpen] = useState(false)
   const [repo, setRepo] = useState('')
@@ -69,17 +82,24 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
   const defaultRole = hasLead ? AgentRole.WORKER : AgentRole.ROOT
   const [role, setRole] = useState<AgentRole>(defaultRole)
   const [kind, setKind] = useState('claude')
+  // What the user chose; unset, the tier shown is the default for the role (see `tier` below).
+  const [chosen, setChosen] = useState<string | undefined>()
   const [model, setModel] = useState('')
   const [task, setTask] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const repos = knownRepos(agents)
+  const tiers = useMemo(() => tiersOf(settings, kind.trim()), [settings, kind])
+  // Every agent but a lead runs on a tier or a model the user names: the host has no default model, so a worker
+  // always has a tier (`mid` when the host has one, else its first). A lead, the user's own session, may take the
+  // CLI's default (no tier).
+  const tier = role === AgentRole.ROOT ? (chosen ?? '') : chosen && tiers.includes(chosen) ? chosen : tiers.includes('mid') ? 'mid' : tiers[0]!
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), model: model.trim(), effort: '', task: task.trim() })
+      await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), tier, model: model.trim(), effort: '', task: task.trim() })
       setOpen(false)
       setSlug('')
       setTask('')
@@ -94,7 +114,10 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
       open={open}
       onOpenChange={(o) => {
         // A run's first agent is its lead, every later one a worker, whatever the last spawn was.
-        if (o) setRole(defaultRole)
+        if (o) {
+          setRole(defaultRole)
+          setChosen(undefined)
+        }
         setOpen(o)
       }}
     >
@@ -117,7 +140,13 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
             <Field label="CLI">
               <Input required value={kind} onChange={(e) => setKind(e.target.value)} />
             </Field>
-            <Field label="Model" hint="Empty: the CLI's default.">
+            <Field label="Tier" hint="What the host runs it on: each tier is a model and effort in the host's settings.">
+              <Select value={tier} onChange={(e) => setChosen(e.target.value)}>
+                {role === AgentRole.ROOT && <option value="">The CLI's default</option>}
+                {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </Field>
+            <Field label="Model" hint="Only if you want one named; it replaces the tier's model.">
               <Input value={model} onChange={(e) => setModel(e.target.value)} />
             </Field>
           </div>
