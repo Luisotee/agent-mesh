@@ -3336,6 +3336,21 @@ def test_a_fragment_with_a_form_feed_is_one_line_for_both_the_reader_and_the_qua
     assert capsys.readouterr().err == ""
 
 
+def test_the_quarantine_and_the_reader_agree_on_which_lines_are_blank_and_which_are_left(mesh, fake, run, capsys):
+    """A line of non-ASCII whitespace (U+0085) is blank for the reader, so it isn't set aside; a torn line before
+    an unterminated tail is, and the tail alone is what is warned about (by line number, not by count)."""
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "ab") as fh:
+        fh.write(b"\xc2\x85\n" + b"garbage\n" + b'{"event": "se')
+    capsys.readouterr()
+    mesh.read_log(run)
+    err = capsys.readouterr().err
+    assert err.count("set aside 1 unreadable line") == 1 and err.count("skipped 1 unreadable line") == 1
+    torn = (path.parent / "log.torn").read_bytes()
+    assert b"garbage" in torn and b"\xc2\x85" not in torn
+    assert mesh.quarantine_torn(path) == []  # nothing complete is left to set aside
+
+
 def test_an_unterminated_last_line_is_left_for_its_writer_and_warned_about_once(mesh, fake, run, capsys):
     path = mesh.run_dir(run) / "log.jsonl"
     with open(path, "a") as fh:
