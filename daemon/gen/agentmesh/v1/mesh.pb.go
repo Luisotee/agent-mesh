@@ -2747,7 +2747,7 @@ type WorktreeOutcome struct {
 	Worktree        string                 `protobuf:"bytes,2,opt,name=worktree,proto3" json:"worktree,omitempty"`
 	Branch          string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
 	WorktreeRemoved bool                   `protobuf:"varint,4,opt,name=worktree_removed,json=worktreeRemoved,proto3" json:"worktree_removed,omitempty"`
-	// The branch has a commit (or an upstream), or its worktree stayed: it is kept.
+	// The branch moved past its start or was pushed (a remote branch of its name), or its worktree stayed: it is kept.
 	BranchKept bool `protobuf:"varint,5,opt,name=branch_kept,json=branchKept,proto3" json:"branch_kept,omitempty"`
 	// Why a worktree or branch stayed.
 	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`

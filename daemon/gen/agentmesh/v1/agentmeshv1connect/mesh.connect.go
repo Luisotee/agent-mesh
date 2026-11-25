@@ -109,7 +109,7 @@ type MeshServiceClient interface {
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
-	// it has a commit (or an upstream); a worktree with uncommitted changes stays.
+	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
@@ -431,7 +431,7 @@ type MeshServiceHandler interface {
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
-	// it has a commit (or an upstream); a worktree with uncommitted changes stays.
+	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
