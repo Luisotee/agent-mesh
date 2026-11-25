@@ -362,6 +362,41 @@ def test_opencodes_placeholder_reads_empty_in_any_colour(mesh):
     assert mesh.human_draft(oc_box(draft), "opencode")
 
 
+def oc_narrow(rows, status):
+    """OpenCode's box as a narrow pane draws it: the typed rows, a blank one, the status (wrapped onto several rows
+    when it doesn't fit, as pyte rendered OpenCode 1.19.6 at 50 and 62 columns), blank rows after it."""
+    grey = "\x1b[38;2;128;128;128m"
+    body = [f"{GUT}\x1b[48;2;30;30;30m  \x1b[0m{r}" for r in rows]
+    status = [f"{GUT}\x1b[48;2;30;30;30m  \x1b[0m{grey}{r}\x1b[0m" if r else f"{GUT}  " for r in status]
+    return ["  previous output", f"{GUT}  ", *body, f"{GUT}  ", *status, BOTTOM, "  /tmp/wt  ctrl+p commands"]
+
+
+PLACEHOLDER = '\x1b[38;2;128;128;128mAsk anything\u2026 "Fix a TODO in the codebase"\x1b[0m'
+WRAPPED = ["Mesh-    \u00b7DeepSeek V4.1 Flash Free Op\u00b7 h", "Abc123                             en  i",
+           "                                   Co  g", "                                   de  h", "", "", ""]
+
+
+def test_a_status_wrapped_or_padded_in_a_narrow_pane_is_not_a_draft(mesh):
+    """Run mfb6a: at 62 columns OpenCode's status drops `auto` and a blank row follows it, at 50 it wraps onto four
+    rows with blank ones after: a count of one row left it in the box as typed text, so a fresh reviewer's task
+    was never delivered (`human_draft`, tries 0)."""
+    for status in (["Mesh-Abc123 \u00b7DeepSeek V4.1 Flash Free OpenCode\u00b7 high", ""], WRAPPED):
+        assert mesh.typed_text(oc_narrow([PLACEHOLDER], status), "opencode") == ""
+        assert not mesh.human_draft(oc_narrow([PLACEHOLDER], status), "opencode")
+    typed = "\x1b[38;2;238;238;238mhello draft\x1b[0m"
+    for status in (["Mesh-Abc123 \u00b7DeepSeek V4.1 Flash Free OpenCode\u00b7 high", ""], WRAPPED):
+        assert mesh.typed_text(oc_narrow([typed], status), "opencode") == "hello draft"
+        assert mesh.human_draft(oc_narrow([typed], status), "opencode")
+
+
+def test_a_box_with_no_blank_row_above_its_last_rows_is_unclear_not_empty(mesh):
+    """With no blank row between the text and what follows, the last rows could be typed text: never read as empty."""
+    typed = "\x1b[38;2;238;238;238mhello draft\x1b[0m"
+    rows = [f"{GUT}\x1b[48;2;30;30;30m  \x1b[0m{typed}", BOTTOM]
+    assert mesh.typed_text(["  out", *rows], "opencode") is None
+    assert not mesh.human_draft(["  out", *rows], "opencode")
+
+
 def test_copilots_empty_box_reads_empty(mesh):
     rows = ["\x1b[0m\x1b[38;2;129;139;152m╻\x1b[0m\x1b[38;2;20;27;34m▄▄▄▄\x1b[0m",
             "\x1b[0m\x1b[38;2;129;139;152m┃\x1b[0m\x1b[48;2;20;27;34m          \x1b[0m",

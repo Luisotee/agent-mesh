@@ -3287,7 +3287,7 @@ def started(fake):
 # ── status and log ───────────────────────────────────────────────────────
 
 
-def test_a_torn_log_line_is_skipped_with_one_warning(mesh, fake, run, capsys):
+def test_a_torn_log_line_is_set_aside_once(mesh, fake, run, capsys):
     path = mesh.run_dir(run) / "log.jsonl"
     with open(path, "a") as fh:
         fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "se')  # a write cut short
@@ -3296,11 +3296,81 @@ def test_a_torn_log_line_is_skipped_with_one_warning(mesh, fake, run, capsys):
     events = mesh.read_log(run)
     assert events[-1]["event"] == "send"  # sealed: the event after the fragment survives
     assert all(isinstance(e, dict) for e in events)
-    assert mesh.read_log(run) == events
     err = capsys.readouterr().err
-    assert err.count("skipped 1 unreadable line") == 1 and str(path) in err
+    assert err.count("set aside 1 unreadable line") == 1 and "log.torn" in err
+    assert (path.parent / "log.torn").read_bytes().endswith(b'"event": "se\n')
+    assert mesh.read_log(run) == events and capsys.readouterr().err == ""  # the warning came once, for every command
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     assert mesh.main(["status", run, "--json"]) == 0  # every reader keeps working
+
+
+def test_a_nul_filled_line_is_blanked_in_place_so_no_offset_moves(mesh, fake, run, capsys):
+    """Run m46c2's log after a power cut: a line of NULs. Set aside once; the bytes after it keep their offsets."""
+    path = mesh.run_dir(run) / "log.jsonl"
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="a.md")
+    with open(path, "ab") as fh:
+        fh.write(b"\x00" * 40 + b"\n")
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="b.md")
+    before = path.read_bytes()
+    capsys.readouterr()
+    events = mesh.read_log(run)
+    assert [e.get("file") for e in events if e["event"] == "send"][-2:] == ["a.md", "b.md"]
+    after = path.read_bytes()
+    assert len(after) == len(before) and after.count(b"\x00") == 0
+    assert after[:before.index(b"\x00")] == before[:before.index(b"\x00")]
+    assert after.split(b"\n")[-2] == before.split(b"\n")[-2]  # the line after it is untouched
+    assert b"\x00" * 40 in (path.parent / "log.torn").read_bytes()
+    assert capsys.readouterr().err.count("set aside 1 unreadable line") == 1
+    assert mesh.read_log(run) == events and capsys.readouterr().err == ""
+
+
+def test_a_fragment_with_a_form_feed_is_one_line_for_both_the_reader_and_the_quarantine(mesh, fake, run, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "ab") as fh:
+        fh.write(b'{"event": "se\x0cx\x85y\rz\n')
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+    capsys.readouterr()
+    assert mesh.read_log(run)[-1]["event"] == "send"
+    assert capsys.readouterr().err.count("set aside 1 unreadable line") == 1
+    mesh.read_log(run)
+    assert capsys.readouterr().err == ""
+
+
+def test_the_quarantine_and_the_reader_agree_on_which_lines_are_blank_and_which_are_left(mesh, fake, run, capsys):
+    """A line of non-ASCII whitespace (U+0085) is blank for the reader, so it isn't set aside; a torn line before
+    an unterminated tail is, and the tail alone is what is warned about (by line number, not by count)."""
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "ab") as fh:
+        fh.write(b"\xc2\x85\n" + b"garbage\n" + b'{"event": "se')
+    capsys.readouterr()
+    mesh.read_log(run)
+    err = capsys.readouterr().err
+    assert err.count("set aside 1 unreadable line") == 1 and err.count("skipped 1 unreadable line") == 1
+    torn = (path.parent / "log.torn").read_bytes()
+    assert b"garbage" in torn and b"\xc2\x85" not in torn
+    assert mesh.quarantine_torn(path) == []  # nothing complete is left to set aside
+
+
+def test_an_unterminated_last_line_is_left_for_its_writer_and_warned_about_once(mesh, fake, run, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "a") as fh:
+        fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "se')
+    size = path.stat().st_size
+    capsys.readouterr()
+    mesh.read_log(run)
+    mesh.read_log(run)
+    assert path.stat().st_size == size and not (path.parent / "log.torn").exists()
+    assert capsys.readouterr().err.count("skipped 1 unreadable line") == 1
+
+
+def test_a_log_that_cant_be_written_still_reads_with_the_old_warning(mesh, fake, run, capsys, monkeypatch):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "a") as fh:
+        fh.write("garbage\n")
+    monkeypatch.setattr(mesh.os, "pwrite", lambda *a: (_ for _ in ()).throw(PermissionError("read-only")))
+    capsys.readouterr()
+    assert all(isinstance(e, dict) for e in mesh.read_log(run))
+    assert "skipped 1 unreadable line" in capsys.readouterr().err
 
 
 def status_rows(mesh, run, capsys):
@@ -4993,6 +5063,89 @@ def test_quota_hit_reads_only_new_bytes_and_ignores_plain_rate_limits(mesh, tmp_
     assert mesh.quota_hit(str(log), offset)[0] == "2h"
     assert mesh.quota_hit(str(log), log.stat().st_size)[0] is None  # already seen
     assert mesh.quota_hit(None, 7) == (None, 7)
+
+
+# What agy 1.5 logs when its backend refuses every attempt (run m46c2's #96 reviewer): eight retries, then the error.
+AGY_429_RETRY = ("I1119 13:00:27.234285    1525 run.go:317] Run: attempt 1 failed (RESOURCE_EXHAUSTED (code 429): "
+                 "Resource has been exhausted (e.g. check quota).), retrying in 4s\n")
+AGY_429_FINAL = ("E1119 13:02:53.581219    1525 errorreport.go:285] agent executor error: generating and executing: "
+                 "RESOURCE_EXHAUSTED (code 429): Resource has been exhausted (e.g. check quota).\n")
+
+
+def test_agy_log_hit_tells_a_429_with_no_quota_named_from_a_quota_hit(mesh, tmp_path):
+    log = tmp_path / "w.log"
+    log.write_text(AGY_429_RETRY * 8)
+    kind, reset, offset = mesh.agy_log_hit(str(log), 0)
+    assert (kind, reset) == (None, None)  # its retries alone are not the refusal
+    with open(log, "a") as fh:
+        fh.write(AGY_429_FINAL)
+    kind, reset, offset = mesh.agy_log_hit(str(log), offset)
+    assert (kind, reset) == ("rate", "") and mesh.quota_hit(str(log), 0)[0] is None  # not a quota hit
+    with open(log, "a") as fh:
+        fh.write(AGY_429_FINAL + "E2 errorreport.go:224] agent executor error: generating and executing: "
+                 "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h.\n")
+    assert mesh.agy_log_hit(str(log), offset)[:2] == ("quota", "2h")  # a quota line in the chunk wins
+    assert mesh.agy_log_hit(str(log), log.stat().st_size)[0] is None
+
+
+def test_watch_alerts_on_agys_429_with_no_quota_named_and_holds_the_model(mesh, fake, run, monkeypatch, capsys):
+    """Run m46c2 and mebd0: this screen gave exit 3 (idle, nudged) instead of 7, and `--reviewers auto` kept
+    picking agy, whose /usage said 100% left."""
+    log = planning_worker(mesh, run)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    polls = iter(range(10))
+
+    def sleep(_):
+        if next(polls) == 1:
+            with open(log, "a") as fh:
+                fh.write(AGY_429_RETRY * 8 + AGY_429_FINAL)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 7
+    out = capsys.readouterr().out
+    assert "refused with a 429 on claude-opus-5-5-high" in out and "mesh switch repo-fix-typo" in out
+    held = mesh.model_limit("agy", "claude-opus-5-5-high")
+    assert held and abs(held["until"] - time.time() - mesh.AGY_RATE_HOLD) < 60
+    assert mesh.model_limit("agy", "gemini-4-argon-high") is None  # only the model that was refused
+
+
+def test_an_agy_model_refused_with_a_429_is_passed_over_until_its_hold_ends(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    assert mesh.choose_agy_model(("opus", "sonnet"), "high")[0] == "claude-opus-5-5-high"
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() + 600)
+    model, notes = mesh.choose_agy_model(("opus", "sonnet"), "high")
+    assert model == "claude-sonnet-5-5-high" and "claude-opus-5-5-high was refused with a 429" in notes[0]
+    assert mesh.agy_has_quota("strong", "claude-opus-5-5-high")[0] is False
+    assert "refused with a 429" in mesh.agy_has_quota("strong", "claude-opus-5-5-high")[1]
+    held = [mesh.resolve_agy_model(f, mesh.setting("review.effort")) for f in mesh.tier_chain("agy", "strong")]
+    assert mesh.agy_has_quota("strong")[0] is True  # a reviewer's tier path: some model of it is free
+    for model in held:
+        mesh.note_model_limit("agy", model, "429", time.time() + 600)
+    assert mesh.agy_has_quota("strong")[0] is False and "refused with a 429" in mesh.agy_has_quota("strong")[1]
+    mesh.write_atomic(mesh.model_limits_path(), "{}")
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() + 600)
+    mesh.note_model_limit("agy", "claude-sonnet-5-5-high", "429", time.time() + 600)
+    with pytest.raises(mesh.MeshError, match="refused with a 429"):
+        mesh.choose_agy_model(("opus", "sonnet"), "high", fallback=False)
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() - 1)  # a hold only lengthens: still held
+    assert mesh.model_limit("agy", "claude-opus-5-5-high")
+    mesh.write_atomic(mesh.model_limits_path(), "{}")  # its hold over
+    assert mesh.choose_agy_model(("opus", "sonnet"), "high")[0] == "claude-opus-5-5-high"
+
+
+def test_a_switch_with_every_agy_model_held_waits_for_the_holds_end(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")
+    until = time.time() + 1500
+    for model in ("gemini-4-argon-high", *(mesh.resolve_agy_model(f, "high") for f in mesh.entry_chain(entry))):
+        mesh.note_model_limit("agy", model, "429", until)
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["switched"] is False and "refused with a 429" in out["notes"][0]
+    assert abs(mesh.epoch(out["continue_at"]) - until - mesh.CONTINUE_GRACE) < 5  # at the hold's end
 
 
 def test_watch_follows_a_log_that_restarts_shorter(mesh, fake, run, monkeypatch, capsys):
@@ -8211,13 +8364,19 @@ def test_parallel_new_panes_make_the_runs_tab_once(mesh, fake, run, monkeypatch)
 # ── Copilot as a full worker (design §22) ────────────────────────────────
 
 
+def ago(seconds):
+    """An events.jsonl timestamp that long before now: a hold (COPILOT_LIMIT_HOLD) runs from its error's own
+    time, so fixed dates would pass out of it."""
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def test_a_copilot_at_its_monthly_quota_is_continued_only_once_the_hold_ends(mesh, fake, run, tmp_path):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(kind="copilot", session="s-9", cwd=str(tmp_path), model="auto")
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review it.")
     write_events(tmp_path / "copilot" / "session-state" / "s-9" / "events.jsonl", [
-        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "Review it."}},
-        {"type": "session.error", "timestamp": "2026-11-19T11:00:03Z",
+        {"type": "user.message", "timestamp": ago(600), "data": {"content": "Review it."}},
+        {"type": "session.error", "timestamp": ago(597),
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}}])
     fake.screen("repo-fix-typo", "> ")
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
@@ -8344,12 +8503,13 @@ def test_copilot_limits_read_from_its_pane_and_its_events(mesh, fake, run, tmp_p
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "7pm (UTC)")
     fake.screen("repo-fix-typo", "● The docs say \"You've hit your session rate limit\" when it happens\n> ")
     assert mesh.cli("copilot").limited(watch, entry, False) is None  # quoted, not shown
+    failed = ago(3600)
     write_events(tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl", [
-        {"type": "session.error", "timestamp": "2026-11-19T10:00:00Z",
+        {"type": "session.error", "timestamp": failed,
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota exceeded"}}])
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
     held = mesh.copilot_limit()  # auto rounds leave it out meanwhile, dated by its event
-    assert held["message"] == "monthly quota exceeded" and held["at"] == mesh.epoch("2026-11-19T10:00:00+00:00")
+    assert held["message"] == "monthly quota exceeded" and held["at"] == mesh.epoch(failed)
     assert mesh.cli("copilot").progress_files(entry, "s-1") == [
         tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl"]
 
@@ -8359,21 +8519,21 @@ def test_a_copilot_quota_error_counts_only_until_a_later_turn(mesh, fake, run, t
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
     fake.screen("repo-fix-typo", "> ")
     events = tmp_path / "copilot" / "session-state" / "s-2" / "events.jsonl"
-    old = mesh.epoch("2026-11-19T08:00:00+00:00")
-    mesh.note_copilot_limit("monthly quota", at=old)
+    first, answered, again, errored = ago(10800), ago(7200), ago(3600), ago(3598)
+    mesh.note_copilot_limit("monthly quota", at=mesh.epoch(first))
     write_events(events, [
-        {"type": "session.error", "timestamp": "2026-11-19T08:00:00Z",
+        {"type": "session.error", "timestamp": first,
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
-        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "continue"}},
-        {"type": "assistant.message", "timestamp": "2026-11-19T11:00:05Z", "data": {"content": "Done."}}])
+        {"type": "user.message", "timestamp": answered, "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": ago(7195), "data": {"content": "Done."}}])
     assert mesh.cli("copilot").limited(watch, entry, False) is None  # topped up: it answered since
     assert mesh.copilot_limit() is None  # and the hold from before that answer is lifted
-    write_events(events, [{"type": "user.message", "timestamp": "2026-11-19T11:30:00Z", "data": {"content": "go"}},
-                          {"type": "session.error", "timestamp": "2026-11-19T11:30:02Z",
+    write_events(events, [{"type": "user.message", "timestamp": again, "data": {"content": "go"}},
+                          {"type": "session.error", "timestamp": errored,
                            "data": {"errorType": "quota", "message": "monthly quota again"}}])
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
     held = mesh.copilot_limit()
-    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch("2026-11-19T11:30:02+00:00")
+    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch(errored)
 
 
 def test_a_swap_records_a_headless_asker_it_reopens_as_a_pane_worker(mesh, fake, run, repo, monkeypatch):

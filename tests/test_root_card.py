@@ -280,6 +280,28 @@ def test_a_report_unread_with_no_doorbell_rung_ends_the_watch_once(mesh, fake, r
     assert watch.report_event(mesh.read_log(run), True) is None  # once per file
 
 
+def test_a_plan_from_a_worker_resumed_into_planning_ends_the_any_watch_when_nobody_passed_it_on(
+        mesh, fake, run, monkeypatch):
+    """Run mfb6a, twice: a follow-up task resumed a large worker into planning, its plan went the `native` way and
+    the worker's turn ended with no SendMessage. The root's `mesh watch --any` took the resumed worker on (a new
+    `spawned`) and, once the plan had sat unread with no doorbell, ended with it (design §10, delivery nets)."""
+    monkeypatch.setattr(mesh, "REPORT_LOST_AFTER", 0)
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t1.md")
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="d1.md")
+    roster = mesh.Roster(run, 30, 0, {}, mesh.load_run(run), [])
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["spawned"] = "resumed"
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t2.md")
+    path, _ = native_report(mesh, run, "plan")
+    watches = []
+    roster.refresh(mesh.load_run(run), watches, mesh.read_log(run))
+    assert [w.name for w in watches] == ["repo-fix-typo"]
+    watches[0].unread_report = None  # (its first tick's own check is another test)
+    status, line = watches[0].report_event(mesh.read_log(run), True)
+    assert status == 0 and "plan has sat unread" in line
+    assert [e["file"] for e in mesh.read_log(run) if e["event"] == "lost_noted"] == [path.name]
+
+
 def test_the_net_stays_quiet_for_a_rung_a_read_or_a_fresh_report(mesh, fake, run, monkeypatch):
     path, _ = native_report(mesh, run, "question")
     mesh.log_event(run, "rung", sender="repo-fix-typo", to="repo-lead", file=path.name, via="socket", tries=1)
