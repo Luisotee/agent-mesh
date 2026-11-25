@@ -113,7 +113,8 @@ function AnswerForm({ host, message: m }: { host: HostRuntime; message: Message 
       />
       <div className="flex items-center gap-2">
         {isPlan && (
-          <Button disabled={busy} onClick={() => void send('approved')}>
+          // Typed changes are not an approval: send them with Request changes, or clear the box to approve.
+          <Button disabled={busy || !!text.trim()} title={text.trim() ? 'Clear the text to approve, or use Request changes' : undefined} onClick={() => void send('approved')}>
             Approve
           </Button>
         )}

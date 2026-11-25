@@ -1,3 +1,4 @@
+import { compareMessages, isBefore } from './order'
 import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
 
 export interface TreeNode {
@@ -120,8 +121,7 @@ export interface Waiting {
   message?: Message
 }
 
-const when = (m: Message): number => Number(m.createdAt?.seconds ?? 0n) * 1000 + Math.floor((m.createdAt?.nanos ?? 0) / 1e6)
-const before = (a: Message, b: Message): boolean => when(a) < when(b) || (when(a) === when(b) && a.id < b.id)
+const before = isBefore
 
 /**
  * What waits on the user (what `mesh status` calls waiting rows, for the person): a plan or a question sent to
@@ -149,9 +149,9 @@ export function waitingOnYou(runs: Record<string, Run>, agents: Record<string, A
       if (!answered) items.push({ kind, agent: author, run, message: m })
     }
   }
-  items.sort((a, b) => (before(a.message, b.message) ? -1 : 1))
+  items.sort((a, b) => compareMessages(a.message, b.message))
   const prompts: Waiting[] = Object.values(agents)
-    .filter((a) => a.state === AgentState.NEEDS_INPUT)
+    .filter((a) => a.state === AgentState.NEEDS_INPUT && runs[a.runId]?.status === RunStatus.OPEN)
     .sort(order)
     .map((agent) => ({ kind: 'input' as const, agent, run: runs[agent.runId] }))
   return [...items, ...prompts]
@@ -161,7 +161,7 @@ export function waitingOnYou(runs: Record<string, Run>, agents: Record<string, A
 export function messagesOf(messages: Record<string, Message>, agentId: string): Message[] {
   return Object.values(messages)
     .filter((m) => m.toId === agentId || m.from?.id === agentId)
-    .sort((a, b) => (before(a, b) ? -1 : 1))
+    .sort(compareMessages)
 }
 
 export const MESSAGE_LABEL: Record<MessageType, string> = {

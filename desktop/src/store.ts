@@ -43,7 +43,9 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
       for (const r of frame.value.runs) runs[r.id] = r
       const agents: Record<string, Agent> = {}
       for (const a of frame.value.agents) agents[a.id] = a
-      return { ...s, synced: true, runs, agents, cursor: frame.value.cursor }
+      // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
+      const messages = Object.fromEntries(Object.entries(s.messages).filter(([, m]) => m.runId in runs))
+      return { ...s, synced: true, runs, agents, messages, cursor: frame.value.cursor }
     }
     case 'resumed':
       return { ...s, synced: true }

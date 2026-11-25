@@ -49,6 +49,25 @@ describe('messageLoader', () => {
     expect(Object.keys(store.getState().messages).sort()).toEqual(['a', 'b', 'c'])
   })
 
+  it('retries a failed load with a growing wait', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = createHostStore()
+      const pages: Record<string, { messages: ReturnType<typeof m>[]; more: boolean }> = {}
+      const { c, calls } = client(pages)
+      await messageLoader(c as never, store, () => {}).load([{ id: 'r1', status: RunStatus.OPEN }])
+      expect(calls).toHaveLength(1)
+      pages['r1:'] = { messages: [m('a')], more: false }
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(calls).toHaveLength(2)
+      expect(Object.keys(store.getState().messages)).toEqual(['a'])
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(calls).toHaveLength(2) // loaded: no more tries
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('a failed load is logged and tried from the start next time', async () => {
     const store = createHostStore()
     const log = vi.fn()

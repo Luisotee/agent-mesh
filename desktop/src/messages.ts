@@ -1,12 +1,11 @@
 import { listMessages } from './actions'
 import type { MeshClient } from './actions'
-import { RunStatus, type Message } from './gen/agentmesh/v1/types_pb'
+import { RunStatus } from './gen/agentmesh/v1/types_pb'
+import { compareMessages } from './order'
 import { mergeMessages, type HostStore } from './store'
 
-export const timeOf = (m: Message): number => Number(m.createdAt?.seconds ?? 0n) * 1000 + Math.floor((m.createdAt?.nanos ?? 0) / 1e6)
-
-/** Oldest first, as the host orders them (time, then id). */
-export const byTime = (a: Message, b: Message): number => timeOf(a) - timeOf(b) || a.id.localeCompare(b.id)
+const MAX_RETRIES = 5
+const RETRY_BASE_MS = 1000
 
 /**
  * Loads the stored messages of the open runs of a host into its store, a page at a time: the event stream starts
@@ -16,6 +15,7 @@ export const byTime = (a: Message, b: Message): number => timeOf(a) - timeOf(b) 
 export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: HostStore, log: (line: string) => void) {
   const complete = new Set<string>()
   const running = new Set<string>()
+  const retries = new Map<string, number>()
 
   async function loadRun(runId: string): Promise<void> {
     if (running.has(runId)) return
@@ -23,7 +23,7 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
     try {
       let after = ''
       if (complete.has(runId)) {
-        const mine = Object.values(store.getState().messages).filter((m) => m.runId === runId).sort(byTime)
+        const mine = Object.values(store.getState().messages).filter((m) => m.runId === runId).sort(compareMessages)
         after = mine[mine.length - 1]?.id ?? ''
       }
       for (;;) {
@@ -34,8 +34,15 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
         after = last.id
       }
       complete.add(runId)
+      retries.delete(runId)
     } catch (e) {
       log(`couldn't load the messages of run ${runId}: ${e instanceof Error ? e.message : String(e)}`)
+      // What waits on the user is derived from the history: try again, a few times, with a growing wait.
+      const n = retries.get(runId) ?? 0
+      if (n < MAX_RETRIES) {
+        retries.set(runId, n + 1)
+        setTimeout(() => void loadRun(runId), RETRY_BASE_MS * 2 ** n)
+      }
     } finally {
       running.delete(runId)
     }

@@ -108,6 +108,17 @@ describe('waitingOnYou', () => {
     expect(waitingOnYou(runs, leadless, byId([msg('p', MessageType.PLAN, 'w1', 'lead', 1)]))).toEqual([])
   })
 
+  it('orders by the nanosecond, so a plan and an answer in one millisecond keep their order', () => {
+    const p = create(MessageSchema, { id: 'z', runId: 'r1', type: MessageType.PLAN, toId: 'lead', createdAt: { $typeName: 'google.protobuf.Timestamp', seconds: 5n, nanos: 1_000_100 }, from: { $typeName: 'agentmesh.v1.Actor', id: 'w1', name: 'w1', class: 0, runId: 'r1' } })
+    const ans = create(MessageSchema, { id: 'a', runId: 'r1', type: MessageType.ANSWER, toId: 'w1', createdAt: { $typeName: 'google.protobuf.Timestamp', seconds: 5n, nanos: 1_000_900 } })
+    expect(waitingOnYou(runs, team, byId([p, ans]))).toEqual([])
+  })
+
+  it('has no prompts for agents of a closed run', () => {
+    const closed = { r1: create(RunSchema, { id: 'r1', status: RunStatus.CLOSED }) }
+    expect(waitingOnYou(closed, byId([a('x', { state: AgentState.NEEDS_INPUT })]), {})).toEqual([])
+  })
+
   it('messagesOf gives an agent\'s conversation in order', () => {
     const all = byId([msg('b', MessageType.ANSWER, 'lead', 'w1', 2000), msg('a', MessageType.PLAN, 'w1', 'lead', 1000), msg('c', MessageType.INFO, 'w2', 'lead', 1500)])
     expect(messagesOf(all, 'w1').map((m) => m.id)).toEqual(['a', 'b'])

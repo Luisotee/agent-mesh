@@ -250,6 +250,15 @@ describe('MessagesPanel', () => {
     expect(client.sendMessage.mock.calls[1]![0]).toMatchObject({ to: 'w1', body: 'main' })
   })
 
+  it('does not approve over text typed for changes', async () => {
+    const { host, wrap, client } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    await userEvent.type(screen.getByLabelText('Changes to ask for'), 'also add tests')
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(client.sendMessage).not.toHaveBeenCalled()
+  })
+
   it('answers once on a double click, and shows a rejection', async () => {
     const { host, wrap, client } = fixture()
     putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))

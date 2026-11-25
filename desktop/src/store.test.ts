@@ -81,6 +81,13 @@ describe('applyFrame', () => {
     expect(Object.keys(next.messages).sort()).toEqual(['m1', 'm2'])
   })
 
+  it('a snapshot drops the messages of runs the host no longer lists', () => {
+    const kept = create(MessageSchema, { id: 'm1', runId: 'r1' })
+    const gone = create(MessageSchema, { id: 'm2', runId: 'old' })
+    const s = applyFrame({ ...emptyHost(), messages: { m1: kept, m2: gone } }, snapshot())
+    expect(Object.keys(s.messages)).toEqual(['m1'])
+  })
+
   it('the stream and its replay give the same state', () => {
     const frames = [
       snapshot(),
