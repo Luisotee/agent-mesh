@@ -25,6 +25,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
@@ -68,6 +69,9 @@ type AgentConfig struct {
 	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
+	// ReadySettle is how long the terminal of an adapter without a startup hook must be quiet, once it has drawn,
+	// before the agent is marked idle (default 1 s); one still drawing after settleCap of them is marked anyway.
+	ReadySettle time.Duration
 	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
 	// /proc/pressure/memory); tests point them at files.
 	MeminfoPath, PressurePath string
@@ -90,8 +94,8 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 	"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
 	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
-	"GOOGLE_APPLICATION_CREDENTIALS", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID",
-	"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
+	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "AWS_PROFILE", "AWS_REGION",
+	"AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
 type ticket struct {
 	agentID    string
@@ -128,15 +132,18 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if cfg.SpoolEvery == 0 {
 		cfg.SpoolEvery = 2 * time.Second
 	}
+	if cfg.ReadySettle == 0 {
+		cfg.ReadySettle = 1 * time.Second
+	}
 	if cfg.Adapters == nil {
-		cfg.Adapters = []adapter.Adapter{claude.New()}
+		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New()}
 	}
 	reg, err := adapter.NewRegistry(context.Background(), cfg.Adapters...)
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, tickets: map[string]ticket{},
-		delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
+	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{},
+		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.
@@ -355,6 +362,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		}
 		for {
 			d.drainSpool(ctx)
+			d.settleStartingAgents(ctx)
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
@@ -560,7 +568,7 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 	if err != nil {
 		return nil, err
 	}
-	if out.State == v1.AgentState_AGENT_STATE_IDLE {
+	if takesDoorbell(out.State) {
 		d.deliverSoon(actor.Id)
 	}
 	return out, nil
@@ -743,7 +751,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || claude.ReadOnly(role),
+		DenyEdits: m.Plan || adapter.ReadOnly(role),
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -858,6 +866,9 @@ func (d *Daemon) startTerminal(ctx context.Context, a *v1.Agent, token string, p
 		return "", err
 	}
 	if err := fsutil.WriteAtomic(d.paths.AgentToken(a.Id), []byte(token+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	if err := d.writeWorktreeFiles(ctx, a.Worktree, plan.WorktreeFiles); err != nil {
 		return "", err
 	}
 	labels := map[string]string{"agent": a.Id, "run": a.RunId, "name": a.Name}
@@ -992,7 +1003,7 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) error {
 
 // ── doorbells ──
 
-// deliverSoon rings an agent's doorbell for its undelivered messages, once it is idle.
+// deliverSoon rings an agent's doorbell for its undelivered messages, once it is at its prompt (atPrompt).
 func (d *Daemon) deliverSoon(agentID string) {
 	if d.rt.term == nil {
 		return
@@ -1017,7 +1028,7 @@ func (d *Daemon) agentLock(agentID string) *sync.Mutex {
 }
 
 // deliver brings an agent up to date: a pending reopen first (the messages it was asked with are for the new
-// process), else a doorbell for its undelivered messages once it is idle.
+// process), else a doorbell for its undelivered messages once it is at its prompt (atPrompt).
 func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	mu := d.agentLock(agentID)
 	mu.Lock()
@@ -1031,7 +1042,7 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)
 	}
-	if a.State != v1.AgentState_AGENT_STATE_IDLE || a.TerminalId == "" {
+	if !takesDoorbell(a.State) || a.TerminalId == "" {
 		return nil
 	}
 	msgs, err := r.Undelivered(agentID)

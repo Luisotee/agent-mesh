@@ -51,7 +51,8 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 	switch k := ev.Kind.(type) {
 	case *adapterv1.AgentEvent_SessionStarted:
 		// A fresh session (a start or a /clear) waits for a prompt. A compaction or a resume says nothing of the
-		// turn: it may come mid-turn, and the agent is not idle then. A launch's own resume starts from STARTING.
+		// turn: it may come mid-turn, and the agent is not idle then. "turn" means the CLI only reports SessionStart
+		// on the first prompt (agy): record the id, and move only STARTING -> IDLE.
 		switch src := k.SessionStarted.Source; {
 		case src == "compact" && s.BeforeCompact != v1.AgentState_AGENT_STATE_UNSPECIFIED:
 			// The compaction ended: back to what it interrupted (idle between turns, working mid-turn).
@@ -60,7 +61,7 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 				// A count of prompts left from before the compaction would show a working or idle agent as needing input.
 				s.NeedsInput = 0
 			}
-		case src != "compact" && src != "resume", s.State == v1.AgentState_AGENT_STATE_STARTING:
+		case src != "compact" && src != "resume" && src != "turn", s.State == v1.AgentState_AGENT_STATE_STARTING:
 			s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
 		}
 		if src := k.SessionStarted.Source; src != "resume" {
@@ -79,6 +80,18 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 		s.NeedsInput++
 	case *adapterv1.AgentEvent_TurnEnded:
 		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_IDLE, 0, "", v1.AgentState_AGENT_STATE_UNSPECIFIED
+	case *adapterv1.AgentEvent_RateLimited:
+		msg := k.RateLimited.Message
+		if msg == "" {
+			msg = "rate limited"
+		}
+		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_LIMITED, 0, msg, v1.AgentState_AGENT_STATE_UNSPECIFIED
+	case *adapterv1.AgentEvent_TurnFailed:
+		msg := k.TurnFailed.Error
+		if msg == "" {
+			msg = "error"
+		}
+		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_ERROR, 0, msg, v1.AgentState_AGENT_STATE_UNSPECIFIED
 	case *adapterv1.AgentEvent_Compacting:
 		if s.BeforeCompact == v1.AgentState_AGENT_STATE_UNSPECIFIED {
 			s.BeforeCompact = s.State

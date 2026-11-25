@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -218,6 +219,20 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		return nil, invalid("no message type given")
 	}
 	out := &v1.SendMessageResponse{}
+	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
+	// both need its conversation id, found before the write (learnSession).
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
+		if stopped(to) {
+			return resumes(req.Msg.Type)
+		}
+		if req.Msg.Type != v1.MessageType_MESSAGE_TYPE_TASK || !isDirectTask(req.Msg.Body) ||
+			IsAgent(actor.Class) && to.ParentId != actor.Id {
+			return false
+		}
+		_, _, deny := target(to)
+		return deny && !adapter.ReadOnly(to.Role)
+	})
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
 		var to *v1.Agent

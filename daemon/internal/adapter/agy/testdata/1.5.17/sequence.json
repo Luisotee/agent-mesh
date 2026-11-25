@@ -1,0 +1,59 @@
+{
+  "agy_version": "1.5.17",
+  "steps": [
+    {
+      "scenario": "startup",
+      "files": null
+    },
+    {
+      "scenario": "a turn with a tool call",
+      "files": [
+        "01-SessionStart.json",
+        "02-PreInvocation.json",
+        "03-PreToolUse.json",
+        "04-PostToolUse.json",
+        "05-PostInvocation.json",
+        "06-PreInvocation.json",
+        "07-PostInvocation.json",
+        "08-Stop.json"
+      ]
+    },
+    {
+      "scenario": "a denied write while planning",
+      "files": [
+        "09-PreInvocation.json",
+        "10-PreToolUse.json",
+        "11-PostInvocation.json",
+        "12-PreInvocation.json",
+        "13-PostInvocation.json",
+        "14-Stop.json"
+      ]
+    },
+    {
+      "scenario": "a reopen (agy --conversation)",
+      "files": [
+        "15-PreInvocation.json",
+        "16-PreToolUse.json",
+        "17-PostToolUse.json",
+        "18-PreToolUse.json",
+        "19-PostToolUse.json",
+        "20-PostInvocation.json",
+        "21-PreInvocation.json",
+        "22-PreToolUse.json",
+        "23-PostToolUse.json",
+        "24-PostInvocation.json",
+        "25-PreInvocation.json",
+        "26-PreToolUse.json",
+        "27-PostToolUse.json",
+        "28-PostInvocation.json",
+        "29-PreInvocation.json",
+        "30-PreToolUse.json",
+        "31-PostToolUse.json",
+        "32-PostInvocation.json",
+        "33-PreInvocation.json",
+        "34-PostInvocation.json",
+        "35-Stop.json"
+      ]
+    }
+  ]
+}
