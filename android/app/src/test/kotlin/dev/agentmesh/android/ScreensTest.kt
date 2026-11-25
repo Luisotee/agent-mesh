@@ -44,6 +44,8 @@ private object Silent : MeshApi {
     override suspend fun listMessages(runId: String, afterId: String): dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse = error("unused")
     override suspend fun sendMessage(to: String, type: dev.agentmesh.gen.agentmesh.v1.MessageType, body: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
     override suspend fun approveAgent(agent: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
+    override suspend fun openTerminal(agent: String): String = error("unused")
+    override fun connectTerminal(path: String): dev.agentmesh.android.net.TerminalSocket = error("unused")
     override suspend fun listSettings(prefix: String) = emptyList<dev.agentmesh.gen.agentmesh.v1.Setting>()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value) = error("unused")
     override suspend fun resetSetting(key: String) = error("unused")

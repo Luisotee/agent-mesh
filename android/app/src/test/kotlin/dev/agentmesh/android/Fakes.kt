@@ -2,7 +2,19 @@ package dev.agentmesh.android
 
 import com.google.protobuf.Value
 import dev.agentmesh.android.net.ApiException
+import com.google.protobuf.ByteString
 import dev.agentmesh.android.net.MeshApi
+import dev.agentmesh.android.net.TermEvent
+import dev.agentmesh.android.net.TerminalSocket
+import dev.agentmesh.gen.agentmesh.term.v1.AttachMode
+import dev.agentmesh.gen.agentmesh.term.v1.Attached
+import dev.agentmesh.gen.agentmesh.term.v1.Exited
+import dev.agentmesh.gen.agentmesh.term.v1.Output
+import dev.agentmesh.gen.agentmesh.term.v1.ReplayDone
+import dev.agentmesh.gen.agentmesh.term.v1.Screen
+import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import dev.agentmesh.gen.agentmesh.v1.Cursor
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
 import dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse
@@ -57,7 +69,48 @@ class RecordingApi : MeshApi {
         return message("approved-${approved.size}", from = "me", to = agent, type = MessageType.MESSAGE_TYPE_ANSWER, body = "approved", at = 90_000L + approved.size)
     }
 
+    /** Terminal streams the next attaches get, in order; each attach also asks for a ticket first. */
+    val sockets = ArrayDeque<FakeSocket>()
+    val tickets = mutableListOf<String>()
+    var terminalError: ApiException? = null
+
+    override suspend fun openTerminal(agent: String): String {
+        terminalError?.let { throw it }
+        tickets += agent
+        return "/v1/term/$agent?ticket=t${tickets.size}"
+    }
+
+    override fun connectTerminal(path: String): TerminalSocket = sockets.removeFirstOrNull() ?: FakeSocket()
+
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
+}
+
+/** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */
+class FakeSocket : TerminalSocket {
+    private val channel = Channel<TermEvent>(Channel.UNLIMITED)
+    val sent = mutableListOf<TermFrame>()
+    var closed = false
+    override val events: ReceiveChannel<TermEvent> get() = channel
+    override fun send(frame: TermFrame): Boolean { sent += frame; return true }
+    override fun close() { closed = true; channel.close() }
+
+    fun host(f: TermFrame) { channel.trySend(TermEvent.Frame(f)) }
+    fun close(code: Int, reason: String = "") { channel.trySend(TermEvent.Closed(code, reason)); channel.close() }
+    fun fail(e: Throwable) { channel.trySend(TermEvent.Failed(e)); channel.close() }
+}
+
+object Frames {
+    fun attached(mode: AttachMode, epoch: Long = 1, offset: Long = 0, cols: Int = 40, rows: Int = 10, reanchored: Boolean = false) =
+        TermFrame.newBuilder().setAttached(Attached.newBuilder().setMode(mode).setEpoch(epoch).setOffset(offset).setCols(cols).setRows(rows).setReanchored(reanchored)).build()
+
+    fun screen(text: String, epoch: Long = 1, offset: Long = text.length.toLong()) =
+        TermFrame.newBuilder().setScreen(Screen.newBuilder().setEpoch(epoch).setOffset(offset).setData(ByteString.copyFromUtf8(text))).build()
+
+    fun output(text: String, offset: Long, epoch: Long = 1) =
+        TermFrame.newBuilder().setOutput(Output.newBuilder().setEpoch(epoch).setOffset(offset).setData(ByteString.copyFromUtf8(text))).build()
+
+    fun replayDone(offset: Long = 0) = TermFrame.newBuilder().setReplayDone(ReplayDone.newBuilder().setOffset(offset)).build()
+    fun exited(code: Int = 0, signal: Int = 0) = TermFrame.newBuilder().setExited(Exited.newBuilder().setExitCode(code).setSignal(signal)).build()
 }

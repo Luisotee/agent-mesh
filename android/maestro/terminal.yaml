@@ -1,0 +1,14 @@
+# Opens an agent's terminal (read only) and checks it attaches. Needs add-host.yaml done first and a live agent; pass
+# its name and some text its screen shows.
+#   maestro test -e AGENT=shop-api-fix -e TEXT="fake claude" android/maestro/terminal.yaml
+appId: dev.agentmesh.android.debug
+---
+- launchApp
+- tapOn: "Test host"
+- tapOn: "${AGENT}"
+- tapOn: "Terminal"
+- assertVisible: "Read only"
+- assertVisible:
+    text: "Live"
+    timeout: 20000
+- assertVisible: ".*Terminal: .*${TEXT}.*"

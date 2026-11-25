@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -141,6 +142,12 @@ class HostRuntime(
     }
 
     // ── What the user does: each is an action of the registry, and its stored message joins the state at once ──
+
+    /** The client once the connection is ready (a terminal attaches only to a host that answered). */
+    suspend fun awaitApi(): MeshApi {
+        _state.first { it.conn is ConnState.Ready }
+        return live()
+    }
 
     private fun live(): MeshApi = current ?: throw IllegalStateException("Not connected to the host")
 

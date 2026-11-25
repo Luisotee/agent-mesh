@@ -37,7 +37,7 @@ import dev.agentmesh.gen.agentmesh.v1.Run
 import java.text.DateFormat
 import java.util.Date
 
-/** One agent: its overview and its conversation (the terminal joins them in the next part). */
+/** One agent: its overview, its conversation, and its terminal (read only). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initialTab: Tab = Tab.Overview) {
@@ -45,7 +45,7 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val agent = state.agents[agentId]
     val run = agent?.let { state.runs[it.runId] }
-    var tab by rememberSaveable { mutableStateOf(if (initialTab == Tab.Terminal) Tab.Overview else initialTab) }
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
     // Looking at an agent answers its notification.
     LaunchedEffect(agentId) { container.notifier.cancel(runtime.hostId, agentId) }
     Scaffold(topBar = {
@@ -66,11 +66,16 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
                     Text(roleLabel(agent.role), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            TabRow(selectedTabIndex = if (tab == Tab.Messages) 1 else 0) {
-                androidx.compose.material3.Tab(selected = tab == Tab.Overview, onClick = { tab = Tab.Overview }, text = { Text("Overview") })
-                androidx.compose.material3.Tab(selected = tab == Tab.Messages, onClick = { tab = Tab.Messages }, text = { Text("Messages") })
+            TabRow(selectedTabIndex = tab.ordinal) {
+                Tab.entries.forEach { t ->
+                    androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name) })
+                }
             }
-            if (tab == Tab.Messages) MessagesTab(runtime, agentId, Modifier.fillMaxSize()) else Overview(agent, run, state.clockSkewMs)
+            when (tab) {
+                Tab.Overview -> Overview(agent, run, state.clockSkewMs)
+                Tab.Messages -> MessagesTab(runtime, agentId, Modifier.fillMaxSize())
+                Tab.Terminal -> TerminalTab(runtime, agentId, Modifier.fillMaxSize())
+            }
         }
     }
 }
