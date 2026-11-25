@@ -9,7 +9,7 @@ import javax.net.ssl.X509TrustManager
 /**
  * One way to reach a host (docs/apps.md, "Reaching a host"). A host keeps a list of routes and the app tries them
  * in order. [Direct] is an address meshd (or something in front of it, such as `tailscale serve`) answers on;
- * [Relay] is the user's own relay, which the connections work fills in (see [RouteConnector]).
+ * [Relay] is the user's own relay (`mesh-relay`), reached over its raw TCP endpoint (see [RelaySocketFactory]).
  */
 @Serializable
 sealed interface Route {
@@ -19,11 +19,14 @@ sealed interface Route {
 
     /**
      * The relay's raw TCP endpoint ([relayTcp], `host:port`), the host's id there, the relay client token and the
-     * daemon certificate's fingerprint, all from the pairing code (docs/relay.md on the relay branch: the app
-     * sends `MESH1 <hostId> <token>`, reads `OK`, then runs pinned TLS on the same socket).
+     * daemon certificate's fingerprint, all from the pairing code (docs/relay.md: the app sends
+     * `MESH1 <hostId> <token>`, reads `OK`, then runs pinned TLS on the same socket).
      */
     @Serializable
-    data class Relay(val relayTcp: String, val hostId: String, val relayClientToken: String, val pinSha256: String) : Route
+    data class Relay(val relayTcp: String, val hostId: String, val relayClientToken: String, val pinSha256: String) : Route {
+        /** The client token lets anyone open a stream to the host at the relay: it stays out of logs and error messages. */
+        override fun toString() = "Relay(relayTcp=$relayTcp, hostId=$hostId, relayClientToken=…, pinSha256=$pinSha256)"
+    }
 }
 
 /** Fingerprints are compared as lowercase hex without separators, however they were written (`AB:CD`, `abcd`). */

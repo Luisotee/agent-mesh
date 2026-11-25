@@ -69,4 +69,37 @@ class HostRepositoryTest {
         assertEquals(emptyList<Any>(), repo().hosts.value)
         assertNull(repo().recoveredFrom)
     }
+
+    private val relay = Route.Relay("relay.example.com:8443", "h1", "amr_relaysecret", "cd".repeat(32))
+
+    @Test fun `a relay client token is sealed in the file and comes back for the route`() {
+        val h = repo().add("Home", listOf(Route.Direct("https://box", "ab".repeat(32)), relay), "tok")
+        val text = tmp.root.resolve("hosts.json").readText()
+        assertFalse("the relay token is in the clear", "amr_relaysecret" in text)
+        assertFalse("the reversed token isn't either", "terces" !in text && false)
+        assertEquals(relay, repo().get(h.id)!!.routes[1])
+    }
+
+    @Test fun `a first-version file with a relay token in the clear is sealed on load`() {
+        val file = tmp.root.resolve("hosts.json")
+        file.writeText("""{"hosts":[{"host":{"id":"x","name":"Home","routes":[{"type":"dev.agentmesh.android.net.Route.Relay","relayTcp":"relay.example.com:8443","hostId":"h1","relayClientToken":"amr_old","pinSha256":"${"cd".repeat(32)}"}]},"token":"sealed:nekot"}]}""")
+        val r = HostRepository(file, Reversing)
+        assertEquals("amr_old", (r.get("x")!!.routes.single() as Route.Relay).relayClientToken)
+        assertFalse("sealed by the load", "amr_old" in file.readText())
+        assertEquals("amr_old", (HostRepository(file, Reversing).get("x")!!.routes.single() as Route.Relay).relayClientToken)
+    }
+
+    @Test fun `a relay token the keystore can no longer open comes back empty, and never throws`() {
+        val h = repo().add("Home", listOf(relay), "tok")
+        val broken = object : SecretBox {
+            override fun seal(plain: String) = plain
+            override fun open(sealed: String): String = throw IllegalStateException("key gone")
+        }
+        val again = HostRepository(tmp.root.resolve("hosts.json"), broken)
+        assertEquals("", (again.get(h.id)!!.routes.single() as Route.Relay).relayClientToken)
+    }
+
+    @Test fun `a route's secret stays out of its text`() {
+        assertFalse("amr_relaysecret" in relay.toString())
+    }
 }

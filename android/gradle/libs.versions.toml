@@ -11,6 +11,8 @@ serialization = "1.13.0"
 connect = "0.10.0"
 protobuf = "4.36.2"
 markdown = "0.46.0"
+camerax = "1.7.0"
+zxing = "3.5.4"
 junit = "4.13.2"
 robolectric = "4.18.1"
 
@@ -40,6 +42,11 @@ connect-okhttp = { module = "com.connectrpc:connect-kotlin-okhttp", version.ref 
 connect-javalite = { module = "com.connectrpc:connect-kotlin-google-javalite-ext", version.ref = "connect" }
 connect-plugin = { module = "com.connectrpc:protoc-gen-connect-kotlin", version.ref = "connect" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+camerax-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
+camerax-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+camerax-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+camerax-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 markdown-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }

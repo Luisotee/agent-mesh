@@ -164,11 +164,13 @@ class HostConnection(
     private fun failed(gen: Int, e: Throwable) {
         if (gen != generation.get()) return
         generation.incrementAndGet()
-        val message = e.message ?: e.javaClass.simpleName
+        val message = describeFailure(e)
         when {
             e is ConfigError -> stopWith(ConnState.Reason.Config, message)
             e is Incompatible -> stopWith(ConnState.Reason.Incompatible, message)
             e is ApiException && e.refusedToken -> stopWith(ConnState.Reason.Auth, message)
+            // The relay no longer accepts this device's token (the relay's secret changed, or the pairing was undone): retrying won't help.
+            relayRefusal(e)?.code == "auth" -> stopWith(ConnState.Reason.Auth, "$message. Pair with the host again.")
             e is ApiException && e.code == Code.FAILED_PRECONDITION ->
                 // From Hello this is a protocol mismatch ("upgrade the client").
                 stopWith(if (Regex("protocol", RegexOption.IGNORE_CASE).containsMatchIn(message)) ConnState.Reason.Incompatible else ConnState.Reason.Config, message)
