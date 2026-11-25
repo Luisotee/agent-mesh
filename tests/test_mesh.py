@@ -11743,3 +11743,36 @@ def test_a_reopened_worker_still_yields_to_another_runs_live_agent_of_its_name(m
     assert "repo-fix-typo" in mesh.claimed_names(skip=(run, "repo-fix-typo"))
     other_run(mesh, "mthird", "repo-lead", "w8:p8")
     assert "repo-lead" not in mesh.claimed_names(skip=("mthird", "repo-lead"))
+
+
+def test_herdr_targets_keeps_the_recorded_pane_when_it_cant_be_told_gone(mesh, fake, run):
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", error="timeout")  # herdr didn't answer: not "agent_not_found"
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["w2:p5"]
+
+
+def test_the_watchs_screen_reads_follow_the_agent_not_a_stolen_name(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5"}})  # its own pane is live
+    fake.screen("repo-fix-typo", "THEIRS: a human's draft")
+    fake.screen("w2:p5", "OURS: Do you want to proceed?")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert "OURS" in watch.with_tail("alert", False, entry)
+    assert "THEIRS" not in watch.with_tail("alert", False, entry)
+    assert len(fake.called("agent", "get", "repo-fix-typo")) == 1  # asked once for the polls' reads
+    assert [c[2] for c in fake.called("agent", "read")] == ["w2:p5", "w2:p5"]
+
+
+def test_claudes_auto_continue_is_read_from_its_own_pane(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5"}})
+    fake.screen("repo-fix-typo", "Continuing shortly")
+    fake.screen("w2:p5", "")
+    entry = {**mesh.load_run(run)["agents"]["repo-fix-typo"], "kind": "claude"}
+    assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is False
+    fake.screen("w2:p5", "Continuing shortly")  # its own pane says it
+    assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is True
