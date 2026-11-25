@@ -109,6 +109,10 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await page.getByRole('button', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
+  // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.
+  expect(await panel.getByRole('tab', { name: 'terminal' }).getAttribute('aria-selected')).toBe('true')
+  await panel.getByRole('tabpanel', { name: 'terminal' }).waitFor({ state: 'visible' })
+  expect(await panel.getByRole('tabpanel', { name: 'overview' }).count()).toBe(0)
   const status = panel.getByTestId('terminal-status')
   const screen = panel.locator('.xterm-rows')
   await expect.poll(() => status.innerText(), { timeout: 20_000 }).toBe('Live')

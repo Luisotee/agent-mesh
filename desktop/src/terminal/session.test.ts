@@ -254,6 +254,20 @@ describe('TerminalSession', () => {
     expect(t.sockets).toHaveLength(1)
   })
 
+  it('ends when the terminal host shuts down, and does not reconnect', async () => {
+    const t = setup()
+    t.session.start()
+    await flush()
+    const s = t.sockets[0]!
+    s.open()
+    t.attach(s)
+    done(s)
+    s.drop(4002, 'shutdown')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(t.last()).toEqual({ kind: 'closed', message: 'the terminal host shut down' })
+    expect(t.sockets).toHaveLength(1)
+  })
+
   it('stops on a bad request, and on a ticket the host refuses; retries when the daemon is just down', async () => {
     const bad = setup()
     bad.session.start()

@@ -7,6 +7,7 @@ import { AttachMode, TermFrameSchema, type Attached } from '../gen/agentmesh/ter
 /** The WebSocket close codes of the terminal stream (daemon/internal/termhost/ws.go). */
 export const CLOSE_EXITED = 4000
 export const CLOSE_SLOW = 4001
+export const CLOSE_SHUTDOWN = 4002
 export const CLOSE_BAD_REQUEST = 4003
 
 export type TermState =
@@ -55,8 +56,9 @@ const realTimers = {
  *    wrote (epoch and offset), and clears the screen if the host had to repaint instead;
  *  - input is dropped until the replay is done and `Ready` is sent, so what a replayed query makes the terminal
  *    answer never reaches the program;
- *  - a client dropped for being slow (4001) reattaches at once; any other close backs off; an exit or a refusal
- *    ends the session;
+ *  - a client dropped for being slow (4001) reattaches at once; any other close backs off; an exit, a refusal
+ *    or the terminal host shutting down (4002: its programs go with it, so there is nothing to reattach to) ends the
+ *    session;
  *  - a late event of an old socket is ignored (generation fences).
  */
 export class TerminalSession {
@@ -237,6 +239,10 @@ export class TerminalSession {
     }
     if (code === CLOSE_BAD_REQUEST) {
       this.close(reason || 'the host refused the stream')
+      return
+    }
+    if (code === CLOSE_SHUTDOWN) {
+      this.close('the terminal host shut down')
       return
     }
     if (code === CLOSE_SLOW) {

@@ -35,7 +35,7 @@ export function termStatus(s: TermState): string {
  * An agent's terminal: xterm.js on the terminal stream. The session (src/terminal/session.ts) speaks the protocol;
  * this wires it to xterm, sizes the terminal to its box, and adds search and links.
  */
-export function TerminalView({ host, agentId, active }: { host: HostRuntime; agentId: string; active: boolean }) {
+export function TerminalView({ host, agentId, active, panelId, tabId }: { host: HostRuntime; agentId: string; active: boolean; panelId: string; tabId: string }) {
   const box = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal>(null)
   const search = useRef<SearchAddon>(null)
@@ -110,7 +110,7 @@ export function TerminalView({ host, agentId, active }: { host: HostRuntime; age
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <div id={panelId} role="tabpanel" aria-labelledby={tabId} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div className="flex items-center gap-2 text-xs">
         <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}</span>
         <span className="flex-1" />

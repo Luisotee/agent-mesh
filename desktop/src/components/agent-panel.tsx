@@ -57,9 +57,11 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
           {(['overview', 'terminal'] as const).map((t) => (
             <button
               key={t}
+              id={`${agent.id}-tab-${t}`}
               type="button"
               role="tab"
               aria-selected={shown === t}
+              aria-controls={`${agent.id}-panel-${t}`}
               onClick={() => setTab(t)}
               className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             >
@@ -68,7 +70,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-5" hidden={shown !== 'overview'}>
+      <div id={`${agent.id}-panel-overview`} role="tabpanel" aria-labelledby={`${agent.id}-tab-overview`} className="flex flex-col gap-5" hidden={shown !== 'overview'}>
         <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
@@ -79,7 +81,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
         </dl>
         <SendForm host={host} agent={agent} />
       </div>
-      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} />}
+      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} panelId={`${agent.id}-panel-terminal`} tabId={`${agent.id}-tab-terminal`} />}
     </article>
   )
 }
