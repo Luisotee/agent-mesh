@@ -68,6 +68,15 @@ class TermScreenTest {
         assertEquals("line 13", s.visibleText().lines().last())
     }
 
+    @Test fun `with the history full, a reader still stays on the lines being read`() {
+        val s = screen(rows = 3)
+        s.feed((1..2100).joinToString("\r\n") { "line $it" })
+        s.scrollBack = 2
+        val before = s.visibleText().lines().first()
+        s.feed("\r\nmore 1\r\nmore 2\r\nmore 3")
+        assertEquals(before, s.visibleText().lines().first())
+    }
+
     @Test fun `terminal queries are not answered`() {
         // Device attributes, cursor position and a window report: the emulator would reply; a viewer must not.
         val s = screen()

@@ -42,6 +42,20 @@ fun terminalColor(value: Int, emu: TerminalEmulator, theme: TerminalColors): Col
     }
 }
 
+/** Paints and cell metrics for one text size, made once (a draw per output frame must not allocate them). */
+private class TermPaints(val px: Float) {
+    val regular = paintOf(px)
+    val bold = paintOf(px, bold = true)
+    val cell = cellAt(px)
+    val chars = CharArray(2)
+}
+
+/**
+ * How far to move the rows up so the bottom of the screen (the cursor, the prompt) is in view when the host's
+ * terminal is taller than the canvas: the top rows are cut instead. 0 when it all fits.
+ */
+fun bottomShift(heightPx: Float, rows: Int, cellH: Float): Float = min(0f, heightPx - rows * cellH)
+
 private fun paintOf(sizePx: Float, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     typeface = if (bold) Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) else Typeface.MONOSPACE
     textSize = sizePx
@@ -75,6 +89,7 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
     var dragPx by remember { mutableFloatStateOf(0f) }
     // The size last drawn (what a pinch scales) and its pixels per sp: kept outside the state, written while drawing.
     val drawn = remember { floatArrayOf(READABLE_SP, 1f) }
+    val paints = remember { arrayOfNulls<TermPaints>(1) }
     // Reading the version makes the drawing depend on it: the view redraws when the screen changed.
     val version = screen.version
     // For TalkBack: the last lines on screen. Computed here, from the version, so the semantics change with the screen.
@@ -102,7 +117,9 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
         val pxPerSp = density * fontScale
         val sp = if (userSp > 0f) userSp else fitWidthSp(size.width, emu.mColumns, pxPerSp)
         drawn[0] = sp; drawn[1] = pxPerSp
-        drawTerminal(emu, screen, theme, sp * pxPerSp, panX, emu.mColumns, emu.mRows)
+        val px = sp * pxPerSp
+        val p = paints[0]?.takeIf { it.px == px } ?: TermPaints(px).also { paints[0] = it }
+        drawTerminal(emu, screen, theme, p, panX, emu.mColumns, emu.mRows)
     }
 }
 
@@ -112,10 +129,11 @@ fun fitWidthSp(widthPx: Float, cols: Int, pxPerSp: Float): Float {
     return (widthPx / (cols.coerceAtLeast(1) * unit) / pxPerSp).coerceIn(READABLE_SP, MAX_SP)
 }
 
-private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, theme: TerminalColors, px: Float, panX: Float, cols: Int, rows: Int) {
-    val cell = cellAt(px)
-    val regular = paintOf(px)
-    val bold = paintOf(px, bold = true)
+private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, theme: TerminalColors, paints: TermPaints, panX: Float, cols: Int, rows: Int) {
+    val cell = paints.cell
+    val regular = paints.regular
+    val bold = paints.bold
+    val shift = bottomShift(size.height, rows, cell.h)
     val buf = emu.screen
     val top = -screen.scrollBack
     val canvas = drawContext.canvas.nativeCanvas
@@ -123,8 +141,8 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
     val x0 = panX.coerceIn(-maxPan, 0f)
     drawRect(theme.background)
     for (r in 0 until rows) {
-        val y = r * cell.h
-        if (y > size.height) break
+        val y = r * cell.h + shift
+        if (y + cell.h < 0f) continue
         val row = top + r
         if (row < -buf.activeTranscriptRows || row >= rows) continue
         val line = buf.allocateFullLineIfNecessary(buf.externalToInternalRow(row))
@@ -156,7 +174,8 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
             if (chars > 0 && cp != ' '.code && fx and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE == 0) {
                 val p = if (boldFx) bold else regular
                 p.color = fg.toArgb()
-                canvas.drawText(String(Character.toChars(cp)), x, y + cell.baseline, p)
+                val n = Character.toChars(cp, paints.chars, 0)
+                canvas.drawText(paints.chars, 0, n, x, y + cell.baseline, p)
             }
             if (fx and TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE != 0) drawRect(fg, topLeft = androidx.compose.ui.geometry.Offset(x, y + cell.h - 2f), size = androidx.compose.ui.geometry.Size(cell.w * w, 2f))
             if (fx and TextStyle.CHARACTER_ATTRIBUTE_STRIKETHROUGH != 0) drawRect(fg, topLeft = androidx.compose.ui.geometry.Offset(x, y + cell.h / 2), size = androidx.compose.ui.geometry.Size(cell.w * w, 2f))
@@ -166,7 +185,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
     }
     if (screen.scrollBack == 0 && emu.shouldCursorBeVisible()) {
         val cx = x0 + emu.cursorCol * cell.w
-        val cy = emu.cursorRow * cell.h
+        val cy = emu.cursorRow * cell.h + shift
         drawRect(theme.cursor.copy(alpha = 0.55f), topLeft = androidx.compose.ui.geometry.Offset(cx, cy), size = androidx.compose.ui.geometry.Size(cell.w, cell.h))
     }
 }

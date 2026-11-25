@@ -66,9 +66,10 @@ class TermScreen {
     /** Output bytes. While the user reads older lines, the view stays on them as new ones push the screen up. */
     fun write(data: ByteArray) {
         val emu = emulator ?: return
-        val before = emu.screen.activeTranscriptRows
+        emu.clearScrollCounter()
         emu.append(data, data.size)
-        if (scrollBack > 0) scrollBack = (scrollBack + emu.screen.activeTranscriptRows - before).coerceIn(0, emu.screen.activeTranscriptRows)
+        // Lines scrolled off the top, counted even once the history is full and its oldest lines are dropped.
+        if (scrollBack > 0) scrollBack = (scrollBack + emu.scrollCounter).coerceIn(0, emu.screen.activeTranscriptRows)
         version++
     }
 

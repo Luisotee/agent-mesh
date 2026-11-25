@@ -119,6 +119,54 @@ class TermClientTest {
         assertEquals("new screen", r.screen.visibleText())
     }
 
+    @Test fun `a host that keeps asking for an immediate reattach gets the growing wait, not a tight loop`() = runTest {
+        val r = Rig(this)
+        val socks = (1..6).map { r.socket() }
+        r.client.start(); runCurrent()
+        socks[0].close(CloseCode.SLOW, "slow"); runCurrent()
+        assertEquals("the first one is at once", 2, r.api.tickets.size)
+        socks[1].close(CloseCode.SLOW, "slow"); runCurrent()
+        assertEquals("then it waits", 2, r.api.tickets.size)
+        advanceTimeBy(501); runCurrent()
+        assertEquals(3, r.api.tickets.size)
+        socks[2].close(CloseCode.SLOW, "slow"); runCurrent(); advanceTimeBy(600); runCurrent()
+        assertEquals("the wait doubled", 3, r.api.tickets.size)
+        advanceTimeBy(500); runCurrent()
+        assertEquals(4, r.api.tickets.size)
+    }
+
+    @Test fun `a refused upgrade is retried with a fresh ticket, but a refused token is final`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent()
+        val s2 = r.socket()
+        s.fail(ApiException(Code.UNAUTHENTICATED, "the host refused the terminal ticket")); runCurrent()
+        assertTrue(r.client.state.value is TermState.Reconnecting)
+        advanceTimeBy(501); runCurrent()
+        assertEquals(2, r.api.tickets.size); assertEquals(1, s2.sent.size)
+
+        val r2 = Rig(this)
+        r2.api.terminalError = ApiException(Code.UNAUTHENTICATED, "bad token")
+        r2.client.start(); runCurrent()
+        assertEquals(TermState.Failed("bad token"), r2.client.state.value)
+    }
+
+    @Test fun `a repaint asked for is kept until the host answers, across a drop`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent(); first(s)
+        val s2 = r.socket(); val s3 = r.socket()
+        s.host(Frames.output("x", 5, epoch = 2)); runCurrent() // somebody resized: repaint asked
+        assertEquals(AttachMode.ATTACH_MODE_REPAINT, s2.sent.single().attach.mode)
+        s2.fail(java.io.IOException("dropped before Attached")); runCurrent(); advanceTimeBy(501); runCurrent()
+        assertEquals("still a repaint, not an exact reattach with the old epoch", AttachMode.ATTACH_MODE_REPAINT, s3.sent.single().attach.mode)
+    }
+
+    @Test fun `an exit close without the exit frame says only that it ended`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent(); first(s)
+        s.close(CloseCode.EXITED, "exited"); runCurrent()
+        assertEquals(TermState.Ended, r.client.state.value)
+    }
+
     @Test fun `an exit ends it with the last screen and no more attaches`() = runTest {
         val r = Rig(this); val s = r.socket()
         r.client.start(); runCurrent(); first(s)

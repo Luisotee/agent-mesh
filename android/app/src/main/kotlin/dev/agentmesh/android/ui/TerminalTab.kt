@@ -29,6 +29,7 @@ fun termSentence(s: TermState): String = when (s) {
     TermState.Attaching -> "Attaching…"
     TermState.Live -> "Live"
     is TermState.Reconnecting -> "Reconnecting (${s.attempt}): ${s.why}"
+    TermState.Ended -> "The agent's process ended"
     is TermState.Exited -> if (s.signal != 0) "The agent's process was stopped (signal ${s.signal})" else if (s.exitCode == 0) "The agent's process ended" else "The agent's process exited with code ${s.exitCode}"
     is TermState.Failed -> s.message
 }

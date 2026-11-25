@@ -21,6 +21,9 @@ sealed interface TermState {
     data object Live : TermState
     data class Reconnecting(val attempt: Int, val why: String) : TermState
 
+    /** The host closed the stream because the process ended, with no word on how: this is its last screen. */
+    data object Ended : TermState
+
     /** The agent's process ended; this is its last screen. */
     data class Exited(val exitCode: Int, val signal: Int) : TermState
 
@@ -81,9 +84,10 @@ class TermClient(
 
     private suspend fun loop() {
         var attempt = 0
+        var streak = 0
         while (true) {
             val outcome = try {
-                session { attempt = 0 }
+                session { attempt = 0; streak = 0 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: ApiException) {
@@ -97,7 +101,9 @@ class TermClient(
             when (outcome) {
                 is Outcome.Done -> return
                 is Outcome.Failed -> { _state.value = TermState.Failed(outcome.message); return }
-                Outcome.Now -> {}
+                // Reattach at once the first time; a host that keeps asking for it (slow, epoch, gap) without a
+                // replay ever finishing gets the growing wait, so it is never a tight loop.
+                Outcome.Now -> if (++streak > 1) delay(min(maxMs.toDouble(), baseMs * Math.pow(2.0, (streak - 2).toDouble())).toLong())
                 is Outcome.Retry -> {
                     val wait = min(maxMs.toDouble(), baseMs * Math.pow(2.0, attempt.toDouble())).toLong()
                     attempt++
@@ -125,17 +131,17 @@ class TermClient(
                 .setMode(if (repaint || !haveScreen) AttachMode.ATTACH_MODE_REPAINT else AttachMode.ATTACH_MODE_EXACT)
                 .setEpoch(epoch).setOffset(offset) // size 0: ours to ask nothing of
             sock.send(TermFrame.newBuilder().setAttach(attach).build())
-            repaint = false
             for (ev in sock.events) {
                 when (ev) {
                     is TermEvent.Frame -> handle(ev.frame, onLive)?.let { return it }
                     is TermEvent.Closed -> return when (ev.code) {
-                        CloseCode.EXITED -> Outcome.Done.also { if (_state.value !is TermState.Exited) _state.value = TermState.Exited(0, 0) }
+                        CloseCode.EXITED -> Outcome.Done.also { if (_state.value !is TermState.Exited) _state.value = TermState.Ended }
                         CloseCode.SLOW -> Outcome.Now
                         CloseCode.BAD_REQUEST -> Outcome.Failed(ev.reason.ifEmpty { "the host refused the stream" })
                         else -> Outcome.Retry(ev.reason.ifEmpty { "the host closed the stream" })
                     }
-                    is TermEvent.Failed -> throw ev.cause
+                    // A refused upgrade can be a ticket that expired on a slow link: that is a retry with a fresh one, not the end.
+                    is TermEvent.Failed -> throw if (ev.cause is ApiException) java.io.IOException(ev.cause.message ?: "the host refused the ticket") else ev.cause
                 }
             }
             return Outcome.Retry("the stream ended")
@@ -154,6 +160,7 @@ class TermClient(
                 if (fresh) screen.reset(a.cols.toInt(), a.rows.toInt())
                 else if (screen.cols != a.cols.toInt() || screen.rows != a.rows.toInt()) screen.reset(a.cols.toInt(), a.rows.toInt())
                 haveScreen = true
+                repaint = false // the host answered: what we hold now is what it sent
                 epoch = a.epoch
                 offset = a.offset
                 _state.value = TermState.Attaching

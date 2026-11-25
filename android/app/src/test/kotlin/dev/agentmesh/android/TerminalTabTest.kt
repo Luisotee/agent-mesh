@@ -89,7 +89,13 @@ class TerminalTabTest {
         compose.onNodeWithTag("terminal-state").assertIsDisplayed()
     }
 
+    @Test fun `a terminal taller than the canvas keeps its bottom in view`() {
+        assertEquals(0f, dev.agentmesh.android.ui.bottomShift(900f, 30, 20f))
+        assertEquals(-300f, dev.agentmesh.android.ui.bottomShift(900f, 60, 20f))
+    }
+
     @Test fun `state sentences are plain`() {
+        assertEquals("The agent's process ended", termSentence(TermState.Ended))
         assertEquals("Live", termSentence(TermState.Live))
         assertEquals("Reconnecting (2): reset", termSentence(TermState.Reconnecting(2, "reset")))
         assertEquals("The agent's process exited with code 3", termSentence(TermState.Exited(3, 0)))
