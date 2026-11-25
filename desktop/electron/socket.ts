@@ -41,9 +41,9 @@ export function openSocket(host: StoredHost | undefined, p: unknown, emit: (e: S
     close() {
       closeRequested = true
       done = true
-      ws?.close()
-      // A socket that never connected has nothing to close cleanly.
+      // A socket still connecting has nothing to close cleanly: drop the handshake.
       if (ws?.readyState === WebSocket.CONNECTING) ws.terminate()
+      else ws?.close()
     },
   }
   if (!host) {

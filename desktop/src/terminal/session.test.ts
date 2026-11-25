@@ -168,6 +168,24 @@ describe('TerminalSession', () => {
     expect(t.last()).toEqual({ kind: 'live', input: true })
   })
 
+  it('keeps going when the epoch moves in the middle of the stream (a resize), offsets being continuous', async () => {
+    const t = setup()
+    t.session.start()
+    await flush()
+    const a = t.sockets[0]!
+    a.open()
+    t.attach(a)
+    done(a)
+    out(a, 0n, 'ab', 1n)
+    out(a, 2n, 'cd', 2n)
+    expect(t.written).toEqual(['ab', 'cd'])
+    expect(a.closed).toBe(false)
+    a.drop(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    t.sockets[1]!.open()
+    expect(t.sockets[1]!.sent[0]!.frame).toMatchObject({ value: { mode: AttachMode.EXACT, epoch: 2n, offset: 4n } })
+  })
+
   it('clears the screen when the host had to repaint instead of replaying exactly', async () => {
     const t = setup()
     t.session.start()

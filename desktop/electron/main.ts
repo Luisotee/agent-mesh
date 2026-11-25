@@ -58,11 +58,17 @@ function wire(): void {
   ipcMain.on('socket:open', (e, id: unknown, hostId: unknown, p: unknown) => {
     if (typeof id !== 'string' || typeof hostId !== 'string') return
     const key = `${e.sender.id}:${id}`
+    let finished = false
     const emit = (ev: SocketEvent) => {
       if (!e.sender.isDestroyed()) e.sender.send('socket:event', id, ev)
-      if (ev.type === 'close' || ev.type === 'error') sockets.delete(key)
+      if (ev.type === 'close' || ev.type === 'error') {
+        finished = true
+        sockets.delete(key)
+      }
     }
-    sockets.set(key, openSocket(hosts.get(hostId), p, emit))
+    const sock = openSocket(hosts.get(hostId), p, emit)
+    // A refusal on the spot has finished before it returns: nothing to keep.
+    if (!finished) sockets.set(key, sock)
   })
   ipcMain.on('socket:send', (e, id: unknown, data: unknown) => {
     if (typeof id === 'string' && data instanceof Uint8Array) sockets.get(`${e.sender.id}:${id}`)?.send(data)

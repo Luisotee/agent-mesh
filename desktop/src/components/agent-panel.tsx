@@ -38,6 +38,8 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
     ['Id', agent.id],
   ]
   const hasTerminal = canTerminal && !!agent.terminalId
+  // Without a terminal there are no tabs to leave the terminal tab by: show the overview.
+  const shown = hasTerminal ? tab : 'overview'
   return (
     <article aria-label={agent.name} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
       <header className="flex items-start gap-3">
@@ -57,16 +59,16 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
               key={t}
               type="button"
               role="tab"
-              aria-selected={tab === t}
+              aria-selected={shown === t}
               onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] capitalize ${tab === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             >
               {t}
             </button>
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-5" hidden={tab !== 'overview'}>
+      <div className="flex flex-col gap-5" hidden={shown !== 'overview'}>
         <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
@@ -77,7 +79,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
         </dl>
         <SendForm host={host} agent={agent} />
       </div>
-      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={tab === 'terminal'} />}
+      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} />}
     </article>
   )
 }
