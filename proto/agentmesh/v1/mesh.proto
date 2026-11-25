@@ -111,6 +111,51 @@ service MeshService {
       summary: "Stop an agent"
     };
   }
+  // Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+  // conversation without the planning deny list. Only its parent or a device, and only when its newest report
+  // since its last task or answer is a plan.
+  rpc ApproveAgent(ApproveAgentRequest) returns (ApproveAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "approve"
+      summary: "Approve an agent's plan and move it to its execution tier"
+    };
+  }
+
+  // Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+  // its own conversation. A move asked for mid-turn runs at its next IDLE.
+  rpc SwitchAgent(SwitchAgentRequest) returns (SwitchAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "switch"
+      summary: "Move an agent to another model, keeping its conversation"
+    };
+  }
+
+  // Reopen a stopped agent's conversation, with a new task or as it was.
+  rpc ResumeAgent(ResumeAgentRequest) returns (ResumeAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "resume"
+      summary: "Resume a stopped agent's conversation"
+    };
+  }
+
 
   // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
@@ -295,12 +340,23 @@ message SpawnAgentRequest {
   AgentRole role = 5;
   // The CLI adapter, such as "claude".
   string kind = 6;
+  // A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+  // default model.
   string model = 7;
+  // Overrides the tier's effort (or, with a named model, defaults to high).
   string effort = 8;
   // The branch or commit to start the worktree from; empty means the repo's HEAD.
   string base = 9;
   // The first message, sent as a task once the agent is ready.
   string task = 10;
+  // The tier (`tiers.<kind>.<tier>`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+  // first model of its chain at its effort.
+  string tier = 11;
+  // The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+  // its execution tier.
+  bool plan = 12;
+  // The execution tier, when known before the plan is read; ApproveAgent may name another.
+  string exec_tier = 13;
 }
 
 message SpawnAgentResponse {
@@ -464,4 +520,64 @@ message ResetSettingRequest {
 
 message ResetSettingResponse {
   Setting setting = 1;
+}
+
+message ApproveAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+  // The execution tier; without it, the one preset at spawn. Or a model (and effort) named instead.
+  string tier = 3;
+  string model = 4;
+  string effort = 5;
+  // Execute on the planning model; only the deny list is lifted (still a reopen, for a Claude planner).
+  bool keep_model = 6;
+  // Added to the "approved" answer.
+  string body = 7;
+  // Why this tier, recorded on the reopen.
+  string why = 8;
+}
+
+message ApproveAgentResponse {
+  Agent agent = 1;
+  Message message = 2;
+  // The reopen this asked for; unset when nothing changed (the same model and effort, no deny list).
+  Reopen reopen = 3;
+}
+
+message SwitchAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+  // One of: a tier, a model, an effort alone (the same model: Claude keeps its cache), or next.
+  string tier = 3;
+  string model = 4;
+  string effort = 5;
+  // The next model of its phase's tier chain: its model hit a quota.
+  bool next = 6;
+  string why = 7;
+}
+
+message SwitchAgentResponse {
+  Agent agent = 1;
+  Message message = 2;
+  Reopen reopen = 3;
+}
+
+message ResumeAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+  // A task to resume it for; empty brings it back as it was.
+  string task = 3;
+  // The task has a plan phase (it plans under the deny list, on tier: given, else the tier it had).
+  bool plan = 4;
+  string tier = 5;
+  string model = 6;
+  string effort = 7;
+  string why = 8;
+}
+
+message ResumeAgentResponse {
+  Agent agent = 1;
+  // The task, when one was given.
+  Message message = 2;
+  Reopen reopen = 3;
 }
