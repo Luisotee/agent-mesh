@@ -17,6 +17,8 @@ type State struct {
 	SessionID    string
 	LastActivity time.Time
 	ExitCode     int32
+	// BeforeCompact is the state a compaction interrupted, restored when the compacted session starts.
+	BeforeCompact v1.AgentState
 }
 
 // Start is a freshly launched agent's state.
@@ -27,7 +29,7 @@ func Start(now time.Time) State {
 // Of reads the reducer's state out of an agent record.
 func Of(a *v1.Agent) State {
 	s := State{State: a.State, NeedsInput: a.NeedsInput, Detail: a.StateDetail, SessionID: a.SessionId,
-		ExitCode: a.ExitCode}
+		ExitCode: a.ExitCode, BeforeCompact: a.StateBeforeCompact}
 	if a.LastActivity != nil {
 		s.LastActivity = a.LastActivity.AsTime()
 	}
@@ -51,23 +53,32 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 		// A fresh session (a start or a /clear) waits for a prompt. A compaction or a resume says nothing of the
 		// turn: it may come mid-turn, and the agent is not idle then. A launch's own resume starts from STARTING.
 		switch src := k.SessionStarted.Source; {
+		case src == "compact" && s.BeforeCompact != v1.AgentState_AGENT_STATE_UNSPECIFIED:
+			// The compaction ended: back to what it interrupted (idle between turns, working mid-turn).
+			s.State, s.Detail = s.BeforeCompact, ""
 		case src != "compact" && src != "resume", s.State == v1.AgentState_AGENT_STATE_STARTING:
 			s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
+		}
+		if src := k.SessionStarted.Source; src != "resume" {
+			s.BeforeCompact = v1.AgentState_AGENT_STATE_UNSPECIFIED
 		}
 		if k.SessionStarted.SessionId != "" {
 			s.SessionID = k.SessionStarted.SessionId
 		}
 	case *adapterv1.AgentEvent_TurnStarted:
-		s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_WORKING, 0, ""
+		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_WORKING, 0, "", v1.AgentState_AGENT_STATE_UNSPECIFIED
 	case *adapterv1.AgentEvent_Activity:
 		// A tool ran: the turn goes on, and a prompt it waited on was answered.
-		s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_WORKING, 0, k.Activity.Detail
+		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_WORKING, 0, k.Activity.Detail, v1.AgentState_AGENT_STATE_UNSPECIFIED
 	case *adapterv1.AgentEvent_NeedsInput:
 		s.State, s.Detail = v1.AgentState_AGENT_STATE_NEEDS_INPUT, k.NeedsInput.Reason
 		s.NeedsInput++
 	case *adapterv1.AgentEvent_TurnEnded:
-		s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
+		s.State, s.NeedsInput, s.Detail, s.BeforeCompact = v1.AgentState_AGENT_STATE_IDLE, 0, "", v1.AgentState_AGENT_STATE_UNSPECIFIED
 	case *adapterv1.AgentEvent_Compacting:
+		if s.BeforeCompact == v1.AgentState_AGENT_STATE_UNSPECIFIED {
+			s.BeforeCompact = s.State
+		}
 		s.State, s.Detail = v1.AgentState_AGENT_STATE_WORKING, "compacting"
 	case *adapterv1.AgentEvent_SessionEnded:
 		// The process may go on (a /clear starts the next session); only its exit ends the agent.

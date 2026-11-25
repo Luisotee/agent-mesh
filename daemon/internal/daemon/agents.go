@@ -373,8 +373,8 @@ func (d *Daemon) drainSpool(ctx context.Context) {
 			d.log.Warn("dropped a hook that failed every time", "agent", a.Name, "event", req.EventName, "err", cause)
 			d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 				_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_HookDecodeFailed{
-					HookDecodeFailed: &v1.HookDecodeFailed{Error: fmt.Sprintf("dropped a %s hook after %d failed attempts: %v",
-						req.EventName, hook.MaxAttempts, cause)}}})
+					HookDecodeFailed: &v1.HookDecodeFailed{Error: fmt.Sprintf("dropped a %s hook after %d failed attempts over %s: %v",
+						req.EventName, hook.MaxAttempts, hook.MaxAge, cause)}}})
 				return err
 			})
 		})
@@ -408,6 +408,7 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 		s = reducer.Reduce(s, ev)
 	}
 	a.State, a.NeedsInput, a.StateDetail, a.SessionId, a.ExitCode = s.State, s.NeedsInput, s.Detail, s.SessionID, s.ExitCode
+	a.StateBeforeCompact = s.BeforeCompact
 	if !s.LastActivity.IsZero() {
 		a.LastActivity = timestamppb.New(s.LastActivity)
 	}
@@ -882,19 +883,33 @@ func (d *Daemon) typeLine(ctx context.Context, terminalID, line string) error {
 		return err
 	}
 	time.Sleep(d.rt.cfg.DeliveryDelay)
-	// The text is in the input box: if Enter fails, try again, and if it can't be sent, take the text back out
-	// (Ctrl-U) so the retry doesn't type the line a second time.
+	// The text is in the input box. If Enter did not get through (the host was unreachable or didn't answer in
+	// time: the write didn't happen), try again, and when it still can't be sent take the text back out (Ctrl-U)
+	// so the retry doesn't type the line a second time. Any other error leaves it unknown whether the Enter went
+	// in: stop, and send nothing more.
 	var err error
 	for try := 0; try < 3; try++ {
 		if _, err = d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
 			Data: []byte("\r")})); err == nil {
 			return nil
 		}
+		if !writeDidNotHappen(err) {
+			return err
+		}
 		time.Sleep(d.rt.cfg.DeliveryDelay)
 	}
 	d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
 		Data: []byte("\x15")}))
 	return err
+}
+
+// writeDidNotHappen reports whether a failed terminal write certainly did not reach the terminal.
+func writeDidNotHappen(err error) bool {
+	switch connect.CodeOf(err) {
+	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeCanceled:
+		return true
+	}
+	return false
 }
 
 // Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
