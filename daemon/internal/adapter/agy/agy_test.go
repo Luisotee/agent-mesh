@@ -351,3 +351,63 @@ func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 		t.Errorf("another session's Stop reported: %q", got)
 	}
 }
+
+func TestHooksJSONPreToolUseFailOpenForWritersAndScopedFailClosedForDeny(t *testing.T) {
+	// Without deny rules: PreToolUse matches "*" and exits 0 silently even when meshctl is missing, exits non-zero,
+	// or prints non-JSON.
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad-meshctl")
+	if err := os.WriteFile(bad, []byte("#!/bin/sh\necho 'not json!'\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hang := filepath.Join(dir, "hang-meshctl")
+	if err := os.WriteFile(hang, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, bin := range []string{bad, filepath.Join(dir, "missing-meshctl"), hang} {
+		b, err := HooksJSON("a1", []string{bin, "hook", "agy"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec map[string]hooksSpec
+		if err := json.Unmarshal(b, &spec); err != nil {
+			t.Fatal(err)
+		}
+		pre := spec["agent-mesh"].PreToolUse
+		if len(pre) != 1 || pre[0].Matcher != "*" || pre[0].Hooks[0].Timeout != HookTimeout {
+			t.Fatalf("unexpected writer PreToolUse: %+v", pre)
+		}
+		c := exec.Command("sh", "-c", pre[0].Hooks[0].Command)
+		c.Env = []string{"PATH=/usr/bin:/bin", "AGENT_MESH_AGENT=a1"}
+		out, err := c.CombinedOutput()
+		if err != nil || len(out) != 0 {
+			t.Errorf("%s: err=%v out=%q, want exit 0 with empty output", bin, err, out)
+		}
+	}
+
+	// With deny rules: PreToolUse matcher covers every edit tool and run_command, never read_file.
+	b, err := HooksJSON("a1", []string{bad, "hook", "agy"}, true, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]hooksSpec
+	if err := json.Unmarshal(b, &spec); err != nil {
+		t.Fatal(err)
+	}
+	pre := spec["agent-mesh"].PreToolUse
+	if len(pre) != 1 || pre[0].Hooks[0].Timeout != HookTimeout {
+		t.Fatalf("unexpected deny PreToolUse: %+v", pre)
+	}
+	matcher := pre[0].Matcher
+	for tool := range editTools {
+		if !strings.Contains(matcher, tool) {
+			t.Errorf("matcher %q missing edit tool %q", matcher, tool)
+		}
+	}
+	if !strings.Contains(matcher, "run_command") {
+		t.Errorf("matcher %q missing run_command", matcher)
+	}
+	if strings.Contains(matcher, "read_file") || matcher == "*" {
+		t.Errorf("matcher %q should only match denied tools", matcher)
+	}
+}

@@ -255,11 +255,13 @@ func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testin
 		name     string
 		role     v1.AgentRole
 		forkBase bool
+		sameKey  bool
 		repoRan  bool
 	}{
-		{"reviewer", v1.AgentRole_AGENT_ROLE_REVIEWER, false, false},
-		{"worker", v1.AgentRole_AGENT_ROLE_WORKER, false, true},
-		{"worker on a fork's head", v1.AgentRole_AGENT_ROLE_WORKER, true, false},
+		{"reviewer", v1.AgentRole_AGENT_ROLE_REVIEWER, false, false, false},
+		{"worker", v1.AgentRole_AGENT_ROLE_WORKER, false, false, true},
+		{"worker sharing agent-mesh key", v1.AgentRole_AGENT_ROLE_WORKER, false, true, true},
+		{"worker on a fork's head", v1.AgentRole_AGENT_ROLE_WORKER, true, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := startReopen(t)
@@ -271,7 +273,11 @@ func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testin
 			if err := os.MkdirAll(filepath.Join(repo, ".agents"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			own := `{"repo":{"PreInvocation":[{"type":"command","command":"touch ` + sentinel + `"}]}}`
+			key := "repo"
+			if c.sameKey {
+				key = "agent-mesh"
+			}
+			own := `{"` + key + `":{"PreInvocation":[{"type":"command","command":"touch ` + sentinel + `"}]}}`
 			if err := os.WriteFile(filepath.Join(repo, ".agents", "hooks.json"), []byte(own), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -621,4 +627,75 @@ func TestAgyStartupWaitsForQuietOutput(t *testing.T) {
 		t.Fatalf("an agent still drawing is %s", a.State)
 	}
 	w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// Even when agy emits its first output past 30 * ReadySettle from terminal start, it must wait for quiet output
+// after first output instead of becoming IDLE on the first poll while still drawing.
+func TestAgyStartupAfterLongDelayStillWaitsForQuietOutput(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.ReadySettle = 100 * time.Millisecond
+		c.SpoolEvery = 50 * time.Millisecond
+		c.Env["FAKEAGY_START_DELAY"] = "3.3s" // past 30 * ReadySettle (3.0s)
+		c.Env["FAKEAGY_DRAW_FOR"] = "700ms"
+	})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "slow-draw", Kind: "agy", Tier: "light",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3550 * time.Millisecond) // first output arrived at 3.3s; still drawing until ~4.0s
+	if a := w.agent(sp.Msg.Agent.Id); a.State != v1.AgentState_AGENT_STATE_STARTING {
+		t.Fatalf("slow-to-start agy marked %s while still drawing", a.State)
+	}
+	w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// A broken meshctl in PreToolUse never blocks a writer's tools, and for a planning/read-only agent only the
+// denied tools fail closed while read_file keeps working.
+func TestAgyPreToolUseFailureDoesNotBlockWritersOrAllowedReadTools(t *testing.T) {
+	broken := filepath.Join(t.TempDir(), "broken-meshctl")
+	script := `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "PreToolUse" ]; then
+    echo "not json"
+    exit 2
+  fi
+done
+exec ` + bins + `/meshctl "$@"
+`
+	if err := os.WriteFile(broken, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.Meshctl = broken })
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.agyRoot(t, run.Id)
+
+	// Writer (no deny rules): write_file and run_command still succeed despite broken PreToolUse.
+	writer := w.spawnUnder(t, asLead, "writer", &v1.SpawnAgentRequest{Kind: "agy"})
+	w.agyTurn(t, writer, "/edit")
+	if _, err := os.Stat(filepath.Join(writer.Worktree, "blocked.txt")); err != nil {
+		t.Fatalf("writer blocked.txt not written when PreToolUse failed: %v", err)
+	}
+	w.agyTurn(t, writer, "/push")
+	if !strings.Contains(w.screen(t, writer), "pushed") {
+		t.Fatalf("writer /push blocked when PreToolUse failed: %q", w.screen(t, writer))
+	}
+
+	// Planner (with deny rules): read_file still succeeds, while /edit and /push fail closed.
+	planner := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Kind: "agy", Plan: true, Tier: "strong"})
+	w.agyTurn(t, planner, "read please")
+	if !strings.Contains(w.screen(t, planner), "done: read please") {
+		t.Fatalf("planner read_file turn blocked when PreToolUse failed: %q", w.screen(t, planner))
+	}
+	w.agyTurn(t, planner, "/edit")
+	if _, err := os.Stat(filepath.Join(planner.Worktree, "blocked.txt")); err == nil {
+		t.Fatal("planner wrote blocked.txt when PreToolUse failed")
+	}
+	w.agyTurn(t, planner, "/push")
+	if !strings.Contains(w.screen(t, planner), "git push denied") {
+		t.Fatalf("planner /push was not denied when PreToolUse failed: %q", w.screen(t, planner))
+	}
 }
