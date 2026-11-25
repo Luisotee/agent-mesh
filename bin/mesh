@@ -145,6 +145,12 @@ SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopen
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
 RESET_RE = re.compile(r"Resets in ([\dhms]+)")
+# What agy logs when its backend refuses every attempt with no quota named (Run: attempt 1..8 failed, retrying in
+# ...s; then the final line): "agent executor error: generating and executing: RESOURCE_EXHAUSTED (code 429):
+# Resource has been exhausted (e.g. check quota)." That line only, not each retry. A rate limit or a gateway's
+# refusal, which /usage doesn't show: the model is held for AGY_RATE_HOLD (as OpenCode's 429s are).
+RATE_RE = re.compile(r"agent executor error:[^\n]*RESOURCE_EXHAUSTED \(code 429\)[^\n]*", re.IGNORECASE)
+AGY_RATE_HOLD = 30 * 60  # seconds an agy model counts as spent after a 429 with no quota named
 # Claude Code's usage-limit screens (Gas Town's patterns, from real panes), matched on the pane's last LIMIT_LINES
 # lines only, so a limit that has scrolled up doesn't count: "  ⎿  You've hit your limit · resets 7pm (America/…)",
 # or its options menu ("❯ 1. Stop and wait for limit to reset"). Each must start its line, after glyphs, numbers and
@@ -705,7 +711,9 @@ class AgyCli(Cli):
             return choose_agy_model(entry_chain(entry), effort, skip=models_tried(entry), force=True, fallback=False)
         except MeshError as exc:  # nowhere to move it: it waits on its own model
             spent = agy_at_reserve(entry["model"]) if entry.get("model") else None
-            raise NoModelLeft(str(exc), epoch(spent[1]) or None if spent else None) from exc
+            held = model_limit("agy", entry["model"]) if entry.get("model") else None
+            resets = [epoch(spent[1]) or None if spent else None, float(held["until"]) if held else None]
+            raise NoModelLeft(str(exc), max((r for r in resets if r), default=None)) from exc
 
     def resumed_model(self, entry: dict, model: str | None, effort: str) -> tuple[str, str]:
         if not model:
@@ -3156,6 +3164,9 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
             continue
         if model_id in skip:
             continue
+        if held := model_limit("agy", model_id):  # refused with a 429 meanwhile: /usage doesn't show it
+            notes.append(f"{model_id} was refused with a 429 (held until {hold_end(held)})")
+            continue
         quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None
         if quota is None or quota[0] > min_quota():  # at the reserve (MESH_QUOTA_STOP used) it counts as spent
             return model_id, notes
@@ -3320,6 +3331,8 @@ def agy_has_quota(tier: str, model: str | None = None) -> tuple[bool, str]:
     if not installed("agy"):
         return False, "agy isn't installed"
     if model:
+        if held := model_limit("agy", model):
+            return False, f"{model} was refused with a 429 (held until {hold_end(held)})"
         rows = agy_usage()
         names = listing_names(agy_model_listing()) if rows else {}
         quota = model_quota(model, names.get(model, ""), rows) if rows else None
@@ -4394,6 +4407,11 @@ def model_limit_record(kind: str, model: str) -> dict | None:
         return limit if isinstance(limit, dict) else None
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def hold_end(limit: dict) -> str:
+    """When a model hold (`model_limit`) ends, for a person."""
+    return datetime.fromtimestamp(float(limit["until"]), timezone.utc).strftime("%H:%M UTC")
 
 
 def model_limit(kind: str, model: str) -> dict | None:
@@ -6342,22 +6360,33 @@ def cmd_switch(args: argparse.Namespace) -> int:
     return held or (0 if delivered(delivery) else 2)
 
 
-def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
-    """(reset time or None, new offset): the reset time ("" if unknown) of a quota error agy logged after `offset`.
+def agy_log_hit(log: str | None, offset: int) -> tuple[str | None, str | None, int]:
+    """(kind, reset time or None, new offset) of what agy logged after `offset`: "quota" with the reset time ("" if
+    unknown) of a quota error (it wins when the chunk holds both), "rate" for a 429 that names no quota
+    (RATE_RE), else None.
 
     Reads only the new bytes. A log that is shorter than `offset` was truncated by a restarted agy: read it afresh.
     """
     if not log or not Path(log).exists():
-        return None, offset
+        return None, None, offset
     with open(log, "rb") as fh:
         size = fh.seek(0, os.SEEK_END)
         offset = 0 if size < offset else offset
         fh.seek(offset)
-        hit = QUOTA_RE.search(fh.read().decode(errors="replace"))
-    if not hit:
-        return None, size
-    reset = RESET_RE.search(hit.group(0))
-    return (reset.group(1) if reset else ""), size
+        text = fh.read().decode(errors="replace")
+    if hit := QUOTA_RE.search(text):
+        reset = RESET_RE.search(hit.group(0))
+        return "quota", (reset.group(1) if reset else ""), size
+    if RATE_RE.search(text):
+        return "rate", "", size
+    return None, None, size
+
+
+def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
+    """(reset time or None, new offset): the reset time ("" if unknown) of a quota error agy logged after `offset`
+    (agy_log_hit: a 429 with no quota named isn't one here)."""
+    kind, reset, offset = agy_log_hit(log, offset)
+    return (reset if kind == "quota" else None), offset
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
@@ -7936,8 +7965,10 @@ class Watch:
     def quota_event(self) -> tuple[int, str] | None:
         """A quota error agy logged since the last poll, or one the worker's CLI shows (Cli.quota_hit: OpenCode's
         limits), once per task."""
-        reset, self.log_offset = quota_hit(self.log, self.log_offset)
+        kind, reset, self.log_offset = agy_log_hit(self.log, self.log_offset)
         entry = agent_entry(load_run(self.run_id), self.name)
+        if kind == "rate":
+            return self.rate_event(entry)
         if reset is None and entry.get("kind") in CLIS:
             reset = cli(entry["kind"]).quota_hit(self, entry)
             if reset is not None:
@@ -7951,6 +7982,22 @@ class Watch:
         model = entry.get("model")
         return 7, (f"ALERT {self.name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
                    + f"; move it to the next model with `mesh switch {self.name}`")
+
+    def rate_event(self, entry: dict) -> tuple[int, str] | None:
+        """Exit 7 for a 429 agy answered with no quota named, once per task: the model is held for AGY_RATE_HOLD
+        (machine-wide: `mesh switch`, a spawn and `--reviewers auto` skip it meanwhile) and the root moves the
+        worker on."""
+        model = entry.get("model") or ""
+        events = read_log(self.run_id)
+        received = since_last_task(events, self.name)[0]
+        if model:
+            note_model_limit("agy", model, "RESOURCE_EXHAUSTED (code 429), no quota named", time.time() + AGY_RATE_HOLD)
+        if alerted(events, self.name, received, "quota"):
+            return None  # the root knows: `mesh switch` moves it, and its task re-arms this
+        record_alert(self.run_id, self.name, received, "quota")
+        return 7, (f"ALERT {self.name} was refused with a 429 on {model} (agy's RESOURCE_EXHAUSTED with no quota "
+                   f"named: a rate limit, which /usage doesn't show); mesh skips that model for "
+                   f"{AGY_RATE_HOLD // 60} min; move it to the next model with `mesh switch {self.name}`")
 
     def conversation(self, entry: dict) -> str | None:
         """Its session or conversation id: recorded, or looked up (at most once every SESSION_RETRY seconds)."""

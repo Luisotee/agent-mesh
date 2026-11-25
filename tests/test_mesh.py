@@ -4995,6 +4995,82 @@ def test_quota_hit_reads_only_new_bytes_and_ignores_plain_rate_limits(mesh, tmp_
     assert mesh.quota_hit(None, 7) == (None, 7)
 
 
+# What agy 1.5 logs when its backend refuses every attempt (run m46c2's #96 reviewer): eight retries, then the error.
+AGY_429_RETRY = ("I1119 13:00:27.234285    1525 run.go:317] Run: attempt 1 failed (RESOURCE_EXHAUSTED (code 429): "
+                 "Resource has been exhausted (e.g. check quota).), retrying in 4s\n")
+AGY_429_FINAL = ("E1119 13:02:53.581219    1525 errorreport.go:285] agent executor error: generating and executing: "
+                 "RESOURCE_EXHAUSTED (code 429): Resource has been exhausted (e.g. check quota).\n")
+
+
+def test_agy_log_hit_tells_a_429_with_no_quota_named_from_a_quota_hit(mesh, tmp_path):
+    log = tmp_path / "w.log"
+    log.write_text(AGY_429_RETRY * 8)
+    kind, reset, offset = mesh.agy_log_hit(str(log), 0)
+    assert (kind, reset) == (None, None)  # its retries alone are not the refusal
+    with open(log, "a") as fh:
+        fh.write(AGY_429_FINAL)
+    kind, reset, offset = mesh.agy_log_hit(str(log), offset)
+    assert (kind, reset) == ("rate", "") and mesh.quota_hit(str(log), 0)[0] is None  # not a quota hit
+    with open(log, "a") as fh:
+        fh.write(AGY_429_FINAL + "E2 errorreport.go:224] agent executor error: generating and executing: "
+                 "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h.\n")
+    assert mesh.agy_log_hit(str(log), offset)[:2] == ("quota", "2h")  # a quota line in the chunk wins
+    assert mesh.agy_log_hit(str(log), log.stat().st_size)[0] is None
+
+
+def test_watch_alerts_on_agys_429_with_no_quota_named_and_holds_the_model(mesh, fake, run, monkeypatch, capsys):
+    """Run m46c2 and mebd0: this screen gave exit 3 (idle, nudged) instead of 7, and `--reviewers auto` kept
+    picking agy, whose /usage said 100% left."""
+    log = planning_worker(mesh, run)
+    fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
+    polls = iter(range(10))
+
+    def sleep(_):
+        if next(polls) == 1:
+            with open(log, "a") as fh:
+                fh.write(AGY_429_RETRY * 8 + AGY_429_FINAL)
+
+    monkeypatch.setattr(mesh.time, "sleep", sleep)
+    assert mesh.main(["watch", "repo-fix-typo", "--run-id", run]) == 7
+    out = capsys.readouterr().out
+    assert "refused with a 429 on claude-opus-5-5-high" in out and "mesh switch repo-fix-typo" in out
+    held = mesh.model_limit("agy", "claude-opus-5-5-high")
+    assert held and abs(held["until"] - time.time() - mesh.AGY_RATE_HOLD) < 60
+    assert mesh.model_limit("agy", "gemini-4-argon-high") is None  # only the model that was refused
+
+
+def test_an_agy_model_refused_with_a_429_is_passed_over_until_its_hold_ends(mesh, monkeypatch):
+    with_quotas(mesh, monkeypatch)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    assert mesh.choose_agy_model(("opus", "sonnet"), "high")[0] == "claude-opus-5-5-high"
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() + 600)
+    model, notes = mesh.choose_agy_model(("opus", "sonnet"), "high")
+    assert model == "claude-sonnet-5-5-high" and "claude-opus-5-5-high was refused with a 429" in notes[0]
+    assert mesh.agy_has_quota("strong", "claude-opus-5-5-high")[0] is False
+    assert "refused with a 429" in mesh.agy_has_quota("strong", "claude-opus-5-5-high")[1]
+    mesh.note_model_limit("agy", "claude-sonnet-5-5-high", "429", time.time() + 600)
+    with pytest.raises(mesh.MeshError, match="refused with a 429"):
+        mesh.choose_agy_model(("opus", "sonnet"), "high", fallback=False)
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() - 1)  # a hold only lengthens: still held
+    assert mesh.model_limit("agy", "claude-opus-5-5-high")
+    mesh.write_atomic(mesh.model_limits_path(), "{}")  # its hold over
+    assert mesh.choose_agy_model(("opus", "sonnet"), "high")[0] == "claude-opus-5-5-high"
+
+
+def test_a_switch_with_every_agy_model_held_waits_for_the_holds_end(mesh, fake, run, monkeypatch, capsys):
+    planning_worker(mesh, run, model="gemini-4-argon-high")
+    with_quotas(mesh, monkeypatch)
+    entry = mesh.agent_entry(mesh.load_run(run), "repo-fix-typo")
+    until = time.time() + 1500
+    for model in ("gemini-4-argon-high", *(mesh.resolve_agy_model(f, "high") for f in mesh.entry_chain(entry))):
+        mesh.note_model_limit("agy", model, "429", until)
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["switched"] is False and "refused with a 429" in out["notes"][0]
+    assert abs(mesh.epoch(out["continue_at"]) - until - mesh.CONTINUE_GRACE) < 5  # at the hold's end
+
+
 def test_watch_follows_a_log_that_restarts_shorter(mesh, fake, run, monkeypatch, capsys):
     log = planning_worker(mesh, run)
     log.write_text("x" * 500 + "\n")
