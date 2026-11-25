@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, test, beforeAll, afterAll } from 'vitest'
+import { ActorClass } from '../src/gen/agentmesh/v1/actor_pb'
 import { AgentRole, MessageType } from '../src/gen/agentmesh/v1/types_pb'
 import { launchApp, type App } from './electron'
 import { buildBinaries, makeHost, until, type Host } from './harness'
@@ -189,4 +190,72 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   await report.getByRole('heading', { name: 'Result' }).waitFor()
   expect(await report.getByRole('listitem').count()).toBe(2)
   await page.screenshot({ path: path.join(shots, 'messages.png') })
+})
+
+test('settings are generated from the host, set from the app, and change live when an agent sets them', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const panel = page.getByRole('region', { name: 'Settings' })
+  await panel.getByLabel('Filter settings').fill('app.notify.sound')
+  const row = panel.locator('[data-setting="app.notify.sound"]')
+  const box = row.getByRole('checkbox', { name: 'Value of app.notify.sound' })
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await page.screenshot({ path: path.join(shots, 'settings.png') })
+
+  // Setting it in the app lands on the host, recorded with the device as who changed it.
+  await box.click() // a controlled box: it changes when the host's event says so
+  await expect.poll(() => box.isChecked()).toBe(false)
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'app.notify.sound' })).settings[0]?.isSet).toBe(true)
+  const set = (await host.client().listSettings({ prefix: 'app.notify.sound' })).settings[0]!
+  expect(set.value?.kind).toEqual({ case: 'boolValue', value: false })
+  expect(set.updatedBy?.class).toBe(ActorClass.DEVICE)
+
+  // The host refuses a value outside the schema, and the app says why.
+  await panel.getByLabel('Filter settings').fill('quota_stop')
+  const quota = panel.getByRole('spinbutton', { name: 'Value of quota_stop' })
+  await quota.fill('150')
+  await quota.blur()
+  await expect.poll(() => panel.getByRole('alert').innerText()).toContain('whole number 0 to 100')
+
+  // Someone else (an agent, another device) sets it: the open screen follows, no reload.
+  await host.client().setSetting({ key: 'quota_stop', value: { kind: { case: 'numberValue', value: 80 } } })
+  await expect.poll(() => quota.inputValue()).toBe('80')
+  await panel.getByRole('button', { name: 'Reset quota_stop' }).click()
+  await expect.poll(() => quota.inputValue()).toBe('90')
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'quota_stop' })).settings[0]?.isSet).toBe(false)
+
+  // And back: the sound is on again, as the default.
+  await panel.getByLabel('Filter settings').fill('app.notify.sound')
+  await row.getByRole('button', { name: 'Reset app.notify.sound' }).click()
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+})
+
+test('notifications follow the host\'s settings, history stays quiet, and the tray is told what waits', async () => {
+  const { page } = app
+  const log = () => readFileSync(app.shellLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+  const notices = () => log().filter((l) => l.type === 'notify').map((l) => `${l.title}`)
+  const asLead = host.client(host.agentToken(await agentId('repo-lead')))
+  const { agent: noisy } = await asLead.spawnAgent({ repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude' })
+  const asNoisy = host.client(host.agentToken(noisy!.id))
+
+  await asNoisy.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n- one thing' })
+  await expect.poll(notices, { timeout: 20_000 }).toContain('repo-noisy sent a plan')
+  const entry = log().find((l) => l.type === 'notify' && l.title === 'repo-noisy sent a plan')!
+  expect(entry).toMatchObject({ tab: 'messages', sound: true, body: 'Plan one thing' })
+  await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(1)
+
+  // A page reload replays nothing into notifications.
+  const before = notices().length
+  await page.reload()
+  await page.getByRole('region', { name: 'Waiting on you' }).waitFor({ timeout: 20_000 })
+  await new Promise((r) => setTimeout(r, 1000))
+  expect(notices()).toHaveLength(before)
+
+  // Take plans off the list of what notifies (through the host's settings): the next plan is silent, the tray still counts.
+  await host.client().setSetting({ key: 'app.notify.events', value: { kind: { case: 'listValue', value: { values: [{ kind: { case: 'stringValue', value: 'input' } }] } } } })
+  await asNoisy.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch?' })
+  await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(2)
+  expect(notices()).toHaveLength(before)
+  await host.client().resetSetting({ key: 'app.notify.events' })
 })

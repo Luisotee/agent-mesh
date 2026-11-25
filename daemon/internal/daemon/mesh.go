@@ -136,7 +136,7 @@ func (d *Daemon) Hello(ctx context.Context, req *connect.Request[v1.HelloRequest
 	return connect.NewResponse(&v1.HelloResponse{
 		DaemonId: d.daemonID, InstanceId: d.instanceID, StartedAt: tsOf(d.startedAt),
 		ProtocolVersion: ProtocolVersion, Version: Version, Capabilities: d.capabilities,
-		Actor: auth.ActorFrom(ctx),
+		Actor: auth.ActorFrom(ctx), ServerTime: tsOf(d.now()),
 	}), nil
 }
 

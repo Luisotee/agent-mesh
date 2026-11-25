@@ -44,6 +44,37 @@ export interface SocketHandle {
   close(): void
 }
 
+export type AgentTabId = 'overview' | 'messages' | 'terminal'
+
+/** A desktop notification the renderer asks main to show. A later one with the same tag replaces the earlier. */
+export interface NoticeWire {
+  tag: string
+  title: string
+  body: string
+  /** Play the system sound with it. */
+  sound: boolean
+  /** Where a click goes. */
+  hostId: string
+  agentId: string
+  tab: AgentTabId
+}
+
+export interface NoticeClick {
+  hostId: string
+  agentId: string
+  tab: AgentTabId
+}
+
+/** What only the main process can do for the app: notifications, the tray, what closing the window means. */
+export interface ShellApi {
+  notify(n: NoticeWire): void
+  /** How many things wait on the user, for the tray's icon and tooltip. */
+  setWaiting(count: number): void
+  configure(c: { closeToTray: boolean }): void
+  /** A click on a notification; returns how to stop listening. */
+  onNotificationClick(cb: (n: NoticeClick) => void): () => void
+}
+
 export interface DesktopApi {
   hosts: {
     list(): Promise<HostInfo[]>
@@ -58,6 +89,7 @@ export interface DesktopApi {
   openSocket(hostId: string, path: string, onEvent: (e: SocketEvent) => void): SocketHandle
   /** Open an http(s) link in the user's browser. */
   openExternal(url: string): void
+  shell: ShellApi
 }
 
 declare global {

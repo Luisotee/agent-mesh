@@ -44,6 +44,8 @@ export interface ConnOptions {
   /** Where to resume the event stream from; unset starts from a snapshot. */
   cursor(): Cursor | undefined
   onState(s: ConnState): void
+  /** Each answer to `Hello` (the first and every heartbeat): the host's clock reading is in it. */
+  onHello?(h: HelloResponse): void
   onFrame(f: Frame): void
   log(line: string): void
   timers?: Timers
@@ -131,6 +133,7 @@ export class HostConnection {
       return
     }
     if (gen !== this.gen) return
+    this.o.onHello?.(hello)
     this.o.log(`connected to ${hello.daemonId} (instance ${hello.instanceId}, ${hello.version})`)
     this.ready = true
     this.o.onState({ kind: 'ready', hello })
@@ -152,7 +155,9 @@ export class HostConnection {
     const own = new AbortController()
     const timeout = this.t.setTimeout(() => own.abort(new ConnectError('no answer to the heartbeat', Code.DeadlineExceeded)), this.helloTimeoutMs)
     try {
-      await this.o.client.hello({ client: 'agent-mesh-desktop', protocolVersion: PROTOCOL_VERSION }, { signal: own.signal })
+      // (Not `onHello?.(await …)`: an absent callback would skip evaluating the call.)
+      const hello = await this.o.client.hello({ client: 'agent-mesh-desktop', protocolVersion: PROTOCOL_VERSION }, { signal: own.signal })
+      this.o.onHello?.(hello)
     } catch (e) {
       this.t.clearTimeout(timeout)
       if (gen === this.gen) {

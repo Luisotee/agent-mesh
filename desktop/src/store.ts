@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Event, Message, Run } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
@@ -14,12 +14,16 @@ export interface HostState {
   conn: ConnState
   /** What the host last said about itself, kept while it is unreachable so the view doesn't change under the user. */
   daemon?: HelloResponse
+  /** How far the host's clock is ahead of ours, in ms (negative: behind), from its last `Hello`. */
+  clockSkewMs: number
   /** True once a snapshot or a resume arrived on the current connection. */
   synced: boolean
   runs: Record<string, Run>
   agents: Record<string, Agent>
   /** Every message seen: loaded with ListMessages, then added by events. */
   messages: Record<string, Message>
+  /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
+  settings: Record<string, Setting>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -27,7 +31,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -71,6 +75,13 @@ function applyEvent(s: HostState, e: Event): HostState {
     case 'messageDelivered': {
       const m = s.messages[p.value.messageId]
       return m ? { ...next, messages: { ...s.messages, [m.id]: { ...m, deliveredAt: e.time ?? m.deliveredAt } } } : next
+    }
+    case 'settingChanged': {
+      const cur = s.settings[p.value.key]
+      if (!cur) return next
+      // The event carries the effective value now; a reset means the default applies again.
+      const changed: Setting = { ...cur, value: p.value.value ?? (p.value.toDefault ? cur.default : cur.value), isSet: !p.value.toDefault, updatedBy: e.actor ?? cur.updatedBy, updatedAt: e.time ?? cur.updatedAt }
+      return { ...next, settings: { ...s.settings, [cur.key]: changed } }
     }
     case 'agentSpawned':
       if (p.value.agent) return { ...next, agents: { ...s.agents, [p.value.agent.id]: p.value.agent } }
@@ -116,6 +127,11 @@ export function mergeMessages(s: HostState, page: Message[]): Partial<HostState>
   return { messages }
 }
 
+/** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */
+export function setSettings(list: Setting[]): Partial<HostState> {
+  return { settings: Object.fromEntries(list.map((x) => [x.key, x])) }
+}
+
 export function createHostStore(): HostStore {
   return createStore<HostState>(() => emptyHost())
 }
@@ -126,6 +142,10 @@ export function storeSink(store: HostStore) {
     onState: (conn: ConnState) =>
       store.setState(() => (conn.kind === 'ready' ? { conn, daemon: conn.hello } : { conn, synced: false })),
     onFrame: (f: Frame) => store.setState((s) => applyFrame(s, f)),
+    onHello: (h: HelloResponse) => {
+      const t = h.serverTime
+      if (t) store.setState({ clockSkewMs: Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) - Date.now() })
+    },
     cursor: () => store.getState().cursor,
     log: (text: string) =>
       store.setState((s) => ({ log: [...s.log.slice(-(MAX_LOG - 1)), { at: Date.now(), text }] })),

@@ -26,6 +26,25 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	}
 }
 
+func TestTheAppRowsAreInTheTable(t *testing.T) {
+	s := Default()
+	got := s.Keys("app.")
+	want := []string{"app.notify.enabled", "app.notify.events", "app.notify.sound", "app.tray.close_to_tray"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("app rows %v, want %v", got, want)
+	}
+	if l, _ := s.Lookup("app.tray.close_to_tray"); l.Default != false {
+		t.Errorf("close to tray defaults to %v: a desktop without a tray would strand the window", l.Default)
+	}
+	l, _ := s.Lookup("app.notify.events")
+	if _, err := Check(l, []any{"plan", "failed"}); err != nil {
+		t.Error(err)
+	}
+	if _, err := Check(l, []any{"claude"}); err == nil {
+		t.Error("an event outside the choices was accepted")
+	}
+}
+
 func TestACheckNamesItsRule(t *testing.T) {
 	leaf := func(ty Type) Leaf { return Leaf{Key: "k", Type: ty} }
 	list := func(xs ...any) []any { return xs }

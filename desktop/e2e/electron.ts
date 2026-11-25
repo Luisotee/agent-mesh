@@ -6,6 +6,8 @@ import { chromium, type Browser, type Page } from 'playwright-core'
 const desktopDir = path.resolve(import.meta.dirname, '..')
 
 export interface App {
+  /** What the main process was asked to do for notifications and the tray (it shows no notification in a test). */
+  shellLog: string
   page: Page
   browser: Browser
   proc: ChildProcess
@@ -18,6 +20,7 @@ export interface App {
  */
 export async function launchApp(opts: { state: string; home: string }): Promise<App> {
   const userData = path.join(opts.home, 'userData')
+  const shellLog = path.join(opts.home, 'shell.log')
   mkdirSync(userData, { recursive: true })
   const electron = path.join(desktopDir, 'node_modules/.bin/electron')
   const proc = spawn(electron, ['.', '--no-sandbox', '--remote-debugging-port=0'], {
@@ -30,6 +33,7 @@ export async function launchApp(opts: { state: string; home: string }): Promise<
       XDG_DATA_HOME: path.join(opts.home, '.local/share'),
       AGENT_MESH_DESKTOP_STATE: opts.state,
       AGENT_MESH_DESKTOP_USERDATA: userData,
+      AGENT_MESH_DESKTOP_SHELL_LOG: shellLog,
       ELECTRON_ENABLE_LOGGING: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -54,6 +58,7 @@ export async function launchApp(opts: { state: string; home: string }): Promise<
   const page = context.pages()[0] ?? (await context.waitForEvent('page'))
   await page.waitForLoadState('domcontentloaded')
   return {
+    shellLog,
     page,
     browser,
     proc,

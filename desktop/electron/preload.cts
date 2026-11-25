@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { BridgeEvent, DesktopApi, SocketEvent } from '../shared/api.js'
+import type { BridgeEvent, DesktopApi, NoticeClick, SocketEvent } from '../shared/api.js'
 
 const listeners = new Map<string, (e: BridgeEvent) => void>()
 ipcRenderer.on('bridge:event', (_e, id: string, ev: BridgeEvent) => {
@@ -38,6 +38,16 @@ const api: DesktopApi = {
     }
   },
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
+  shell: {
+    notify: (n) => ipcRenderer.send('shell:notify', n),
+    setWaiting: (count) => ipcRenderer.send('shell:waiting', count),
+    configure: (c) => ipcRenderer.send('shell:configure', c),
+    onNotificationClick(cb) {
+      const handler = (_e: unknown, c: NoticeClick) => cb(c)
+      ipcRenderer.on('shell:click', handler)
+      return () => ipcRenderer.removeListener('shell:click', handler)
+    },
+  },
   request(hostId, req, onEvent) {
     const id = String(++next)
     listeners.set(id, onEvent)
