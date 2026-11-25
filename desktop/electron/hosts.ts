@@ -112,7 +112,8 @@ export class Hosts {
     const link = parsePairingLink(text)
     const id = link.route.hostId
     // Another add for this host may be mid-redeem: its token is spent by then, so this one must not spend its own.
-    if (this.pending.has(id) || this.list.some((h) => h.kind === 'paired' && h.route.hostId === id)) throw new Error('that host is already in the list')
+    if (this.pending.has(id)) throw new Error('this host is being paired right now: wait for that to finish')
+    if (this.list.some((h) => h.kind === 'paired' && h.route.hostId === id)) throw new Error('that host is already in the list')
     this.pending.add(id)
     let got: Redeemed
     try {

@@ -84,7 +84,7 @@ describe('Hosts', () => {
     }
     const h = new Hosts(tmp(), undefined, slow)
     const first = h.add({ name: 'a', kind: 'pair', link: link(), deviceName: '' })
-    await expect(h.add({ name: 'b', kind: 'pair', link: link('&x=1'), deviceName: '' })).rejects.toThrow(/already/)
+    await expect(h.add({ name: 'b', kind: 'pair', link: link('&x=1'), deviceName: '' })).rejects.toThrow(/being paired/)
     release()
     await first
     expect(log).toHaveLength(1)

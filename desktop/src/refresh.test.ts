@@ -56,7 +56,7 @@ describe('what waits on the user', () => {
     expect(client.listWaiting).not.toHaveBeenCalled()
   })
 
-  it('never shows a list that an event overtook: it asks again and shows that one', async () => {
+  it('shows a list that an event overtook, then asks again and shows that one', async () => {
     const { store, client, r } = setup()
     const first = gate<ReturnType<typeof create<typeof ListWaitingResponseSchema>>>()
     client.listWaiting.mockReturnValueOnce(first.p).mockResolvedValueOnce(create(ListWaitingResponseSchema, { waiting: [row('fresh')] }))
@@ -65,9 +65,27 @@ describe('what waits on the user', () => {
     // The answer lands while the first list is on its way; the first list still says the plan waits.
     r.event(sent(MessageType.ANSWER))
     first.resolve(create(ListWaitingResponseSchema, { waiting: [row('stale')] }))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['stale'])
     await vi.advanceTimersByTimeAsync(300)
     expect(client.listWaiting).toHaveBeenCalledTimes(2)
     expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['fresh'])
+  })
+
+  it('keeps up under events faster than the host answers: every list is shown, so the list never stays stale for the burst', async () => {
+    const { store, client, r } = setup()
+    let n = 0
+    client.listWaiting.mockImplementation(async () => {
+      const mine = ++n
+      await new Promise((res) => setTimeout(res, 300))
+      return create(ListWaitingResponseSchema, { waiting: [row(`list${mine}`)] })
+    })
+    r.synced()
+    for (let i = 0; i < 20; i++) {
+      r.event(sent(MessageType.PLAN))
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    expect(store.getState().waiting[0]?.agentId).toMatch(/^list\d+$/)
   })
 
   it('does not call back to back under a steady stream of events: one call per pause', async () => {

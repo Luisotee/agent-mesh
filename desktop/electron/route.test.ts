@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { BridgeEvent, SocketEvent } from '../shared/api'
 import { forward } from './bridge'
 import type { StoredHost } from './hosts'
-import { Dialer, fingerprintOf, isRoute, parsePairingLink, type Route } from './route'
+import { Dialer, dialerFor, fingerprintOf, isRoute, parsePairingLink, type Route } from './route'
 import { openSocket } from './socket'
 
 const FP = `sha256:${'ab'.repeat(32)}`
@@ -188,6 +188,33 @@ describe('a paired host over a direct address', () => {
     expect(connections).toBe(1)
     await Promise.all([request(host), request(host)])
     expect(connections).toBe(2)
+  })
+
+  it('retries once on a new connection when a kept-alive one turns out dead, and says unreachable when that fails too', async () => {
+    const h = await startHost()
+    let connections = 0
+    h.server.on('secureConnection', () => connections++)
+    const host = paired({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: h.port } })
+    expect((await request(host)).map((e) => e.type)).toEqual(['head', 'data', 'end'])
+    expect(connections).toBe(1)
+    // The far end dropped the idle socket without the agent hearing of it: the next write finds out.
+    const kill = () => {
+      const [idle] = Object.values(dialerFor(host, host.kind === 'paired' ? host.route : (undefined as never)).agent.freeSockets).flat() as net.Socket[]
+      expect(idle).toBeDefined()
+      idle!.write = function (this: net.Socket) {
+        this.destroy(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))
+        return false
+      } as never
+    }
+    kill()
+    expect((await request(host)).map((e) => e.type)).toEqual(['head', 'data', 'end'])
+    expect(connections).toBe(2)
+    expect(h.seen).toHaveLength(2) // the dead attempt never reached the host
+    // A host that is really gone: one retry, then the error, not a loop.
+    await new Promise<void>((r) => h.server.close(() => r()))
+    h.server.closeAllConnections()
+    const events = await request(host)
+    expect(events.at(-1)).toMatchObject({ type: 'error', code: 'unreachable' })
   })
 
   it('refuses a certificate that is not the pinned one, and sends nothing to it', async () => {

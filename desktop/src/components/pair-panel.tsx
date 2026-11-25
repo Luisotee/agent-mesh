@@ -68,13 +68,14 @@ export function PairPanel({ host }: { host: HostRuntime }) {
     }
   }, [host])
 
-  // A device can only be told to be this link's by the name the link was made with (the host keeps no link on a device),
-  // and the device may give its own. Without a match the link stays, with a note about the device that appeared.
+  // The host keeps no link on a device, so a new device is matched to this link by what is known: the name the link was
+  // made with (the device may give its own instead), or, with no name, the only device that appeared since. Anything
+  // else is left open: the link stays, and the note says who appeared, not whether the link was used.
   const fresh = made ? devices.filter((d) => !made.known.has(d.id)) : []
-  const paired = made?.name ? fresh.find((d) => d.name === made.name) : undefined
+  const paired = made?.name ? fresh.find((d) => d.name === made.name) : fresh.length === 1 ? fresh[0] : undefined
   const others = fresh.filter((d) => d !== paired)
-  const expired = useExpired(made?.res.expiresAt)
-
+  const skew = useHostState(host, (s) => s.clockSkewMs)
+  const expired = useExpired(made?.res.expiresAt, skew)
   async function create(e: React.FormEvent) {
     e.preventDefault()
     // The devices already paired are what tells a new one from them: wait for the list.
@@ -170,7 +171,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           )}
           {!paired && others.length > 0 && (
             <p role="note" className="text-xs text-muted-foreground">
-              {others.map((d) => d.name || d.id).join(', ')} paired meanwhile. If it was not through this link, the link still works once.
+              {others.map((d) => d.name || d.id).join(', ')} paired meanwhile, and it can't be told whether through this link. The link stays until it expires or you make another.
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
@@ -194,18 +195,18 @@ export function PairPanel({ host }: { host: HostRuntime }) {
   )
 }
 
-/** True once the host's clock says the link has stopped working (the host refuses it from then). */
-function useExpired(at?: { seconds: bigint }): boolean {
+/** True once the host's clock says the link has stopped working (the host refuses it from then); `skewMs` is the host's clock minus ours. */
+function useExpired(at: { seconds: bigint } | undefined, skewMs: number): boolean {
   const ms = at ? Number(at.seconds) * 1000 : undefined
   const [, tick] = useState(0)
   useEffect(() => {
     if (ms === undefined) return
-    const left = ms - Date.now()
+    const left = ms - (Date.now() + skewMs)
     if (left <= 0) return
     const t = setTimeout(() => tick((n) => n + 1), left)
     return () => clearTimeout(t)
-  }, [ms])
-  return ms !== undefined && Date.now() >= ms
+  }, [ms, skewMs])
+  return ms !== undefined && Date.now() + skewMs >= ms
 }
 
 /** When the link stops working, from the host's clock. */

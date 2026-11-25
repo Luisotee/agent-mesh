@@ -55,16 +55,68 @@ describe('PairPanel', () => {
     expect(within(screen.getByRole('list', { name: 'Paired devices' })).getByText('read-only')).toBeInTheDocument()
   })
 
-  it('keeps the link while a device that is not this link\'s appears, and says which', async () => {
+  const paired = (store: ReturnType<typeof fixture>['store'], seq: bigint, id: string, name: string) =>
+    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device(id, name) } } }) }))
+
+  it('with no name given, the one device that appears is the link\'s, whatever it calls itself', async () => {
     const { host, store, wrap } = fixture()
     render(wrap(<PairPanel host={host} />))
     await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
     expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
-    // A device paired some other way (meshctl pair): the link was made without a name, so it can't be told to be the link's.
-    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq: 1n, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device('d9', 'Phone') } } }) }))
-    expect(await screen.findByRole('note')).toHaveTextContent('Phone paired meanwhile')
+    paired(store, 1n, 'd9', 'Pixel 9')
+    expect(await screen.findByRole('status')).toHaveTextContent('Paired: Pixel 9')
+    expect(screen.queryByRole('img', { name: 'Pairing QR code' })).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
+  it('keeps the link when it can\'t be told which device used it, and says only who appeared', async () => {
+    const { host, store, wrap } = fixture()
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.type(await screen.findByLabelText('Name of the device'), 'Tablet')
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    // A name was given and this device has another (it named itself, or it paired some other way).
+    paired(store, 1n, 'd9', 'Phone')
+    const note = await screen.findByRole('note')
+    expect(note).toHaveTextContent('Phone paired meanwhile')
+    expect(note).not.toHaveTextContent('still works')
     expect(screen.getByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('with no name and two new devices, shows neither as the link\'s', async () => {
+    const { host, store, wrap } = fixture()
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    paired(store, 1n, 'd8', 'Phone')
+    paired(store, 2n, 'd9', 'Laptop')
+    expect(await screen.findByRole('note')).toHaveTextContent('Phone, Laptop paired meanwhile')
+    expect(screen.getByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('reads the link\'s expiry on the host\'s clock: a host ahead of this machine does not make a fresh link expired', async () => {
+    const { host, client, store, wrap } = fixture()
+    const skew = 3 * 3600_000
+    store.setState({ clockSkewMs: skew })
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { uri: URI, expiresAt: timestampFromMs(Date.now() + skew + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(screen.queryByText(/expired/)).toBeNull()
+  })
+
+  it('and a host behind this machine expires the link when its own clock says so, not at once', async () => {
+    const { host, client, store, wrap } = fixture()
+    const skew = -3600_000
+    store.setState({ clockSkewMs: skew })
+    // 1.5 s left on the host's clock; read on this machine's, the link would be an hour old already.
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { uri: URI, expiresAt: timestampFromMs(Date.now() + skew + 1500) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(await screen.findByRole('status', {}, { timeout: 3000 })).toHaveTextContent(/expired/)
   })
 
   it('swaps the link for "expired" when its time has passed, and a new link starts afresh', async () => {

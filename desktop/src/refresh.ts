@@ -11,7 +11,7 @@ import { setWaiting, type HostStore } from './store'
  * What waits on the user is the host's to say (`ListWaiting`), so it is listed again, after a short pause that
  * folds a burst of events into one call, whenever an event could change it: a plan, question or answer, an agent
  * starting, changing state, exiting or being retired, a run stopping. A list that was on its way while one of those
- * arrived is stale and is fetched again, never shown.
+ * arrived may be stale: it is shown, and fetched again after the pause.
  *
  * An agent that went quiet shows as `unknown` only when the host is asked (the state is derived from the time and
  * the terminal's output when read, never stored or sent as an event), so the agents are listed again every
@@ -55,9 +55,10 @@ export function hostRefresher(
       if (stopped) return
       waitingFailed = false
       complained = false
-      if (seen === waitingTouches) store.setState(setWaiting(res.waiting))
-      // Else an event overtook this list: it is not shown, and the call that event scheduled (or this one) asks again.
-      else schedule()
+      // Shown even if an event overtook it (a busy host answers slower than events come, and a list never shown would
+      // leave the old one up for as long as the burst lasts); the event scheduled a call, or this one does, to correct it.
+      store.setState(setWaiting(res.waiting))
+      if (seen !== waitingTouches) schedule()
     } catch (e) {
       // The list stays as it was; the next tick asks again.
       waitingFailed = true
