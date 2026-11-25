@@ -63,7 +63,8 @@ def test_any_other_edit_passes_silently(path):
 
 @pytest.mark.parametrize("payload", ["", "not json", "[]", "null", json.dumps({"tool_name": "Write"}),
                                      json.dumps({"tool_input": {"file_path": 7}}),
-                                     json.dumps({"tool_input": None, "cwd": None})])
+                                     json.dumps({"tool_input": None, "cwd": None}),
+                                     json.dumps({"tool_input": "x"}), json.dumps({"tool_input": ["a"]})])
 def test_a_payload_it_cant_read_passes_silently(payload):
     result = guard(payload)
     assert result.returncode == 0 and result.stdout == "" and result.stderr == ""
@@ -78,6 +79,15 @@ def test_the_project_settings_run_the_guard_on_every_editing_tool():
     reason = denial(guard(edit(str(ROOT / "daemon/gen/x.go")), command=f"cd / && {hook['command']}"))
     assert "buf generate" in reason
     assert guard(edit(str(ROOT / "daemon/x.go")), command=hook["command"]).stdout == ""
+    # A session whose project dir has no guard (a branch from before it) must not have every edit blocked.
+    missing = hook["command"].replace("$CLAUDE_PROJECT_DIR", "/nonexistent")
+    result = guard(edit(str(ROOT / "daemon/gen/x.go")), command=missing)
+    assert result.returncode == 0 and result.stdout == ""
+
+
+def test_the_generated_tray_icons_are_guarded_too():
+    assert "make-icons.mjs" in denial(guard(edit(str(ROOT / "desktop/electron/icons.ts"), "Write")))
+    assert guard(edit(str(ROOT / "desktop/electron/main.ts"))).stdout == ""
 
 
 def test_the_project_hooks_add_to_a_mesh_workers_hooks_and_leave_its_inbound_setting_alone(mesh, run, tmp_path):
