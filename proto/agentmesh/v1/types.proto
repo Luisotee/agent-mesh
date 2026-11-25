@@ -3,6 +3,7 @@ syntax = "proto3";
 package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 // RequestMeta comes with every write. A retried write with the same mutation id returns the first result
@@ -146,6 +147,7 @@ message Event {
     AgentExited agent_exited = 15;
     AgentAdopted agent_adopted = 16;
     HookDecodeFailed hook_decode_failed = 17;
+    SettingChanged setting_changed = 18;
   }
 }
 
@@ -188,4 +190,53 @@ message AgentAdopted {
 message HookDecodeFailed {
   string event_name = 1;
   string error = 2;
+}
+
+// A setting was set or reset. Global: it carries no run, and every subscriber gets it. The actor and mutation id
+// of the write are on the event.
+message SettingChanged {
+  string key = 1;
+  // The effective value now (the default after a reset), and what it was before.
+  google.protobuf.Value value = 2;
+  google.protobuf.Value previous = 3;
+  // True when the setting went back to its default.
+  bool to_default = 4;
+}
+
+// What a setting's value may be, enough for a client to draw its editor and validate before it sends.
+message SettingSchema {
+  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+  //   string      a non-empty string
+  //   strings     a list of strings
+  //   int         a whole number, 0 or more
+  //   percent     a whole number, 0 to 100
+  //   bool        true or false
+  //   seconds     a finite number, 0 or more
+  //   effort      one of the choices
+  //   chain       a non-empty list of model names, tried in order
+  //   slots       a list of slots, each a non-empty list of choices (agent kinds)
+  //   kinds       a list of choices (agent kinds)
+  //   mb_or_auto  "auto" or a whole number of MB, 0 or more
+  //   json        any JSON value
+  string type = 1;
+  string summary = 2;
+  // The values a dropdown offers: an effort's levels, the agent kinds a `kinds` or `slots` entry may name.
+  repeated string choices = 3;
+  // Read only when the daemon starts: a change takes effect at the next restart.
+  bool restart = 4;
+}
+
+// One setting: its effective value, what it falls back to, and who last set it.
+message Setting {
+  // A dotted path, such as "tiers.claude.mid.model".
+  string key = 1;
+  // The effective value: the override when is_set, else the default.
+  google.protobuf.Value value = 2;
+  google.protobuf.Value default = 3;
+  // True when a value was set; false when the built-in default applies.
+  bool is_set = 4;
+  SettingSchema schema = 5;
+  // When the override was set and by whom; unset while is_set is false.
+  google.protobuf.Timestamp updated_at = 6;
+  Actor updated_by = 7;
 }

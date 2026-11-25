@@ -5,6 +5,7 @@ package agentmesh.v1;
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/options.proto";
 import "agentmesh/v1/types.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 // MeshService is the host's action registry: every action the apps, the CLI and the agents can take. Each RPC
@@ -156,6 +157,49 @@ service MeshService {
       ]
       cli: "events"
       summary: "Follow the event log"
+    };
+  }
+
+  // The host's settings (the policy: tiers, reviewers, caps, …) with their defaults and schemas, every one whose
+  // key starts with the prefix. Agents read the policy they run under.
+  rpc ListSettings(ListSettingsRequest) returns (ListSettingsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "settings"
+      summary: "List settings"
+    };
+  }
+
+  // Set a setting. The value must fit its schema; a key no setting has is NotFound.
+  rpc SetSetting(SetSettingRequest) returns (SetSettingResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "set"
+      summary: "Set a setting"
+    };
+  }
+
+  // Put a setting back to its default.
+  rpc ResetSetting(ResetSettingRequest) returns (ResetSettingResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "unset"
+      summary: "Reset a setting to its default"
     };
   }
 
@@ -360,4 +404,32 @@ message OpenTerminalResponse {
   string ticket = 2;
   bool input = 3;
   google.protobuf.Timestamp expires_at = 4;
+}
+
+message ListSettingsRequest {
+  // Only settings whose key starts with this; empty lists every one.
+  string prefix = 1;
+}
+
+message ListSettingsResponse {
+  repeated Setting settings = 1;
+}
+
+message SetSettingRequest {
+  RequestMeta meta = 1;
+  string key = 2;
+  google.protobuf.Value value = 3;
+}
+
+message SetSettingResponse {
+  Setting setting = 1;
+}
+
+message ResetSettingRequest {
+  RequestMeta meta = 1;
+  string key = 2;
+}
+
+message ResetSettingResponse {
+  Setting setting = 1;
 }
