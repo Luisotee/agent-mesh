@@ -307,3 +307,67 @@ func TestMarkDeliveredKeepsAReadTimeSetSinceTheSnapshot(t *testing.T) {
 		t.Errorf("a read message turned unread: %v", unread)
 	}
 }
+
+// A database made by the first release (schema 1) opens on the current one: its rows are kept, the settings
+// table appears, and the first-release file is backed up.
+func TestAVersionOneDatabaseGainsTheSettingsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meshd.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateWith(db, path, clock, ms[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO meta (key, value) VALUES ('daemon_id', 'dOld')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, err := s.Read(context.Background()).Meta("daemon_id"); err != nil || v != "dOld" {
+		t.Errorf("kept row: %q, %v", v, err)
+	}
+	if recs, err := s.Read(context.Background()).Settings(); err != nil || len(recs) != 0 {
+		t.Errorf("settings on a migrated database: %v, %v", recs, err)
+	}
+	if matches, _ := filepath.Glob(path + ".bak-v1-*"); len(matches) != 1 {
+		t.Errorf("backups %v", matches)
+	}
+}
+
+func TestSettingsRoundTripAndReplace(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	by := &v1.Actor{Id: "dev1", Class: v1.ActorClass_ACTOR_CLASS_DEVICE}
+	put := func(key, value string) {
+		t.Helper()
+		if err := s.Write(ctx, by, "", func(tx *Tx) error { return tx.PutSetting(key, value) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("quota_stop", `75`)
+	put("tiers.claude.mid.model", `["sonnet","haiku"]`)
+	put("quota_stop", `60`)
+	rec, err := s.Read(ctx).Setting("quota_stop")
+	if err != nil || rec.Value != "60" || rec.UpdatedBy.GetId() != "dev1" || !rec.UpdatedAt.Equal(fixed) {
+		t.Fatalf("%+v, %v", rec, err)
+	}
+	all, err := s.Read(ctx).Settings()
+	if err != nil || len(all) != 2 || all[0].Key != "quota_stop" || all[1].Key != "tiers.claude.mid.model" {
+		t.Fatalf("%+v, %v", all, err)
+	}
+	if err := s.Write(ctx, by, "", func(tx *Tx) error { return tx.DeleteSetting("quota_stop") }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(ctx).Setting("quota_stop"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("after a delete: %v", err)
+	}
+}

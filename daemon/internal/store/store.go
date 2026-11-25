@@ -298,12 +298,13 @@ func (r Reader) LastSeq() (int64, error) {
 	return seq.Int64, err
 }
 
-// EventsAfter returns up to limit events numbered after seq, oldest first, of one run when runID is set.
+// EventsAfter returns up to limit events numbered after seq, oldest first, of one run when runID is set (and
+// the global ones, which have no run).
 func (r Reader) EventsAfter(seq int64, runID string, limit int) ([]*v1.Event, error) {
 	query := `SELECT data FROM events WHERE seq > ? ORDER BY seq LIMIT ?`
 	args := []any{seq, limit}
 	if runID != "" {
-		query = `SELECT data FROM events WHERE seq > ? AND run_id = ? ORDER BY seq LIMIT ?`
+		query = `SELECT data FROM events WHERE seq > ? AND (run_id = ? OR run_id = '') ORDER BY seq LIMIT ?`
 		args = []any{seq, runID, limit}
 	}
 	return scanAll(r, query, args, func() *v1.Event { return &v1.Event{} })
@@ -610,6 +611,77 @@ func (r Reader) Meta(key string) (string, error) {
 func (t *Tx) PutMeta(key, value string) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO meta (key, value) VALUES (?, ?)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}
+
+// ── settings ──
+
+// SettingRecord is one stored override: the JSON of its value, when it was set and by whom.
+type SettingRecord struct {
+	Key       string
+	Value     string
+	UpdatedAt time.Time
+	UpdatedBy *v1.Actor
+}
+
+func scanSetting(sc interface{ Scan(...any) error }) (SettingRecord, error) {
+	var rec SettingRecord
+	var at int64
+	var by []byte
+	if err := sc.Scan(&rec.Key, &rec.Value, &at, &by); err != nil {
+		return rec, err
+	}
+	rec.UpdatedAt = time.Unix(0, at)
+	rec.UpdatedBy = &v1.Actor{}
+	return rec, proto.Unmarshal(by, rec.UpdatedBy)
+}
+
+// Setting reads one override; a setting nobody set is ErrNotFound.
+func (r Reader) Setting(key string) (SettingRecord, error) {
+	rec, err := scanSetting(r.q.QueryRowContext(r.ctx,
+		`SELECT key, value, updated_at, updated_by FROM settings WHERE key = ?`, key))
+	if errors.Is(err, sql.ErrNoRows) {
+		return rec, ErrNotFound
+	}
+	return rec, err
+}
+
+// Settings reads every override, by key.
+func (r Reader) Settings() ([]SettingRecord, error) {
+	rows, err := r.q.QueryContext(r.ctx, `SELECT key, value, updated_at, updated_by FROM settings ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SettingRecord
+	for rows.Next() {
+		rec, err := scanSetting(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+// PutSetting stores an override, replacing any; the transaction's clock and actor are its time and author.
+func (t *Tx) PutSetting(key, valueJSON string) error {
+	by, err := proto.Marshal(t.Actor)
+	if err != nil {
+		return err
+	}
+	if by == nil {
+		by = []byte{} // a write with no actor (the daemon's own): a nil blob would be NULL
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at,
+		updated_by = excluded.updated_by`, key, valueJSON, nanos(t.now), by)
+	return err
+}
+
+// DeleteSetting drops an override, so the setting is its default again.
+func (t *Tx) DeleteSetting(key string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM settings WHERE key = ?`, key)
 	return err
 }
 
