@@ -70,8 +70,11 @@ TIER_DEFAULTS = {
             "strong": (["argon", "opus", "hydrogen"], "high")},
     "copilot": {"light": ([COPILOT_MODEL], "low"), "mid": ([COPILOT_MODEL], "medium"),
                 "strong": ([COPILOT_MODEL], "high")},
-    "opencode": {"light": ([OPENCODE_FREE], "low"), "mid": ([OPENCODE_FREE], "medium"),
-                 "strong": ([OPENCODE_FREE], "high")},
+    # Named, not `free`: of OpenCode's free models only these two keep no prompts and train on none (OpenCode Zen's
+    # docs, 2026-11-25); `free` takes the newest, which was a stealth model that does both.
+    "opencode": {"light": (["opencode/deepseek-v4.1-flash-free"], "low"),
+                 "mid": (["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "high"),
+                 "strong": (["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "high")},
 }
 TIER_NOTES = {
     "light": "trivial tasks (copy, translations, a version bump, config) and short mechanical text",
@@ -1162,6 +1165,7 @@ def need_tier(kind: str, tier: str | None, what: str) -> str:
 def tier_chain(kind: str, tier: str) -> tuple[str, ...]:
     """The tier's models, first choice first, as the kind's adapter reads its defaults (Copilot: `copilot_model`,
     when set, stands in for the built-in ones); a model named on the command line never comes through here."""
+    need_tier(kind, tier, f"a {kind} agent")
     value, source = setting_with_source(f"tiers.{kind}.{tier}.model")
     return tuple(CLIS[kind].default_model(m, source) for m in value)
 
@@ -1178,6 +1182,8 @@ def entry_chain(entry: dict) -> tuple[str, ...]:
     if kind in KINDS and tier in kind_tiers(kind):
         return tier_chain(kind, tier)
     model = (entry.get("exec_model") if executing else None) or entry.get("requested_model") or entry.get("model")
+    if kind in KINDS and not entry.get("pinned") and not executing and "tier" not in entry and "strong" in kind_tiers(kind):
+        return tier_chain(kind, "strong")  # a planner from before tiers: what `auto` planned on then
     if not model:
         raise MeshError(f"{entry.get('name') or 'this worker'} has no tier or model on record: pass --tier or --model")
     return (model,)
@@ -3343,6 +3349,9 @@ def pick_slots(size: str, exclude: set[str], notes: list[str],
         for kind in order:
             if kind in picked or kind in exclude:
                 continue
+            if tier and tier not in kind_tiers(kind):
+                passed.append(f"{kind} has no {tier} tier")
+                continue
             ok, why = available(kind, tier)
             if ok:
                 picked.append(kind)
@@ -3367,7 +3376,7 @@ def pick_reviewers(size: str, earlier: dict[str, dict] | None = None, tier: str 
     no recent quota error. `earlier`: the PR's reviewers from an earlier round, by
     kind (their entries, earlier_reviewers). A re-review asks them again, except the kinds in
     `review.re_review.skip` (Copilot, whose credits are kept for first looks) and an unavailable one (an agy whose
-    model is short of quota), adds `review.re_review.keep.<size>` (a large one always has Claude), and when that
+    model is short of quota), adds `review.re_review.keep.<size>` (none by default), and when that
     leaves nobody, fills the slots again without them. Nobody at all is an error."""
     notes: list[str] = []
     if not earlier:
@@ -5874,14 +5883,18 @@ def cmd_switch(args: argparse.Namespace) -> int:
             raise MeshError(f"{args.agent} already runs on {model} at {effort}")
         body = (f"You are now on {model} at {effort} effort, in the same conversation (your parent moved you). "
                 "Continue exactly where you stopped.")
-        if tier:
-            with editing_run(run_id) as run:
-                run["agents"][args.agent]["exec_tier" if entry.get("phase") == "exec" else "tier"] = tier
     else:
         body = (f"Your previous model ({entry.get('model')}) hit its quota; you are now on {model}, in the same "
                 "conversation. Continue exactly where you stopped.")
     swap = swap_model(run_id, args.agent, model, effort, "moved" if moved else "quota",
-                      wait_ms=600_000 if moved else 60_000, strict=moved, message=(me, "task", body), tier=tier, reason=reason)
+                      wait_ms=600_000 if moved else 60_000, strict=moved, message=(me, "task", body), tier=tier,
+                      reason=reason)
+    if moved:  # once the swap took: an executor's later quota moves keep the effort and tier the root gave it
+        executing = entry.get("phase") == "exec"
+        with editing_run(run_id) as run:
+            run["agents"][args.agent].update(
+                **({"exec_model": model, "exec_effort": effort} if executing else {}),
+                **({"exec_tier" if executing else "tier": tier} if tier else {}))
     delivery = swap.pop("delivery", None) or deliver(run_id, me, args.agent, "task", body, first=True)
     emit({**swap, "notes": notes, "delivery": delivery})
     held = report_held(args.agent, delivery)
@@ -8783,7 +8796,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         model, notes = plan_model(old["kind"], tier_chain(old["kind"], tier), effort, run_id)
     else:
         model, effort = resumed_model(old, args.model, args.effort)
-        tier = None if args.model else tier
+        # what it ran on last: an executor's tier is its execution one
+        tier = None if args.model else old.get("exec_tier") if old.get("phase") == "exec" and old.get("exec_tier") \
+            else tier
     view = getattr(args, "view", None) or (old.get("view") if old.get("view") != HEADLESS else None) or "pane"
     if view == "bg" and "bg" not in cli(old["kind"]).views:
         raise MeshError(f"--view bg is for Claude workers; {cli(old['kind']).name} has no background sessions")
@@ -9135,7 +9150,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         if cli_has(kind, "code_review") and head:
             whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
             skill = CODE_REVIEW.format(level=setting(f"review.level.{size if size in SIZES else 'large'}"), target=f"{last}..{head}" if again and narrow else whole)
-            skill += (CODE_REVIEW_AGAIN if again and narrow else "")
+            skill += (CODE_REVIEW_AGAIN if again and narrow and not since else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
     else:
         task = ASK_PREFIX
@@ -10055,7 +10070,9 @@ def review_round(args: argparse.Namespace, run_id: str, me: str, repo: Path, pr:
                 at = pr_head(where, pr, number)
             except (MeshError, OSError):
                 at = None
-        ask = argparse.Namespace(**{**vars(args), "no_wait": True, "kind": kind, "repo": None if target else args.repo})
+        # An earlier reviewer keeps the model it reviewed on (a reopen on another one would lose its cache).
+        ask = argparse.Namespace(**{**vars(args), "no_wait": True, "kind": kind, "repo": None if target else args.repo,
+                                    "tier": None if target else args.tier})
         return (ask, target, *asker_task(ask, run_id, where, target, kind, body, pr, number, at, last), at)
 
     def start(kind: str) -> tuple:
@@ -11354,18 +11371,21 @@ def model_check(force: bool = False) -> dict:
     listed = listed_families(fresh=force)
     new, retired = {}, {}
     for kind, families in listed.items():
-        if kind == "opencode":
+        if kind == "opencode":  # its own free models: a tier's named one gone, a new one since the last check
             before = set((saved.get("listed") or {}).get("opencode") or families)
             known = before | acked.get(kind, set())
+            gone = sorted(m for m in tier_families(kind) if m.startswith("opencode/") and m not in families)
         else:
             known = tier_families(kind) | acked.get(kind, set())
             gone = sorted(f for f in tier_families(kind) if f not in families)
-            if gone:
-                retired[kind] = gone
+        if gone:
+            retired[kind] = gone
         if fresh := sorted(families - known):
             new[kind] = fresh
     result = {"at": time.time(), "listed": {k: sorted(v) for k, v in listed.items()}, "new": new, "retired": retired,
               "acked": {k: sorted(v) for k, v in acked.items()}}
+    if not listed:  # nothing read (no listing cached yet): look again next time rather than in a day
+        result["at"] = 0
     write_atomic(path, json.dumps(result))
     return result
 
@@ -12910,6 +12930,13 @@ def compact_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--focus", help="what the compaction keeps (default: what the task needs)")
 
 
+def count_arg(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("a count, 0 or more")
+    return value
+
+
 def tier_args(p: argparse.ArgumentParser, tier_help: str) -> None:
     p.add_argument("--tier", choices=TIERS, help=tier_help + "; `mesh routing` shows each tier's models")
     p.add_argument("--why", metavar="REASON", help="why this tier or model: recorded with it, for `mesh cost`")
@@ -13197,7 +13224,7 @@ def build_parser() -> argparse.ArgumentParser:
                        ("--other", "findings you agreed with, with another fix"),
                        ("--disagree", "findings you disagreed with"),
                        ("--blocking", "of those you agreed with, how many were blocking")):
-        p.add_argument(flag, type=int, default=0, metavar="N", help=text)
+        p.add_argument(flag, type=count_arg, default=0, metavar="N", help=text)
     p.set_defaults(func=cmd_verdict)
     return parser
 

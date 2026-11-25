@@ -10288,10 +10288,11 @@ def test_a_reviewer_recorded_under_an_old_spelling_is_still_its_prs(mesh, run):
 
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-agy": "Looks right."})
-    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: None if cmd == "opencode" else f"/bin/{cmd}")
+    assert mesh.main(["ask", "--tier", "mid", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
     captured = capsys.readouterr()
     assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-agy" in captured.out
-    assert "a fresh agy" in captured.err
+    assert "a fresh agy" in captured.err and "OpenCode isn't installed; agy instead" in captured.err
     assert [n for n in mesh.load_run(run)["agents"] if "review" in n] == ["proj-review-7-agy"]
 
 

@@ -110,7 +110,7 @@ Each reviewer works inside the repo at the PR's head and changes nothing. You ge
 
 - **Agents work inside the repo, not from outside it.** Each worker follows the target repo's own instructions, hooks and skills.
 - **You can watch and step in.** Workers are live interactive sessions: a herdr pane, or a Claude Code background session you can attach to (`mesh open`). What you type into one overrides the agent that started it.
-- **Plan first, then the same agent executes.** Large tasks plan on the strongest model with quota left and get reviewed before any code changes; approval reopens the *same conversation* on the execution model. Small tasks skip the plan.
+- **Plan first, then the same agent executes.** Large tasks plan on the tier the root picks and get reviewed before any code changes; approval reopens the *same conversation* on the execution tier the root names. Small tasks skip the plan.
 - **Claude, Gemini and Copilot in one run.** Mix Claude Code and agy workers, and have a PR reviewed by several vendors at once.
 - **Supervised, not fire-and-forget.** Every message is stored in a mailbox before a doorbell wakes the recipient, so a missed doorbell loses nothing. While the root waits, a watchdog flags a worker that went silent, sits at a dialog, hung, crashed or hit a quota.
 

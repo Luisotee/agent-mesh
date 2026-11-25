@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import with_config
+
 from test_mesh import repo, started, stub_new_pane  # noqa: F401 (repo is a fixture)
 
 # `opencode models --verbose`: each model's line, then its JSON object (trimmed).
@@ -148,6 +150,7 @@ def test_opencodes_free_limit_reads_as_a_quota_and_switch_rotates(mesh, fake, ru
     assert watch.quota_event() is None  # once per task
     limit = mesh.model_limit("opencode", "opencode/big-pickle")
     assert limit and abs(limit["until"] - time.time() - (4 * 3600 + 12 * 60)) < 5
+    with_config({"tiers": {"opencode": {"strong": {"model": ["free"]}}}})  # every free one, newest first
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     model, notes = mesh.cli("opencode").switch_model(entry, "high")
     assert model == "opencode/beam-free"  # the next free one: it ran on big-pickle, which is spent too
