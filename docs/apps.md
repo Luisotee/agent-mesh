@@ -1,6 +1,6 @@
 # Apps: desktop, mobile and web
 
-Status: planning (2026-11-25). Nothing is built yet. The technology picks below are recommendations, chosen for quality over simplicity, to be revisited before each part is built.
+Status: planning (2026-11-25). Step 1 (the daemon, `daemon/`) is built; step 2 (the desktop app, `desktop/`) is in progress, first version stacked as PRs. The technology picks below are recommendations, chosen for quality over simplicity, to be revisited before each part is built.
 
 Mockups of the desktop and Android screens (all themes, the run tree, the live dock, autonomy, plugins, first run and connection states) are on a private design canvas: https://claude.ai/artifact/JhMyJsQPEQjepy4HHg1ua6.
 
@@ -312,6 +312,14 @@ Settled for step 1 (2026-11-25, run mfb6a):
 - **Terminal replay: both mechanisms.** The terminal host keeps a ring buffer of raw output per terminal (epoch plus byte offset) for exact replay, and feeds the same bytes to a server-side emulator per terminal, so any client can get a repaint. The emulator is [`charmbracelet/x/vt`](https://github.com/charmbracelet/x/tree/main/vt) (MIT, maintained, used by Charm's crush): it keeps the screen and scrollback, renders a snapshot, tracks modes through callbacks, and answers DA1/DA2 itself, which the host forwards only while no client is attached. It has no tagged release past v0.1.0, so it is pinned by commit, behind a small interface so it can be swapped. `hinshun/vt10x` lost: no commit since 2023.
 - **Roles and actor classes:** the registry knows root, worker, asker, reviewer, device and read-only device from the start, each with a fixed set of actions pinned by a test. Only the root (or a device) starts change workers; a worker starts only read-only agents (askers, reviewers); askers and reviewers start none.
 - **Names until the switchover:** `meshd` (the daemon), `mesh-term` (the terminal host), `meshctl` (the generated CLI, renamed `mesh` when it replaces `bin/mesh`). Their environment variables use the prefix `AGENT_MESH_`, which the live mesh doesn't read.
+
+Settled for step 2, the desktop app's first version (2026-11-25, run mfb6a):
+
+- **The renderer never reaches a host itself.** meshd refuses any request with an `Origin` header, which every renderer `fetch` and `WebSocket` carries, and a token in the renderer (or a token-injecting loopback proxy in the main process) would be the open control port happy had. Electron's main process holds the tokens and runs a **host bridge**: a generic forwarder from the renderer over IPC to the host's unix socket or TCP address, with the token added, that passes only the registry's paths (`/agentmesh.v1.MeshService/<Method>`; the terminal stream's path when terminals come) and a few headers. The renderer's ConnectRPC transport is the generated client over a `fetch` backed by the bridge, so streaming works and nothing in the UI knows the bridge exists. The main process knows nothing of the API's meaning.
+- **The host list is client-side.** It comes before any connection, so it can't live on a host: `hosts.json` in the app's data dir (0600), a host being a daemon's state dir (socket and device token read from it at call time) or a TCP address with a pasted device token, until pairing (step 3). It is the one UI state that isn't on a host; everything else is a host action or a host setting.
+- **Generated TypeScript** comes from `proto/` by `desktop/buf.gen.yaml` (`protoc-gen-es`, pinned in the lockfile, nothing remote) into `desktop/src/gen`, committed like `daemon/gen`; `desktop/scripts/check.sh` fails when it is stale.
+- **A test pins the UI to the registry**: every action the UI calls must be a `MeshService` method a device may call (read from the descriptor's `action` option), and no source file outside the transport reaches the network.
+- **Tests:** vitest and Testing Library for the React side; the bridge against real sockets; the generated client through bridge and adapter to a ConnectRPC server; and the built app driven over the Chrome DevTools Protocol with `playwright-core` (`connectOverCDP`, no browser download: Electron's own Chromium) against a real meshd on a temp state dir with the fake Claude CLI, in a HOME and user-data dir of their own.
 
 ## Open decisions
 

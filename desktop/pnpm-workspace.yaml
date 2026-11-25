@@ -1,0 +1,3 @@
+# pnpm 11 runs no dependency build script unless allowed: Electron fetches its binary in one.
+allowBuilds:
+  electron: true

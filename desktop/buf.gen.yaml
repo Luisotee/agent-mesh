@@ -1,0 +1,9 @@
+# `pnpm gen` (buf generate ../proto --template buf.gen.yaml): the TypeScript messages and ConnectRPC services into
+# src/gen, with the generator pinned by pnpm-lock.yaml (protoc-gen-es from node_modules; nothing remote).
+version: v2
+plugins:
+  - local: ["pnpm", "exec", "protoc-gen-es"]
+    out: src/gen
+    opt:
+      - target=ts
+      - import_extension=none
