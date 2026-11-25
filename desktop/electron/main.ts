@@ -4,6 +4,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
+import { redeemPairing } from './pair.js'
 import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
 import { openSocket, type Socket } from './socket.js'
@@ -14,7 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 // real directories then.
 const userData = process.env.AGENT_MESH_DESKTOP_USERDATA
 if (userData) app.setPath('userData', userData)
-const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), process.env.AGENT_MESH_DESKTOP_STATE)
+const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), process.env.AGENT_MESH_DESKTOP_STATE, redeemPairing)
 
 let mainWindow: BrowserWindow | undefined
 const appShell = new Shell(

@@ -1,8 +1,10 @@
 import http from 'node:http'
+import type { Duplex } from 'node:stream'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { BridgeErrorCode, BridgeEvent, BridgeRequest } from '../shared/api.js'
 import type { StoredHost } from './hosts.js'
+import { RouteError, dialerFor, type Dialer } from './route.js'
 
 /**
  * The host bridge: the renderer's only way to a host. meshd refuses any request a browser made (an Origin
@@ -35,6 +37,8 @@ interface Target {
   socketPath?: string
   host?: string
   port?: number
+  /** A paired host: a pinned TLS connection, made per request. */
+  dialer?: Dialer
   token: string
 }
 
@@ -49,6 +53,7 @@ class BridgeError extends Error {
 
 /** Where a host listens and the token to use, read at call time so a restarted daemon or a new token works. */
 export async function resolve(h: StoredHost): Promise<Target> {
+  if (h.kind === 'paired') return { dialer: dialerFor(h, h.route), token: h.token }
   if (h.kind === 'tcp') {
     const i = h.address.lastIndexOf(':')
     // An IPv6 literal is bracketed in the address and bare for http.request.
@@ -61,6 +66,18 @@ export async function resolve(h: StoredHost): Promise<Target> {
     throw new BridgeError('no-token', `no device token in ${h.path}: is meshd started with this state dir?`)
   }
   return { socketPath: path.join(h.path, 'meshd.sock'), token }
+}
+
+/** `http.request`'s `createConnection` (the callback form) over a paired host's dialer. */
+export function connectWith(dialer: Dialer) {
+  return (_options: unknown, cb: (err: Error | null, socket: Duplex) => void): null => {
+    dialer.connect().then(
+      (s) => cb(null, s),
+      (e: unknown) => cb(e instanceof Error ? e : new Error(String(e)), undefined as never),
+    )
+    // The socket comes through the callback, once the connection is pinned.
+    return null
+  }
 }
 
 /** Runs one request; returns an abort. Events always end with `end` or `error`, once. */
@@ -100,6 +117,8 @@ export function forward(
       socketPath: t.socketPath,
       host: t.host,
       port: t.port,
+      // A paired host's connection is made by its dialer (pinned TLS, through the relay if need be), not by address.
+      ...(t.dialer ? { createConnection: connectWith(t.dialer) } : {}),
       headers: { ...headers, host: 'meshd' },
     })
     abort = () => out.destroy()
@@ -116,7 +135,8 @@ export function forward(
       res.on('aborted', () => fail('failed', 'the connection closed'))
     })
     out.on('error', (e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
+      if (e instanceof RouteError) fail(e.code, e.message)
+      else if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
       else fail('failed', e.message)
     })
     out.end(req.body ? Buffer.from(req.body) : undefined)

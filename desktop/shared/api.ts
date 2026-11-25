@@ -6,14 +6,15 @@
 export interface HostInfo {
   id: string
   name: string
-  kind: 'state-dir' | 'tcp'
-  /** The state dir, or host:port. */
+  kind: 'state-dir' | 'tcp' | 'paired'
+  /** The state dir, a host:port, or where a paired host is reached. */
   target: string
 }
 
 export type NewHost =
   | { name: string; kind: 'state-dir'; path: string }
-  | { name: string; kind: 'tcp'; address: string; token: string }
+  /** A host by its pairing link (`agentmesh://pair?...`): main redeems it, and keeps the device token it gets. */
+  | { name: string; kind: 'pair'; link: string; deviceName: string }
 
 export interface BridgeRequest {
   method: string
