@@ -422,6 +422,11 @@ func (r Reader) ListAgents(runID string) ([]*v1.Agent, error) {
 		func() *v1.Agent { return &v1.Agent{} })
 }
 
+// AgentByTerminal returns the agent running in a terminal.
+func (r Reader) AgentByTerminal(terminalID string) (*v1.Agent, error) {
+	return scanOne(r, `SELECT data FROM agents WHERE terminal_id = ?`, []any{terminalID}, &v1.Agent{})
+}
+
 // AgentsWithTerminals returns every agent that has a terminal id, in any run.
 func (r Reader) AgentsWithTerminals() ([]*v1.Agent, error) {
 	return scanAll(r, `SELECT data FROM agents WHERE terminal_id != '' ORDER BY created_at, id`, nil,

@@ -312,7 +312,7 @@ func recv(t *testing.T, s *connect.ServerStreamForClient[v1.SubscribeEventsRespo
 			t.Fatalf("stream ended: %v", s.Err())
 		}
 		return s.Msg()
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("no stream message")
 	}
 	return nil

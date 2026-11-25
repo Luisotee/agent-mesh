@@ -1,0 +1,13 @@
+# The terminal host as its own user unit, so the agents' PTYs live in this unit's cgroup and not the
+# daemon's: restarting or upgrading meshd never kills a terminal (with the default KillMode=control-group,
+# children of the daemon's own unit would die with it). meshd starts this unit when no host answers
+# (--term-launch systemd) and only Wants it, never BindsTo it. Restarting this unit does end every terminal.
+[Unit]
+Description=agent-mesh terminal host (mesh-term)
+
+[Service]
+ExecStart=%h/.local/lib/agent-mesh/mesh-term --dir %S/agent-mesh-daemon/term
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=15

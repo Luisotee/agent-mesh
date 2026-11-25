@@ -26,6 +26,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -47,38 +48,19 @@ type Config struct {
 	TCP    string
 	Now    func() time.Time
 	Logger *slog.Logger
+
+	// Agents (agents.go). With no TermLaunch the daemon runs without terminals and can't spawn agents.
+	Agents AgentConfig
 }
 
 // Paths of the files in a state dir.
-type Paths struct{ Dir string }
+type Paths = statedir.Paths
 
-func (p Paths) Lock() string        { return filepath.Join(p.Dir, "meshd.lock") }
-func (p Paths) Socket() string      { return filepath.Join(p.Dir, "meshd.sock") }
-func (p Paths) Info() string        { return filepath.Join(p.Dir, "meshd.json") }
-func (p Paths) DB() string          { return filepath.Join(p.Dir, "meshd.db") }
-func (p Paths) DeviceToken() string { return filepath.Join(p.Dir, "device.token") }
-func (p Paths) DaemonID() string    { return filepath.Join(p.Dir, "daemon.id") }
-
-// Info is meshd.json: how clients and hooks find the daemon, read at call time.
-type Info struct {
-	Socket     string    `json:"socket"`
-	TCP        string    `json:"tcp,omitempty"`
-	PID        int       `json:"pid"`
-	DaemonID   string    `json:"daemon_id"`
-	InstanceID string    `json:"instance_id"`
-	StartedAt  time.Time `json:"started_at"`
-	Version    string    `json:"version"`
-}
+// Info is meshd.json.
+type Info = statedir.Info
 
 // ReadInfo reads a state dir's meshd.json.
-func ReadInfo(stateDir string) (Info, error) {
-	var info Info
-	b, err := os.ReadFile(Paths{stateDir}.Info())
-	if err != nil {
-		return info, err
-	}
-	return info, json.Unmarshal(b, &info)
-}
+func ReadInfo(stateDir string) (Info, error) { return statedir.ReadInfo(stateDir) }
 
 // Daemon is a running meshd.
 type Daemon struct {
@@ -104,6 +86,7 @@ type Daemon struct {
 	capabilities []string
 	// notify, when set, is told that an agent has a message to deliver.
 	notify func(agentID string)
+	rt     *runtime
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the
@@ -125,7 +108,7 @@ func New(cfg Config) (*Daemon, error) {
 	if err := fsutil.EnsureDir(dir); err != nil {
 		return nil, err
 	}
-	d := &Daemon{cfg: cfg, paths: Paths{dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
+	d := &Daemon{cfg: cfg, paths: Paths{Dir: dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
 		instanceID: ids.New("i", 10), mux: http.NewServeMux(),
 		capabilities: []string{"events.resume", "mutations"}}
 	if d.lock, err = fsutil.TryLock(d.paths.Lock()); err != nil {
@@ -148,6 +131,12 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d.bus = events.New(d.store)
 	d.store.OnCommit = d.bus.Publish
+	if d.rt, err = newRuntime(cfg.Agents); err != nil {
+		return nil, err
+	}
+	d.notify = d.deliverSoon
+	d.bus.AgentView = d.view
+	d.mux.HandleFunc("/v1/term/{agent}", d.serveTerminal)
 	if d.daemonID, err = d.loadDaemonID(); err != nil {
 		return nil, err
 	}
@@ -270,6 +259,10 @@ func (d *Daemon) Handler() http.Handler {
 func (d *Daemon) Serve(ctx context.Context) error {
 	defer d.close()
 	d.startedAt = d.now()
+	// Terminals first: adopt what survived the last daemon before anything can act on its agents.
+	if err := d.startTerminals(ctx); err != nil {
+		return err
+	}
 	sock := d.paths.Socket()
 	if len(sock) > maxSocketPath {
 		return fmt.Errorf("the socket path %s is %d bytes, over the %d a unix socket takes: use a shorter --state directory",
@@ -317,12 +310,16 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		go func(l net.Listener) { errc <- srv.Serve(l) }(l)
 	}
 	d.log.Info("meshd serving", "socket", sock, "tcp", d.info.TCP, "daemon", d.daemonID, "instance", d.instanceID)
+	bg, stopBG := context.WithCancel(ctx)
+	defer stopBG()
+	d.runBackground(bg)
 	var serveErr error
 	select {
 	case <-ctx.Done():
 	case serveErr = <-errc:
 	}
 	d.stopOnce.Do(func() { close(d.stopping) })
+	stopBG()
 	sctx, cancel := context.WithTimeout(context.Background(), ShutdownWait)
 	defer cancel()
 	if err := srv.Shutdown(sctx); err != nil {
