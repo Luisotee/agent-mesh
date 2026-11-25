@@ -39,6 +39,10 @@ public  final class Event extends
     AGENT_ADOPTED(16),
     HOOK_DECODE_FAILED(17),
     SETTING_CHANGED(18),
+    AGENT_REOPEN_REQUESTED(19),
+    AGENT_REOPENED(20),
+    AGENT_PHASE_CHANGED(21),
+    AGENT_REOPEN_DROPPED(22),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -63,6 +67,10 @@ public  final class Event extends
         case 16: return AGENT_ADOPTED;
         case 17: return HOOK_DECODE_FAILED;
         case 18: return SETTING_CHANGED;
+        case 19: return AGENT_REOPEN_REQUESTED;
+        case 20: return AGENT_REOPENED;
+        case 21: return AGENT_PHASE_CHANGED;
+        case 22: return AGENT_REOPEN_DROPPED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -877,6 +885,206 @@ public  final class Event extends
    */
   private void clearSettingChanged() {
     if (payloadCase_ == 18) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_REOPEN_REQUESTED_FIELD_NUMBER = 19;
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentReopenRequested() {
+    return payloadCase_ == 19;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested getAgentReopenRequested() {
+    if (payloadCase_ == 19) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   */
+  private void setAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 19;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   */
+  private void mergeAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 19 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 19;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   */
+  private void clearAgentReopenRequested() {
+    if (payloadCase_ == 19) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_REOPENED_FIELD_NUMBER = 20;
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentReopened() {
+    return payloadCase_ == 20;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentReopened getAgentReopened() {
+    if (payloadCase_ == 20) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentReopened) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentReopened.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   */
+  private void setAgentReopened(dev.agentmesh.gen.agentmesh.v1.AgentReopened value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 20;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   */
+  private void mergeAgentReopened(dev.agentmesh.gen.agentmesh.v1.AgentReopened value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 20 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentReopened.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentReopened.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentReopened) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 20;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   */
+  private void clearAgentReopened() {
+    if (payloadCase_ == 20) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_PHASE_CHANGED_FIELD_NUMBER = 21;
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentPhaseChanged() {
+    return payloadCase_ == 21;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged getAgentPhaseChanged() {
+    if (payloadCase_ == 21) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   */
+  private void setAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 21;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   */
+  private void mergeAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 21 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 21;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   */
+  private void clearAgentPhaseChanged() {
+    if (payloadCase_ == 21) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_REOPEN_DROPPED_FIELD_NUMBER = 22;
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentReopenDropped() {
+    return payloadCase_ == 22;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped getAgentReopenDropped() {
+    if (payloadCase_ == 22) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   */
+  private void setAgentReopenDropped(dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 22;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   */
+  private void mergeAgentReopenDropped(dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 22 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 22;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   */
+  private void clearAgentReopenDropped() {
+    if (payloadCase_ == 22) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -1790,6 +1998,198 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentReopenRequested() {
+      return instance.hasAgentReopenRequested();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested getAgentReopenRequested() {
+      return instance.getAgentReopenRequested();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    public Builder setAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested value) {
+      copyOnWrite();
+      instance.setAgentReopenRequested(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    public Builder setAgentReopenRequested(
+        dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentReopenRequested(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    public Builder mergeAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested value) {
+      copyOnWrite();
+      instance.mergeAgentReopenRequested(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+     */
+    public Builder clearAgentReopenRequested() {
+      copyOnWrite();
+      instance.clearAgentReopenRequested();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentReopened() {
+      return instance.hasAgentReopened();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentReopened getAgentReopened() {
+      return instance.getAgentReopened();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    public Builder setAgentReopened(dev.agentmesh.gen.agentmesh.v1.AgentReopened value) {
+      copyOnWrite();
+      instance.setAgentReopened(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    public Builder setAgentReopened(
+        dev.agentmesh.gen.agentmesh.v1.AgentReopened.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentReopened(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    public Builder mergeAgentReopened(dev.agentmesh.gen.agentmesh.v1.AgentReopened value) {
+      copyOnWrite();
+      instance.mergeAgentReopened(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+     */
+    public Builder clearAgentReopened() {
+      copyOnWrite();
+      instance.clearAgentReopened();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentPhaseChanged() {
+      return instance.hasAgentPhaseChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged getAgentPhaseChanged() {
+      return instance.getAgentPhaseChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    public Builder setAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged value) {
+      copyOnWrite();
+      instance.setAgentPhaseChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    public Builder setAgentPhaseChanged(
+        dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentPhaseChanged(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    public Builder mergeAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged value) {
+      copyOnWrite();
+      instance.mergeAgentPhaseChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+     */
+    public Builder clearAgentPhaseChanged() {
+      copyOnWrite();
+      instance.clearAgentPhaseChanged();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentReopenDropped() {
+      return instance.hasAgentReopenDropped();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped getAgentReopenDropped() {
+      return instance.getAgentReopenDropped();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    public Builder setAgentReopenDropped(dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped value) {
+      copyOnWrite();
+      instance.setAgentReopenDropped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    public Builder setAgentReopenDropped(
+        dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentReopenDropped(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    public Builder mergeAgentReopenDropped(dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped value) {
+      copyOnWrite();
+      instance.mergeAgentReopenDropped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+     */
+    public Builder clearAgentReopenDropped() {
+      copyOnWrite();
+      instance.clearAgentReopenDropped();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -1825,12 +2225,16 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.AgentAdopted.class,
             dev.agentmesh.gen.agentmesh.v1.HookDecodeFailed.class,
             dev.agentmesh.gen.agentmesh.v1.SettingChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentReopened.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.class,
           };
           java.lang.String info =
-              "\u0000\u0010\u0001\u0001\u0001\u0012\u0010\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
+              "\u0000\u0014\u0001\u0001\u0001\u0016\u0014\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
               "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000" +
               "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000" +
-              "\u0012<\u0000";
+              "\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

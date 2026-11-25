@@ -38,6 +38,24 @@ public interface MeshServiceClientInterface {
   public suspend fun stopAgent(request: StopAgentRequest, headers: Headers = emptyMap()): ResponseMessage<StopAgentResponse>
 
   /**
+   *  Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+   *  conversation without the planning deny list. Only its parent or a device, and only when its newest report
+   *  since its last task or answer is a plan.
+   */
+  public suspend fun approveAgent(request: ApproveAgentRequest, headers: Headers = emptyMap()): ResponseMessage<ApproveAgentResponse>
+
+  /**
+   *  Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+   *  its own conversation. A move asked for mid-turn runs at its next IDLE.
+   */
+  public suspend fun switchAgent(request: SwitchAgentRequest, headers: Headers = emptyMap()): ResponseMessage<SwitchAgentResponse>
+
+  /**
+   *  Reopen a stopped agent's conversation, with a new task or as it was.
+   */
+  public suspend fun resumeAgent(request: ResumeAgentRequest, headers: Headers = emptyMap()): ResponseMessage<ResumeAgentResponse>
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   public suspend fun sendMessage(request: SendMessageRequest, headers: Headers = emptyMap()): ResponseMessage<SendMessageResponse>

@@ -104,8 +104,23 @@ private fun applyEvent(s: HostState, e: Event): HostState {
             val a = s.agents[e.agentId] ?: return next
             next.copy(agents = s.agents + (a.id to a.toBuilder().setTerminalId(e.agentAdopted.terminalId).build()))
         }
+        // A model change is a reopen of the same conversation (daemon/internal/daemon/reopen.go): the agent keeps its
+        // identity and gets the new model, deny list, terminal and phase.
+        Event.PayloadCase.AGENT_REOPEN_REQUESTED -> next.withAgent(e.agentId) { it.setPendingReopen(e.agentReopenRequested.reopen) }
+        Event.PayloadCase.AGENT_REOPEN_DROPPED -> next.withAgent(e.agentId) { it.clearPendingReopen() }
+        Event.PayloadCase.AGENT_REOPENED -> next.withAgent(e.agentId) {
+            val r = e.agentReopened.reopen
+            it.clearPendingReopen().setTerminalId(e.agentReopened.terminalId).setSessionId(e.agentReopened.sessionId)
+                .setModel(r.model).setEffort(r.effort).setDenyEdits(r.denyEdits)
+        }
+        Event.PayloadCase.AGENT_PHASE_CHANGED -> next.withAgent(e.agentId) { it.setPhase(e.agentPhaseChanged.to) }
         else -> next
     }
+}
+
+private fun HostState.withAgent(id: String, change: (Agent.Builder) -> Unit): HostState {
+    val a = agents[id] ?: return this
+    return copy(agents = agents + (id to a.toBuilder().also(change).build()))
 }
 
 /** Adds messages (a loaded page) to the ones we have; one we already have, which events may have updated, is kept. */

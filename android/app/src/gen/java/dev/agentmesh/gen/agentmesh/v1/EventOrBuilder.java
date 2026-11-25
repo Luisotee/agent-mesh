@@ -201,5 +201,49 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.SettingChanged getSettingChanged();
 
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   * @return Whether the agentReopenRequested field is set.
+   */
+  boolean hasAgentReopenRequested();
+  /**
+   * <code>.agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19 [json_name = "agentReopenRequested"];</code>
+   * @return The agentReopenRequested.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested getAgentReopenRequested();
+
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   * @return Whether the agentReopened field is set.
+   */
+  boolean hasAgentReopened();
+  /**
+   * <code>.agentmesh.v1.AgentReopened agent_reopened = 20 [json_name = "agentReopened"];</code>
+   * @return The agentReopened.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentReopened getAgentReopened();
+
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   * @return Whether the agentPhaseChanged field is set.
+   */
+  boolean hasAgentPhaseChanged();
+  /**
+   * <code>.agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21 [json_name = "agentPhaseChanged"];</code>
+   * @return The agentPhaseChanged.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged getAgentPhaseChanged();
+
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   * @return Whether the agentReopenDropped field is set.
+   */
+  boolean hasAgentReopenDropped();
+  /**
+   * <code>.agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22 [json_name = "agentReopenDropped"];</code>
+   * @return The agentReopenDropped.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped getAgentReopenDropped();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

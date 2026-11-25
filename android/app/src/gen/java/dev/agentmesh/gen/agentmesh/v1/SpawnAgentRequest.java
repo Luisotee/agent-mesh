@@ -23,6 +23,8 @@ public  final class SpawnAgentRequest extends
     effort_ = "";
     base_ = "";
     task_ = "";
+    tier_ = "";
+    execTier_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -386,6 +388,11 @@ public  final class SpawnAgentRequest extends
   public static final int MODEL_FIELD_NUMBER = 7;
   private java.lang.String model_;
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @return The model.
    */
@@ -394,6 +401,11 @@ public  final class SpawnAgentRequest extends
     return model_;
   }
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @return The bytes for model.
    */
@@ -403,6 +415,11 @@ public  final class SpawnAgentRequest extends
     return com.google.protobuf.ByteString.copyFromUtf8(model_);
   }
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @param value The model to set.
    */
@@ -413,6 +430,11 @@ public  final class SpawnAgentRequest extends
     model_ = value;
   }
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    */
   private void clearModel() {
@@ -420,6 +442,11 @@ public  final class SpawnAgentRequest extends
     model_ = getDefaultInstance().getModel();
   }
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @param value The bytes for model to set.
    */
@@ -433,6 +460,10 @@ public  final class SpawnAgentRequest extends
   public static final int EFFORT_FIELD_NUMBER = 8;
   private java.lang.String effort_;
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @return The effort.
    */
@@ -441,6 +472,10 @@ public  final class SpawnAgentRequest extends
     return effort_;
   }
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @return The bytes for effort.
    */
@@ -450,6 +485,10 @@ public  final class SpawnAgentRequest extends
     return com.google.protobuf.ByteString.copyFromUtf8(effort_);
   }
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @param value The effort to set.
    */
@@ -460,6 +499,10 @@ public  final class SpawnAgentRequest extends
     effort_ = value;
   }
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    */
   private void clearEffort() {
@@ -467,6 +510,10 @@ public  final class SpawnAgentRequest extends
     effort_ = getDefaultInstance().getEffort();
   }
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @param value The bytes for effort to set.
    */
@@ -608,6 +655,186 @@ public  final class SpawnAgentRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     task_ = value.toStringUtf8();
+
+  }
+
+  public static final int TIER_FIELD_NUMBER = 11;
+  private java.lang.String tier_;
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  @java.lang.Override
+  public java.lang.String getTier() {
+    return tier_;
+  }
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTierBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tier_);
+  }
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @param value The tier to set.
+   */
+  private void setTier(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tier_ = value;
+  }
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   */
+  private void clearTier() {
+
+    tier_ = getDefaultInstance().getTier();
+  }
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @param value The bytes for tier to set.
+   */
+  private void setTierBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tier_ = value.toStringUtf8();
+
+  }
+
+  public static final int PLAN_FIELD_NUMBER = 12;
+  private boolean plan_;
+  /**
+   * <pre>
+   * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+   * its execution tier.
+   * </pre>
+   *
+   * <code>bool plan = 12 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  @java.lang.Override
+  public boolean getPlan() {
+    return plan_;
+  }
+  /**
+   * <pre>
+   * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+   * its execution tier.
+   * </pre>
+   *
+   * <code>bool plan = 12 [json_name = "plan"];</code>
+   * @param value The plan to set.
+   */
+  private void setPlan(boolean value) {
+    
+    plan_ = value;
+  }
+  /**
+   * <pre>
+   * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+   * its execution tier.
+   * </pre>
+   *
+   * <code>bool plan = 12 [json_name = "plan"];</code>
+   */
+  private void clearPlan() {
+
+    plan_ = false;
+  }
+
+  public static final int EXEC_TIER_FIELD_NUMBER = 13;
+  private java.lang.String execTier_;
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @return The execTier.
+   */
+  @java.lang.Override
+  public java.lang.String getExecTier() {
+    return execTier_;
+  }
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @return The bytes for execTier.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getExecTierBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(execTier_);
+  }
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @param value The execTier to set.
+   */
+  private void setExecTier(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    execTier_ = value;
+  }
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   */
+  private void clearExecTier() {
+
+    execTier_ = getDefaultInstance().getExecTier();
+  }
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @param value The bytes for execTier to set.
+   */
+  private void setExecTierBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    execTier_ = value.toStringUtf8();
 
   }
 
@@ -1079,6 +1306,11 @@ public  final class SpawnAgentRequest extends
     }
 
     /**
+     * <pre>
+     * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+     * default model.
+     * </pre>
+     *
      * <code>string model = 7 [json_name = "model"];</code>
      * @return The model.
      */
@@ -1087,6 +1319,11 @@ public  final class SpawnAgentRequest extends
       return instance.getModel();
     }
     /**
+     * <pre>
+     * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+     * default model.
+     * </pre>
+     *
      * <code>string model = 7 [json_name = "model"];</code>
      * @return The bytes for model.
      */
@@ -1096,6 +1333,11 @@ public  final class SpawnAgentRequest extends
       return instance.getModelBytes();
     }
     /**
+     * <pre>
+     * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+     * default model.
+     * </pre>
+     *
      * <code>string model = 7 [json_name = "model"];</code>
      * @param value The model to set.
      * @return This builder for chaining.
@@ -1107,6 +1349,11 @@ public  final class SpawnAgentRequest extends
       return this;
     }
     /**
+     * <pre>
+     * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+     * default model.
+     * </pre>
+     *
      * <code>string model = 7 [json_name = "model"];</code>
      * @return This builder for chaining.
      */
@@ -1116,6 +1363,11 @@ public  final class SpawnAgentRequest extends
       return this;
     }
     /**
+     * <pre>
+     * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+     * default model.
+     * </pre>
+     *
      * <code>string model = 7 [json_name = "model"];</code>
      * @param value The bytes for model to set.
      * @return This builder for chaining.
@@ -1128,6 +1380,10 @@ public  final class SpawnAgentRequest extends
     }
 
     /**
+     * <pre>
+     * Overrides the tier's effort (or, with a named model, defaults to high).
+     * </pre>
+     *
      * <code>string effort = 8 [json_name = "effort"];</code>
      * @return The effort.
      */
@@ -1136,6 +1392,10 @@ public  final class SpawnAgentRequest extends
       return instance.getEffort();
     }
     /**
+     * <pre>
+     * Overrides the tier's effort (or, with a named model, defaults to high).
+     * </pre>
+     *
      * <code>string effort = 8 [json_name = "effort"];</code>
      * @return The bytes for effort.
      */
@@ -1145,6 +1405,10 @@ public  final class SpawnAgentRequest extends
       return instance.getEffortBytes();
     }
     /**
+     * <pre>
+     * Overrides the tier's effort (or, with a named model, defaults to high).
+     * </pre>
+     *
      * <code>string effort = 8 [json_name = "effort"];</code>
      * @param value The effort to set.
      * @return This builder for chaining.
@@ -1156,6 +1420,10 @@ public  final class SpawnAgentRequest extends
       return this;
     }
     /**
+     * <pre>
+     * Overrides the tier's effort (or, with a named model, defaults to high).
+     * </pre>
+     *
      * <code>string effort = 8 [json_name = "effort"];</code>
      * @return This builder for chaining.
      */
@@ -1165,6 +1433,10 @@ public  final class SpawnAgentRequest extends
       return this;
     }
     /**
+     * <pre>
+     * Overrides the tier's effort (or, with a named model, defaults to high).
+     * </pre>
+     *
      * <code>string effort = 8 [json_name = "effort"];</code>
      * @param value The bytes for effort to set.
      * @return This builder for chaining.
@@ -1314,6 +1586,192 @@ public  final class SpawnAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+     * first model of its chain at its effort.
+     * </pre>
+     *
+     * <code>string tier = 11 [json_name = "tier"];</code>
+     * @return The tier.
+     */
+    @java.lang.Override
+    public java.lang.String getTier() {
+      return instance.getTier();
+    }
+    /**
+     * <pre>
+     * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+     * first model of its chain at its effort.
+     * </pre>
+     *
+     * <code>string tier = 11 [json_name = "tier"];</code>
+     * @return The bytes for tier.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTierBytes() {
+      return instance.getTierBytes();
+    }
+    /**
+     * <pre>
+     * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+     * first model of its chain at its effort.
+     * </pre>
+     *
+     * <code>string tier = 11 [json_name = "tier"];</code>
+     * @param value The tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTier(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTier(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+     * first model of its chain at its effort.
+     * </pre>
+     *
+     * <code>string tier = 11 [json_name = "tier"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTier() {
+      copyOnWrite();
+      instance.clearTier();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+     * first model of its chain at its effort.
+     * </pre>
+     *
+     * <code>string tier = 11 [json_name = "tier"];</code>
+     * @param value The bytes for tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTierBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTierBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+     * its execution tier.
+     * </pre>
+     *
+     * <code>bool plan = 12 [json_name = "plan"];</code>
+     * @return The plan.
+     */
+    @java.lang.Override
+    public boolean getPlan() {
+      return instance.getPlan();
+    }
+    /**
+     * <pre>
+     * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+     * its execution tier.
+     * </pre>
+     *
+     * <code>bool plan = 12 [json_name = "plan"];</code>
+     * @param value The plan to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlan(boolean value) {
+      copyOnWrite();
+      instance.setPlan(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+     * its execution tier.
+     * </pre>
+     *
+     * <code>bool plan = 12 [json_name = "plan"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlan() {
+      copyOnWrite();
+      instance.clearPlan();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The execution tier, when known before the plan is read; ApproveAgent may name another.
+     * </pre>
+     *
+     * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+     * @return The execTier.
+     */
+    @java.lang.Override
+    public java.lang.String getExecTier() {
+      return instance.getExecTier();
+    }
+    /**
+     * <pre>
+     * The execution tier, when known before the plan is read; ApproveAgent may name another.
+     * </pre>
+     *
+     * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+     * @return The bytes for execTier.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getExecTierBytes() {
+      return instance.getExecTierBytes();
+    }
+    /**
+     * <pre>
+     * The execution tier, when known before the plan is read; ApproveAgent may name another.
+     * </pre>
+     *
+     * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+     * @param value The execTier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExecTier(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setExecTier(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The execution tier, when known before the plan is read; ApproveAgent may name another.
+     * </pre>
+     *
+     * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearExecTier() {
+      copyOnWrite();
+      instance.clearExecTier();
+      return this;
+    }
+    /**
+     * <pre>
+     * The execution tier, when known before the plan is read; ApproveAgent may name another.
+     * </pre>
+     *
+     * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+     * @param value The bytes for execTier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExecTierBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setExecTierBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentRequest)
   }
   @java.lang.Override
@@ -1341,10 +1799,14 @@ public  final class SpawnAgentRequest extends
             "effort_",
             "base_",
             "task_",
+            "tier_",
+            "plan_",
+            "execTier_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208";
+              "\u0000\r\u0000\u0001\u0001\r\r\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b" +
+              "\u0208\f\u0007\r\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

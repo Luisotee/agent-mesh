@@ -28,6 +28,8 @@ public  final class Agent extends
     sessionId_ = "";
     terminalId_ = "";
     stateDetail_ = "";
+    tier_ = "";
+    execTier_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1103,6 +1105,334 @@ public  final class Agent extends
   private void clearStateBeforeCompact() {
 
     stateBeforeCompact_ = 0;
+  }
+
+  public static final int TIER_FIELD_NUMBER = 21;
+  private java.lang.String tier_;
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  @java.lang.Override
+  public java.lang.String getTier() {
+    return tier_;
+  }
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTierBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tier_);
+  }
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @param value The tier to set.
+   */
+  private void setTier(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tier_ = value;
+  }
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   */
+  private void clearTier() {
+
+    tier_ = getDefaultInstance().getTier();
+  }
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @param value The bytes for tier to set.
+   */
+  private void setTierBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tier_ = value.toStringUtf8();
+
+  }
+
+  public static final int EXEC_TIER_FIELD_NUMBER = 22;
+  private java.lang.String execTier_;
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @return The execTier.
+   */
+  @java.lang.Override
+  public java.lang.String getExecTier() {
+    return execTier_;
+  }
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @return The bytes for execTier.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getExecTierBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(execTier_);
+  }
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @param value The execTier to set.
+   */
+  private void setExecTier(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    execTier_ = value;
+  }
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   */
+  private void clearExecTier() {
+
+    execTier_ = getDefaultInstance().getExecTier();
+  }
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @param value The bytes for execTier to set.
+   */
+  private void setExecTierBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    execTier_ = value.toStringUtf8();
+
+  }
+
+  public static final int PHASE_FIELD_NUMBER = 23;
+  private int phase_;
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @return The enum numeric value on the wire for phase.
+   */
+  @java.lang.Override
+  public int getPhaseValue() {
+    return phase_;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @return The phase.
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentPhase getPhase() {
+    dev.agentmesh.gen.agentmesh.v1.AgentPhase result = dev.agentmesh.gen.agentmesh.v1.AgentPhase.forNumber(phase_);
+    return result == null ? dev.agentmesh.gen.agentmesh.v1.AgentPhase.UNRECOGNIZED : result;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @param value The enum numeric value on the wire for phase to set.
+   */
+  private void setPhaseValue(int value) {
+      phase_ = value;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @param value The phase to set.
+   * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+   */
+  private void setPhase(dev.agentmesh.gen.agentmesh.v1.AgentPhase value) {
+    phase_ = value.getNumber();
+
+  }
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   */
+  private void clearPhase() {
+
+    phase_ = 0;
+  }
+
+  public static final int PINNED_FIELD_NUMBER = 24;
+  private boolean pinned_;
+  /**
+   * <pre>
+   * A model or effort named for the whole task: it never gets a plan phase.
+   * </pre>
+   *
+   * <code>bool pinned = 24 [json_name = "pinned"];</code>
+   * @return The pinned.
+   */
+  @java.lang.Override
+  public boolean getPinned() {
+    return pinned_;
+  }
+  /**
+   * <pre>
+   * A model or effort named for the whole task: it never gets a plan phase.
+   * </pre>
+   *
+   * <code>bool pinned = 24 [json_name = "pinned"];</code>
+   * @param value The pinned to set.
+   */
+  private void setPinned(boolean value) {
+    
+    pinned_ = value;
+  }
+  /**
+   * <pre>
+   * A model or effort named for the whole task: it never gets a plan phase.
+   * </pre>
+   *
+   * <code>bool pinned = 24 [json_name = "pinned"];</code>
+   */
+  private void clearPinned() {
+
+    pinned_ = false;
+  }
+
+  public static final int DENY_EDITS_FIELD_NUMBER = 25;
+  private boolean denyEdits_;
+  /**
+   * <pre>
+   * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+   * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+   * </pre>
+   *
+   * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+   * @return The denyEdits.
+   */
+  @java.lang.Override
+  public boolean getDenyEdits() {
+    return denyEdits_;
+  }
+  /**
+   * <pre>
+   * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+   * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+   * </pre>
+   *
+   * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+   * @param value The denyEdits to set.
+   */
+  private void setDenyEdits(boolean value) {
+    
+    denyEdits_ = value;
+  }
+  /**
+   * <pre>
+   * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+   * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+   * </pre>
+   *
+   * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+   */
+  private void clearDenyEdits() {
+
+    denyEdits_ = false;
+  }
+
+  public static final int PENDING_REOPEN_FIELD_NUMBER = 26;
+  private dev.agentmesh.gen.agentmesh.v1.Reopen pendingReopen_;
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPendingReopen() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.Reopen getPendingReopen() {
+    return pendingReopen_ == null ? dev.agentmesh.gen.agentmesh.v1.Reopen.getDefaultInstance() : pendingReopen_;
+  }
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   */
+  private void setPendingReopen(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+    java.util.Objects.requireNonNull(value);
+    pendingReopen_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePendingReopen(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+    java.util.Objects.requireNonNull(value);
+    if (pendingReopen_ != null &&
+        pendingReopen_ != dev.agentmesh.gen.agentmesh.v1.Reopen.getDefaultInstance()) {
+      pendingReopen_ =
+        dev.agentmesh.gen.agentmesh.v1.Reopen.newBuilder(pendingReopen_).mergeFrom(value).buildPartial();
+    } else {
+      pendingReopen_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   */
+  private void clearPendingReopen() {
+    pendingReopen_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -2319,6 +2649,350 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+     * model.
+     * </pre>
+     *
+     * <code>string tier = 21 [json_name = "tier"];</code>
+     * @return The tier.
+     */
+    @java.lang.Override
+    public java.lang.String getTier() {
+      return instance.getTier();
+    }
+    /**
+     * <pre>
+     * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+     * model.
+     * </pre>
+     *
+     * <code>string tier = 21 [json_name = "tier"];</code>
+     * @return The bytes for tier.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTierBytes() {
+      return instance.getTierBytes();
+    }
+    /**
+     * <pre>
+     * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+     * model.
+     * </pre>
+     *
+     * <code>string tier = 21 [json_name = "tier"];</code>
+     * @param value The tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTier(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTier(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+     * model.
+     * </pre>
+     *
+     * <code>string tier = 21 [json_name = "tier"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTier() {
+      copyOnWrite();
+      instance.clearTier();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+     * model.
+     * </pre>
+     *
+     * <code>string tier = 21 [json_name = "tier"];</code>
+     * @param value The bytes for tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTierBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTierBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The execution phase's tier: preset at spawn, or named at approval.
+     * </pre>
+     *
+     * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+     * @return The execTier.
+     */
+    @java.lang.Override
+    public java.lang.String getExecTier() {
+      return instance.getExecTier();
+    }
+    /**
+     * <pre>
+     * The execution phase's tier: preset at spawn, or named at approval.
+     * </pre>
+     *
+     * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+     * @return The bytes for execTier.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getExecTierBytes() {
+      return instance.getExecTierBytes();
+    }
+    /**
+     * <pre>
+     * The execution phase's tier: preset at spawn, or named at approval.
+     * </pre>
+     *
+     * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+     * @param value The execTier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExecTier(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setExecTier(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The execution phase's tier: preset at spawn, or named at approval.
+     * </pre>
+     *
+     * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearExecTier() {
+      copyOnWrite();
+      instance.clearExecTier();
+      return this;
+    }
+    /**
+     * <pre>
+     * The execution phase's tier: preset at spawn, or named at approval.
+     * </pre>
+     *
+     * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+     * @param value The bytes for execTier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setExecTierBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setExecTierBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+     * @return The enum numeric value on the wire for phase.
+     */
+    @java.lang.Override
+    public int getPhaseValue() {
+      return instance.getPhaseValue();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+     * @param value The phase to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setPhaseValue(int value) {
+      copyOnWrite();
+      instance.setPhaseValue(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+     * @return The phase.
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentPhase getPhase() {
+      return instance.getPhase();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+     * @param value The enum numeric value on the wire for phase to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPhase(dev.agentmesh.gen.agentmesh.v1.AgentPhase value) {
+      copyOnWrite();
+      instance.setPhase(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPhase() {
+      copyOnWrite();
+      instance.clearPhase();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A model or effort named for the whole task: it never gets a plan phase.
+     * </pre>
+     *
+     * <code>bool pinned = 24 [json_name = "pinned"];</code>
+     * @return The pinned.
+     */
+    @java.lang.Override
+    public boolean getPinned() {
+      return instance.getPinned();
+    }
+    /**
+     * <pre>
+     * A model or effort named for the whole task: it never gets a plan phase.
+     * </pre>
+     *
+     * <code>bool pinned = 24 [json_name = "pinned"];</code>
+     * @param value The pinned to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPinned(boolean value) {
+      copyOnWrite();
+      instance.setPinned(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A model or effort named for the whole task: it never gets a plan phase.
+     * </pre>
+     *
+     * <code>bool pinned = 24 [json_name = "pinned"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPinned() {
+      copyOnWrite();
+      instance.clearPinned();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+     * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+     * </pre>
+     *
+     * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+     * @return The denyEdits.
+     */
+    @java.lang.Override
+    public boolean getDenyEdits() {
+      return instance.getDenyEdits();
+    }
+    /**
+     * <pre>
+     * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+     * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+     * </pre>
+     *
+     * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+     * @param value The denyEdits to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDenyEdits(boolean value) {
+      copyOnWrite();
+      instance.setDenyEdits(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+     * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+     * </pre>
+     *
+     * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDenyEdits() {
+      copyOnWrite();
+      instance.clearDenyEdits();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPendingReopen() {
+      return instance.hasPendingReopen();
+    }
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.Reopen getPendingReopen() {
+      return instance.getPendingReopen();
+    }
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    public Builder setPendingReopen(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+      copyOnWrite();
+      instance.setPendingReopen(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    public Builder setPendingReopen(
+        dev.agentmesh.gen.agentmesh.v1.Reopen.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPendingReopen(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    public Builder mergePendingReopen(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+      copyOnWrite();
+      instance.mergePendingReopen(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+     */
+    public Builder clearPendingReopen() {  copyOnWrite();
+      instance.clearPendingReopen();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -2356,12 +3030,19 @@ public  final class Agent extends
             "createdAt_",
             "exitCode_",
             "stateBeforeCompact_",
+            "tier_",
+            "execTier_",
+            "phase_",
+            "pinned_",
+            "denyEdits_",
+            "pendingReopen_",
           };
           java.lang.String info =
-              "\u0000\u0014\u0000\u0001\u0001\u0014\u0014\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001a\u0000\u0001\u0001\u001a\u001a\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
-              "\u1009\u0001\u0013\u0004\u0014\f";
+              "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
+              "\u0007\u001a\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

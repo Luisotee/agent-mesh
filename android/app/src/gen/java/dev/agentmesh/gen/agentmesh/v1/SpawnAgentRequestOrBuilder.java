@@ -113,11 +113,21 @@ public interface SpawnAgentRequestOrBuilder extends
       getKindBytes();
 
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @return The model.
    */
   java.lang.String getModel();
   /**
+   * <pre>
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   * </pre>
+   *
    * <code>string model = 7 [json_name = "model"];</code>
    * @return The bytes for model.
    */
@@ -125,11 +135,19 @@ public interface SpawnAgentRequestOrBuilder extends
       getModelBytes();
 
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @return The effort.
    */
   java.lang.String getEffort();
   /**
+   * <pre>
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   * </pre>
+   *
    * <code>string effort = 8 [json_name = "effort"];</code>
    * @return The bytes for effort.
    */
@@ -175,4 +193,57 @@ public interface SpawnAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTaskBytes();
+
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  java.lang.String getTier();
+  /**
+   * <pre>
+   * The tier (`tiers.&lt;kind&gt;.&lt;tier&gt;`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   * </pre>
+   *
+   * <code>string tier = 11 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  com.google.protobuf.ByteString
+      getTierBytes();
+
+  /**
+   * <pre>
+   * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+   * its execution tier.
+   * </pre>
+   *
+   * <code>bool plan = 12 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  boolean getPlan();
+
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @return The execTier.
+   */
+  java.lang.String getExecTier();
+  /**
+   * <pre>
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   * </pre>
+   *
+   * <code>string exec_tier = 13 [json_name = "execTier"];</code>
+   * @return The bytes for execTier.
+   */
+  com.google.protobuf.ByteString
+      getExecTierBytes();
 }

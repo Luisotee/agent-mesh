@@ -43,6 +43,20 @@ class StoreTest {
         assertEquals(s.agents, applyFrame(s, stateChanged(3, "ghost", AgentState.AGENT_STATE_IDLE, AgentState.AGENT_STATE_WORKING)).agents)
     }
 
+    @Test fun `approval moves a worker to its execution model in the same conversation`() {
+        val planning = a1.toBuilder().setModel("opus").setPhase(dev.agentmesh.gen.agentmesh.v1.AgentPhase.AGENT_PHASE_PLANNING).setDenyEdits(true).build()
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(planning)))
+        s = applyFrame(s, reopenRequested(1, "a1"))
+        assertTrue(s.agents["a1"]!!.hasPendingReopen())
+        s = applyFrame(s, phaseChanged(2, "a1", dev.agentmesh.gen.agentmesh.v1.AgentPhase.AGENT_PHASE_EXECUTING))
+        s = applyFrame(s, reopened(3, "a1", "sonnet", "t2"))
+        val a = s.agents["a1"]!!
+        assertEquals(dev.agentmesh.gen.agentmesh.v1.AgentPhase.AGENT_PHASE_EXECUTING, a.phase)
+        assertEquals("sonnet", a.model); assertEquals("t2", a.terminalId); assertEquals(false, a.denyEdits)
+        assertFalse(a.hasPendingReopen())
+        assertEquals(planning.id, a.id)
+    }
+
     @Test fun `a resume keeps the state and marks it synced`() {
         val s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
         val resumed = applyFrame(s.copy(synced = false), SubscribeEventsResponse.newBuilder().setResumed(dev.agentmesh.gen.agentmesh.v1.Resumed.getDefaultInstance()).build())

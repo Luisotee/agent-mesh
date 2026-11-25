@@ -50,3 +50,17 @@ fun stateChanged(seq: Long, agentId: String, from: AgentState, to: AgentState, d
 fun exited(seq: Long, agentId: String, code: Int, reason: String = "exited") =
     ev(seq, agentId = agentId) { setAgentExited(AgentExited.newBuilder().setExitCode(code).setReason(reason)) }
 fun messageSent(seq: Long, m: Message, at: Long = 5_000) = ev(seq, at, runId = m.runId) { setMessageSent(MessageSent.newBuilder().setMessage(m)) }
+
+fun phaseChanged(seq: Long, agentId: String, to: dev.agentmesh.gen.agentmesh.v1.AgentPhase) =
+    ev(seq, agentId = agentId) { setAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.newBuilder().setTo(to).setWhy("plan approved")) }
+
+fun reopened(seq: Long, agentId: String, model: String, terminal: String) =
+    ev(seq, agentId = agentId) {
+        setAgentReopened(
+            dev.agentmesh.gen.agentmesh.v1.AgentReopened.newBuilder().setTerminalId(terminal).setSessionId("s1")
+                .setReopen(dev.agentmesh.gen.agentmesh.v1.Reopen.newBuilder().setId("ro1").setModel(model).setEffort("high").setDenyEdits(false)),
+        )
+    }
+
+fun reopenRequested(seq: Long, agentId: String) =
+    ev(seq, agentId = agentId) { setAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.newBuilder().setReopen(dev.agentmesh.gen.agentmesh.v1.Reopen.newBuilder().setId("ro1"))) }

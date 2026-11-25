@@ -306,4 +306,97 @@ public interface AgentOrBuilder extends
    * @return The stateBeforeCompact.
    */
   dev.agentmesh.gen.agentmesh.v1.AgentState getStateBeforeCompact();
+
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  java.lang.String getTier();
+  /**
+   * <pre>
+   * The tier its model came from (`tiers.&lt;kind&gt;.&lt;tier&gt;`), for its planning or only phase; empty for a named
+   * model.
+   * </pre>
+   *
+   * <code>string tier = 21 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  com.google.protobuf.ByteString
+      getTierBytes();
+
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @return The execTier.
+   */
+  java.lang.String getExecTier();
+  /**
+   * <pre>
+   * The execution phase's tier: preset at spawn, or named at approval.
+   * </pre>
+   *
+   * <code>string exec_tier = 22 [json_name = "execTier"];</code>
+   * @return The bytes for execTier.
+   */
+  com.google.protobuf.ByteString
+      getExecTierBytes();
+
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @return The enum numeric value on the wire for phase.
+   */
+  int getPhaseValue();
+  /**
+   * <code>.agentmesh.v1.AgentPhase phase = 23 [json_name = "phase"];</code>
+   * @return The phase.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentPhase getPhase();
+
+  /**
+   * <pre>
+   * A model or effort named for the whole task: it never gets a plan phase.
+   * </pre>
+   *
+   * <code>bool pinned = 24 [json_name = "pinned"];</code>
+   * @return The pinned.
+   */
+  boolean getPinned();
+
+  /**
+   * <pre>
+   * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+   * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+   * </pre>
+   *
+   * <code>bool deny_edits = 25 [json_name = "denyEdits"];</code>
+   * @return The denyEdits.
+   */
+  boolean getDenyEdits();
+
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   * @return Whether the pendingReopen field is set.
+   */
+  boolean hasPendingReopen();
+  /**
+   * <pre>
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen pending_reopen = 26 [json_name = "pendingReopen"];</code>
+   * @return The pendingReopen.
+   */
+  dev.agentmesh.gen.agentmesh.v1.Reopen getPendingReopen();
 }

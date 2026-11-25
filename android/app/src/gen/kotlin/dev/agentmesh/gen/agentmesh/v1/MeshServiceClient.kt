@@ -113,6 +113,54 @@ public class MeshServiceClient(
 
 
   /**
+   *  Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+   *  conversation without the planning deny list. Only its parent or a device, and only when its newest report
+   *  since its last task or answer is a plan.
+   */
+  override suspend fun approveAgent(request: ApproveAgentRequest, headers: Headers): ResponseMessage<ApproveAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ApproveAgent",
+      dev.agentmesh.gen.agentmesh.v1.ApproveAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ApproveAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+   *  its own conversation. A move asked for mid-turn runs at its next IDLE.
+   */
+  override suspend fun switchAgent(request: SwitchAgentRequest, headers: Headers): ResponseMessage<SwitchAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SwitchAgent",
+      dev.agentmesh.gen.agentmesh.v1.SwitchAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Reopen a stopped agent's conversation, with a new task or as it was.
+   */
+  override suspend fun resumeAgent(request: ResumeAgentRequest, headers: Headers): ResponseMessage<ResumeAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ResumeAgent",
+      dev.agentmesh.gen.agentmesh.v1.ResumeAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ResumeAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   override suspend fun sendMessage(request: SendMessageRequest, headers: Headers): ResponseMessage<SendMessageResponse> = client.unary(
