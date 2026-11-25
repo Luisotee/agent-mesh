@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,4 +327,48 @@ func TestAReplayedRetireAnswersWithTheRetiredAgent(t *testing.T) {
 		t.Errorf("the replay retired it again: %v", got.State)
 	}
 	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// Two StopRuns, and an agent spawned after the first listed the run: the first must not take the late agent's
+// lock while holding the others', or it waits for the second, which holds the late one and waits for an agent the
+// first holds. It lets go of everything and takes the whole set again, in id order.
+func TestTwoStopRunsDoNotDeadlockOverAnAgentSpawnedMeanwhile(t *testing.T) {
+	w := startReopen(t)
+	run := startRun(t, w.device.Mesh, "")
+	a := w.spawn(run.Id, gitRepo(t), "first", "")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	var calls atomic.Int32
+	second := make(chan *v1.StopRunResponse, 1)
+	daemon.OnStopRunLocked(func() {
+		if calls.Add(1) != 1 {
+			return
+		}
+		// The first StopRun holds agent a. A new agent whose id sorts before a's appears, and the second StopRun
+		// starts: it locks the new one and waits for a.
+		err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgent(&v1.Agent{Id: "!late", RunId: run.Id, Name: "late", State: v1.AgentState_AGENT_STATE_IDLE})
+		})
+		if err != nil {
+			t.Error(err)
+		}
+		go func() { second <- w.stopRun(t, run.Id) }()
+		time.Sleep(300 * time.Millisecond)
+	})
+	t.Cleanup(func() { daemon.OnStopRunLocked(nil) })
+	first := make(chan *v1.StopRunResponse, 1)
+	go func() { first <- w.stopRun(t, run.Id) }()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-first:
+		case <-second:
+		case <-time.After(20 * time.Second):
+			t.Fatal("two StopRuns deadlocked")
+		}
+	}
+	if got := w.agent("!late"); got.State != v1.AgentState_AGENT_STATE_RETIRED {
+		t.Errorf("the late agent is %v", got.State)
+	}
+	if got := w.agent(a.Id); got.State != v1.AgentState_AGENT_STATE_RETIRED || w.liveTerminals(t) != 0 {
+		t.Errorf("agent a: %v, %d live processes", got.State, w.liveTerminals(t))
+	}
 }

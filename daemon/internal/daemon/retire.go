@@ -254,21 +254,32 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	out := &v1.StopRunResponse{}
 	// Every agent of the run is locked first, in id order, so a reopen or a doorbell in flight finishes before the
 	// run is closed, and none starts after (the reopen finds its request dropped). An agent spawned meanwhile
-	// shows up inside the transaction, unlocked: the transaction is then undone and its lock taken too.
+	// shows up inside the transaction, unlocked: the transaction is then undone, every lock is let go and the whole
+	// set, with the new agent, is taken again in id order. Locking only the new one while holding the rest could
+	// deadlock with a second StopRun that holds it and waits for one of ours.
 	locked := map[string]bool{}
 	var unlock []func()
-	defer func() {
+	release := func() {
 		for _, f := range unlock {
 			f()
 		}
-	}()
-	lock := func(ids []string) {
+		unlock = nil
+	}
+	defer release()
+	lock := func(add []string) {
+		release()
+		for _, id := range add {
+			locked[id] = true
+		}
+		ids := make([]string, 0, len(locked))
+		for id := range locked {
+			ids = append(ids, id)
+		}
 		sort.Strings(ids)
 		for _, id := range ids {
 			mu := d.agentLock(id)
 			mu.Lock()
 			unlock = append(unlock, mu.Unlock)
-			locked[id] = true
 		}
 	}
 	before, err := d.store.Read(ctx).ListAgents(req.Msg.RunId)
