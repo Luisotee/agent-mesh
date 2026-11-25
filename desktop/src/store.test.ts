@@ -1,8 +1,8 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { applyFrame, emptyHost, type HostState } from './store'
-import { AgentSchema, AgentState, EventSchema, RunSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { applyFrame, emptyHost, mergeMessages, type HostState } from './store'
+import { AgentSchema, AgentState, EventSchema, MessageSchema, RunSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -57,6 +57,35 @@ describe('applyFrame', () => {
   it('an adoption records the terminal', () => {
     const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9' } })])
     expect(s.agents.a1?.terminalId).toBe('t9')
+  })
+
+  it('a sent message is kept, and its delivery marks it', () => {
+    const m = create(MessageSchema, { id: 'm1', runId: 'r1', body: 'plan' })
+    const s = run([
+      snapshot(),
+      ev(6, { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: m } }),
+      ev(7, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'm1' } }),
+      ev(8, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'unknown' } }),
+    ])
+    expect(Object.keys(s.messages)).toEqual(['m1'])
+    expect(s.messages.m1?.deliveredAt).toBeTruthy()
+    expect(s.cursor?.seq).toBe(8n)
+  })
+
+  it('a loaded page never replaces a message events already updated', () => {
+    const base = emptyHost()
+    const updated = create(MessageSchema, { id: 'm1', body: 'x', deliveredAt: timestampFromMs(5000) })
+    const stale = create(MessageSchema, { id: 'm1', body: 'x' })
+    const next = { ...base, ...mergeMessages({ ...base, messages: { m1: updated } }, [stale, create(MessageSchema, { id: 'm2' })]) }
+    expect(next.messages.m1?.deliveredAt).toBeTruthy()
+    expect(Object.keys(next.messages).sort()).toEqual(['m1', 'm2'])
+  })
+
+  it('a snapshot drops the messages of runs the host no longer lists', () => {
+    const kept = create(MessageSchema, { id: 'm1', runId: 'r1' })
+    const gone = create(MessageSchema, { id: 'm2', runId: 'old' })
+    const s = applyFrame({ ...emptyHost(), messages: { m1: kept, m2: gone } }, snapshot())
+    expect(Object.keys(s.messages)).toEqual(['m1'])
   })
 
   it('the stream and its replay give the same state', () => {

@@ -143,6 +143,20 @@ service MeshService {
     };
   }
 
+  // The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
+  // page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
+  // page's `after_id`.
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "messages"
+      summary: "List the messages of a run"
+    };
+  }
+
   // The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
   // ends the stream, so a client resumes from its cursor after any other close.
   rpc SubscribeEvents(SubscribeEventsRequest) returns (stream SubscribeEventsResponse) {
@@ -339,6 +353,21 @@ message ReadInboxRequest {
 
 message ReadInboxResponse {
   repeated Message messages = 1;
+}
+
+message ListMessagesRequest {
+  // The run whose messages to list.
+  string run_id = 1;
+  // Only messages after this one (the last of the previous page); empty starts at the oldest.
+  string after_id = 2;
+  // At most this many; 0 means 500, and more than 2000 is capped to 2000.
+  int32 limit = 3;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+  // There are more messages after these.
+  bool more = 2;
 }
 
 message SubscribeEventsRequest {

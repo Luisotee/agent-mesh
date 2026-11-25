@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Event, Run } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Event, Message, Run } from './gen/agentmesh/v1/types_pb'
 import { AgentState } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
@@ -18,6 +18,8 @@ export interface HostState {
   synced: boolean
   runs: Record<string, Run>
   agents: Record<string, Agent>
+  /** Every message seen: loaded with ListMessages, then added by events. */
+  messages: Record<string, Message>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -25,7 +27,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, log: [] }
 }
 
 const MAX_LOG = 200
@@ -41,7 +43,9 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
       for (const r of frame.value.runs) runs[r.id] = r
       const agents: Record<string, Agent> = {}
       for (const a of frame.value.agents) agents[a.id] = a
-      return { ...s, synced: true, runs, agents, cursor: frame.value.cursor }
+      // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
+      const messages = Object.fromEntries(Object.entries(s.messages).filter(([, m]) => m.runId in runs))
+      return { ...s, synced: true, runs, agents, messages, cursor: frame.value.cursor }
     }
     case 'resumed':
       return { ...s, synced: true }
@@ -60,6 +64,14 @@ function applyEvent(s: HostState, e: Event): HostState {
     case 'runStarted':
       if (p.value.run) return { ...next, runs: { ...s.runs, [p.value.run.id]: p.value.run } }
       return next
+    case 'messageSent': {
+      const m = p.value.message
+      return m ? { ...next, messages: { ...s.messages, [m.id]: m } } : next
+    }
+    case 'messageDelivered': {
+      const m = s.messages[p.value.messageId]
+      return m ? { ...next, messages: { ...s.messages, [m.id]: { ...m, deliveredAt: e.time ?? m.deliveredAt } } } : next
+    }
     case 'agentSpawned':
       if (p.value.agent) return { ...next, agents: { ...s.agents, [p.value.agent.id]: p.value.agent } }
       return next
@@ -95,6 +107,13 @@ function applyEvent(s: HostState, e: Event): HostState {
     default:
       return next
   }
+}
+
+/** Adds messages (a loaded page) to the ones we have; one we already have, which events may have updated, is kept. */
+export function mergeMessages(s: HostState, page: Message[]): Partial<HostState> {
+  const messages = { ...s.messages }
+  for (const m of page) messages[m.id] ??= m
+  return { messages }
 }
 
 export function createHostStore(): HostStore {

@@ -49,6 +49,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/OpenTerminal
@@ -64,6 +65,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/OpenTerminal

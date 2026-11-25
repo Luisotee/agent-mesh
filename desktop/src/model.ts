@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { DesktopApi, HostInfo, NewHost, SocketEvent, SocketHandle } from '../shared/api'
 import { createMeshClient, type MeshClient } from './actions'
 import { HostConnection } from './connection'
+import { messageLoader } from './messages'
 import { createHostStore, storeSink, type HostStore } from './store'
 import { hostTransport } from './transport'
 
@@ -19,7 +20,15 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket'>, inf
   const store = createHostStore()
   const client = createMeshClient(hostTransport(api, info.id))
   const sink = storeSink(store)
-  const connection = new HostConnection({ client, ...sink })
+  const loader = messageLoader(client, store, sink.log)
+  const connection = new HostConnection({
+    client,
+    ...sink,
+    onFrame: (f) => {
+      sink.onFrame(f)
+      if (f.case === 'snapshot') void loader.load(f.value.runs)
+    },
+  })
   connection.start()
   return { info, store, client, connection, openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent) }
 }
@@ -32,7 +41,11 @@ export interface AppState {
   hostId?: string
   /** The agent open in the main pane, with the host it belongs to. */
   agentId?: string
+  /** Which view of that agent is showing. */
+  tab: AgentTab
 }
+
+export type AgentTab = 'overview' | 'messages' | 'terminal'
 
 export interface AppModel {
   store: StoreApi<AppState>
@@ -41,12 +54,13 @@ export interface AppModel {
   addHost(h: NewHost): Promise<void>
   removeHost(id: string): Promise<void>
   selectHost(id: string): void
-  selectAgent(hostId: string, agentId: string | undefined): void
+  selectAgent(hostId: string, agentId: string | undefined, tab?: AgentTab): void
+  setTab(tab: AgentTab): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [] }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview' }))
   const set = store.setState
   let loading: Promise<void> | undefined
   async function loadHosts() {
@@ -77,6 +91,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       })
     },
     selectHost: (id) => set({ hostId: id, agentId: undefined }),
-    selectAgent: (hostId, agentId) => set({ hostId, agentId }),
+    selectAgent: (hostId, agentId, tab = 'overview') => set({ hostId, agentId, tab }),
+    setTab: (tab) => set({ tab }),
   }
 }

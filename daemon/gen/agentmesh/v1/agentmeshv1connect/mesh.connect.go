@@ -51,6 +51,9 @@ const (
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
 	MeshServiceReadInboxProcedure = "/agentmesh.v1.MeshService/ReadInbox"
+	// MeshServiceListMessagesProcedure is the fully-qualified name of the MeshService's ListMessages
+	// RPC.
+	MeshServiceListMessagesProcedure = "/agentmesh.v1.MeshService/ListMessages"
 	// MeshServiceSubscribeEventsProcedure is the fully-qualified name of the MeshService's
 	// SubscribeEvents RPC.
 	MeshServiceSubscribeEventsProcedure = "/agentmesh.v1.MeshService/SubscribeEvents"
@@ -86,6 +89,10 @@ type MeshServiceClient interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
+	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
+	// page's `after_id`.
+	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest]) (*connect.ServerStreamForClient[v1.SubscribeEventsResponse], error)
@@ -167,6 +174,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
 			connect.WithClientOptions(opts...),
 		),
+		listMessages: connect.NewClient[v1.ListMessagesRequest, v1.ListMessagesResponse](
+			httpClient,
+			baseURL+MeshServiceListMessagesProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListMessages")),
+			connect.WithClientOptions(opts...),
+		),
 		subscribeEvents: connect.NewClient[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse](
 			httpClient,
 			baseURL+MeshServiceSubscribeEventsProcedure,
@@ -217,6 +230,7 @@ type meshServiceClient struct {
 	stopAgent       *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	listMessages    *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
 	subscribeEvents *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
 	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
 	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
@@ -270,6 +284,11 @@ func (c *meshServiceClient) ReadInbox(ctx context.Context, req *connect.Request[
 	return c.readInbox.CallUnary(ctx, req)
 }
 
+// ListMessages calls agentmesh.v1.MeshService.ListMessages.
+func (c *meshServiceClient) ListMessages(ctx context.Context, req *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
+	return c.listMessages.CallUnary(ctx, req)
+}
+
 // SubscribeEvents calls agentmesh.v1.MeshService.SubscribeEvents.
 func (c *meshServiceClient) SubscribeEvents(ctx context.Context, req *connect.Request[v1.SubscribeEventsRequest]) (*connect.ServerStreamForClient[v1.SubscribeEventsResponse], error) {
 	return c.subscribeEvents.CallServerStream(ctx, req)
@@ -317,6 +336,10 @@ type MeshServiceHandler interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
+	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
+	// page's `after_id`.
+	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error
@@ -394,6 +417,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListMessagesHandler := connect.NewUnaryHandler(
+		MeshServiceListMessagesProcedure,
+		svc.ListMessages,
+		connect.WithSchema(meshServiceMethods.ByName("ListMessages")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceSubscribeEventsHandler := connect.NewServerStreamHandler(
 		MeshServiceSubscribeEventsProcedure,
 		svc.SubscribeEvents,
@@ -450,6 +479,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
+		case MeshServiceListMessagesProcedure:
+			meshServiceListMessagesHandler.ServeHTTP(w, r)
 		case MeshServiceSubscribeEventsProcedure:
 			meshServiceSubscribeEventsHandler.ServeHTTP(w, r)
 		case MeshServiceListSettingsProcedure:
@@ -505,6 +536,10 @@ func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ReadInbox is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMessages is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error {

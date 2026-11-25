@@ -1,16 +1,18 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { MessagesPanel } from './components/messages-panel'
 import { RunSidebar } from './components/run-sidebar'
+import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
-import { AgentRole, AgentSchema, AgentState, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
 import { createHostStore } from './store'
 
@@ -29,7 +31,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     runs: { r1: create(RunSchema, { id: 'r1', title: 'ship it', status: RunStatus.OPEN }) },
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
   })
-  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async () => ({})) }
+  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection } as unknown as HostRuntime
   const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn() } as unknown as DesktopApi
@@ -45,8 +47,8 @@ describe('RunSidebar', () => {
     render(wrap(<RunSidebar host={host} />))
     const region = screen.getByRole('region', { name: 'ship it' })
     expect(region).toHaveTextContent('1 need you')
-    const lead = screen.getByRole('button', { name: /app-lead/ })
-    const fix = screen.getByRole('button', { name: /app-fix/ })
+    const lead = within(region).getByRole('button', { name: /app-lead/ })
+    const fix = within(region).getByRole('button', { name: /app-fix/ })
     expect(lead).toHaveTextContent('Idle, waiting for a message')
     expect(fix).toHaveTextContent('Needs you: Bash')
     expect(fix).toHaveTextContent('app · claude · sonnet')
@@ -130,10 +132,10 @@ describe('AgentPanel', () => {
 })
 
 describe('AgentPanel without a terminal', () => {
-  it('shows the overview, with no tabs', () => {
+  it('shows the overview and messages tabs, and no terminal tab', () => {
     const { host, wrap } = fixture()
     render(wrap(<AgentPanel host={host} agentId="w1" />))
-    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['overview', 'messages'])
     expect(screen.getByLabelText('Message', { exact: true })).toBeVisible()
   })
 })
@@ -203,5 +205,132 @@ describe('SpawnDialog', () => {
     host.store.setState({ agents: { lead: agent('lead', { role: AgentRole.ROOT }) } })
     await userEvent.click(await screen.findByRole('button', { name: 'add' }))
     expect(screen.getByLabelText('Role')).toHaveValue(String(AgentRole.WORKER))
+  })
+})
+
+
+const msg = (id: string, type: MessageType, from: string, to: string, ms: number, body = id) =>
+  create(MessageSchema, { id, runId: 'r1', type, body, toId: to, toName: to, createdAt: timestampFromMs(ms), from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: 0, runId: 'r1' } })
+const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host.store.setState((s) => ({ messages: { ...s.messages, ...Object.fromEntries(ms.map((m) => [m.id, m])) } }))
+
+describe('MessagesPanel', () => {
+  it('shows a plan awaiting the user and approves it with an answer to its author', async () => {
+    const { host, wrap, client } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b'))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    const card = screen.getByRole('article', { name: 'Plan from w1' })
+    expect(within(card).getByRole('heading', { name: 'The plan' })).toBeInTheDocument()
+    expect(within(card).getAllByRole('listitem')).toHaveLength(2)
+    expect(card).toHaveTextContent('waiting for you')
+    await userEvent.click(within(card).getByRole('button', { name: 'Approve' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
+    expect(client.sendMessage.mock.calls[0]![0]).toMatchObject({ to: 'w1', type: MessageType.ANSWER, body: 'approved' })
+    // The answer arrives as an event: the item closes by itself.
+    putMessages(host, msg('a1', MessageType.ANSWER, 'lead', 'w1', 2000, 'approved'))
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Answer the plan' })).toBeNull())
+    expect(screen.getByRole('article', { name: 'Plan from w1' })).not.toHaveTextContent('waiting for you')
+  })
+
+  it('asks for changes only with some text, and answers a question', async () => {
+    const { host, wrap, client } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?'))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    const plan = screen.getByRole('form', { name: 'Answer the plan' })
+    expect(within(plan).getByRole('button', { name: 'Request changes' })).toBeDisabled()
+    await userEvent.type(within(plan).getByLabelText('Changes to ask for'), 'split it in two')
+    await userEvent.click(within(plan).getByRole('button', { name: 'Request changes' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
+    expect(client.sendMessage.mock.calls[0]![0]).toMatchObject({ to: 'w1', type: MessageType.ANSWER, body: 'split it in two' })
+
+    const q = screen.getByRole('form', { name: 'Answer the question' })
+    expect(within(q).queryByRole('button', { name: 'Approve' })).toBeNull()
+    await userEvent.type(within(q).getByLabelText('Your answer'), 'main')
+    await userEvent.click(within(q).getByRole('button', { name: 'Send answer' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(2))
+    expect(client.sendMessage.mock.calls[1]![0]).toMatchObject({ to: 'w1', body: 'main' })
+  })
+
+  it('does not approve over text typed for changes', async () => {
+    const { host, wrap, client } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    await userEvent.type(screen.getByLabelText('Changes to ask for'), 'also add tests')
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(client.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('answers once on a double click, and shows a rejection', async () => {
+    const { host, wrap, client } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    let release!: () => void
+    client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    const approve = screen.getByRole('button', { name: 'Approve' })
+    fireEvent.click(approve)
+    fireEvent.click(approve)
+    release()
+    await waitFor(() => expect(approve).not.toBeDisabled())
+    expect(client.sendMessage).toHaveBeenCalledTimes(1)
+    client.sendMessage.mockRejectedValueOnce(new Error('permission denied'))
+    await userEvent.click(approve)
+    expect(await screen.findByRole('alert')).toHaveTextContent('permission denied')
+  })
+
+  it('shows reports and failures without a form, a long one collapsed', async () => {
+    const { host, wrap } = fixture()
+    putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'All **done**.'), msg('f1', MessageType.FAILED, 'w1', 'lead', 2000, 'x'.repeat(2000)))
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    expect(screen.getByRole('article', { name: 'Report from w1' })).toHaveTextContent('All done.')
+    expect(screen.queryByRole('form')).toBeNull()
+    const failed = screen.getByRole('article', { name: 'Failed from w1' })
+    await userEvent.click(within(failed).getByRole('button', { name: /Show all/ }))
+    expect(within(failed).getByRole('button', { name: /Show less/ })).toBeInTheDocument()
+  })
+
+  it('says so when there are no messages', () => {
+    const { host, wrap } = fixture()
+    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    expect(screen.getByText(/No messages yet/)).toBeInTheDocument()
+  })
+})
+
+describe('Markdown in messages', () => {
+  it('opens web links in the browser through main, drops raw html and images, and ignores other schemes', async () => {
+    const openExternal = vi.fn()
+    ;(window as unknown as { desktop: unknown }).desktop = { openExternal }
+    const { host, wrap } = fixture()
+    putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'See [docs](https://example.com/a) and [bad](javascript:alert(1)).\n\n<script>window.x=1</script><img src="https://evil.example/x.png">![alt](https://evil.example/y.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |'))
+    const { container } = render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    await userEvent.click(screen.getByRole('link', { name: 'docs' }))
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/a')
+    const bad = screen.queryByRole('link', { name: 'bad' })
+    if (bad) await userEvent.click(bad)
+    expect(openExternal).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+})
+
+describe('WaitingList', () => {
+  it('lists what waits on the user and opens the agent on its messages (or terminal)', async () => {
+    const { host, wrap, model } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, name: 'app-fix', parentId: 'lead', state: AgentState.IDLE }), w2: agent('w2', { role: AgentRole.WORKER, name: 'app-two', parentId: 'lead', state: AgentState.NEEDS_INPUT, needsInput: 1 }) } }))
+    render(wrap(<WaitingList host={host} />))
+    const list = screen.getByRole('region', { name: 'Waiting on you' })
+    expect(list).toHaveTextContent('app-fix sent a plan')
+    expect(list).toHaveTextContent('app-two needs you in its terminal')
+    await userEvent.click(within(list).getByRole('button', { name: /app-fix/ }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages' })
+    await userEvent.click(within(list).getByRole('button', { name: /app-two/ }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w2', tab: 'terminal' })
+  })
+
+  it('is absent when nothing waits', () => {
+    const { host, wrap } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, parentId: 'lead' }) } }))
+    render(wrap(<WaitingList host={host} />))
+    expect(screen.queryByRole('region', { name: 'Waiting on you' })).toBeNull()
   })
 })

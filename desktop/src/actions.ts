@@ -3,7 +3,7 @@ import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { createClient, type Client } from '@connectrpc/connect'
 import type { Transport } from '@connectrpc/connect'
 import { MeshService, type SpawnAgentRequest } from './gen/agentmesh/v1/mesh_pb'
-import { RequestMetaSchema, type AgentRole, type MessageType } from './gen/agentmesh/v1/types_pb'
+import { RequestMetaSchema, MessageType as MT, type AgentRole, type MessageType } from './gen/agentmesh/v1/types_pb'
 
 export type MeshClient = Client<typeof MeshService>
 
@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -39,3 +39,9 @@ export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: 
 
 /** A one-time ticket for an agent's terminal stream; `input` asks for the right to type (the host decides). */
 export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.openTerminal({ agent, input })
+
+/** One page of a run's messages, oldest first, after the message with `afterId` (empty: from the start). */
+export const listMessages = (c: MeshClient, runId: string, afterId: string) => c.listMessages({ runId, afterId, limit: 500 })
+
+/** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
+export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
