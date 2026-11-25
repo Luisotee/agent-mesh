@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,9 +17,9 @@ import (
 
 var excludeMu sync.Mutex
 
-// writeWorktreeFiles writes adapter-requested files inside worktree before the CLI starts, keeping
-// git-excluded files out of git status (via <git-common-dir>/info/exclude) and neutralizing pre-existing
-// tracked files with --skip-worktree.
+// writeWorktreeFiles writes adapter-requested files inside worktree before the CLI starts, keeping git-excluded
+// files out of git status (excludeWorktreeFile) and merging a tracked file into the committed version when asked
+// (mergeTracked).
 func (d *Daemon) writeWorktreeFiles(ctx context.Context, worktree string, files []*adapterv1.WorktreeFile) error {
 	if len(files) == 0 {
 		return nil
@@ -46,9 +48,14 @@ func (d *Daemon) writeWorktreeFiles(ctx context.Context, worktree string, files 
 		if realTarget != realWT && !strings.HasPrefix(realTarget, realWT+string(filepath.Separator)) {
 			return fmt.Errorf("worktree file %q escapes worktree %q", f.Path, worktree)
 		}
+		slashRel := filepath.ToSlash(rel)
+		tracked := exec.CommandContext(ctx, "git", "-C", worktree, "ls-files", "--error-unmatch", "--", slashRel).Run() == nil
+		content := f.Content
+		if f.MergeTracked && tracked {
+			content = mergeTracked(ctx, worktree, slashRel, content)
+		}
 		if f.GitExclude {
-			slashRel := filepath.ToSlash(rel)
-			if err := excludeWorktreeFile(ctx, worktree, slashRel); err != nil {
+			if err := excludeWorktreeFile(ctx, worktree, slashRel, tracked); err != nil {
 				return err
 			}
 		}
@@ -56,7 +63,7 @@ func (d *Daemon) writeWorktreeFiles(ctx context.Context, worktree string, files 
 		if mode == 0 {
 			mode = 0o600
 		}
-		if err := fsutil.WriteAtomic(target, f.Content, mode); err != nil {
+		if err := fsutil.WriteAtomic(target, content, mode); err != nil {
 			return err
 		}
 	}
@@ -85,23 +92,70 @@ func evalExisting(p string) (string, error) {
 	}
 }
 
-func excludeWorktreeFile(ctx context.Context, worktree, slashRel string) error {
+// mergeTracked is the committed version of a JSON object file (as the index has it, not the working copy, which a
+// launch before may have written) with content's top-level keys added; content alone when either isn't one.
+func mergeTracked(ctx context.Context, worktree, slashRel string, content []byte) []byte {
+	committed, err := exec.CommandContext(ctx, "git", "-C", worktree, "show", ":"+slashRel).Output()
+	if err != nil {
+		return content
+	}
+	var base, ours map[string]json.RawMessage
+	if json.Unmarshal(committed, &base) != nil || base == nil || json.Unmarshal(content, &ours) != nil {
+		return content
+	}
+	for k, v := range ours {
+		base[k] = v
+	}
+	b, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return content
+	}
+	return append(b, '\n')
+}
+
+// ignoreMarker heads a .gitignore the daemon wrote, so a later launch knows it may rewrite it.
+const ignoreMarker = "# agent-mesh: files the daemon writes for its agents, kept out of git"
+
+// excludeWorktreeFile keeps a file the daemon writes out of git status in this worktree alone. A tracked one (a
+// repo's own .agents/hooks.json) is marked skip-worktree, so the replacement neither dirties the worktree nor
+// blocks its removal. An untracked one gets a self-ignoring .gitignore beside it: the repo's shared
+// <git-common-dir>/info/exclude would hide the same path in every checkout of the repo, the user's included. Only
+// a file at the worktree's top, or beside a .gitignore the daemon didn't write, falls back to info/exclude.
+func excludeWorktreeFile(ctx context.Context, worktree, slashRel string, tracked bool) error {
+	if tracked {
+		_, err := git(ctx, worktree, "update-index", "--skip-worktree", "--", slashRel)
+		return err
+	}
+	if dir := path.Dir(slashRel); dir != "." {
+		ignore := filepath.Join(worktree, filepath.FromSlash(dir), ".gitignore")
+		existing, err := os.ReadFile(ignore)
+		if os.IsNotExist(err) || err == nil && strings.HasPrefix(string(existing), ignoreMarker+"\n") {
+			return addIgnoreLine(ignore, existing, "/"+path.Base(slashRel))
+		}
+		if err != nil {
+			return err
+		}
+	}
 	commonDir, err := git(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return err
 	}
-	if err := addGitExclude(commonDir, "/"+slashRel); err != nil {
-		return err
+	return addGitExclude(commonDir, "/"+slashRel)
+}
+
+// addIgnoreLine writes the daemon's .gitignore with pattern in it (and itself, so it never shows either).
+func addIgnoreLine(ignore string, existing []byte, pattern string) error {
+	lines := []string{ignoreMarker, "/.gitignore"}
+	if len(existing) > 0 {
+		lines = strings.Split(strings.TrimRight(string(existing), "\n"), "\n")
 	}
-	// If the repo tracks this file (e.g. an untrusted .agents/hooks.json in a PR head), mark it skip-worktree
-	// before overwriting it so our replacement holds without dirtying git status or blocking worktree removal.
-	ls := exec.CommandContext(ctx, "git", "-C", worktree, "ls-files", "--error-unmatch", "--", slashRel)
-	if ls.Run() == nil {
-		if _, err := git(ctx, worktree, "update-index", "--skip-worktree", "--", slashRel); err != nil {
-			return err
+	for _, l := range lines {
+		if l == pattern {
+			return nil
 		}
 	}
-	return nil
+	lines = append(lines, pattern)
+	return fsutil.WriteAtomic(ignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 func addGitExclude(commonDir, pattern string) error {

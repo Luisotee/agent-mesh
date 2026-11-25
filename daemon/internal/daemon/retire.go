@@ -154,7 +154,7 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 	}
 	var viewed map[string]bool
 	for _, a := range agents {
-		if a.State != v1.AgentState_AGENT_STATE_IDLE || a.Role == v1.AgentRole_AGENT_ROLE_ROOT || a.PendingReopen != nil ||
+		if !atPrompt(a.State) || a.Role == v1.AgentRole_AGENT_ROLE_ROOT || a.PendingReopen != nil ||
 			a.TerminalId == "" {
 			continue
 		}
@@ -219,7 +219,7 @@ func (d *Daemon) autoRetire(ctx context.Context, agentID, reportID string, after
 		if err != nil {
 			return err
 		}
-		if a.State != v1.AgentState_AGENT_STATE_IDLE || a.PendingReopen != nil {
+		if !atPrompt(a.State) || a.PendingReopen != nil {
 			return nil
 		}
 		report, err := lastReport(tx.Reader, a)

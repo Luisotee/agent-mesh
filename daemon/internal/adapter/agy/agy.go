@@ -165,6 +165,18 @@ func PickModel(listing, family, effort string) (string, error) {
 	return bestID, nil
 }
 
+// DescribeModel reports the effort an exact agy id names (`gemini-4-neon-low`: low); a family names none.
+func (a *Adapter) DescribeModel(_ context.Context, req *connect.Request[adapterv1.DescribeModelRequest]) (*connect.Response[adapterv1.DescribeModelResponse], error) {
+	out := &adapterv1.DescribeModelResponse{}
+	if p, ok := parseAgyID(req.Msg.Model); ok {
+		out.Effort = p.effort
+	}
+	return connect.NewResponse(out), nil
+}
+
+// resolveModel turns a model and effort into the id agy runs. An exact id at its own effort is kept as named (the
+// daemon records an exact id named without an effort at that effort: DescribeModel); at another effort (a later
+// SwitchAgent --effort) its family is resolved at the new one.
 func (a *Adapter) resolveModel(ctx context.Context, bin, model, effort string, env map[string]string) (string, error) {
 	if model == "" {
 		return "", nil
@@ -276,14 +288,20 @@ type hooksSpec struct {
 	Stop           []hookCommand `json:"Stop"`
 }
 
-// HooksJSON builds the per-worktree `.agents/hooks.json` content. Every command checks `$AGENT_MESH_AGENT` so
-// a manual session in the same directory exits 0 silently and never reports or blocks.
+// HooksJSON builds the per-worktree `.agents/hooks.json` content. Every command checks `$AGENT_MESH_AGENT`, so a
+// session that isn't the agent's (a person running agy in the same directory) never reports as it. The deny
+// rules fail closed instead: that session's PreToolUse still checks them (`--check-only`, reporting nothing), so
+// an agent whose environment lost the variable stays read-only.
 func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string) ([]byte, error) {
 	guarded := func(event string, extra ...string) string {
 		argv := append(append([]string{}, hookArgv...), extra...)
+		other := "exit 0"
+		if len(extra) > 0 {
+			other = "exec " + adapter.ShellQuote(append(append([]string{}, argv...), "--check-only", event)...)
+		}
 		argv = append(argv, event)
-		return fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; exec %s`,
-			adapter.ShellQuote(agentID), adapter.ShellQuote(argv...))
+		return fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || %s; exec %s`,
+			adapter.ShellQuote(agentID), other, adapter.ShellQuote(argv...))
 	}
 	var preExtra []string
 	if deny {
@@ -375,11 +393,15 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 	if err != nil {
 		return nil, err
 	}
+	// A repo's own committed hooks stay in force for an agent that works on it (it runs inside the repo, with the
+	// repo's hooks, as its CLAUDE.md applies); an asker or a reviewer, which may be reading an untrusted PR head,
+	// gets only the mesh's.
 	files := []*adapterv1.WorktreeFile{{
-		Path:       ".agents/hooks.json",
-		Content:    hooksContent,
-		Mode:       0o600,
-		GitExclude: true,
+		Path:         ".agents/hooks.json",
+		Content:      hooksContent,
+		Mode:         0o600,
+		GitExclude:   true,
+		MergeTracked: !adapter.ReadOnly(m.Role),
 	}}
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{
 		Argv:          argv,
@@ -402,14 +424,11 @@ var editTools = map[string]bool{
 	"delete_file":                true,
 }
 
-var publishCommands = [][]string{
-	{"git", "push"},
-	{"gh", "pr", "review"},
-	{"gh", "pr", "comment"},
-	{"gh", "pr", "merge"},
-	{"gh", "pr", "edit"},
-	{"gh", "pr", "close"},
-	{"gh", "issue", "comment"},
+// publishVerbs are the gh subcommands a read-only or planning agent may not run, by group: the same writes as
+// the Claude adapter's publishCommands. `git push` and gh api writes are matched apart (matchPublishTokens).
+var publishVerbs = map[string][]string{
+	"pr":    {"review", "comment", "merge", "edit", "close"},
+	"issue": {"comment"},
 }
 
 type preToolPayload struct {
@@ -421,14 +440,15 @@ type preToolPayload struct {
 }
 
 // EvaluatePreToolUse checks an agy PreToolUse payload against denied workspace paths and publish commands.
-// Returns (deny, reason). An empty reason with deny=false means allow (print nothing and exit 0).
+// Returns (deny, reason). An empty reason with deny=false means allow (print nothing and exit 0). With any rule
+// set, a payload it can't read is denied: the rules fail closed.
 func EvaluatePreToolUse(raw []byte, fallbackCwd string, denyPaths []string, denyPublish bool) (bool, string) {
 	if len(denyPaths) == 0 && !denyPublish {
 		return false, ""
 	}
 	var p preToolPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return false, ""
+		return true, "read-only/planning agent: the tool call could not be checked (" + err.Error() + ")"
 	}
 	cwd := p.Cwd
 	if cwd == "" {
@@ -527,40 +547,121 @@ func resolvePathIncludingMissing(p string) string {
 
 var segmentSplitRE = regexp.MustCompile(`(?:\|\||&&|[;\n|&])+`)
 
-func matchPublishCommand(cmdline string) string {
+// maxShellDepth bounds how deep `sh -c`, `eval` and `env -S` strings are looked into.
+const maxShellDepth = 4
+
+// matchPublishCommand names the publishing command a shell command line runs (`git push`, a gh write), or "".
+// It reads the line the way a careful person would, not as a shell does: each segment between `;`, `&&`, `|`
+// and `$(…)` is unwrapped (variable assignments, `env`, `sudo`, `nohup`, `timeout`, `xargs` and the like, `sh -c`
+// and `eval` strings) and its command checked. It guards against an agent's honest mistake, not a determined one
+// (a script it writes, a git alias): the role's prompt says what it may do.
+func matchPublishCommand(cmdline string) string { return matchPublishDepth(cmdline, 0) }
+
+func matchPublishDepth(cmdline string, depth int) string {
+	if depth > maxShellDepth {
+		return ""
+	}
 	// Also inspect subshells $(...) and `...` by turning them into segment boundaries.
-	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";").Replace(cmdline)
+	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";", "(", ";", "{", ";", "}", ";").Replace(cmdline)
 	for _, seg := range segmentSplitRE.Split(expanded, -1) {
 		fields := shellWords(seg)
 		if len(fields) == 0 {
 			continue
 		}
-		if matched := matchPublishTokens(fields); matched != "" {
+		if matched := matchPublishTokens(fields, depth); matched != "" {
 			return matched
 		}
 	}
 	return ""
 }
 
-func matchPublishTokens(tokens []string) string {
-	// Skip leading env assignments (FOO=bar) and simple command wrappers.
+var assignmentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// wrapperValueFlags are, per command wrapper, the flags that take the next word as their value.
+var wrapperValueFlags = map[string]map[string]bool{
+	"command": {}, "builtin": {}, "nohup": {}, "time": {}, "stdbuf": {}, "setsid": {},
+	"exec":    {"-a": true},
+	"sudo":    {"-u": true, "-g": true, "-C": true, "-D": true, "-h": true, "-p": true, "-r": true, "-t": true, "-U": true},
+	"doas":    {"-u": true, "-C": true},
+	"nice":    {"-n": true},
+	"ionice":  {"-c": true, "-n": true, "-p": true},
+	"timeout": {"-s": true, "-k": true, "--signal": true, "--kill-after": true},
+	"xargs": {"-I": true, "-n": true, "-L": true, "-P": true, "-s": true, "-d": true, "-E": true, "-a": true,
+		"--max-args": true, "--max-procs": true, "--delimiter": true, "--arg-file": true},
+	"env": {"-u": true, "-C": true, "--unset": true, "--chdir": true},
+}
+
+var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "mksh": true, "ash": true, "busybox": true}
+
+func matchPublishTokens(tokens []string, depth int) string {
 	for len(tokens) > 0 {
-		if strings.Contains(tokens[0], "=") && !strings.HasPrefix(tokens[0], "-") {
+		if assignmentRE.MatchString(tokens[0]) {
 			tokens = tokens[1:]
 			continue
 		}
-		if tokens[0] == "command" || tokens[0] == "env" || tokens[0] == "sudo" {
-			tokens = tokens[1:]
-			continue
+		name := filepath.Base(tokens[0])
+		if name == "eval" {
+			return matchPublishDepth(strings.Join(tokens[1:], " "), depth+1)
 		}
-		break
+		if shells[name] {
+			args := tokens[1:]
+			if name == "busybox" && len(args) > 0 && shells[args[0]] {
+				args = args[1:]
+			}
+			for i := 0; i < len(args); i++ {
+				t := args[i]
+				switch {
+				case t == "-o" || t == "+o" || t == "-O" || t == "+O" || t == "--rcfile" || t == "--init-file":
+					i++
+				case strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && strings.ContainsRune(t, 'c'):
+					if i+1 < len(args) {
+						return matchPublishDepth(args[i+1], depth+1)
+					}
+					return ""
+				case strings.HasPrefix(t, "-") || strings.HasPrefix(t, "+"):
+				default:
+					return "" // a script file: not looked into
+				}
+			}
+			return ""
+		}
+		values, wrapper := wrapperValueFlags[name]
+		if !wrapper {
+			break
+		}
+		tokens = tokens[1:]
+		for len(tokens) > 0 {
+			t := tokens[0]
+			if name == "env" && (t == "-S" || t == "--split-string") && len(tokens) > 1 {
+				return matchPublishDepth(strings.Join(tokens[1:], " "), depth+1)
+			}
+			if name == "env" && assignmentRE.MatchString(t) {
+				tokens = tokens[1:]
+				continue
+			}
+			if t == "--" {
+				tokens = tokens[1:]
+				break
+			}
+			if !strings.HasPrefix(t, "-") || t == "-" && name != "env" {
+				break
+			}
+			tokens = tokens[1:]
+			if values[t] && len(tokens) > 0 {
+				tokens = tokens[1:]
+			}
+		}
+		if name == "timeout" && len(tokens) > 0 {
+			tokens = tokens[1:] // its duration
+		}
 	}
 	if len(tokens) < 2 {
 		return ""
 	}
 	cmd := filepath.Base(tokens[0])
 	args := tokens[1:]
-	if cmd == "git" {
+	switch cmd {
+	case "git":
 		// Skip global git flags such as -C <dir>, -c <k=v>, --git-dir <d>, --git-dir=<d>, --no-pager.
 		for i := 0; i < len(args); i++ {
 			t := args[i]
@@ -570,29 +671,74 @@ func matchPublishTokens(tokens []string) string {
 				}
 				return ""
 			}
-			if t == "-C" || t == "-c" || t == "--git-dir" || t == "--work-tree" || t == "--namespace" {
+			if t == "-C" || t == "-c" || t == "--git-dir" || t == "--work-tree" || t == "--namespace" ||
+				t == "--exec-path" || t == "--super-prefix" || t == "--config-env" {
 				i++
 			}
 		}
+	case "gh":
+		return matchGh(args)
+	}
+	return ""
+}
+
+// ghValueFlags are gh flags that take the next word as their value, wherever they stand: cobra reads a
+// subcommand's flags before its name too (`gh pr -R o/r merge 5`).
+var ghValueFlags = map[string]bool{
+	"-R": true, "--repo": true, "-b": true, "--body": true, "-F": true, "--body-file": true, "-t": true, "--title": true,
+	"-B": true, "--base": true, "-H": true, "--head": true, "-l": true, "--label": true, "-a": true, "--assignee": true,
+	"-m": true, "--milestone": true, "-r": true, "--reviewer": true, "-p": true, "--project": true, "-S": true,
+	"--search": true, "-s": true, "--state": true, "-L": true, "--limit": true, "-A": true, "--author": true,
+	"-q": true, "--jq": true, "-T": true, "--template": true, "--json": true, "-X": true, "--method": true,
+	"-f": true, "--field": true, "--raw-field": true, "--input": true, "--hostname": true,
+	"--header": true, "--cache": true, "--preview": true,
+}
+
+func matchGh(args []string) string {
+	var pos []string
+	method, fields, mutation := "", false, false
+	for i := 0; i < len(args); i++ {
+		t := args[i]
+		if !strings.HasPrefix(t, "-") || t == "-" {
+			pos = append(pos, t)
+			continue
+		}
+		flag, value, inline := strings.Cut(t, "=")
+		if !inline && ghValueFlags[flag] && i+1 < len(args) {
+			i++
+			value = args[i]
+		} else if !inline && len(flag) > 2 && !strings.HasPrefix(flag, "--") && ghValueFlags[flag[:2]] {
+			flag, value = flag[:2], flag[2:] // -XPOST, -fbody=x
+		}
+		switch flag {
+		case "-X", "--method":
+			method = strings.ToUpper(value)
+		case "-f", "-F", "--field", "--raw-field", "--input":
+			fields = true
+		}
+		if strings.Contains(value, "mutation") {
+			mutation = true
+		}
+	}
+	if len(pos) == 0 {
 		return ""
 	}
-	if cmd == "gh" {
-		// Collect non-flag subcommand words.
-		var sub []string
-		for _, t := range args {
-			if strings.HasPrefix(t, "-") {
-				continue
-			}
-			sub = append(sub, t)
-			if len(sub) >= 2 {
-				break
-			}
+	if pos[0] == "api" {
+		graphql := len(pos) > 1 && pos[1] == "graphql"
+		switch {
+		case method != "" && method != "GET" && method != "HEAD":
+			return "gh api " + method
+		case graphql && mutation:
+			return "gh api graphql mutation"
+		case !graphql && method == "" && fields:
+			return "gh api POST" // fields make gh api a POST
 		}
-		if len(sub) >= 2 {
-			for _, pat := range publishCommands[1:] {
-				if sub[0] == pat[1] && sub[1] == pat[2] {
-					return strings.Join(pat, " ")
-				}
+		return ""
+	}
+	if len(pos) >= 2 {
+		for _, verb := range publishVerbs[pos[0]] {
+			if pos[1] == verb {
+				return "gh " + pos[0] + " " + verb
 			}
 		}
 	}
@@ -647,12 +793,13 @@ func shellWords(s string) []string {
 // ── DecodeHook ──
 
 type payload struct {
-	ConversationID    string `json:"conversationId"`
-	HookEventName     string `json:"hookEventName"`
-	TerminationReason string `json:"terminationReason"`
-	Error             string `json:"error"`
-	InvocationNum     int    `json:"invocationNum"`
-	ToolCall          struct {
+	ConversationID     string `json:"conversationId"`
+	HookEventName      string `json:"hookEventName"`
+	TerminationReason  string `json:"terminationReason"`
+	Error              string `json:"error"`
+	InvocationNum      int    `json:"invocationNum"`
+	ContinuationActive bool   `json:"continuationActive"`
+	ToolCall           struct {
 		Name string `json:"name"`
 	} `json:"toolCall"`
 }
@@ -706,6 +853,14 @@ func (a *Adapter) DecodeHook(_ context.Context, req *connect.Request[adapterv1.D
 	case "PostInvocation":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: "thinking"}}})
 	case "Stop":
+		if p.ContinuationActive {
+			// A Stop agy goes on from (a continuation, which ends in a Stop of its own): the turn is not over, so
+			// it is only activity, and no doorbell is typed into it. `fullyIdle: false` alone still ends the turn:
+			// nothing says another Stop follows it, and an agent left WORKING would never get a doorbell. Every
+			// captured Stop (1.5.17) has fullyIdle true and no continuation.
+			emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: "continuing"}}})
+			break
+		}
 		if p.TerminationReason == "ERROR" || p.Error != "" {
 			errText := p.Error
 			if errText == "" {
@@ -742,21 +897,20 @@ func firstLine(s string) string {
 // ── LookupSession ──
 
 // LookupSession finds an agy conversation ID from conversation_summaries.db and history.jsonl when no hook
-// recorded one yet (e.g. a crash before the first turn). A shared main checkout (`cwd == repo`) never falls
-// back to directory matching alone so it cannot pick up a human's own session.
+// recorded one yet (e.g. a crash before the first turn): the newest top-level conversation in the agent's
+// worktree, which is the agent's own. A shared main checkout (`cwd == repo`) is never matched, so it cannot pick
+// up a person's own session there; the daemon's first prompt is a doorbell that names neither agent nor run.
 func (a *Adapter) LookupSession(_ context.Context, req *connect.Request[adapterv1.LookupSessionRequest]) (*connect.Response[adapterv1.LookupSessionResponse], error) {
 	m := req.Msg
 	summariesPath, historyPath := sessionSources(m.Env)
 	cwd := m.Cwd
-	shared := cwd != "" && m.Repo != "" && resolvePathIncludingMissing(cwd) == resolvePathIncludingMissing(m.Repo)
-	matchCwd := cwd
-	if shared {
-		matchCwd = ""
+	if cwd == "" || m.Repo != "" && resolvePathIncludingMissing(cwd) == resolvePathIncludingMissing(m.Repo) {
+		return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
 	}
-	if id := lookupInSummaries(summariesPath, m.AgentName, m.RunId, matchCwd); id != "" {
+	if id := lookupInSummaries(summariesPath, cwd); id != "" {
 		return connect.NewResponse(&adapterv1.LookupSessionResponse{SessionId: id}), nil
 	}
-	if id := lookupInHistory(historyPath, m.AgentName, m.RunId, matchCwd); id != "" {
+	if id := lookupInHistory(historyPath, cwd); id != "" {
 		return connect.NewResponse(&adapterv1.LookupSessionResponse{SessionId: id}), nil
 	}
 	return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
@@ -785,7 +939,7 @@ func sessionSources(env map[string]string) (summaries, history string) {
 	return summaries, history
 }
 
-func lookupInSummaries(dbPath, agentName, runID, cwd string) string {
+func lookupInSummaries(dbPath, cwd string) string {
 	if dbPath == "" {
 		return ""
 	}
@@ -798,7 +952,7 @@ func lookupInSummaries(dbPath, agentName, runID, cwd string) string {
 		return ""
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT conversation_id, preview, workspace_uris FROM conversation_summaries
+	rows, err := db.Query(`SELECT conversation_id, workspace_uris FROM conversation_summaries
 		WHERE nesting_depth = 0 AND step_count > 0 ORDER BY last_modified_time`)
 	if err != nil {
 		return ""
@@ -806,21 +960,18 @@ func lookupInSummaries(dbPath, agentName, runID, cwd string) string {
 	defer rows.Close()
 	var byCwd string
 	for rows.Next() {
-		var conv, preview, urisJSON string
-		if err := rows.Scan(&conv, &preview, &urisJSON); err != nil || conv == "" {
+		var conv, urisJSON string
+		if err := rows.Scan(&conv, &urisJSON); err != nil || conv == "" {
 			continue
 		}
-		if matchesPrompt(preview, agentName, runID) {
-			return conv
-		}
-		if cwd != "" && workspaceMatches(cwd, parseURIList(urisJSON)) {
+		if workspaceMatches(cwd, parseURIList(urisJSON)) {
 			byCwd = conv
 		}
 	}
 	return byCwd
 }
 
-func lookupInHistory(histPath, agentName, runID, cwd string) string {
+func lookupInHistory(histPath, cwd string) string {
 	if histPath == "" {
 		return ""
 	}
@@ -835,32 +986,21 @@ func lookupInHistory(histPath, agentName, runID, cwd string) string {
 		}
 		var entry struct {
 			ConversationID string   `json:"conversationId"`
-			Display        string   `json:"display"`
 			Workspace      string   `json:"workspace"`
 			Workspaces     []string `json:"workspaces"`
 		}
 		if json.Unmarshal(line, &entry) != nil || entry.ConversationID == "" {
 			continue
 		}
-		if matchesPrompt(entry.Display, agentName, runID) {
-			return entry.ConversationID
-		}
 		ws := entry.Workspaces
 		if len(ws) == 0 && entry.Workspace != "" {
 			ws = []string{entry.Workspace}
 		}
-		if cwd != "" && workspaceMatches(cwd, ws) {
+		if workspaceMatches(cwd, ws) {
 			byCwd = entry.ConversationID
 		}
 	}
 	return byCwd
-}
-
-func matchesPrompt(preview, agentName, runID string) bool {
-	if preview == "" || agentName == "" {
-		return false
-	}
-	return strings.Contains(preview, agentName) && (runID == "" || strings.Contains(preview, runID))
 }
 
 func parseURIList(raw string) []string {

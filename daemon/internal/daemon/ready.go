@@ -12,6 +12,9 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
+// settleCap is how many ReadySettle periods after its start a terminal that never goes quiet is marked idle anyway.
+const settleCap = 30
+
 // settleStartingAgents marks STARTING agents idle once their terminal has drawn initial output and settled,
 // for adapters that lack a startup hook (e.g. agy).
 func (d *Daemon) settleStartingAgents(ctx context.Context) {
@@ -44,21 +47,17 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 	settle := d.rt.cfg.ReadySettle
 	for _, a := range need {
 		tm := byID[a.TerminalId]
-		if tm == nil || tm.Exited || tm.Offset == 0 {
+		if tm == nil || tm.Exited || tm.Offset == 0 || tm.LastOutput == nil {
 			continue
 		}
-		d.rt.mu.Lock()
-		first, seen := d.rt.firstOutput[tm.Id]
-		if !seen {
-			first = now
-			d.rt.firstOutput[tm.Id] = first
+		// Idle once its output has been quiet for settle: a TUI still drawing may drop what is typed into it. The
+		// cap, counted from the terminal's start, is only a backstop for one that never stops redrawing (a clock,
+		// a spinner) and would otherwise never get its first doorbell.
+		started := tm.LastOutput.AsTime()
+		if tm.StartedAt != nil {
+			started = tm.StartedAt.AsTime()
 		}
-		d.rt.mu.Unlock()
-		last := first
-		if tm.LastOutput != nil {
-			last = tm.LastOutput.AsTime()
-		}
-		if now.Sub(last) < settle && now.Sub(first) < 5*settle {
+		if now.Sub(tm.LastOutput.AsTime()) < settle && now.Sub(started) < settleCap*settle {
 			continue
 		}
 		var becameIdle bool
@@ -86,23 +85,51 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 	}
 }
 
-// lookupSession asks the agent's adapter to find its conversation ID from local CLI stores when no hook has
-// reported one yet.
-func (d *Daemon) lookupSession(ctx context.Context, a *v1.Agent) string {
+// learnSession finds the conversation id of an agent no hook reported one for yet, through its adapter
+// (LookupSession reads the CLI's own stores, which may be slow), and records it. It runs before the write
+// transaction of the action that needs the id, never inside one: the daemon's write lock is not held while a CLI's
+// SQLite db or history is read, and the caller's deadline holds. ref names the agent as the action does ("parent"
+// for the actor's parent).
+func (d *Daemon) learnSession(ctx context.Context, actor *v1.Actor, ref string) {
+	r := d.store.Read(ctx)
+	var a *v1.Agent
+	var err error
+	if ref == "parent" {
+		if actor == nil || !IsAgent(actor.Class) {
+			return
+		}
+		self, serr := d.getAgent(r, actor.Id)
+		if serr != nil || self.ParentId == "" {
+			return
+		}
+		a, err = d.getAgent(r, self.ParentId)
+	} else {
+		a, err = d.FindAgent(r, actor, ref)
+	}
+	if err != nil || a.SessionId != "" || !d.rt.adapters.HasCapability(a.Kind, "session-lookup") {
+		return
+	}
 	ad, err := d.rt.adapters.Get(a.Kind)
 	if err != nil {
-		return ""
+		return
 	}
 	res, err := ad.LookupSession(ctx, connect.NewRequest(&adapterv1.LookupSessionRequest{
-		AgentId:   a.Id,
-		AgentName: a.Name,
-		RunId:     a.RunId,
-		Cwd:       a.Worktree,
-		Repo:      a.Repo,
-		Env:       d.agentEnv(a, ""),
+		AgentId: a.Id,
+		Cwd:     a.Worktree,
+		Repo:    a.Repo,
+		Env:     d.agentEnv(a, ""),
 	}))
-	if err != nil {
-		return ""
+	if err != nil || res.Msg.SessionId == "" {
+		return
 	}
-	return res.Msg.SessionId
+	if err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(a.Id)
+		if err != nil || cur.SessionId != "" {
+			return err // a hook reported one meanwhile: it wins
+		}
+		cur.SessionId = res.Msg.SessionId
+		return tx.PutAgent(cur)
+	}); err != nil {
+		d.log.Warn("session lookup", "agent", a.Name, "err", err)
+	}
 }

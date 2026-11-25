@@ -23,11 +23,12 @@ func main() {
 
 // runHook always exits 0: a hook that fails must not disturb the agent's CLI. Failures go to the state dir's
 // hook.log. With $AGENT_MESH_HOOK_CAPTURE set it also saves each payload there. For agy PreToolUse with
-// deny flags, a denial JSON is printed to stdout; otherwise nothing is printed.
+// deny flags, a denial JSON is printed to stdout; otherwise nothing is printed. --check-only checks those flags
+// and reports nothing (a session that isn't the agent's).
 func runHook(args []string) int {
 	var kind, state, agent, event string
 	var denyPaths []string
-	var denyPublish bool
+	var denyPublish, checkOnly bool
 	rest := args
 	if len(rest) > 0 {
 		kind, rest = rest[0], rest[1:]
@@ -42,6 +43,8 @@ func runHook(args []string) int {
 			denyPaths, rest = append(denyPaths, rest[1]), rest[2:]
 		case rest[0] == "--deny-publish":
 			denyPublish, rest = true, rest[1:]
+		case rest[0] == "--check-only":
+			checkOnly, rest = true, rest[1:]
 		default:
 			event, rest = rest[0], rest[1:]
 		}
@@ -52,7 +55,7 @@ func runHook(args []string) int {
 	}
 	cwd, _ := os.Getwd()
 	if err := hook.Run(hook.Options{StateDir: state, AgentID: agent, Kind: kind, Event: event,
-		Stdin: os.Stdin, Stdout: os.Stdout, Cwd: cwd, DenyPaths: denyPaths, DenyPublish: denyPublish,
+		Stdin: os.Stdin, Stdout: os.Stdout, Cwd: cwd, DenyPaths: denyPaths, DenyPublish: denyPublish, CheckOnly: checkOnly,
 		CaptureDir: os.Getenv("AGENT_MESH_HOOK_CAPTURE")}); err != nil {
 		hook.Log(state, "agent %s %s %s: %v", agent, kind, event, err)
 	}

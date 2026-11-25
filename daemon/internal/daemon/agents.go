@@ -69,8 +69,8 @@ type AgentConfig struct {
 	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
-	// ReadySettle is how long after initial terminal output an adapter without a startup hook is marked idle
-	// (default 1 s).
+	// ReadySettle is how long the terminal of an adapter without a startup hook must be quiet, once it has drawn,
+	// before the agent is marked idle (default 1 s); one still drawing after settleCap of them is marked anyway.
 	ReadySettle time.Duration
 	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
 	// /proc/pressure/memory); tests point them at files.
@@ -111,13 +111,12 @@ type runtime struct {
 	term     *termclient.Client
 	hello    *termv1.HelloResponse
 
-	mu          sync.Mutex
-	lastOutput  map[string]time.Time // terminal id → newest output mark
-	firstOutput map[string]time.Time // terminal id → first output mark (for adapters without startup-hook)
-	tickets     map[string]ticket
-	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
-	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
-	guard       guard
+	mu         sync.Mutex
+	lastOutput map[string]time.Time // terminal id → newest output mark
+	tickets    map[string]ticket
+	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	guard      guard
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -143,7 +142,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
+	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
@@ -340,7 +339,6 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
-	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
@@ -570,9 +568,7 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 	if err != nil {
 		return nil, err
 	}
-	if out.State == v1.AgentState_AGENT_STATE_IDLE ||
-		out.State == v1.AgentState_AGENT_STATE_LIMITED ||
-		out.State == v1.AgentState_AGENT_STATE_ERROR {
+	if atPrompt(out.State) {
 		d.deliverSoon(actor.Id)
 	}
 	return out, nil
@@ -1007,7 +1003,7 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) error {
 
 // ── doorbells ──
 
-// deliverSoon rings an agent's doorbell for its undelivered messages, once it is idle.
+// deliverSoon rings an agent's doorbell for its undelivered messages, once it is at its prompt (atPrompt).
 func (d *Daemon) deliverSoon(agentID string) {
 	if d.rt.term == nil {
 		return
@@ -1032,7 +1028,7 @@ func (d *Daemon) agentLock(agentID string) *sync.Mutex {
 }
 
 // deliver brings an agent up to date: a pending reopen first (the messages it was asked with are for the new
-// process), else a doorbell for its undelivered messages once it is idle.
+// process), else a doorbell for its undelivered messages once it is at its prompt (atPrompt).
 func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	mu := d.agentLock(agentID)
 	mu.Lock()
@@ -1046,7 +1042,7 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)
 	}
-	if a.State != v1.AgentState_AGENT_STATE_IDLE || a.TerminalId == "" {
+	if !atPrompt(a.State) || a.TerminalId == "" {
 		return nil
 	}
 	msgs, err := r.Undelivered(agentID)

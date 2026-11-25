@@ -13,6 +13,8 @@ service CliAdapterService {
   rpc PlanLaunch(PlanLaunchRequest) returns (PlanLaunchResponse);
   rpc DecodeHook(DecodeHookRequest) returns (DecodeHookResponse);
   rpc LookupSession(LookupSessionRequest) returns (LookupSessionResponse);
+  // DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
+  rpc DescribeModel(DescribeModelRequest) returns (DescribeModelResponse);
 }
 
 message DescribeRequest {}
@@ -57,8 +59,14 @@ message WorktreeFile {
   bytes content = 2;
   // File mode (0600 by default when 0).
   uint32 mode = 3;
-  // Add to <git-common-dir>/info/exclude and mark an existing tracked file skip-worktree.
+  // Keep the file out of git status: an untracked one is ignored (a self-ignoring .gitignore beside it, so other
+  // checkouts of the repo are untouched; <git-common-dir>/info/exclude only at the worktree's top), and a tracked
+  // one is marked skip-worktree.
   bool git_exclude = 4;
+  // The content is a JSON object. When the repo tracks the path and its committed version is a JSON object too,
+  // the file written is that version with the content's top-level keys added (replacing any of the same name),
+  // so the repo's own entries stay in force. Unset, or the committed version unreadable, the content replaces it.
+  bool merge_tracked = 5;
 }
 
 message PlanLaunchResponse {
@@ -70,10 +78,12 @@ message PlanLaunchResponse {
   repeated WorktreeFile worktree_files = 4;
 }
 
+// LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first
+// prompt (a doorbell) names neither the agent nor the run, so nothing else ties a conversation to it.
 message LookupSessionRequest {
+  reserved 2, 3;
+  reserved "agent_name", "run_id";
   string agent_id = 1;
-  string agent_name = 2;
-  string run_id = 3;
   string cwd = 4;
   string repo = 5;
   map<string, string> env = 6;
@@ -81,6 +91,15 @@ message LookupSessionRequest {
 
 message LookupSessionResponse {
   string session_id = 1;
+}
+
+message DescribeModelRequest {
+  string model = 1;
+}
+
+message DescribeModelResponse {
+  // The effort the model's name fixes (an agy id such as `gemini-4-neon-low`), or empty.
+  string effort = 1;
 }
 
 message DecodeHookRequest {

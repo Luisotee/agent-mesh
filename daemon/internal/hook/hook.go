@@ -1,6 +1,6 @@
 // Package hook is what a CLI's hook runs (`meshctl hook <kind> <event>`): it reports the hook to the daemon,
 // finding the daemon's address at call time, and spools the report while the daemon is down. It never fails
-// the CLI: whatever happens, the hook exits 0 and prints nothing.
+// the CLI: whatever happens, the hook exits 0 and prints nothing (but an agy PreToolUse denial).
 package hook
 
 import (
@@ -42,7 +42,10 @@ type Options struct {
 	Cwd         string
 	DenyPaths   []string
 	DenyPublish bool
-	Now         func() time.Time
+	// CheckOnly checks the deny rules and reports nothing: the hook of a session that isn't the agent's (a person
+	// running agy in the agent's worktree), whose rules still hold there.
+	CheckOnly bool
+	Now       func() time.Time
 	// CaptureDir, when set, also saves each hook's raw payload there, numbered in order, for the fixtures
 	// (daemon/scripts/capture-claude-hooks.sh). Never set by the daemon: only a person capturing sets it.
 	CaptureDir string
@@ -50,6 +53,11 @@ type Options struct {
 	DialTimeout time.Duration
 	CallTimeout time.Duration
 }
+
+// QuickTimeout bounds a quick report (an agy PreToolUse): the tool waits on the hook, and agy denies a tool
+// whose PreToolUse hook outlives its timeout (HookTimeout), so this one never waits on the spool lock or a
+// slow daemon.
+const QuickTimeout = time.Second
 
 // Run reports one hook. Its error is for the log only.
 func Run(o Options) error {
@@ -64,19 +72,35 @@ func Run(o Options) error {
 	}
 	p := statedir.Paths{Dir: o.StateDir}
 	fired := o.Now() // before stdin is read: the order of near-simultaneous hooks is the order they were called in
-	payload, err := io.ReadAll(io.LimitReader(o.Stdin, MaxPayload))
-	if err != nil {
-		return err
+	payload, readErr := io.ReadAll(io.LimitReader(o.Stdin, MaxPayload+1))
+	oversize := len(payload) > MaxPayload
+	if oversize {
+		payload = payload[:MaxPayload]
 	}
-	// agy PreToolUse is fail-closed and runs locally so deny rules hold even while the daemon is down.
-	if o.Kind == agy.Kind && o.Event == "PreToolUse" && (len(o.DenyPaths) > 0 || o.DenyPublish) {
-		if deny, reason := agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish); deny && o.Stdout != nil {
+	preTool := o.Kind == agy.Kind && o.Event == "PreToolUse"
+	// agy PreToolUse rules are checked here, so they hold while the daemon is down, and fail closed: a payload
+	// that can't be read whole is denied.
+	if preTool && (len(o.DenyPaths) > 0 || o.DenyPublish) {
+		deny, reason := agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish)
+		switch {
+		case readErr != nil:
+			deny, reason = true, "read-only/planning agent: the tool call could not be read ("+readErr.Error()+")"
+		case oversize:
+			deny, reason = true, fmt.Sprintf("read-only/planning agent: the tool call is over %d bytes, too large to check", MaxPayload)
+		}
+		if deny && o.Stdout != nil {
 			b, _ := json.Marshal(struct {
 				Decision string `json:"decision"`
 				Reason   string `json:"reason"`
 			}{"deny", reason})
 			o.Stdout.Write(append(b, '\n'))
 		}
+	}
+	if readErr != nil {
+		return readErr
+	}
+	if o.CheckOnly {
+		return nil
 	}
 	// Capturing is a side channel: when it fails the hook still reports (its error is returned after).
 	var captureErr error
@@ -85,13 +109,20 @@ func Run(o Options) error {
 			captureErr = fmt.Errorf("capturing the payload: %w", captureErr)
 		}
 	}
+	if preTool {
+		return errors.Join(captureErr, reportQuick(o, p, payload, fired))
+	}
 	return errors.Join(captureErr, report(o, p, payload, fired))
+}
+
+func hookRequest(o Options, payload []byte, fired time.Time) *v1.ReportHookRequest {
+	return &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "hook-" + uuid.NewString()}, Kind: o.Kind,
+		EventName: o.Event, Payload: payload, FiredAt: timestamppb.New(fired)}
 }
 
 // report sends one hook to the daemon, or spools it.
 func report(o Options, p statedir.Paths, payload []byte, fired time.Time) error {
-	req := &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "hook-" + uuid.NewString()}, Kind: o.Kind,
-		EventName: o.Event, Payload: payload, FiredAt: timestamppb.New(fired)}
+	req := hookRequest(o, payload, fired)
 	tok, err := fsutil.ReadSecret(p.AgentToken(o.AgentID))
 	if err != nil {
 		return fmt.Errorf("no token for agent %s: %w", o.AgentID, err)
@@ -124,6 +155,55 @@ func report(o Options, p statedir.Paths, payload []byte, fired time.Time) error 
 	return nil
 }
 
+// reportQuick is report for a hook the CLI's tool call waits on: it never drains, and spools at once when another
+// hook holds the spool lock or older hooks are spooled (the next hook, or the daemon's drain, sends it after
+// them, in order). Otherwise it sends within QuickTimeout, spooling on failure. A spool written without the lock
+// is safe: its holder either lists it and sends it in order, or leaves it to the next drain, and nothing later
+// of this agent fires until this hook exits.
+func reportQuick(o Options, p statedir.Paths, payload []byte, fired time.Time) error {
+	req := hookRequest(o, payload, fired)
+	tok, err := fsutil.ReadSecret(p.AgentToken(o.AgentID))
+	if err != nil {
+		return fmt.Errorf("no token for agent %s: %w", o.AgentID, err)
+	}
+	unlock, locked, err := tryLockSpool(p, o.AgentID)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return spool(p, o.AgentID, req, o.Now())
+	}
+	defer unlock()
+	if spooled(p, o.AgentID) {
+		return spool(p, o.AgentID, req, o.Now())
+	}
+	timeout := min(o.CallTimeout, QuickTimeout)
+	conn, err := client.Dial(o.StateDir, tok, client.Options{DialTimeout: min(o.DialTimeout, timeout)})
+	if err != nil {
+		return spool(p, o.AgentID, req, o.Now())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if _, err := conn.Mesh.ReportHook(ctx, connect.NewRequest(req)); err != nil {
+		if Retryable(err) {
+			return errors.Join(err, spool(p, o.AgentID, req, o.Now()))
+		}
+		return fmt.Errorf("the daemon refused the hook: %w", err)
+	}
+	return nil
+}
+
+// spooled reports whether an agent has hooks waiting in its spool.
+func spooled(p statedir.Paths, agent string) bool {
+	entries, _ := os.ReadDir(p.Spool(agent))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") && !strings.HasPrefix(e.Name(), ".") {
+			return true
+		}
+	}
+	return false
+}
+
 // capture saves a raw payload as `<unix nanos>-<event>.json`: named by time, so the order of firing is the order
 // of the names.
 func capture(dir, event string, payload []byte, now time.Time) error {
@@ -142,6 +222,26 @@ func Retryable(err error) bool {
 		return true
 	}
 	return false
+}
+
+// tryLockSpool is lockSpool that doesn't wait: locked is false while another holds the lock.
+func tryLockSpool(p statedir.Paths, agent string) (unlock func(), locked bool, err error) {
+	dir := p.Spool(agent)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return func() { f.Close() }, true, nil
 }
 
 func lockSpool(p statedir.Paths, agent string) (func(), error) {

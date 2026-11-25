@@ -2,7 +2,7 @@
 // to $FAKEAGY_ARGV_LOG, checks `--settings` trustedWorkspaces, fires NO hooks at PTY startup, fires
 // SessionStart only on the first prompt of a fresh conversation (never on `--conversation` resume), runs
 // `.agents/hooks.json` with fail-closed `PreToolUse` semantics, and acts out turns from lines typed into its
-// terminal:
+// terminal ($FAKEAGY_DRAW_FOR, a duration, keeps drawing that long at start-up):
 //
 //	any text      SessionStart (first fresh turn only), PreInvocation, PreToolUse (read_file), PostToolUse, PostInvocation, Stop
 //	/edit         PreInvocation, PreToolUse (write_file on blocked.txt; creates file only if allowed), PostInvocation, Stop
@@ -108,6 +108,12 @@ func main() {
 	}
 
 	fmt.Printf("fake agy %s (%s)\r\n", convID, model)
+	if d, err := time.ParseDuration(os.Getenv("FAKEAGY_DRAW_FOR")); err == nil {
+		// A TUI still drawing at start-up: the daemon must not mark it idle until it is quiet.
+		for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+			fmt.Print(".")
+		}
+	}
 	prompt()
 
 	firstTurn := true

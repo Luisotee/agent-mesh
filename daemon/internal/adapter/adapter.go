@@ -84,6 +84,20 @@ func (r *Registry) HasCapability(kind, capability string) bool {
 	return false
 }
 
+// ModelEffort is the effort a model's name fixes by itself (an agy id such as `gemini-4-neon-low`), or "": the
+// adapter has no DescribeModel, or the name fixes none.
+func (r *Registry) ModelEffort(ctx context.Context, kind, model string) string {
+	a, ok := r.byKind[kind]
+	if !ok || model == "" {
+		return ""
+	}
+	res, err := a.DescribeModel(ctx, connect.NewRequest(&adapterv1.DescribeModelRequest{Model: model}))
+	if err != nil {
+		return ""
+	}
+	return res.Msg.Effort
+}
+
 // ShellQuote quotes argv for a POSIX shell, the way hook commands are run.
 func ShellQuote(argv ...string) string {
 	out := make([]string, len(argv))

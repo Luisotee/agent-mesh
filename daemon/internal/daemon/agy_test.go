@@ -245,50 +245,90 @@ func TestAgy429LimitSetsLimitedStateAndSwitchNextReopensSameConversation(t *test
 	waitFor(t, "quota info message delivered", func() bool { return w.delivered(t, a.Id, sw.Msg.Message.Id) })
 }
 
-func TestAgyWorktreeHooksExcludedAndPreExistingTrackedHooksNeutralized(t *testing.T) {
+// A repo's tracked .agents/hooks.json: a reviewer (maybe of an untrusted PR head) never runs it, a worker on the
+// repo keeps it in force beside the mesh's hooks. Neither dirties git status, and nothing the daemon writes hides
+// a file in the user's own checkout.
+func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testing.T) {
+	for _, c := range []struct {
+		role    v1.AgentRole
+		repoRan bool
+	}{{v1.AgentRole_AGENT_ROLE_REVIEWER, false}, {v1.AgentRole_AGENT_ROLE_WORKER, true}} {
+		t.Run(c.role.String(), func(t *testing.T) {
+			w := startReopen(t)
+			ctx := context.Background()
+			run := startRun(t, w.device.Mesh, "")
+
+			repo := gitRepo(t)
+			sentinel := filepath.Join(t.TempDir(), "repo-hook-ran")
+			if err := os.MkdirAll(filepath.Join(repo, ".agents"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			own := `{"repo":{"PreInvocation":[{"type":"command","command":"touch ` + sentinel + `"}]}}`
+			if err := os.WriteFile(filepath.Join(repo, ".agents", "hooks.json"), []byte(own), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, args := range [][]string{
+				{"add", ".agents/hooks.json"},
+				{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "the repo's own hooks"},
+			} {
+				cmd := exec.Command("git", args...)
+				cmd.Dir = repo
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v %s", args, err, out)
+				}
+			}
+
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+				RunId: run.Id, Repo: repo, Slug: "hooks", Kind: "agy", Tier: "light", Role: c.role,
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+			a = w.agyTurn(t, a, "hello") // the mesh's hooks ran: the turn was seen
+			if _, err := os.Stat(sentinel); (err == nil) != c.repoRan {
+				t.Fatalf("the repo's own hook ran: %v, want %v", err == nil, c.repoRan)
+			}
+			if out, err := exec.Command("git", "-C", a.Worktree, "status", "--porcelain").Output(); err != nil || strings.TrimSpace(string(out)) != "" {
+				t.Fatalf("worktree dirtied by .agents/hooks.json: %q (%v)", out, err)
+			}
+			stopped, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: run.Id}))
+			if err != nil || len(stopped.Msg.Worktrees) != 1 || !stopped.Msg.Worktrees[0].WorktreeRemoved {
+				t.Fatalf("StopRun worktree removal failed: %+v (%v)", stopped.Msg, err)
+			}
+		})
+	}
+}
+
+// The untracked hooks file is ignored in the agent's worktree alone: the repo's shared info/exclude is left
+// alone, so a .agents/hooks.json the user makes in their own checkout still shows.
+func TestAgyHooksIgnoredOnlyInTheAgentsWorktree(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-
-	// Repo with a pre-existing tracked .agents/hooks.json that writes a sentinel file if executed.
 	repo := gitRepo(t)
-	sentinel := filepath.Join(t.TempDir(), "evil-ran")
-	if err := os.MkdirAll(filepath.Join(repo, ".agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	evil := `{"evil":{"SessionStart":[{"type":"command","command":"touch ` + sentinel + `"}]}}`
-	if err := os.WriteFile(filepath.Join(repo, ".agents", "hooks.json"), []byte(evil), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"add", ".agents/hooks.json"},
-		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "tracked evil hooks"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
-
 	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-		RunId: run.Id, Repo: repo, Slug: "safe", Kind: "agy", Tier: "light",
+		RunId: run.Id, Repo: repo, Slug: "ign", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
-	a = w.agyTurn(t, a, "hello")
-
-	if _, err := os.Stat(sentinel); err == nil {
-		t.Fatal("pre-existing repo .agents/hooks.json ran!")
+	if _, err := os.Stat(filepath.Join(a.Worktree, ".agents", "hooks.json")); err != nil {
+		t.Fatalf("no hooks file: %v", err)
 	}
-	if out, err := exec.Command("git", "-C", a.Worktree, "status", "--porcelain").Output(); err != nil || strings.TrimSpace(string(out)) != "" {
-		t.Fatalf("worktree dirtied by .agents/hooks.json: %q (%v)", out, err)
+	if out, err := exec.Command("git", "-C", a.Worktree, "status", "--porcelain", "--untracked-files=all").Output(); err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("the agent's worktree shows the daemon's files: %q (%v)", out, err)
 	}
-	stopped, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: run.Id}))
-	if err != nil || len(stopped.Msg.Worktrees) != 1 || !stopped.Msg.Worktrees[0].WorktreeRemoved {
-		t.Fatalf("StopRun worktree removal failed: %+v (%v)", stopped.Msg, err)
+	if err := os.MkdirAll(filepath.Join(repo, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".agents", "hooks.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("git", "-C", repo, "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil || !strings.Contains(string(out), ".agents/hooks.json") {
+		t.Fatalf("the user's own .agents/hooks.json is hidden in their checkout: %q (%v)", out, err)
 	}
 }
 
@@ -399,4 +439,87 @@ func TestAgyLookupSessionFallbackWhenNoHookReportedYet(t *testing.T) {
 	if reopened.SessionId != "conv-from-db" || sw.Msg.Reopen.Model != "hydrogen" {
 		t.Fatalf("expected conv-from-db on hydrogen, got %v", reopened)
 	}
+}
+
+// An agent stopped by an API error or a usage limit is at its input box: a message to it still rings, or a
+// transient error would leave it undeliverable for good.
+func TestAgyAgentAtErrorOrLimitStillGetsItsDoorbell(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		want v1.AgentState
+	}{{"/error", v1.AgentState_AGENT_STATE_ERROR}, {"/limit", v1.AgentState_AGENT_STATE_LIMITED}} {
+		t.Run(c.want.String(), func(t *testing.T) {
+			w := startReopen(t)
+			ctx := context.Background()
+			run := startRun(t, w.device.Mesh, "")
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+				RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "agy", Tier: "light",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+			w.typeInto(a, c.line+"\r")
+			w.waitState(a.Id, c.want)
+			res, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: a.Id,
+				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "continue"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "the doorbell of an agent at "+c.want.String(), func() bool { return w.delivered(t, a.Id, res.Msg.Message.Id) })
+			w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE) // the doorbell's turn ran and ended
+		})
+	}
+}
+
+// An exact agy id named without an effort runs as named: its name fixes the effort.
+func TestAgyExactModelIDWithoutEffortLaunchesAsNamed(t *testing.T) {
+	argvLog := filepath.Join(t.TempDir(), "agy-argv.jsonl")
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKEAGY_ARGV_LOG"] = argvLog })
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "exact", Kind: "agy", Model: "gemini-4-neon-low",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if a.Model != "gemini-4-neon-low" || a.Effort != "low" {
+		t.Errorf("recorded %s at %s, want gemini-4-neon-low at low", a.Model, a.Effort)
+	}
+	b, err := os.ReadFile(argvLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"--model","gemini-4-neon-low"`) {
+		t.Errorf("launched %s, want --model gemini-4-neon-low", b)
+	}
+	// A later effort switch moves it to its family at the new effort.
+	a = w.agyTurn(t, a, "hi")
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Effort: "high", Why: "t"})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitReopened(t, a.Id, a.TerminalId)
+	if b, _ = os.ReadFile(argvLog); !strings.Contains(string(b), `"--model","gemini-4-neon-high"`) {
+		t.Errorf("the effort switch launched %s, want --model gemini-4-neon-high", b)
+	}
+}
+
+// A TUI still drawing at start-up is not idle yet: a doorbell typed then could be dropped.
+func TestAgyStartupWaitsForQuietOutput(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKEAGY_DRAW_FOR"] = "2s" })
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "drawing", Kind: "agy", Tier: "light",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond) // past the old cap (5 settle periods) while it still draws
+	if a := w.agent(sp.Msg.Agent.Id); a.State != v1.AgentState_AGENT_STATE_STARTING {
+		t.Fatalf("an agent still drawing is %s", a.State)
+	}
+	w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 }

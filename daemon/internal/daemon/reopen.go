@@ -86,25 +86,27 @@ func (d *Daemon) tierChain(r store.Reader, kind, tier string) ([]string, string,
 }
 
 // pick resolves what an agent runs on: a tier's first model at its effort, or a named model (at the effort
-// named, else high). There is no default: neither is InvalidArgument.
+// named, else the one its name fixes, as an exact agy id does, else the tier's, else high). There is no default:
+// neither is InvalidArgument.
 func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (string, string, error) {
 	if effort != "" && !validEffort(effort) {
 		return "", "", invalid("effort %q: one of %s", effort, strings.Join(settings.Efforts, ", "))
 	}
 	if model != "" {
 		if effort == "" {
-			effort = namedEffort
-			if tier != "" {
-				_, e, err := d.tierChain(r, kind, tier)
-				if err != nil {
-					return "", "", err
-				}
-				effort = e
-			}
-		} else if tier != "" {
-			if _, _, err := d.tierChain(r, kind, tier); err != nil {
+			effort = d.rt.adapters.ModelEffort(context.Background(), kind, model)
+		}
+		if tier != "" {
+			_, e, err := d.tierChain(r, kind, tier)
+			if err != nil {
 				return "", "", err
 			}
+			if effort == "" {
+				effort = e
+			}
+		}
+		if effort == "" {
+			effort = namedEffort
 		}
 		return model, effort, nil
 	}
@@ -192,9 +194,6 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 		switch {
 		case a.PendingReopen != nil || !stopped(a):
 			if a.SessionId == "" {
-				a.SessionId = d.lookupSession(context.Background(), a)
-			}
-			if a.SessionId == "" {
 				return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened without its "+
 					"planning deny list: send the task again once it has started", a.Name)
 			}
@@ -280,6 +279,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ApproveAgentResponse{}
+	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceApproveAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -337,9 +337,6 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		cm, ce, cd := target(a)
 		reopen := model != cm || effort != ce || deny != cd
 		if reopen && a.SessionId == "" {
-			a.SessionId = d.lookupSession(ctx, a)
-		}
-		if reopen && a.SessionId == "" {
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened on its "+
 				"execution model: approve it again once it has started", a.Name)
 		}
@@ -392,6 +389,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.SwitchAgentResponse{}
+	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSwitchAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -402,9 +400,6 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		}
 		if stopped(a) {
 			return failedPrecondition("%s has stopped: resume it (with a tier or model) instead", a.Name)
-		}
-		if a.SessionId == "" {
-			a.SessionId = d.lookupSession(ctx, a)
 		}
 		if a.SessionId == "" {
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened", a.Name)
@@ -430,6 +425,8 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			model = m.Model
 			if m.Effort != "" {
 				effort = m.Effort
+			} else if own := d.rt.adapters.ModelEffort(ctx, a.Kind, model); own != "" {
+				effort = own // an exact id names its effort: the old one would move it to another model
 			}
 			// A named model has no chain: `next` from it would go back to the tier's first model.
 			if executing {
@@ -510,6 +507,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ResumeAgentResponse{}
+	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -544,6 +542,14 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	return connect.NewResponse(out), nil
 }
 
+// atPrompt reports whether an agent's CLI is at its input box between turns: idle, or stopped by a usage limit or
+// an API error (agy's Stop with terminationReason ERROR). All three take a doorbell, a reopen and an idle retire;
+// only a turn in progress (or a prompt it waits on) holds them.
+func atPrompt(s v1.AgentState) bool {
+	return s == v1.AgentState_AGENT_STATE_IDLE || s == v1.AgentState_AGENT_STATE_LIMITED ||
+		s == v1.AgentState_AGENT_STATE_ERROR
+}
+
 // stopped reports whether an agent has no process and may be resumed: it exited, or was retired.
 func stopped(a *v1.Agent) bool {
 	return a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED
@@ -562,9 +568,6 @@ type reviveSpec struct {
 // revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
 // it). The launch is refused (ResourceExhausted) when it would pass the host's agent cap or its memory floor.
 func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
-	if a.SessionId == "" {
-		a.SessionId = d.lookupSession(context.Background(), a)
-	}
 	if a.SessionId == "" {
 		return nil, failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a.Name)
 	}
@@ -650,9 +653,8 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	// process (its retire failed, or its caller gave up): it is stopped here, whatever it is doing.
 	leftover := a.State == v1.AgentState_AGENT_STATE_RETIRED && a.TerminalId != ""
 	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED || (stopped(a) && !leftover)
-	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE &&
-		a.State != v1.AgentState_AGENT_STATE_LIMITED && a.State != v1.AgentState_AGENT_STATE_ERROR {
-		return nil // at its next IDLE (or once stopped on a limit/error): never cut a turn short
+	if !gone && !leftover && !atPrompt(a.State) {
+		return nil // at its next IDLE (or once stopped on a limit or an error): never cut a turn short
 	}
 	if d.rt.term == nil {
 		return nil

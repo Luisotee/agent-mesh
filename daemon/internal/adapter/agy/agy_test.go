@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,11 +137,62 @@ func TestEvaluatePreToolUse(t *testing.T) {
 		{"run_command gh pr comment denied", `{"cwd":"` + wt + `","toolCall":{"name":"run_command","args":{"CommandLine":"gh pr comment 12 --body hi"}}}`, true},
 		{"run_command echo git push allowed", `{"cwd":"` + wt + `","toolCall":{"name":"run_command","args":{"CommandLine":"echo \"do not git push\""}}}`, false},
 		{"run_command go test allowed", `{"cwd":"` + wt + `","toolCall":{"name":"run_command","args":{"CommandLine":"go test ./..."}}}`, false},
+		{"unparseable payload denied", `{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"a.go","Content":"trunc`, true},
 	}
 	for _, c := range cases {
 		deny, reason := EvaluatePreToolUse([]byte(c.payload), wt, denyPaths, true)
 		if deny != c.wantDeny {
 			t.Errorf("%s: deny=%v (%q), want %v", c.name, deny, reason, c.wantDeny)
+		}
+	}
+}
+
+func TestMatchPublishCommand(t *testing.T) {
+	cases := []struct{ cmd, want string }{
+		{"git push", "git push"},
+		{"git -C . -c core.x=y push origin HEAD", "git push"},
+		{"git --git-dir=.git push", "git push"},
+		{"gh pr comment 5 -b x", "gh pr comment"},
+		{"gh pr --repo o/r merge 5", "gh pr merge"},
+		{"gh -R o/r pr comment 5 -b x", "gh pr comment"},
+		{"gh --repo=o/r pr review 5 --approve", "gh pr review"},
+		{"gh pr -R o/r edit 5 --title t", "gh pr edit"},
+		{"gh issue -R o/r comment 3 --body hi", "gh issue comment"},
+		{`bash -c "git push"`, "git push"},
+		{`sh -lc 'cd x && git push origin HEAD'`, "git push"},
+		{`bash -o pipefail -c "gh pr merge 5"`, "gh pr merge"},
+		{`eval "git push"`, "git push"},
+		{"env -i git push", "git push"},
+		{"env -u HOME -C /tmp git push", "git push"},
+		{"env FOO=1 BAR=2 git push", "git push"},
+		{`env -S "git push"`, "git push"},
+		{"FOO=1 sudo -u me nohup git push", "git push"},
+		{"timeout -s KILL 30 git push", "git push"},
+		{"echo x | xargs -n 1 git push", "git push"},
+		{"(git push)", "git push"},
+		{"{ git push; }", "git push"},
+		{"ls $(git push)", "git push"},
+		{"gh api repos/o/r/pulls/5/reviews -f body=x -f event=APPROVE", "gh api POST"},
+		{"gh api -X POST repos/o/r/issues/5/comments", "gh api POST"},
+		{"gh api --method=PATCH repos/o/r/pulls/5", "gh api PATCH"},
+		{"gh api -XDELETE repos/o/r/issues/comments/9", "gh api DELETE"},
+		{`gh api graphql -f query='mutation { addComment(input:{}) { clientMutationId } }'`, "gh api graphql mutation"},
+		// Reads stay allowed.
+		{"git status && git log --oneline", ""},
+		{"git -C . log push", ""},
+		{"gh pr view 5 --comments", ""},
+		{"gh pr list --search comment", ""},
+		{"gh pr diff 5 -R o/r", ""},
+		{"gh api repos/o/r/pulls/5/comments", ""},
+		{"gh api -X GET repos/o/r/pulls -f state=open", ""},
+		{`gh api graphql -f query='query { viewer { login } }'`, ""},
+		{`echo "do not git push"`, ""},
+		{"bash ./scripts/check.sh", ""},
+		{"go test ./...", ""},
+	}
+	for _, c := range cases {
+		if got := matchPublishCommand(c.cmd); got != c.want {
+			t.Errorf("matchPublishCommand(%q) = %q, want %q", c.cmd, got, c.want)
 		}
 	}
 }
@@ -169,6 +221,10 @@ func TestDecodeHookEventsAnd429Limits(t *testing.T) {
 	}
 	if evs := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"NO_TOOL_CALL"}`); len(evs) != 1 || evs[0].GetTurnEnded() == nil {
 		t.Errorf("Stop normal: %v", evs)
+	}
+	// A Stop that a continuation follows is not the turn's end.
+	if evs := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"NO_TOOL_CALL","continuationActive":true,"fullyIdle":false}`); len(evs) != 1 || evs[0].GetActivity() == nil {
+		t.Errorf("Stop with a continuation: %v", evs)
 	}
 	// RESOURCE_EXHAUSTED (code 429) -> RateLimited, not TurnEnded.
 	evs429 := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"ERROR","error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h15m."}`)
@@ -222,14 +278,14 @@ func TestLookupSessionFromSummariesAndHistory(t *testing.T) {
 	a := New()
 	// Worktree matches top-level conversation, ignoring subagent (nesting_depth=1).
 	res, err := a.LookupSession(context.Background(), connect.NewRequest(&adapterv1.LookupSessionRequest{
-		AgentName: "repo-a1", RunId: "r1", Cwd: wt, Repo: repo, Env: map[string]string{"HOME": home},
+		Cwd: wt, Repo: repo, Env: map[string]string{"HOME": home},
 	}))
 	if err != nil || res.Msg.SessionId != "c-wt" {
 		t.Errorf("worktree lookup = %q, %v", res.Msg.SessionId, err)
 	}
 	// Shared main checkout never falls back to directory match.
 	res2, err := a.LookupSession(context.Background(), connect.NewRequest(&adapterv1.LookupSessionRequest{
-		AgentName: "repo-lead", RunId: "r1", Cwd: repo, Repo: repo, Env: map[string]string{"HOME": home},
+		Cwd: repo, Repo: repo, Env: map[string]string{"HOME": home},
 	}))
 	if err != nil || res2.Msg.SessionId != "" {
 		t.Errorf("shared repo lookup should be empty, got %q, %v", res2.Msg.SessionId, err)
@@ -242,9 +298,48 @@ func TestLookupSessionFromSummariesAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	res3, err := a.LookupSession(context.Background(), connect.NewRequest(&adapterv1.LookupSessionRequest{
-		AgentName: "repo-a1", RunId: "r1", Cwd: wt, Repo: repo, Env: map[string]string{"HOME": home},
+		Cwd: wt, Repo: repo, Env: map[string]string{"HOME": home},
 	}))
 	if err != nil || res3.Msg.SessionId != "c-hist" {
 		t.Errorf("history lookup = %q, %v", res3.Msg.SessionId, err)
+	}
+}
+
+func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
+	dir := t.TempDir()
+	argsLog := filepath.Join(dir, "args")
+	fake := filepath.Join(dir, "meshctl")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$*\" >> "+argsLog+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, err := HooksJSON("a1", []string{fake, "hook", "agy"}, true, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]hooksSpec
+	if err := json.Unmarshal(b, &spec); err != nil {
+		t.Fatal(err)
+	}
+	run := func(cmd, agent string) string {
+		t.Helper()
+		os.Remove(argsLog)
+		c := exec.Command("sh", "-c", cmd)
+		c.Env = []string{"PATH=/usr/bin:/bin", "AGENT_MESH_AGENT=" + agent}
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v %s", cmd, err, out)
+		}
+		got, _ := os.ReadFile(argsLog)
+		return strings.TrimSpace(string(got))
+	}
+	pre := spec["agent-mesh"].PreToolUse[0].Hooks[0].Command
+	stop := spec["agent-mesh"].Stop[0].Command
+	if got := run(pre, "a1"); strings.Contains(got, "--check-only") || !strings.HasSuffix(got, "--deny-publish PreToolUse") {
+		t.Errorf("the agent's PreToolUse ran %q", got)
+	}
+	if got := run(pre, ""); !strings.Contains(got, "--deny-publish --check-only PreToolUse") {
+		t.Errorf("another session's PreToolUse ran %q: the deny rules must still be checked", got)
+	}
+	if got := run(stop, "someone-else"); got != "" {
+		t.Errorf("another session's Stop reported: %q", got)
 	}
 }

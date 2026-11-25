@@ -218,6 +218,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		return nil, invalid("no message type given")
 	}
 	out := &v1.SendMessageResponse{}
+	// A direct task may reopen its recipient, and a message to a stopped one resumes it: both need its
+	// conversation id, found before the write (learnSession).
+	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK || resumes(req.Msg.Type) {
+		d.learnSession(ctx, auth.ActorFrom(ctx), req.Msg.To)
+	}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
 		var to *v1.Agent
