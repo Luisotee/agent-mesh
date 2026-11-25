@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
-agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing pitch and `docs/guide.md` the full reference; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour. `docs/apps.md` is the plan for the apps and daemon that replace herdr.
+agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing pitch and `docs/guide.md` the full reference; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour. `docs/apps.md` is the plan for the daemon and apps that replace herdr and refactor agent-mesh: for that new code it overrides `docs/design.md` and the conventions below where they disagree (agents may spawn agents, for one).
 
 ## Task tracking
 
@@ -15,17 +15,23 @@ Keep it current in the same change: remove (or tick) a task when the work lands,
 If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools like agent-mesh, cloned under `~/research/orchestrators`. They are standing read-only askers that keep their context between asks; `mesh peers` shows each one's `about`. Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --tier mid --file q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask <name>-research --tier mid --body "…"`.
 
 - `agents-can-communicate` (asker `agents-can-communica-research`): cross-vendor messages between sessions the user opened, no lead agent. Claude's inbox socket, agy native delivery.
+- `aionui`: Electron desktop for 20+ agent CLIs (agent code in a separate Rust repo), remote control by web UI and chat bots, a dormant Expo app. Many-CLI support, permission handling.
 - `ccswarm`: headless one-shot agents driven by a YAML flow state machine, persona quorum votes as gates. Flow/stage design, quorum review, loop caps.
 - `cyclops`: a daemon watching agents in tmux, fused state signals, durable mailboxes with one doorbell per message. Delivery into a human's draft.
+- `emdash`: Electron desktop running CLIs in parallel worktrees, a workspace server with typed RPC. The app/daemon split.
 - `firstmate`: a bash supervisor over herdr panes (watcher, turn-end hooks, leases, caps). Its failure modes: hung agents, stale herdr registrations, trust dialogs.
 - `gastown`: patrol agents that respawn workers, a merge queue, convoys. Stop-hook guards, nudge queues, auto-restart, mostly as lessons in what broke.
+- `happy`: native Kotlin Android and Swift iOS apps (moved off React Native, reason undocumented), relay and pairing history, hooks. Mobile and the RN lesson.
 - `mcp-agent-mail`: an MCP server with mailboxes, identities and file leases. Inbox hooks, leases, two-store drift.
+- `omnara`: a Go daemon for self-hosted managed agents (sandboxes, permissions, cron), plus its deleted CLI-wrapper history. Go supervision, stream resume, API evolution.
 - `orca` (fmfsaisai/orca): tmux plus raw typing, roles from env vars. Guarding a user's draft, spawning panes on demand.
 - `orca-ide` (stablyai/orca): an Electron agent IDE with mobile and remote servers; experimental runs, tasks and dispatches with a mailbox, coordinator wake, gates and permission escalation.
+- `paradev` (ex-Superset): Electron desktop, React Native mobile, a hosted relay with per-stream dial-back, a separate PTY daemon. Terminal streaming and replay, PTY daemon lifecycle.
 - `paseo`: a daemon per host with desktop, mobile, web and CLI clients; agents orchestrate over MCP or its CLI (`update_agent`, finish notifications), daemon plugins with lifecycle hooks. Trialled and dropped as a replacement (design, "Alternatives considered"); ask it about app, daemon and remote-host design.
 - `repowire`: a Go daemon meshing live sessions: asks with acks and reminders, Claude's inbox socket, identity across reconnects.
 - `rove`: a daemon and PTY host owning every engine, flat dispatch with lineage. Delivery, matching reports to tasks.
 - `tmux-orchestrator`: an archived orchestrator → manager → engineer tree over `send-keys`. Mostly a contrast.
+- `vibe-kanban` (sunsetting): Rust server, Tauri desktop, headless agents, kanban tasks across CLIs, SSH over the paired link. Event-stream resume, per-turn git state.
 
 ## Commands
 

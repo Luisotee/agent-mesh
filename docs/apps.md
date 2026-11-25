@@ -2,6 +2,8 @@
 
 Status: planning (2026-11-25). Nothing is built yet. The technology picks below are recommendations, chosen for quality over simplicity, to be revisited before each part is built.
 
+This is a refactor of agent-mesh, not an add-on: where this plan and `docs/design.md` or `CLAUDE.md` disagree, this plan wins. design.md stays as the record of what today's `bin/mesh` learned, and its lessons apply unless this plan overrules them.
+
 agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, Linux and Android are required; macOS, iOS (once someone pays for the Apple developer account) and a browser client would be nice to have. herdr and the terminal workflow are replaced, not kept alongside: there is one user so far, so nothing legacy has to survive.
 
 ## Principles
@@ -15,7 +17,7 @@ agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, L
 
 ```
  desktop app (Electron + React) ─┐                       ┌─ daemon at home (WSL), dials out
- Android app (React Native)      ┼─ ConnectRPC over TLS ─┤   ├─ action registry (protobuf)
+ Android app (Kotlin + Compose)  ┼─ ConnectRPC over TLS ─┤   ├─ action registry (protobuf)
  agents' `mesh` CLI (Go)  ───────┘   direct, via the      │   ├─ agents in PTYs (real CLIs)
                                      user's relay, or     │   ├─ SQLite: runs, mail, events
                                      Tailscale / a VPN    │   └─ push via UnifiedPush (ntfy)
@@ -27,29 +29,50 @@ agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, L
   - Terminals live in a separate process from the daemon, so they survive a daemon restart (both peers ended up there).
   - State comes from the CLIs' hooks, session files and sockets, never from reading the screen: Orca and our own `human_draft` and limit-screen bugs show how brittle screen reading is.
   - Where a CLI offers a structured channel (Claude's stream-json and inbox socket, agy's ACP, OpenCode's HTTP API, Codex's JSON mode), the daemon uses it as well, which enables a structured chat view.
-  - Each agent can toggle between that chat view and its terminal (Orca's Chat | CLI switch).
-- **One action registry, defined as protobuf schemas.** Each action has a name, a request and response schema, an actor permission and a handler. ConnectRPC generates the Go server and the TypeScript client both apps use, and the agents' `mesh` CLI is generated from the same schemas, with no per-command code. Agents call it from their shell, which needs no setup per CLI and costs context only when it's used. An MCP server can be generated from the schemas later if a client needs one.
+  - Each agent can toggle between that chat view and its terminal (Orca's Chat | CLI switch). One process writes a conversation at a time: the chat view of a PTY agent renders from its transcript and hooks, and its composer delivers into that same running process (Claude's inbox socket where it exists, else the PTY). Never a second process on the same conversation; moving an agent between a PTY and a headless structured channel is a handover (stop one, `--resume` in the other).
+- **One action registry, defined as protobuf schemas.** Each action has a name, a request and response schema, an actor permission and a handler. ConnectRPC generates the Go server, the desktop's TypeScript client and the Android app's Kotlin client, and the agents' `mesh` CLI is generated from the same schemas, with no per-command code. Agents call it from their shell, which needs no setup per CLI and costs context only when it's used. An MCP server can be generated from the schemas later if a client needs one.
   - A test fails when an app calls something outside the registry.
   - UI-control actions are actions too: open a view, focus an agent, show a diff, notify.
   - Protobuf's rules for evolving a schema (new fields optional, numbers never reused) plus capabilities the host advertises are the answer to the version drift both peers fought.
-- **Live events and terminals** are server streams on the same API. The event log is the run's log, as `log.jsonl` is today.
+- **Live events** are a server stream on the same API, resumable ("Protocols and lifecycle"). The event log is the run's log, as `log.jsonl` is today.
+- **Terminals get their own binary stream** per terminal (a WebSocket, message types defined in the protobuf schemas), not ConnectRPC calls: Connect has no client or bidirectional streaming in the browser or Electron's renderer, and terminals sharing one HTTP/2 connection stall behind a busy one (emdash #3426: 9 s typing echo with 8 busy agents). Every peer that streams terminals does this.
 - **One store: SQLite.** Runs, agents, mail, the event log and full-text session search live in one database file per host. Plans and reports stay Markdown files that agents write, referenced by path. design.md's lesson is against *two* stores that drift, not against a database.
+- **Agents spawn agents.** Any agent may start and supervise its own children, not only the root (this overturns design §7's 1:N rule). Nesting is capped by limits a child can't raise: depth, children per agent and agents per run, from host settings, plus message-rate windows against storms (omnara's caps, AionUi's storm windows). Status, usage and cost roll up the tree, and the lead-agent view shows it.
 - **Settings are data on the host,** the same from every device. Today's `POLICY` leaves become the host settings schema, and the settings screen is generated from it. App preferences (theme, layout) are stored on the host too, so an agent can change them.
+
+## Protocols and lifecycle
+
+From the peers' research round (2026-11-25, run m93a9: `reports/peers-20261125T111923945777Z.md`). Each is where at least one peer lost weeks.
+
+- **Event streams resume.** Durable events carry a monotonic sequence number and a generation; a client subscribes `since` a cursor, and the first message is a snapshot or "resumed from". Ephemeral frames (text deltas, ticks) are never stored or replayed. Clients resync on every reconnect; replay is linear in size (vibe-kanban #3455); streams carry per-key events, not patched lists (emdash #3426: 271 resyncs an hour). Only an explicit end message ends a stream; any other close resumes (vibe-kanban #3227).
+- **Terminal protocol.** Each session has an epoch and a byte offset over a ring buffer; a client attaches exact (from its offset), tail, or reanchored (repaint). A resize is a sync boundary, and the size is the smallest visible client's; repaint by shrinking the width first (Ink TUIs only redraw on a shrink). Replayed output never produces replies (the client's input is off while replaying, Paradev #9288), and the host answers terminal queries (DA1/DA2) itself while no client is attached (emdash #2720). A mode preamble is replayed on attach.
+- **Backpressure.** Never pause a PTY on a remote client's acknowledgement (Paradev #5031 removed that: the PTY stayed blocked forever). Always drain; a bounded local pause at most; a slow client is dropped and resumes by offset. Input and the focused terminal go first; background terminals send only "has output" marks, with byte budgets per subscription (emdash #3442: 1.6 TB in 5 days).
+- **Connections.** A connection is ready when the handshake completes (carrying the daemon's id and start time), not when the socket opens. "Online" comes from heartbeats; backoff resets only after the first heartbeat is acknowledged; foreground and network events are hints. Generation fences stop late callbacks from an old connection. A failed auth is its own close code and stops retrying (AionUi #4124: 28k 401s a day).
+- **Tokens per actor.** Every agent gets a token at spawn and every device one at pairing; the actor is taken from the token, never from the request (AionUi #977), which is what makes "every action records its actor" true. Actor classes (root, agent, device, read-only device) each have a fixed set of actions, pinned by a test; terminal input is a permissioned action; a device can't manage other devices. The local API answers 401 to anything without a token and refuses browser origins (happy's control port was open until 2026-11-24).
+- **Idempotent writes.** Every write carries a client id and an expiry, so a retried or delayed phone tap neither runs twice nor runs late; the resulting events echo the mutation id. Long actions are jobs with their own state.
+- **Daemon and terminal-host lifecycle.** The terminal host runs in its own systemd unit or scope (with the default `KillMode=control-group`, a daemon restart kills detached children: happy #1751). Liveness is a held lock; the instance has an id and a token as a fence; adopting surviving terminals never kills them (Paradev #5721), and the daemon reconciles them at boot. Never signal a recorded pid without checking its start time. One instance per host, bounded shutdown waits (AionUi #884).
+- **Hooks.** Claude keeps per-launch `--settings` hooks, as `bin/mesh` does. CLIs whose hooks are global (agy) get an env guard that exits 0 outside our agents, a version marker and a lock, and unparseable config is left alone. Events from another harness (Claude running `codex exec`) are dropped; subagents' events go to their own roster; SessionStart means idle; a parse failure is never read as Stop. Each account's config dir gets its own hooks. The hook resolves the daemon's address at call time and spools while the daemon restarts.
+- **One state reducer per agent.** Adapters turn hooks, streams and process events into neutral events, and one pure reducer derives the state. Needs-input is a counted sub-condition, and every state has an event that clears it; "working" with no event or output for a while shows as unknown; a cancel kills the process group.
+- **Permission prompts.** Claude's `PermissionRequest` hook (long timeout) for PTY agents, `can_use_tool` for headless ones. The first answer wins across the root, desktop and phone, and a different later answer gets a conflict; a deny carries its reason verbatim; a timeout is its own outcome; pending prompts are re-sent after a restart, and the user's input waits while one is pending (happy #1735).
+- **API compatibility.** `buf breaking` in CI against `main` and the last release, with an approved-breaks file; a protocol major version whose error says which side to upgrade; frozen old-client fixtures; hello and pairing are the most stable endpoints. Database migrations are tested against released versions and run with a backup first; a missing secret that already encrypted data is never regenerated (AionUi #722).
+- **Agents' CLI versions.** Each adapter has a table of verified CLI versions and shows a banner outside it; decoding is tolerant; captured session fixtures per CLI version, and one live test suite per CLI.
+- **Finding CLIs under a service manager.** PATH comes from the login shell (bounded, about 3 s) plus fallback dirs; `git`, `gh` and `ps` by absolute path; an env allowlist for agents, no secrets in argv, and Claude's session variables stripped as `bin/mesh` does (`CLAUDE_SESSION_VARS`).
+- **Platform scope.** The first daemon runs on Linux, which on Windows means WSL. A native Windows daemon later needs ConPTY, Job Objects, named pipes and windowless spawns in one helper.
 
 ## Stack (recommended)
 
 | Part | Pick | Why |
 |---|---|---|
 | Daemon, `mesh` CLI and relay | Go, one static binary | A long-running supervisor of processes, terminals and connections is Go's home ground (Docker, Tailscale, Syncthing). One binary cross-compiled for x86 and ARM, with no runtime or native modules to install. Hooks call `mesh` on every turn, and a Go binary starts in milliseconds. Rust would be as solid, but its strengths don't matter here and its slower iteration does; TypeScript's argument (shared types) is moot with generated clients. |
-| API | Protobuf schemas with ConnectRPC | Schema-first, with generated server and clients in every language we use, streaming for events and terminals, and well-understood schema evolution. |
-| Storage | SQLite | One atomic, queryable store with full-text search. |
-| Desktop | Electron + React + TypeScript (Windows, Linux; macOS later) | For a terminal- and diff-heavy developer tool, the web has the best parts (xterm.js, diff viewers, Markdown and diagrams), and Electron gives the same Chromium on every OS (VS Code is the proof). Tauri uses WebKitGTK on Linux; Flutter, Avalonia, Qt and Compose Desktop have weaker terminals and rich content. |
-| Android | React Native with Expo (TypeScript) | Native views on the phone, where a web view would show, in the same language as the desktop, with React skills carrying over and a far larger contributor pool. Push through `expo-unified-push` (it wraps UnifiedPush's official Android library); notification actions, including inline replies (approve a plan, answer a question), through Expo's notifications; the terminal as Termux's terminal view (MIT) in a thin native module, or xterm.js in a web view. Builds run locally (`expo prebuild` and Gradle), and app updates can come from a self-hosted update server. Kotlin + Compose was the close runner-up: slightly better on Android alone, at the cost of a third language. It starts as a focused companion and grows. |
-| iOS (later) | The same React Native app | Once someone pays for the Apple account; the terminal needs an iOS view (SwiftTerm) behind the same module. |
+| API | Protobuf schemas with ConnectRPC; a binary WebSocket per terminal | Schema-first, with generated server and clients in every language we use, server streams for events, and well-understood schema evolution. Hand-maintained types drifted at every peer (Paradev's tRPC shape change crashed desktop 1.30, #7726). Terminals need a full-duplex stream of their own ("Architecture"). |
+| Storage | SQLite (pure-Go driver, so builds stay static) | One atomic, queryable store with full-text search; check FTS5 and WAL behaviour on the chosen driver. |
+| Desktop | Electron + React + TypeScript, styled with Tailwind and shadcn/ui (Windows, Linux; macOS later) | For a terminal- and diff-heavy developer tool, the web has the best parts (xterm.js, diff viewers, Markdown and diagrams), and Electron gives the same Chromium on every OS (VS Code is the proof). Tauri uses WebKitGTK on Linux; Flutter, Avalonia, Qt and Compose Desktop have weaker terminals and rich content. No hand-written CSS: Tailwind for styling, shadcn/ui components (copied into the repo so we own and restyle them), as the desktops of emdash, Orca and Paradev do, built on Base UI rather than Radix (shadcn supports both; Base UI is the actively developed successor from Radix's authors, and emdash uses it). Colors, spacing, type and a compact density (a terminal and diff tool, not shadcn's roomy default) are design tokens in one file, which the Tailwind theme and the Android app's Compose theme are both generated from, so the two apps look like one product. |
+| Android | Kotlin + Jetpack Compose | Long, streaming, Markdown-heavy chats are the phone's main screen, and that is where the peers' React Native apps struggled ("Lessons from the peers' stacks"): happy rewrote its phone apps natively, Paseo's Android app still runs out of memory in React Native's UI pipeline. Native also removes the workarounds React Native needed: OkHttp pins the daemon's certificate per connection, UnifiedPush's official Android library and native notification actions (inline replies to approve a plan or answer a question) need no wrapper, and Termux's terminal view (MIT) is a plain native view. The API client is generated from the same protobuf schemas (connect-kotlin), so a third language adds no hand-kept wire types (happy's cost: hand-written wire, crypto and sync per platform). Builds with Gradle, released as an APK on GitHub Releases and F-Droid; no over-the-air updates. It starts as a focused companion and grows. |
+| iOS (later) | Swift, with a client generated from the same schemas (connect-swift) and SwiftTerm for terminals | Once someone pays for the Apple account. Sharing the Android app's non-UI code through Kotlin Multiplatform is the alternative to weigh then. |
 | Browser (nice to have) | The desktop's React app, served by the daemon | Comes almost free. |
 | Push | UnifiedPush, with ntfy (on the user's VPS, or the free ntfy.sh) as the distributor | The user's daemon sends to the user's own ntfy. Firebase would let only the app's publisher send pushes, which forces a central server of ours. The phone needs the ntfy app installed once. |
-| Auth | A token per device, paired by a QR code the daemon shows, revocable per device; agents on the host use a local token | No accounts. |
-| Distribution | GitHub Releases (desktop builds, APK, daemon binaries) and F-Droid; a Docker image for the daemon and relay; Google Play optional later | Free. |
+| Auth | A token per device (paired by a QR code the daemon shows, revocable) and per agent (minted at spawn) | No accounts; every action is attributed ("Protocols and lifecycle"). |
+| Distribution | GitHub Releases (desktop builds, APK, daemon binaries) and F-Droid; a Docker image for the daemon and relay; Google Play optional later | Free. Releases are signed (minisign or cosign, pinned key), not checked against a hash from the same server; the daemon updates into immutable version dirs with an atomic switch, under a supervisor with backoff; an update never kills terminals; the Docker image doesn't self-update; app updates over the air only from release builds. |
 
 ## Reaching a host
 
@@ -57,8 +80,9 @@ An app can hold several routes per host and uses whichever works, so the same ma
 
 1. **Direct:** a daemon already reachable, such as one on the VPS behind the user's reverse proxy, or on the LAN. From Windows to WSL it's `localhost` (mirrored networking).
 2. **The user's own relay** (`mesh relay`, part of the same binary; the default for anything behind NAT):
-   - The daemon dials out to the relay on the user's VPS and keeps the connection open, so nothing at home needs an open port.
-   - Apps connect to the relay's address. The relay matches each app to its daemon and forwards the bytes through the daemon's outbound link.
+   - The daemon dials out to the relay on the user's VPS and keeps a control connection open, so nothing at home needs an open port.
+   - Apps connect to the relay's address and authenticate to it. For each app connection the relay asks the daemon, over the control connection, to dial back with a one-time ticket, then splices the two raw byte streams (Paradev's protocol). No multiplexing, so one busy stream can't stall another, and each stream has its own end-to-end TLS handshake.
+   - A reconnecting daemon replaces its old control connection (with a `replaced` close code); closes are typed; an offline daemon fails fast; `TCP_NODELAY` everywhere (Paradev #5013: 60–200 ms per keystroke without it); binary end to end; the daemon re-registers on every reconnect.
    - TLS runs end to end: the daemon holds its own certificate and the app pins its fingerprint from the pairing QR code. The relay can't read or change the traffic, and there is no custom crypto.
    - The pairing QR code carries the relay URL, the host's id, the certificate fingerprint and a one-time token. One relay serves many daemons.
 3. **Tailscale built in** (`tsnet`: the daemon joins the tailnet itself, nothing to install on the host), or Headscale for a fully self-hosted tailnet.
@@ -100,6 +124,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ Pairing by QR code or link, with per-device revocation (P, O).
 - ★ A connection log and troubleshooting screen; reconnect on returning to the foreground (P, O).
 - Remote hosts over SSH (P, O).
+- SSH, port forwarding and a remote IDE over the paired connection (`mesh ssh-proxy` as an SSH ProxyCommand that pins the daemon's certificate) (vibe-kanban).
 - A host reaching another host's agents through it (P).
 - Version gates that ask you to update the host (P, O).
 - Keep the machine awake while agents work (O).
@@ -125,11 +150,14 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ Several accounts per CLI, swapped by the quota reserve (O).
 - Provider catalog: detect, install, update and diagnose CLIs; custom providers (P, O).
 - Import a session started in a plain terminal (P).
-- Restart recovery after a crash; release idle agents; hibernation (P, O).
+- Restart recovery after a crash; release idle agents; hibernation (P, O). "Idle" counts the agent's background processes and subagents too (omnara).
+- A self-test per CLI in the provider screen: start it and check its handshake and version (vibe-kanban, AionUi).
 - A system prompt appended to every agent on a host (P).
 - Saved prompts and quick commands (O).
 
 ### Conversation
+
+- ★ Each turn records the git HEAD before and after, which gives rewind and per-turn diffs (vibe-kanban).
 
 - ★ Toggle between the chat view and the CLI's terminal (O).
 - ★ A streaming timeline: Markdown, diagrams, images, grouped tool calls that expand to their diffs (P, O).
@@ -162,7 +190,9 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Orchestration
 
 - ★ Every action is available to agents through the `mesh` CLI (P over MCP, O over its CLI).
-- ★ Agents spawn agents, linked as parent and child, with status rolled up to the parent (P, O).
+- ★ Agents spawn agents, linked as parent and child, with status rolled up the tree and caps a child can't raise (P, O; "Architecture").
+- ★ When an agent's process dies, its parent gets a message with the reason and its last message (AionUi).
+- Wake an agent on a terminal's output matching a pattern, or on its process exiting, for shells and builds, never agent TUIs (omnara).
 - ★ The root answers its workers' permission prompts, or escalates them to the user (O, P).
 - Schedules by cron or preset, with run history (P, O).
 - Event triggers: GitHub, webhooks (O).
@@ -173,7 +203,8 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Notifications
 
 - ★ Desktop notifications with sound when an agent finishes, fails or needs you, on every client regardless of focus or idle time (Paseo's presence rules hid them), plus a bell inbox and a tray badge (P, O).
-- ★ Mobile push with deep links (P, O).
+- ★ Mobile push with deep links (P, O). Notifications fire only on live transitions, never from replayed history (omnara #215 sent thousands on a resume); a later notification replaces an earlier one for the same agent; taps reuse the open screen.
+- An optional chat-bot channel (Telegram) with buttons to approve a plan or answer a question, beside ntfy (AionUi).
 - ★ A dashboard across workspaces: needs you, working, done (O).
 - An activity feed (O).
 - Mutes per host, workspace or agent; custom sounds (O).
@@ -219,13 +250,25 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - **Remote terminal output is its own pipeline.** Orca's phone saw sends accepted but no output, because the PTY daemon fed only the desktop. Stream terminals through the daemon API for every client.
 - **Version drift between app and host is everywhere.** Keep protocol fields optional, gate features on the host's advertised capabilities, and tag compatibility shims with a removal date (Paseo's `docs/protocol-compatibility.md`).
 - **Long chats need virtualized lists, and terminals need backpressure,** from day one.
+- **React Native struggles with long streaming chats on Android.** happy moved its phone apps to native Kotlin and Swift (2026-10/11; its issues: tablet freezes in large chats, scroll jank, a 282-line doc on scroll workarounds). Paseo's Android app slows down and dies out of native memory in Fabric's commit path during long streamed answers (#4408, open), and Orca's mobile chat jumps on every send (#31979, #44746). Hence a native Android app.
 - **Provider adapters are the largest bug source** (Paseo: Claude 60, OpenCode 42, Codex 34 fix commits). Keep each CLI's specifics in one adapter, as `bin/mesh`'s `Cli` classes do (design §22).
 - **A PTY daemon's socket must be owned carefully.** A departing daemon unlinked its replacement's socket; seven review rounds found 23 defects (Orca `src/main/daemon/AGENTS.md`).
+- **Never edit or regenerate a CLI's session file, and never carry a provider's turn or request id across a resume** (omnara #514, #368).
+- **Persistent terminals through tmux cost emdash about 30 fix commits** and reset on boot instead of reconciling; a separate terminal process works, with the lifecycle rules above.
 - **Windows and WSL take sustained work.** Orca has about 120 Windows and 78 WSL commits.
+
+## Testing
+
+- A scripted fake CLI per adapter for most tests, plus captured session fixtures per CLI version and one live suite per CLI ("mocked tests don't count" for adapters).
+- A parity test that a stream and its replay give the same state.
+- Restart the daemon mid-run, then resume, per CLI; SIGKILL the terminal host mid-command; `go test -race`.
+- An isolated HOME for every test (Paradev #6583: tests killed a developer's real shells).
+- The desktop app through Chrome DevTools Protocol (Playwright), the Android app with Maestro.
+- A performance bar for the Android chat on a cheap phone: a 2,000-message transcript streaming for 10 minutes, with no memory growth, no scroll jumps and no dropped frames, the failures the peers' React Native apps hit.
 
 ## Order of work
 
-1. **Daemon core (Go):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI. At the end of this step, agents run without herdr.
+1. **Daemon core (Go, Linux):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI. At the end of this step, agents run without herdr.
 2. **Desktop app, first version:** hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray icon.
 3. **Connections:** the relay and pairing by QR, then built-in Tailscale.
 4. **Android app:** status, notifications with actions through UnifiedPush, plans, questions, reports, the terminal.
@@ -235,4 +278,6 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 - Whether the apps live in this repo (`daemon/`, `desktop/`, `android/`, `proto/`; the pick, so the schemas and every client change in one PR) or in their own repos.
 - Whether to drive agents through PTYs plus structured channels (the pick), or structured channels only.
-- Check before building the Android app: that ConnectRPC's server streams work in React Native (Expo's streaming `fetch`), and how a long chat and a live terminal perform on a cheap phone.
+- Terminal replay: a server-side terminal emulator that can always repaint any client (happy, unconfirmed), or reanchor plus a forced repaint (Paradev).
+- agy's hooks: one peer says a hook with no output denies the call, another that it times out at about 30 s and fails open. Test on our agy before relying on its hooks for permissions.
+- Tailcat (a Tailscale-compatible library with no account and your own relay server, per happy) instead of `tsnet`, later.
