@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
@@ -26,6 +26,8 @@ export interface HostState {
   settings: Record<string, Setting>
   /** What the host says waits on the user (ListWaiting), kept up to date by `refresh.ts`; empty until it first answers. */
   waiting: WaitingRow[]
+  /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
+  devices: Device[]
   cursor?: Cursor
   log: LogLine[]
 }
@@ -33,7 +35,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], devices: [], clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -142,6 +144,12 @@ function applyEvent(s: HostState, e: Event): HostState {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
     }
+    case 'devicePaired': {
+      const d = p.value.device
+      return d && !s.devices.some((x) => x.id === d.id) ? { ...next, devices: [...s.devices, d] } : next
+    }
+    case 'deviceRevoked':
+      return { ...next, devices: s.devices.filter((x) => x.id !== p.value.deviceId) }
     default:
       return next
   }
@@ -157,6 +165,11 @@ export function mergeMessages(s: HostState, page: Message[]): Partial<HostState>
   const messages = { ...s.messages }
   for (const m of page) messages[m.id] ??= m
   return { messages }
+}
+
+/** The host's list of paired devices, which replaces the last one. */
+export function setDevices(devices: Device[]): Partial<HostState> {
+  return { devices }
 }
 
 /** The host's answer to ListWaiting, which replaces the last one. */

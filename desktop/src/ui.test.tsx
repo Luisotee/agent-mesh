@@ -175,6 +175,21 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: /Host home/ })).toBeInTheDocument()
   })
 
+  it('adds a host by pairing link, with the name this device gives itself', async () => {
+    const add = vi.fn(async () => ({ id: 'x', name: 'Home', kind: 'paired' as const, target: '10.0.0.2:9443' }))
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    render(<App api={api} />)
+    await userEvent.selectOptions(await screen.findByLabelText('How to reach it'), 'pair')
+    // The host's own name is optional here, and there is no field for a pasted token.
+    expect(screen.queryByLabelText(/token/i)).toBeNull()
+    fireEvent.change(screen.getByLabelText('Pairing link'), { target: { value: ' agentmesh://pair?v=1&h=h_1 ' } })
+    await userEvent.clear(screen.getByLabelText("This device's name"))
+    await userEvent.type(screen.getByLabelText("This device's name"), 'Work laptop')
+    await userEvent.click(screen.getByRole('button', { name: 'Add host' }))
+    expect(add).toHaveBeenCalledWith({ name: '', kind: 'pair', link: 'agentmesh://pair?v=1&h=h_1', deviceName: 'Work laptop' })
+    expect(await screen.findByRole('button', { name: /Host Home/ })).toBeInTheDocument()
+  })
+
   it('shows why a host was refused', async () => {
     const add = vi.fn(async () => {
       throw new Error("Error invoking remote method 'hosts:add': Error: the state dir must be an absolute path")
