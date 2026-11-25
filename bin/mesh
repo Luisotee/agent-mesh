@@ -7426,8 +7426,10 @@ SENT_TAIL = 4_000_000  # bytes of a session file `sent_message` reads, from its 
 
 
 def sent_message(transcript: str | None, address: str, since: float) -> bool | None:
-    """Whether a Claude session file shows a `SendMessage` to `address` after `since` (epoch seconds); None when
-    the file can't be read, or its tail (the part read) doesn't show one and the file has more before it."""
+    """Whether a Claude session file shows a `SendMessage` to `address` after `since` (epoch seconds). None
+    (unknown) when the file can't be read, or when only its tail (`SENT_TAIL`) was read, and that tail has none
+    but doesn't provably cover `since` (its first timestamped record is after it), or holds a match with no
+    readable time (which may be an old one). A whole file's record with no time counts as a match: it may be the one."""
     if not transcript:
         return None
     try:
@@ -7439,19 +7441,28 @@ def sent_message(transcript: str | None, address: str, since: float) -> bool | N
     except OSError:
         return None
     cut = size > SENT_TAIL
+    first = 0.0  # the tail's first timestamped record: what it covers begins there
+    blind = False  # a match with no time, in a cut file
     for line in lines:
-        if "SendMessage" not in line:
+        if first and "SendMessage" not in line:
             continue
         record = json_object(line)
-        content = (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
         stamp = epoch(record.get("timestamp"))
-        if stamp and stamp < since:  # one with no readable time counts: it may be the one
+        first = first or stamp
+        if "SendMessage" not in line:
+            continue
+        content = (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
+        if stamp and stamp < since:
             continue
         for block in content if isinstance(content, list) else ():
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "SendMessage" \
                     and (block.get("input") or {}).get("to") == address:
-                return True
-    return None if cut else False  # a tail without it says nothing of what came before
+                if stamp or not cut:
+                    return True
+                blind = True
+    if not cut:
+        return False
+    return False if first and first <= since and not blind else None
 
 
 def owed_send_message(run_id: str, name: str, events: list[dict], payload: dict, entry: dict) -> str | None:
@@ -7898,7 +7909,10 @@ class Watch:
             if sent_message(str(transcript) if transcript else None, native["address"], epoch(native.get("time"))):
                 return None  # (True only: when it can't be told, the root is asked to look, which costs one `mesh inbox`)
         self.lost_noted.add(file)
-        log_event(self.run_id, "lost_noted", name=self.name, file=file)
+        try:
+            log_event(self.run_id, "lost_noted", name=self.name, file=file)
+        except OSError:  # the run folder moved (`mesh stop`): the alert still goes out
+            pass
         return 0, (f"{self.name}'s {last['type']} has sat unread for {ago(age_seconds(last.get('time')))} and its "
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
 
@@ -11676,13 +11690,22 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
     return "working on it: report `done` or `failed` with `mesh send parent` when it's finished (stuck: send a `question`)"
 
 
+def reset_typing(run_id: str) -> bool:
+    """Whether a `mesh reset` is running and has begun restarting the root (typed `/clear`, `/compact` or the
+    `/exit` of a relaunch: `reset_typing` event after the last `reset_requested`), so a bootstrap prompt follows."""
+    if not reset_pending(run_id):
+        return False
+    marks = [e.get("event") for e in read_log(run_id) if e.get("event") in ("reset_requested", "reset_typing")]
+    return marks[-1:] == ["reset_typing"]
+
+
 def reminder(run_id: str, me: str, source: str) -> str:
     """What `mesh whoami --reminder` prints, for a session that may have lost its context (SessionStart hook).
     Its wording must not match `first_doorbell`, which agy's conversation lookup searches for."""
     run = load_run(run_id)
     entry = agent_entry(run, me)
     if entry["role"] == "root":
-        if reset_pending(run_id):  # `mesh reset` is running: its prompt, typed next, says to run `mesh brief`
+        if reset_typing(run_id):  # `mesh reset` has started its restart: its prompt, typed next, says `mesh brief`
             return ""
         return (f"agent-mesh reminder ({source}): you are {me}, the root of run {run_id} (no parent to report to). "
                 f"Your earlier context may be gone: run `mesh brief` now and act by the root card it prints, "
@@ -12886,24 +12909,30 @@ def wait_gone(plan: dict, seconds: float) -> bool:
 EXIT_FAREWELL = "Resume this session with"  # what Claude Code prints as it exits
 
 
-def exiting(pane: str, lines: list[str] | None) -> bool:
-    """Positive evidence that a Claude still alive after /exit is on its way out: its screen shows its own exit
-    farewell, or the pane's foreground is its shell again (it no longer holds the terminal). Not an unreadable
-    screen, a dialog or any other screen: those say nothing about it."""
-    if lines and any(EXIT_FAREWELL in strip_sgr(line) for line in lines):
+def farewells(lines: list[str] | None) -> int | None:
+    """How many exit farewells a screen read shows (None: it couldn't be read)."""
+    return None if lines is None else sum(EXIT_FAREWELL in strip_sgr(line) for line in lines)
+
+
+def exiting(pane: str, lines: list[str] | None, before: int | None) -> bool:
+    """Positive evidence that a Claude still alive after /exit is on its way out: its screen shows more exit
+    farewells than it did when the /exit was typed (`before`: an earlier reset in the pane leaves one in the
+    scrollback; None when that read failed, so no farewell counts), or the pane's foreground is its shell again
+    (it no longer holds the terminal). Not an unreadable screen, a dialog or any other screen."""
+    if before is not None and (farewells(lines) or 0) > before:
         return True
     info = pane_process_info(pane)
     return bool(info and info.get("shell_pid") is not None
                 and info.get("foreground_process_group_id") == info.get("shell_pid"))
 
 
-def end_root_claude(pane: str, plan: dict) -> str:
+def end_root_claude(pane: str, plan: dict, before: int | None = None) -> str:
     """After a typed /exit: wait until the old Claude is gone, and say why not (else ""). It may take minutes
     (run mfb6a, 2026-11-25: one outlived its /exit by far longer than 20 s, and a reset that gave up then left the
     user a pane with no root). A Claude still alive after `RELAUNCH_EXIT` whose screen shows its input box didn't
     take the /exit: it is left running, as it was. Otherwise it gets `RELAUNCH_EXIT_LATE` more, and is signalled
     (SIGTERM, then SIGKILL; its conversation is on disk already) only on positive evidence that it is exiting
-    (`exiting`). An unreadable screen, a dialog or any screen nobody recognises is not that: the reset fails and
+    (`exiting`; `before`: the farewells on its screen before the /exit). An unreadable screen, a dialog or any screen nobody recognises is not that: the reset fails and
     the root keeps running. herdr's agent status isn't consulted: it can stay `working` after the screen is gone."""
 
     def read() -> list[str] | None:
@@ -12922,7 +12951,7 @@ def end_root_claude(pane: str, plan: dict) -> str:
     lines = read()
     if box(lines):
         return still
-    if not exiting(pane, lines):
+    if not exiting(pane, lines, before):
         return ("it was sent /exit, but its Claude still runs and nothing on its screen or in its pane shows it "
                 f"exiting ({'its screen could not be read' if lines is None else 'a screen with no input box'}); "
                 "it was not signalled and nothing else was typed")
@@ -12945,11 +12974,12 @@ def relaunch_root(run_id: str, root: str, entry: dict, plan: dict) -> tuple[dict
     could be. The root's address, pid and session are re-recorded at once, so workers' doorbells don't go to a
     socket that died with the old process."""
     pane = entry["pane"]
+    seen = farewells(pane_lines(pane, RESET_READ_LINES, ansi=True))  # an earlier reset's stays in the scrollback
     try:
         herdr("agent", "prompt", pane, "/exit", timeout=30)
     except HerdrError as exc:
         return None, f"typing /exit failed: {exc.code}"
-    if why_alive := end_root_claude(pane, plan):
+    if why_alive := end_root_claude(pane, plan, seen):
         return None, why_alive
     record, why = start_root_claude(root, pane, plan["argv"], plan["pid"])
     if not record:
@@ -13063,6 +13093,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                         run_id, root, load_run(run_id)["agents"][root], before if reopen else None)
                     if reopen and not plan:
                         return failed("reset_failed", f"couldn't reopen it with what it added: {plan_why}")
+                    log_event(run_id, "reset_typing", name=root)  # from here on, its SessionStart reminder is silent
                     if plan:
                         relaunched, why_not = relaunch_root(run_id, root, entry, plan)
                         if not relaunched:

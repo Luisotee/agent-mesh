@@ -556,6 +556,25 @@ def test_a_reset_of_a_root_nobody_can_read_fails_and_leaves_it_running(mesh, fak
     assert "was not signalled" in mesh.read_log(run)[-1]["reason"]
 
 
+def test_a_farewell_left_by_an_earlier_reset_is_not_evidence_the_root_is_exiting(mesh, fake, run, lean, monkeypatch,
+                                                                               tmp_path):
+    """A second reset in the pane: the first one's `Resume this session with` is still in the scrollback."""
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch, exits=False)
+    sent = slow_exit(mesh, fake, monkeypatch, [False, False])
+    stale = ["Resume this session with:", "claude --resume old", "(a dialog, no input box)"]
+    monkeypatch.setattr(mesh, "pane_lines", lambda *a, **k: stale)  # before the /exit and after it
+    monkeypatch.setattr(mesh, "pane_process_info", lambda pane: {"foreground_process_group_id": 201, "shell_pid": 50})
+    monkeypatch.setattr(mesh, "pid_alive", lambda pid, start=None: True)
+    assert mesh.relaunch_root(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"],
+                              {"pid": 99, "start": "1", "argv": [], "fallback": []})[1].count("was not signalled") == 1
+    assert sent == []
+    # a new farewell, after the /exit, is evidence
+    assert mesh.farewells(stale) == 1 and mesh.exiting("w1:p1", stale + stale, 1) is True
+    assert mesh.exiting("w1:p1", stale, 1) is False and mesh.exiting("w1:p1", stale, None) is False
+
+
 def test_a_root_still_answering_after_the_exit_is_left_running_not_killed(mesh, fake, run, lean, monkeypatch,
                                                                          tmp_path):
     lean_root(mesh, run, monkeypatch, tmp_path)

@@ -356,10 +356,73 @@ def test_an_info_after_a_native_plan_doesnt_hide_the_plan_from_the_stop_hook(mes
                                                     if e["event"] == "hook_send"] == [path.name]
 
 
-def test_a_roots_reminder_is_silent_while_a_reset_is_about_to_type_its_own(mesh, fake, run, monkeypatch, capsys):
-    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: True)  # the bootstrap says `mesh brief` itself
+def test_a_roots_reminder_is_silent_only_once_the_reset_has_begun_restarting_it(mesh, fake, run, monkeypatch, capsys):
+    """Not for the whole reset: a compaction or /clear during its wait for a quiet box gets no prompt after it if
+    the reset is then cancelled."""
+    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: True)
+    mesh.log_event(run, "reset_requested", name="repo-lead")
+    assert mesh.main(["whoami", "--reminder", "compact"]) == 0
+    assert "mesh brief" in capsys.readouterr().out  # waiting for a quiet box: no prompt is certain yet
+    mesh.log_event(run, "reset_typing", name="repo-lead")
     assert mesh.main(["whoami", "--reminder", "clear"]) == 0
-    assert capsys.readouterr().out == "" and not [e for e in mesh.read_log(run) if e["event"] == "reminder"]
-    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: False)
+    assert capsys.readouterr().out == "" and not [e for e in mesh.read_log(run) if e["event"] == "reminder"][1:]
+    mesh.log_event(run, "reset_requested", name="repo-lead")  # the next reset: the old mark is stale
     assert mesh.main(["whoami", "--reminder", "clear"]) == 0
     assert "mesh brief" in capsys.readouterr().out
+    mesh.log_event(run, "reset_typing", name="repo-lead")
+    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: False)  # over
+    assert mesh.main(["whoami", "--reminder", "clear"]) == 0
+    assert "mesh brief" in capsys.readouterr().out
+
+
+def test_a_reset_logs_that_it_began_restarting_the_root_before_it_types(mesh, fake, run, lean, monkeypatch, tmp_path):
+    from test_lean import lean_root, scripted_root, relaunching
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch)
+    seen = []
+    real = mesh.relaunch_root
+    monkeypatch.setattr(mesh, "relaunch_root", lambda *a: seen.append(
+        [e["event"] for e in mesh.read_log(run)][-1]) or real(*a))
+    assert mesh.reset_root(run, "repo-lead", None, None) == 0
+    assert seen == ["reset_typing"]
+
+
+def test_a_tail_that_covers_the_report_and_has_no_send_message_means_never_sent(mesh, tmp_path, monkeypatch):
+    """A long session's file: the 4 MB tail begins before the report, so its silence is an answer."""
+    monkeypatch.setattr(mesh, "SENT_TAIL", 3000)
+    path = tmp_path / "long.jsonl"
+
+    def record(at, name, to="uds:/x/1.sock"):
+        return json.dumps({"type": "assistant", "timestamp": at, "message": {"content": [
+            {"type": "tool_use", "name": name, "input": {"to": to, "command": "x" * 100}}]}})
+    early = [record("2026-01-01T00:00:00.000Z", "SendMessage")]  # an old one, before the report
+    later = [record(f"2026-01-02T00:{i:02d}:00.000Z", "Bash") for i in range(40)]
+    path.write_text("\n".join(early + later) + "\n")
+    assert path.stat().st_size > 3000
+    inside = mesh.epoch("2026-01-02T00:45:00.000Z")  # a report the tail covers: it begins (~00:32) before it
+    assert mesh.sent_message(str(path), "uds:/x/1.sock", inside) is False  # so its silence is an answer
+    before = mesh.epoch("2026-01-01T12:00:00.000Z")  # a report older than the tail's first record
+    assert mesh.sent_message(str(path), "uds:/x/1.sock", before) is None  # unknown: what came before isn't read
+
+
+def test_a_match_with_no_time_in_a_cut_file_is_unknown_not_sent(mesh, tmp_path, monkeypatch):
+    monkeypatch.setattr(mesh, "SENT_TAIL", 3000)
+    dated = json.dumps({"type": "assistant", "timestamp": "2026-01-02T00:00:00.000Z", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "x" * 100}}]}})
+    undated = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "SendMessage", "input": {"to": "uds:/x/1.sock"}}]}})
+    cut = tmp_path / "cut.jsonl"
+    cut.write_text("\n".join([dated] * 5 + [undated] + [dated] * 20) + "\n")
+    assert cut.stat().st_size > 3000
+    assert mesh.sent_message(str(cut), "uds:/x/1.sock", 1.0) is None
+    whole = tmp_path / "whole.jsonl"
+    whole.write_text(undated + "\n")
+    assert mesh.sent_message(str(whole), "uds:/x/1.sock", 1.0) is True  # a file read whole: it may be the one
+
+
+def test_a_lost_report_still_ends_the_watch_when_the_log_cant_be_written(mesh, fake, run, monkeypatch):
+    native_report(mesh, run, "plan")
+    monkeypatch.setattr(mesh, "log_event", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("moved")))
+    status, line = lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True)
+    assert status == 0 and "plan has sat unread" in line
