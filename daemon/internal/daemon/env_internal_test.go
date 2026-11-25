@@ -35,12 +35,12 @@ func TestLookPathAndTheAgentEnvAllowlist(t *testing.T) {
 		have[k] = true
 	}
 	for _, k := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "NO_PROXY",
-		"CLAUDE_CODE_USE_BEDROCK", "AWS_PROFILE", "CLAUDE_CODE_USE_VERTEX"} {
+		"CLAUDE_CODE_USE_BEDROCK", "AWS_PROFILE", "CLAUDE_CODE_USE_VERTEX", "GEMINI_API_KEY", "GOOGLE_API_KEY"} {
 		if !have[k] {
 			t.Errorf("%s is not inherited by agents", k)
 		}
 	}
-	for _, k := range []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "AGENT_MESH_TOKEN", "MESH_RUN"} {
+	for _, k := range []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "AGENT_MESH_TOKEN", "MESH_RUN", "ANTIGRAVITY_AGENT"} {
 		if have[k] {
 			t.Errorf("%s must never be inherited", k)
 		}

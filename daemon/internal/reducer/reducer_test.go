@@ -47,6 +47,12 @@ func compacting() *adapterv1.AgentEvent {
 func ended() *adapterv1.AgentEvent {
 	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionEnded{SessionEnded: &adapterv1.SessionEnded{Reason: "clear"}}}
 }
+func limited(msg string) *adapterv1.AgentEvent {
+	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_RateLimited{RateLimited: &adapterv1.RateLimited{Message: msg}}}
+}
+func failed(msg string) *adapterv1.AgentEvent {
+	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnFailed{TurnFailed: &adapterv1.TurnFailed{Error: msg}}}
+}
 
 func TestReduce(t *testing.T) {
 	cases := []struct {
@@ -73,6 +79,12 @@ func TestReduce(t *testing.T) {
 		{"a resume mid-turn is not idle", []*adapterv1.AgentEvent{started("s1"), turn(), startedBy("s1", "resume")}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"a launch that resumes a conversation is idle", []*adapterv1.AgentEvent{startedBy("s1", "resume")}, v1.AgentState_AGENT_STATE_IDLE, 0},
 		{"a /clear is idle", []*adapterv1.AgentEvent{started("s1"), turn(), startedBy("s2", "clear")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a turn-time session start records from starting as idle", []*adapterv1.AgentEvent{startedBy("s1", "turn")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a turn-time session start keeps working mid-turn", []*adapterv1.AgentEvent{turn(), startedBy("s1", "turn")}, v1.AgentState_AGENT_STATE_WORKING, 0},
+		{"rate limited moves to LIMITED", []*adapterv1.AgentEvent{started("s1"), turn(), limited("429")}, v1.AgentState_AGENT_STATE_LIMITED, 0},
+		{"turn failed moves to ERROR", []*adapterv1.AgentEvent{started("s1"), turn(), failed("bad")}, v1.AgentState_AGENT_STATE_ERROR, 0},
+		{"a new turn clears LIMITED", []*adapterv1.AgentEvent{started("s1"), turn(), limited("429"), turn()}, v1.AgentState_AGENT_STATE_WORKING, 0},
+		{"a new turn clears ERROR", []*adapterv1.AgentEvent{started("s1"), turn(), failed("bad"), turn()}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"exit is final", []*adapterv1.AgentEvent{turn(), exit(1), started("s3")}, v1.AgentState_AGENT_STATE_EXITED, 0},
 	}
 	for _, c := range cases {
@@ -121,6 +133,14 @@ func TestDisplayShowsSilentWorkAsUnknown(t *testing.T) {
 	idle := Reduce(s, at(1, stop()))
 	if got := Display(idle, t0.Add(time.Hour), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_IDLE {
 		t.Errorf("idle never turns unknown: %v", got)
+	}
+	lim := Reduce(s, at(1, limited("429")))
+	if got := Display(lim, t0.Add(time.Hour), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_LIMITED {
+		t.Errorf("limited never turns unknown: %v", got)
+	}
+	errS := Reduce(s, at(1, failed("err")))
+	if got := Display(errS, t0.Add(time.Hour), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_ERROR {
+		t.Errorf("error never turns unknown: %v", got)
 	}
 }
 

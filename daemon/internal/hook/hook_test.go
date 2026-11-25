@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -201,5 +202,116 @@ func TestACaptureThatFailsStillReportsTheHook(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
 		t.Errorf("the hook stopped reporting: %v", left)
+	}
+}
+
+func TestAgyPreToolUseDenyEvaluatesLocallyEvenWhenDaemonIsDown(t *testing.T) {
+	p, o := setup(t)
+	wt := t.TempDir()
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.Cwd = "agy", "PreToolUse", &out, wt
+	o.DenyPaths, o.DenyPublish = []string{wt}, true
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"foo.txt"}}}`)
+	// Daemon is down: Run returns spool/dial error (meshctl still exits 0), and stdout got the deny JSON.
+	_ = Run(o)
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("expected deny decision on stdout, got %q", out.String())
+	}
+	// Allowed path outside denyPaths prints nothing at all.
+	out.Reset()
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"` + p.Dir + `/plans/a1.md"}}}`)
+	_ = Run(o)
+	if out.Len() != 0 {
+		t.Fatalf("allowed path should print nothing, got %q", out.String())
+	}
+}
+
+func TestAgyPreToolUseFailsClosedOnAPayloadTooLargeToCheck(t *testing.T) {
+	_, o := setup(t)
+	wt := t.TempDir()
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.Cwd = "agy", "PreToolUse", &out, wt
+	o.DenyPaths, o.DenyPublish = []string{wt}, true
+	big := strings.Repeat("x", MaxPayload)
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"/elsewhere/a","Content":"` + big + `"}}}`)
+	_ = Run(o)
+	if !strings.Contains(out.String(), `"decision":"deny"`) || !strings.Contains(out.String(), "too large") {
+		t.Fatalf("an oversized payload was not denied: %.200q", out.String())
+	}
+}
+
+func TestAgyCheckOnlyDeniesAndReportsNothing(t *testing.T) {
+	p, o := setup(t)
+	wt := t.TempDir()
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.Cwd, o.CheckOnly = "agy", "PreToolUse", &out, wt, true
+	o.DenyPaths, o.DenyPublish = []string{wt}, true
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"run_command","args":{"CommandLine":"git push"}}}`)
+	if err := Run(o); err != nil {
+		t.Fatalf("a check-only hook tried to report: %v", err)
+	}
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("check-only did not deny: %q", out.String())
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 0 {
+		t.Errorf("a check-only hook spooled: %v", left)
+	}
+}
+
+func TestAgyPreToolUseNeverWaitsOnTheSpoolLock(t *testing.T) {
+	p, o := setup(t)
+	unlock, err := LockSpool(p, "a1") // another hook (or the daemon's drain) is draining
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	o.Kind, o.Event, o.Stdin = "agy", "PreToolUse", strings.NewReader(`{"toolCall":{"name":"read_file"}}`)
+	done := make(chan error, 1)
+	go func() { done <- Run(o) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("quick report: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("an agy PreToolUse hook waited on the spool lock: agy denies a tool whose hook outlives its timeout")
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
+		t.Errorf("the hook was not spooled behind the lock holder: %v", left)
+	}
+}
+
+func TestAgyPreToolUseQueuesBehindSpooledHooks(t *testing.T) {
+	p, o := setup(t)
+	clock := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	o.Kind = "agy"
+	for i, ev := range []string{"Stop", "PreToolUse"} { // the daemon is down: Stop spools, PreToolUse goes after it
+		o.Event, o.Stdin = ev, strings.NewReader(`{}`)
+		o.Now = func() time.Time { return clock.Add(time.Duration(i) * time.Second) }
+		_ = Run(o)
+	}
+	var got []string
+	unlock, _ := LockSpool(p, "a1")
+	_ = Drain(p, "a1", func(r *v1.ReportHookRequest) error { got = append(got, r.EventName); return nil })
+	unlock()
+	if strings.Join(got, ",") != "Stop,PreToolUse" {
+		t.Errorf("drained %v", got)
+	}
+}
+
+// A quick report is bounded by QuickTimeout even when the caller set no timeouts: zero is not "no limit".
+func TestQuickTimeoutsDefaultWhenUnset(t *testing.T) {
+	for _, c := range []struct {
+		o          Options
+		call, dial time.Duration
+	}{
+		{Options{}, QuickTimeout, QuickTimeout},
+		{Options{CallTimeout: 3 * time.Second, DialTimeout: 2 * time.Second}, QuickTimeout, QuickTimeout},
+		{Options{CallTimeout: 200 * time.Millisecond}, 200 * time.Millisecond, 200 * time.Millisecond},
+		{Options{DialTimeout: 100 * time.Millisecond}, QuickTimeout, 100 * time.Millisecond},
+	} {
+		if call, dial := quickTimeouts(c.o); call != c.call || dial != c.dial {
+			t.Errorf("quickTimeouts(%+v) = %v, %v; want %v, %v", c.o, call, dial, c.call, c.dial)
+		}
 	}
 }

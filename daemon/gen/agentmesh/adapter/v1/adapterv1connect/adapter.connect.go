@@ -42,6 +42,12 @@ const (
 	// CliAdapterServiceDecodeHookProcedure is the fully-qualified name of the CliAdapterService's
 	// DecodeHook RPC.
 	CliAdapterServiceDecodeHookProcedure = "/agentmesh.adapter.v1.CliAdapterService/DecodeHook"
+	// CliAdapterServiceLookupSessionProcedure is the fully-qualified name of the CliAdapterService's
+	// LookupSession RPC.
+	CliAdapterServiceLookupSessionProcedure = "/agentmesh.adapter.v1.CliAdapterService/LookupSession"
+	// CliAdapterServiceDescribeModelProcedure is the fully-qualified name of the CliAdapterService's
+	// DescribeModel RPC.
+	CliAdapterServiceDescribeModelProcedure = "/agentmesh.adapter.v1.CliAdapterService/DescribeModel"
 )
 
 // CliAdapterServiceClient is a client for the agentmesh.adapter.v1.CliAdapterService service.
@@ -49,6 +55,9 @@ type CliAdapterServiceClient interface {
 	Describe(context.Context, *connect.Request[v1.DescribeRequest]) (*connect.Response[v1.DescribeResponse], error)
 	PlanLaunch(context.Context, *connect.Request[v1.PlanLaunchRequest]) (*connect.Response[v1.PlanLaunchResponse], error)
 	DecodeHook(context.Context, *connect.Request[v1.DecodeHookRequest]) (*connect.Response[v1.DecodeHookResponse], error)
+	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
+	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
+	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
 }
 
 // NewCliAdapterServiceClient constructs a client for the agentmesh.adapter.v1.CliAdapterService
@@ -80,14 +89,28 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("DecodeHook")),
 			connect.WithClientOptions(opts...),
 		),
+		lookupSession: connect.NewClient[v1.LookupSessionRequest, v1.LookupSessionResponse](
+			httpClient,
+			baseURL+CliAdapterServiceLookupSessionProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("LookupSession")),
+			connect.WithClientOptions(opts...),
+		),
+		describeModel: connect.NewClient[v1.DescribeModelRequest, v1.DescribeModelResponse](
+			httpClient,
+			baseURL+CliAdapterServiceDescribeModelProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // cliAdapterServiceClient implements CliAdapterServiceClient.
 type cliAdapterServiceClient struct {
-	describe   *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
-	planLaunch *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
-	decodeHook *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
+	describe      *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
+	planLaunch    *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
+	decodeHook    *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
+	lookupSession *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
+	describeModel *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
 }
 
 // Describe calls agentmesh.adapter.v1.CliAdapterService.Describe.
@@ -105,12 +128,25 @@ func (c *cliAdapterServiceClient) DecodeHook(ctx context.Context, req *connect.R
 	return c.decodeHook.CallUnary(ctx, req)
 }
 
+// LookupSession calls agentmesh.adapter.v1.CliAdapterService.LookupSession.
+func (c *cliAdapterServiceClient) LookupSession(ctx context.Context, req *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error) {
+	return c.lookupSession.CallUnary(ctx, req)
+}
+
+// DescribeModel calls agentmesh.adapter.v1.CliAdapterService.DescribeModel.
+func (c *cliAdapterServiceClient) DescribeModel(ctx context.Context, req *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error) {
+	return c.describeModel.CallUnary(ctx, req)
+}
+
 // CliAdapterServiceHandler is an implementation of the agentmesh.adapter.v1.CliAdapterService
 // service.
 type CliAdapterServiceHandler interface {
 	Describe(context.Context, *connect.Request[v1.DescribeRequest]) (*connect.Response[v1.DescribeResponse], error)
 	PlanLaunch(context.Context, *connect.Request[v1.PlanLaunchRequest]) (*connect.Response[v1.PlanLaunchResponse], error)
 	DecodeHook(context.Context, *connect.Request[v1.DecodeHookRequest]) (*connect.Response[v1.DecodeHookResponse], error)
+	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
+	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
+	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
 }
 
 // NewCliAdapterServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -138,6 +174,18 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("DecodeHook")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceLookupSessionHandler := connect.NewUnaryHandler(
+		CliAdapterServiceLookupSessionProcedure,
+		svc.LookupSession,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("LookupSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cliAdapterServiceDescribeModelHandler := connect.NewUnaryHandler(
+		CliAdapterServiceDescribeModelProcedure,
+		svc.DescribeModel,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.adapter.v1.CliAdapterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CliAdapterServiceDescribeProcedure:
@@ -146,6 +194,10 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServicePlanLaunchHandler.ServeHTTP(w, r)
 		case CliAdapterServiceDecodeHookProcedure:
 			cliAdapterServiceDecodeHookHandler.ServeHTTP(w, r)
+		case CliAdapterServiceLookupSessionProcedure:
+			cliAdapterServiceLookupSessionHandler.ServeHTTP(w, r)
+		case CliAdapterServiceDescribeModelProcedure:
+			cliAdapterServiceDescribeModelHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -165,4 +217,12 @@ func (UnimplementedCliAdapterServiceHandler) PlanLaunch(context.Context, *connec
 
 func (UnimplementedCliAdapterServiceHandler) DecodeHook(context.Context, *connect.Request[v1.DecodeHookRequest]) (*connect.Response[v1.DecodeHookResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DecodeHook is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.LookupSession is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DescribeModel is not implemented"))
 }
