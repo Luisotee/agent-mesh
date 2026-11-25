@@ -271,6 +271,47 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	return connect.NewResponse(out), nil
 }
 
+// Page sizes of ListMessages.
+const (
+	defaultMessagePage = 500
+	maxMessagePage     = 2000
+)
+
+// ListMessages returns a run's stored messages, oldest first, a page at a time.
+func (d *Daemon) ListMessages(ctx context.Context, req *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
+	if req.Msg.RunId == "" {
+		return nil, invalid("no run given")
+	}
+	limit := int(req.Msg.Limit)
+	switch {
+	case limit < 0:
+		return nil, invalid("limit can't be negative")
+	case limit == 0:
+		limit = defaultMessagePage
+	case limit > maxMessagePage:
+		limit = maxMessagePage
+	}
+	r := d.store.Read(ctx)
+	if _, err := r.GetRun(req.Msg.RunId); errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no run %s", req.Msg.RunId)
+	} else if err != nil {
+		return nil, err
+	}
+	// One more than asked tells whether another page follows.
+	msgs, err := r.RunMessages(req.Msg.RunId, req.Msg.AfterId, limit+1)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no message %s in run %s", req.Msg.AfterId, req.Msg.RunId)
+	}
+	if err != nil {
+		return nil, err
+	}
+	more := len(msgs) > limit
+	if more {
+		msgs = msgs[:limit]
+	}
+	return connect.NewResponse(&v1.ListMessagesResponse{Messages: msgs, More: more}), nil
+}
+
 // ReadInbox returns the calling agent's messages.
 func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	out := &v1.ReadInboxResponse{}

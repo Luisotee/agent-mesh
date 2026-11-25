@@ -508,6 +508,25 @@ func (r Reader) Inbox(agentID string, all bool) ([]*v1.Message, error) {
 	return scanAll(r, query, []any{agentID}, func() *v1.Message { return &v1.Message{} })
 }
 
+// RunMessages returns a run's messages, oldest first, up to limit, after the message `after` (its id; empty
+// starts at the oldest). An unknown `after` is ErrNotFound.
+func (r Reader) RunMessages(runID, after string, limit int) ([]*v1.Message, error) {
+	query := `SELECT data FROM messages WHERE run_id = ? ORDER BY created_at, id LIMIT ?`
+	args := []any{runID, limit}
+	if after != "" {
+		var created int64
+		if err := r.q.QueryRowContext(r.ctx, `SELECT created_at FROM messages WHERE id = ? AND run_id = ?`, after, runID).Scan(&created); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		query = `SELECT data FROM messages WHERE run_id = ? AND (created_at, id) > (?, ?) ORDER BY created_at, id LIMIT ?`
+		args = []any{runID, created, after, limit}
+	}
+	return scanAll(r, query, args, func() *v1.Message { return &v1.Message{} })
+}
+
 // Undelivered returns an agent's messages whose doorbell hasn't reached it, oldest first.
 func (r Reader) Undelivered(agentID string) ([]*v1.Message, error) {
 	return scanAll(r, `SELECT data FROM messages WHERE to_id = ? AND delivered_at IS NULL AND read_at IS NULL

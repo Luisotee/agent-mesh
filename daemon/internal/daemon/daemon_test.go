@@ -524,3 +524,78 @@ func TestATooLongStateDirIsAClearError(t *testing.T) {
 		t.Errorf("serve in a long state dir: %v", err)
 	}
 }
+
+func TestListMessagesPagesAThrough(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	other := startRun(t, h.device.Mesh, "other")
+	root := h.seedAgent(run.Id, "a-root", "repo-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	h.seedAgent(other.Id, "b-root", "app-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w1 := h.seedAgent(run.Id, "a-w1", "repo-one", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	send := func(tok, to string, typ v1.MessageType, body string) {
+		t.Helper()
+		if _, err := h.as(tok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: to, Type: typ, Body: body})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(w1, "parent", v1.MessageType_MESSAGE_TYPE_PLAN, "plan")
+	send(root, "repo-one", v1.MessageType_MESSAGE_TYPE_ANSWER, "approved")
+	send(w1, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "done")
+	devTok, _ := client.Token(h.state)
+	send(devTok, "app-lead", v1.MessageType_MESSAGE_TYPE_INFO, "another run's")
+
+	list := func(req *v1.ListMessagesRequest) (*v1.ListMessagesResponse, error) {
+		res, err := h.device.Mesh.ListMessages(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return res.Msg, nil
+	}
+	all, err := list(&v1.ListMessagesRequest{RunId: run.Id})
+	if err != nil || all.More || len(all.Messages) != 3 {
+		t.Fatalf("all: %v, %v", all, err)
+	}
+	var bodies []string
+	for _, m := range all.Messages {
+		bodies = append(bodies, m.Body)
+	}
+	if got := strings.Join(bodies, ","); got != "plan,approved,done" {
+		t.Errorf("order %s", got)
+	}
+
+	page, _ := list(&v1.ListMessagesRequest{RunId: run.Id, Limit: 2})
+	if !page.More || len(page.Messages) != 2 {
+		t.Fatalf("first page %v", page)
+	}
+	rest, _ := list(&v1.ListMessagesRequest{RunId: run.Id, Limit: 2, AfterId: page.Messages[1].Id})
+	if rest.More || len(rest.Messages) != 1 || rest.Messages[0].Body != "done" {
+		t.Errorf("second page %v", rest)
+	}
+	none, _ := list(&v1.ListMessagesRequest{RunId: run.Id, AfterId: all.Messages[2].Id})
+	if none.More || len(none.Messages) != 0 {
+		t.Errorf("after the last %v", none)
+	}
+
+	if _, err := list(&v1.ListMessagesRequest{}); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("no run: %v", err)
+	}
+	if _, err := list(&v1.ListMessagesRequest{RunId: "nope"}); code(err) != connect.CodeNotFound {
+		t.Errorf("unknown run: %v", err)
+	}
+	if _, err := list(&v1.ListMessagesRequest{RunId: run.Id, AfterId: "nope"}); code(err) != connect.CodeNotFound {
+		t.Errorf("unknown cursor: %v", err)
+	}
+	// A cursor from another run is not a place in this one.
+	foreign, _ := list(&v1.ListMessagesRequest{RunId: other.Id})
+	if _, err := list(&v1.ListMessagesRequest{RunId: run.Id, AfterId: foreign.Messages[0].Id}); code(err) != connect.CodeNotFound {
+		t.Errorf("cursor of another run: %v", err)
+	}
+	if _, err := list(&v1.ListMessagesRequest{RunId: run.Id, Limit: -1}); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("negative limit: %v", err)
+	}
+	// An agent reads its own mailbox, not the run's messages.
+	if _, err := h.as(root).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run.Id})); code(err) != connect.CodePermissionDenied {
+		t.Errorf("an agent listing messages: %v", err)
+	}
+}
