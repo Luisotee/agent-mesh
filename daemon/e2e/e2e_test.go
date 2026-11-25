@@ -23,6 +23,7 @@ import (
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
+	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
@@ -344,7 +345,11 @@ func TestEndToEnd(t *testing.T) {
 
 	// An exact reattach through the daemon gets the bytes written while it was down.
 	open := w.ctl("open-terminal", "--agent", agent)
-	tok, _ := client.Token(w.state)
+	// The device token from the state dir, never this process's own AGENT_MESH_TOKEN (an agent running the tests).
+	tok, err := fsutil.ReadSecret(statedir.Paths{Dir: w.state}.DeviceToken())
+	if err != nil {
+		t.Fatal(err)
+	}
 	conn, _ := client.Dial(w.state, tok, client.Options{})
 	s, err := termclient.Attach(ctx, conn.HTTP, client.BaseURL+str(open, "path"), "",
 		&termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_EXACT, Epoch: epoch, Offset: offset})

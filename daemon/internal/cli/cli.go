@@ -25,7 +25,9 @@ import (
 
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
+	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
 // Env is what the CLI reads from its environment and files; tests replace it.
@@ -48,42 +50,49 @@ const (
 	ExitUsage = 2
 )
 
-// Main runs one command and returns its exit code. hand handles the hand-written commands (hook, version)
-// before the generated ones are looked at.
+// Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
+// dispatched before the registry is even loaded: a hook must work, and exit 0, whatever else fails.
 func Main(args []string, env Env, hand map[string]func([]string) int) int {
+	global := flag.NewFlagSet("meshctl", flag.ContinueOnError)
+	global.SetOutput(env.Stderr)
+	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
+	global.Usage = func() { fmt.Fprintln(env.Stderr, "usage: meshctl [--state <dir>] <command> [flags]; meshctl help") }
+	if err := global.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := global.Args()
+	if len(rest) > 0 {
+		if h, ok := hand[rest[0]]; ok {
+			return h(rest[1:])
+		}
+	}
 	reg, err := registry.Mesh()
 	if err != nil {
 		fmt.Fprintln(env.Stderr, "meshctl:", err)
 		return ExitError
 	}
-	global := flag.NewFlagSet("meshctl", flag.ContinueOnError)
-	global.SetOutput(env.Stderr)
-	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
-	global.Usage = func() { usage(env.Stderr, reg, hand) }
-	if err := global.Parse(args); err != nil {
-		return ExitUsage
-	}
-	rest := global.Args()
 	if len(rest) == 0 || rest[0] == "help" {
 		if len(rest) > 1 {
 			if a := find(reg, rest[1]); a != nil {
-				cmd := newCommand(a, env)
-				cmd.flags.Usage()
+				newCommand(a, env, *state, env.Stdout).flags.Usage()
 				return ExitOK
 			}
+			if _, ok := hand[rest[1]]; ok {
+				fmt.Fprintf(env.Stdout, "meshctl %s is hand-written; run it without arguments for its usage\n", rest[1])
+				return ExitOK
+			}
+			fmt.Fprintf(env.Stderr, "meshctl help: unknown command %q\n", rest[1])
+			return ExitUsage
 		}
 		usage(env.Stdout, reg, hand)
 		return ExitOK
-	}
-	if h, ok := hand[rest[0]]; ok {
-		return h(rest[1:])
 	}
 	a := find(reg, rest[0])
 	if a == nil {
 		fmt.Fprintf(env.Stderr, "meshctl: unknown command %q (meshctl help lists them)\n", rest[0])
 		return ExitUsage
 	}
-	cmd := newCommand(a, env)
+	cmd := newCommand(a, env, *state, env.Stderr)
 	req, err := cmd.parse(rest[1:])
 	if errors.Is(err, flag.ErrHelp) {
 		return ExitOK
@@ -92,18 +101,19 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 		fmt.Fprintf(env.Stderr, "meshctl %s: %v\n", a.CLI, err)
 		return ExitUsage
 	}
-	if *state == "" {
+	if cmd.state == "" {
 		fmt.Fprintln(env.Stderr, "meshctl: give --state or $"+client.StateEnv)
 		return ExitUsage
 	}
+	// An agent acts as itself (its token in the environment); anyone else as the host's local device.
 	tok := env.Getenv(client.TokenEnv)
 	if tok == "" {
-		if tok, err = client.Token(*state); err != nil {
-			fmt.Fprintln(env.Stderr, "meshctl:", err)
+		if tok, err = fsutil.ReadSecret(statedir.Paths{Dir: cmd.state}.DeviceToken()); err != nil {
+			fmt.Fprintf(env.Stderr, "meshctl: no %s and no device token: %v\n", client.TokenEnv, err)
 			return ExitError
 		}
 	}
-	conn, err := client.Dial(*state, tok, client.Options{})
+	conn, err := client.Dial(cmd.state, tok, client.Options{})
 	if err != nil {
 		fmt.Fprintln(env.Stderr, "meshctl:", err)
 		return ExitError
@@ -146,10 +156,13 @@ type command struct {
 	flags  *flag.FlagSet
 	req    *dynamicpb.Message
 	env    Env
+	state  string
+	whole  string
+	// The field flags, in the order given: applied after --json, so they override it wherever they stand.
+	pending []func() error
 	// meta: the write's mutation id and expiry, filled in unless given.
 	mutationID string
 	expiresIn  time.Duration
-	whole      string
 }
 
 // FlagName is a field's flag: its proto name in kebab case.
@@ -157,11 +170,31 @@ func FlagName(f protoreflect.FieldDescriptor) string {
 	return strings.ReplaceAll(string(f.Name()), "_", "-")
 }
 
-func newCommand(a *registry.Action, env Env) *command {
-	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env,
+// fieldFlag sets one field. A bool field is a switch: --peek means true, --peek=false false.
+type fieldFlag struct {
+	c *command
+	f protoreflect.FieldDescriptor
+}
+
+func (v fieldFlag) String() string { return "" }
+func (v fieldFlag) IsBoolFlag() bool {
+	return v.f != nil && v.f.Kind() == protoreflect.BoolKind && !v.f.IsList()
+}
+func (v fieldFlag) Set(s string) error {
+	// Checked now, applied after --json.
+	if _, err := v.c.value(v.f, s); err != nil {
+		return err
+	}
+	v.c.pending = append(v.c.pending, func() error { return v.c.set(v.f, s) })
+	return nil
+}
+
+func newCommand(a *registry.Action, env Env, state string, help io.Writer) *command {
+	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env, state: state,
 		flags: flag.NewFlagSet("meshctl "+a.CLI, flag.ContinueOnError)}
 	c.flags.SetOutput(env.Stderr)
-	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON (flags given after it override its fields)")
+	c.flags.StringVar(&c.state, "state", state, "the daemon's state dir (or $"+client.StateEnv+")")
+	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON; the other flags override its fields")
 	fields := a.Method.Input().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Get(i)
@@ -170,11 +203,13 @@ func newCommand(a *registry.Action, env Env) *command {
 			c.flags.DurationVar(&c.expiresIn, "expires-in", 0, "refuse the write if it reaches the daemon later than this")
 			continue
 		}
-		c.flags.Func(FlagName(f), describe(f), func(v string) error { return c.set(f, v) })
+		c.flags.Var(fieldFlag{c: c, f: f}, FlagName(f), describe(f))
 	}
 	c.flags.Usage = func() {
-		fmt.Fprintf(env.Stderr, "usage: meshctl %s [flags]\n  %s\n", a.CLI, a.Summary)
+		fmt.Fprintf(help, "usage: meshctl %s [flags]\n  %s\n", a.CLI, a.Summary)
+		c.flags.SetOutput(help)
 		c.flags.PrintDefaults()
+		c.flags.SetOutput(env.Stderr)
 	}
 	return c
 }
@@ -192,9 +227,9 @@ func describe(f protoreflect.FieldDescriptor) string {
 	case f.Kind() == protoreflect.MessageKind:
 		kind = "JSON " + string(f.Message().Name())
 	case f.Kind() == protoreflect.BoolKind:
-		kind = "true or false"
+		kind = "a switch"
 	case f.Kind() == protoreflect.StringKind || f.Kind() == protoreflect.BytesKind:
-		kind = "text; @file reads a file, @- stdin"
+		kind = "text; @file reads a file, @- stdin, @@ starts it with a literal @"
 	default:
 		kind = f.Kind().String()
 	}
@@ -213,6 +248,9 @@ func enumShort(e protoreflect.EnumDescriptor, v protoreflect.EnumValueDescriptor
 func (c *command) text(v string) (string, error) {
 	if !strings.HasPrefix(v, "@") {
 		return v, nil
+	}
+	if rest, ok := strings.CutPrefix(v, "@@"); ok {
+		return "@" + rest, nil
 	}
 	var b []byte
 	var err error
@@ -279,35 +317,34 @@ func (c *command) set(f protoreflect.FieldDescriptor, v string) error {
 	return nil
 }
 
-// parse reads the flags into the request. --json comes first whatever its position, so flags refine it.
+// parse reads the flags into the request: --json first, then every field flag in the order given, so the
+// flags override the JSON wherever they stand.
 func (c *command) parse(args []string) (*dynamicpb.Message, error) {
-	for i, a := range args {
-		if v, ok := strings.CutPrefix(a, "--json="); ok {
-			c.whole = v
-		} else if (a == "--json" || a == "-json") && i+1 < len(args) {
-			c.whole = args[i+1]
-		}
-	}
-	if c.whole != "" {
-		if err := protojson.Unmarshal([]byte(c.whole), c.req); err != nil {
-			return nil, fmt.Errorf("--json: %w", err)
-		}
-	}
 	if err := c.flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if c.flags.NArg() > 0 {
 		return nil, fmt.Errorf("unexpected argument %q: every field is a flag (meshctl help %s)", c.flags.Arg(0), c.action.CLI)
 	}
+	if c.whole != "" {
+		if err := protojson.Unmarshal([]byte(c.whole), c.req); err != nil {
+			return nil, fmt.Errorf("--json: %w", err)
+		}
+	}
+	for _, apply := range c.pending {
+		if err := apply(); err != nil {
+			return nil, err
+		}
+	}
 	if c.action.Write {
 		f := c.action.Method.Input().Fields().ByName("meta")
 		meta := c.req.Mutable(f).Message()
 		mfs := meta.Descriptor().Fields()
-		if c.mutationID == "" {
-			c.mutationID = uuid.NewString()
-		}
-		if !meta.Has(mfs.ByName("mutation_id")) {
+		switch {
+		case c.mutationID != "":
 			meta.Set(mfs.ByName("mutation_id"), protoreflect.ValueOfString(c.mutationID))
+		case !meta.Has(mfs.ByName("mutation_id")):
+			meta.Set(mfs.ByName("mutation_id"), protoreflect.ValueOfString(uuid.NewString()))
 		}
 		if c.expiresIn > 0 {
 			ts := timestamppb.New(time.Now().Add(c.expiresIn))
@@ -375,5 +412,6 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 
 // Request builds an action's request from flags, for tests.
 func Request(a *registry.Action, args []string) (proto.Message, error) {
-	return newCommand(a, Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard, Getenv: func(string) string { return "" }}).parse(args)
+	return newCommand(a, Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
+		Getenv: func(string) string { return "" }}, "", io.Discard).parse(args)
 }

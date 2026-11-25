@@ -48,7 +48,7 @@ A run is one trust domain for events for now: every agent of a run receives its 
 
 ## meshctl
 
-Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text), `--json` gives the whole request, and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
+Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request and the other flags override it, and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
 
 ```bash
 export AGENT_MESH_STATE=$state

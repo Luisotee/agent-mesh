@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestEveryActionIsACommandWithItsFieldsAsFlags(t *testing.T) {
 		if !strings.Contains(help.String(), "  "+a.CLI+" ") {
 			t.Errorf("%s missing from help", a.CLI)
 		}
-		cmd := newCommand(a, Env{Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }})
+		cmd := newCommand(a, Env{Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }}, "", io.Discard)
 		fields := a.Method.Input().Fields()
 		for i := 0; i < fields.Len(); i++ {
 			f := fields.Get(i)
@@ -95,6 +96,31 @@ func TestFlagsBuildTheRequest(t *testing.T) {
 	if ev := as(t, m, &v1.SubscribeEventsRequest{}); ev.Cursor.GetSeq() != 7 || ev.RunId != "r1" {
 		t.Errorf("events %v", ev)
 	}
+	// A bool field is a switch; @@ escapes a leading @; a flag after --json (one dash or two) still wins, and
+	// an explicit --mutation-id beats the JSON's.
+	m, err = Request(action(t, "inbox"), []string{"--peek", "--all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in := as(t, m, &v1.ReadInboxRequest{}); !in.Peek || !in.All {
+		t.Errorf("switches %v", in)
+	}
+	m, err = Request(action(t, "send"), []string{"--body", "@@root done", "-json={\"to\":\"a1\",\"meta\":{\"mutationId\":\"old\"}}",
+		"--mutation-id", "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if send := as(t, m, &v1.SendMessageRequest{}); send.Body != "@root done" || send.To != "a1" || send.Meta.GetMutationId() != "new" {
+		t.Errorf("send %v", send)
+	}
+	// A value that looks like a flag is still just the value.
+	m, err = Request(action(t, "send"), []string{"--body", "--json", "--to", "a2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if send := as(t, m, &v1.SendMessageRequest{}); send.Body != "--json" || send.To != "a2" {
+		t.Errorf("send %v", send)
+	}
 	if _, err := Request(action(t, "send"), []string{"--type", "nonsense"}); err == nil {
 		t.Error("a bad enum was accepted")
 	}
@@ -111,6 +137,23 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 	}
 	if code := Main([]string{"agents"}, env, nil); code != ExitUsage || !strings.Contains(errb.String(), "--state") {
 		t.Errorf("no state: %d %q", code, errb.String())
+	}
+	out.Reset()
+	if code := Main([]string{"help", "spawn"}, env, nil); code != ExitOK || !strings.Contains(out.String(), "-slug") {
+		t.Errorf("help spawn to stdout: %d %q", code, out.String())
+	}
+	if code := Main([]string{"help", "spwan"}, env, nil); code != ExitUsage {
+		t.Errorf("help for an unknown command: %d", code)
+	}
+	ran := false
+	if code := Main([]string{"--state", "/x", "hook", "a"}, env, map[string]func([]string) int{"hook": func(a []string) int {
+		ran = len(a) == 1
+		return 0
+	}}); code != 0 || !ran {
+		t.Errorf("hand-written command not dispatched: %d", code)
+	}
+	if code := Main([]string{"agents", "--state", "/nonexistent"}, env, nil); code != ExitError || !strings.Contains(errb.String(), "device token") {
+		t.Errorf("--state after the command: %d %q", code, errb.String())
 	}
 	out.Reset()
 	if code := Main([]string{"help"}, env, map[string]func([]string) int{"hook": nil}); code != ExitOK ||
