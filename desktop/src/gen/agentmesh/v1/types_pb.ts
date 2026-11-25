@@ -6,15 +6,15 @@ import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2"
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Actor } from "./actor_pb";
 import { file_agentmesh_v1_actor } from "./actor_pb";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Timestamp, Value } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message as Message$1 } from "@bufbuild/protobuf";
 
 /**
  * Describes the file agentmesh/v1/types.proto.
  */
 export const file_agentmesh_v1_types: GenFile = /*@__PURE__*/
-  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKiAQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciLzAwoFQWdlbnQSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSJQoEcm9sZRgEIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSEQoJcGFyZW50X2lkGAUgASgJEgwKBGtpbmQYBiABKAkSDAoEcmVwbxgHIAEoCRIQCgh3b3JrdHJlZRgIIAEoCRIOCgZicmFuY2gYCSABKAkSDQoFbW9kZWwYCiABKAkSDgoGZWZmb3J0GAsgASgJEhIKCnNlc3Npb25faWQYDCABKAkSEwoLdGVybWluYWxfaWQYDSABKAkSJwoFc3RhdGUYDiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRITCgtuZWVkc19pbnB1dBgPIAEoBRIUCgxzdGF0ZV9kZXRhaWwYECABKAkSMQoNbGFzdF9hY3Rpdml0eRgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJZXhpdF9jb2RlGBMgASgFEjYKFHN0YXRlX2JlZm9yZV9jb21wYWN0GBQgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUirgIKB01lc3NhZ2USCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEiEKBGZyb20YAyABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDQoFdG9faWQYBCABKAkSDwoHdG9fbmFtZRgFIAEoCRInCgR0eXBlGAYgASgOMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VUeXBlEgwKBGJvZHkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMZGVsaXZlcmVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdyZWFkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpCgZDdXJzb3ISEgoKZ2VuZXJhdGlvbhgBIAEoCRILCgNzZXEYAiABKAMi9AQKBUV2ZW50EgsKA3NlcRgBIAEoAxISCgpnZW5lcmF0aW9uGAIgASgJEigKBHRpbWUYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBnJ1bl9pZBgEIAEoCRIQCghhZ2VudF9pZBgFIAEoCRIiCgVhY3RvchgGIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchITCgttdXRhdGlvbl9pZBgHIAEoCRIvCgtydW5fc3RhcnRlZBgKIAEoCzIYLmFnZW50bWVzaC52MS5SdW5TdGFydGVkSAASMwoNYWdlbnRfc3Bhd25lZBgLIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudFNwYXduZWRIABI+ChNhZ2VudF9zdGF0ZV9jaGFuZ2VkGAwgASgLMh8uYWdlbnRtZXNoLnYxLkFnZW50U3RhdGVDaGFuZ2VkSAASMQoMbWVzc2FnZV9zZW50GA0gASgLMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VTZW50SAASOwoRbWVzc2FnZV9kZWxpdmVyZWQYDiABKAsyHi5hZ2VudG1lc2gudjEuTWVzc2FnZURlbGl2ZXJlZEgAEjEKDGFnZW50X2V4aXRlZBgPIAEoCzIZLmFnZW50bWVzaC52MS5BZ2VudEV4aXRlZEgAEjMKDWFnZW50X2Fkb3B0ZWQYECABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRBZG9wdGVkSAASPAoSaG9va19kZWNvZGVfZmFpbGVkGBEgASgLMh4uYWdlbnRtZXNoLnYxLkhvb2tEZWNvZGVGYWlsZWRIAEIJCgdwYXlsb2FkIiwKClJ1blN0YXJ0ZWQSHgoDcnVuGAEgASgLMhEuYWdlbnRtZXNoLnYxLlJ1biIyCgxBZ2VudFNwYXduZWQSIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQihgEKEUFnZW50U3RhdGVDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEg4KBmRldGFpbBgDIAEoCRITCgtuZWVkc19pbnB1dBgEIAEoBSI1CgtNZXNzYWdlU2VudBImCgdtZXNzYWdlGAEgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiJgoQTWVzc2FnZURlbGl2ZXJlZBISCgptZXNzYWdlX2lkGAEgASgJIkAKC0FnZW50RXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRIOCgZzaWduYWwYAiABKAUSDgoGcmVhc29uGAMgASgJIiMKDEFnZW50QWRvcHRlZBITCgt0ZXJtaW5hbF9pZBgBIAEoCSI1ChBIb29rRGVjb2RlRmFpbGVkEhIKCmV2ZW50X25hbWUYASABKAkSDQoFZXJyb3IYAiABKAkqUwoJUnVuU3RhdHVzEhoKFlJVTl9TVEFUVVNfVU5TUEVDSUZJRUQQABITCg9SVU5fU1RBVFVTX09QRU4QARIVChFSVU5fU1RBVFVTX0NMT1NFRBACKoIBCglBZ2VudFJvbGUSGgoWQUdFTlRfUk9MRV9VTlNQRUNJRklFRBAAEhMKD0FHRU5UX1JPTEVfUk9PVBABEhUKEUFHRU5UX1JPTEVfV09SS0VSEAISFAoQQUdFTlRfUk9MRV9BU0tFUhADEhcKE0FHRU5UX1JPTEVfUkVWSUVXRVIQBCrAAQoKQWdlbnRTdGF0ZRIbChdBR0VOVF9TVEFURV9VTlNQRUNJRklFRBAAEhgKFEFHRU5UX1NUQVRFX1NUQVJUSU5HEAESFAoQQUdFTlRfU1RBVEVfSURMRRACEhcKE0FHRU5UX1NUQVRFX1dPUktJTkcQAxIbChdBR0VOVF9TVEFURV9ORUVEU19JTlBVVBAEEhYKEkFHRU5UX1NUQVRFX0VYSVRFRBAFEhcKE0FHRU5UX1NUQVRFX1VOS05PV04QBirrAQoLTWVzc2FnZVR5cGUSHAoYTUVTU0FHRV9UWVBFX1VOU1BFQ0lGSUVEEAASFQoRTUVTU0FHRV9UWVBFX1RBU0sQARIVChFNRVNTQUdFX1RZUEVfUExBThACEhkKFU1FU1NBR0VfVFlQRV9RVUVTVElPThADEhcKE01FU1NBR0VfVFlQRV9BTlNXRVIQBBIVChFNRVNTQUdFX1RZUEVfRE9ORRAFEhcKE01FU1NBR0VfVFlQRV9GQUlMRUQQBhIVChFNRVNTQUdFX1RZUEVfSU5GTxAHEhUKEU1FU1NBR0VfVFlQRV9XQUlUEAhiBnByb3RvMw", [file_agentmesh_v1_actor, file_google_protobuf_timestamp]);
+  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKiAQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciLzAwoFQWdlbnQSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSJQoEcm9sZRgEIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSEQoJcGFyZW50X2lkGAUgASgJEgwKBGtpbmQYBiABKAkSDAoEcmVwbxgHIAEoCRIQCgh3b3JrdHJlZRgIIAEoCRIOCgZicmFuY2gYCSABKAkSDQoFbW9kZWwYCiABKAkSDgoGZWZmb3J0GAsgASgJEhIKCnNlc3Npb25faWQYDCABKAkSEwoLdGVybWluYWxfaWQYDSABKAkSJwoFc3RhdGUYDiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRITCgtuZWVkc19pbnB1dBgPIAEoBRIUCgxzdGF0ZV9kZXRhaWwYECABKAkSMQoNbGFzdF9hY3Rpdml0eRgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJZXhpdF9jb2RlGBMgASgFEjYKFHN0YXRlX2JlZm9yZV9jb21wYWN0GBQgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUirgIKB01lc3NhZ2USCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEiEKBGZyb20YAyABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDQoFdG9faWQYBCABKAkSDwoHdG9fbmFtZRgFIAEoCRInCgR0eXBlGAYgASgOMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VUeXBlEgwKBGJvZHkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMZGVsaXZlcmVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdyZWFkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpCgZDdXJzb3ISEgoKZ2VuZXJhdGlvbhgBIAEoCRILCgNzZXEYAiABKAMirQUKBUV2ZW50EgsKA3NlcRgBIAEoAxISCgpnZW5lcmF0aW9uGAIgASgJEigKBHRpbWUYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBnJ1bl9pZBgEIAEoCRIQCghhZ2VudF9pZBgFIAEoCRIiCgVhY3RvchgGIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchITCgttdXRhdGlvbl9pZBgHIAEoCRIvCgtydW5fc3RhcnRlZBgKIAEoCzIYLmFnZW50bWVzaC52MS5SdW5TdGFydGVkSAASMwoNYWdlbnRfc3Bhd25lZBgLIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudFNwYXduZWRIABI+ChNhZ2VudF9zdGF0ZV9jaGFuZ2VkGAwgASgLMh8uYWdlbnRtZXNoLnYxLkFnZW50U3RhdGVDaGFuZ2VkSAASMQoMbWVzc2FnZV9zZW50GA0gASgLMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VTZW50SAASOwoRbWVzc2FnZV9kZWxpdmVyZWQYDiABKAsyHi5hZ2VudG1lc2gudjEuTWVzc2FnZURlbGl2ZXJlZEgAEjEKDGFnZW50X2V4aXRlZBgPIAEoCzIZLmFnZW50bWVzaC52MS5BZ2VudEV4aXRlZEgAEjMKDWFnZW50X2Fkb3B0ZWQYECABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRBZG9wdGVkSAASPAoSaG9va19kZWNvZGVfZmFpbGVkGBEgASgLMh4uYWdlbnRtZXNoLnYxLkhvb2tEZWNvZGVGYWlsZWRIABI3Cg9zZXR0aW5nX2NoYW5nZWQYEiABKAsyHC5hZ2VudG1lc2gudjEuU2V0dGluZ0NoYW5nZWRIAEIJCgdwYXlsb2FkIiwKClJ1blN0YXJ0ZWQSHgoDcnVuGAEgASgLMhEuYWdlbnRtZXNoLnYxLlJ1biIyCgxBZ2VudFNwYXduZWQSIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQihgEKEUFnZW50U3RhdGVDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEg4KBmRldGFpbBgDIAEoCRITCgtuZWVkc19pbnB1dBgEIAEoBSI1CgtNZXNzYWdlU2VudBImCgdtZXNzYWdlGAEgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiJgoQTWVzc2FnZURlbGl2ZXJlZBISCgptZXNzYWdlX2lkGAEgASgJIkAKC0FnZW50RXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRIOCgZzaWduYWwYAiABKAUSDgoGcmVhc29uGAMgASgJIiMKDEFnZW50QWRvcHRlZBITCgt0ZXJtaW5hbF9pZBgBIAEoCSI1ChBIb29rRGVjb2RlRmFpbGVkEhIKCmV2ZW50X25hbWUYASABKAkSDQoFZXJyb3IYAiABKAkiggEKDlNldHRpbmdDaGFuZ2VkEgsKA2tleRgBIAEoCRIlCgV2YWx1ZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIoCghwcmV2aW91cxgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRISCgp0b19kZWZhdWx0GAQgASgIIlAKDVNldHRpbmdTY2hlbWESDAoEdHlwZRgBIAEoCRIPCgdzdW1tYXJ5GAIgASgJEg8KB2Nob2ljZXMYAyADKAkSDwoHcmVzdGFydBgEIAEoCCL8AQoHU2V0dGluZxILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSJwoHZGVmYXVsdBgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIOCgZpc19zZXQYBCABKAgSKwoGc2NoZW1hGAUgASgLMhsuYWdlbnRtZXNoLnYxLlNldHRpbmdTY2hlbWESLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKdXBkYXRlZF9ieRgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvcipTCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhMKD1JVTl9TVEFUVVNfT1BFThABEhUKEVJVTl9TVEFUVVNfQ0xPU0VEEAIqggEKCUFnZW50Um9sZRIaChZBR0VOVF9ST0xFX1VOU1BFQ0lGSUVEEAASEwoPQUdFTlRfUk9MRV9ST09UEAESFQoRQUdFTlRfUk9MRV9XT1JLRVIQAhIUChBBR0VOVF9ST0xFX0FTS0VSEAMSFwoTQUdFTlRfUk9MRV9SRVZJRVdFUhAEKsABCgpBZ2VudFN0YXRlEhsKF0FHRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfU1RBVEVfU1RBUlRJTkcQARIUChBBR0VOVF9TVEFURV9JRExFEAISFwoTQUdFTlRfU1RBVEVfV09SS0lORxADEhsKF0FHRU5UX1NUQVRFX05FRURTX0lOUFVUEAQSFgoSQUdFTlRfU1RBVEVfRVhJVEVEEAUSFwoTQUdFTlRfU1RBVEVfVU5LTk9XThAGKusBCgtNZXNzYWdlVHlwZRIcChhNRVNTQUdFX1RZUEVfVU5TUEVDSUZJRUQQABIVChFNRVNTQUdFX1RZUEVfVEFTSxABEhUKEU1FU1NBR0VfVFlQRV9QTEFOEAISGQoVTUVTU0FHRV9UWVBFX1FVRVNUSU9OEAMSFwoTTUVTU0FHRV9UWVBFX0FOU1dFUhAEEhUKEU1FU1NBR0VfVFlQRV9ET05FEAUSFwoTTUVTU0FHRV9UWVBFX0ZBSUxFRBAGEhUKEU1FU1NBR0VfVFlQRV9JTkZPEAcSFQoRTUVTU0FHRV9UWVBFX1dBSVQQCGIGcHJvdG8z", [file_agentmesh_v1_actor, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * RequestMeta comes with every write. A retried write with the same mutation id returns the first result
@@ -408,6 +408,12 @@ export type Event = Message$1<"agentmesh.v1.Event"> & {
      */
     value: HookDecodeFailed;
     case: "hookDecodeFailed";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.SettingChanged setting_changed = 18;
+     */
+    value: SettingChanged;
+    case: "settingChanged";
   } | { case: undefined; value?: undefined };
 };
 
@@ -589,6 +595,154 @@ export type HookDecodeFailed = Message$1<"agentmesh.v1.HookDecodeFailed"> & {
  */
 export const HookDecodeFailedSchema: GenMessage<HookDecodeFailed> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_types, 13);
+
+/**
+ * A setting was set or reset. Global: it carries no run, and every subscriber gets it. The actor and mutation id
+ * of the write are on the event.
+ *
+ * @generated from message agentmesh.v1.SettingChanged
+ */
+export type SettingChanged = Message$1<"agentmesh.v1.SettingChanged"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * The effective value now (the default after a reset), and what it was before.
+   *
+   * @generated from field: google.protobuf.Value value = 2;
+   */
+  value?: Value | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Value previous = 3;
+   */
+  previous?: Value | undefined;
+
+  /**
+   * True when the setting went back to its default.
+   *
+   * @generated from field: bool to_default = 4;
+   */
+  toDefault: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.SettingChanged.
+ * Use `create(SettingChangedSchema)` to create a new message.
+ */
+export const SettingChangedSchema: GenMessage<SettingChanged> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 14);
+
+/**
+ * What a setting's value may be, enough for a client to draw its editor and validate before it sends.
+ *
+ * @generated from message agentmesh.v1.SettingSchema
+ */
+export type SettingSchema = Message$1<"agentmesh.v1.SettingSchema"> & {
+  /**
+   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+   *   string      a non-empty string
+   *   strings     a list of strings
+   *   int         a whole number, 0 or more
+   *   percent     a whole number, 0 to 100
+   *   bool        true or false
+   *   seconds     a finite number, 0 or more
+   *   effort      one of the choices
+   *   chain       a non-empty list of model names, tried in order
+   *   slots       a list of slots, each a non-empty list of choices (agent kinds)
+   *   kinds       a list of choices (agent kinds)
+   *   mb_or_auto  "auto" or a whole number of MB, 0 or more
+   *   json        any JSON value
+   *
+   * @generated from field: string type = 1;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string summary = 2;
+   */
+  summary: string;
+
+  /**
+   * The values a dropdown offers: an effort's levels, the agent kinds a `kinds` or `slots` entry may name.
+   *
+   * @generated from field: repeated string choices = 3;
+   */
+  choices: string[];
+
+  /**
+   * Read only when the daemon starts: a change takes effect at the next restart.
+   *
+   * @generated from field: bool restart = 4;
+   */
+  restart: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.SettingSchema.
+ * Use `create(SettingSchemaSchema)` to create a new message.
+ */
+export const SettingSchemaSchema: GenMessage<SettingSchema> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 15);
+
+/**
+ * One setting: its effective value, what it falls back to, and who last set it.
+ *
+ * @generated from message agentmesh.v1.Setting
+ */
+export type Setting = Message$1<"agentmesh.v1.Setting"> & {
+  /**
+   * A dotted path, such as "tiers.claude.mid.model".
+   *
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * The effective value: the override when is_set, else the default.
+   *
+   * @generated from field: google.protobuf.Value value = 2;
+   */
+  value?: Value | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Value default = 3;
+   */
+  default?: Value | undefined;
+
+  /**
+   * True when a value was set; false when the built-in default applies.
+   *
+   * @generated from field: bool is_set = 4;
+   */
+  isSet: boolean;
+
+  /**
+   * @generated from field: agentmesh.v1.SettingSchema schema = 5;
+   */
+  schema?: SettingSchema | undefined;
+
+  /**
+   * When the override was set and by whom; unset while is_set is false.
+   *
+   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   */
+  updatedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Actor updated_by = 7;
+   */
+  updatedBy?: Actor | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.Setting.
+ * Use `create(SettingSchema$)` to create a new message.
+ */
+export const SettingSchema$: GenMessage<Setting> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 16);
 
 /**
  * @generated from enum agentmesh.v1.RunStatus

@@ -7,17 +7,17 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import type { Actor } from "./actor_pb";
 import { file_agentmesh_v1_actor } from "./actor_pb";
 import { file_agentmesh_v1_options } from "./options_pb";
-import type { Agent, AgentRole, AgentState, Cursor, Event, Message as Message$1, MessageType, RequestMeta, Run } from "./types_pb";
+import type { Agent, AgentRole, AgentState, Cursor, Event, Message as Message$1, MessageType, RequestMeta, Run, Setting } from "./types_pb";
 import { file_agentmesh_v1_types } from "./types_pb";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Timestamp, Value } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file agentmesh/v1/mesh.proto.
  */
 export const file_agentmesh_v1_mesh: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvbWVzaC5wcm90bxIMYWdlbnRtZXNoLnYxIjgKDEhlbGxvUmVxdWVzdBIOCgZjbGllbnQYASABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgCIAEoBSLMAQoNSGVsbG9SZXNwb25zZRIRCglkYWVtb25faWQYASABKAkSEwoLaW5zdGFuY2VfaWQYAiABKAkSLgoKc3RhcnRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoQcHJvdG9jb2xfdmVyc2lvbhgEIAEoBRIPCgd2ZXJzaW9uGAUgASgJEhQKDGNhcGFiaWxpdGllcxgGIAMoCRIiCgVhY3RvchgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciJJCg9TdGFydFJ1blJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgV0aXRsZRgCIAEoCSIyChBTdGFydFJ1blJlc3BvbnNlEh4KA3J1bhgBIAEoCzIRLmFnZW50bWVzaC52MS5SdW4iHgoPTGlzdFJ1bnNSZXF1ZXN0EgsKA2FsbBgBIAEoCCIzChBMaXN0UnVuc1Jlc3BvbnNlEh8KBHJ1bnMYASADKAsyES5hZ2VudG1lc2gudjEuUnVuItgBChFTcGF3bkFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg4KBnJ1bl9pZBgCIAEoCRIMCgRyZXBvGAMgASgJEgwKBHNsdWcYBCABKAkSJQoEcm9sZRgFIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSDAoEa2luZBgGIAEoCRINCgVtb2RlbBgHIAEoCRIOCgZlZmZvcnQYCCABKAkSDAoEYmFzZRgJIAEoCRIMCgR0YXNrGAogASgJIjgKElNwYXduQWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCIjChFMaXN0QWdlbnRzUmVxdWVzdBIOCgZydW5faWQYASABKAkiOQoSTGlzdEFnZW50c1Jlc3BvbnNlEiMKBmFnZW50cxgBIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudCIgCg9HZXRBZ2VudFJlcXVlc3QSDQoFYWdlbnQYASABKAkiNgoQR2V0QWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCJKChBTdG9wQWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiNwoRU3RvcEFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQigAEKElNlbmRNZXNzYWdlUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgoKAnRvGAIgASgJEicKBHR5cGUYAyABKA4yGS5hZ2VudG1lc2gudjEuTWVzc2FnZVR5cGUSDAoEYm9keRgEIAEoCSI9ChNTZW5kTWVzc2FnZVJlc3BvbnNlEiYKB21lc3NhZ2UYASABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJWChBSZWFkSW5ib3hSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEcGVlaxgCIAEoCBILCgNhbGwYAyABKAgiPAoRUmVhZEluYm94UmVzcG9uc2USJwoIbWVzc2FnZXMYASADKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJOChZTdWJzY3JpYmVFdmVudHNSZXF1ZXN0EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISDgoGcnVuX2lkGAIgASgJIsABChdTdWJzY3JpYmVFdmVudHNSZXNwb25zZRIqCghzbmFwc2hvdBgBIAEoCzIWLmFnZW50bWVzaC52MS5TbmFwc2hvdEgAEigKB3Jlc3VtZWQYAiABKAsyFS5hZ2VudG1lc2gudjEuUmVzdW1lZEgAEiQKBWV2ZW50GAMgASgLMhMuYWdlbnRtZXNoLnYxLkV2ZW50SAASIAoDZW5kGAQgASgLMhEuYWdlbnRtZXNoLnYxLkVuZEgAQgcKBWZyYW1lInYKCFNuYXBzaG90EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISHwoEcnVucxgCIAMoCzIRLmFnZW50bWVzaC52MS5SdW4SIwoGYWdlbnRzGAMgAygLMhMuYWdlbnRtZXNoLnYxLkFnZW50Ii0KB1Jlc3VtZWQSIgoEZnJvbRgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3IiFQoDRW5kEg4KBnJlYXNvbhgBIAEoCSKdAQoRUmVwb3J0SG9va1JlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIMCgRraW5kGAIgASgJEhIKCmV2ZW50X25hbWUYAyABKAkSDwoHcGF5bG9hZBgEIAEoDBIsCghmaXJlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiPQoSUmVwb3J0SG9va1Jlc3BvbnNlEicKBXN0YXRlGAEgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUiMwoTT3BlblRlcm1pbmFsUmVxdWVzdBINCgVhZ2VudBgBIAEoCRINCgVpbnB1dBgCIAEoCCJzChRPcGVuVGVybWluYWxSZXNwb25zZRIMCgRwYXRoGAEgASgJEg4KBnRpY2tldBgCIAEoCRINCgVpbnB1dBgDIAEoCBIuCgpleHBpcmVzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcDKnDAoLTWVzaFNlcnZpY2USlQEKBUhlbGxvEhouYWdlbnRtZXNoLnYxLkhlbGxvUmVxdWVzdBobLmFnZW50bWVzaC52MS5IZWxsb1Jlc3BvbnNlIlOKtRhPCgYBAgMEBQYiRVNob3cgdGhlIGRhZW1vbidzIGlkLCB2ZXJzaW9uIGFuZCBjYXBhYmlsaXRpZXMsIGFuZCB3aG8geW91IGFyZSB0byBpdBJhCghTdGFydFJ1bhIdLmFnZW50bWVzaC52MS5TdGFydFJ1blJlcXVlc3QaHi5hZ2VudG1lc2gudjEuU3RhcnRSdW5SZXNwb25zZSIWirUYEgoBBRABIgtTdGFydCBhIHJ1bhJiCghMaXN0UnVucxIdLmFnZW50bWVzaC52MS5MaXN0UnVuc1JlcXVlc3QaHi5hZ2VudG1lc2gudjEuTGlzdFJ1bnNSZXNwb25zZSIXirUYEwoGAQIDBAUGIglMaXN0IHJ1bnMSjwEKClNwYXduQWdlbnQSHy5hZ2VudG1lc2gudjEuU3Bhd25BZ2VudFJlcXVlc3QaIC5hZ2VudG1lc2gudjEuU3Bhd25BZ2VudFJlc3BvbnNlIj6KtRg6CgMBAgUQARoFc3Bhd24iKlN0YXJ0IGFuIGFnZW50IGluIGEgbmV3IHdvcmt0cmVlIG9mIGEgcmVwbxKDAQoKTGlzdEFnZW50cxIfLmFnZW50bWVzaC52MS5MaXN0QWdlbnRzUmVxdWVzdBogLmFnZW50bWVzaC52MS5MaXN0QWdlbnRzUmVzcG9uc2UiMoq1GC4KBgECAwQFBhoGYWdlbnRzIhxMaXN0IGFnZW50cyB3aXRoIHRoZWlyIHN0YXRlEm4KCEdldEFnZW50Eh0uYWdlbnRtZXNoLnYxLkdldEFnZW50UmVxdWVzdBoeLmFnZW50bWVzaC52MS5HZXRBZ2VudFJlc3BvbnNlIiOKtRgfCgYBAgMEBQYaBWFnZW50Ig5TaG93IG9uZSBhZ2VudBJuCglTdG9wQWdlbnQSHi5hZ2VudG1lc2gudjEuU3RvcEFnZW50UmVxdWVzdBofLmFnZW50bWVzaC52MS5TdG9wQWdlbnRSZXNwb25zZSIgirUYHAoDAQIFEAEaBHN0b3AiDVN0b3AgYW4gYWdlbnQSgwEKC1NlbmRNZXNzYWdlEiAuYWdlbnRtZXNoLnYxLlNlbmRNZXNzYWdlUmVxdWVzdBohLmFnZW50bWVzaC52MS5TZW5kTWVzc2FnZVJlc3BvbnNlIi+KtRgrCgUBAgMEBRABGgRzZW5kIhpTZW5kIGEgbWVzc2FnZSB0byBhbiBhZ2VudBJ1CglSZWFkSW5ib3gSHi5hZ2VudG1lc2gudjEuUmVhZEluYm94UmVxdWVzdBofLmFnZW50bWVzaC52MS5SZWFkSW5ib3hSZXNwb25zZSInirUYIwoEAQIDBBABGgVpbmJveCISUmVhZCB5b3VyIG1lc3NhZ2VzEowBCg9TdWJzY3JpYmVFdmVudHMSJC5hZ2VudG1lc2gudjEuU3Vic2NyaWJlRXZlbnRzUmVxdWVzdBolLmFnZW50bWVzaC52MS5TdWJzY3JpYmVFdmVudHNSZXNwb25zZSIqirUYJgoGAQIDBAUGGgZldmVudHMiFEZvbGxvdyB0aGUgZXZlbnQgbG9nMAESiwEKClJlcG9ydEhvb2sSHy5hZ2VudG1lc2gudjEuUmVwb3J0SG9va1JlcXVlc3QaIC5hZ2VudG1lc2gudjEuUmVwb3J0SG9va1Jlc3BvbnNlIjqKtRg2CgQBAgMEEAEiLFJlcG9ydCBhIENMSSBob29rICh1c2VkIGJ5IHRoZSBob29rIGNvbW1hbmQpEo0BCgxPcGVuVGVybWluYWwSIS5hZ2VudG1lc2gudjEuT3BlblRlcm1pbmFsUmVxdWVzdBoiLmFnZW50bWVzaC52MS5PcGVuVGVybWluYWxSZXNwb25zZSI2irUYMgoDAQUGIitHZXQgYSB0aWNrZXQgZm9yIGFuIGFnZW50J3MgdGVybWluYWwgc3RyZWFtGheStRgTCg50ZXJtaW5hbC5pbnB1dBIBBWIGcHJvdG8z", [file_agentmesh_v1_actor, file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvbWVzaC5wcm90bxIMYWdlbnRtZXNoLnYxIjgKDEhlbGxvUmVxdWVzdBIOCgZjbGllbnQYASABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgCIAEoBSLMAQoNSGVsbG9SZXNwb25zZRIRCglkYWVtb25faWQYASABKAkSEwoLaW5zdGFuY2VfaWQYAiABKAkSLgoKc3RhcnRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoQcHJvdG9jb2xfdmVyc2lvbhgEIAEoBRIPCgd2ZXJzaW9uGAUgASgJEhQKDGNhcGFiaWxpdGllcxgGIAMoCRIiCgVhY3RvchgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciJJCg9TdGFydFJ1blJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgV0aXRsZRgCIAEoCSIyChBTdGFydFJ1blJlc3BvbnNlEh4KA3J1bhgBIAEoCzIRLmFnZW50bWVzaC52MS5SdW4iHgoPTGlzdFJ1bnNSZXF1ZXN0EgsKA2FsbBgBIAEoCCIzChBMaXN0UnVuc1Jlc3BvbnNlEh8KBHJ1bnMYASADKAsyES5hZ2VudG1lc2gudjEuUnVuItgBChFTcGF3bkFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg4KBnJ1bl9pZBgCIAEoCRIMCgRyZXBvGAMgASgJEgwKBHNsdWcYBCABKAkSJQoEcm9sZRgFIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSDAoEa2luZBgGIAEoCRINCgVtb2RlbBgHIAEoCRIOCgZlZmZvcnQYCCABKAkSDAoEYmFzZRgJIAEoCRIMCgR0YXNrGAogASgJIjgKElNwYXduQWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCIjChFMaXN0QWdlbnRzUmVxdWVzdBIOCgZydW5faWQYASABKAkiOQoSTGlzdEFnZW50c1Jlc3BvbnNlEiMKBmFnZW50cxgBIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudCIgCg9HZXRBZ2VudFJlcXVlc3QSDQoFYWdlbnQYASABKAkiNgoQR2V0QWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCJKChBTdG9wQWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiNwoRU3RvcEFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQigAEKElNlbmRNZXNzYWdlUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgoKAnRvGAIgASgJEicKBHR5cGUYAyABKA4yGS5hZ2VudG1lc2gudjEuTWVzc2FnZVR5cGUSDAoEYm9keRgEIAEoCSI9ChNTZW5kTWVzc2FnZVJlc3BvbnNlEiYKB21lc3NhZ2UYASABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJWChBSZWFkSW5ib3hSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEcGVlaxgCIAEoCBILCgNhbGwYAyABKAgiPAoRUmVhZEluYm94UmVzcG9uc2USJwoIbWVzc2FnZXMYASADKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJOChZTdWJzY3JpYmVFdmVudHNSZXF1ZXN0EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISDgoGcnVuX2lkGAIgASgJIsABChdTdWJzY3JpYmVFdmVudHNSZXNwb25zZRIqCghzbmFwc2hvdBgBIAEoCzIWLmFnZW50bWVzaC52MS5TbmFwc2hvdEgAEigKB3Jlc3VtZWQYAiABKAsyFS5hZ2VudG1lc2gudjEuUmVzdW1lZEgAEiQKBWV2ZW50GAMgASgLMhMuYWdlbnRtZXNoLnYxLkV2ZW50SAASIAoDZW5kGAQgASgLMhEuYWdlbnRtZXNoLnYxLkVuZEgAQgcKBWZyYW1lInYKCFNuYXBzaG90EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISHwoEcnVucxgCIAMoCzIRLmFnZW50bWVzaC52MS5SdW4SIwoGYWdlbnRzGAMgAygLMhMuYWdlbnRtZXNoLnYxLkFnZW50Ii0KB1Jlc3VtZWQSIgoEZnJvbRgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3IiFQoDRW5kEg4KBnJlYXNvbhgBIAEoCSKdAQoRUmVwb3J0SG9va1JlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIMCgRraW5kGAIgASgJEhIKCmV2ZW50X25hbWUYAyABKAkSDwoHcGF5bG9hZBgEIAEoDBIsCghmaXJlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiPQoSUmVwb3J0SG9va1Jlc3BvbnNlEicKBXN0YXRlGAEgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUiMwoTT3BlblRlcm1pbmFsUmVxdWVzdBINCgVhZ2VudBgBIAEoCRINCgVpbnB1dBgCIAEoCCJzChRPcGVuVGVybWluYWxSZXNwb25zZRIMCgRwYXRoGAEgASgJEg4KBnRpY2tldBgCIAEoCRINCgVpbnB1dBgDIAEoCBIuCgpleHBpcmVzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIlChNMaXN0U2V0dGluZ3NSZXF1ZXN0Eg4KBnByZWZpeBgBIAEoCSI/ChRMaXN0U2V0dGluZ3NSZXNwb25zZRInCghzZXR0aW5ncxgBIAMoCzIVLmFnZW50bWVzaC52MS5TZXR0aW5nInAKEVNldFNldHRpbmdSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESCwoDa2V5GAIgASgJEiUKBXZhbHVlGAMgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlIjwKElNldFNldHRpbmdSZXNwb25zZRImCgdzZXR0aW5nGAEgASgLMhUuYWdlbnRtZXNoLnYxLlNldHRpbmciSwoTUmVzZXRTZXR0aW5nUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgsKA2tleRgCIAEoCSI+ChRSZXNldFNldHRpbmdSZXNwb25zZRImCgdzZXR0aW5nGAEgASgLMhUuYWdlbnRtZXNoLnYxLlNldHRpbmcyoQ8KC01lc2hTZXJ2aWNlEpUBCgVIZWxsbxIaLmFnZW50bWVzaC52MS5IZWxsb1JlcXVlc3QaGy5hZ2VudG1lc2gudjEuSGVsbG9SZXNwb25zZSJTirUYTwoGAQIDBAUGIkVTaG93IHRoZSBkYWVtb24ncyBpZCwgdmVyc2lvbiBhbmQgY2FwYWJpbGl0aWVzLCBhbmQgd2hvIHlvdSBhcmUgdG8gaXQSYQoIU3RhcnRSdW4SHS5hZ2VudG1lc2gudjEuU3RhcnRSdW5SZXF1ZXN0Gh4uYWdlbnRtZXNoLnYxLlN0YXJ0UnVuUmVzcG9uc2UiFoq1GBIKAQUQASILU3RhcnQgYSBydW4SYgoITGlzdFJ1bnMSHS5hZ2VudG1lc2gudjEuTGlzdFJ1bnNSZXF1ZXN0Gh4uYWdlbnRtZXNoLnYxLkxpc3RSdW5zUmVzcG9uc2UiF4q1GBMKBgECAwQFBiIJTGlzdCBydW5zEo8BCgpTcGF3bkFnZW50Eh8uYWdlbnRtZXNoLnYxLlNwYXduQWdlbnRSZXF1ZXN0GiAuYWdlbnRtZXNoLnYxLlNwYXduQWdlbnRSZXNwb25zZSI+irUYOgoDAQIFEAEaBXNwYXduIipTdGFydCBhbiBhZ2VudCBpbiBhIG5ldyB3b3JrdHJlZSBvZiBhIHJlcG8SgwEKCkxpc3RBZ2VudHMSHy5hZ2VudG1lc2gudjEuTGlzdEFnZW50c1JlcXVlc3QaIC5hZ2VudG1lc2gudjEuTGlzdEFnZW50c1Jlc3BvbnNlIjKKtRguCgYBAgMEBQYaBmFnZW50cyIcTGlzdCBhZ2VudHMgd2l0aCB0aGVpciBzdGF0ZRJuCghHZXRBZ2VudBIdLmFnZW50bWVzaC52MS5HZXRBZ2VudFJlcXVlc3QaHi5hZ2VudG1lc2gudjEuR2V0QWdlbnRSZXNwb25zZSIjirUYHwoGAQIDBAUGGgVhZ2VudCIOU2hvdyBvbmUgYWdlbnQSbgoJU3RvcEFnZW50Eh4uYWdlbnRtZXNoLnYxLlN0b3BBZ2VudFJlcXVlc3QaHy5hZ2VudG1lc2gudjEuU3RvcEFnZW50UmVzcG9uc2UiIIq1GBwKAwECBRABGgRzdG9wIg1TdG9wIGFuIGFnZW50EoMBCgtTZW5kTWVzc2FnZRIgLmFnZW50bWVzaC52MS5TZW5kTWVzc2FnZVJlcXVlc3QaIS5hZ2VudG1lc2gudjEuU2VuZE1lc3NhZ2VSZXNwb25zZSIvirUYKwoFAQIDBAUQARoEc2VuZCIaU2VuZCBhIG1lc3NhZ2UgdG8gYW4gYWdlbnQSdQoJUmVhZEluYm94Eh4uYWdlbnRtZXNoLnYxLlJlYWRJbmJveFJlcXVlc3QaHy5hZ2VudG1lc2gudjEuUmVhZEluYm94UmVzcG9uc2UiJ4q1GCMKBAECAwQQARoFaW5ib3giElJlYWQgeW91ciBtZXNzYWdlcxKMAQoPU3Vic2NyaWJlRXZlbnRzEiQuYWdlbnRtZXNoLnYxLlN1YnNjcmliZUV2ZW50c1JlcXVlc3QaJS5hZ2VudG1lc2gudjEuU3Vic2NyaWJlRXZlbnRzUmVzcG9uc2UiKoq1GCYKBgECAwQFBhoGZXZlbnRzIhRGb2xsb3cgdGhlIGV2ZW50IGxvZzABEnwKDExpc3RTZXR0aW5ncxIhLmFnZW50bWVzaC52MS5MaXN0U2V0dGluZ3NSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLkxpc3RTZXR0aW5nc1Jlc3BvbnNlIiWKtRghCgYBAgMEBQYaCHNldHRpbmdzIg1MaXN0IHNldHRpbmdzEm8KClNldFNldHRpbmcSHy5hZ2VudG1lc2gudjEuU2V0U2V0dGluZ1JlcXVlc3QaIC5hZ2VudG1lc2gudjEuU2V0U2V0dGluZ1Jlc3BvbnNlIh6KtRgaCgIBBRABGgNzZXQiDVNldCBhIHNldHRpbmcSiAEKDFJlc2V0U2V0dGluZxIhLmFnZW50bWVzaC52MS5SZXNldFNldHRpbmdSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLlJlc2V0U2V0dGluZ1Jlc3BvbnNlIjGKtRgtCgIBBRABGgV1bnNldCIeUmVzZXQgYSBzZXR0aW5nIHRvIGl0cyBkZWZhdWx0EosBCgpSZXBvcnRIb29rEh8uYWdlbnRtZXNoLnYxLlJlcG9ydEhvb2tSZXF1ZXN0GiAuYWdlbnRtZXNoLnYxLlJlcG9ydEhvb2tSZXNwb25zZSI6irUYNgoEAQIDBBABIixSZXBvcnQgYSBDTEkgaG9vayAodXNlZCBieSB0aGUgaG9vayBjb21tYW5kKRKNAQoMT3BlblRlcm1pbmFsEiEuYWdlbnRtZXNoLnYxLk9wZW5UZXJtaW5hbFJlcXVlc3QaIi5hZ2VudG1lc2gudjEuT3BlblRlcm1pbmFsUmVzcG9uc2UiNoq1GDIKAwEFBiIrR2V0IGEgdGlja2V0IGZvciBhbiBhZ2VudCdzIHRlcm1pbmFsIHN0cmVhbRoXkrUYEwoOdGVybWluYWwuaW5wdXQSAQViBnByb3RvMw", [file_agentmesh_v1_actor, file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message agentmesh.v1.HelloRequest
@@ -731,6 +731,125 @@ export const OpenTerminalResponseSchema: GenMessage<OpenTerminalResponse> = /*@_
   messageDesc(file_agentmesh_v1_mesh, 26);
 
 /**
+ * @generated from message agentmesh.v1.ListSettingsRequest
+ */
+export type ListSettingsRequest = Message<"agentmesh.v1.ListSettingsRequest"> & {
+  /**
+   * Only settings whose key starts with this; empty lists every one.
+   *
+   * @generated from field: string prefix = 1;
+   */
+  prefix: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListSettingsRequest.
+ * Use `create(ListSettingsRequestSchema)` to create a new message.
+ */
+export const ListSettingsRequestSchema: GenMessage<ListSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 27);
+
+/**
+ * @generated from message agentmesh.v1.ListSettingsResponse
+ */
+export type ListSettingsResponse = Message<"agentmesh.v1.ListSettingsResponse"> & {
+  /**
+   * @generated from field: repeated agentmesh.v1.Setting settings = 1;
+   */
+  settings: Setting[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListSettingsResponse.
+ * Use `create(ListSettingsResponseSchema)` to create a new message.
+ */
+export const ListSettingsResponseSchema: GenMessage<ListSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 28);
+
+/**
+ * @generated from message agentmesh.v1.SetSettingRequest
+ */
+export type SetSettingRequest = Message<"agentmesh.v1.SetSettingRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+
+  /**
+   * @generated from field: google.protobuf.Value value = 3;
+   */
+  value?: Value | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.SetSettingRequest.
+ * Use `create(SetSettingRequestSchema)` to create a new message.
+ */
+export const SetSettingRequestSchema: GenMessage<SetSettingRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 29);
+
+/**
+ * @generated from message agentmesh.v1.SetSettingResponse
+ */
+export type SetSettingResponse = Message<"agentmesh.v1.SetSettingResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Setting setting = 1;
+   */
+  setting?: Setting | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.SetSettingResponse.
+ * Use `create(SetSettingResponseSchema)` to create a new message.
+ */
+export const SetSettingResponseSchema: GenMessage<SetSettingResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 30);
+
+/**
+ * @generated from message agentmesh.v1.ResetSettingRequest
+ */
+export type ResetSettingRequest = Message<"agentmesh.v1.ResetSettingRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ResetSettingRequest.
+ * Use `create(ResetSettingRequestSchema)` to create a new message.
+ */
+export const ResetSettingRequestSchema: GenMessage<ResetSettingRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 31);
+
+/**
+ * @generated from message agentmesh.v1.ResetSettingResponse
+ */
+export type ResetSettingResponse = Message<"agentmesh.v1.ResetSettingResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Setting setting = 1;
+   */
+  setting?: Setting | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.ResetSettingResponse.
+ * Use `create(ResetSettingResponseSchema)` to create a new message.
+ */
+export const ResetSettingResponseSchema: GenMessage<ResetSettingResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 32);
+
+/**
  * MeshService is the host's action registry: every action the apps, the CLI and the agents can take. Each RPC
  * names the actor classes allowed to call it; the caller's class comes from its token.
  *
@@ -830,6 +949,37 @@ export const MeshService: GenService<{
     methodKind: "server_streaming";
     input: typeof SubscribeEventsRequestSchema;
     output: typeof SubscribeEventsResponseSchema;
+  },
+  /**
+   * The host's settings (the policy: tiers, reviewers, caps, …) with their defaults and schemas, every one whose
+   * key starts with the prefix. Agents read the policy they run under.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ListSettings
+   */
+  listSettings: {
+    methodKind: "unary";
+    input: typeof ListSettingsRequestSchema;
+    output: typeof ListSettingsResponseSchema;
+  },
+  /**
+   * Set a setting. The value must fit its schema; a key no setting has is NotFound.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.SetSetting
+   */
+  setSetting: {
+    methodKind: "unary";
+    input: typeof SetSettingRequestSchema;
+    output: typeof SetSettingResponseSchema;
+  },
+  /**
+   * Put a setting back to its default.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ResetSetting
+   */
+  resetSetting: {
+    methodKind: "unary";
+    input: typeof ResetSettingRequestSchema;
+    output: typeof ResetSettingResponseSchema;
   },
   /**
    * A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
