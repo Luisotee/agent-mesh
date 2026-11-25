@@ -95,7 +95,26 @@ COMPACT_AT = 300_000  # context tokens above which `--compact auto` compacts a r
 COMPACT_COLD_AT = 200_000  # ...one whose prompt cache has expired (`cache_cold`): it is written again in full anyway
 # The same for agy, which compacts itself at about 250k, so Claude's threshold would never be reached.
 AGY_COMPACT_AT = 100_000
-ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its watch resets it idle
+# Compaction at `mesh approve` (before the swap, on the planning model) and before a follow-up round to a live
+# worker (design §12): context tokens above which it pays, by the replay of 136 approves (2026-11-25).
+APPROVE_COMPACT_AT = 250_000  # the execution model is the planning one: the reopen keeps the cache
+APPROVE_SWITCH_COMPACT_AT = 200_000  # it changes: the new model writes the whole context anyway
+FOLLOWUP_COMPACT_AT = 250_000
+FOLLOWUP_COMPACT_COLD_AT = 200_000
+ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its root keeper resets it idle
+# Lean Claude sessions (design §11, "Lean sessions"): what a mesh agent starts without. Tools by name (a bare
+# name drops the tool's schema from every request); bundled skills hidden from the model's listing (the user can
+# still type them); plugins nothing in mesh uses. An agent adds one back with `mesh tools add`.
+LEAN_DENY = ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion",
+             "EnterWorktree"]
+ROOT_LEAN_DENY = ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "Agent", "ReportFindings"]
+LEAN_SKILLS = ["dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
+               "schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring",
+               "keybindings-help", "fewer-permission-prompts", "claude-approvals", "update-config"]
+WORKER_LEAN_SKILLS = ["delegate-agy", "delegate-claude", "delegate-review", "find-peers", "harvest-peers"]
+LEAN_PLUGINS = ["pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"]
+MCP_MODES = ("repo", "inherit", "none")
+CLAUDEAI_SKILLS = "anthropic-skills"  # `mesh tools add` name for the skills synced from claude.ai
 RESET_WAIT = 1800  # seconds a reset waits for the root's turn to end and its input box to empty
 SIDE_PANES = 3  # workers beside the root before the rest go to the run's tab
 AGY_HOME = Path(".gemini/antigravity-cli")  # under the home folder: agy's conversation index, history and files
@@ -467,6 +486,10 @@ class Cli:
         """The deny list of a worker on a read-only task or planning one (`read_only`, `planning`), else []."""
         return []
 
+    def launch_deny_argv(self, run_id: str, name: str, entry: dict) -> list[str]:
+        """What a launch passes before its other flags: the deny list, and what else this CLI cuts (`launch_deny`)."""
+        return self.deny_argv(entry)
+
     def settings_argv(self, env: dict[str, str]) -> list[str]:
         """What a pane worker's launch adds for its hooks and settings."""
         return []
@@ -480,7 +503,7 @@ class Cli:
         environment: OpenCode's per-launch config; nothing for the others."""
         return {}
 
-    def compact_argv(self, session: str, model: str, prompt: str) -> list[str]:
+    def compact_argv(self, session: str, model: str, prompt: str, entry: dict | None = None) -> list[str]:
         raise MeshError(f"mesh doesn't compact {self.name} conversations")
 
     # sessions
@@ -575,13 +598,25 @@ class ClaudeCli(Cli):
     def deny_argv(self, entry: dict) -> list[str]:
         return claude_deny(entry)
 
+    def launch_deny_argv(self, run_id: str, name: str, entry: dict) -> list[str]:
+        return claude_launch_argv(run_id, name, entry)
+
     def settings_argv(self, env: dict[str, str]) -> list[str]:
         return ["--settings", worker_settings(env, bg=False)]
 
-    def compact_argv(self, session: str, model: str, prompt: str) -> list[str]:
+    def compact_argv(self, session: str, model: str, prompt: str, entry: dict | None = None,
+                     mcp: Path | None = None) -> list[str]:
         # A one-off turn whose summary the resumed worker reads at once: a 5-minute cache is all it needs.
+        # A lean agent's tools, settings and MCP servers (`mcp`: its file) too, so the turn's prefix is the one
+        # the worker cached, and the conversation isn't handed back to its next launch with the full set.
+        lean = lean_on() and entry is not None
+        tools = lean_tools(entry) if lean else []
+        strict = lean and mcp is not None and mcp_mode(entry) != "inherit"
         return [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions",
-                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE}), prompt]
+                *(["--disallowedTools", *tools] if tools else []),
+                *(["--strict-mcp-config", "--mcp-config", str(mcp)] if strict else []),
+                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE, **(lean_settings(entry) if lean else {})}),
+                prompt]
 
     def lookup_session(self, run_id: str, name: str, entry: dict, pinned_only: bool = False) -> str | None:
         return claude_session(name, entry["cwd"]) if entry.get("cwd") else None
@@ -684,7 +719,7 @@ class AgyCli(Cli):
     def resume_argv(self, session: str, model: str, effort: str) -> list[str]:
         return ["--conversation", session, "--model", model]
 
-    def compact_argv(self, session: str, model: str, prompt: str) -> list[str]:
+    def compact_argv(self, session: str, model: str, prompt: str, entry: dict | None = None) -> list[str]:
         return ["agy", "--conversation", session, "--model", model, "--dangerously-skip-permissions", "-p", prompt]
 
     def lookup_session(self, run_id: str, name: str, entry: dict, pinned_only: bool = False) -> str | None:
@@ -1015,9 +1050,29 @@ POLICY = {  # leaf: (built-in default, check)
     "compact.claude": (COMPACT_AT, "int"),
     "compact.claude_cold": (COMPACT_COLD_AT, "int"),
     "compact.agy": (AGY_COMPACT_AT, "int"),
+    # At `mesh approve`, before the swap (design §12); 0 turns each off.
+    "compact.approve": (APPROVE_COMPACT_AT, "int"),
+    "compact.approve_switch": (APPROVE_SWITCH_COMPACT_AT, "int"),
+    # Before a task or answer to a live change worker that has reported `done` (warm / cold cache); 0: off.
+    "compact.followup": (FOLLOWUP_COMPACT_AT, "int"),
+    "compact.followup_cold": (FOLLOWUP_COMPACT_COLD_AT, "int"),
     "root_reset.at": (ROOT_RESET_AT, "int"),
     "root_reset.auto": (True, "bool"),
     "root_reset.wait": (RESET_WAIT, "seconds"),
+    # A reset restarts the root's Claude in its pane with the lean flags below, where it can (design §15).
+    "root_reset.relaunch": (True, "bool"),
+    # Lean Claude sessions (design §11): false launches every agent with the user's full set, as before.
+    "claude.lean": (True, "bool"),
+    "claude.deny_tools": (LEAN_DENY, "strs"),
+    "claude.root_deny_tools": (ROOT_LEAN_DENY, "strs"),
+    "claude.skills_hidden": (LEAN_SKILLS, "strs"),
+    "claude.worker_skills_hidden": (WORKER_LEAN_SKILLS, "strs"),
+    "claude.claudeai_skills": (False, "bool"),  # the skills synced from claude.ai (`anthropic-skills:*`)
+    "claude.plugins_off": (LEAN_PLUGINS, "strs"),
+    # MCP servers: `repo` = the repo's own (its project entry in ~/.claude.json and its approved .mcp.json) plus
+    # `claude.mcp_keep`; `none` = only `mcp_keep`; `inherit` = whatever the user's config loads.
+    "claude.mcp": ("repo", "mcp_mode"),
+    "claude.mcp_keep": ([], "strs"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
@@ -1026,7 +1081,8 @@ POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MO
               "held_wait": "MESH_HELD_WAIT", "side_panes": "MESH_SIDE_PANES", "compact.claude": "MESH_COMPACT_AT",
               "compact.claude_cold": "MESH_COMPACT_COLD_AT", "compact.agy": "MESH_AGY_COMPACT_AT",
               "root_reset.at": "MESH_ROOT_RESET_AT", "root_reset.auto": "MESH_ROOT_AUTORESET",
-              "root_reset.wait": "MESH_RESET_WAIT"}
+              "root_reset.wait": "MESH_RESET_WAIT", "root_reset.relaunch": "MESH_ROOT_RELAUNCH",
+              "claude.lean": "MESH_CLAUDE_LEAN"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -1047,6 +1103,7 @@ POLICY_CHECKS = {
                 "a finite number of seconds, 0 or more"),
     "mb_or_auto": (lambda v: v == "auto" or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
                    "\"auto\" or a whole number of MB, 0 or more"),
+    "mcp_mode": (lambda v: v in MCP_MODES, "one of " + ", ".join(MCP_MODES)),
 }
 ENV_BOOLS = {"0": False, "false": False, "no": False, "off": False, "1": True, "true": True, "yes": True, "on": True}
 
@@ -2677,7 +2734,8 @@ MESH_CONFIG = ("MESH_HOME", "MESH_WORKTREES", "MESH_HERDR", "MESH_CLAUDE", "MESH
                "MESH_AGY_HISTORY", "MESH_AGY_CONVERSATIONS", "MESH_COPILOT_MODEL", "MESH_HANG_AFTER", "MESH_HELD_WAIT",
                "MESH_IDLE_RETIRE", "MESH_ROOT_RESET_AT", "MESH_ROOT_AUTORESET", "MESH_CACHE_TTL", "MESH_RESET_WAIT",
                "MESH_CONFIG_FILE", "MESH_PEERS_DIR", "MESH_REPOS_DIR", "MESH_WORKER_CPUS", "MESH_MEMORY_PRESSURE_MAX",
-               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH", "MESH_MIN_FREE_MB")
+               "MESH_COMPACT_COLD_AT", "MESH_WORKER_MEMORY_HIGH", "MESH_MIN_FREE_MB", "MESH_ROOT_RELAUNCH",
+               "MESH_CLAUDE_LEAN")
 # What Claude Code sets for the one session a process runs under (its tools inherit it): never pass it on.
 CLAUDE_SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
                        "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -2752,8 +2810,12 @@ def worker_cache_ttl(entry: dict) -> str | None:
     """`promptCacheTtl` for a Claude worker: SHORT_CACHE for a read-only one (an asker, a reviewer), a peer, or a
     trivial or small task, whose gaps between turns rarely reuse a 1 h cache and whose writes then cost 1.25×
     the input price instead of 2×; None (Claude Code's own choice, 1 h on a subscription) for a large change
-    task, whose waits on the root a 5-minute cache wouldn't outlive (the cost study of run mb3c1: +8% there)."""
-    if entry.get("read_only") or entry.get("peer") or entry.get("size") in ("trivial", "small"):
+    task, whose waits on the root a 5-minute cache wouldn't outlive (the cost study of run mb3c1: +8% there).
+    A planner (`planning`) is on SHORT_CACHE too, and its execution on 1 h: `mesh approve` reopens it either
+    way, planning rarely pauses 5 minutes and the root approves in seconds (the replay of 136 approves: −$41
+    over 1 h with the model unchanged, −$48 when it changes, design §12)."""
+    if (entry.get("read_only") or entry.get("peer") or entry.get("planning")
+            or entry.get("size") in ("trivial", "small")):
         return SHORT_CACHE
     return None
 
@@ -2776,11 +2838,16 @@ def worker_settings(env: dict[str, str], bg: bool) -> str:
     settings: dict = {"hooks": worker_hooks(env["MESH_RUN"], env["MESH_SELF"]), "crossSessionInbound": WORKER_INBOUND}
     # From its entry as this launch wrote it (spawn, resume and swaps write it first), so a reopen for another
     # kind of task (a reviewer given a large change) gets that task's TTL.
-    ttl = worker_cache_ttl(((maybe_run(env["MESH_RUN"]) or {}).get("agents") or {}).get(env["MESH_SELF"]) or {})
+    entry = ((maybe_run(env["MESH_RUN"]) or {}).get("agents") or {}).get(env["MESH_SELF"]) or {}
+    ttl = worker_cache_ttl(entry)
     if ttl:
         settings["promptCacheTtl"] = ttl
+    lean = lean_settings(entry) if lean_on() and entry.get("kind", "claude") == "claude" else {}
+    settings.update({k: v for k, v in lean.items() if k != "env"})
     if bg:
-        settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env}
+        settings["env"] = {**{k: "" for k in (*MESH_CONFIG, *HERDR_IDS)}, **env, **lean.get("env", {})}
+    elif lean.get("env"):
+        settings["env"] = lean["env"]
     return json.dumps(settings)
 
 
@@ -3458,6 +3525,190 @@ def deny_argv(entry: dict) -> list[str]:
     return cli(entry.get("kind")).deny_argv(entry)
 
 
+def launch_deny(run_id: str, name: str, entry: dict) -> list[str]:
+    """What a worker's launch passes before its other flags: its deny list (`deny_argv`) and, for a lean Claude
+    agent, the lean flags merged in (`claude_launch_argv`). `deny_argv` alone still says whether the read-only or
+    planning list applies."""
+    return cli(entry.get("kind")).launch_deny_argv(run_id, name, entry)
+
+
+# ── lean sessions: what a Claude agent starts without, and adds back (design §11, "Lean sessions") ──
+
+
+def claude_json_path() -> Path:
+    """Claude Code's state file, which holds the user's and each project's MCP servers: ~/.claude.json, or inside
+    CLAUDE_CONFIG_DIR when that is set."""
+    return claude_home() / ".claude.json" if os.environ.get("CLAUDE_CONFIG_DIR") else Path.home() / ".claude.json"
+
+
+def read_json_object(path: Path) -> dict:
+    """A JSON file's object, {} when it is missing, unreadable or not an object."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def lean_on() -> bool:
+    return bool(setting("claude.lean"))
+
+
+def agent_added(entry: dict) -> set[str]:
+    """What `mesh tools add` gave this agent back."""
+    return set(entry.get("added") or [])
+
+
+def lean_tools(entry: dict) -> list[str]:
+    """The tools a lean Claude agent starts without (`claude.deny_tools`, the root's `claude.root_deny_tools`), less
+    what it added back. A worker whose plan the user reviews in its pane keeps AskUserQuestion."""
+    leaf = "claude.root_deny_tools" if entry.get("role") == "root" else "claude.deny_tools"
+    keep = agent_added(entry) | ({"AskUserQuestion"} if entry.get("plan_review") == "user" else set())
+    return [t for t in setting(leaf) if t not in keep]
+
+
+def lean_skills(entry: dict) -> list[str]:
+    names = [*setting("claude.skills_hidden"),
+             *(setting("claude.worker_skills_hidden") if entry.get("role") != "root" else [])]
+    return [s for s in dict.fromkeys(names) if s not in agent_added(entry)]
+
+
+def user_plugins() -> list[str]:
+    """The plugins the user's settings enable (`name@marketplace`)."""
+    plugins = read_json_object(claude_home() / "settings.json").get("enabledPlugins")
+    return [k for k, v in plugins.items() if v] if isinstance(plugins, dict) else []
+
+
+def lean_plugins(entry: dict) -> list[str]:
+    """The enabled plugins a lean agent turns off (`claude.plugins_off`, by name, any marketplace)."""
+    off = set(setting("claude.plugins_off")) - agent_added(entry)
+    return [k for k in user_plugins() if k.split("@")[0] in off]
+
+
+def mcp_mode(entry: dict) -> str:
+    """`claude.mcp`, unless this agent asked for claude.ai's connectors, which only the user's own config loads."""
+    return "inherit" if entry.get("mcp_all") else setting("claude.mcp")
+
+
+def lean_settings(entry: dict) -> dict:
+    """The `--settings` keys of a lean Claude agent: bundled skills hidden from its listing (`user-invocable-only`:
+    the user can still type them), claude.ai's synced skills hidden, unused plugins off, and claude.ai's MCP
+    connectors off. Verified on 2.1.332: each of these overrides the user's own settings for this session only."""
+    out: dict = {}
+    if hidden := lean_skills(entry):
+        out["skillOverrides"] = {s: "user-invocable-only" for s in hidden}
+    if not setting("claude.claudeai_skills") and CLAUDEAI_SKILLS not in agent_added(entry):
+        out["syncClaudeAiSkills"] = False
+    if plugins := lean_plugins(entry):
+        out["enabledPlugins"] = {k: False for k in plugins}
+    if mcp_mode(entry) != "inherit":
+        out["env"] = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
+    return out
+
+
+def mcp_approved(repo: Path, project: dict) -> tuple[bool, set[str], set[str]]:
+    """(all approved, approved names, refused names) of a repo's `.mcp.json`, from its project entry in
+    ~/.claude.json and its own `.claude/settings*.json`, as Claude Code asks the user once per server."""
+    every, yes, no = bool(project.get("enableAllProjectMcpServers")), set(), set()
+    for source in (project, read_json_object(repo / ".claude" / "settings.json"),
+                   read_json_object(repo / ".claude" / "settings.local.json")):
+        every = every or bool(source.get("enableAllProjectMcpServers"))
+        yes |= {s for s in source.get("enabledMcpjsonServers") or [] if isinstance(s, str)}
+        no |= {s for s in source.get("disabledMcpjsonServers") or [] if isinstance(s, str)}
+    return every, yes, no
+
+
+def known_mcp_servers(repo: str | Path | None) -> dict[str, dict]:
+    """Every MCP server the user's config defines for this repo, by name: {"config", "scope"} with scope `user`
+    (~/.claude.json's own), `local` (the repo's project entry there) or `project` (its `.mcp.json`, only the ones
+    the user approved). A later scope wins a name, as in Claude Code."""
+    state = read_json_object(claude_json_path())
+    found: dict[str, dict] = {}
+
+    def add(servers, scope: str, allow=lambda name: True) -> None:
+        if isinstance(servers, dict):
+            found.update({n: {"config": c, "scope": scope} for n, c in servers.items()
+                          if isinstance(c, dict) and allow(n)})
+
+    add(state.get("mcpServers"), "user")
+    if repo:
+        repo = Path(repo)
+        project = (state.get("projects") or {}).get(str(repo)) or {}
+        project = project if isinstance(project, dict) else {}
+        every, yes, no = mcp_approved(repo, project)
+        add(read_json_object(repo / ".mcp.json").get("mcpServers"), "project",
+            lambda n: n not in no and (every or n in yes))
+        add(project.get("mcpServers"), "local")
+    return found
+
+
+def lean_mcp_servers(entry: dict) -> dict[str, dict]:
+    """The MCP servers a lean agent loads under `--strict-mcp-config`: with `claude.mcp` `repo`, the repo's own
+    (`local` and approved `project` ones); then, either way, `claude.mcp_keep` and what it added back."""
+    known = known_mcp_servers(entry.get("repo") or entry.get("cwd"))
+    want = {n: s["config"] for n, s in known.items() if mcp_mode(entry) == "repo" and s["scope"] != "user"}
+    for name in [*setting("claude.mcp_keep"), *sorted(agent_added(entry))]:
+        if name in known:
+            want[name] = known[name]["config"]
+    return want
+
+
+ADDED_KEYS = ("added", "tools_added", "mcp_all")  # an entry's record of what `mesh tools add` gave back
+
+
+def mcp_file(run_id: str, name: str) -> Path:
+    return run_dir(run_id) / "mcp" / f"{name}.json"
+
+
+def write_private(path: Path, text: str) -> None:
+    """Write a file only its owner can read (it may hold an MCP server's or the root's environment secrets)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def remove_private(run_id: str, name: str | None = None) -> None:
+    """Remove an agent's MCP config (`name`), or every one of the run and the root's settings file: they copy
+    servers' environment secrets, so none outlives its agent (retire) or its run (stop)."""
+    paths = [mcp_file(run_id, name)] if name else list((run_dir(run_id) / "mcp").glob("*.json"))
+    for path in paths:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def root_files(pane: str) -> Path:
+    """Where a relaunched root's files live, per pane rather than per run: its Claude outlives the run (and
+    `mesh stop`), and the next run's reset reads them. `settings.json` and `mcp.json` are what it runs with;
+    `origin.json` what its own command line gave before mesh first relaunched it (its settings, the environment its
+    alias set, its deny list). All private: they may hold secrets."""
+    return mesh_home() / "roots" / re.sub(r"[^A-Za-z0-9_.-]", "_", pane)
+
+
+def claude_launch_argv(run_id: str, name: str, entry: dict) -> list[str]:
+    """A Claude agent's deny list and lean flags: one `--disallowedTools` with the planning or read-only rules
+    (`claude_deny`) and the lean tools (Claude Code keeps only the last `--settings` but merges these), the MCP
+    servers (`--strict-mcp-config` with a file of them, since a server's config may carry secrets), and
+    `--system-prompt-snapshot off` once a tool was added back: the snapshot keeps a conversation's first tool set
+    on every resume until it is compacted, so the tool would stay out (checked on 2.1.332). `claude.lean` false:
+    the deny list alone, as before. The flags take several values: callers put another flag after them."""
+    if not lean_on():
+        return claude_deny(entry)
+    rules = [*claude_deny(entry)[1:], *lean_tools(entry)]
+    argv = ["--disallowedTools", *rules] if rules else []
+    if mcp_mode(entry) != "inherit":
+        path = mcp_file(run_id, name)
+        write_private(path, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
+        argv += ["--strict-mcp-config", "--mcp-config", str(path)]
+    if entry.get("tools_added"):
+        argv += ["--system-prompt-snapshot", "off"]
+    return argv
+
+
 def resume_argv(kind: str, session: str, model: str, effort: str) -> list[str]:
     """CLI arguments that reopen an agent's conversation (no permission flags)."""
     return cli(kind).resume_argv(session, model, effort)
@@ -3881,10 +4132,13 @@ def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, 
     return tokens is not None and tokens > at * (2 if read_only and not peer else 1)
 
 
-def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
-    """Compact a stopped worker's conversation headless, in its own directory, before it is reopened."""
+def compact_conversation(entry: dict, session: str, model: str, focus: str,
+                         mcp: Path | None = None) -> tuple[bool, str]:
+    """Compact a stopped worker's conversation headless, in its own directory, before it is reopened (`mcp`: the
+    MCP file of the lean agent it is, when it ran with one)."""
     try:
-        argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}")
+        argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}", entry,
+                                                    **({"mcp": mcp} if mcp else {}))
     except MeshError as exc:  # a CLI that compacts itself (Copilot, OpenCode)
         return False, str(exc)
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
@@ -5472,7 +5726,6 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         read_only = enforced and read_only_task(task)
         # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
         planning = enforced and not (sized or user_review or read_only) and (not task or planned_task(task))
-        deny = deny_argv({"kind": args.kind, "read_only": read_only, "planning": planning, "cwd": cwd, "repo": repo_top})
         env = mesh_env(run_id, name, parent, args.role)
         with editing_run(run_id) as run:
             run["agents"][name] = {
@@ -5488,6 +5741,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                 **({"peer": peer} if peer else {}),
                 **({"collect": args.collect} if getattr(args, "collect", None) else {}),
             }
+        deny = launch_deny(run_id, name, agent_entry(load_run(run_id), name))  # from the entry just written
         result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
                   "tier": tier, "exec_tier": exec_tier if phases else None, "exec_model": exec_model, "notes": notes}
 
@@ -5550,8 +5804,143 @@ def plan_model(kind: str, chain: tuple[str, ...], effort: str, run_id: str | Non
     return cli(kind).plan_model(chain, effort, run_id)
 
 
+APPROVE_FOCUS = ("Your plan was just approved, and you carry it out next in this conversation. Keep the approved plan "
+                 "({plan}) verbatim, the files it changes with the facts you read from them (file:line), the "
+                 "decisions and their reasons, and the branch; drop tool output and dead ends.")
+COMPACT_QUIET_WAIT = 60  # seconds a live compaction waits for a worker's idle pane with an empty box
+
+
+def compaction_logged(run_id: str, name: str, why: str | None, via: str, before: int | None, after: int | None,
+                      ok: bool, note: str | None = None) -> dict:
+    """The `compacted` event (the approve trial's record, design §12) and what the caller reports."""
+    result = {"compacted": ok, "via": via, "context_tokens": before, "context_tokens_after": after,
+              **({"note": note} if note else {})}
+    log_event(run_id, "compacted", name=name, why=why, via=via, tokens=before, tokens_after=after, ok=ok,
+              **({"note": note} if note else {}))
+    return result
+
+
+def compact_stopped(run_id: str, name: str, entry: dict, session: str, focus: str, why: str | None) -> dict:
+    """Compact a stopped worker's conversation headless, on the model it ran on; never a failure."""
+    before = context_tokens(entry, session)
+    mcp = mcp_file(run_id, name) if entry.get("kind", "claude") == "claude" and lean_on() else None
+    if mcp:  # what it ran with: the same file its launch writes
+        write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
+    ok, output = compact_conversation(entry, session, entry.get("model") or "", focus, mcp)
+    after = context_tokens(entry, session) if ok else None
+    return compaction_logged(run_id, name, why, "headless", before, after, ok,
+                             None if ok else f"compaction failed, so it goes on as it was: {output}")
+
+
+def compact_live_pane(run_id: str, name: str, entry: dict, session: str, focus: str, why: str | None) -> dict:
+    """Compact a live pane worker between turns, in its own pane: `/compact <focus>` typed into its idle, empty
+    input box under the pane's ring lock (as `mesh reset --compact` does for the root), so the compaction turn
+    reads the exact prefix its last call cached, on its own model. Never a failure: a pane that doesn't go quiet
+    in COMPACT_QUIET_WAIT, or a compaction that doesn't finish, is a note and it goes on as it was."""
+    pane = entry.get("pane")
+    before = context_tokens(entry, session)
+    why_not, typed = "it has no pane", False
+    deadline = time.monotonic() + COMPACT_QUIET_WAIT
+    while pane and not typed:
+        with ring_lock(pane) as locked:
+            try:
+                ok, why_not = quiet_box(pane, entry) if locked else (False, "another ring holds its pane")
+            except LostRoot:  # herdr lost it and its process can't tell: skip, as reset_root.quiet_now does
+                why_not = "herdr has lost track of its pane"
+                break
+            if ok:
+                try:
+                    herdr("agent", "prompt", pane, f"/compact {focus}", "--wait", "--until", "working",
+                          "--timeout", "15000", timeout=30)
+                    typed = True
+                except HerdrError as exc:
+                    why_not = f"typing /compact failed: {exc.code}"
+                    break
+        if typed or time.monotonic() > deadline:
+            break
+        time.sleep(RESET_POLL)
+    if not typed:
+        return compaction_logged(run_id, name, why, "pane", before, None, False,
+                                 f"not compacted ({why_not}), so it goes on as it was")
+    try:
+        herdr("agent", "wait", pane, "--until", "idle", "--until", "done", "--timeout", str(COMPACT_TIMEOUT * 1000),
+              timeout=COMPACT_TIMEOUT + 30)
+    except HerdrError as exc:
+        return compaction_logged(run_id, name, why, "pane", before, None, False,
+                                 f"the compaction didn't finish ({exc.code})")
+    after = context_tokens(entry, session)
+    ok = after is not None and (before is None or after < before)
+    return compaction_logged(run_id, name, why, "pane", before, after, ok,
+                             None if ok else "its context didn't shrink")
+
+
+def approve_compaction(run_id: str, name: str, entry: dict, model: str) -> str | None:
+    """The focus `mesh approve` compacts a Claude planner with before reopening it, or None: over
+    `compact.approve_switch` when its execution model differs (the new model writes the whole context anyway,
+    since a prompt cache is per model), over `compact.approve` when it stays (the reopen keeps the cache, so only
+    a big context repays it). Design §12 records the replay and the trial."""
+    if not cli(entry.get("kind")).measures_cache:
+        return None
+    at = setting("compact.approve_switch" if model != entry.get("model") else "compact.approve")
+    session = entry.get("session") or quietly(find_session, run_id, name, entry)
+    tokens = quietly(context_tokens, entry, session) if at and session else None
+    if tokens is None or tokens <= at:
+        return None
+    return APPROVE_FOCUS.format(plan=run_dir(run_id) / "plans" / f"{name}.md")
+
+
+def followup_compaction(run_id: str, me: str, to: str, mtype: str, body: str, stored) -> dict | None:
+    """A task or answer for a live Claude change worker that has reported `done` or `failed` since its last one (a
+    follow-up round): compact it first when its context is over `compact.followup` (`compact.followup_cold` once
+    its cache is cold; the lower of the two then), as a resume would (design §12). A pane worker is compacted in
+    place and the caller delivers as usual (None); a background one is stopped, compacted and reopened with the
+    message as its opening prompt (the delivery). None, with nothing done, in every other case."""
+    if mtype not in ("task", "answer"):
+        return None
+    entry = agent_entry(load_run(run_id), to)
+    if (entry.get("role") != "worker" or not cli(entry.get("kind")).measures_cache or entry.get("read_only")
+            or entry.get("peer") or entry.get("status") != "running" or entry.get("view") not in ("pane", "bg")):
+        return None
+    report, _ = last_report(read_log(run_id), to)
+    if not report or report.get("type") not in FINAL_TYPES:
+        return None
+    session = entry.get("session") or quietly(find_session, run_id, to, entry)
+    if not session:
+        return None
+    tokens, cold = context_usage(entry, session, warmth=True)
+    warm_at, cold_at = setting("compact.followup"), setting("compact.followup_cold")
+    at = (min(a for a in (warm_at, cold_at) if a) if cold and (warm_at or cold_at) else warm_at)
+    if not at or tokens is None or tokens <= at:
+        return None
+    focus = COMPACT_FOCUS.format(task=task_gist(body) or "the follow-up you are about to get")
+    if entry.get("view") == "pane":
+        done = compact_live_pane(run_id, to, entry, session, focus, "followup")
+        print(f"mesh: compacted {to} before this follow-up ({kilo(tokens)} tokens)" if done["compacted"]
+              else f"mesh: {to}: {done.get('note')}", file=sys.stderr)
+        return None
+    try:
+        swap = swap_model(run_id, to, entry["model"], entry["effort"], "compacted", wait_ms=60_000,
+                          message=(me, mtype, body), compact=focus, compact_why="followup")
+    except SwapNotStarted as exc:
+        print(f"mesh: {to} wasn't compacted before this follow-up ({exc})", file=sys.stderr)
+        return None
+    except MeshError as exc:
+        if not getattr(exc, "stored", None):
+            raise
+        # Stopped and compacted, but its copy didn't start: the message is in its mailbox, and a resume reads it.
+        if stored:
+            stored()
+        return {"stored": str(exc.stored), "rung": False, "error": f"{exc}; `mesh resume {to}` reopens it to read it"}
+    delivery = swap.pop("delivery", None)
+    if delivery and stored:
+        stored()
+    return {**(delivery or deliver(run_id, me, to, mtype, body, first=True, stored=stored)),
+            "compaction": swap.get("compaction")}
+
+
 def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effort: str, why: str,
-            wait_ms: int, strict: bool, message: tuple[str, str, str], lift: bool, note: dict | None = None) -> dict:
+            wait_ms: int, strict: bool, message: tuple[str, str, str], lift: bool, note: dict | None = None,
+            compact: str | None = None, compact_why: str | None = None) -> dict:
     """swap_model for a background worker: stop it, then start a copy of its conversation on the new model.
 
     The message goes into its mailbox first, since the copy's opening prompt is the doorbell for it.
@@ -5572,12 +5961,13 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
             e["models"].pop()
         raise SwapNotStarted(f"`claude stop {entry.get('bg_id')}` failed, so {name} wasn't reopened: its "
                              "conversation would run in two processes")
+    compaction = compact_stopped(run_id, name, entry, session, compact, compact_why) if compact else None
     path = record(run_id, sender, name, mtype, body)
     prompt = doorbell_text(load_run(run_id), sender, name, mtype, body, first=True)
     try:
         bg_id, new_session = launch_bg(name, entry["cwd"], model, effort,
                                        mesh_env(run_id, name, entry["parent"], entry["role"]), prompt, resume=session,
-                                       extra=deny_argv({**entry, **lifted(entry, lift)}))
+                                       extra=launch_deny(run_id, name, {**entry, **lifted(entry, lift)}))
     except MeshError as exc:
         with editing_run(run_id) as run:
             e = run["agents"][name]
@@ -5597,6 +5987,7 @@ def swap_bg(run_id: str, name: str, entry: dict, session: str, model: str, effor
     log_event(run_id, "swap", name=name, model=model, effort=effort, why=why, bg_id=bg_id, session=new_session,
               **(note or {}))
     return {"name": name, "model": model, "bg_id": bg_id, "previous": entry.get("model"),
+            **({"compaction": compaction} if compaction else {}),
             "delivery": {"stored": str(path), "rung": False, "error": None, "launched": True}}
 
 
@@ -5611,7 +6002,7 @@ def lifted(entry: dict, lift: bool) -> dict:
 def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_ms: int = 600_000,
                strict: bool = True, message: tuple[str, str, str] | None = None,
                lift: bool = False, stored: Path | None = None, lost_ok: bool = True, tier: str | None = None,
-               reason: str | None = None) -> dict:
+               reason: str | None = None, compact: str | None = None, compact_why: str | None = None) -> dict:
     """Restart a worker on another model or effort in the same conversation, pane by pane, keeping its name.
 
     Waits up to `wait_ms` for the worker's turn to end. `strict` fails if it doesn't; a worker that
@@ -5619,7 +6010,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
     gets `message` (sender, type, body) as its opening prompt (the result's `delivery`); for a pane the
     caller delivers it once the pane is back (`stored`: already in its mailbox). Without `lost_ok`, an agent herdr
     doesn't know isn't reopened, as its turn can't be waited for. `lift` reopens it without its deny list (deny_argv), clearing
-    both of its reasons; otherwise it keeps whatever it had.
+    both of its reasons; otherwise it keeps whatever it had. `compact` (a focus) compacts the conversation first,
+    on the model it ran on (`compact_live_pane` in a pane, else headless once stopped), and is never a failure.
     """
     entry = agent_entry(load_run(run_id), name)
     cli(entry.get("kind"))  # an unknown kind is refused as such, before the conversation lookup
@@ -5630,7 +6022,9 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                              f"start a fresh worker with `mesh spawn --cwd {entry.get('cwd')}` if it must change")
     if entry.get("view") == "bg" and skip_flags():
         return swap_bg(run_id, name, entry, session, model, effort, why, wait_ms, strict,
-                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift, note)
+                       message or ("mesh", "info", f"You are now on {model} at {effort} effort."), lift, note,
+                       compact, compact_why)
+    was_bg = entry.get("view") == "bg"
     moved = None  # a background worker moving to a pane: its message, stored once its session has stopped
     if entry.get("view") == "bg":  # skip_permissions turned off since it started: a pane can answer a prompt
         wait_bg_idle(entry, wait_ms, strict)
@@ -5660,6 +6054,10 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                 if exc.code == "timeout":
                     raise SwapNotStarted(f"{name} didn't finish its turn ({exc})") from exc
                 raise
+    compaction = None
+    if compact:  # its turn has ended: in its own pane while its cache is warm, else (stopped) headless
+        compaction = (compact_stopped(run_id, name, entry, session, compact, compact_why) if was_bg
+                      else compact_live_pane(run_id, name, entry, session, compact, compact_why))
     # The new pane opens beside the old one before that closes, so its tab survives: the root's, else the run's.
     env = {**mesh_env(run_id, name, entry["parent"], entry["role"]),
            **cli(entry["kind"]).launch_env({**entry, "model": model, "effort": effort, **lifted(entry, lift)})}
@@ -5682,7 +6080,7 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             e.setdefault("models", []).append({"model": model, "effort": effort, "at": now_iso(), "why": why,
                                                **note})
         recorded = True
-        argv = [*log_argv(entry.get("log")), *deny_argv({**entry, **lifted(entry, lift)}),
+        argv = [*log_argv(entry.get("log")), *launch_deny(run_id, name, {**entry, **lifted(entry, lift)}),
                 *resume_argv(entry["kind"], session, model, effort), *cli(entry["kind"]).skip_argv(),
                 *settings_argv(entry["kind"], env)]
         try:
@@ -5711,7 +6109,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
                         f"`herdr agent read {name}`, then retry") from exc
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "running"
-    result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model")}
+    result = {"name": name, "model": model, "pane": pane, "previous": entry.get("model"),
+              **({"compaction": compaction} if compaction else {})}
     if started.get("held") and message:  # the caller would ring a pane at a startup screen: hold it instead
         result["delivery"] = hold(run_id, message[0], name, message[1], message[2], started, stored=moved or stored)
     elif moved:  # stored above: ring it here, so the caller doesn't store it again
@@ -5812,10 +6211,11 @@ def cmd_approve(args: argparse.Namespace) -> int:
     reserve_guard(run_id, kind, model, effort, f"{args.agent}'s execution")
     result["tier"] = exec_tier
     if denied or (model, effort) != (entry.get("model"), entry.get("effort")):
+        focus = approve_compaction(run_id, args.agent, entry, model)
         try:
             result["swap"] = swap_model(run_id, args.agent, model, effort, "plan approved",
                                         message=(me, "answer", body), lift=True, tier=exec_tier,
-                                        reason=getattr(args, "why", None))
+                                        reason=getattr(args, "why", None), compact=focus, compact_why="approve")
         except SwapNotStarted as exc:
             if denied:  # --keep-model reopens it too: nothing gets its edits back but a reopen
                 raise MeshError(f"{exc}. Nothing was sent. {args.agent} plans with its edits denied, and only "
@@ -6019,8 +6419,9 @@ def cmd_send(args: argparse.Namespace) -> int:
         elif args.type == "task" and not planned_task(body) and not read_only_task(body):
             end_plan_phase(run_id, to)
 
-    result = lift_read_only(run_id, me, to, args.type, body, stored) or deliver(run_id, me, to, args.type, body,
-                                                                                stored=stored)
+    result = (lift_read_only(run_id, me, to, args.type, body, stored)
+              or followup_compaction(run_id, me, to, args.type, body, stored)
+              or deliver(run_id, me, to, args.type, body, stored=stored))
     if result.get("retired"):
         return send_resumed(run_id, me, to, args.type, body, Path(result["stored"]))
     if args.type in FINAL_TYPES and not result.get("collected") \
@@ -6794,9 +7195,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """Block until a child reports done/failed (exit 0) or something looks wrong (non-zero)."""
     run_id, me = caller(args, args.run_id)
     every, alerts = getattr(args, "any", False), getattr(args, "alerts", False)
-    root = me == (maybe_run(run_id) or {}).get("root")  # the root's own watch may reset it (`root_reset.auto`)
+    root = me == (maybe_run(run_id) or {}).get("root")
     if bool(args.agent) == bool(every):
         raise MeshError("watch whom? name a worker, or pass --any for every live worker of the run")
+    if root:  # the idle reset runs in the keeper, which outlives this watch (`root_reset.auto`)
+        quietly(ensure_root_keeper, run_id)
     if every:
         run = load_run(run_id)
         workers = {name: e for name, e in run["agents"].items() if e["role"] != "root" and e.get("status") != "retired"}
@@ -6811,7 +7214,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     else:
         names, run = [args.agent], None
     status, line = watch_agents(run_id, names, args.timeout, args.interval, args.grace, alerts_only=alerts,
-                                hang=getattr(args, "hang", None), autoreset=root and autoreset_on(), every=run,
+                                hang=getattr(args, "hang", None), every=run,
                                 retire_after=idle_retire(), reserve=root)
     print(line)
     if root:
@@ -7594,7 +7997,7 @@ class Watch:
 
 def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: float = 5.0, grace: float = SETTLE_GRACE,
                  finals_at_start: int | None = None, alerts_only: bool = False,
-                 hang: float | None = None, autoreset: bool = False, every: dict | None = None,
+                 hang: float | None = None, every: dict | None = None,
                  retire_after: float = 0.0, reserve: bool = False) -> tuple[int, str]:
     """Wait for the first of `names` to report done/failed (0) or raise an alert (3-8), with the line that says which.
 
@@ -7602,7 +8005,6 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     is the child's count of final sends before its task was delivered, so a report that lands before the watch
     starts still counts (and an unread one isn't news). `alerts_only` keeps watching through reports. `hang` is
     the transcript silence that raises exit 8 (default the `hang_after` setting; 0 turns it off).
-    `autoreset` (the root's own watch, unless `root_reset.auto` is false) resets an idle root over the threshold.
     `every` (`--any`: the run as read when `names` were picked) also watches the run's other workers that owe a
     report or come later, and lets retired ones go (see Roster). `retire_after` (`mesh watch`'s, `idle_retire`)
     retires a worker idle that long after its `done` or `failed` (Watch.maybe_retire). `reserve` (the root's own
@@ -7614,7 +8016,7 @@ def watch_agents(run_id: str, names: list[str], timeout: float = 0, interval: fl
     held = dict(zip(names, hold_watch(run_id, names)))
     roster = Roster(run_id, grace, hang, held, every, names, retire_after) if every is not None else None
     try:
-        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, autoreset, roster, reserve)
+        return poll_watches(run_id, watches, timeout, interval, deadline, alerts_only, roster, reserve)
     finally:
         for handle in held.values():
             handle.close()
@@ -7698,9 +8100,8 @@ class Roster:
 
 
 def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: float, deadline: float | None,
-                 alerts_only: bool, autoreset: bool = False, roster: Roster | None = None,
+                 alerts_only: bool, roster: Roster | None = None,
                  reserve: bool = False) -> tuple[int, str]:
-    checked = float("-inf")  # when the root was last checked for an idle reset
     quotas = float("-inf")  # when the quotas were last looked at
     stopped = (0, stopped_line(run_id))
     while True:
@@ -7715,9 +8116,6 @@ def poll_watches(run_id: str, watches: list["Watch"], timeout: float, interval: 
                 roster.refresh(run, watches, events)
             # One `claude agents` call per poll, shared by every background worker.
             bg_rows = claude_agents() if any(run["agents"].get(w.name, {}).get("view") == "bg" for w in watches) else None
-            if autoreset and time.monotonic() - checked >= AUTORESET_EVERY:
-                checked = time.monotonic()
-                quietly(maybe_autoreset, run_id, run, events)
             if reserve and time.monotonic() - quotas >= RESERVE_POLL:
                 quotas = time.monotonic()
                 alert = quietly(reserve_alert, run_id, run, events)
@@ -7932,6 +8330,7 @@ def retire_worker(run_id: str, name: str, entry: dict, still=None) -> bool:
         raise
     with editing_run(run_id) as run:
         run["agents"][name]["status"] = "retired"
+    remove_private(run_id, name)  # its MCP config copies servers' secrets; a reopen writes it again
     log_event(run_id, "retire", name=name)
     sweep_worktrees(run_id, {name: entry})  # what it left running there (design §17)
     return True
@@ -8874,7 +9273,6 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
                                              or (not task and (bool(old.get("read_only")) or old.get("view") == HEADLESS)))
     planning = enforced and not read_only and (
         planned_task(task) if task else bool(old.get("planning") or mid_plan))
-    deny = deny_argv({**old, "read_only": read_only, "planning": planning})
     # A new planned task gets its execution tier at `mesh approve`; one still mid-plan keeps what it had.
     exec_model = old.get("exec_model") if keeps_phase else None
     exec_effort = old.get("exec_effort") if keeps_phase else None
@@ -8895,7 +9293,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
                         **({"tier": tier} if tier else {}), **({"reason": reason} if reason else {})}],
             **({"peer": peer_name} if peer_name else {}),
             **({"collect": args.collect} if getattr(args, "collect", None) else {}),
+            **{k: old[k] for k in ADDED_KEYS if old.get(k)},  # the conversation's tools added back stay
         }
+    deny = launch_deny(run_id, name, agent_entry(load_run(run_id), name))
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
               "resumed_from": {"run": old_run["id"], "name": old_name}, "worktree_recreated": recreated,
               "compaction": compaction, "notes": notes, **({"left_pr": moved["pr"]} if moved.get("pr") else {})}
@@ -10965,7 +11365,7 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
 # What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
 # agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
 WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
-                             "brief", "model", "usage", "cost", "routing", "peers list"})
+                             "brief", "model", "usage", "cost", "routing", "peers list", "tools"})
 # Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
@@ -11115,6 +11515,7 @@ def stop_run(args: argparse.Namespace, run_id: str, run: dict) -> int:
     log_event(run_id, "stop", closed=closed, kept=[k["path"] for k in kept])
     archive = mesh_home() / "archive" / run_id
     archive.parent.mkdir(parents=True, exist_ok=True)
+    remove_private(run_id)  # MCP configs and the root's settings copy secrets: none goes into the archive
     os.replace(run_dir(run_id), archive)
     emit({"run": run_id, "closed": closed, "worktrees_removed": removed, "worktrees_kept": kept,
           "archive": str(archive), "branches_deleted": deleted,
@@ -11443,7 +11844,7 @@ CLEAR_CONFIRM = 15  # seconds for a typed /clear to show up as a new session
 CLEAR_FILE_GRACE = 5  # seconds the root's process file gets to follow a /clear herdr has already reported
 AUTORESET_EVERY = 60  # seconds between a root watch's idle-reset checks
 AUTORESET_BACKOFF = 3600  # seconds before a root watch starts another idle reset (a failing one shouldn't repeat)
-AUTORESET_QUIET = 300  # seconds a root must have been still after a turn mesh started before its watch resets it
+AUTORESET_QUIET = 300  # seconds a root must have been still after a turn mesh started before its keeper resets it
 AUTORESET_USER_QUIET = 1800  # ...after a turn the user started (or when that can't be told): it may wait on them
 BLOCKING_TYPES = ("plan", "question")  # unread reports that keep the root from resetting: a worker waits on them
 QUIET_STATES = ("idle", "done")
@@ -11491,7 +11892,7 @@ def root_reset_at() -> int:
 
 
 def autoreset_on() -> bool:
-    """The root's watch resets an idle root (design §15): on unless `root_reset.auto` is false."""
+    """The run's root keeper resets an idle root (design §15): on unless `root_reset.auto` is false."""
     return setting("root_reset.auto")
 
 
@@ -11631,12 +12032,48 @@ def root_context(run: dict, as_root: bool = False) -> dict | None:
     if tokens is None:
         return None
     last = max((f.stat().st_mtime for f in files if f.exists()), default=None)
-    idle = time.time() - last if last else None
+    written = time.time() - last if last else None
+    # Quiet since its last turn: Claude Code writes bookkeeping after a turn (an `away_summary` ~3 minutes on),
+    # which moves the file's mtime but isn't a turn. The cache's age still goes by the last write.
+    turn = last_turn_time(Path(transcript)) if entry.get("kind") != "agy" and transcript else None
+    idle = time.time() - turn if turn and last and turn <= last else written
     ttl = cache_ttl(session_ttl)
     return {"kind": entry.get("kind"), "session": session, "transcript": str(transcript), "tokens": tokens,
             "last_turn": datetime.fromtimestamp(last, timezone.utc).isoformat(timespec="seconds") if last else None,
             "idle": round(idle) if idle is not None else None, "ttl": ttl,
-            "cold": idle is not None and idle > ttl, "reset_at": root_reset_at()}
+            "cold": written is not None and written > ttl, "reset_at": root_reset_at()}
+
+
+def last_turn_time(path: Path, chunk: int = 1 << 20, limit: int = 8 << 20) -> float | None:
+    """When the newest main-chain prompt or reply of a Claude session file was written (its `timestamp`), read
+    backwards from the end; None when none has one in the last `limit` bytes."""
+    try:
+        with open(path, "rb") as fh:
+            end, rest = fh.seek(0, os.SEEK_END), b""
+            stop = max(0, end - limit)
+            while end > stop:
+                start = max(stop, end - chunk)
+                fh.seek(start)
+                lines = (fh.read(end - start) + rest).split(b"\n")
+                rest = lines.pop(0) if start else b""
+                for line in reversed(lines):
+                    if b'"timestamp"' not in line or not (b'"type":"user"' in line or b'"type":"assistant"' in line
+                                                          or b'"type": "user"' in line
+                                                          or b'"type": "assistant"' in line):
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except ValueError:
+                        continue
+                    if data.get("type") in ("user", "assistant") and not data.get("isSidechain"):
+                        try:
+                            return datetime.fromisoformat(str(data["timestamp"]).replace("Z", "+00:00")).timestamp()
+                        except (KeyError, ValueError):
+                            continue
+                end = start
+    except OSError:
+        return None
+    return None
 
 
 def kilo(tokens: int) -> str:
@@ -11739,6 +12176,7 @@ def root_line(run_id: str, about_to_wait: bool = False) -> tuple[str | None, boo
 
 def root_hint(run_id: str, about_to_wait: bool = False) -> None:
     """Print `root_line` on stderr; never fails the command (like `warn_unwatched`). For root commands only."""
+    quietly(ensure_root_keeper, run_id)
     line, failure = quietly(root_line, run_id, about_to_wait) or (None, False)
     if line:
         print(f"mesh: {line} (see ORCHESTRATE.md, \"Your own context\")", file=sys.stderr)
@@ -11746,7 +12184,8 @@ def root_hint(run_id: str, about_to_wait: bool = False) -> None:
         quietly(log_event, run_id, "reset_noted", name=(maybe_run(run_id) or {}).get("root"))
 
 
-def start_reset(run_id: str, root: str, next_task: str | None, compact: str | None, via: str) -> int:
+def start_reset(run_id: str, root: str, next_task: str | None, compact: str | None, via: str,
+                reopen: bool = False) -> int:
     """Start the detached process that resets the root once its turn ends, holding the run's reset lock.
 
     The lock is taken here and handed down (the child inherits the open file through `pass_fds` and holds it
@@ -11764,7 +12203,8 @@ def start_reset(run_id: str, root: str, next_task: str | None, compact: str | No
     log.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, str(Path(__file__).absolute()), "reset", "--run", run_id, "--as", root,
             "--detached", "--via", via,
-            *(["--next", next_task] if next_task else []), *(["--compact", compact] if compact is not None else [])]
+            *(["--next", next_task] if next_task else []), *(["--compact", compact] if compact is not None else []),
+            *(["--reopen"] if reopen else [])]
     env = {k: v for k, v in os.environ.items() if k not in CLAUDE_SESSION_VARS and k not in MESH_IDS}
     try:
         with open(log, "a") as out:
@@ -11772,14 +12212,15 @@ def start_reset(run_id: str, root: str, next_task: str | None, compact: str | No
                                     start_new_session=True, pass_fds=(handle.fileno(),))
     finally:
         handle.close()  # the child holds the lock now: same open file, its own descriptor
-    log_event(run_id, "reset_requested", name=root, via=via, next=next_task, compact=compact, pid=proc.pid)
+    log_event(run_id, "reset_requested", name=root, via=via, next=next_task, compact=compact, pid=proc.pid,
+              **({"reopen": True} if reopen else {}))
     return proc.pid
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     if args.detached:
-        return reset_root(run_id, me, args.next, args.compact, args.via)
+        return reset_root(run_id, me, args.next, args.compact, args.via, reopen=getattr(args, "reopen", False))
     run = load_run(run_id)
     entry = run["agents"].get(me) or {}
     if entry.get("role") != "root":
@@ -11913,13 +12354,438 @@ def agy_root_conversation(before: set[str], token: str) -> str | None:
     return None
 
 
+# ── tools on demand: `mesh tools add` (design §11, "Lean sessions") ──
+TOOLS_WAIT = timedelta(minutes=30)  # the wait a worker's `tools add` declares, and the reopen's wait for its turn
+
+
+def lean_cut(entry: dict) -> dict:
+    """What a lean Claude agent runs without now: tools, skills, plugins, claude.ai's skills, and its MCP servers
+    (loaded and left out), with what it added back."""
+    if not lean_on():
+        return {"lean": False, "tools": [], "skills": [], "plugins": [], "claudeai_skills": None, "mcp": "inherit",
+                "mcp_loaded": [], "mcp_cut": [], "claudeai_connectors": None, "added": []}
+    known = known_mcp_servers(entry.get("repo") or entry.get("cwd"))
+    mode = mcp_mode(entry)
+    loaded = sorted(known) if mode == "inherit" else sorted(lean_mcp_servers(entry))
+    return {"lean": True, "tools": lean_tools(entry), "skills": lean_skills(entry),
+            "plugins": sorted({k.split("@")[0] for k in lean_plugins(entry)}),
+            "claudeai_skills": None if setting("claude.claudeai_skills") or CLAUDEAI_SKILLS in agent_added(entry)
+            else CLAUDEAI_SKILLS,
+            "mcp": mode, "mcp_loaded": loaded, "mcp_cut": sorted(set(known) - set(loaded)),
+            "claudeai_connectors": None if mode == "inherit" else "claude.ai",
+            "added": sorted(agent_added(entry))}
+
+
+def resolve_addition(entry: dict, name: str) -> str:
+    """What `name` is among the things this agent runs without: tool, skill, plugin, claudeai (claude.ai's synced
+    skills), mcp (a server of the user's config), connectors (claude.ai's MCP connectors: only the user's whole
+    MCP config brings them, so the agent then loads all of it). MeshError naming what is cut otherwise."""
+    cut = lean_cut(entry)
+    if name in cut["tools"]:
+        return "tool"
+    if name in cut["skills"]:
+        return "skill"
+    if name.split("@")[0] in cut["plugins"]:
+        return "plugin"
+    if name == cut["claudeai_skills"]:
+        return "claudeai"
+    if name in cut["mcp_cut"]:
+        return "mcp"
+    if cut["claudeai_connectors"] and re.match(r"(?i)claude[._ ]ai\b", name):
+        return "connectors"
+    listed = "; ".join(f"{k}: {', '.join(v) if isinstance(v, list) else v}" for k, v in cut.items()
+                       if k in ("tools", "skills", "plugins", "mcp_cut") and v)
+    raise MeshError(f"{name} isn't something this session runs without ({listed or 'nothing is cut'}"
+                    f"{'; claude.ai connectors: `claude.ai`' if cut['claudeai_connectors'] else ''}"
+                    f"{'; ' + cut['claudeai_skills'] if cut['claudeai_skills'] else ''})")
+
+
+def tools_lock_path(run_id: str, name: str) -> Path:
+    return run_dir(run_id) / "locks" / f"tools-{name}.lock"
+
+
+def start_tools_reopen(run_id: str, name: str, next_task: str | None) -> int:
+    """Start the detached reopen of a worker that added tools back (`tools_reopen`), holding its lock, as
+    start_reset does for the root."""
+    path = tools_lock_path(run_id, name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise MeshError(f"a reopen of {name} with added tools is already pending (`mesh log` shows how it goes)")
+    log = run_dir(run_id) / "logs" / f"tools-{name}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    argv = [sys.executable, str(Path(__file__).absolute()), "tools", "--apply", "--run", run_id, "--as", name,
+            *(["--next", next_task] if next_task else [])]
+    env = {k: v for k, v in os.environ.items() if k not in CLAUDE_SESSION_VARS and k not in MESH_IDS}
+    try:
+        with open(log, "a") as out:
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                    start_new_session=True, pass_fds=(handle.fileno(),))
+    finally:
+        handle.close()
+    return proc.pid
+
+
+def tools_reopen(run_id: str, name: str, next_task: str | None) -> int:
+    """The detached half of a worker's `mesh tools add`: once its turn has ended, reopen the same conversation on
+    the same model with what it added (`swap_model`), then ring it to carry on (an `info` from its parent, so it
+    still owes the report of its task). A reopen that fails tells it so, and it carries on as it was."""
+    entry = agent_entry(load_run(run_id), name)
+    parent = entry.get("parent") or me_parent(run_id, name)
+    added = ", ".join(sorted(agent_added(entry)))
+    body = (f"mesh reopened this conversation with {added} (`mesh tools add`). Carry on: "
+            f"{next_task or 'where you stopped'}.")
+    try:
+        swap = swap_model(run_id, name, entry["model"], entry["effort"], "tools added",
+                          wait_ms=int(TOOLS_WAIT.total_seconds() * 1000), message=(parent, "info", body))
+    except MeshError as exc:
+        log_event(run_id, "tools_failed", name=name, error=str(exc))
+        if not getattr(exc, "stored", None):  # a background copy that didn't start has it stored already
+            quietly(deliver, run_id, parent, name, "info",
+                    f"mesh couldn't reopen you with {added} ({exc}). Carry on without it, or ask your parent.")
+        print(f"mesh tools: failed: {exc}", flush=True)
+        return 1
+    delivery = swap.pop("delivery", None) or deliver(run_id, parent, name, "info", body, first=True)
+    log_event(run_id, "tools_reopened", name=name, added=sorted(agent_added(entry)), rung=delivered(delivery))
+    print(f"mesh tools: reopened {name} with {added}", flush=True)
+    return 0
+
+
+def cmd_tools(args: argparse.Namespace) -> int:
+    """`mesh tools`: what your Claude session runs without; `mesh tools add <name>…`: get them back, by a reopen
+    of the same conversation once your turn ends (one cold cache write of your context)."""
+    if caller := worker_caller(argparse.Namespace()):  # from the environment and the pane: flags can't change it
+        run, name = caller
+        if args.apply or (getattr(args, "as_", None) or name) != name or (getattr(args, "run", None) or run) != run:
+            log_event(run, "refused", name=name, command="tools")
+            raise MeshError(f"{name} is a worker of run {run}, and `mesh tools` is for its own session only: it "
+                            f"takes no --run or --as naming anyone else, and no --apply")
+    run_id, me = identity(args)
+    if args.apply:
+        return tools_reopen(run_id, me, args.next)
+    entry = agent_entry(load_run(run_id), me)
+    if entry.get("kind") != "claude":
+        raise MeshError(f"{me} is a {entry.get('kind')} agent: only Claude sessions start lean")
+    if args.action != "add":
+        if args.names:
+            raise MeshError("`mesh tools` lists; `mesh tools add <name>…` adds")
+        emit(lean_cut(entry))
+        return 0
+    if not args.names:
+        raise MeshError("add what? `mesh tools` lists what this session runs without")
+    if not lean_on():
+        raise MeshError("claude.lean is off: this session runs with everything already")
+    kinds = {name: resolve_addition(entry, name) for name in dict.fromkeys(args.names)}
+    root = entry.get("role") == "root"
+    if root and entry.get("kind") == "claude" and not setting("root_reset.relaunch"):
+        raise MeshError("root_reset.relaunch is off, so mesh can't restart your Claude with them: restart it "
+                        "yourself without the flags that cut them")
+    if root and reset_pending(run_id):
+        raise MeshError("a reset is already pending for this run: add them after it")
+    added = sorted({n.split("@")[0] if k == "plugin" else n for n, k in kinds.items()})
+    before = {k: entry.get(k) for k in ADDED_KEYS}
+    with editing_run(run_id) as run:  # first: the reopen it starts launches from the entry
+        e = run["agents"][me]
+        e["added"] = sorted(set(e.get("added") or []) | set(added))
+        if "tool" in kinds.values():
+            e["tools_added"] = True  # the snapshot would keep it out: every later launch turns it off
+        if "connectors" in kinds.values():
+            e["mcp_all"] = True
+    try:
+        pid = (start_reset(run_id, me, args.next, None, via="tools", reopen=True) if root
+               else start_tools_reopen(run_id, me, args.next))
+    except BaseException:
+        with editing_run(run_id) as run:  # nothing will reopen it: as it was
+            e = run["agents"][me]
+            for key, value in before.items():
+                e.pop(key, None) if value is None else e.update({key: value})
+        raise
+    log_event(run_id, "tools_added", name=me, added=added, kinds=sorted(set(kinds.values())))
+    if not root:  # its Stop hook and the watch let this turn end; the reopen waits for it to
+        parent = entry.get("parent") or me_parent(run_id, me)
+        until = datetime.now(timezone.utc) + TOOLS_WAIT
+        text = (f"Waiting until {until.astimezone():%H:%M} ({until.isoformat(timespec='seconds')}): mesh reopens "
+                f"me with {', '.join(added)} (`mesh tools add`) once this turn ends")
+        path = store_message(run_id, me, parent, "wait", text)
+        log_event(run_id, "send", sender=me, to=parent, type="wait", file=path.name,
+                  until=until.isoformat(timespec="seconds"))
+    emit({"added": added, "pending": True, "pid": pid,
+          "then": "end your turn now: once it has ended, mesh reopens this same conversation with them (its "
+                  "context is written to the cache again once, cold), then rings you to carry on"
+                  + (" with --next" if args.next else "")})
+    return 0
+
+
+# ── relaunching the root's Claude with the lean flags (design §15, "Relaunch") ──
+# Claude Code 2.1.332's options by how many values each takes (`claude --help`): the rest take none. A flag this
+# table doesn't know is kept as one that takes none, and a word after it is dropped as a prompt: a newer Claude
+# with a new valued flag then fails to start, and the relaunch falls back to the old command line.
+CLAUDE_VALUE_FLAGS = frozenset({
+    "--agent", "--agents", "--append-system-prompt", "--autocompact", "--debug-file", "--effort", "--environment",
+    "--fallback-model", "--input-format", "--json-schema", "--max-budget-usd", "--model", "-n", "--name",
+    "--output-format", "--permission-mode", "--permission-prompts", "--plugin-dir", "--plugin-url",
+    "--remote-control-session-name-prefix", "--session-id", "--setting-sources", "--settings", "--system-prompt",
+    "--system-prompt-snapshot", "--max-turns", "--permission-prompt-tool", "--append-system-prompt-file",
+    "--system-prompt-file"})
+CLAUDE_LIST_FLAGS = frozenset({"--add-dir", "--allowedTools", "--allowed-tools", "--betas", "--disallowedTools",
+                               "--disallowed-tools", "--file", "--mcp-config", "--tools"})
+CLAUDE_OPTIONAL_FLAGS = frozenset({"--cloud", "-d", "--debug", "--from-pr", "--prompt-suggestions",
+                                   "--remote-control", "-r", "--resume", "--teleport", "-w", "--worktree"})
+# What picks or starts a conversation, rather than configuring the session: never carried into a relaunch.
+CLAUDE_SESSION_FLAGS = frozenset({"-r", "--resume", "-c", "--continue", "--session-id", "--fork-session", "-p",
+                                  "--print", "--bg", "--background", "--teleport", "--from-pr"})
+# Variables Claude Code or the pane set for one process, which a relaunch's settings `env` must not pin.
+RELAUNCH_ENV_SKIP = frozenset({"_", "SHLVL", "PWD", "OLDPWD", "COLUMNS", "LINES", *MESH_IDS, *HERDR_IDS,
+                               *CLAUDE_SESSION_VARS})
+RELAUNCH_EXIT = 20  # seconds a typed /exit gets to end the root's Claude
+RELAUNCH_START = 60  # seconds a relaunched Claude gets to lead the pane with a session of its own
+
+
+def parse_claude_argv(argv: list[str]) -> dict:
+    """A Claude command line taken apart (`argv[0]`, or a script under node, is the binary): `plain`, its flags
+    without the ones that pick a conversation (CLAUDE_SESSION_FLAGS) or a prompt; `kept`, those without its
+    `--settings`, `--disallowedTools`, `--mcp-config`, `--strict-mcp-config` and `--system-prompt-snapshot` too,
+    which a lean relaunch merges into its own or builds again; and `settings`, `deny` and `mcp`, their values."""
+    args = list(argv[1:])
+    if argv and Path(argv[0]).name in INTERPRETERS and len(argv) > 1:
+        args = list(argv[2:])
+    plain, kept, settings, deny, mcp = [], [], [], [], []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        i += 1
+        if token == "--":
+            break  # what follows is a prompt
+        if not token.startswith("-") or token == "-":
+            continue  # a prompt: never replayed
+        name, eq, inline = token.partition("=") if token.startswith("--") else (token, "", "")
+        values: list[str] = [inline] if eq else []
+        if not eq:
+            if name in CLAUDE_VALUE_FLAGS and i < len(args):
+                values, i = [args[i]], i + 1
+            elif name in CLAUDE_LIST_FLAGS:
+                while i < len(args) and not args[i].startswith("-"):
+                    values.append(args[i])
+                    i += 1
+            elif name in CLAUDE_OPTIONAL_FLAGS and i < len(args) and not args[i].startswith("-"):
+                values, i = [args[i]], i + 1
+        if name in CLAUDE_SESSION_FLAGS:
+            continue
+        written = [token] if eq else [token, *values]
+        plain += written
+        if name == "--settings":
+            settings += values
+        elif name in ("--disallowedTools", "--disallowed-tools"):
+            deny += [t for v in values for t in re.split(r"[,\s]+", v) if t]
+        elif name == "--mcp-config":
+            mcp += values
+        elif name not in ("--strict-mcp-config", "--system-prompt-snapshot"):
+            kept += written
+    return {"plain": plain, "kept": kept, "settings": settings, "deny": deny, "mcp": mcp}
+
+
+def proc_snapshot(pid: int) -> dict | None:
+    """A live process's command line, parent, cwd and environment from /proc, or None (gone, or no /proc)."""
+    folder = Path(f"/proc/{pid}")
+    try:
+        argv = [a for a in (folder / "cmdline").read_bytes().decode(errors="replace").split("\0") if a]
+        ppid = int((folder / "stat").read_text().rsplit(")", 1)[1].split()[1])
+        cwd = os.readlink(folder / "cwd")
+        env = dict(item.split("=", 1) for item in (folder / "environ").read_bytes().decode(errors="replace").split("\0")
+                   if "=" in item)
+    except (OSError, ValueError, IndexError):
+        return None
+    return {"argv": argv, "ppid": ppid, "cwd": cwd, "env": env}
+
+
+def root_claude(pane: str) -> tuple[dict | None, str]:
+    """The Claude leading the root's pane, when a relaunch can replace it: started from the pane's own shell (so
+    an `/exit` hands the pane back to it) with a command line that can be read. (None, why) otherwise."""
+    info = pane_process_info(pane)
+    if not info:
+        return None, "herdr can't say what runs in its pane"
+    pid, shell = info.get("foreground_process_group_id"), info.get("shell_pid")
+    if not pid or not shell or pid == shell:
+        return None, "no Claude leads its pane"
+    proc, shell_proc = proc_snapshot(pid), proc_snapshot(shell)
+    if not proc or agent_binary(proc["argv"]) != "claude":
+        return None, "the process leading its pane isn't a Claude whose command line can be read"
+    if proc["ppid"] != shell or not shell_proc:
+        return None, "its Claude wasn't started from the pane's shell"
+    return {"pid": pid, "start": proc_start(pid), **proc, "shell_env": shell_proc["env"]}, ""
+
+
+def settings_arg(value: str, cwd: str) -> dict | None:
+    """A `--settings` value (JSON, or a file relative to `cwd`) as an object, or None when it can't be read."""
+    try:
+        data = json.loads(value) if value.lstrip().startswith("{") else json.loads(
+            (Path(cwd) / Path(value).expanduser()).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def merged_settings(user: dict, ours: dict) -> dict:
+    """The user's settings with ours laid over them, object keys (skillOverrides, enabledPlugins, env) merged."""
+    out = dict(user)
+    for key, value in ours.items():
+        out[key] = {**out[key], **value} if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tuple[dict | None, str]:
+    """How to restart the root's Claude lean in its pane: {"argv", "fallback", "pid", "start"}, or (None, why
+    not). `resume`: the conversation to reopen (`mesh tools add`); else a fresh session (a reset). The argv is
+    the old one without what picks a conversation, its own `--disallowedTools` and `--settings` merged into the
+    lean ones (Claude Code keeps only the last `--settings`), in one private file with the environment the old
+    process had beyond its shell's (what an alias set); the fallback is the old command line on its own session.
+    A reset of a root that already runs exactly these flags returns (None, "already lean"): a /clear does."""
+    if entry.get("kind") != "claude":
+        return None, "only a Claude root is relaunched"
+    if not (setting("root_reset.relaunch") and lean_on()):
+        return None, "root_reset.relaunch or claude.lean is off"
+    claude, why = root_claude(entry["pane"])
+    if not claude:
+        return None, why
+    parsed = parse_claude_argv(claude["argv"])
+    folder = root_files(entry["pane"])
+    path = folder / "settings.json"
+    # A root mesh relaunched before (in this run or an earlier one) runs on mesh's merged file and deny list:
+    # what the user's own command line gave is kept from that first relaunch (`origin.json`), so what it added
+    # since isn't denied again. With no such record, its merged file stands in, less mesh's own deny list.
+    last = Path(parsed["settings"][-1]) if parsed["settings"] else None
+    relaunched_before = bool(last and last.name == "settings.json" and last.parent.parent == mesh_home() / "roots")
+    if relaunched_before:
+        origin = read_json_object(last.parent / "origin.json")
+        if origin:
+            user, env, user_deny = (origin.get("settings") or {}), (origin.get("env") or {}), (origin.get("deny") or [])
+            user_mcp = origin.get("mcp") or []
+        else:
+            user, env = read_json_object(last), {}
+            user_mcp = [v for v in parsed["mcp"] if Path(v) != folder / "mcp.json"]
+            mesh_tools = {*setting("claude.root_deny_tools"), *LEAN_DENY, *ROOT_LEAN_DENY}
+            user_deny = [t for t in parsed["deny"] if t not in mesh_tools]
+    else:
+        user, user_deny, user_mcp = {}, parsed["deny"], parsed["mcp"]
+        for value in parsed["settings"][-1:]:  # Claude Code keeps only the last one
+            user = settings_arg(value, claude["cwd"])
+            if user is None:
+                return None, f"its --settings {value} can't be read"
+        env = {k: v for k, v in claude["env"].items()
+               if claude["shell_env"].get(k) != v and k not in RELAUNCH_ENV_SKIP and not k.startswith("CLAUDE_CODE_")}
+    settings = merged_settings(user, lean_settings(entry))
+    if env:
+        settings["env"] = {**env, **(settings.get("env") or {})}
+    tools = list(dict.fromkeys([*(t for t in user_deny if t not in agent_added(entry)), *lean_tools(entry)]))
+    text = json.dumps(settings, indent=1)
+    previous = path.read_text() if path.exists() else None
+    argv = [*parsed["kept"], *(["--disallowedTools", *tools] if tools else []), "--settings", str(path)]
+    mcp = folder / "mcp.json"
+    if mcp_mode(entry) != "inherit":  # only ours: a user's own --mcp-config would load what the cut drops
+        argv += ["--strict-mcp-config", "--mcp-config", str(mcp)]
+    elif user_mcp:
+        argv += ["--mcp-config", *user_mcp]
+    if resume is None and parsed["settings"][-1:] == [str(path)] and previous == text \
+            and set(parsed["deny"]) == set(tools) and ("--strict-mcp-config" in claude["argv"]) == (mcp_mode(entry) != "inherit"):
+        return None, "already lean"
+    write_private(path, text)
+    if not relaunched_before or not (folder / "origin.json").exists():
+        write_private(folder / "origin.json",
+                      json.dumps({"settings": user, "env": env, "deny": user_deny, "mcp": user_mcp}))
+    if mcp_mode(entry) != "inherit":
+        write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
+    if resume:
+        argv += ["--resume", resume, *(["--system-prompt-snapshot", "off"] if entry.get("tools_added") else [])]
+    old = leader_session(entry["pane"]) or entry.get("session")
+    return {"argv": argv, "fallback": [*parsed["plain"], *(["--resume", old] if old else [])],
+            "pid": claude["pid"], "start": claude["start"]}, ""
+
+
+def start_root_claude(root: str, pane: str, argv: list[str], old_pid: int) -> tuple[dict | None, str]:
+    """`herdr agent start` the root's Claude in its pane (at its shell prompt), then wait until a new Claude leads
+    it with a session of its own: its process record, or (None, why)."""
+    why = "it didn't start"
+    for _ in range(5):
+        try:
+            herdr("agent", "start", root, "--kind", "claude", "--pane", pane, "--timeout", "60000", "--", *argv,
+                  timeout=90)
+            break
+        except HerdrError as exc:
+            why = f"herdr agent start: {exc.code}"
+            if exc.code == "agent_not_ready":  # the shell is still coming back
+                time.sleep(1)
+                continue
+            if exc.code != "timeout":  # a timeout may still be a Claude starting: look
+                return None, why
+            break
+    deadline = time.monotonic() + RELAUNCH_START
+    while time.monotonic() < deadline:
+        record = leader_record(pane)
+        if record and record.get("pid") != old_pid and record.get("sessionId"):
+            return record, ""
+        time.sleep(1)
+    return None, why
+
+
+def relaunch_root(run_id: str, root: str, entry: dict, plan: dict) -> tuple[dict | None, str]:
+    """Type /exit into the root's idle pane, then start its Claude again with the plan's flags; on any failure
+    after the exit, start the old command line on its own session instead, so the pane never stays without its
+    root. (new process record, "") when the lean one runs; (None, why) otherwise, with the old one back if it
+    could be. The root's address, pid and session are re-recorded at once, so workers' doorbells don't go to a
+    socket that died with the old process."""
+    pane = entry["pane"]
+    try:
+        herdr("agent", "prompt", pane, "/exit", timeout=30)
+    except HerdrError as exc:
+        return None, f"typing /exit failed: {exc.code}"
+    deadline = time.monotonic() + RELAUNCH_EXIT
+    while pid_alive(plan["pid"], plan["start"]) and time.monotonic() < deadline:
+        time.sleep(1)
+    if pid_alive(plan["pid"], plan["start"]):
+        return None, "it was sent /exit, but its Claude still runs; nothing else was typed"
+    record, why = start_root_claude(root, pane, plan["argv"], plan["pid"])
+    if not record:
+        leader = (pane_process_info(pane) or {})
+        if leader.get("foreground_process_group_id") not in (None, leader.get("shell_pid")):
+            late = leader_record(pane)  # a Claude that took longer than RELAUNCH_START to record its session
+            if late and late.get("pid") != plan["pid"]:
+                rebind_root(run_id, root, late)
+                return late, ""
+            return None, f"the lean relaunch didn't confirm ({why}), and something else leads its pane now"
+        back, why_back = start_root_claude(root, pane, plan["fallback"], plan["pid"])
+        if back:
+            rebind_root(run_id, root, back)
+            return None, f"the lean relaunch didn't start ({why}); its old command line was started again"
+        return None, (f"the lean relaunch didn't start ({why}), nor the old command line ({why_back}): its pane has no "
+                      f"Claude now; run `claude {shlex.join(plan['fallback'])}` in it")
+    rebind_root(run_id, root, record)
+    return record, ""
+
+
+def rebind_root(run_id: str, root: str, record: dict) -> None:
+    """Record a relaunched root's process: its socket, pid, start and session (`refresh_root_address`'s fields)."""
+    socket_path = record.get("messagingSocketPath")
+    update = {"pid": record.get("pid"), "start": str(record.get("procStart")) if record.get("procStart") else None,
+              "session": record.get("sessionId"), "address": f"uds:{socket_path}" if socket_path else None}
+    with editing_run(run_id) as data:
+        data["agents"][root].update(update)
+    log_event(run_id, "rebind", name=root, why="relaunched", **update)
+
+
 def bootstrap_text(run_id: str, root: str, next_task: str | None, compacted: bool, token: str,
-                   via: str = "command") -> str:
+                   via: str = "command", added: list[str] | None = None) -> str:
     """The prompt a reset root wakes to. It is a doorbell (so `human_draft` takes a leftover copy for ours), but
     a root's: it has no parent to report to. After the watch's idle reset, the root may have been waiting on the
     user: ORCHESTRATE has it write such a question to notes.md, and the prompt says to look there."""
     what = "compacted your session" if compacted else "gave you a fresh session (your earlier context is gone)"
     then = next_task or "carry on from the next step in your notes"
+    if added is not None:
+        return (f"{DOORBELL_PREFIX} (ref {token}) You are {root}, the root of agent-mesh run {run_id}. mesh reopened "
+                f"your conversation with {', '.join(added) or 'what you added'} (`mesh tools add`); your context is "
+                f"as it was. Carry on: {then}")
     if via == "watch":
         then += ("; if notes.md says you were waiting on an answer from the user, ask the user again rather "
                  "than going on without it")
@@ -11928,9 +12794,12 @@ def bootstrap_text(run_id: str, root: str, next_task: str | None, compacted: boo
             f"not from memory. Then: {then}")
 
 
-def reset_root(run_id: str, root: str, next_task: str | None, compact: str | None, via: str = "command") -> int:
-    """The detached half of `mesh reset`: wait for the root's turn to end, type /clear (or /compact), confirm it,
-    then type the bootstrap prompt. Every outcome is a `reset*` event, which the root's next command shows."""
+def reset_root(run_id: str, root: str, next_task: str | None, compact: str | None, via: str = "command",
+               reopen: bool = False) -> int:
+    """The detached half of `mesh reset`: wait for the root's turn to end, then restart its Claude lean in its pane
+    where it can (`relaunch_plan`), else type /clear (or /compact) and confirm it, then type the bootstrap prompt.
+    `reopen` (`mesh tools add`): restart it on its own conversation with what it added, or fail. Every outcome is
+    a `reset*` event, which the root's next command shows."""
     run = load_run(run_id)
     entry = run["agents"][root]
     pane, kind = entry["pane"], entry.get("kind")
@@ -11949,6 +12818,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
     deadline = time.monotonic() + wait
 
     lost_since = None  # when herdr began reading it `unknown` with nothing else to judge it by
+    relaunched = None  # the new Claude's process record, when it was relaunched
 
     def quiet_now() -> tuple[bool, str]:
         """quiet_box, with a LostRoot final only once it has lasted LOST_AFTER: herdr may be re-detecting."""
@@ -11982,6 +12852,17 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                     file_before = leader_session(pane) if kind != "agy" else None
                     before = entry.get("session") if kind == "agy" else file_before or reported_before
                     agy_before = agy_conversations() if kind == "agy" else set()
+                    if reopen and not before:
+                        return failed("reset_failed", "couldn't tell which conversation it is in, to reopen it")
+                    plan, plan_why = (None, "a --compact") if compact is not None else relaunch_plan(
+                        run_id, root, load_run(run_id)["agents"][root], before if reopen else None)
+                    if reopen and not plan:
+                        return failed("reset_failed", f"couldn't reopen it with what it added: {plan_why}")
+                    if plan:
+                        relaunched, why_not = relaunch_root(run_id, root, entry, plan)
+                        if not relaunched:
+                            return failed("reset_failed", why_not)
+                        break
                     command = f"/compact {compact}".strip() if compact is not None else "/clear"
                     try:
                         if compact is not None:  # a compaction is a turn: it starts working, then ends
@@ -12004,12 +12885,16 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         except HerdrError as exc:
             return failed("reset_failed", f"the compaction didn't finish: {exc.code}")
         candidates = {before} if before else set()  # a compaction keeps the conversation
+    elif relaunched:
+        candidates = {relaunched["sessionId"]} if relaunched.get("sessionId") else set()  # a late one may lack it
     else:
         candidates = cleared_session(entry, file_before, agy_before, reported_before)
         if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
     token = ring_token()
-    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via), token, kind=kind)
+    added = sorted(agent_added(load_run(run_id)["agents"][root])) if reopen else None
+    result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via, added), token,
+                  kind=kind)
     if not result["rung"]:
         return failed("reset_failed", f"its session was reset, but the prompt to run `mesh brief` didn't get "
                                       f"through ({result['error']})")
@@ -12026,14 +12911,14 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         with editing_run(run_id) as data:
             data["agents"][root]["session"] = new
     log_event(run_id, "reset", name=root, via=via, compact=compact, next=next_task, old_session=before,
-              new_session=new, tokens=(context or {}).get("tokens"),
+              new_session=new, tokens=(context or {}).get("tokens"), relaunched=bool(relaunched),
               transcript=(context or {}).get("transcript"), **({"note": note} if note else {}))
     print(f"mesh reset: done ({before} → {new})", flush=True)
     return 0
 
 
 def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
-    """The root's own watch (unless `root_reset.auto` is false): reset a root that is over the threshold, idle, owed
+    """The run's root keeper (unless `root_reset.auto` is false): reset a root that is over the threshold, idle, owed
     nothing and quiet, warm or cold (design §15). Quiet is AUTORESET_QUIET since its last turn when mesh started
     that turn, AUTORESET_USER_QUIET when the user did or it can't be told (`last_turn_by_user`): a root answering
     the user may be waiting on them. Stricter than `mesh reset`: any unread report holds it, since it acts without
@@ -12062,9 +12947,90 @@ def maybe_autoreset(run_id: str, run: dict, events: list[dict]) -> bool:
             return False
     elif status not in QUIET_STATES:
         return False
-    start_reset(run_id, root, "carry on supervising: your watch reset you while you were idle",
+    start_reset(run_id, root, "carry on supervising: mesh reset you while you were idle",
                 None, via="watch")
     return True
+
+
+# ── the root keeper: the idle reset, whether or not a watch runs ──
+# The idle reset used to run only inside the root's own `mesh watch`, which exits once nothing is left to watch:
+# a root left waiting on the user or a deploy then had nobody checking it (98% of the quiet time over the
+# threshold in 28 days of root transcripts, design §15). A detached keeper per run, like the retirer, checks it.
+
+
+def keeper_lock_path(run_id: str) -> Path:
+    return run_dir(run_id) / "keeper.lock"
+
+
+def ensure_root_keeper(run_id: str) -> int | None:
+    """Start the run's root keeper unless one runs (it holds the lock) or the idle reset is off; its pid, or None.
+    Root commands call it (`root_hint`, `brief`, `watch`), so a fresh root's first command restarts it after a
+    reset."""
+    if not autoreset_on():
+        return None
+    root = (maybe_run(run_id) or {}).get("agents", {}).get((maybe_run(run_id) or {}).get("root")) or {}
+    if root.get("kind") not in MODES or not root.get("pane"):
+        return None
+    handle = keeper_lock_path(run_id).open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    try:
+        return start_root_keeper(run_id, handle)
+    finally:
+        handle.close()  # the child holds the lock now
+
+
+def start_root_keeper(run_id: str, handle) -> int:
+    """Start `mesh keeper` detached, handing it the locked `handle`, as start_retirer does."""
+    log = run_dir(run_id) / "logs" / "keeper.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    argv = [sys.executable, str(Path(__file__).absolute()), "keeper", "--run", run_id,
+            "--lock-fd", str(handle.fileno())]
+    env = {k: v for k, v in claude_env().items()}
+    with open(log, "a") as out:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                cwd=run_dir(run_id), start_new_session=True, pass_fds=(handle.fileno(),))
+    return proc.pid
+
+
+def run_root_keeper(run_id: str, poll: float = AUTORESET_EVERY, sleep=time.sleep) -> int:
+    """The keeper's loop: every `poll` seconds, `maybe_autoreset`, until it starts a reset (the fresh root's first
+    command starts the next keeper), the run stops, or the idle reset is turned off."""
+    while True:
+        if run_stopped(run_id) or not autoreset_on():
+            return 0
+        try:
+            run = load_run(run_id)
+            if pane_probe((run["agents"].get(run.get("root")) or {}).get("pane"), None) == "missing":
+                return 0  # its root's pane is gone: a run abandoned without `mesh stop`
+            if maybe_autoreset(run_id, run, read_log(run_id)):
+                return 0
+        except MeshError as exc:
+            if run_stopped(run_id):
+                return 0
+            print(f"mesh keeper: {exc}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - a reading that fails once is looked at again next poll
+            print(f"mesh keeper: {type(exc).__name__}: {exc}", flush=True)
+        sleep(poll)
+
+
+def cmd_keeper(args: argparse.Namespace) -> int:
+    """The run's root keeper (started by a root command, `ensure_root_keeper`): the idle reset."""
+    unpin(os.getpid())
+    if args.lock_fd is not None:
+        handle = os.fdopen(args.lock_fd, "a")
+    else:  # by hand: only when none runs
+        handle = keeper_lock_path(args.run).open("a")
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("mesh: this run's root keeper is already running", file=sys.stderr)
+            return 0
+    with handle:
+        return run_root_keeper(args.run)
 
 
 BRIEF_TEXT = 4000  # characters of board.md and of notes.md a brief carries
@@ -12248,6 +13214,8 @@ def cmd_routing(args: argparse.Namespace) -> int:
 
 def cmd_brief(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
+    if me == (maybe_run(run_id) or {}).get("root"):
+        quietly(ensure_root_keeper, run_id)
     data = brief(run_id, me)
     if args.json:
         emit(data)
@@ -13071,6 +14039,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lock-fd", type=int, help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_retirer)
 
+    p = sub.add_parser("keeper", help="internal: the run's root keeper (the idle reset), which root commands start")
+    p.add_argument("--run", required=True)
+    p.add_argument("--lock-fd", type=int, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_keeper)
+
     p = sub.add_parser("agents", help="past and present workers of every run, with branches and PRs")
     p.add_argument("query", nargs="?", help="filter on name, repo, branch or PR link")
     p.add_argument("--run", help="only this run's workers, resumed ones included")
@@ -13180,7 +14153,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="type /compact [FOCUS] instead of /clear: for a root with work of its own in flight")
     p.add_argument("--detached", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--via", default="command", help=argparse.SUPPRESS)
+    p.add_argument("--reopen", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_reset)
+
+    p = ident(sub.add_parser("tools", help="what your Claude session runs without (tools, skills, plugins, MCP "
+                                          "servers); `add <name>…` gets them back by reopening the same "
+                                          "conversation once your turn ends"))
+    p.add_argument("action", nargs="?", choices=("list", "add"), default="list")
+    p.add_argument("names", nargs="*", metavar="NAME")
+    p.add_argument("--next", help="what you carry on with once reopened")
+    p.add_argument("--apply", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_tools)
 
     p = sub.add_parser("routing", help="this machine's policy (models, efforts, reviewers, rounds, reserve, folders), "
                                        "where each value comes from, and the installed CLIs")

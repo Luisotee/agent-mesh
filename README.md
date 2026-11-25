@@ -2,7 +2,7 @@
 
 **Your coding agent hands work to agents that live in your other repos, then reviews what they send back.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue.svg)](LICENSE)
 ![Python 3.10+, stdlib only](https://img.shields.io/badge/python-3.10%2B%20stdlib-3776ab.svg)
 ![Linux or WSL](https://img.shields.io/badge/runs%20on-Linux%20%7C%20WSL-555.svg)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-supported-d97757.svg)
@@ -124,7 +124,8 @@ No server or database to install: one stdlib Python script, a few skills and a p
 Every worker and reviewer is a full Claude Code or agy session drawing on your own subscription, so a large task with two reviewers is three or more sessions. agent-mesh keeps that down:
 
 - **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan, on a light model; every PR is reviewed by its author first, then a small one by one cheap reviewer in one round.
-- **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold).
+- **Lean sessions:** Claude agents start without the tools, skills, plugins and MCP servers a mesh agent rarely needs (about 39k tokens that every call would re-read), with session flags only, never your settings; an agent that needs one adds it back with `mesh tools add`.
+- **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota once it is 90% used.
 - **`mesh cost`** shows what each agent of a run spent, by phase.
@@ -162,4 +163,4 @@ uvx pytest -q tests       # herdr and the agent CLIs are stubbed; git worktree t
 
 ## License
 
-[MIT](LICENSE).
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal use, hobby projects and research, and for charitable organizations, educational institutions, public research, safety, health or environmental organizations and government institutions. Any commercial use, including use inside a company and selling or reselling it, needs a commercial license: contact [@Luisotee](https://github.com/Luisotee). This is a summary: the LICENSE text governs. Commits up to f73ee32 (2026-11-25) remain under the MIT License.
