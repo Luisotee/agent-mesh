@@ -319,7 +319,7 @@ You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the 
 
 Then end your turn. A later task may ask more, or ask you to make a change, which follows the steps below as usual.
 
-**Direct tasks.** A task that starts with `Direct task (no plan)` skips steps 4 to 6: research (step 3), then execute, verify, publish and report (steps 7 to 10). If the research shows the task is bigger or less clear than it says, send a `question` with what you found and end your turn before changing anything.
+**Direct tasks.** A task that starts with `Direct task (no plan)` (mesh reads any start of `Direct task` not followed by a letter, such as `Direct task:`, the same way: a task it didn't read so would be planned, with the deny list on) skips steps 4 to 6: research (step 3), then execute, verify, publish and report (steps 7 to 10). If the research shows the task is bigger or less clear than it says, send a `question` with what you found and end your turn before changing anything.
 
 **Plan reviewed by the user.** A task that starts with `Plan review by the user` runs in plan mode: write your plan as Claude Code's plan mode asks, and the user approves it in your pane. Don't send a `plan` message. Once approved, continue from step 7.
 

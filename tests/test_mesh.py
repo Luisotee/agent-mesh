@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import re
+import shutil
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11611,3 +11612,44 @@ def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypat
     monkeypatch.setattr(mesh, "run_retirer", lambda run_id, handle: seen.append(("run", run_id)) or 0)
     assert mesh.main(["retirer", "--run", run]) == 0
     assert seen == [("leave", run), ("run", run)]
+
+
+# ── "Direct task:" is a direct task, as "Direct task (no plan)" is ───────
+
+
+@pytest.mark.parametrize("task, planned", [
+    ("Direct task (no plan): fix it", False), ("Direct task: fix it", False), ("Direct task. Fix it.", False),
+    ("  Direct task\n\nFix it.", False), ("Direct task", False),
+    ("Direct tasks are what we send often: plan the doc", True), ("Plan the Direct task feature", True),
+])
+def test_a_task_starting_direct_task_is_not_planned(mesh, task, planned):
+    assert mesh.planned_task(task) is planned
+
+
+def test_a_retired_planner_given_a_colon_direct_task_resumes_without_a_plan_phase(mesh, fake, run, repo):
+    archived_worker(mesh, repo, kind="claude", session="c1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-fix"] = {**json.loads((mesh.mesh_home() / "archive" / "mold" / "run.json").read_text())
+                                      ["agents"]["proj-fix"], "parent": "repo-lead", "status": "retired",
+                                      "phase": "plan", "planning": True, "pane": "w7:p1", "tier": "mid"}
+    shutil.rmtree(mesh.mesh_home() / "archive" / "mold")
+    stub_new_pane(fake)
+    fake.on("agent", "get", error="agent_not_found")
+    assert mesh.main(["send", "proj-fix", "--type", "task", "--body", "Direct task: push #114 with --force-with-lease"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["planning"], entry["read_only"], entry["phase"]) == (False, False, None)
+    assert not deny_rules(fake.called("agent", "start")[-1])
+
+
+def test_a_colon_direct_task_lifts_a_live_planners_deny_list(mesh, fake, run, capsys):
+    read_only_asker(mesh, run, read_only=False, planning=True, phase="plan")
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Direct task: push it"]) == 0
+    assert not deny_rules(started(fake))
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["planning"] is False and entry["models"][-1]["why"] == "deny lifted"
+
+
+def test_the_phase_line_of_a_colon_direct_task_says_it_is_direct(mesh):
+    line = mesh.worker_phase({"phase": "plan", "planning": True}, [], "w", "Direct task: push it")
+    assert line.startswith("a direct task")

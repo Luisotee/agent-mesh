@@ -9170,19 +9170,34 @@ def first_line(text: str | None, limit: int = 160) -> str:
     return line[:limit]
 
 
-DIRECT_STARTS = ("Direct task (no plan)", "Plan review by the user")
+USER_REVIEW_START = "Plan review by the user"
+# A direct task starts `Direct task`, then no letter or digit: `Direct task (no plan)` is the form the protocol
+# gives, and `Direct task:` the one a root writes by habit (as the daemon's `directStart` reads it); "Direct
+# tasks are…" is an ordinary task.
+DIRECT_RE = re.compile(r"Direct task(?![A-Za-z0-9])")
+
+
+def direct_task(task: str | None) -> bool:
+    """A task with no plan phase, as the root marked it."""
+    return bool(task) and DIRECT_RE.match(task.lstrip()) is not None
+
+
+def standard_start(text: str | None) -> bool:
+    """A task that opens with one of mesh's own lines: a question, a review, a direct task, a user's plan review."""
+    text = (text or "").lstrip()
+    return text.startswith(READ_ONLY_STARTS + (USER_REVIEW_START,)) or direct_task(text)
 
 
 def planned_task(task: str | None) -> bool:
     """A task the worker plans first: not a question, a review or a direct task."""
-    return bool(task) and not task.lstrip().startswith(READ_ONLY_STARTS + DIRECT_STARTS)
+    return bool(task) and not standard_start(task)
 
 
 def task_gist(task: str | None, limit: int = 160) -> str:
     """The line that says what a task is: the first one past the standard prefixes, without a heading's `#`."""
     for paragraph in re.split(r"\n\s*\n", task or ""):
         paragraph = paragraph.strip()
-        if not paragraph or paragraph.startswith(READ_ONLY_STARTS + DIRECT_STARTS):
+        if not paragraph or standard_start(paragraph):
             continue
         line = first_line(paragraph.lstrip("#").strip())
         if line:
@@ -11784,11 +11799,11 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
             last, f"you reported `{last}` on it: wait for a new task or answer")
     if (task or "").startswith(READ_ONLY_STARTS):
         return "a read-only task: change nothing, and report one `done` with the answer"
-    if (task or "").startswith(DIRECT_STARTS[1]):  # before the direct task: it plans first
+    if (task or "").startswith(USER_REVIEW_START):  # before the direct task: it plans first
         return ("a plan the user reviews: if the user hasn't approved your plan in your pane yet, plan in plan "
                 "mode and change nothing; once it's approved, make the change, verify it, open the PR, run the "
                 "`self-review` skill on it and report `done`")
-    if (task or "").startswith(DIRECT_STARTS):
+    if direct_task(task):
         return ("a direct task (no plan review by your parent): make the change, verify it, open the PR, run the "
                 "`self-review` skill on it, report `done`")
     if entry.get("phase") == "plan" or entry.get("planning"):
