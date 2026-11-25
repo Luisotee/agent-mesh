@@ -23,7 +23,7 @@ Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was
 
 **Apps (plan in `docs/apps.md`)**
 
-herdr and the terminal workflow are replaced by a daemon per host plus desktop, Android and web apps; nothing of herdr is kept. Steps, in order (`docs/apps.md`, "Order of work"):
+herdr and the terminal workflow are replaced by a daemon per host plus desktop and Android apps (a web client is deferred); nothing of herdr is kept. Steps, in order (`docs/apps.md`, "Order of work"):
 
 - [ ] Daemon core (Go), the rest of step 1. Milestone 1 (`daemon/`, `proto/`) has the action registry with actor classes, meshd with SQLite and resumable events, the terminal host, the Claude adapter with hooks and the reducer, and the generated `meshctl`; milestone 2 has settings as host data and model changes in the same conversation (tiers, approve, switch, resume, the planning deny list), retiring, stopping a run, the agent cap and the memory guard; the agy adapter (`internal/adapter/agy`) is in. Left: the daemon's sweep of leftover processes and CPU and memory scopes per agent (`sweep_worktrees`, `confine_agent`); and the switchover (`docs/apps.md`, "Switchover", the lines below). Agents then run without herdr.
 - [ ] Daemon: a Claude worktree it hasn't seen shows a folder-trust dialog ("Quick safety check … Yes, I trust this folder", default "No, exit") before any hook fires, so the agent sits at STARTING until someone presses Down and Enter; found by the fixture capture on 2.1.332 (every worktree of a run is such a folder). `bin/mesh` reads the dialog from the pane (`TRUST_OPTION_RE`); the daemon needs the same (the terminal host's screen) or a pre-trusted worktree before launch. Check first whether `--dangerously-skip-permissions` skips it.
