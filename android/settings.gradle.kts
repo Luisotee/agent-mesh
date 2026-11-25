@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "agent-mesh-android"
-include(":app")
+include(":app", ":terminal-emulator")

@@ -6,7 +6,13 @@ The app is a client of the daemon (`daemon/`). Everything it does to a host is a
 
 ## What the first version does
 
-Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device). Plans, questions and reports (messages, paged from the host and live), and notifications come in the second part; the terminal in the third (`TODO.md`).
+Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device). A read-only terminal per agent, plans, questions and reports, and notifications (`TODO.md` lists what's next).
+
+## The terminal
+
+An agent's **Terminal** tab shows its CLI's screen as the host holds it, live, with 2,000 lines of history to scroll (drag; the view stays on the lines being read as new ones arrive; "Latest" jumps back). Pinch to zoom and pan, double tap to fit the host's width to the screen. It is read only: the app asks for no input right (`OpenTerminal` with `input: false`) and sends nothing but the attach, so it can't type, and the host answers terminal queries itself (the emulator's replies are dropped here).
+
+How it follows the host's protocol (`docs/apps.md`, "Terminal protocol"; `term/TermClient.kt`): the first attach asks for a repaint; after a drop it continues from the last (epoch, byte offset) with a fresh one-time ticket and a growing wait (the host falls back to a repaint, marked reanchored, when it can't); a "slow" close (4001) reattaches at once; output of another epoch means someone resized, so it repaints and takes the new size. It attaches with size 0 ("unknown"), so a phone never shrinks the terminal the desktop is using; the host's size is drawn, fitted to the width and panned when that would be unreadable. The emulator is Termux's `terminal-emulator` module (Apache-2.0) copied into `terminal-emulator/` (its README says what changed); the drawing is ours (`ui/TerminalCanvas.kt`). Not yet: typing and a key row, selecting and copying text.
 
 ## Plans, questions, reports and notifications
 

@@ -46,6 +46,7 @@ android {
 
 
 dependencies {
+    implementation(project(":terminal-emulator"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)

@@ -342,7 +342,7 @@ Settled for step 4, the Android app's first version (2026-11-25, run mfb6a):
 - **State** is built only from the snapshot and events (`reduce`, pure), with a parity test that a live stream and its replay agree; what waits on the user is derived as on the desktop.
 - **Device tokens** are sealed with an Android Keystore key; the host list is `hosts.json` in the app's private storage.
 - **Themes:** six JSON files in `android/app/src/main/assets/themes/` with the desktop's token names, mapped to a Material 3 scheme plus the agent-state and terminal colours; Dracula is the default, and the choice is per device (a host setting for it is a follow-up).
-- **Terminal:** read-only first, with Termux's `terminal-emulator` module copied in and our own Compose renderer, since `terminal-view` needs a local-process session. Typing and a key row follow.
+- **Terminal:** read-only first, with Termux's `terminal-emulator` module copied into `android/terminal-emulator/` (without its local-process `TerminalSession`) and our own Compose renderer, since `terminal-view` needs a local-process session. The viewer attaches with size 0 so it never resizes the shared terminal, drops the emulator's replies to terminal queries (the host answers them), and repaints on an epoch change. Typing and a key row follow.
 - **Tests without an emulator:** JVM unit tests, the Compose screens under Robolectric, and the end-to-end tests against a real meshd on a temp state dir with the fake `claude`. Maestro flows are written; they run only where an emulator does (WSL without KVM: not here).
 
 ## Open decisions

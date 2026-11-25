@@ -75,7 +75,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
                 if (waiting.isNotEmpty()) {
                     item(key = "waiting-header") { SectionHeader("Waiting on you (${waiting.size})") }
                     items(waiting, key = { "wait:${it.kind}:${it.message?.id ?: it.agent.id}" }, contentType = { "waiting" }) { w ->
-                        WaitingRow(w) { onAgent(w.agent.id, if (w.kind == WaitingKind.Input) Tab.Overview else Tab.Messages) }
+                        WaitingRow(w) { onAgent(w.agent.id, if (w.kind == WaitingKind.Input) Tab.Terminal else Tab.Messages) }
                     }
                     item(key = "waiting-divider") { HorizontalDivider(Modifier.padding(top = 8.dp)) }
                 }

@@ -10,7 +10,10 @@ import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import dev.agentmesh.gen.agentmesh.v1.ApproveAgentRequest
+import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import dev.agentmesh.gen.agentmesh.v1.Cursor
+import dev.agentmesh.gen.agentmesh.v1.OpenTerminalRequest
+import kotlinx.coroutines.channels.ReceiveChannel
 import dev.agentmesh.gen.agentmesh.v1.ListMessagesRequest
 import dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse
 import dev.agentmesh.gen.agentmesh.v1.Message
@@ -47,7 +50,25 @@ class ApiException(val code: Code, message: String, cause: Throwable? = null) : 
  * action a device may call (proto/agentmesh/v1/mesh.proto): the app can do nothing an agent can't do through the
  * same registry.
  */
-val UI_ACTIONS = listOf("hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent")
+val UI_ACTIONS = listOf("hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal")
+
+/** What a terminal stream delivers: frames, then how it ended. */
+sealed interface TermEvent {
+    class Frame(val frame: TermFrame) : TermEvent
+
+    /** The host closed the stream with [code] (4000 exited, 4001 slow, 4002 shutdown, 4003 bad request). */
+    class Closed(val code: Int, val reason: String) : TermEvent
+
+    /** The connection failed or broke. */
+    class Failed(val cause: Throwable) : TermEvent
+}
+
+/** One terminal stream. [events] ends after a [TermEvent.Closed] or [TermEvent.Failed]. */
+interface TerminalSocket {
+    val events: ReceiveChannel<TermEvent>
+    fun send(frame: TermFrame): Boolean
+    fun close()
+}
 
 /** The calls themselves, so a test can stand in for a host. [ConnectMeshApi] is the real one. */
 interface MeshApi {
@@ -63,6 +84,12 @@ interface MeshApi {
 
     /** Approves an agent's plan: it moves to its execution model in the same conversation. Returns the stored answer. */
     suspend fun approveAgent(agent: String): Message
+
+    /** A one-time ticket for an agent's terminal stream: the path to open on the host (read only: this app asks for no input right). */
+    suspend fun openTerminal(agent: String): String
+
+    /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
+    fun connectTerminal(path: String): TerminalSocket
 
     suspend fun listSettings(prefix: String = ""): List<Setting>
     suspend fun setSetting(key: String, value: Value): Setting
@@ -80,7 +107,7 @@ fun newMeta(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 60_000): Req
 
 private const val PAGE = 500
 
-class ConnectMeshApi(connection: Connection, private val clientName: String = "agent-mesh-android") : MeshApi {
+class ConnectMeshApi(private val connection: Connection, private val clientName: String = "agent-mesh-android") : MeshApi {
     private val service = MeshServiceClient(
         ProtocolClient(
             ConnectOkHttpClient(connection.http),
@@ -125,6 +152,11 @@ class ConnectMeshApi(connection: Connection, private val clientName: String = "a
 
     override suspend fun approveAgent(agent: String): Message =
         service.approveAgent(ApproveAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok().message
+
+    override suspend fun openTerminal(agent: String): String =
+        service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(false).build()).ok().path
+
+    override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
 
     override suspend fun listSettings(prefix: String): List<Setting> =
         service.listSettings(ListSettingsRequest.newBuilder().setPrefix(prefix).build()).ok().settingsList
