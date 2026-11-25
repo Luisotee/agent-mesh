@@ -117,8 +117,8 @@ export function forward(
       socketPath: t.socketPath,
       host: t.host,
       port: t.port,
-      // A paired host's connection is made by its dialer (pinned TLS, through the relay if need be), not by address.
-      ...(t.dialer ? { createConnection: connectWith(t.dialer) } : {}),
+      // A paired host's connections are the dialer's (pinned TLS, through the relay if need be, kept alive), not by address.
+      ...(t.dialer ? { agent: t.dialer.agent } : {}),
       headers: { ...headers, host: 'meshd' },
     })
     abort = () => out.destroy()

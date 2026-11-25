@@ -46,7 +46,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
   const [readOnly, setReadOnly] = useState(false)
   const [lifetime, setLifetime] = useState(600)
   const [directUrl, setDirectUrl] = useState('')
-  const [made, setMade] = useState<{ res: CreatePairingResponse; known: Set<string> }>()
+  const [made, setMade] = useState<{ res: CreatePairingResponse; known: Set<string>; name: string }>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -68,8 +68,12 @@ export function PairPanel({ host }: { host: HostRuntime }) {
     }
   }, [host])
 
-  // A device that appears after the link was made is the one that used it (DevicePaired reaches this device only).
-  const paired = made ? devices.find((d) => !made.known.has(d.id)) : undefined
+  // A device can only be told to be this link's by the name the link was made with (the host keeps no link on a device),
+  // and the device may give its own. Without a match the link stays, with a note about the device that appeared.
+  const fresh = made ? devices.filter((d) => !made.known.has(d.id)) : []
+  const paired = made?.name ? fresh.find((d) => d.name === made.name) : undefined
+  const others = fresh.filter((d) => d !== paired)
+  const expired = useExpired(made?.res.expiresAt)
 
   async function create(e: React.FormEvent) {
     e.preventDefault()
@@ -79,7 +83,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
     setError('')
     try {
       const res = await createPairing(host.client, { name: name.trim(), readOnly, ttlSeconds: lifetime, directUrl: directUrl.trim() })
-      setMade({ res, known: new Set(host.store.getState().devices.map((d) => d.id)) })
+      setMade({ res, known: new Set(host.store.getState().devices.map((d) => d.id)), name: name.trim() })
       setCopied(false)
     } catch (err) {
       setError(say(err))
@@ -147,6 +151,8 @@ export function PairPanel({ host }: { host: HostRuntime }) {
             <p role="status" className="flex items-center gap-2 text-sm font-medium text-state-done">
               <Check className="size-4" /> Paired: {paired.name}
             </p>
+          ) : expired ? (
+            <p role="status" className="text-sm text-muted-foreground">This link has expired. Make another one.</p>
           ) : (
             <>
               <QrCode text={made.res.uri} label="Pairing QR code" />
@@ -161,6 +167,11 @@ export function PairPanel({ host }: { host: HostRuntime }) {
                 <Expiry at={made.res.expiresAt} />
               </div>
             </>
+          )}
+          {!paired && others.length > 0 && (
+            <p role="note" className="text-xs text-muted-foreground">
+              {others.map((d) => d.name || d.id).join(', ')} paired meanwhile. If it was not through this link, the link still works once.
+            </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
           <Button variant="secondary" onClick={() => setMade(undefined)}>{paired ? 'Pair another device' : 'Make another link'}</Button>
@@ -181,6 +192,20 @@ export function PairPanel({ host }: { host: HostRuntime }) {
       </div>
     </section>
   )
+}
+
+/** True once the host's clock says the link has stopped working (the host refuses it from then). */
+function useExpired(at?: { seconds: bigint }): boolean {
+  const ms = at ? Number(at.seconds) * 1000 : undefined
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (ms === undefined) return
+    const left = ms - Date.now()
+    if (left <= 0) return
+    const t = setTimeout(() => tick((n) => n + 1), left)
+    return () => clearTimeout(t)
+  }, [ms])
+  return ms !== undefined && Date.now() >= ms
 }
 
 /** When the link stops working, from the host's clock. */

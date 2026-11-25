@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
+import http from 'node:http'
 import net from 'node:net'
+import type { Duplex } from 'node:stream'
 import tls from 'node:tls'
 import type { BridgeErrorCode } from '../shared/api.js'
 
@@ -16,6 +18,25 @@ export interface Route {
   fingerprint: string
   direct?: { host: string; port: number }
   relay?: { host: string; port: number; token: string }
+}
+
+const plain = (v: unknown): v is string => typeof v === 'string' && v !== '' && !HAS_SPACE.test(v)
+const portOk = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 65535
+
+/** Whether `v` (read back from the saved host list) is a route this build can dial: every field there and of its type. */
+export function isRoute(v: unknown): v is Route {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  if (!plain(r.hostId) || typeof r.fingerprint !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(r.fingerprint)) return false
+  const d = r.direct
+  if (d !== undefined && !(typeof d === 'object' && d !== null && plain((d as Record<string, unknown>).host) && portOk((d as Record<string, unknown>).port))) return false
+  const l = r.relay
+  if (l !== undefined) {
+    if (typeof l !== 'object' || l === null) return false
+    const x = l as Record<string, unknown>
+    if (!plain(x.host) || !portOk(x.port) || !plain(x.token)) return false
+  }
+  return d !== undefined || l !== undefined
 }
 
 /** What a pairing link says (`agentmesh://pair?...`, docs/relay.md). */
@@ -38,6 +59,7 @@ export class RouteError extends Error {
 }
 
 const FINGERPRINT = /^(?:sha256:)?([0-9a-f]{64})$/i
+const HAS_SPACE = /\s/
 const HOST_PORT = /^(\[[0-9a-f:.]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/i
 
 function hostPort(s: string, what: string): { host: string; port: number } {
@@ -62,6 +84,8 @@ export function parsePairingLink(text: string): PairingLink {
   const token = q.get('t') ?? ''
   const fp = FINGERPRINT.exec(q.get('fp') ?? '')
   if (!hostId || !token) throw new Error('the pairing link is missing its host or its token')
+  // The host id and the relay token are written into the relay's one-line preamble: a space or a line break would corrupt it.
+  if (HAS_SPACE.test(hostId)) throw new Error("the pairing link's host id has a space or a line break in it")
   if (!fp) throw new Error("the pairing link's certificate fingerprint isn't sha256:<64 hex digits>")
   const route: Route = { hostId, fingerprint: `sha256:${fp[1]!.toLowerCase()}` }
   const d = q.get('d')
@@ -77,7 +101,10 @@ export function parsePairingLink(text: string): PairingLink {
   }
   const rtcp = q.get('rtcp')
   const rt = q.get('rt')
-  if (rtcp && rt) route.relay = { ...hostPort(rtcp, 'relay address'), token: rt }
+  if (rtcp && rt) {
+    if (HAS_SPACE.test(rt)) throw new Error("the pairing link's relay token has a space or a line break in it")
+    route.relay = { ...hostPort(rtcp, 'relay address'), token: rt }
+  }
   if (!route.direct && !route.relay) throw new Error('the pairing link has no way to reach the host (no direct address and no relay)')
   return { route, token, hostName: q.get('hn') ?? '', deviceName: q.get('n') ?? '' }
 }
@@ -178,8 +205,30 @@ function throughRelay(route: Route): Promise<net.Socket> {
 /** Remembers, per host, that the direct address failed, so the next connections go to the relay for a while. */
 const DIRECT_RETRY_MS = 60_000
 
+/**
+ * The connections of plain requests to one paired host, kept open between them: every action, list and refresh would
+ * otherwise be a new TLS handshake, and over the relay a new dial-back (the relay queues only so many of those per host).
+ * Streams (events, terminals) hold their own socket for as long as they run.
+ */
+class DialAgent extends http.Agent {
+  constructor(private readonly dialer: Dialer) {
+    // A socket idle for 15 s is closed, before a host's own idle timeout can close it under a request.
+    super({ keepAlive: true, maxFreeSockets: 4, timeout: 15_000 })
+  }
+
+  override createConnection(_options: unknown, cb?: (err: Error | null, socket: Duplex) => void): Duplex | null | undefined {
+    this.dialer.connect().then(
+      (s) => cb?.(null, s),
+      (e: unknown) => cb?.(e instanceof Error ? e : new Error(String(e)), undefined as never),
+    )
+    return undefined
+  }
+}
+
 export class Dialer {
   private directFailedAt = 0
+  /** For `http.request`: connections made by this dialer, reused. */
+  readonly agent: http.Agent = new DialAgent(this)
 
   constructor(readonly route: Route) {}
 
@@ -195,14 +244,16 @@ export class Dialer {
         // A wrong certificate is the host not being who it was paired as: the relay can't fix that.
         if (e instanceof RouteError && e.code === 'refused') throw e
         if (!route.relay) throw e
-        this.directFailedAt = now
         direct = e
       }
     }
     if (!route.relay) throw direct ?? new RouteError('failed', 'no route to the host')
     const raw = await throughRelay(route)
     try {
-      return await pinned(route.fingerprint, { socket: raw }, RELAY_TIMEOUT_MS)
+      const s = await pinned(route.fingerprint, { socket: raw }, RELAY_TIMEOUT_MS)
+      // Skip direct for a while only now the relay has worked: a relay that is down too must not shut direct out.
+      if (direct) this.directFailedAt = now
+      return s
     } catch (e) {
       raw.destroy()
       throw e

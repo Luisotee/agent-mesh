@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { BridgeEvent, SocketEvent } from '../shared/api'
 import { forward } from './bridge'
 import type { StoredHost } from './hosts'
-import { Dialer, fingerprintOf, parsePairingLink, type Route } from './route'
+import { Dialer, fingerprintOf, isRoute, parsePairingLink, type Route } from './route'
 import { openSocket } from './socket'
 
 const FP = `sha256:${'ab'.repeat(32)}`
@@ -45,8 +45,40 @@ describe('parsePairingLink', () => {
       [q('&rtcp=h:99999&rt=k'), /host:port/],
       [q(''), /no way to reach/],
       [q('&rtcp=relay:8443'), /no way to reach/], // a relay address without its token isn't a route
+      [q('&d=https://a:1').replace('h=h_1', 'h=h%201'), /host id/], // the relay preamble is one line of words
+      [q('&d=https://a:1').replace('h=h_1', 'h=h%0AOK'), /host id/],
+      [q('&rtcp=relay:8443&rt=k%20x'), /relay token/],
+      [q('&rtcp=relay:8443&rt=k%0D%0A'), /relay token/],
     ] as Array<[string, RegExp]>) {
       expect(() => parsePairingLink(text), text).toThrow(why)
+    }
+  })
+})
+
+describe('isRoute (what is read back from the saved list)', () => {
+  const ok = { hostId: 'h_1', fingerprint: FP, direct: { host: '10.0.0.2', port: 9443 }, relay: { host: 'relay', port: 8443, token: 'k' } }
+  it('takes a route parsePairingLink made', () => {
+    expect(isRoute(ok)).toBe(true)
+    expect(isRoute({ hostId: 'h', fingerprint: FP, direct: ok.direct })).toBe(true)
+    expect(isRoute({ hostId: 'h', fingerprint: FP, relay: ok.relay })).toBe(true)
+  })
+  it('refuses a route with a missing or mistyped field', () => {
+    for (const bad of [
+      null,
+      'x',
+      {},
+      { ...ok, hostId: '' },
+      { ...ok, hostId: 'a b' },
+      { ...ok, fingerprint: 'sha256:12' },
+      { ...ok, direct: {} },
+      { ...ok, direct: { host: 'a', port: '9443' } },
+      { ...ok, direct: { host: 'a', port: 0 } },
+      { ...ok, relay: { host: 'r', port: 8443 } },
+      { ...ok, relay: { host: 'r', port: 70000, token: 'k' } },
+      { ...ok, relay: 'r' },
+      { hostId: 'h', fingerprint: FP },
+    ]) {
+      expect(isRoute(bad), JSON.stringify(bad)).toBe(false)
     }
   })
 })
@@ -144,6 +176,18 @@ describe('a paired host over a direct address', () => {
     const events = await request(paired({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: h.port } }))
     expect(events.map((e) => e.type)).toEqual(['head', 'data', 'end'])
     expect(h.seen).toEqual([{ url: '/agentmesh.v1.MeshService/Hello', auth: 'Bearer amt_secret' }])
+  })
+
+  it('reuses one connection for the calls that follow one another, and dials a new one for a call while another runs', async () => {
+    const h = await startHost()
+    let connections = 0
+    h.server.on('secureConnection', () => connections++)
+    const host = paired({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: h.port } })
+    for (let i = 0; i < 3; i++) expect((await request(host)).map((e) => e.type)).toEqual(['head', 'data', 'end'])
+    expect(h.seen).toHaveLength(3)
+    expect(connections).toBe(1)
+    await Promise.all([request(host), request(host)])
+    expect(connections).toBe(2)
   })
 
   it('refuses a certificate that is not the pinned one, and sends nothing to it', async () => {
@@ -245,6 +289,28 @@ describe('both routes', () => {
     expect(relay.lines).toHaveLength(2)
     ;(await d.connect(t0 + 61_000)).destroy()
     expect(directTries).toBe(2)
+  })
+
+  it('keeps trying direct while the relay is down too: the direct address is skipped only once the relay has worked', async () => {
+    const h = await startHost()
+    let directUp = false
+    let directTries = 0
+    // Direct refuses at first, then is the real host.
+    const flaky = net.createServer((s) => {
+      directTries++
+      if (directUp) h.server.emit('connection', s)
+      else s.destroy()
+    })
+    await new Promise<void>((r) => flaky.listen(0, '127.0.0.1', r))
+    closers.push(() => flaky.close())
+    const relay = await startRelay(() => 'ERR offline the host is not connected', h.server)
+    const d = new Dialer({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: (flaky.address() as net.AddressInfo).port }, relay: { host: '127.0.0.1', port: relay.port, token: 't' } })
+    const t0 = 1_000_000
+    await expect(d.connect(t0)).rejects.toMatchObject({ code: 'unreachable' })
+    expect(directTries).toBe(1)
+    directUp = true
+    ;(await d.connect(t0 + 1_000)).destroy()
+    expect(directTries).toBe(2) // not shut out by the relay's failure
   })
 
   it('does not go to the relay when the direct host showed the wrong certificate', async () => {

@@ -74,6 +74,44 @@ describe('Hosts', () => {
     expect(log).toHaveLength(2)
   })
 
+  it('two links for one host added at once spend only the first, and a failed redeem frees the host for a retry', async () => {
+    const log: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const slow: Redeemer = async (l, n) => {
+      await gate
+      return redeemer(log)(l, n)
+    }
+    const h = new Hosts(tmp(), undefined, slow)
+    const first = h.add({ name: 'a', kind: 'pair', link: link(), deviceName: '' })
+    await expect(h.add({ name: 'b', kind: 'pair', link: link('&x=1'), deviceName: '' })).rejects.toThrow(/already/)
+    release()
+    await first
+    expect(log).toHaveLength(1)
+
+    let n = 0
+    const flaky: Redeemer = async (l, d) => {
+      if (n++ === 0) throw new Error('no route')
+      return redeemer()(l, d)
+    }
+    const g = new Hosts(tmp(), undefined, flaky)
+    await expect(g.add({ name: 'a', kind: 'pair', link: link(), deviceName: '' })).rejects.toThrow(/no route/)
+    await g.add({ name: 'a', kind: 'pair', link: link('&x=1'), deviceName: '' })
+    expect(g.all()).toHaveLength(1)
+  })
+
+  it('does not load a paired host whose saved route is damaged, and keeps its entry as it was', async () => {
+    const file = tmp()
+    mkdirSync(path.dirname(file), { recursive: true })
+    const bad = { id: 'p', name: 'p', kind: 'paired', deviceId: 'd', token: 't', route: { hostId: 'h', fingerprint: FP, direct: {} } }
+    writeFileSync(file, JSON.stringify([bad]))
+    const h = new Hosts(file)
+    await h.load()
+    expect(h.all()).toEqual([])
+    await h.add({ name: 'a', kind: 'state-dir', path: '/s/a' })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toContainEqual(bad)
+  })
+
   it('overlapping adds all reach the file', async () => {
     const file = tmp()
     const h = new Hosts(file)

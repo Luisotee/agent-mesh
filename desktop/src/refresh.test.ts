@@ -70,6 +70,20 @@ describe('what waits on the user', () => {
     expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['fresh'])
   })
 
+  it('does not call back to back under a steady stream of events: one call per pause', async () => {
+    const { client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    // An event every 50 ms for two seconds: each list is overtaken, none may be asked for in a tight loop.
+    for (let i = 0; i < 40; i++) {
+      r.event(sent(MessageType.PLAN))
+      await vi.advanceTimersByTimeAsync(50)
+    }
+    expect(client.listWaiting.mock.calls.length).toBeLessThanOrEqual(1 + 2000 / 200)
+    expect(client.listWaiting.mock.calls.length).toBeGreaterThan(2)
+  })
+
   it('asks again on the next tick after a failure, and says so again if it fails once more later', async () => {
     const { store, client, log, r } = setup()
     client.listWaiting.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(create(ListWaitingResponseSchema, { waiting: [row('a')] }))

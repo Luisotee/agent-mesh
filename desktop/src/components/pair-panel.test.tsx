@@ -55,6 +55,32 @@ describe('PairPanel', () => {
     expect(within(screen.getByRole('list', { name: 'Paired devices' })).getByText('read-only')).toBeInTheDocument()
   })
 
+  it('keeps the link while a device that is not this link\'s appears, and says which', async () => {
+    const { host, store, wrap } = fixture()
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    // A device paired some other way (meshctl pair): the link was made without a name, so it can't be told to be the link's.
+    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq: 1n, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device('d9', 'Phone') } } }) }))
+    expect(await screen.findByRole('note')).toHaveTextContent('Phone paired meanwhile')
+    expect(screen.getByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('swaps the link for "expired" when its time has passed, and a new link starts afresh', async () => {
+    const { host, client, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { uri: URI, expiresAt: timestampFromMs(Date.now() + 1500) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(await screen.findByRole('status', {}, { timeout: 3000 })).toHaveTextContent(/expired/)
+    expect(screen.queryByRole('img', { name: 'Pairing QR code' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Copy/ })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Make another link' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+  })
+
   it('waits for the list of devices before it makes a link, so a device already paired is not taken for the new one', async () => {
     const { host, client, wrap } = fixture()
     let release!: () => void

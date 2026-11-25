@@ -31,7 +31,6 @@ export function hostRefresher(
   let agentTouches = 0
   let pause: unknown
   let waitingLoading = false
-  let again = false
   let ticker: unknown
   let complained = false
   let waitingFailed = false
@@ -45,25 +44,20 @@ export function hostRefresher(
 
   async function loadWaiting(): Promise<void> {
     if (waitingLoading) {
-      again = true
+      // One call at a time; what changed meanwhile is asked for after the pause.
+      schedule()
       return
     }
     waitingLoading = true
     try {
-      do {
-        again = false
-        const seen = waitingTouches
-        const res = await listWaiting(client as MeshClient)
-        if (stopped) return
-        waitingFailed = false
-        complained = false
-        if (seen === waitingTouches) store.setState(setWaiting(res.waiting))
-        else {
-          // Asking again covers the events that overtook this list, so their pending call isn't needed.
-          again = true
-          timers.clearTimeout(pause)
-        }
-      } while (again && !stopped)
+      const seen = waitingTouches
+      const res = await listWaiting(client as MeshClient)
+      if (stopped) return
+      waitingFailed = false
+      complained = false
+      if (seen === waitingTouches) store.setState(setWaiting(res.waiting))
+      // Else an event overtook this list: it is not shown, and the call that event scheduled (or this one) asks again.
+      else schedule()
     } catch (e) {
       // The list stays as it was; the next tick asks again.
       waitingFailed = true
@@ -73,16 +67,20 @@ export function hostRefresher(
     }
   }
 
+  /** At most one call per `debounceMs`, however many events come: a burst is one call, and a steady stream can't starve it. */
   const schedule = () => {
-    if (stopped) return
-    timers.clearTimeout(pause)
-    pause = timers.setTimeout(() => void loadWaiting(), debounceMs)
+    if (stopped || pause !== undefined) return
+    pause = timers.setTimeout(() => {
+      pause = undefined
+      void loadWaiting()
+    }, debounceMs)
   }
 
   async function loadAgents(): Promise<void> {
     const s = store.getState()
     if (s.conn.kind !== 'ready' || !s.synced) return
     if (waitingFailed) {
+      // One call per tick, so no pause is needed.
       waitingFailed = false
       waitingTouches++
       void loadWaiting()
@@ -149,6 +147,7 @@ export function hostRefresher(
     synced(): void {
       waitingTouches++
       timers.clearTimeout(pause)
+      pause = undefined
       void loadWaiting()
     },
     start(): void {
@@ -157,6 +156,7 @@ export function hostRefresher(
     stop(): void {
       stopped = true
       timers.clearTimeout(pause)
+      pause = undefined
       timers.clearInterval(ticker)
       ticker = undefined
     },

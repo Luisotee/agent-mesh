@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { HostInfo, NewHost } from '../shared/api.js'
-import { parsePairingLink, type PairingLink, type Route } from './route.js'
+import { isRoute, parsePairingLink, type PairingLink, type Route } from './route.js'
 
 /**
  * What main keeps per host. A token lives here (0600) and nowhere else. A `tcp` host (a loopback address and a
@@ -49,6 +49,8 @@ export class Hosts {
   private list: StoredHost[] = []
   /** Entries this build doesn't understand (a newer kind, say): kept as they are and written back. */
   private foreign: unknown[] = []
+  /** Hosts whose pairing link is being redeemed right now. */
+  private readonly pending = new Set<string>()
   readonly fixed: boolean
 
   constructor(
@@ -108,8 +110,17 @@ export class Hosts {
   private async pair(name: string, text: string, deviceName: string): Promise<StoredHost> {
     if (!this.redeem) throw new Error('pairing is not available')
     const link = parsePairingLink(text)
-    if (this.list.some((h) => h.kind === 'paired' && h.route.hostId === link.route.hostId)) throw new Error('that host is already in the list')
-    const got = await this.redeem(link, deviceName.trim() || link.deviceName || 'Desktop')
+    const id = link.route.hostId
+    // Another add for this host may be mid-redeem: its token is spent by then, so this one must not spend its own.
+    if (this.pending.has(id) || this.list.some((h) => h.kind === 'paired' && h.route.hostId === id)) throw new Error('that host is already in the list')
+    this.pending.add(id)
+    let got: Redeemed
+    try {
+      got = await this.redeem(link, deviceName.trim() || link.deviceName || 'Desktop')
+    } finally {
+      // add() runs on in the same turn and puts the host in the list, so no other add can slip in between.
+      this.pending.delete(id)
+    }
     if (got.hostId !== link.route.hostId) {
       throw new Error(`the host that answered isn't the one the link named, so it was not saved. The link is used up, and that host now lists a device "${got.deviceName}": revoke it there.`)
     }
@@ -151,10 +162,4 @@ function isStored(v: unknown): v is StoredHost {
   if (h.kind === 'state-dir') return typeof h.path === 'string'
   if (h.kind === 'paired') return typeof h.deviceId === 'string' && typeof h.token === 'string' && isRoute(h.route)
   return h.kind === 'tcp' && typeof h.address === 'string' && typeof h.token === 'string'
-}
-
-function isRoute(v: unknown): v is Route {
-  if (typeof v !== 'object' || v === null) return false
-  const r = v as Record<string, unknown>
-  return typeof r.hostId === 'string' && typeof r.fingerprint === 'string' && (r.direct !== undefined || r.relay !== undefined)
 }
