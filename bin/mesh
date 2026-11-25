@@ -1688,7 +1688,12 @@ def read_log(run_id: str, folder: Path | None = None) -> list[dict]:
     path = (folder or run_dir(run_id)) / "log.jsonl"
     if not path.exists():
         return []
-    return parse_log_lines(path.read_text(errors="replace").splitlines(), path, quarantine=True)
+    # Split on "\n" alone, as quarantine_torn does: `splitlines` also breaks on \x0c, \x85 and the like, which a
+    # torn fragment may hold, and read_text turns a lone \r into one.
+    lines = path.read_bytes().decode(errors="replace").split("\n")
+    if lines and not lines[-1]:
+        lines.pop()
+    return parse_log_lines(lines, path, quarantine=True)
 
 
 # ── identity ─────────────────────────────────────────────────────────────

@@ -3324,6 +3324,18 @@ def test_a_nul_filled_line_is_blanked_in_place_so_no_offset_moves(mesh, fake, ru
     assert mesh.read_log(run) == events and capsys.readouterr().err == ""
 
 
+def test_a_fragment_with_a_form_feed_is_one_line_for_both_the_reader_and_the_quarantine(mesh, fake, run, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "ab") as fh:
+        fh.write(b'{"event": "se\x0cx\x85y\rz\n')
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+    capsys.readouterr()
+    assert mesh.read_log(run)[-1]["event"] == "send"
+    assert capsys.readouterr().err.count("set aside 1 unreadable line") == 1
+    mesh.read_log(run)
+    assert capsys.readouterr().err == ""
+
+
 def test_an_unterminated_last_line_is_left_for_its_writer_and_warned_about_once(mesh, fake, run, capsys):
     path = mesh.run_dir(run) / "log.jsonl"
     with open(path, "a") as fh:
@@ -5091,6 +5103,13 @@ def test_an_agy_model_refused_with_a_429_is_passed_over_until_its_hold_ends(mesh
     assert model == "claude-sonnet-5-5-high" and "claude-opus-5-5-high was refused with a 429" in notes[0]
     assert mesh.agy_has_quota("strong", "claude-opus-5-5-high")[0] is False
     assert "refused with a 429" in mesh.agy_has_quota("strong", "claude-opus-5-5-high")[1]
+    held = [mesh.resolve_agy_model(f, mesh.setting("review.effort")) for f in mesh.tier_chain("agy", "strong")]
+    assert mesh.agy_has_quota("strong")[0] is True  # a reviewer's tier path: some model of it is free
+    for model in held:
+        mesh.note_model_limit("agy", model, "429", time.time() + 600)
+    assert mesh.agy_has_quota("strong")[0] is False and "refused with a 429" in mesh.agy_has_quota("strong")[1]
+    mesh.write_atomic(mesh.model_limits_path(), "{}")
+    mesh.note_model_limit("agy", "claude-opus-5-5-high", "429", time.time() + 600)
     mesh.note_model_limit("agy", "claude-sonnet-5-5-high", "429", time.time() + 600)
     with pytest.raises(mesh.MeshError, match="refused with a 429"):
         mesh.choose_agy_model(("opus", "sonnet"), "high", fallback=False)
