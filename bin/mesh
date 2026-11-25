@@ -431,8 +431,9 @@ class Cli:
     # colour no ghost style covers once read as a human's draft, and held a task back).
     placeholder: re.Pattern | None = None
     # Its input box: "rules" (a `─` rule above and below a prompt at column 0: Claude, agy) or "gutter" (`┃` rows
-    # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text.
-    input_box, box_status_rows = "rules", 0
+    # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text,
+    # or `box_status_block`: a status of however many rows, after a blank one, at its foot.
+    input_box, box_status_rows, box_status_block = "rules", 0, False
     reads_drafts = True  # its box was checked live with a draft in it: typed_text reads it (else None: unclear)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
@@ -845,10 +846,11 @@ class OpenCodeCli(Cli):
     kind, name, short, processes = "opencode", "OpenCode", "OpenCode", ("opencode", "opencode.exe")
     enforces_read_only = records_session_on_send = True
     # Its empty box shows a placeholder in grey (`38;2;128;128;128`); typed text is near-white. The box is a `┃`
-    # gutter down to `╹▀▀…`, whose last row is the agent and model (the status, not typed).
+    # gutter down to `╹▀▀…`, whose foot is the agent and model (the status, not typed): one row, or several in a
+    # narrow pane, with blank ones around it.
     ghost_styles = ("dim", "grey", "rgb-grey")
     placeholder = re.compile(r'^Ask anything(…|\.\.\.)\s*("[^"]*")?$')  # `Ask anything… "Fix a TODO in the codebase"`
-    input_box, box_status_rows = "gutter", 1
+    input_box, box_status_block = "gutter", True
     counts_cost, cost_tally, cost_prefix = True, "agy", "opencode "
 
     def resolve(self, model: str, effort: str) -> str:
@@ -2340,7 +2342,7 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     if kind in CLIS and not CLIS[kind].reads_drafts:
         return None
     if kind in CLIS and CLIS[kind].input_box == "gutter":
-        typed = gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
+        typed = gutter_typed(lines, ghost, CLIS[kind].box_status_rows, CLIS[kind].box_status_block)
         hint = CLIS[kind].placeholder
         return "" if typed and hint and hint.match(typed) else typed
     plain = [strip_sgr(line) for line in lines]
@@ -2373,14 +2375,29 @@ def gutter_box(plain: list[str]) -> tuple[int, int] | None:
     return None
 
 
-def gutter_typed(lines: list[str], ghost: tuple[str, ...], status_rows: int) -> str | None:
-    """typed_text for a `┃`-gutter box: what follows each row's gutter, ghost text left out, without the box's last
-    `status_rows` rows (OpenCode's agent and model line); None when no such box is on the screen."""
+def gutter_typed(lines: list[str], ghost: tuple[str, ...], status_rows: int, block: bool = False) -> str | None:
+    """typed_text for a `┃`-gutter box: what follows each row's gutter, ghost text left out, without the box's
+    status: its last `status_rows` rows, or with `block` (OpenCode's agent and model line) the last run of
+    non-blank rows, after any blank ones at the foot. A narrow pane wraps that line onto several rows or pads
+    blank ones after it, so a count of rows misreads it as typed text. A block with no blank row above it can't be
+    told from text: None (unclear). None when no such box is on the screen."""
     box = gutter_box([strip_sgr(line) for line in lines])
     if box is None:
         return None
     rows = lines[box[0]:box[1] + 1]
-    rows = rows[:len(rows) - status_rows] if status_rows else rows
+    if block:
+        blank = [not strip_sgr(OSC_RE.sub("", row)).partition("┃")[2].strip() for row in rows]
+        end = len(rows)
+        while end and blank[end - 1]:
+            end -= 1
+        start = end
+        while start and not blank[start - 1]:
+            start -= 1
+        if start == 0 or start == end:
+            return None  # no status below a blank row to leave out
+        rows = rows[:start]
+    elif status_rows:
+        rows = rows[:len(rows) - status_rows]
     typed = []
     for row in rows:
         row = OSC_RE.sub("", row)
