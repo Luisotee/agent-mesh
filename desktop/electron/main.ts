@@ -4,6 +4,8 @@ import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
+import { Shell } from './shell.js'
+import { validNotice } from './shell-rules.js'
 import { openSocket, type Socket } from './socket.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -13,6 +15,13 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const userData = process.env.AGENT_MESH_DESKTOP_USERDATA
 if (userData) app.setPath('userData', userData)
 const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), process.env.AGENT_MESH_DESKTOP_STATE)
+
+let mainWindow: BrowserWindow | undefined
+const appShell = new Shell(
+  () => mainWindow,
+  (click) => mainWindow?.webContents.send('shell:click', click),
+  process.env.AGENT_MESH_DESKTOP_SHELL_LOG,
+)
 
 const aborts = new Map<string, () => void>()
 const sockets = new Map<string, Socket>()
@@ -79,6 +88,16 @@ function wire(): void {
     sockets.get(key)?.close()
     sockets.delete(key)
   })
+  ipcMain.on('shell:notify', (_e, n: unknown) => {
+    const valid = validNotice(n)
+    if (valid) appShell.notify(valid)
+  })
+  ipcMain.on('shell:waiting', (_e, n: unknown) => {
+    if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < 100_000) appShell.setWaiting(n)
+  })
+  ipcMain.on('shell:configure', (_e, c: unknown) => {
+    if (typeof c === 'object' && c !== null && typeof (c as { closeToTray?: unknown }).closeToTray === 'boolean') appShell.configure({ closeToTray: (c as { closeToTray: boolean }).closeToTray })
+  })
   ipcMain.on('shell:openExternal', (_e, url: unknown) => {
     // Links in a terminal open in the user's browser; only web links.
     if (typeof url === 'string' && /^https?:\/\//i.test(url) && url.length < 2048) void shell.openExternal(url)
@@ -116,7 +135,14 @@ function createWindow(): BrowserWindow {
     if (isMainFrame) abortAll(id)
   })
   wc.once('destroyed', () => abortAll(id))
+  win.on('close', (e) => {
+    if (appShell.closing()) {
+      e.preventDefault()
+      win.hide()
+    }
+  })
   void win.loadFile(path.join(here, '../../dist/index.html'))
+  mainWindow = win
   return win
 }
 
@@ -128,6 +154,8 @@ if (!app.requestSingleInstanceLock()) {
     await hosts.load()
     wire()
     createWindow()
+    appShell.start()
   })
+  app.on('second-instance', () => appShell.show())
   app.on('window-all-closed', () => app.quit())
 }

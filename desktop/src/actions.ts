@@ -1,5 +1,5 @@
-import { create } from '@bufbuild/protobuf'
-import { timestampFromMs } from '@bufbuild/protobuf/wkt'
+import { create, fromJson, type JsonValue } from '@bufbuild/protobuf'
+import { ValueSchema, timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { createClient, type Client } from '@connectrpc/connect'
 import type { Transport } from '@connectrpc/connect'
 import { MeshService, type SpawnAgentRequest } from './gen/agentmesh/v1/mesh_pb'
@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listSettings', 'setSetting', 'resetSetting'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -45,3 +45,10 @@ export const listMessages = (c: MeshClient, runId: string, afterId: string) => c
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
+
+export const listSettings = (c: MeshClient, prefix = '') => c.listSettings({ prefix })
+
+/** Set a setting to a JSON value; the host checks it against the setting's schema and says what's wrong. */
+export const setSetting = (c: MeshClient, key: string, value: JsonValue) => c.setSetting({ meta: meta(), key, value: fromJson(ValueSchema, value) })
+
+export const resetSetting = (c: MeshClient, key: string) => c.resetSetting({ meta: meta(), key })

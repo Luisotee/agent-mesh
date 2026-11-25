@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Event, Message, Run } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
@@ -20,6 +20,8 @@ export interface HostState {
   agents: Record<string, Agent>
   /** Every message seen: loaded with ListMessages, then added by events. */
   messages: Record<string, Message>
+  /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
+  settings: Record<string, Setting>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -27,7 +29,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, log: [] }
 }
 
 const MAX_LOG = 200
@@ -72,6 +74,13 @@ function applyEvent(s: HostState, e: Event): HostState {
       const m = s.messages[p.value.messageId]
       return m ? { ...next, messages: { ...s.messages, [m.id]: { ...m, deliveredAt: e.time ?? m.deliveredAt } } } : next
     }
+    case 'settingChanged': {
+      const cur = s.settings[p.value.key]
+      if (!cur) return next
+      // The event carries the effective value now; a reset means the default applies again.
+      const changed: Setting = { ...cur, value: p.value.value ?? cur.value, isSet: !p.value.toDefault, updatedBy: e.actor ?? cur.updatedBy, updatedAt: e.time ?? cur.updatedAt }
+      return { ...next, settings: { ...s.settings, [cur.key]: changed } }
+    }
     case 'agentSpawned':
       if (p.value.agent) return { ...next, agents: { ...s.agents, [p.value.agent.id]: p.value.agent } }
       return next
@@ -114,6 +123,11 @@ export function mergeMessages(s: HostState, page: Message[]): Partial<HostState>
   const messages = { ...s.messages }
   for (const m of page) messages[m.id] ??= m
   return { messages }
+}
+
+/** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */
+export function setSettings(list: Setting[]): Partial<HostState> {
+  return { settings: Object.fromEntries(list.map((x) => [x.key, x])) }
 }
 
 export function createHostStore(): HostStore {

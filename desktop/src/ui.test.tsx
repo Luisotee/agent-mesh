@@ -34,7 +34,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
   const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection } as unknown as HostRuntime
-  const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn() } as unknown as DesktopApi
+  const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
   const model = createAppModel(api)
   model.store.setState({ loaded: true, hosts: [host], hostId: 'h1' })
   const wrap = (ui: React.ReactNode) => <AppContext.Provider value={model}>{ui}</AppContext.Provider>
@@ -165,7 +165,7 @@ describe('ConnectionBanner', () => {
 describe('App', () => {
   it('asks for a host when there is none, and adds one', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'home', kind: 'state-dir' as const, target: '/s/state' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}) } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: '/s/state' } })
@@ -178,7 +178,7 @@ describe('App', () => {
     const add = vi.fn(async () => {
       throw new Error("Error invoking remote method 'hosts:add': Error: the state dir must be an absolute path")
     })
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn() } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: 'rel' } })
