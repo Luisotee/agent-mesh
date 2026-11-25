@@ -26,6 +26,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
@@ -48,6 +49,9 @@ type Config struct {
 	TCP    string
 	Now    func() time.Time
 	Logger *slog.Logger
+
+	// Settings is the table of settings the host knows; nil is settings.Default().
+	Settings *settings.Schema
 
 	// Agents (agents.go). With no TermLaunch the daemon runs without terminals and can't spawn agents.
 	Agents AgentConfig
@@ -74,6 +78,7 @@ type Daemon struct {
 	store       *store.Store
 	bus         *events.Bus
 	reg         *registry.Registry
+	schema      *settings.Schema
 	daemonID    string
 	instanceID  string
 	startedAt   time.Time
@@ -128,6 +133,9 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	if d.reg, err = registry.Mesh(); err != nil {
 		return nil, err
+	}
+	if d.schema = cfg.Settings; d.schema == nil {
+		d.schema = settings.Default()
 	}
 	d.bus = events.New(d.store)
 	d.store.OnCommit = d.bus.Publish

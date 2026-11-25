@@ -58,7 +58,7 @@ type world struct {
 	state string
 	home  string
 	meshd *exec.Cmd
-	log   *bytes.Buffer
+	log   *lockedBuffer
 }
 
 // env is the isolated environment every process of the test gets: its own HOME, nothing of the caller's
@@ -71,9 +71,27 @@ func (w *world) env() []string {
 	return env
 }
 
+// lockedBuffer is meshd's output: the process writes it while a failing wait prints it.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 func (w *world) startMeshd() {
 	w.t.Helper()
-	w.log = &bytes.Buffer{}
+	w.log = &lockedBuffer{}
 	cmd := exec.Command(filepath.Join(bins, "meshd"), "--state", w.state, "--term-launch", "detached",
 		"--max-lifetime", "3m", "--cli", "claude="+filepath.Join(bins, "claude"),
 		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+os.Getenv("PATH"))
@@ -258,6 +276,29 @@ func TestEndToEnd(t *testing.T) {
 	}
 	run := str(w.ctl("start-run", "--title", "e2e"), "run", "id")
 	events := w.follow("--run-id", run)
+
+	// A setting: set through the global --json (before the command), listed, seen on the run's stream (it is
+	// global, so a run's subscriber gets it), then reset. The stream is up once its snapshot arrived: an event
+	// committed before that is in no later frame (a client lists settings after a snapshot).
+	w.waitFor("the stream's snapshot", func() bool { return len(events.snapshot()) > 0 })
+	set := w.ctl("--json", `{"key":"caps.agents","value":3}`, "set")
+	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != 8.0 {
+		t.Fatalf("set %v", set)
+	}
+	if got := w.ctl("settings", "--prefix", "caps."); len(get(got, "settings").([]any)) != 1 {
+		t.Fatalf("settings %v", got)
+	}
+	w.waitFor("the setting on the stream", func() bool {
+		for _, l := range events.snapshot() {
+			if str(l, "event", "settingChanged", "key") == "caps.agents" && get(l, "event", "settingChanged", "value") == 3.0 {
+				return true
+			}
+		}
+		return false
+	})
+	if reset := w.ctl("unset", "--key", "caps.agents"); get(reset, "setting", "value") != 8.0 || get(reset, "setting", "isSet") == true {
+		t.Fatalf("unset %v", reset)
+	}
 
 	// Spawn a Claude agent (the fake) in a worktree of the repo.
 	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker")
