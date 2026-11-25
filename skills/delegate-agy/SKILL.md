@@ -8,7 +8,7 @@ description: >-
   asks the registered peer projects a question. Use it, typed or not, when the user wants work or a question handed to
   agents, in this repo or others ("have agy do it", "delegate to Gemini", "ask the shop-api agent"), or when you judge workers would do it better (several
   repos, a task list, parallel work, a long job you would otherwise do inline), and names no other CLI
-  (Claude, Opus, Sonnet, Fable); with none named, use it when you are agy. Not for a PR review the user asks for
+  (Claude, Opus, Sonnet, Fable); with none named, use it in an agy session. Not for a PR review the user asks for
   (/delegate-review), a research round by the peers (/harvest-peers), or a mesh worker
   (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>

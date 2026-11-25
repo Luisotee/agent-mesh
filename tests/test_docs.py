@@ -15,3 +15,15 @@ def test_claude_md_fits_agy():
 def test_agents_md_is_claude_md():
     agents = ROOT / "AGENTS.md"
     assert agents.is_symlink() and agents.resolve() == (ROOT / "CLAUDE.md").resolve()
+
+
+def test_no_identity_phrasing_for_agy():
+    """agy's gateway answers a fake 429 RESOURCE_EXHAUSTED to any prompt holding second-person identity
+    phrasing that names another assistant; agy loads every skill's description (and may read the bodies) on
+    every turn. Say "in a Claude Code session", never address the reader as that assistant."""
+    import re
+    bad = re.compile(r"\byou\s+are\s+(" + "claude" + r"|agy|copilot|opencode)\b", re.I)
+    files = [*ROOT.glob("skills/**/*.md"), *ROOT.glob("protocol/*.md"), ROOT / "rules" / "global-snippet.md"]
+    hits = [f"{p.relative_to(ROOT)}:{n}" for p in files
+            for n, line in enumerate(p.read_text().splitlines(), 1) if bad.search(line)]
+    assert not hits, hits
