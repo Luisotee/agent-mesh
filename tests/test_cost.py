@@ -108,6 +108,48 @@ def test_run_splits_plan_and_exec_at_approval(mesh, capsys):
     assert fix["plan_usd"] == pytest.approx(0.02) and fix["exec_usd"] == pytest.approx(0.06)
 
 
+def test_spend_splits_by_model_and_phase(mesh, capsys):
+    """Plans on Opus, executes on Sonnet: the split shows each model's share of each phase (design §19)."""
+    write_run(mesh, "mrun", {
+        "repo-lead": root("r1"),
+        "repo-fix": worker("w1", 1, phase="exec", models=[
+            {"at": iso(1), "model": "opus", "why": "spawn"},
+            {"at": iso(10), "model": "sonnet", "why": "plan approved"}]),
+    }, events=[{"time": iso(60), "event": "stop"}])
+    transcript(mesh, "/wt", "w1", reply(2, "a", output=1000),
+               reply(20, "b", model="claude-sonnet-5-5", output=3000))
+    data = cost(mesh, capsys, "mrun")
+    assert by(data["by_model"], "model", "opus") == {"model": "opus", "phase": "plan", "calls": 1, "usd": 0.02,
+                                                     "ctx_per_call": 0, "out_per_call": 1000}
+    assert (by(data["by_model"], "model", "sonnet")["phase"], by(data["by_model"], "model", "sonnet")["usd"]) == (
+        "exec", 0.03)
+
+
+def test_a_tokens_only_clis_calls_take_the_model_it_ran_on_then(mesh, monkeypatch, capsys):
+    write_run(mesh, "mrun", {"repo-lead": root("r1"), "repo-fix": {**worker("conv", 1, models=[
+        {"at": iso(1), "model": "gemini-4-argon-high", "why": "spawn"},
+        {"at": iso(10), "model": "gemini-4-hydrogen-medium", "why": "plan approved"}]), "kind": "agy"}})
+    steps = [{"id": None, "t": T0.timestamp() + 60 * m, "model": "agy", "input": 10, "w5": 0, "w1": 0, "read": 100,
+              "output": 1} for m in (2, 20)]
+    monkeypatch.setattr(mesh, "agy_calls", lambda session: steps)
+    rows = cost(mesh, capsys, "mrun")["agy_by_model"]
+    assert {(r["model"], r["phase"], r["calls"]) for r in rows} == {("argon", "plan", 1), ("hydrogen", "exec", 1)}
+
+
+def test_the_roots_verdicts_sum_into_each_reviewers_precision(mesh, capsys):
+    verdict = {"event": "verdict", "pr": "repo#7", "reviewer": "repo-review-7-opencode", "kind": "opencode",
+               "model": "opencode/big-pickle", "tier": "mid"}
+    write_run(mesh, "mrun", {"repo-lead": root("r1")}, events=[
+        {**verdict, "time": iso(5), "agree": 2, "other": 1, "disagree": 1, "blocking": 1},
+        {**verdict, "time": iso(6), "pr": "repo#8", "agree": 0, "other": 0, "disagree": 4, "blocking": 0},
+        {"time": iso(60), "event": "stop"}])
+    [row] = cost(mesh, capsys, "mrun")["verdicts"]
+    assert row == {"kind": "opencode", "model": "opencode/big-pickle", "tier": "mid", "reviews": 2, "agree": 2,
+                   "other": 1, "disagree": 5, "blocking": 1, "findings": 8, "agreed_pct": 38}
+    assert mesh.main(["cost", "mrun"]) == 0
+    assert "review findings, by the root's verdict" in capsys.readouterr().out
+
+
 def test_direct_task_has_no_phase_and_planned_task_starts_one(mesh):
     entry = worker("w", 0, size="small", exec_model="opus",
                    models=[{"at": iso(0), "why": "spawn"}, {"at": iso(5), "why": "planned task"},

@@ -12374,7 +12374,9 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                                run["agents"][e["to"]].get("kind") or "claude")
                               for e in events if e.get("event") == "send" and e.get("type") == "task"
                               and e.get("to") in run["agents"] and epoch(e.get("time"))
-                              and (pr := e.get("pr") or logged_review_pr(folder, e))]}
+                              and (pr := e.get("pr") or logged_review_pr(folder, e))],
+                  # the root's verdicts on its reviewers' findings (`mesh verdict`): (time, event)
+                  "verdicts": [(epoch(e.get("time")), e) for e in events if e.get("event") == "verdict"]}
         windows[run["id"]] = window
         for name, entry in run["agents"].items():
             if not cli_has(entry.get("kind"), "counts_cost"):
@@ -12396,7 +12398,10 @@ def cost_segments() -> tuple[dict[str, list[dict]], dict[str, dict]]:
                        "start": window["start"] if root else min(starts, default=window["start"]),
                        "end": window["end"], "marks": [] if root else phase_marks(name, entry, events),
                        "agy": cli(entry.get("kind")).cost_tally == "agy", "cli": entry.get("kind") or "claude", "prs": reviewed_pr(name, entry), "cwd": entry.get("cwd"),
-                       "who": one_agent((run["id"], name))}
+                       "who": one_agent((run["id"], name)),
+                       # what it ran on, when: a tokens-only CLI's calls carry no model of their own
+                       "models": [(epoch(m.get("at")), m.get("model")) for m in entry.get("models") or []
+                                  if m.get("model")] or [(0.0, entry.get("model"))]}
             for session in dict.fromkeys(s for s in sessions if s):
                 segments.setdefault(session, []).append(segment)
     # A run never stopped ends a cache lifetime after its last event, or where the next run in its root's
@@ -12453,12 +12458,33 @@ def parse_since(text: str, now: datetime | None = None) -> float:
     return (at if at.tzinfo else at.astimezone()).timestamp()
 
 
+def model_family(model: str | None) -> str:
+    """A model's family for `mesh cost`'s split: Claude's (opus, sonnet, ...), agy's (argon, hydrogen, ...), else
+    the id as given (an OpenCode model)."""
+    if not model:
+        return "?"
+    if parsed := parse_agy_id(model):
+        return parsed[0]
+    return next((family for family in PRICES if family in model), model)
+
+
+def model_at(segment: dict, t: float) -> str | None:
+    """The model a segment's agent ran on at `t` (its `models` history)."""
+    found = None
+    for at, model in segment.get("models") or []:
+        if at <= t or found is None:
+            found = model
+    return found
+
+
 class CostTally:
-    """Sums calls by agent and by kind, with cold resumes and each new session's first call (its static prefix)."""
+    """Sums calls by agent and by kind, with cold resumes and each new session's first call (its static prefix),
+    and by model family and phase."""
 
     def __init__(self):
         self.agents: dict[tuple, dict] = {}
         self.kinds: dict[str, dict] = {}
+        self.models: dict[tuple[str, str], dict] = {}
 
     @staticmethod
     def blank() -> dict:
@@ -12466,9 +12492,10 @@ class CostTally:
                 "plan": 0.0, "exec": 0.0, "cold": 0, "cold_usd": 0.0, "sub_usd": 0.0, "firsts": []}
 
     def add(self, session: str, call: dict, kind: str, agent: tuple, phase: str, sub: bool, cold: bool,
-            first: bool) -> None:
+            first: bool, model: str | None = None) -> None:
         usd = call_cost(call)
-        rows = [self.kinds.setdefault(kind + (" subagents" if sub else ""), self.blank())]
+        rows = [self.kinds.setdefault(kind + (" subagents" if sub else ""), self.blank()),
+                self.models.setdefault((model_family(model or call.get("model")), phase or ""), self.blank())]
         row = self.agents.setdefault(agent, {**self.blank(), "kind": kind})
         if sub:
             row["sub_usd"] += usd
@@ -12511,8 +12538,9 @@ def tally_session(tally: CostTally, session: str, calls: list[dict], sub: bool, 
         if (since is not None and call["t"] < since) or (until is not None and call["t"] >= until):
             continue
         if placed := place(call):
-            kind, agent, phase = placed
-            tally.add(session, call, kind, agent, phase, sub, cold, first=index == 0 and not sub)
+            kind, agent, phase, *model = placed
+            tally.add(session, call, kind, agent, phase, sub, cold, first=index == 0 and not sub,
+                      model=model[0] if model else None)
 
 
 def session_files(session: str, cwd: str | None) -> list[Path]:
@@ -12603,7 +12631,8 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
             if segment:
                 if run_id and segment["run"] != run_id:
                     return None
-                return segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"])
+                return (segment["kind"], (segment["run"], segment["name"]), phase_at(segment["marks"], call["t"]),
+                        model_at(segment, call["t"]))
             return None if run_id else (user, ("", user), "")
         tally_session(agy_tally, session, cli(kind).token_calls(session), False, place_agy, since, until, set())
     inside = lambda t: (since is None or t >= since) and (until is None or t < until)  # noqa: E731
@@ -12613,11 +12642,31 @@ def run_cost(run_id: str | None, since: float | None, until: float | None) -> di
         for t, pr, who, kind in w["reviews"]:
             if (not run_id or r == run_id) and inside(t):
                 reviewers.setdefault(pr, set()).add((who, kind))
-    return cost_report(tally, agy_tally, reviewed, len(resets), reviewers)
+    verdicts = [e for r, w in windows.items() if not run_id or r == run_id
+                for t, e in w.get("verdicts", []) if inside(t)]
+    return cost_report(tally, agy_tally, reviewed, len(resets), reviewers, verdicts)
+
+
+def verdict_rows(verdicts: list[dict]) -> list[dict]:
+    """The root's verdicts summed per reviewer CLI, model family and tier: findings, and the share it agreed with
+    (either fix), the reviewer's precision."""
+    rows: dict[tuple, dict] = {}
+    for v in verdicts:
+        row = rows.setdefault((v.get("kind"), model_family(v.get("model")), v.get("tier") or ""),
+                              {"reviews": 0, "agree": 0, "other": 0, "disagree": 0, "blocking": 0})
+        row["reviews"] += 1
+        for key in ("agree", "other", "disagree", "blocking"):
+            row[key] += int(v.get(key) or 0)
+    out = []
+    for (kind, family, tier), r in rows.items():
+        found = r["agree"] + r["other"] + r["disagree"]
+        out.append({"kind": kind, "model": family, "tier": tier, **r, "findings": found,
+                    "agreed_pct": round(100 * (r["agree"] + r["other"]) / found) if found else None})
+    return sorted(out, key=lambda r: -r["findings"])
 
 
 def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set], resets: int,
-                reviewers: dict[str, set]) -> dict:
+                reviewers: dict[str, set], verdicts: list[dict] | None = None) -> dict:
     """The report `mesh cost` prints. `reviews`: Claude review $ over the PRs with Claude review calls
     (`prs`, `usd_per_pr`), and the PRs that got a review task (`reviewed_prs`) with their reviewers of every CLI
     per PR (`reviewers_per_pr`, and `by_cli`)."""
@@ -12658,6 +12707,15 @@ def cost_report(tally: CostTally, agy_tally: CostTally, reviewed: dict[str, set]
                         "reviewers_per_pr": round(sum(map(len, reviewers.values())) / len(reviewers), 2)
                         if reviewers else None,
                         "by_cli": {k: round(n / len(reviewers), 2) for k, n in sorted(by_cli.items())}},
+            "by_model": sorted(({"model": family, "phase": phase, "calls": r["calls"], "usd": round(r["usd"], 2),
+                                 "ctx_per_call": r["ctx"] // r["calls"] if r["calls"] else 0,
+                                 "out_per_call": r["output"] // r["calls"] if r["calls"] else 0}
+                                for (family, phase), r in tally.models.items()), key=lambda r: -r["usd"]),
+            "agy_by_model": sorted(({"model": family, "phase": phase, "calls": r["calls"], "input": r["input"],
+                                     "read": r["read"], "output": r["output"]}
+                                    for (family, phase), r in agy_tally.models.items()),
+                                   key=lambda r: -(r["input"] + r["read"])),
+            "verdicts": verdict_rows(verdicts or []),
             "resets": resets}
 
 
@@ -12708,6 +12766,19 @@ def cmd_cost(args: argparse.Namespace) -> int:
         print("\nagy (tokens; no prices):")
         print_table([{**a, **{k: tokens_text(a[k]) for k in ("input", "read", "output")}} for a in report["agy"]],
                     ("kind", "sessions", "calls", "input", "read", "output"))
+    if report["by_model"]:
+        print("\nby model and phase:")
+        print_table([{**m, "phase": m["phase"] or "-", "$": f"{m['usd']:.2f}", "ctx/call": tokens_text(m["ctx_per_call"])}
+                     for m in report["by_model"]], ("model", "phase", "calls", "$", "ctx/call", "out_per_call"))
+    if report["agy_by_model"]:
+        print("\nagy and OpenCode by model and phase (tokens):")
+        print_table([{**m, "phase": m["phase"] or "-", **{k: tokens_text(m[k]) for k in ("input", "read", "output")}}
+                     for m in report["agy_by_model"]], ("model", "phase", "calls", "input", "read", "output"))
+    if report["verdicts"]:
+        print("\nreview findings, by the root's verdict (`mesh verdict`):")
+        print_table([{**v, "agreed": f"{v['agreed_pct']}%" if v["agreed_pct"] is not None else ""}
+                     for v in report["verdicts"]],
+                    ("kind", "model", "tier", "reviews", "findings", "agreed", "blocking"))
     reviews = report["reviews"]
     if reviews["reviewed_prs"] or reviews["prs"]:
         print()
