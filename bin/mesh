@@ -2109,8 +2109,8 @@ def live_agent_names() -> set[str]:
 
 
 def recorded_agents(skip_pane: str | None = None) -> list[tuple[str, str, dict]]:
-    """(run, name, entry) of every agent with a pane that a live run's run.json records and hasn't retired, but
-    the one in `skip_pane`. What mesh itself knows, whatever herdr's list says (it can lose a live agent's
+    """(run, name, entry) of every agent with a pane that an unarchived run's run.json records and hasn't retired,
+    but the one in `skip_pane`. What mesh itself knows, whatever herdr's list says (it can lose a live agent's
     registration, and a rename takes a held name from its holder)."""
     found = []
     for path in sorted(mesh_home().glob("*/run.json")):
@@ -2144,16 +2144,18 @@ def claimed_names(skip_pane: str | None = None, listed: list[dict] | None = None
 def herdr_targets(name: str, entry: dict) -> list[str]:
     """What to address an agent by in herdr, best first: its name, then its pane id. A name herdr has moved to
     another pane (a rename takes a held name from its holder) isn't the agent's: its own pane id stands in while
-    that is a live agent, and with it gone the name still stands unless it is recorded as another agent's pane
-    (a herdr restore changes pane ids and keeps names). Empty: nothing reaches the agent."""
+    that is a live agent, and with it gone the name still stands (a herdr restore changes pane ids and keeps
+    names) unless the pane's session isn't the agent's, or, where there is none to compare, it is recorded as
+    another agent's pane. Empty: nothing reaches the agent."""
     pane = entry.get("pane")
     targets = [name] + ([pane] if pane else [])
     if not pane:
         return targets
     try:
-        holder = (herdr("agent", "get", name).get("agent") or {}).get("pane_id")
+        got = herdr("agent", "get", name).get("agent") or {}
     except HerdrError:
         return targets
+    holder = got.get("pane_id")
     if not holder or holder == pane:
         return targets
     try:
@@ -2161,6 +2163,9 @@ def herdr_targets(name: str, entry: dict) -> list[str]:
         return [pane]
     except HerdrError:
         pass
+    theirs, mine = (got.get("agent_session") or {}).get("value"), entry.get("session")
+    if theirs and mine:  # a Claude's session says whether the name's pane is this agent, renumbered, or not
+        return targets if theirs == mine else []
     return [] if any(e["pane"] == holder for _, _, e in recorded_agents(pane)) else targets
 
 

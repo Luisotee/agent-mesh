@@ -11708,3 +11708,16 @@ def test_status_and_waits_read_the_agents_own_pane_not_the_name_holders(mesh, fa
     fake.on("pane", "process-info", error="pane_not_found")
     assert mesh.agent_status("repo-fix-typo", entry) == "gone"  # not the holder's "working"
     assert mesh.wait_target("repo-fix-typo", entry) == "w2:p5"
+
+
+def test_a_renumbered_pane_is_told_from_a_thiefs_by_its_session(mesh, fake, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["session"] = "sess-mine"
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "w2:p5", errors=["agent_not_found"] * 2)  # the old pane is gone
+    fake.on("agent", "get", "repo-fix-typo",
+            result={"agent": {"pane_id": "w2:p77", "agent_session": {"value": "sess-mine"}}})
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["repo-fix-typo", "w2:p5"]  # its own session: a restore
+    fake.on("agent", "get", "repo-fix-typo",
+            result={"agent": {"pane_id": "w2:p77", "agent_session": {"value": "sess-theirs"}}})
+    assert mesh.herdr_targets("repo-fix-typo", entry) == []  # someone else's, recorded in no run
