@@ -1,4 +1,4 @@
-import { AgentRole, AgentState, RunStatus, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
 
 export interface TreeNode {
   agent: Agent
@@ -109,4 +109,69 @@ export function knownRepos(agents: Record<string, Agent>): string[] {
   const seen = new Map<string, number>()
   for (const a of Object.values(agents)) seen.set(a.repo, Math.max(seen.get(a.repo) ?? 0, ts(a)))
   return [...seen.entries()].filter(([r]) => r).sort((a, b) => b[1] - a[1]).map(([r]) => r)
+}
+
+export interface Waiting {
+  kind: 'plan' | 'question' | 'input'
+  /** The agent that wrote the plan or asked, or is stopped at a prompt. */
+  agent: Agent
+  run?: Run
+  /** The plan or question; unset for an agent that needs input in its terminal. */
+  message?: Message
+}
+
+const when = (m: Message): number => Number(m.createdAt?.seconds ?? 0n) * 1000 + Math.floor((m.createdAt?.nanos ?? 0) / 1e6)
+const before = (a: Message, b: Message): boolean => when(a) < when(b) || (when(a) === when(b) && a.id < b.id)
+
+/**
+ * What waits on the user (what `mesh status` calls waiting rows, for the person): a plan or a question sent to
+ * the run's lead that nobody has answered since, from an agent that is still there to hear the answer, and every
+ * agent stopped at a prompt in its terminal. The user may answer in the lead's place, and the lead answering
+ * first closes the item. Plans and questions come oldest first, then the prompts.
+ */
+export function waitingOnYou(runs: Record<string, Run>, agents: Record<string, Agent>, messages: Record<string, Message>): Waiting[] {
+  const byRun = new Map<string, Message[]>()
+  for (const m of Object.values(messages)) byRun.set(m.runId, [...(byRun.get(m.runId) ?? []), m])
+  const items: Array<Waiting & { message: Message }> = []
+  for (const run of Object.values(runs)) {
+    if (run.status !== RunStatus.OPEN) continue
+    const lead = Object.values(agents)
+      .filter((a) => a.runId === run.id && a.role === AgentRole.ROOT)
+      .sort(order)[0]
+    if (!lead) continue
+    const msgs = byRun.get(run.id) ?? []
+    for (const m of msgs) {
+      const kind = m.type === MessageType.PLAN ? 'plan' : m.type === MessageType.QUESTION ? 'question' : undefined
+      if (!kind || m.toId !== lead.id) continue
+      const author = agents[m.from?.id ?? '']
+      if (!author || author.state === AgentState.EXITED) continue
+      const answered = msgs.some((x) => x.type === MessageType.ANSWER && x.toId === author.id && before(m, x))
+      if (!answered) items.push({ kind, agent: author, run, message: m })
+    }
+  }
+  items.sort((a, b) => (before(a.message, b.message) ? -1 : 1))
+  const prompts: Waiting[] = Object.values(agents)
+    .filter((a) => a.state === AgentState.NEEDS_INPUT)
+    .sort(order)
+    .map((agent) => ({ kind: 'input' as const, agent, run: runs[agent.runId] }))
+  return [...items, ...prompts]
+}
+
+/** The messages an agent sent or was sent, oldest first. */
+export function messagesOf(messages: Record<string, Message>, agentId: string): Message[] {
+  return Object.values(messages)
+    .filter((m) => m.toId === agentId || m.from?.id === agentId)
+    .sort((a, b) => (before(a, b) ? -1 : 1))
+}
+
+export const MESSAGE_LABEL: Record<MessageType, string> = {
+  [MessageType.UNSPECIFIED]: 'Message',
+  [MessageType.TASK]: 'Task',
+  [MessageType.PLAN]: 'Plan',
+  [MessageType.QUESTION]: 'Question',
+  [MessageType.ANSWER]: 'Answer',
+  [MessageType.DONE]: 'Report',
+  [MessageType.FAILED]: 'Failed',
+  [MessageType.INFO]: 'Info',
+  [MessageType.WAIT]: 'Waiting',
 }

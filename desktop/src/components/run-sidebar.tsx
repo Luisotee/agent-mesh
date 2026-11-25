@@ -8,6 +8,7 @@ import { RunStatus } from '@/gen/agentmesh/v1/types_pb'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
+import { WaitingList } from './waiting-list'
 import { NewRunDialog, SpawnDialog } from './spawn-dialogs'
 
 /** The host's runs, each as a tree from its lead: workers under it, their read-only agents under them. */
@@ -17,6 +18,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
   const trees = useMemo(() => buildTrees(runs, agents), [runs, agents])
   return (
     <nav aria-label="Runs" className="flex min-h-0 flex-1 flex-col">
+      <WaitingList host={host} />
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Runs</h2>
         <NewRunDialog host={host} />

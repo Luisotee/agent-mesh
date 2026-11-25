@@ -6,6 +6,7 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
+import { waitingOnYou } from '@/derive'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -82,7 +83,7 @@ const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-st
 
 function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
   const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => Object.values(s.agents).filter((a) => a.needsInput > 0).length)
+  const waiting = useHostState(host, (s) => waitingOnYou(s.runs, s.agents, s.messages).length)
   return (
     <button
       type="button"

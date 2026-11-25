@@ -148,3 +148,45 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await page.keyboard.press('Enter')
   await expect.poll(() => screen.innerText(), { timeout: 20_000 }).toContain('done: again')
 })
+
+test('plans, questions and reports: waiting on the user, answered from the app, and still there after a reload', async () => {
+  const { page } = app
+  // A worker the lead started (so its parent is the lead, the plan's recipient).
+  const asLead = host.client(host.agentToken(await agentId('repo-lead')))
+  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude' })
+  const asWorker = host.client(host.agentToken(worker!.id))
+  await asWorker.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n1. fix the typo\n2. add a test\n\nSee [the docs](https://example.com/docs).' })
+
+  // The sidebar and the host's badge say it waits on the user; the plan is a card to read.
+  const waiting = page.getByRole('region', { name: 'Waiting on you' })
+  await waiting.getByRole('button', { name: /repo-planner sent a plan/ }).waitFor()
+  await page.getByRole('button', { name: /Host local/ }).locator('xpath=.//span[contains(@class,"bg-state-needs")]').waitFor()
+  await waiting.getByRole('button', { name: /repo-planner sent a plan/ }).click()
+  const panel = page.getByRole('article', { name: 'repo-planner' })
+  const plan = panel.getByRole('article', { name: 'Plan from repo-planner' })
+  await expect.poll(() => plan.innerText()).toContain('fix the typo')
+  await page.screenshot({ path: path.join(shots, 'plan.png') })
+
+  // A reload loses the page's state; ListMessages brings the plan back, still waiting.
+  await page.reload()
+  await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-planner sent a plan/ }).waitFor({ timeout: 20_000 })
+
+  // Approving sends an answer to the worker, with the device as its actor, and closes the item.
+  await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-planner sent a plan/ }).click()
+  await page.getByRole('article', { name: 'Plan from repo-planner' }).getByRole('button', { name: 'Approve' }).click()
+  await expect.poll(async () => (await asWorker.readInbox({ peek: true, all: true })).messages.map((m) => `${MessageType[m.type]}:${m.body}:${m.from?.name}`)).toContainEqual(expect.stringMatching(/^ANSWER:approved:/))
+  await page.getByRole('region', { name: 'Waiting on you' }).waitFor({ state: 'detached', timeout: 20_000 })
+
+  // A question is answered with free text; a report is shown as Markdown.
+  await asWorker.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch should I base this on?' })
+  await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-planner asked a question/ }).click()
+  const q = page.getByRole('form', { name: 'Answer the question' })
+  await q.getByLabel('Your answer').fill('main')
+  await q.getByRole('button', { name: 'Send answer' }).click()
+  await expect.poll(async () => (await asWorker.readInbox({ peek: true, all: true })).messages.map((m) => m.body)).toContain('main')
+  await asWorker.sendMessage({ to: 'parent', type: MessageType.DONE, body: '## Result\n\n- **PR** opened\n- tests pass' })
+  const report = page.getByRole('article', { name: 'Report from repo-planner' })
+  await report.getByRole('heading', { name: 'Result' }).waitFor()
+  expect(await report.getByRole('listitem').count()).toBe(2)
+  await page.screenshot({ path: path.join(shots, 'messages.png') })
+})

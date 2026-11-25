@@ -3,11 +3,12 @@ import { sendMessage, stopAgent } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Select } from '@/components/ui/input'
-import { useHostState } from '@/context'
-import { ROLE_LABEL, statusSentence } from '@/derive'
+import { useApp, useAppState, useHostState } from '@/context'
+import { ROLE_LABEL, statusSentence, waitingOnYou } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
-import type { HostRuntime } from '@/model'
+import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
+import { MessagesPanel } from './messages-panel'
 import { TerminalView } from './terminal-view'
 
 const SEND_TYPES: Array<[MessageType, string]> = [
@@ -24,7 +25,9 @@ function when(t: Agent['lastActivity']): string {
 export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: string }) {
   const agent = useHostState(host, (s) => s.agents[agentId])
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
-  const [tab, setTab] = useState<'overview' | 'terminal'>('overview')
+  const app = useApp()
+  const tab = useAppState((s) => s.tab)
+  const open = useHostState(host, (s) => waitingOnYou(s.runs, s.agents, s.messages).filter((w) => w.message && (w.agent.id === agentId || w.message.toId === agentId)).length)
   const parent = useHostState(host, (s) => (agent?.parentId ? s.agents[agent.parentId] : undefined))
   if (!agent) return <Empty>That agent isn't on this host any more.</Empty>
   const facts: Array<[string, string]> = [
@@ -38,8 +41,9 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
     ['Id', agent.id],
   ]
   const hasTerminal = canTerminal && !!agent.terminalId
-  // Without a terminal there are no tabs to leave the terminal tab by: show the overview.
-  const shown = hasTerminal ? tab : 'overview'
+  const tabs: AgentTab[] = hasTerminal ? ['overview', 'messages', 'terminal'] : ['overview', 'messages']
+  // A tab the agent doesn't have (its terminal went away) falls back to the overview.
+  const shown = tabs.includes(tab) ? tab : 'overview'
   return (
     <article aria-label={agent.name} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
       <header className="flex items-start gap-3">
@@ -52,24 +56,23 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
         </div>
         <StopButton host={host} agent={agent} />
       </header>
-      {hasTerminal && (
-        <div role="tablist" aria-label="Agent views" className="flex gap-1 border-b">
-          {(['overview', 'terminal'] as const).map((t) => (
-            <button
-              key={t}
-              id={`${agent.id}-tab-${t}`}
-              type="button"
-              role="tab"
-              aria-selected={shown === t}
-              aria-controls={`${agent.id}-panel-${t}`}
-              onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      )}
+      <div role="tablist" aria-label="Agent views" className="flex gap-1 border-b">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            id={`${agent.id}-tab-${t}`}
+            type="button"
+            role="tab"
+            aria-selected={shown === t}
+            aria-controls={`${agent.id}-panel-${t}`}
+            onClick={() => app.setTab(t)}
+            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            {t}
+            {t === 'messages' && open > 0 && <span className="rounded-full bg-state-needs px-1.5 text-[10px] leading-4 font-bold text-primary-foreground">{open}</span>}
+          </button>
+        ))}
+      </div>
       <div id={`${agent.id}-panel-overview`} role="tabpanel" aria-labelledby={`${agent.id}-tab-overview`} className="flex flex-col gap-5" hidden={shown !== 'overview'}>
         <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           {facts.map(([k, v]) => (
@@ -80,6 +83,9 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
           ))}
         </dl>
         <SendForm host={host} agent={agent} />
+      </div>
+      <div id={`${agent.id}-panel-messages`} role="tabpanel" aria-labelledby={`${agent.id}-tab-messages`} hidden={shown !== 'messages'}>
+        <MessagesPanel host={host} agentId={agent.id} />
       </div>
       {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} panelId={`${agent.id}-panel-terminal`} tabId={`${agent.id}-tab-terminal`} />}
     </article>
