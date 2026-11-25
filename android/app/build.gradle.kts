@@ -66,6 +66,12 @@ dependencies {
     implementation(libs.connect.javalite)
     implementation(libs.protobuf.javalite)
     implementation(libs.markdown.m3)
+    // The pairing screen's QR scanner: CameraX for the preview and frames, ZXing (pure Java, Apache-2.0) to decode them.
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.zxing.core)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

@@ -22,6 +22,8 @@ import dev.agentmesh.gen.agentmesh.v1.SendMessageRequest
 import dev.agentmesh.gen.agentmesh.v1.HelloRequest
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
 import dev.agentmesh.gen.agentmesh.v1.ListSettingsRequest
+import dev.agentmesh.gen.agentmesh.v1.PairingServiceClient
+import dev.agentmesh.gen.agentmesh.v1.RedeemPairingRequest
 import dev.agentmesh.gen.agentmesh.v1.MeshServiceClient
 import dev.agentmesh.gen.agentmesh.v1.RequestMeta
 import dev.agentmesh.gen.agentmesh.v1.ResetSettingRequest
@@ -172,4 +174,25 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
         is ConnectException -> ApiException(code, message ?: code.name.lowercase(), this)
         else -> ApiException(Code.UNAVAILABLE, message ?: javaClass.simpleName, this)
     }
+}
+
+/** [PairingApi] over a connection that carries no token (`PairingService` is the one service that needs none). */
+class ConnectPairingApi(connection: Connection) : PairingApi {
+    private val pairingService = PairingServiceClient(
+        ProtocolClient(
+            ConnectOkHttpClient(connection.http),
+            ProtocolClientConfig(
+                host = connection.baseUrl,
+                serializationStrategy = GoogleJavaLiteProtobufStrategy(),
+                networkProtocol = NetworkProtocol.CONNECT,
+                timeoutOracle = simpleTimeouts(unaryTimeout = 20.seconds, streamTimeout = null),
+            ),
+        ),
+    )
+
+    override suspend fun redeem(token: String, deviceName: String): Redeemed =
+        when (val r = pairingService.redeemPairing(RedeemPairingRequest.newBuilder().setToken(token).setDeviceName(deviceName).build())) {
+            is ResponseMessage.Success -> r.message.let { Redeemed(it.deviceId, it.deviceName, it.deviceToken, it.hostId, it.hostName, it.certFingerprint) }
+            is ResponseMessage.Failure -> throw ApiException(r.cause.code, r.cause.message ?: r.cause.code.name.lowercase(), r.cause)
+        }
 }

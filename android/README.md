@@ -26,15 +26,21 @@ The message list is a lazy list keyed by message id with a content type per mess
 
 ## Connecting a host
 
-A host is a machine running meshd. Add its address and its device token (`device.token` in its state dir).
+A host is a machine running meshd. The usual way is **pairing**; adding an address and a device token by hand still works (for a debug host, or one you already have a token for).
+
+**Pairing.** On the host, `meshctl pair --name "my phone"` prints a link (`agentmesh://pair?v=1&h=…&fp=…&t=…`, with the routes the host offers; `docs/relay.md`, "Pairing flow"). `meshctl` prints the link only, so for a QR code make one from it with any QR tool (for example `qrencode -t ansiutf8 '<link>'`; the desktop's pair screen will show one). In the app, tap **Pair with a host** and then **Scan the QR code**, or paste the link; or open the link on the phone (a camera app that reads the QR code offers to open it with agent-mesh). The screen shows which host the code names and where the app would reach it, and nothing is sent until you tap **Pair**: the app then redeems the one-time token (`PairingService/RedeemPairing`) on the code's first route that answers, checks that the host is the one the code names, and saves it with its routes, the certificate pin and the new device token (the Keystore seals both the device token and the relay token). A code works once and expires after ten minutes by default: if the host accepted it and something then failed, make a new one. Pairing the same host again gives its entry the new token and the code's routes (a route with the same address takes the code's version) and keeps the routes the code doesn't name, such as a Tailscale address you added by hand. A host reached only through a relay can be edited with the address left empty.
+
+**Routes.** A pairing code can carry two, tried in order, so the same host is reached at home and away:
+- *Direct*: `https://` to `meshd --listen`'s TLS address (a LAN or tailnet address), pinned to the daemon's certificate.
+- *Relay*: your own `mesh-relay`'s raw TCP endpoint. Every connection sends `MESH1 <host id> <relay client token>`, waits for `OK`, and then runs TLS to the host on the same socket, pinned to its certificate, so the relay only splices bytes (`net/RelaySocketFactory.kt`; the relay's refusals, such as the host being offline or the token not accepted, are shown in its own words). A token the relay refuses is shown with an auth message (pair again); with other routes the app keeps trying them, and stops only once every route was refused in a row.
 
 - `http://` is accepted only for `localhost`, `127.0.0.1` and the emulator's `10.0.2.2` (a debug host: `adb reverse tcp:<port> tcp:<port>`, then `http://127.0.0.1:<port>` with `meshd --tcp`).
 - Anywhere else the address is `https://`: for a machine on your tailnet, `tailscale serve --https=443 http://127.0.0.1:<port>` gives it a real certificate. A host with its own certificate takes its SHA-256 as a pin, and then only that certificate is accepted.
-- Pairing by QR code and the relay route are not wired yet (`net/Pairing.kt`, `Route.Relay`).
+- **The QR scanner's camera wiring is untested here** (`pair/QrScanner.kt`, CameraX): there is no emulator or phone on the machine that built it. What is tested is everything around it: ZXing decoding a generated QR code of a real link at several rotations (`QrDecoderTest`), the paste, deep-link and pairing flow, and the relay and TLS routes against a stand-in relay (`RelayRouteTlsTest`) and the real `mesh-relay` and `meshd --listen` on loopback (`PairingE2ETest`). The first time on a phone: Pair with a host, Scan, the permission prompt, and a code from `meshctl pair`.
 
 ## Layout
 
-- `app/src/main/kotlin/dev/agentmesh/android/`: `net/` (routes and pinning, the one client wrapper `MeshApi`, `HostConnection`; the only package that reaches the network), `store/` (`HostState` and `applyFrame`, built only from snapshot and events), `derive/` (run trees, status sentences, what waits on the user), `hosts/` (the host list, sealed tokens), `theme/`, `ui/` (Compose screens), `HostRuntime.kt` (one host's connection and state), `MeshApp.kt` (what lives as long as the process).
+- `app/src/main/kotlin/dev/agentmesh/android/`: `net/` (routes and pinning, the relay socket, pairing links, the one client wrapper `MeshApi`, `HostConnection`; the only package that reaches the network), `pair/` (the QR decoder and the camera scanner), `store/` (`HostState` and `applyFrame`, built only from snapshot and events), `derive/` (run trees, status sentences, what waits on the user), `hosts/` (the host list, sealed tokens, the pairing flow), `theme/`, `ui/` (Compose screens), `HostRuntime.kt` (one host's connection and state), `MeshApp.kt` (what lives as long as the process).
 - `app/src/gen/`: generated Java (protobuf lite) and Kotlin (ConnectRPC) code, committed; reviewers can skip it.
 - `app/src/main/assets/themes/`: one JSON file per theme.
 - `app/src/test/`: JVM tests; `DaemonHarness` runs a real meshd with the fake `claude`.
@@ -53,7 +59,7 @@ android/scripts/gen.sh        # after a .proto change: regenerate app/src/gen
 cd android && source scripts/env.sh && ./gradlew testDebugUnitTest      # one task
 ```
 
-`check.sh` builds `app/build/outputs/apk/debug/app-debug.apk`. The end-to-end tests build meshd, mesh-term, meshctl and the fake `claude` with Go into `app/build/e2e-bin`, then give each test a state dir, HOME and loopback port of its own under a temp dir: they read and write nothing of yours, and are skipped when Go isn't found or `SKIP_E2E=1` is set. Dependencies are pinned by `gradle/verification-metadata.xml`; after adding one, run `./gradlew --write-verification-metadata sha256 testDebugUnitTest lintDebug assembleDebug writeCodegenTools` and review the diff.
+`check.sh` builds `app/build/outputs/apk/debug/app-debug.apk`. The end-to-end tests build meshd, mesh-term, meshctl, mesh-relay and the fake `claude` with Go into `app/build/e2e-bin`, then give each test a state dir, HOME and loopback ports (and, for pairing, a relay with its own secret) of its own under a temp dir: they read and write nothing of yours, and are skipped when Go isn't found or `SKIP_E2E=1` is set. Dependencies are pinned by `gradle/verification-metadata.xml`; after adding one, run `./gradlew --write-verification-metadata sha256 testDebugUnitTest lintDebug assembleDebug writeCodegenTools` and review the diff.
 
 ## Emulator
 

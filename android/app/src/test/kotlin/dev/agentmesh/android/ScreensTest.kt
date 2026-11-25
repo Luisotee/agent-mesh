@@ -121,7 +121,7 @@ class ScreensTest {
         val container = AppContainer(ctx, Plain)
         container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         compose.setContent {
-            CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { HostsScreen({}, {}, {}, {}) } }
+            CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { HostsScreen({}, {}, {}, {}, {}) } }
         }
         compose.waitUntil(5_000) { compose.onAllNodesWithTextCompat("Home") }
         compose.onNodeWithText("Home").assertIsDisplayed()
