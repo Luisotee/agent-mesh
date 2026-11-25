@@ -516,6 +516,17 @@ func TestAFailedLaunchFreesItsSlug(t *testing.T) {
 }
 
 func TestAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testing.T) {
+	// The host's watch replays exited terminals, which acknowledges this one too, so this passes either way...
+	adoptAcknowledgesAnExitedTerminal(t)
+}
+
+func TestOnlyAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testing.T) {
+	// ...and with the watch left out, only adopt can.
+	adoptAcknowledgesAnExitedTerminal(t, func(c *daemon.AgentConfig) { c.NoTerminalWatch = true })
+}
+
+func adoptAcknowledgesAnExitedTerminal(t *testing.T, tweak ...func(*daemon.AgentConfig)) {
+	t.Helper()
 	state := filepath.Join(t.TempDir(), "state")
 	home := t.TempDir()
 	h := startWithAgents(t, state, home)
@@ -526,8 +537,7 @@ func TestAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testing.T
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 	h.stop()
 
-	// The crash this stands for: the exit was committed, but the daemon died before it acknowledged the host. (The
-	// host's watch replays exited terminals, which also acknowledges it; adopt does too, so either path passes.)
+	// The crash this stands for: the exit was committed, but the daemon died before it acknowledged the host.
 	tc, err := termclient.New(statedir.Paths{Dir: state}.Term())
 	if err != nil {
 		t.Fatal(err)
@@ -556,7 +566,7 @@ func TestAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testing.T
 		t.Fatal(err)
 	}
 
-	startWithAgents(t, state, home)
+	startWithAgents(t, state, home, tweak...)
 	waitFor(t, "the host to forget the exited terminal", func() bool {
 		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
 		return len(l.Msg.Terminals) == 0

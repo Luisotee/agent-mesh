@@ -3,10 +3,13 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
+  /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StopAgent
   /agentmesh.v1.MeshService/SubscribeEvents
@@ -15,6 +18,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/SendMessage
@@ -26,6 +30,7 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/SendMessage
@@ -35,6 +40,7 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/SendMessage
@@ -44,8 +50,11 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StartRun
   /agentmesh.v1.MeshService/StopAgent
@@ -56,5 +65,6 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListRuns
+  /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/SubscribeEvents

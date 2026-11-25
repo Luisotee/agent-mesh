@@ -10,6 +10,7 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `internal/registry`: the action registry read from the descriptors; `testdata/actors.golden` pins what each actor class may call.
 - `internal/auth`: tokens (stored as SHA-256), the interceptor that takes the actor from the token, and the browser refusal.
 - `internal/store`: SQLite (pure Go, WAL), embedded numbered migrations, backed up before migrating.
+- `internal/settings`: the host's settings table (`schema.go`): each leaf's key, type, default, summary and choices, and the check a value must pass.
 - `internal/events`: the resumable event stream.
 - `internal/daemon`: the server and its handlers (`agents.go`: spawning, hooks, adoption, doorbells, the terminal proxy); `internal/client`: how local callers dial it; `internal/statedir`: the state dir's files.
 - `cmd/mesh-term`, `internal/termhost`: the terminal host. `internal/termclient`: the daemon's side of it (its API, terminal streams, starting it).
@@ -48,7 +49,7 @@ A run is one trust domain for events for now: every agent of a run receives its 
 
 ## meshctl
 
-Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request and the other flags override it, and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
+Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request (also before the command: `meshctl --json '{…}' set`) and the other flags override it (a repeated field's first flag replaces the list the JSON gave, the next ones add to it), a `google.protobuf.Value` field takes any JSON or, when the text isn't JSON, the string it spells (`--value sonnet`, `--value 75`, `--value '["haiku","sonnet"]'`), and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
 
 ```bash
 export AGENT_MESH_STATE=$state
@@ -60,6 +61,15 @@ daemon/bin/meshctl events --run-id <run>                 # follow; resume with -
 ```
 
 An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`meshctl inbox`, `meshctl send --to parent …`).
+
+## Settings
+
+The policy (`bin/mesh`'s `POLICY`, design §21) is host data, the same from every device and readable by the agents that run under it. `internal/settings/schema.go` is the one table: a leaf's key, type, default, summary, choices and whether it is read only at start. The settings screen is generated from it, and an app adds its own rows there (the desktop's `app.*`); it needs no action or event of its own. Only overrides are stored (the `settings` table, migration `0002`); a leaf nobody set is its default, so a new default reaches every host that never overrode it.
+
+- `ListSettings {prefix}` returns `Setting`s: `key`, `value` (effective), `default`, `is_set`, `schema {type, summary, choices, restart}`, and who set it and when. Any actor class may call it. `meshctl settings --prefix tiers.claude.`.
+- `SetSetting {meta, key, value}` and `ResetSetting {meta, key}` write: only a device or a root, idempotent like every write, and each emits a global `SettingChanged {key, value, previous, to_default}` with the actor and the mutation id. The event has no run, so every subscriber gets it, a run's agents included. A `Snapshot` doesn't carry settings: a client lists them after one, then follows the events. `meshctl set --key quota_stop --value 75`, `meshctl unset --key quota_stop`.
+- A value is checked against its type: `string`, `strings`, `int`, `percent`, `bool`, `seconds`, `effort`, `chain`, `slots`, `kinds`, `mb_or_auto`, `json`. A failure is `InvalidArgument` naming the rule (`quota_stop must be a whole number 0 to 100`); a key no leaf has is `NotFound`.
+- The daemon reads a leaf with `Daemon.Setting(reader, key)` (the override, else the default; a stored value the leaf's rule no longer takes is logged and the default used; a failed read is an error), so a change applies to the next read. A write that changes nothing (the same value again, a reset of a setting nobody set) emits no event. `seconds` is capped at 1e9 so a `time.Duration` can't overflow. Not ported yet, with the herdr-only leaves (views, `side_panes`, `root_reset.*`, `compact.*`, `claude.*`, `worker_cpus`, `worker_memory_high`): they wait for the switchover. `meshd` doesn't import `~/.config/agent-mesh.json`.
 
 ## Terminals
 

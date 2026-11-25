@@ -48,7 +48,7 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	defer b.mu.Unlock()
 	for s := range b.subs {
 		for _, ev := range evs {
-			if s.runID != "" && ev.RunId != s.runID {
+			if !inScope(s.runID, ev) {
 				continue
 			}
 			select {
@@ -150,7 +150,7 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stoppin
 			if !ok {
 				return connect.NewError(connect.CodeResourceExhausted, ErrSlow)
 			}
-			if ev.Seq <= sent || (req.RunId != "" && ev.RunId != req.RunId) {
+			if ev.Seq <= sent || !inScope(req.RunId, ev) {
 				continue
 			}
 			if err := send(eventFrame(ev)); err != nil {
@@ -159,6 +159,12 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stoppin
 			sent = ev.Seq
 		}
 	}
+}
+
+// inScope reports whether a subscriber of runID (empty: every run) gets ev. An event with no run is global (a
+// setting changed): every subscriber gets it.
+func inScope(runID string, ev *v1.Event) bool {
+	return runID == "" || ev.RunId == "" || ev.RunId == runID
 }
 
 func eventFrame(ev *v1.Event) *v1.SubscribeEventsResponse {
