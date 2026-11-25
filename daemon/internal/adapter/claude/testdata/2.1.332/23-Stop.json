@@ -1,0 +1,17 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000006",
+  "transcript_path": "/home/user/.claude/projects/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000006.jsonl",
+  "cwd": "/work/state/worktrees/ri4lh27/repo-capture",
+  "scratchpad_dir": "/tmp/claude-1000/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000006/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000007",
+  "permission_mode": "default",
+  "effort": {
+    "level": "low"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "The mesh doorbell didn't reach me: `mesh inbox` says this session isn't in a mesh run, and `meshctl` isn't installed. I haven't read or changed anything.\n\nI can't see any pending message, so there's nothing to act on. If you expected a task from a parent agent, resend it, or check that the session was started by a mesh run (`mesh agents` lists runs).",
+  "background_tasks": [],
+  "session_crons": []
+}
+

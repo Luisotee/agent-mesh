@@ -1,0 +1,69 @@
+{
+  "claude_version": "2.1.332",
+  "steps": [
+    {
+      "scenario": "startup",
+      "files": [
+        "01-SessionStart.json"
+      ]
+    },
+    {
+      "scenario": "a turn with a tool call",
+      "files": [
+        "02-UserPromptSubmit.json",
+        "03-PreToolUse.json",
+        "04-PostToolUse.json",
+        "05-Stop.json"
+      ]
+    },
+    {
+      "scenario": "a permission prompt",
+      "files": [
+        "06-UserPromptSubmit.json",
+        "07-PreToolUse.json",
+        "08-Notification.json"
+      ]
+    },
+    {
+      "scenario": "the prompt accepted, the turn ending",
+      "files": [
+        "09-PostToolUse.json",
+        "10-Stop.json"
+      ]
+    },
+    {
+      "scenario": "/compact",
+      "files": [
+        "11-PreCompact.json",
+        "12-SubagentStop.json",
+        "13-SessionStart.json"
+      ]
+    },
+    {
+      "scenario": "/clear",
+      "files": [
+        "14-SessionEnd.json",
+        "15-SessionStart.json"
+      ]
+    },
+    {
+      "scenario": "a reopen (claude --resume)",
+      "files": [
+        "16-SessionEnd.json",
+        "17-SessionStart.json",
+        "18-UserPromptSubmit.json",
+        "19-PreToolUse.json",
+        "20-Notification.json",
+        "21-PreToolUse.json",
+        "22-Notification.json",
+        "23-Stop.json"
+      ]
+    },
+    {
+      "scenario": "/exit",
+      "files": [
+        "24-SessionEnd.json"
+      ]
+    }
+  ]
+}
