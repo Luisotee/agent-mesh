@@ -43,6 +43,10 @@ class RecordingApi : MeshApi {
     /** Pages by run: each call returns the next one, `more` set while pages remain. */
     var pages: Map<String, List<List<Message>>> = emptyMap()
     var failListings = 0
+    /** Runs whose listing fails (the others work). */
+    var failRuns: Set<String> = emptySet()
+    /** When set, the next listing waits for it (a load in flight). */
+    var listGate: CompletableDeferred<Unit>? = null
     var failSend: Exception? = null
 
     override suspend fun hello(): HelloResponse = CompletableDeferred<HelloResponse>().await()
@@ -50,6 +54,8 @@ class RecordingApi : MeshApi {
 
     override suspend fun listMessages(runId: String, afterId: String): ListMessagesResponse {
         listCalls += runId to afterId
+        listGate?.let { listGate = null; it.await() }
+        if (runId in failRuns) throw ApiException(com.connectrpc.Code.UNAVAILABLE, "down")
         if (failListings > 0) { failListings--; throw ApiException(com.connectrpc.Code.UNAVAILABLE, "down") }
         val all = pages[runId].orEmpty()
         // The page after `afterId`: the one that follows the page whose last message that is.

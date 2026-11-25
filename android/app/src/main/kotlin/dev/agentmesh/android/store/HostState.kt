@@ -80,14 +80,20 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
 private fun applyEvent(s: HostState, e: Event): HostState {
     val next = s.copy(cursor = Cursor.newBuilder().setGeneration(e.generation).setSeq(e.seq).build())
     return when (e.payloadCase) {
-        Event.PayloadCase.RUN_STARTED -> if (e.runStarted.hasRun()) next.copy(runs = s.runs + (e.runStarted.run.id to e.runStarted.run)) else next
+        // A run that starts while we listen has no history before this event: everything said in it comes as events,
+        // so there is nothing for the loader to fetch and its messages are complete as they arrive.
+        Event.PayloadCase.RUN_STARTED -> if (e.runStarted.hasRun()) {
+            val r = e.runStarted.run
+            next.copy(runs = s.runs + (r.id to r), messagesLoaded = if (r.id in s.runs) s.messagesLoaded else s.messagesLoaded + r.id)
+        } else next
         Event.PayloadCase.MESSAGE_SENT -> if (e.messageSent.hasMessage()) next.copy(messages = s.messages + (e.messageSent.message.id to e.messageSent.message)) else next
         Event.PayloadCase.MESSAGE_DELIVERED -> {
             val m = s.messages[e.messageDelivered.messageId]
             when {
                 m != null -> next.copy(messages = s.messages + (m.id to m.toBuilder().apply { if (e.hasTime()) setDeliveredAt(e.time) }.build()))
-                // Not loaded yet: remember it for the page that brings the message (a bounded few).
-                e.hasTime() && s.earlyDeliveries.size < MAX_EARLY -> next.copy(earlyDeliveries = s.earlyDeliveries + (e.messageDelivered.messageId to e.time))
+                // Not loaded yet: remember it for the page that brings the message.
+                // The oldest goes when there are too many: a delivery the page needs is more likely a recent one.
+                e.hasTime() -> next.copy(earlyDeliveries = (if (s.earlyDeliveries.size >= MAX_EARLY) s.earlyDeliveries.entries.drop(1).associate { it.key to it.value } else s.earlyDeliveries) + (e.messageDelivered.messageId to e.time))
                 else -> next
             }
         }

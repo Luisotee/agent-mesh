@@ -71,7 +71,7 @@ class MessagesTest {
     /** A snapshot, and the run's stored messages loaded (the empty history of the fake host). */
     private fun sync(rt: HostRuntime, agents: List<dev.agentmesh.gen.agentmesh.v1.Agent>) {
         rt.onFrame(snapshot(listOf(run("r1")), agents))
-        rt.reloadMessages()
+        rt.loadMessages()
     }
 
     private fun show(rt: HostRuntime, agentId: String = "w1", tab: dev.agentmesh.android.notify.Tab = dev.agentmesh.android.notify.Tab.Messages) {
@@ -120,7 +120,9 @@ class MessagesTest {
         assertTrue("got $e", e is AlreadyAnswered)
         assertEquals(emptyList<String>(), api.approved)
         // Nothing to approve (no plan or question from that agent) is refused too, not sent as a bare "approved".
-        assertTrue(runCatching { rt.approve("lead") }.exceptionOrNull() is AlreadyAnswered)
+        val none = runCatching { rt.approve("lead") }.exceptionOrNull()
+        assertTrue("got $none", none is NothingToAnswer)
+        assertTrue(none!!.message!!.endsWith("nothing was sent."))
         assertTrue(runCatching { rt.answer("w1", "x") }.exceptionOrNull() is AlreadyAnswered)
         assertTrue(runCatching { rt.requestChanges("w1", "x") }.exceptionOrNull() is AlreadyAnswered)
         assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
@@ -134,7 +136,7 @@ class MessagesTest {
         assertTrue(runCatching { rt.approve("w1") }.exceptionOrNull() is NotLoaded)
         assertEquals(emptyList<String>(), api.approved)
         // Loaded: it goes through.
-        rt.reloadMessages()
+        rt.loadMessages()
         rt.approve("w1")
         assertEquals(listOf("w1"), api.approved)
     }
@@ -238,7 +240,7 @@ class MessagesTest {
         compose.onNodeWithText("Loading…").assertIsDisplayed()
         // The loads gave up.
         api.failListings = 100
-        rt.reloadMessages()
+        rt.loadMessages()
         compose.waitUntil(10_000) { rt.state.value.messagesFailed.isNotEmpty() }
         compose.waitForIdle()
         compose.onNodeWithText("Couldn't load the messages.").assertIsDisplayed()
@@ -248,6 +250,38 @@ class MessagesTest {
         compose.waitForIdle()
         compose.onNodeWithText("No messages yet.").assertIsDisplayed()
     }
+
+    /** A run a lead starts while the phone is connected: its plan can be approved at once, and its tab isn't left Loading. */
+    @Test fun `a run started after connecting can be approved and answered, and its tab isn't stuck Loading`() = runBlocking {
+        val rt = runtime()
+        sync(rt, listOf(lead, worker))
+        val lead2 = agent("lead2", runId = "r2", role = AgentRole.AGENT_ROLE_ROOT, name = "api-lead")
+        val w2 = agent("w2", runId = "r2", parent = "lead2", name = "api-fix").toBuilder().setPhase(AgentPhase.AGENT_PHASE_PLANNING).build()
+        rt.onFrame(runStarted(1, run("r2")))
+        rt.onFrame(agentSpawned(2, lead2)); rt.onFrame(agentSpawned(3, w2))
+        rt.onFrame(messageSent(4, message("p2", runId = "r2", from = "w2", to = "lead2", type = MessageType.MESSAGE_TYPE_PLAN, body = "the plan", at = 20_000), at = 20_000))
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance())) // (the fixture connection never answers)
+        rt.awaitFresh("w2") // returns: nothing to wait for
+        rt.approve("w2")
+        assertEquals(listOf("w2"), api.approved)
+        rt.onFrame(messageSent(5, message("q2", runId = "r2", from = "w2", to = "lead2", type = MessageType.MESSAGE_TYPE_QUESTION, body = "which?", at = 99_000), at = 99_000))
+        rt.answer("w2", "this one")
+        assertEquals(Triple("w2", MessageType.MESSAGE_TYPE_ANSWER, "this one"), api.sent.single())
+    }
+
+    @Test fun `Try again reloads only the runs that failed`() {
+        val rt = runtime(retryMs = 5)
+        api.failRuns = setOf("r2")
+        rt.onFrame(snapshot(listOf(run("r1"), run("r2")), listOf(lead, worker)))
+        rt.loadMessages()
+        compose.waitUntil(10_000) { rt.state.value.messagesFailed == setOf("r2") && rt.state.value.messagesLoaded == setOf("r1") }
+        val r1Calls = api.listCalls.count { it.first == "r1" }
+        api.failRuns = emptySet()
+        rt.reloadMessages()
+        compose.waitUntil(5_000) { rt.state.value.messagesLoaded == setOf("r1", "r2") }
+        assertEquals("the healthy run wasn't loaded again", r1Calls, api.listCalls.count { it.first == "r1" })
+    }
+
 }
 
 private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onNodeWithContentDescriptionCompat(d: String) =

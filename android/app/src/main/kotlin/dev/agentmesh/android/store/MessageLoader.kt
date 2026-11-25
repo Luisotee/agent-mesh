@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Loads the stored messages of a host's open runs into its state, a page at a time: the event stream starts from a
@@ -29,54 +30,69 @@ class MessageLoader(
     /** Per run: the last message of its last completely listed page. */
     private val listedTo = ConcurrentHashMap<String, String>()
     private val running = ConcurrentHashMap.newKeySet<String>()
+    /** Runs asked for again while a load of them was running: the load starts over when it ends. */
+    private val again = ConcurrentHashMap.newKeySet<String>()
     private val retries = ConcurrentHashMap<String, Int>()
     private val pending = ConcurrentHashMap<String, Job>()
+    /** Bumped by [reset]: a load that began before it (another daemon's) writes nothing. */
+    private val generation = AtomicInteger()
 
-    /** Load the open runs of a snapshot. */
+    /** Load the open runs of a snapshot (or the given ones again). */
     fun load(runs: Collection<Run>) {
         for (r in runs) if (r.status == RunStatus.RUN_STATUS_OPEN) {
             // A new request (a new snapshot) starts the retries over, and replaces one waiting to fire: the host may be fine now.
             retries.remove(r.id)
             pending.remove(r.id)?.cancel()
             update { it.copy(messagesLoaded = it.messagesLoaded - r.id, messagesFailed = it.messagesFailed - r.id) }
-            scope.launch { loadRun(r.id) }
+            scope.launch { loadRun(r.id, generation.get()) }
         }
     }
 
     /** Forget everything: another daemon answers at this address, and its run ids mean something else. */
     fun reset() {
-        listedTo.clear(); retries.clear(); running.clear()
+        generation.incrementAndGet()
+        listedTo.clear(); retries.clear(); running.clear(); again.clear()
         pending.values.forEach { it.cancel() }; pending.clear()
     }
 
-    private suspend fun loadRun(runId: String) {
-        if (!running.add(runId)) return
+    private suspend fun loadRun(runId: String, gen: Int) {
+        if (gen != generation.get()) return
+        // Asked again while loading: the running load notes it and starts over, rather than the request being lost.
+        if (!running.add(runId)) { again.add(runId); return }
+        var restart = false
         try {
             val client = api() ?: error("not connected")
             var after = listedTo[runId].orEmpty()
             while (true) {
                 val page = client.listMessages(runId, after)
+                if (gen != generation.get()) return
                 update { mergeMessages(it, page.messagesList) }
                 val last = page.messagesList.lastOrNull()
                 if (last != null) { after = last.id; listedTo[runId] = after }
                 if (!page.more || last == null) break
             }
             retries.remove(runId)
-            update { it.copy(messagesLoaded = it.messagesLoaded + runId, messagesFailed = it.messagesFailed - runId) }
+            // Not published when a newer request is waiting: its own load will, once it has run.
+            if (runId !in again) update { it.copy(messagesLoaded = it.messagesLoaded + runId, messagesFailed = it.messagesFailed - runId) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (gen != generation.get()) return
             log("couldn't load the messages of run $runId: ${e.message}")
             val n = retries[runId] ?: 0
-            if (n < MAX_RETRIES) {
+            if (n < MAX_RETRIES && runId !in again) {
                 retries[runId] = n + 1
                 running.remove(runId)
-                pending[runId] = scope.launch { delay(retryBaseMs * (1L shl n)); pending.remove(runId); loadRun(runId) }
+                pending[runId] = scope.launch { delay(retryBaseMs * (1L shl n)); pending.remove(runId); loadRun(runId, gen) }
                 return
             }
-            update { it.copy(messagesFailed = it.messagesFailed + runId) }
+            if (runId !in again) update { it.copy(messagesFailed = it.messagesFailed + runId) }
         } finally {
-            running.remove(runId)
+            if (gen == generation.get()) {
+                running.remove(runId)
+                restart = again.remove(runId)
+            }
+            if (restart) scope.launch { loadRun(runId, gen) }
         }
     }
 

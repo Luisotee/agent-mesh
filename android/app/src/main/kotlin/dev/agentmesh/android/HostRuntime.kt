@@ -47,6 +47,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** The plan or question the action is about was answered meanwhile (by the lead or on another device). */
 class AlreadyAnswered : Exception("This was already answered")
 
+/** The agent has no plan or question waiting for an answer, so there is nothing for this action to answer. */
+class NothingToAnswer(message: String) : Exception(message)
+
 /** The app doesn't know this agent's conversation (yet), so it can't tell what an answer would answer. */
 class NotLoaded(message: String) : Exception(message)
 
@@ -111,7 +114,7 @@ class HostRuntime(
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
             _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect {
-                loader.load(_state.value.runs.values)
+                loadMessages()
                 loadSettings()
             }
         }
@@ -124,8 +127,11 @@ class HostRuntime(
 
     fun nudge() = connection.nudge()
 
-    /** Try a run's messages again after the load gave up. */
-    fun reloadMessages() = loader.load(_state.value.runs.values)
+    /** Load the stored messages of every open run (a synced connection does it by itself). */
+    fun loadMessages() = loader.load(_state.value.runs.values)
+
+    /** Try again the runs whose load gave up; the others are left as they are. */
+    fun reloadMessages() = loader.load(_state.value.runs.values.filter { it.id in _state.value.messagesFailed })
 
     /** Reconnect now, on the host's current routes and token (they were edited). */
     fun reconnect() = connection.restart()
@@ -169,8 +175,10 @@ class HostRuntime(
     suspend fun send(to: String, type: MessageType, body: String): Message = stored(live().sendMessage(to, type, body))
 
     /**
-     * Approves an agent's plan. A planning worker moves to its execution model in the same conversation
-     * (`ApproveAgent`); anything else just gets the answer "approved".
+     * Approves the plan (or question) an agent is waiting on. A planning worker moves to its execution model in the
+     * same conversation (`ApproveAgent`); any other agent gets the answer "approved". With nothing waiting on an
+     * answer (it was answered, or the run is closed and its messages aren't loaded) it throws [AlreadyAnswered] or
+     * [NothingToAnswer] and sends nothing; while the conversation isn't known, [NotLoaded].
      */
     suspend fun approve(agentId: String): Message {
         unansweredAsk(agentId)
@@ -186,6 +194,16 @@ class HostRuntime(
     suspend fun awaitFresh(agentId: String) {
         _state.first { it.synced && it.conn is ConnState.Ready && (it.agents[agentId]?.let { a -> historyKnown(it, a) } ?: true) }
         notLoaded(_state.value, agentId)?.let { throw NotLoaded(it) }
+    }
+
+    /**
+     * Why an action on [agentId] is waiting, for a message when it gave up: its conversation couldn't be loaded
+     * (or is still loading) on a connection that is up; null when the host itself can't be reached.
+     */
+    fun waitingReason(agentId: String): String? {
+        val s = _state.value
+        if (s.conn !is ConnState.Ready || !s.synced) return null
+        return notLoaded(s, agentId)
     }
 
     private fun historyKnown(s: HostState, a: Agent): Boolean {
@@ -212,7 +230,8 @@ class HostRuntime(
         notLoaded(s, agentId)?.let { throw NotLoaded(it) }
         val msgs = s.messages.values
         val ask = msgs.filter { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) }
-            .maxWithOrNull(dev.agentmesh.android.store.MessageOrder) ?: throw AlreadyAnswered()
+            .maxWithOrNull(dev.agentmesh.android.store.MessageOrder)
+            ?: throw NothingToAnswer("${s.agents[agentId]?.name ?: "The agent"} has no plan or question waiting for an answer, so nothing was sent.")
         if (msgs.any { it.toId == agentId && it.type == MessageType.MESSAGE_TYPE_ANSWER && dev.agentmesh.android.store.isBefore(ask, it) }) throw AlreadyAnswered()
         return ask
     }

@@ -26,6 +26,7 @@ class Notice(
 const val LIVE_WITHIN_MS = 60_000L
 
 private const val MAX_BODY = 200
+private const val MAX_SCAN = 4_000
 
 private val LINE_MARK = Regex("""^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)""")
 private val FENCE = Regex("""^\s*```\w*\s*$""")
@@ -35,7 +36,8 @@ private val CODE = Regex("""`([^`\n]+)`""")
 
 /** A notification is plain text: drop the Markdown's own marks (headings, bullets, paired emphasis and code ticks). */
 fun brief(text: String): String {
-    val flat = text.lines().filterNot { FENCE.matches(it) }.joinToString(" ") { it.replace(LINE_MARK, "") }
+    // A notification shows 200 characters: a huge body isn't scanned whole (the marks are stripped from a few KB).
+    val flat = text.take(MAX_SCAN).lines().filterNot { FENCE.matches(it) }.joinToString(" ") { it.replace(LINE_MARK, "") }
         .replace(CODE, "$1").replace(BOLD_ITALIC, "$2").replace(Regex("\\s+"), " ").trim()
     return if (flat.length > MAX_BODY) flat.take(MAX_BODY - 1) + "…" else flat
 }
