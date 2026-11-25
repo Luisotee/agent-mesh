@@ -647,7 +647,7 @@ class ClaudeCli(Cli):
         found = error_limit(stop)
         if found or bg or (stop and stop[0] == LIMIT_OVER):
             return found
-        lines = pane_lines(watch.name)
+        lines = pane_lines(watch.screen_target(entry))
         if lines is None and entry.get("pane"):
             lines = pane_lines(entry["pane"])
         if stop is None and login_expired(lines):
@@ -660,7 +660,7 @@ class ClaudeCli(Cli):
         return bool(stop and stop[0] == LIMIT_OVER)
 
     def auto_continues(self, entry: dict, name: str) -> bool:
-        return entry.get("view") != "bg" and bool(AUTO_CONTINUE_RE.search("\n".join(pane_lines(name) or [])))
+        return entry.get("view") != "bg" and bool(AUTO_CONTINUE_RE.search("\n".join(pane_lines(wait_target(name, entry)) or [])))
 
     def limit_reset(self, entry: dict, reset: str) -> float | None:
         when = claude_limit_reset(entry.get("model")) or parse_reset(reset)
@@ -820,7 +820,7 @@ class CopilotCli(Cli):
             current = current_quota_error(json_events(tail_lines(copilot_events({**entry, "session": session}))))
             if current:
                 return "limit", ""
-        lines = pane_lines(watch.name)
+        lines = pane_lines(watch.screen_target(entry))
         if lines is None and entry.get("pane"):
             lines = pane_lines(entry["pane"])
         tail = (lines or [])[-LIMIT_LINES:]
@@ -934,7 +934,7 @@ class OpenCodeCli(Cli):
         model = entry.get("model") or ""
         since = epoch(since_last_task(read_log(watch.run_id), watch.name)[2])
         session = watch.conversation(entry)
-        lines = pane_lines(watch.name) if entry.get("view") != "bg" else None
+        lines = pane_lines(watch.screen_target(entry)) if entry.get("view") != "bg" else None
         tail = (lines or [])[-LIMIT_LINES:]
         hit = next((m for m in map(OPENCODE_LIMIT_RE.search, reversed(tail)) if m), None)
         if hit and session and opencode_replies(session, model, since) == []:
@@ -2103,14 +2103,9 @@ def agent_name(repo: str, suffix: str, taken: set[str]) -> str:
     return name
 
 
-def live_agent_names() -> set[str]:
-    """herdr names must be unique among live agents, including other runs' and your own."""
-    return {a["name"] for a in herdr("agent", "list").get("agents", []) if a.get("name")}
-
-
-def recorded_agents(skip_pane: str | None = None) -> list[tuple[str, str, dict]]:
+def recorded_agents(skip_pane: str | None = None, skip: tuple[str, str] | None = None) -> list[tuple[str, str, dict]]:
     """(run, name, entry) of every agent with a pane that an unarchived run's run.json records and hasn't retired,
-    but the one in `skip_pane`. What mesh itself knows, whatever herdr's list says (it can lose a live agent's
+    but the one in `skip_pane` and the (run, name) `skip`. What mesh itself knows, whatever herdr's list says (it can lose a live agent's
     registration, and a rename takes a held name from its holder)."""
     found = []
     for path in sorted(mesh_home().glob("*/run.json")):
@@ -2118,20 +2113,22 @@ def recorded_agents(skip_pane: str | None = None) -> list[tuple[str, str, dict]]
             agents = json.loads(path.read_text()).get("agents") or {}
             found += [(path.parent.name, name, entry) for name, entry in agents.items()
                       if isinstance(entry, dict) and entry.get("pane") and entry["pane"] != skip_pane
-                      and entry.get("status") != "retired"]
+                      and entry.get("status") != "retired" and (path.parent.name, name) != skip]
         except (OSError, ValueError, AttributeError):
             continue  # unreadable, or not a run
     return found
 
 
-def claimed_names(skip_pane: str | None = None, listed: list[dict] | None = None) -> set[str]:
+def claimed_names(skip_pane: str | None = None, listed: list[dict] | None = None,
+                  skip: tuple[str, str] | None = None) -> set[str]:
     """The names a new agent can't take: herdr's live ones, and those recorded for an agent of any live run whose
     pane still exists (all of them when herdr can't list its panes: a name is never freed on a guess).
-    `skip_pane` is the agent being named, `listed` herdr's agent list when the caller has read it."""
+    `skip_pane` is the agent being named, `skip` the (run, name) of the one being reopened under its own name,
+    `listed` herdr's agent list when the caller has read it."""
     if listed is None:
         listed = herdr("agent", "list").get("agents", [])
     names = {a["name"] for a in listed if a.get("name")}
-    recorded = recorded_agents(skip_pane)
+    recorded = recorded_agents(skip_pane, skip)
     if recorded:
         try:
             open_panes = {p.get("pane_id") for p in herdr("pane", "list").get("panes", [])}
@@ -2161,8 +2158,9 @@ def herdr_targets(name: str, entry: dict) -> list[str]:
     try:
         herdr("agent", "get", pane)
         return [pane]
-    except HerdrError:
-        pass
+    except HerdrError as exc:
+        if exc.code != "agent_not_found":  # can't tell it is gone: its recorded pane still stands for it
+            return [pane]
     theirs, mine = (got.get("agent_session") or {}).get("value"), entry.get("session")
     if theirs and mine:  # a Claude's session says whether the name's pane is this agent, renumbered, or not
         return targets if theirs == mine else []
@@ -7869,6 +7867,9 @@ def wait_note(events: list[dict], name: str) -> str:
     return f"; its wait until {wait.get('until')} ended {ago(age_seconds(wait.get('until')))} ago"
 
 
+SCREEN_TARGET_TTL = 3.0  # seconds a watch reuses where its worker's screen is (a poll is 5s apart)
+
+
 class Watch:
     """One child's watchdog state between polls (see watch_agents)."""
 
@@ -7910,6 +7911,7 @@ class Watch:
         self.gone_polls = 0  # the run's retirer: polls in a row it read this worker gone (retire_poll)
         self.gone_after: str | None = None  # ...and the report after which it let it go as ended
         self.continue_failed: str | None = None  # the `continue_due` whose delivery this watch saw fail, logged once
+        self.screen: tuple[str, float] | None = None  # `screen_target`'s last answer, and when it was asked
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -8011,7 +8013,7 @@ class Watch:
         idle = time.time() - max(epoch(report.get("time")), progress if progress is not None else self.idle_at or 0)
         if idle < self.idle_retire:
             return
-        if not bg and human_draft(pane_lines(name, ansi=True), entry.get("kind")):
+        if not bg and human_draft(pane_lines(self.screen_target(entry), ansi=True), entry.get("kind")):
             return  # the user is typing to it
         why = viewer(name, entry)
         if why:  # the user is looking at it: retired once they leave, if it is still idle
@@ -8308,8 +8310,16 @@ class Watch:
             return ""
         return f"{before}its {' and '.join(kinds)} {'are' if len(kinds) > 1 else 'is'} still unread{after}"
 
+    def screen_target(self, entry: dict) -> str:
+        """What this poll's screen reads address the worker by: its name, or its own pane while the name is
+        another agent's (`wait_target`). One answer serves the reads of a poll (`SCREEN_TARGET_TTL`), so the
+        reads cost herdr no more than one `agent get` a poll."""
+        if self.screen is None or time.monotonic() - self.screen[1] > SCREEN_TARGET_TTL:
+            self.screen = (wait_target(self.name, entry), time.monotonic())
+        return self.screen[0]
+
     def with_tail(self, line: str, bg: bool, entry: dict) -> str:
-        tail = "" if bg else pane_tail(self.name) or (pane_tail(entry["pane"]) if entry.get("pane") else "")
+        tail = "" if bg else pane_tail(self.screen_target(entry)) or (pane_tail(entry["pane"]) if entry.get("pane") else "")
         return f"{line}\n  last lines of its pane:\n{tail}" if tail else line
 
 
@@ -9532,7 +9542,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
-    taken = claimed_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
+    taken = claimed_names(skip=(run_id, old_name) if old_run["id"] == run_id else None) | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
     name, n = old_name, 2
     while name in taken:
         name, n = f"{old_name[:29]}-{n}", n + 1

@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import re
+import shutil
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11721,3 +11722,24 @@ def test_a_renumbered_pane_is_told_from_a_thiefs_by_its_session(mesh, fake, run)
     fake.on("agent", "get", "repo-fix-typo",
             result={"agent": {"pane_id": "w2:p77", "agent_session": {"value": "sess-theirs"}}})
     assert mesh.herdr_targets("repo-fix-typo", entry) == []  # someone else's, recorded in no run
+
+
+def test_resuming_a_crashed_worker_in_its_own_run_keeps_its_name(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    old = json.loads((mesh.mesh_home() / "archive" / "mold" / "run.json").read_text())["agents"]["proj-fix"]
+    with mesh.editing_run(run) as data:  # its pane is open (a shell where the agent crashed): status still running
+        data["agents"]["proj-fix"] = {**old, "parent": "repo-lead", "pane": "w7:p1"}
+    shutil.rmtree(mesh.mesh_home() / "archive" / "mold")
+    panes_open(fake, "w7:p1")
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "proj-fix"  # not proj-fix-2
+
+
+def test_a_reopened_worker_still_yields_to_another_runs_live_agent_of_its_name(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9", role="worker")
+    panes_open(fake, "w9:p9", "w2:p5")
+    assert "repo-fix-typo" in mesh.claimed_names(skip=(run, "repo-fix-typo"))
+    other_run(mesh, "mthird", "repo-lead", "w8:p8")
+    assert "repo-lead" not in mesh.claimed_names(skip=("mthird", "repo-lead"))
