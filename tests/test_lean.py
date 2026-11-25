@@ -95,7 +95,7 @@ def test_lean_settings_ride_in_the_one_settings_json_beside_the_hooks(mesh, run,
 
 
 def test_what_an_agent_added_back_stays_in_and_a_tool_turns_the_snapshot_off(mesh, run, lean):
-    entry = entry_for(lean, added=["Artifact", "todoist", "dataviz", "pr-review-toolkit"], tools_added=True)
+    entry = entry_for(lean, added=["Artifact", "dataviz", "pr-review-toolkit"], mcp=["todoist"], tools_added=True)
     argv = mesh.claude_launch_argv(run, "repo-fix-typo", entry)
     assert "Artifact" not in deny_rules(argv) and argv[-2:] == ["--system-prompt-snapshot", "off"]
     assert "todoist" in mcp_servers(argv[argv.index("--mcp-config") + 1])
@@ -167,7 +167,7 @@ def test_a_worker_adds_tools_back_and_mesh_reopens_it_after_its_turn(mesh, run, 
     monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: reopens.append(a) or 77)
     assert mesh.main(["tools", "add", "Artifact", "flow", "--next", "publish the page", "--as", "repo-fix-typo"]) == 0
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
-    assert entry["added"] == ["Artifact", "flow"] and entry["tools_added"] is True
+    assert entry["added"] == ["Artifact"] and entry["mcp"] == ["flow"] and entry["tools_added"] is True  # a server is `mcp`
     assert reopens == [(run, "repo-fix-typo", "publish the page")]
     assert mesh.live_wait(mesh.read_log(run), "repo-fix-typo")  # its Stop hook lets this turn end
     assert "end your turn now" in json.loads(capsys.readouterr().out)["then"]
@@ -950,6 +950,8 @@ def test_a_worker_that_added_the_browser_back_holds_it_too(mesh, run, users, mon
     monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: 77)
     assert mesh.main(["tools", "add", "playwright", "--as", "repo-fix-typo"]) == 0
     assert mesh.mcp_holder("playwright") == (run, "repo-fix-typo")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["mcp"] == ["playwright"] and "added" not in entry  # so no resume can keep it past `--mcp none`
     monkeypatch.setattr(mesh, "start_reset", lambda *a, **k: 5)
     monkeypatch.setenv("MESH_ROOT_RELAUNCH", "1")
     assert mesh.main(["tools", "add", "playwright"]) == 1  # the root can't take it from the worker
@@ -1074,3 +1076,88 @@ def test_every_lean_agent_keeps_context7_and_web_search(mesh, run, users, who, e
     assert not {"WebSearch", "WebFetch"} & set(mesh.lean_tools(entry))
     root = {**entry, "role": "root"}
     assert not {"WebSearch", "WebFetch"} & set(mesh.lean_tools(root))
+
+
+def test_a_resume_that_clears_or_drops_a_server_added_back_launches_without_it(mesh, fake, run, gitrepo, users,
+                                                                              monkeypatch, capsys):
+    stub_new_pane(fake)
+    monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: 77)
+    for n, flags in enumerate((["--mcp", "none"], [])):  # cleared by the root; dropped as another holds it
+        run_id = f"mold{n}"
+        archived_worker(mesh, gitrepo, kind="claude", session="c1", run_id=run_id)
+        archive = mesh.mesh_home() / "archive" / run_id / "run.json"
+        data = json.loads(archive.read_text())
+        data["agents"]["proj-fix"].update(mcp=["playwright"], status="retired")
+        archive.write_text(json.dumps(data))
+        if not flags:
+            other_run(mesh, "m2", {"w-shot": lease_entry(mcp=["playwright"])})
+        capsys.readouterr()
+        assert mesh.main(["resume", "--tier", "strong", "--from-run", run_id, "proj-fix", "--task", "Go.", *flags]) == 0
+        name = json.loads(capsys.readouterr().out)["name"]
+        assert launched_servers(mesh, run, name) == {"context7"}, flags
+        assert "playwright" not in str(mesh.load_run(run)["agents"][name].get("added"))
+        with mesh.editing_run(run) as data:
+            data["agents"][name]["status"] = "retired"
+
+
+def test_a_failed_spawn_or_resume_doesnt_hold_the_server(mesh, fake, run, gitrepo, users, monkeypatch, capsys):
+    stub_panes(fake)
+    real = mesh.place_pane
+
+    def broken(*a, **k):
+        raise mesh.MeshError("no pane")
+    monkeypatch.setattr(mesh, "place_pane", broken)
+    assert spawn_claude(mesh, gitrepo, "one", "--mcp", "playwright") == 1
+    assert mesh.mcp_holder("playwright") is None and not mesh.mcp_file(run, "proj-one").exists()
+    monkeypatch.setattr(mesh, "place_pane", real)
+    assert spawn_claude(mesh, gitrepo, "two", "--mcp", "playwright") == 0  # the failed one didn't hold it
+    mesh.retire_worker(run, "proj-two", mesh.load_run(run)["agents"]["proj-two"])
+    archived_worker(mesh, gitrepo, kind="claude", session="c1", run_id="mold")
+    archive = mesh.mesh_home() / "archive" / "mold" / "run.json"
+    data = json.loads(archive.read_text())
+    data["agents"]["proj-fix"].update(mcp=["playwright"], status="retired")
+    archive.write_text(json.dumps(data))
+    monkeypatch.setattr(mesh, "place_pane", broken)
+    assert mesh.main(["resume", "--tier", "strong", "--from-run", "mold", "proj-fix", "--task", "Go."]) == 1
+    assert mesh.mcp_holder("playwright") is None
+
+
+def test_an_entry_whose_start_died_holds_nothing_past_the_grace(mesh, run, users):
+    old = (datetime.now(timezone.utc) - timedelta(seconds=mesh.STARTING_GRACE + 5)).isoformat(timespec="seconds")
+    other_run(mesh, "m2", {"w-dead": lease_entry(mcp=["playwright"], status="starting", pane=None, spawned=old)})
+    assert mesh.mcp_holder("playwright") is None
+    other_run(mesh, "m3", {"w-new": lease_entry(mcp=["playwright"], status="starting", pane=None,
+                                                spawned=datetime.now(timezone.utc).isoformat(timespec="seconds"))})
+    assert mesh.mcp_holder("playwright") == ("m3", "w-new")  # a start in progress does
+
+
+def test_claude_ai_connectors_hold_every_shared_server(mesh, run, users, monkeypatch, capsys):
+    other_run(mesh, "m2", {"w-all": lease_entry(mcp_all=True)})
+    assert mesh.mcp_holder("playwright") == ("m2", "w-all") and mesh.mcp_holder("flow") is None
+    shutil.rmtree(mesh.mesh_home() / "m2")
+    claude_worker(mesh, run)
+    other_run(mesh, "m3", {"w-shot": lease_entry(mcp=["playwright"])})
+    monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: 77)
+    assert mesh.main(["tools", "add", "claude.ai Gmail", "--as", "repo-fix-typo"]) == 1  # it would load the browser
+    assert "w-shot" in capsys.readouterr().err and "mcp_all" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
+
+
+def test_the_compaction_before_a_resume_runs_with_the_servers_it_will_reopen_with(mesh, fake, run, gitrepo, users,
+                                                                                  monkeypatch, capsys):
+    stub_new_pane(fake)
+    seen = []
+    real = mesh.maybe_compact
+    monkeypatch.setattr(mesh, "maybe_compact", lambda a, entry, *r, **k: seen.append(entry["mcp"]) or real(a, entry, *r, **k))
+    archived_worker(mesh, gitrepo, kind="claude", session="c1", run_id="mold")
+    archive = mesh.mesh_home() / "archive" / "mold" / "run.json"
+    data = json.loads(archive.read_text())
+    data["agents"]["proj-fix"].update(mcp=["playwright"], status="retired")
+    archive.write_text(json.dumps(data))
+    assert mesh.main(["resume", "--tier", "strong", "--from-run", "mold", "proj-fix", "--task", "Go.",
+                      "--mcp", "flow"]) == 0
+    assert seen == [["flow"]]
+
+
+def test_tools_servers_needs_no_run(mesh, users, capsys):
+    assert mesh.main(["tools", "servers", "--json"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 4
