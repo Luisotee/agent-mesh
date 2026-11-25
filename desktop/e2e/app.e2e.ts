@@ -135,9 +135,10 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await expect.poll(() => status.innerText(), { timeout: 20_000 }).toMatch(/^Reconnecting/)
   await host.start()
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe('Live')
-  const text = await screen.innerText()
-  expect(text).toContain('done: hello')
-  expect(text.match(/done: hello/g)).toHaveLength(1)
+  // xterm draws what it was written a moment after the stream says live: wait for the screen, then check it
+  // wasn't repeated.
+  await expect.poll(() => screen.innerText(), { timeout: 10_000 }).toContain('done: hello')
+  expect((await screen.innerText()).match(/done: hello/g)).toHaveLength(1)
   await panel.getByTestId('terminal').click()
   await page.keyboard.type('again')
   await page.keyboard.press('Enter')
