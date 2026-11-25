@@ -6,30 +6,31 @@ The full reference: every command, default and mechanism. Start with the [README
 
 Both commands work from Claude Code and from agy. Nothing starts until you say go: the root first proposes the work (what it does itself, each worker's repo, size, model and view, any routing), unless you told it to run on its own; a question or a review you asked for just runs.
 
-| Command | Worker for a large task (one per repo), by default ([Configuration](#configuration) changes it) |
+| Command | Workers (one per repo) |
 |---|---|
-| `/delegate-agy` | agy: plans on Argon → Claude Opus → Hydrogen (the first with quota left) at high effort, executes on Hydrogen at medium |
-| `/delegate-claude` | Claude: plans on Opus at high effort, executes on Opus at medium |
+| `/delegate-agy` | agy, on the tier the root picks per task (`strong`: Argon → Claude Opus → Hydrogen, the first with quota left; `mid`: Hydrogen; `light`: Flash) |
+| `/delegate-claude` | Claude, on the tier the root picks per task (`strong`: Opus; `mid`: Sonnet; `light`: Haiku) |
 
 - **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
 - **The pane you type into is the root.** It supervises and spawns a worker for every repo the request touches, its own included. Work you gave it before delegating stays with it. To have it do a part of the request itself, say so.
+- **Tiers:** the root picks every worker's model and effort as a tier (`light`, `mid`, `strong`, and Claude's `top`), by the task: a large task's planning tier at spawn and its execution tier when it approves the plan (a plan that leaves nothing open executes on `mid`). mesh has no default and refuses a start without one. [Configuration](#configuration) sets what each tier runs.
 - **Overrides:** naming a model in the request ("use Argon", "with Claude", "with Fable") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. Claude Fable 5.1 is never a default, since it draws on a capped share of your Claude limits: name it for an ambiguous root-cause hunt or an architecture decision. If a worker *fails*, the root tells you and suggests a stronger model or more effort; it doesn't pick a model on its own.
 
 ### Sizes
 
-The root sizes every task before it starts a worker (the models, efforts and views are the defaults; see [Configuration](#configuration)):
+The root sizes every task before it starts a worker, and picks its tier (the views are the defaults; see [Configuration](#configuration)):
 
-| Size | For | Claude worker | agy worker | Plan reviewed? |
+| Size | For | Usual tier | Claude worker | Plan reviewed? |
 |---|---|---|---|---|
-| trivial | translations, copy, config | Opus, medium effort, background | Hydrogen, low | no |
-| small | a bug fix, a UI tweak, a test | Opus, medium effort, background | Hydrogen, high | no |
-| large | a feature, a cross-repo contract | the table above, in a pane | the table above, in a pane | yes |
+| trivial | translations, copy, config | `light` | background | no |
+| small | a bug fix, a UI tweak, a test | `mid` (`strong` for an unknown cause) | background | no |
+| large | a feature, a cross-repo contract | `strong` to plan, `mid` or `strong` to execute | a pane | yes |
 
 - **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
 - **Groups** of tasks (see "Task lists") are sized by their combined work: a few independent small fixes stay `small`, one worker with no plan, and a group plans only when a task in it is large, its tasks build on each other, or the whole change is worth reviewing before it's built.
-- **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans with Opus in plan mode and, once you approve, executes on Opus in the same conversation, at high effort throughout (no switch to medium, since there's no `mesh approve`).
-- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low; it proposes, and your go confirms it. Every PR a worker opens gets reviewers without your asking (except a tiny one, a trivial or small task's or group's PR of up to 150 lines touching nothing risky, which the root reviews itself). By default that is one reviewer for a small PR (agy while it has quota, else Copilot, else Claude) and Claude plus one other (agy, else Copilot) for a large or risky PR, only among the CLIs you have installed. A small PR gets one review round; a large one's re-reviews after a fix go to the same reviewers except Copilot. A large task's diff is checked against its plan by the root first. All of these are [settings](#configuration).
-- **Reviews and fixes:** a fresh reviewer runs at high effort whatever the PR's size (a small one instead of its size's medium; a large one plans at high anyway). A real review finding, or a worker stuck on its task, goes back to the same worker; the root adds effort (retire, then resume Claude at high or agy on Argon) only when it judges the fix needs it. A stuck worker asks the root before giving up, and `failed` is only for what the run can't fix (credentials, access, the user's decision).
+- **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans in plan mode on the tier the root picks and, once you approve, executes on the same model in the same conversation (there's no `mesh approve`).
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, or mid and light work to agy or OpenCode to save your Claude limits; it proposes, and your go confirms it. Every PR a worker opens is reviewed by its author first (the `self-review` skill), then by outside reviewers without your asking: by default one cheap reviewer for a small PR (OpenCode, else agy; never Claude by itself), and one reviewer of another CLI than the author's for a large one, at the tier the root picks by the PR's risk, only among the CLIs you have installed. A small PR gets one review round; a large one's re-reviews after a fix go to the same reviewers except Copilot, or to a cheap fresh one of only the fix commits. A large task's diff is checked against its plan by the root first. All of these are [settings](#configuration).
+- **Reviews and fixes:** a fresh reviewer runs at high effort (`review.effort`) whatever its tier. A real review finding, or a worker stuck on its task, goes back to the same worker; the root records its verdict on each reviewer's findings (`mesh verdict`), which `mesh cost` turns into each reviewer model's precision.
 
 ### Background workers
 
@@ -45,16 +46,17 @@ Background workers report to a Claude root as cross-session messages, so the roo
 
 ## Models
 
-A worker on the default (`--model auto`) has two phases in one conversation:
+A worker on a large task has two phases in one conversation, each on the tier the root picks:
 
-- **Planning** runs on the first model in the chain (`models.<kind>.plan`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, workers plan on Claude Opus through agy. If quotas can't be read, it tries Argon.
-- **Executing:** `mesh approve <worker>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on Hydrogen (agy) or still on Opus (Claude) in a new pane, and delivers the approval. Effort drops from high (planning) to medium (executing); `--effort` / `--exec-effort` on `mesh spawn` change either. If the reopen can't start (the conversation isn't found, or the worker stays busy), approve sends nothing and suggests `mesh approve <worker> --keep-model`, which executes on the planning model. A Claude worker plans with file edits and `git push` denied (its shell still runs set-up and tests), and the reopen is what lifts that, so approve reopens it even with `--keep-model`; agy is held by the prompt.
+- **Planning** runs on the first model of its tier's chain (`tiers.<kind>.<tier>.model`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, `strong` workers plan on Claude Opus through agy's pool.
+- **Executing:** `mesh approve <worker> --tier <tier>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on that tier's model in a new pane, and delivers the approval there. `mesh switch <worker> --effort <e>` or `--tier <t>` moves a worker later, in the same conversation (an effort-only move keeps Claude's cache).
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Hydrogen, so a Hydrogen quota hit is reported to you with its reset time.
 - **The quota reserve:** mesh keeps the last 10% of every quota for you by default. Once a quota is 90% used (`quota_stop` in the config, or `MESH_QUOTA_STOP`; `100` turns the reserve off), it starts nothing new on it: `spawn`, `ask`, `resume` with a task, `send --type task` and `approve` are refused with the window, its use and its reset, and nothing is started or sent. Answers still go, and running workers finish their current task: the root's `mesh watch` exits 7 once per window when a quota they draw on reaches the reserve, and nothing is stopped. Claude's usage comes live from the endpoint Claude Code's `/usage` reads (`/api/oauth/usage`, with the login Claude Code keeps in `~/.claude/.credentials.json`; never refreshed by mesh), shared machine-wide for 2 minutes, else from a cached copy at most 15 minutes old; `MESH_CLAUDE_USAGE=off` keeps mesh off the network. agy's comes from `agy -p /usage`. A quota mesh can't read never blocks. For a run you want finished anyway, `mesh reserve off` lets it past the reserve (`mesh reserve on` holds it again).
 
 ```bash
-mesh usage                 # Claude's and agy's quotas, the reserve, and what auto would plan and execute on
-mesh model --kind agy      # the model a spawn would plan on, and why
+mesh usage                 # Claude's and agy's quotas, the reserve, and what each agy tier would start on
+mesh model --kind agy --tier strong   # the model a spawn of that tier would use, and why
+mesh models                # model families each CLI lists against the tiers: new and retired ones
 MESH_QUOTA_STOP=95 ...     # keep 5% instead of 10%
 mesh reserve off           # root: let this run go on past the reserve
 ```
@@ -97,11 +99,12 @@ A **Copilot** agent (`--kind copilot`) is a worker like the others: it runs in a
 An **OpenCode** agent (`--kind opencode`) is one too, on any model [OpenCode](https://opencode.ai) reaches: by default `free`, OpenCode's own models that cost nothing and need no account, newest first; or a `provider/model` from any provider you set up in OpenCode, an OpenAI-compatible endpoint included (`models.opencode.*`). The free models are rate-limited: when one hits its limit (`Free usage exceeded`, OpenCode Go's limit, a 429 still retried at the third attempt), the watch exits 7 and `mesh switch` moves the same conversation to the next model of its chain that isn't spent, while executing too; the spent model is skipped machine-wide until the reset it names (else 5 h). If the free limit is per IP rather than per model, every free model spends at once: put a provider's model in the chain. Read-only and planning, it runs under `OPENCODE_PERMISSION` rules (no edits in its worktree or your checkout, no publishing commands). It has no Stop hook, and compacts itself.
 
 ```bash
-mesh ask --repo ../shop-api --body "How is restockedAt computed?"          # a fresh agent
-mesh ask --repo . --review 88                                               # a fresh reviewer at PR #88's head
-mesh ask --repo . --review 88 --kind copilot                                # the same, by Copilot
-mesh ask --repo . --review 88 --kind opencode                               # by OpenCode, on a free model
-mesh ask --repo . --review 88 --size small --reviewers auto                 # a review round: reviewers by size and quota, one answers file
+mesh ask --repo ../shop-api --tier mid --body "How is restockedAt computed?"   # a fresh agent
+mesh ask --repo . --tier strong --review 88                                    # a fresh reviewer at PR #88's head
+mesh ask --repo . --tier mid --review 88 --kind copilot                        # the same, by Copilot
+mesh ask --repo . --tier mid --review 88 --kind opencode                       # by OpenCode, on a free model
+mesh ask --repo . --tier mid --review 88 --size small --reviewers auto         # a review round, one answers file
+mesh ask --repo . --tier mid --review 88 --reviewers opencode --since <head>   # only the fix commits since <head>
 mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
 mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
 ```
@@ -112,7 +115,7 @@ Some repos are worth asking again and again: projects similar to yours that you 
 
 ```bash
 mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into $MESH_PEERS_DIR/orchestrators/swarm
-mesh ask swarm-research --size large --file brief.md                 # its first research brief
+mesh ask swarm-research --size large --tier strong --file brief.md   # its first research brief
 mesh peers                                                           # what each is, what it last read, its size
 mesh peers edit swarm-research --about "A Rust daemon…; ask about delivery"   # whom to ask about what
 mesh ask swarm-research --body "How do they merge?"                  # one of them
@@ -139,7 +142,7 @@ Hand the root a whole list, and it supervises instead of coding:
 
 1. **Triage:** the root sorts the tasks into a few themed groups, writes a board (`$(mesh dir)/board.md`), and waits for your go on it, as it does for any request (unless you told it to run on its own).
 2. **Workers:** one per group, in its own worktree, with at most four working at a time. A group is tasks that share a theme, or where one task's context helps another; small unrelated ones join a group rather than get a worker. There's no size cap: workers run as strong a model as the root, so one takes on a whole batch. A group is sized by its combined work, so a few small independent fixes go out with no plan; a group that plans gets **one plan** for all its tasks. Its worker does them in order, a commit each, and opens **one PR**. New work it proposes, and small follow-ups, go back to it rather than to a fresh agent. The root writes no code itself, in its own repo too.
-3. **Reviewers per PR:** each PR gets read-only reviews by default, as every PR a run makes does (the defaults below; [Configuration](#configuration) changes them): one for a small PR (agy while it has quota, else Copilot, else Claude), Claude plus one other (agy, else Copilot) for a large or risky PR. A tiny PR, a trivial or small task's or group's PR of up to 150 changed lines touching nothing risky, gets the root's own review instead. Rounds are a ceiling, not a quota: a round with nothing the root agrees with to fix ends the PR's reviews. A small PR gets no re-review: the root checks its fix itself. A large one's fix is re-reviewed once, by the same reviewers except Copilot. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
+3. **Reviewers per PR:** each PR is reviewed by its author first (the `self-review` skill), then gets read-only outside reviews by default, as every PR a run makes does (the defaults below; [Configuration](#configuration) changes them): one cheap reviewer for a small PR (OpenCode, else agy), one reviewer of another CLI than the author's for a large or risky one, at the tier the root picks. Rounds are a ceiling, not a quota: a round with nothing the root agrees with to fix ends the PR's reviews. A small PR gets no re-review: the root checks its fix itself. A large one's fix is re-reviewed once, by the same reviewers except Copilot, or by a cheap fresh one of only the fix commits. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
 4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. It also notes when two workers change the same files, which needs nothing by itself: a conflict is rebased when the PRs merge. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
 5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
 
@@ -318,7 +321,7 @@ enabled = false
 
 ## Configuration
 
-mesh's policy is data: the models, efforts and views per CLI and size, the reviewers per review size, the re-review rules, the review rounds, the tiny-PR line count, the quota reserve, where repos and peers live, and the watchdog's, memory guard's, compaction's and root reset's thresholds. With no config file mesh uses its built-in values; to change any of them, write `~/.config/agent-mesh.json` (`$XDG_CONFIG_HOME/agent-mesh.json`, or the path in `MESH_CONFIG_FILE`). It sits beside `~/.config/agent-mesh`, not inside it: that folder is the link to the repo's `protocol/`.
+mesh's policy is data: what each tier runs per CLI, the views per CLI and size, the reviewers per review size, the re-review rules, the review rounds, the quota reserve, where repos and peers live, and the watchdog's, memory guard's, compaction's and root reset's thresholds. With no config file mesh uses its built-in values; to change any of them, write `~/.config/agent-mesh.json` (`$XDG_CONFIG_HOME/agent-mesh.json`, or the path in `MESH_CONFIG_FILE`). It sits beside `~/.config/agent-mesh`, not inside it: that folder is the link to the repo's `protocol/`.
 
 ```bash
 mesh routing               # every setting, its value and where it comes from (built-in, config, env), the installed CLIs
@@ -332,35 +335,55 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 ```json
 {
   "_comment": "Every key is optional: a missing one keeps its built-in value. These are the built-ins, plus repos_dir.",
-  "models": {
-    "agy": {
-      "plan": ["argon", "opus", "hydrogen"], "exec": "hydrogen", "plan_effort": "high", "exec_effort": "medium",
-      "trivial": {"model": "hydrogen", "effort": "low", "view": "pane"},
-      "small": {"model": "hydrogen", "effort": "high", "view": "pane"}
-    },
+  "tiers": {
     "claude": {
-      "plan": ["opus"], "exec": "opus", "plan_effort": "high", "exec_effort": "medium", "user_review": "opus",
-      "trivial": {"model": "opus", "effort": "medium", "view": "bg"},
-      "small": {"model": "opus", "effort": "medium", "view": "bg"}
+      "light": {"model": ["haiku"], "effort": "medium",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["sonnet"], "effort": "high",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["opus"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"},
+      "top": {"model": ["fable"], "effort": "high",
+               "note": "only when the user names it"}
+    },
+    "agy": {
+      "light": {"model": ["flash"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["hydrogen"], "effort": "medium",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["argon", "opus", "hydrogen"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     },
     "copilot": {
-      "plan": ["auto"], "exec": "auto", "plan_effort": "high", "exec_effort": "medium",
-      "trivial": {"model": "auto", "effort": "low", "view": "pane"},
-      "small": {"model": "auto", "effort": "medium", "view": "pane"}
+      "light": {"model": ["auto"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["auto"], "effort": "medium",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["auto"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     },
     "opencode": {
-      "plan": ["free"], "exec": "free", "plan_effort": "high", "exec_effort": "medium",
-      "trivial": {"model": "free", "effort": "low", "view": "pane"},
-      "small": {"model": "free", "effort": "medium", "view": "pane"}
+      "light": {"model": ["free"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["free"], "effort": "medium",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["free"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     }
+  },
+  "models": {
+    "claude": {"trivial": {"view": "bg"}, "small": {"view": "bg"}},
+    "agy": {"trivial": {"view": "pane"}, "small": {"view": "pane"}},
+    "copilot": {"trivial": {"view": "pane"}, "small": {"view": "pane"}},
+    "opencode": {"trivial": {"view": "pane"}, "small": {"view": "pane"}}
   },
   "review": {
     "effort": "high",
     "level": {"trivial": "medium", "small": "medium", "large": "high"},
-    "reviewers": {"small": [["agy", "copilot", "opencode", "claude"]], "large": [["claude"], ["agy", "copilot", "opencode"]]},
-    "re_review": {"skip": ["copilot"], "keep": {"small": [], "large": ["claude"]}},
-    "rounds": {"small": 1, "large": 2},
-    "tiny_pr_lines": 150
+    "self_level": {"trivial": "low", "small": "low", "large": "medium"},
+    "reviewers": {"small": [["opencode", "agy"]], "large": [["claude", "agy", "copilot", "opencode"]]},
+    "re_review": {"skip": ["copilot"], "keep": {"small": [], "large": []}},
+    "rounds": {"small": 1, "large": 2}
   },
   "quota_stop": 90,
   "copilot_model": "auto",
@@ -380,9 +403,10 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 }
 ```
 
-- **`models.<kind>`:** `plan` is the planning chain (agy takes the first with quota left over the reserve, Claude its first), `exec` the model `mesh approve` moves a large task to, `plan_effort` / `exec_effort` the two phases' efforts; `trivial` and `small` are the one model, effort and view (`pane`, or `bg` for a Claude background session) of a task with no plan; `claude.user_review` runs `--plan-review user`. Models are families (`argon`, `flash`, `opus`, `sonnet`), Claude aliases or exact ids.
-- **`review.reviewers.<size>`:** a list of slots, each taking the first CLI in it that is installed and available (agy with quota, Copilot with no quota error in the last day, OpenCode with a model of its chain not at its limit) and not picked yet; a trivial review uses `small`. `re_review`: a re-review asks the earlier reviewers again minus `skip`, plus `keep.<size>`, and fills the slots again when that leaves nobody. `effort` is a fresh reviewer's effort, `level` a Claude reviewer's `/code-review` level.
-- **`review.rounds`, `review.tiny_pr_lines`:** the most review→fix rounds a PR gets (a round that needs no fix ends them sooner), and the line count under which a trivial or small task's PR gets the root's own review instead of reviewers.
+- **`tiers.<kind>.<tier>`:** what the root's `--tier` means on each CLI: `model` is a chain (agy and OpenCode take the first with quota or not at its limit, Claude and Copilot the first), `effort` its effort, `note` what it's for (the root reads it in `mesh routing`). Models are families (`argon`, `flash`, `opus`, `sonnet`, OpenCode's `free`), Claude aliases or exact ids. mesh has no default model: a start without `--tier` (or a `--model` you named) is refused. Only Claude has `top`.
+- **`models.<kind>.<size>.view`:** a trivial or small task's view: `pane`, or `bg` for a Claude background session.
+- **`review.reviewers.<size>`:** a list of slots, each taking the first CLI in it that is installed and available (agy with quota on the round's tier, Copilot with no quota error in the last day, OpenCode with a model of the tier not at its limit) and not picked yet, passing over the PR author's own CLI while another is free; a trivial review uses `small`. `re_review`: a re-review asks the earlier reviewers again minus `skip`, plus `keep.<size>`, and fills the slots again when that leaves nobody. `effort` is a fresh reviewer's effort, `level` a Claude reviewer's `/code-review` level, `self_level` the level of a worker's own self-review before its `done`.
+- **`review.rounds`:** the most review→fix rounds a PR gets (a round that needs no fix ends them sooner).
 - **`quota_stop`:** the percent of a quota used at which mesh starts nothing new on it. **`repos_dir`:** the folders a bare `--repo <name>` is looked up in (none by default: pass paths). **`peers_dir`:** where `mesh peers add` clones a peer.
 - **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.
 - **`worker_cpus`:** the percent of the machine's cores each agent mesh starts may use (at least one core): a CPU affinity mask, so the test runners it starts size their worker pools to it. `0` or `100` turns it off. See [Many agents on one machine](#many-agents-on-one-machine).
@@ -405,13 +429,15 @@ mesh stop <run>            # close panes, remove clean worktrees and empty branc
 mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
 mesh agents [query] [--run <id>]  # every past worker, live or archived, with branch, PRs and reviews
 mesh open <worker>         # continue a worker's conversation yourself, in this terminal
-mesh approve <worker>      # (root) approve the plan it sent; an auto worker moves to its exec model
+mesh approve <worker> --tier <t>   # (root) approve the plan it sent, moving it to that execution tier
+mesh verdict <PR> --reviewer <name> --agree N --other N --disagree N   # (root) your verdict on its findings
                            #   --keep-model: execute on the current model when that move can't start
-mesh switch <worker>       # (root) move a worker off a model that hit its quota
+mesh switch <worker>       # (root) move a worker off a model that hit its quota (--effort / --tier: where you say)
                            #   approve, switch, retire and stop refuse a worker (the user: --run <id> --as <root>)
-mesh usage                 # agy quotas and the models auto would pick
+mesh usage                 # agy quotas and what each agy tier would start on
+mesh models                # model families no tier names, or that a CLI no longer lists
 mesh routing               # this machine's policy and where each value comes from
-mesh cost [<run>]          # what each agent spent (API prices): by kind, phase, cold resumes
+mesh cost [<run>]          # what each agent spent (API prices): by kind, phase, model, cold resumes; review precision
                            #   --since 7d [--until …]: every session on the machine in a window
 mesh conflicts             # which run branches conflict with the default branch or each other,
                            #   and which workers change the same files (uncommitted too)
