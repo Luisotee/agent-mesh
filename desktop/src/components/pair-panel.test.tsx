@@ -55,6 +55,18 @@ describe('PairPanel', () => {
     expect(within(screen.getByRole('list', { name: 'Paired devices' })).getByText('read-only')).toBeInTheDocument()
   })
 
+  it('waits for the list of devices before it makes a link, so a device already paired is not taken for the new one', async () => {
+    const { host, client, wrap } = fixture()
+    let release!: () => void
+    client.listDevices.mockImplementationOnce(() => new Promise((r) => (release = () => r(create(ListDevicesResponseSchema, { devices: [device('d1', 'Pixel 9')] })))))
+    render(wrap(<PairPanel host={host} />))
+    expect(screen.getByRole('button', { name: 'Create pairing link' })).toBeDisabled()
+    release()
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull() // Pixel 9 was there already
+  })
+
   it('copies the link', async () => {
     const { host, wrap } = fixture()
     const writeText = vi.fn(async () => {})

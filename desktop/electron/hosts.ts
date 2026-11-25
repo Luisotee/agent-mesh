@@ -110,7 +110,9 @@ export class Hosts {
     const link = parsePairingLink(text)
     if (this.list.some((h) => h.kind === 'paired' && h.route.hostId === link.route.hostId)) throw new Error('that host is already in the list')
     const got = await this.redeem(link, deviceName.trim() || link.deviceName || 'Desktop')
-    if (got.hostId !== link.route.hostId) throw new Error("the host that answered isn't the one the link named: not saving it")
+    if (got.hostId !== link.route.hostId) {
+      throw new Error(`the host that answered isn't the one the link named, so it was not saved. The link is used up, and that host now lists a device "${got.deviceName}": revoke it there.`)
+    }
     return { id: randomUUID(), name: name || link.hostName || 'host', kind: 'paired', deviceId: got.deviceId, token: got.token, route: link.route }
   }
 

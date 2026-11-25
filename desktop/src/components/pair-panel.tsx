@@ -73,7 +73,8 @@ export function PairPanel({ host }: { host: HostRuntime }) {
 
   async function create(e: React.FormEvent) {
     e.preventDefault()
-    if (busy) return
+    // The devices already paired are what tells a new one from them: wait for the list.
+    if (busy || !loaded) return
     setBusy(true)
     setError('')
     try {
@@ -136,7 +137,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-          <Button type="submit" disabled={busy}>Create pairing link</Button>
+          <Button type="submit" disabled={busy || !loaded}>Create pairing link</Button>
         </form>
       )}
 

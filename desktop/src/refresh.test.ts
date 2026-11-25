@@ -70,6 +70,23 @@ describe('what waits on the user', () => {
     expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['fresh'])
   })
 
+  it('asks again on the next tick after a failure, and says so again if it fails once more later', async () => {
+    const { store, client, log, r } = setup()
+    client.listWaiting.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(create(ListWaitingResponseSchema, { waiting: [row('a')] }))
+    client.listAgents.mockResolvedValue(create(ListAgentsResponseSchema))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().waiting).toEqual([])
+    expect(log).toHaveBeenCalledTimes(1)
+    r.start()
+    await vi.advanceTimersByTimeAsync(30_001)
+    expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['a'])
+    client.listWaiting.mockRejectedValueOnce(new Error('again'))
+    r.event(sent(MessageType.PLAN))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(log).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps the last list when the host fails, and says so once', async () => {
     const { store, client, log, r } = setup()
     client.listWaiting.mockResolvedValueOnce(create(ListWaitingResponseSchema, { waiting: [row('a')] })).mockRejectedValue(new Error('unimplemented'))
@@ -118,6 +135,27 @@ describe('agents that went quiet', () => {
     g.resolve(create(ListAgentsResponseSchema, { agents: [agent('a', AgentState.UNKNOWN)] }))
     await vi.advanceTimersByTimeAsync(10)
     expect(store.getState().agents.a!.state).toBe(AgentState.IDLE)
+  })
+
+  it('keep what a reopen or an adoption said when it came while the list was on its way', async () => {
+    for (const payload of [
+      { case: 'agentReopened', value: { $typeName: 'agentmesh.v1.AgentReopened', terminalId: 't2', sessionId: 's2' } },
+      { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't2' } },
+      { case: 'agentPhaseChanged', value: { $typeName: 'agentmesh.v1.AgentPhaseChanged', why: '' } },
+    ] as const) {
+      const { store, client, r } = setup()
+      store.setState({ agents: { a: agent('a', AgentState.WORKING) } })
+      const g = gate<ReturnType<typeof create<typeof ListAgentsResponseSchema>>>()
+      client.listAgents.mockReturnValue(g.p)
+      r.start()
+      await vi.advanceTimersByTimeAsync(30_001)
+      store.setState({ agents: { a: create(AgentSchema, { id: 'a', name: 'a', terminalId: 't2' }) } })
+      r.event(create(EventSchema, { agentId: 'a', payload: payload as never }))
+      g.resolve(create(ListAgentsResponseSchema, { agents: [agent('a', AgentState.UNKNOWN)] }))
+      await vi.advanceTimersByTimeAsync(10)
+      expect(store.getState().agents.a!.terminalId, payload.case).toBe('t2')
+      r.stop()
+    }
   })
 
   it('are not listed while the host is unreachable', async () => {

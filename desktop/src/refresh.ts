@@ -34,6 +34,7 @@ export function hostRefresher(
   let again = false
   let ticker: unknown
   let complained = false
+  let waitingFailed = false
 
   const complain = (what: string, e: unknown) => {
     // A host that doesn't know the action (an older daemon) would say so every 30 s: once is enough.
@@ -54,6 +55,8 @@ export function hostRefresher(
         const seen = waitingTouches
         const res = await listWaiting(client as MeshClient)
         if (stopped) return
+        waitingFailed = false
+        complained = false
         if (seen === waitingTouches) store.setState(setWaiting(res.waiting))
         else {
           // Asking again covers the events that overtook this list, so their pending call isn't needed.
@@ -62,6 +65,8 @@ export function hostRefresher(
         }
       } while (again && !stopped)
     } catch (e) {
+      // The list stays as it was; the next tick asks again.
+      waitingFailed = true
       complain('list what waits on you', e)
     } finally {
       waitingLoading = false
@@ -77,6 +82,11 @@ export function hostRefresher(
   async function loadAgents(): Promise<void> {
     const s = store.getState()
     if (s.conn.kind !== 'ready' || !s.synced) return
+    if (waitingFailed) {
+      waitingFailed = false
+      waitingTouches++
+      void loadWaiting()
+    }
     const seen = agentTouches
     try {
       const res = await client.listAgents({})
@@ -120,6 +130,14 @@ export function hostRefresher(
           agentTouches++
           waitingTouches++
           schedule()
+          return
+        // These change an agent the store holds too, so a list of the agents that was on its way is older than them.
+        case 'agentReopenRequested':
+        case 'agentReopenDropped':
+        case 'agentReopened':
+        case 'agentPhaseChanged':
+        case 'agentAdopted':
+          agentTouches++
           return
         case 'runStopped':
           waitingTouches++

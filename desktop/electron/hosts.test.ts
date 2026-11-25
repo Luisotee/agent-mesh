@@ -61,7 +61,7 @@ describe('Hosts', () => {
 
   it('refuses to save a host that answers as another host than the link named', async () => {
     const h = new Hosts(tmp(), undefined, async (l, n) => ({ ...(await redeemer()(l, n)), hostId: 'someone-else' }))
-    await expect(h.add({ name: 'a', kind: 'pair', link: link(), deviceName: '' })).rejects.toThrow(/isn't the one/)
+    await expect(h.add({ name: 'a', kind: 'pair', link: link(), deviceName: '' })).rejects.toThrow(/isn't the one the link named.*revoke it there/)
     expect(h.all()).toEqual([])
   })
 
