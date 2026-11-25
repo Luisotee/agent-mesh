@@ -298,6 +298,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ## Order of work
 
 1. **Daemon core (Go, Linux):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI, with the built-in adapters and channels written on the plugin interfaces. At the end of this step, agents run without herdr.
+   - Milestone 1 is built (`daemon/README.md`): the registry, meshd with SQLite and resumable events, the terminal host, the Claude adapter with its hooks and the reducer, and `meshctl` generated from the schemas. An end-to-end test drives a fake `claude` through a daemon SIGKILL and restart. What's left of the step is in `TODO.md`.
 2. **Desktop app, first version:** hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray icon.
 3. **Connections:** the relay and pairing by QR, then built-in Tailscale.
 4. **Android app:** status, notifications with actions through UnifiedPush, plans, questions, reports, the terminal.
