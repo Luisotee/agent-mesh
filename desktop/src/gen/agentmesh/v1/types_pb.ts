@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Actor } from "./actor_pb";
+import type { Actor, ActorClass } from "./actor_pb";
 import { file_agentmesh_v1_actor } from "./actor_pb";
 import type { Timestamp, Value } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
@@ -14,7 +14,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/types.proto.
  */
 export const file_agentmesh_v1_types: GenFile = /*@__PURE__*/
-  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKiAQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciLzAwoFQWdlbnQSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSJQoEcm9sZRgEIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSEQoJcGFyZW50X2lkGAUgASgJEgwKBGtpbmQYBiABKAkSDAoEcmVwbxgHIAEoCRIQCgh3b3JrdHJlZRgIIAEoCRIOCgZicmFuY2gYCSABKAkSDQoFbW9kZWwYCiABKAkSDgoGZWZmb3J0GAsgASgJEhIKCnNlc3Npb25faWQYDCABKAkSEwoLdGVybWluYWxfaWQYDSABKAkSJwoFc3RhdGUYDiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRITCgtuZWVkc19pbnB1dBgPIAEoBRIUCgxzdGF0ZV9kZXRhaWwYECABKAkSMQoNbGFzdF9hY3Rpdml0eRgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJZXhpdF9jb2RlGBMgASgFEjYKFHN0YXRlX2JlZm9yZV9jb21wYWN0GBQgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUirgIKB01lc3NhZ2USCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEiEKBGZyb20YAyABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDQoFdG9faWQYBCABKAkSDwoHdG9fbmFtZRgFIAEoCRInCgR0eXBlGAYgASgOMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VUeXBlEgwKBGJvZHkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMZGVsaXZlcmVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdyZWFkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpCgZDdXJzb3ISEgoKZ2VuZXJhdGlvbhgBIAEoCRILCgNzZXEYAiABKAMirQUKBUV2ZW50EgsKA3NlcRgBIAEoAxISCgpnZW5lcmF0aW9uGAIgASgJEigKBHRpbWUYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBnJ1bl9pZBgEIAEoCRIQCghhZ2VudF9pZBgFIAEoCRIiCgVhY3RvchgGIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchITCgttdXRhdGlvbl9pZBgHIAEoCRIvCgtydW5fc3RhcnRlZBgKIAEoCzIYLmFnZW50bWVzaC52MS5SdW5TdGFydGVkSAASMwoNYWdlbnRfc3Bhd25lZBgLIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudFNwYXduZWRIABI+ChNhZ2VudF9zdGF0ZV9jaGFuZ2VkGAwgASgLMh8uYWdlbnRtZXNoLnYxLkFnZW50U3RhdGVDaGFuZ2VkSAASMQoMbWVzc2FnZV9zZW50GA0gASgLMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VTZW50SAASOwoRbWVzc2FnZV9kZWxpdmVyZWQYDiABKAsyHi5hZ2VudG1lc2gudjEuTWVzc2FnZURlbGl2ZXJlZEgAEjEKDGFnZW50X2V4aXRlZBgPIAEoCzIZLmFnZW50bWVzaC52MS5BZ2VudEV4aXRlZEgAEjMKDWFnZW50X2Fkb3B0ZWQYECABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRBZG9wdGVkSAASPAoSaG9va19kZWNvZGVfZmFpbGVkGBEgASgLMh4uYWdlbnRtZXNoLnYxLkhvb2tEZWNvZGVGYWlsZWRIABI3Cg9zZXR0aW5nX2NoYW5nZWQYEiABKAsyHC5hZ2VudG1lc2gudjEuU2V0dGluZ0NoYW5nZWRIAEIJCgdwYXlsb2FkIiwKClJ1blN0YXJ0ZWQSHgoDcnVuGAEgASgLMhEuYWdlbnRtZXNoLnYxLlJ1biIyCgxBZ2VudFNwYXduZWQSIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQihgEKEUFnZW50U3RhdGVDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEg4KBmRldGFpbBgDIAEoCRITCgtuZWVkc19pbnB1dBgEIAEoBSI1CgtNZXNzYWdlU2VudBImCgdtZXNzYWdlGAEgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiJgoQTWVzc2FnZURlbGl2ZXJlZBISCgptZXNzYWdlX2lkGAEgASgJIkAKC0FnZW50RXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRIOCgZzaWduYWwYAiABKAUSDgoGcmVhc29uGAMgASgJIiMKDEFnZW50QWRvcHRlZBITCgt0ZXJtaW5hbF9pZBgBIAEoCSI1ChBIb29rRGVjb2RlRmFpbGVkEhIKCmV2ZW50X25hbWUYASABKAkSDQoFZXJyb3IYAiABKAkiggEKDlNldHRpbmdDaGFuZ2VkEgsKA2tleRgBIAEoCRIlCgV2YWx1ZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIoCghwcmV2aW91cxgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRISCgp0b19kZWZhdWx0GAQgASgIIlAKDVNldHRpbmdTY2hlbWESDAoEdHlwZRgBIAEoCRIPCgdzdW1tYXJ5GAIgASgJEg8KB2Nob2ljZXMYAyADKAkSDwoHcmVzdGFydBgEIAEoCCL8AQoHU2V0dGluZxILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSJwoHZGVmYXVsdBgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIOCgZpc19zZXQYBCABKAgSKwoGc2NoZW1hGAUgASgLMhsuYWdlbnRtZXNoLnYxLlNldHRpbmdTY2hlbWESLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKdXBkYXRlZF9ieRgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvcipTCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhMKD1JVTl9TVEFUVVNfT1BFThABEhUKEVJVTl9TVEFUVVNfQ0xPU0VEEAIqggEKCUFnZW50Um9sZRIaChZBR0VOVF9ST0xFX1VOU1BFQ0lGSUVEEAASEwoPQUdFTlRfUk9MRV9ST09UEAESFQoRQUdFTlRfUk9MRV9XT1JLRVIQAhIUChBBR0VOVF9ST0xFX0FTS0VSEAMSFwoTQUdFTlRfUk9MRV9SRVZJRVdFUhAEKsABCgpBZ2VudFN0YXRlEhsKF0FHRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfU1RBVEVfU1RBUlRJTkcQARIUChBBR0VOVF9TVEFURV9JRExFEAISFwoTQUdFTlRfU1RBVEVfV09SS0lORxADEhsKF0FHRU5UX1NUQVRFX05FRURTX0lOUFVUEAQSFgoSQUdFTlRfU1RBVEVfRVhJVEVEEAUSFwoTQUdFTlRfU1RBVEVfVU5LTk9XThAGKusBCgtNZXNzYWdlVHlwZRIcChhNRVNTQUdFX1RZUEVfVU5TUEVDSUZJRUQQABIVChFNRVNTQUdFX1RZUEVfVEFTSxABEhUKEU1FU1NBR0VfVFlQRV9QTEFOEAISGQoVTUVTU0FHRV9UWVBFX1FVRVNUSU9OEAMSFwoTTUVTU0FHRV9UWVBFX0FOU1dFUhAEEhUKEU1FU1NBR0VfVFlQRV9ET05FEAUSFwoTTUVTU0FHRV9UWVBFX0ZBSUxFRBAGEhUKEU1FU1NBR0VfVFlQRV9JTkZPEAcSFQoRTUVTU0FHRV9UWVBFX1dBSVQQCGIGcHJvdG8z", [file_agentmesh_v1_actor, file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKiAQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciKkBQoFQWdlbnQSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSJQoEcm9sZRgEIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSEQoJcGFyZW50X2lkGAUgASgJEgwKBGtpbmQYBiABKAkSDAoEcmVwbxgHIAEoCRIQCgh3b3JrdHJlZRgIIAEoCRIOCgZicmFuY2gYCSABKAkSDQoFbW9kZWwYCiABKAkSDgoGZWZmb3J0GAsgASgJEhIKCnNlc3Npb25faWQYDCABKAkSEwoLdGVybWluYWxfaWQYDSABKAkSJwoFc3RhdGUYDiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRITCgtuZWVkc19pbnB1dBgPIAEoBRIUCgxzdGF0ZV9kZXRhaWwYECABKAkSMQoNbGFzdF9hY3Rpdml0eRgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJZXhpdF9jb2RlGBMgASgFEjYKFHN0YXRlX2JlZm9yZV9jb21wYWN0GBQgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSDAoEdGllchgVIAEoCRIRCglleGVjX3RpZXIYFiABKAkSJwoFcGhhc2UYFyABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZRIOCgZwaW5uZWQYGCABKAgSEgoKZGVueV9lZGl0cxgZIAEoCBIsCg5wZW5kaW5nX3Jlb3BlbhgaIAEoCzIULmFnZW50bWVzaC52MS5SZW9wZW4SEwoLYmFzZV9jb21taXQYGyABKAkiwQEKBlJlb3BlbhIKCgJpZBgBIAEoCRINCgVtb2RlbBgCIAEoCRIOCgZlZmZvcnQYAyABKAkSEgoKZGVueV9lZGl0cxgEIAEoCBILCgN3aHkYBSABKAkSDgoGcmVhc29uGAYgASgJEjAKDHJlcXVlc3RlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKQoMcmVxdWVzdGVkX2J5GAggASgLMhMuYWdlbnRtZXNoLnYxLkFjdG9yIq4CCgdNZXNzYWdlEgoKAmlkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIhCgRmcm9tGAMgASgLMhMuYWdlbnRtZXNoLnYxLkFjdG9yEg0KBXRvX2lkGAQgASgJEg8KB3RvX25hbWUYBSABKAkSJwoEdHlwZRgGIAEoDjIZLmFnZW50bWVzaC52MS5NZXNzYWdlVHlwZRIMCgRib2R5GAcgASgJEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGRlbGl2ZXJlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKwoHcmVhZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiKQoGQ3Vyc29yEhIKCmdlbmVyYXRpb24YASABKAkSCwoDc2VxGAIgASgDIv4ICgVFdmVudBILCgNzZXEYASABKAMSEgoKZ2VuZXJhdGlvbhgCIAEoCRIoCgR0aW1lGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIOCgZydW5faWQYBCABKAkSEAoIYWdlbnRfaWQYBSABKAkSIgoFYWN0b3IYBiABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISEwoLbXV0YXRpb25faWQYByABKAkSLwoLcnVuX3N0YXJ0ZWQYCiABKAsyGC5hZ2VudG1lc2gudjEuUnVuU3RhcnRlZEgAEjMKDWFnZW50X3NwYXduZWQYCyABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRTcGF3bmVkSAASPgoTYWdlbnRfc3RhdGVfY2hhbmdlZBgMIAEoCzIfLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlQ2hhbmdlZEgAEjEKDG1lc3NhZ2Vfc2VudBgNIAEoCzIZLmFnZW50bWVzaC52MS5NZXNzYWdlU2VudEgAEjsKEW1lc3NhZ2VfZGVsaXZlcmVkGA4gASgLMh4uYWdlbnRtZXNoLnYxLk1lc3NhZ2VEZWxpdmVyZWRIABIxCgxhZ2VudF9leGl0ZWQYDyABKAsyGS5hZ2VudG1lc2gudjEuQWdlbnRFeGl0ZWRIABIzCg1hZ2VudF9hZG9wdGVkGBAgASgLMhouYWdlbnRtZXNoLnYxLkFnZW50QWRvcHRlZEgAEjwKEmhvb2tfZGVjb2RlX2ZhaWxlZBgRIAEoCzIeLmFnZW50bWVzaC52MS5Ib29rRGVjb2RlRmFpbGVkSAASNwoPc2V0dGluZ19jaGFuZ2VkGBIgASgLMhwuYWdlbnRtZXNoLnYxLlNldHRpbmdDaGFuZ2VkSAASRAoWYWdlbnRfcmVvcGVuX3JlcXVlc3RlZBgTIAEoCzIiLmFnZW50bWVzaC52MS5BZ2VudFJlb3BlblJlcXVlc3RlZEgAEjUKDmFnZW50X3Jlb3BlbmVkGBQgASgLMhsuYWdlbnRtZXNoLnYxLkFnZW50UmVvcGVuZWRIABI+ChNhZ2VudF9waGFzZV9jaGFuZ2VkGBUgASgLMh8uYWdlbnRtZXNoLnYxLkFnZW50UGhhc2VDaGFuZ2VkSAASQAoUYWdlbnRfcmVvcGVuX2Ryb3BwZWQYFiABKAsyIC5hZ2VudG1lc2gudjEuQWdlbnRSZW9wZW5Ecm9wcGVkSAASMwoNZGV2aWNlX3BhaXJlZBgZIAEoCzIaLmFnZW50bWVzaC52MS5EZXZpY2VQYWlyZWRIABI1Cg5kZXZpY2VfcmV2b2tlZBgaIAEoCzIbLmFnZW50bWVzaC52MS5EZXZpY2VSZXZva2VkSAASMwoNYWdlbnRfcmV0aXJlZBgXIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudFJldGlyZWRIABIvCgtydW5fc3RvcHBlZBgYIAEoCzIYLmFnZW50bWVzaC52MS5SdW5TdG9wcGVkSABCCQoHcGF5bG9hZCIsCgpSdW5TdGFydGVkEh4KA3J1bhgBIAEoCzIRLmFnZW50bWVzaC52MS5SdW4iMgoMQWdlbnRTcGF3bmVkEiIKBWFnZW50GAEgASgLMhMuYWdlbnRtZXNoLnYxLkFnZW50IoYBChFBZ2VudFN0YXRlQ2hhbmdlZBImCgRmcm9tGAEgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSJAoCdG8YAiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRIOCgZkZXRhaWwYAyABKAkSEwoLbmVlZHNfaW5wdXQYBCABKAUiNQoLTWVzc2FnZVNlbnQSJgoHbWVzc2FnZRgBIAEoCzIVLmFnZW50bWVzaC52MS5NZXNzYWdlIiYKEE1lc3NhZ2VEZWxpdmVyZWQSEgoKbWVzc2FnZV9pZBgBIAEoCSJACgtBZ2VudEV4aXRlZBIRCglleGl0X2NvZGUYASABKAUSDgoGc2lnbmFsGAIgASgFEg4KBnJlYXNvbhgDIAEoCSIjCgxBZ2VudEFkb3B0ZWQSEwoLdGVybWluYWxfaWQYASABKAkiPAoUQWdlbnRSZW9wZW5SZXF1ZXN0ZWQSJAoGcmVvcGVuGAEgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbiJeCg1BZ2VudFJlb3BlbmVkEiQKBnJlb3BlbhgBIAEoCzIULmFnZW50bWVzaC52MS5SZW9wZW4SEwoLdGVybWluYWxfaWQYAiABKAkSEgoKc2Vzc2lvbl9pZBgDIAEoCSJKChJBZ2VudFJlb3BlbkRyb3BwZWQSJAoGcmVvcGVuGAEgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbhIOCgZyZWFzb24YAiABKAkiHgoMQWdlbnRSZXRpcmVkEg4KBnJlYXNvbhgBIAEoCSIMCgpSdW5TdG9wcGVkIm4KEUFnZW50UGhhc2VDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFBoYXNlEgsKA3doeRgDIAEoCSI1ChBIb29rRGVjb2RlRmFpbGVkEhIKCmV2ZW50X25hbWUYASABKAkSDQoFZXJyb3IYAiABKAkiggEKDlNldHRpbmdDaGFuZ2VkEgsKA2tleRgBIAEoCRIlCgV2YWx1ZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIoCghwcmV2aW91cxgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRISCgp0b19kZWZhdWx0GAQgASgIIlAKDVNldHRpbmdTY2hlbWESDAoEdHlwZRgBIAEoCRIPCgdzdW1tYXJ5GAIgASgJEg8KB2Nob2ljZXMYAyADKAkSDwoHcmVzdGFydBgEIAEoCCL8AQoHU2V0dGluZxILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSJwoHZGVmYXVsdBgDIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRIOCgZpc19zZXQYBCABKAgSKwoGc2NoZW1hGAUgASgLMhsuYWdlbnRtZXNoLnYxLlNldHRpbmdTY2hlbWESLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKdXBkYXRlZF9ieRgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvciKrAQoGRGV2aWNlEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSJwoFY2xhc3MYAyABKA4yGC5hZ2VudG1lc2gudjEuQWN0b3JDbGFzcxIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI0CgxEZXZpY2VQYWlyZWQSJAoGZGV2aWNlGAEgASgLMhQuYWdlbnRtZXNoLnYxLkRldmljZSIwCg1EZXZpY2VSZXZva2VkEhEKCWRldmljZV9pZBgBIAEoCRIMCgRuYW1lGAIgASgJKlMKCVJ1blN0YXR1cxIaChZSVU5fU1RBVFVTX1VOU1BFQ0lGSUVEEAASEwoPUlVOX1NUQVRVU19PUEVOEAESFQoRUlVOX1NUQVRVU19DTE9TRUQQAiqCAQoJQWdlbnRSb2xlEhoKFkFHRU5UX1JPTEVfVU5TUEVDSUZJRUQQABITCg9BR0VOVF9ST0xFX1JPT1QQARIVChFBR0VOVF9ST0xFX1dPUktFUhACEhQKEEFHRU5UX1JPTEVfQVNLRVIQAxIXChNBR0VOVF9ST0xFX1JFVklFV0VSEAQqiQIKCkFnZW50U3RhdGUSGwoXQUdFTlRfU1RBVEVfVU5TUEVDSUZJRUQQABIYChRBR0VOVF9TVEFURV9TVEFSVElORxABEhQKEEFHRU5UX1NUQVRFX0lETEUQAhIXChNBR0VOVF9TVEFURV9XT1JLSU5HEAMSGwoXQUdFTlRfU1RBVEVfTkVFRFNfSU5QVVQQBBIWChJBR0VOVF9TVEFURV9FWElURUQQBRIXChNBR0VOVF9TVEFURV9VTktOT1dOEAYSFwoTQUdFTlRfU1RBVEVfUkVUSVJFRBAHEhcKE0FHRU5UX1NUQVRFX0xJTUlURUQQCBIVChFBR0VOVF9TVEFURV9FUlJPUhAJKl4KCkFnZW50UGhhc2USGwoXQUdFTlRfUEhBU0VfVU5TUEVDSUZJRUQQABIYChRBR0VOVF9QSEFTRV9QTEFOTklORxABEhkKFUFHRU5UX1BIQVNFX0VYRUNVVElORxACKusBCgtNZXNzYWdlVHlwZRIcChhNRVNTQUdFX1RZUEVfVU5TUEVDSUZJRUQQABIVChFNRVNTQUdFX1RZUEVfVEFTSxABEhUKEU1FU1NBR0VfVFlQRV9QTEFOEAISGQoVTUVTU0FHRV9UWVBFX1FVRVNUSU9OEAMSFwoTTUVTU0FHRV9UWVBFX0FOU1dFUhAEEhUKEU1FU1NBR0VfVFlQRV9ET05FEAUSFwoTTUVTU0FHRV9UWVBFX0ZBSUxFRBAGEhUKEU1FU1NBR0VfVFlQRV9JTkZPEAcSFQoRTUVTU0FHRV9UWVBFX1dBSVQQCGIGcHJvdG8z", [file_agentmesh_v1_actor, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * RequestMeta comes with every write. A retried write with the same mutation id returns the first result
@@ -209,6 +209,56 @@ export type Agent = Message$1<"agentmesh.v1.Agent"> & {
    * @generated from field: agentmesh.v1.AgentState state_before_compact = 20;
    */
   stateBeforeCompact: AgentState;
+
+  /**
+   * The tier its model came from (`tiers.<kind>.<tier>`), for its planning or only phase; empty for a named
+   * model.
+   *
+   * @generated from field: string tier = 21;
+   */
+  tier: string;
+
+  /**
+   * The execution phase's tier: preset at spawn, or named at approval.
+   *
+   * @generated from field: string exec_tier = 22;
+   */
+  execTier: string;
+
+  /**
+   * @generated from field: agentmesh.v1.AgentPhase phase = 23;
+   */
+  phase: AgentPhase;
+
+  /**
+   * A model or effort named for the whole task: it never gets a plan phase.
+   *
+   * @generated from field: bool pinned = 24;
+   */
+  pinned: boolean;
+
+  /**
+   * The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+   * or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+   *
+   * @generated from field: bool deny_edits = 25;
+   */
+  denyEdits: boolean;
+
+  /**
+   * A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+   *
+   * @generated from field: agentmesh.v1.Reopen pending_reopen = 26;
+   */
+  pendingReopen?: Reopen | undefined;
+
+  /**
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   *
+   * @generated from field: string base_commit = 27;
+   */
+  baseCommit: string;
 };
 
 /**
@@ -217,6 +267,68 @@ export type Agent = Message$1<"agentmesh.v1.Agent"> & {
  */
 export const AgentSchema: GenMessage<Agent> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_types, 2);
+
+/**
+ * Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
+ * deny list. A model change is always a reopen of the same conversation, never a fresh agent.
+ *
+ * @generated from message agentmesh.v1.Reopen
+ */
+export type Reopen = Message$1<"agentmesh.v1.Reopen"> & {
+  /**
+   * Unique per request: the terminal it launches carries it as a label, so a daemon that died mid-launch finds
+   * the terminal it started instead of starting a second one.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string model = 2;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string effort = 3;
+   */
+  effort: string;
+
+  /**
+   * @generated from field: bool deny_edits = 4;
+   */
+  denyEdits: boolean;
+
+  /**
+   * "plan approved", "moved", "quota", "resumed".
+   *
+   * @generated from field: string why = 5;
+   */
+  why: string;
+
+  /**
+   * The caller's own reason, when it gave one.
+   *
+   * @generated from field: string reason = 6;
+   */
+  reason: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp requested_at = 7;
+   */
+  requestedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Actor requested_by = 8;
+   */
+  requestedBy?: Actor | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.Reopen.
+ * Use `create(ReopenSchema)` to create a new message.
+ */
+export const ReopenSchema: GenMessage<Reopen> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 3);
 
 /**
  * @generated from message agentmesh.v1.Message
@@ -284,7 +396,7 @@ export type Message = Message$1<"agentmesh.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 3);
+  messageDesc(file_agentmesh_v1_types, 4);
 
 /**
  * Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't
@@ -309,7 +421,7 @@ export type Cursor = Message$1<"agentmesh.v1.Cursor"> & {
  * Use `create(CursorSchema)` to create a new message.
  */
 export const CursorSchema: GenMessage<Cursor> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 4);
+  messageDesc(file_agentmesh_v1_types, 5);
 
 /**
  * Event is one entry of the host's event log: durable, numbered and replayable. Ephemeral frames are not
@@ -414,6 +526,54 @@ export type Event = Message$1<"agentmesh.v1.Event"> & {
      */
     value: SettingChanged;
     case: "settingChanged";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentReopenRequested agent_reopen_requested = 19;
+     */
+    value: AgentReopenRequested;
+    case: "agentReopenRequested";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentReopened agent_reopened = 20;
+     */
+    value: AgentReopened;
+    case: "agentReopened";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentPhaseChanged agent_phase_changed = 21;
+     */
+    value: AgentPhaseChanged;
+    case: "agentPhaseChanged";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentReopenDropped agent_reopen_dropped = 22;
+     */
+    value: AgentReopenDropped;
+    case: "agentReopenDropped";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.DevicePaired device_paired = 25;
+     */
+    value: DevicePaired;
+    case: "devicePaired";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.DeviceRevoked device_revoked = 26;
+     */
+    value: DeviceRevoked;
+    case: "deviceRevoked";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentRetired agent_retired = 23;
+     */
+    value: AgentRetired;
+    case: "agentRetired";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.RunStopped run_stopped = 24;
+     */
+    value: RunStopped;
+    case: "runStopped";
   } | { case: undefined; value?: undefined };
 };
 
@@ -422,7 +582,7 @@ export type Event = Message$1<"agentmesh.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 5);
+  messageDesc(file_agentmesh_v1_types, 6);
 
 /**
  * @generated from message agentmesh.v1.RunStarted
@@ -439,7 +599,7 @@ export type RunStarted = Message$1<"agentmesh.v1.RunStarted"> & {
  * Use `create(RunStartedSchema)` to create a new message.
  */
 export const RunStartedSchema: GenMessage<RunStarted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 6);
+  messageDesc(file_agentmesh_v1_types, 7);
 
 /**
  * @generated from message agentmesh.v1.AgentSpawned
@@ -456,7 +616,7 @@ export type AgentSpawned = Message$1<"agentmesh.v1.AgentSpawned"> & {
  * Use `create(AgentSpawnedSchema)` to create a new message.
  */
 export const AgentSpawnedSchema: GenMessage<AgentSpawned> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 7);
+  messageDesc(file_agentmesh_v1_types, 8);
 
 /**
  * @generated from message agentmesh.v1.AgentStateChanged
@@ -488,7 +648,7 @@ export type AgentStateChanged = Message$1<"agentmesh.v1.AgentStateChanged"> & {
  * Use `create(AgentStateChangedSchema)` to create a new message.
  */
 export const AgentStateChangedSchema: GenMessage<AgentStateChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 8);
+  messageDesc(file_agentmesh_v1_types, 9);
 
 /**
  * @generated from message agentmesh.v1.MessageSent
@@ -505,7 +665,7 @@ export type MessageSent = Message$1<"agentmesh.v1.MessageSent"> & {
  * Use `create(MessageSentSchema)` to create a new message.
  */
 export const MessageSentSchema: GenMessage<MessageSent> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 9);
+  messageDesc(file_agentmesh_v1_types, 10);
 
 /**
  * @generated from message agentmesh.v1.MessageDelivered
@@ -522,7 +682,7 @@ export type MessageDelivered = Message$1<"agentmesh.v1.MessageDelivered"> & {
  * Use `create(MessageDeliveredSchema)` to create a new message.
  */
 export const MessageDeliveredSchema: GenMessage<MessageDelivered> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 10);
+  messageDesc(file_agentmesh_v1_types, 11);
 
 /**
  * @generated from message agentmesh.v1.AgentExited
@@ -551,7 +711,7 @@ export type AgentExited = Message$1<"agentmesh.v1.AgentExited"> & {
  * Use `create(AgentExitedSchema)` to create a new message.
  */
 export const AgentExitedSchema: GenMessage<AgentExited> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 11);
+  messageDesc(file_agentmesh_v1_types, 12);
 
 /**
  * The daemon found the agent's terminal still running at boot and took it back.
@@ -570,7 +730,145 @@ export type AgentAdopted = Message$1<"agentmesh.v1.AgentAdopted"> & {
  * Use `create(AgentAdoptedSchema)` to create a new message.
  */
 export const AgentAdoptedSchema: GenMessage<AgentAdopted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 12);
+  messageDesc(file_agentmesh_v1_types, 13);
+
+/**
+ * A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
+ *
+ * @generated from message agentmesh.v1.AgentReopenRequested
+ */
+export type AgentReopenRequested = Message$1<"agentmesh.v1.AgentReopenRequested"> & {
+  /**
+   * @generated from field: agentmesh.v1.Reopen reopen = 1;
+   */
+  reopen?: Reopen | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentReopenRequested.
+ * Use `create(AgentReopenRequestedSchema)` to create a new message.
+ */
+export const AgentReopenRequestedSchema: GenMessage<AgentReopenRequested> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 14);
+
+/**
+ * The agent's conversation was relaunched in a new terminal: same agent, session and worktree.
+ *
+ * @generated from message agentmesh.v1.AgentReopened
+ */
+export type AgentReopened = Message$1<"agentmesh.v1.AgentReopened"> & {
+  /**
+   * @generated from field: agentmesh.v1.Reopen reopen = 1;
+   */
+  reopen?: Reopen | undefined;
+
+  /**
+   * @generated from field: string terminal_id = 2;
+   */
+  terminalId: string;
+
+  /**
+   * @generated from field: string session_id = 3;
+   */
+  sessionId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentReopened.
+ * Use `create(AgentReopenedSchema)` to create a new message.
+ */
+export const AgentReopenedSchema: GenMessage<AgentReopened> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 15);
+
+/**
+ * A reopen asked for was not done: the agent was stopped first, or its relaunch failed (then the agent is
+ * EXITED, and ResumeAgent tries again).
+ *
+ * @generated from message agentmesh.v1.AgentReopenDropped
+ */
+export type AgentReopenDropped = Message$1<"agentmesh.v1.AgentReopenDropped"> & {
+  /**
+   * @generated from field: agentmesh.v1.Reopen reopen = 1;
+   */
+  reopen?: Reopen | undefined;
+
+  /**
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentReopenDropped.
+ * Use `create(AgentReopenDroppedSchema)` to create a new message.
+ */
+export const AgentReopenDroppedSchema: GenMessage<AgentReopenDropped> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 16);
+
+/**
+ * An agent was retired: its process stopped on purpose.
+ *
+ * @generated from message agentmesh.v1.AgentRetired
+ */
+export type AgentRetired = Message$1<"agentmesh.v1.AgentRetired"> & {
+  /**
+   * "requested", "idle after its report", "run stopped".
+   *
+   * @generated from field: string reason = 1;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentRetired.
+ * Use `create(AgentRetiredSchema)` to create a new message.
+ */
+export const AgentRetiredSchema: GenMessage<AgentRetired> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 17);
+
+/**
+ * A run was stopped: its agents retired and the run closed.
+ *
+ * @generated from message agentmesh.v1.RunStopped
+ */
+export type RunStopped = Message$1<"agentmesh.v1.RunStopped"> & {
+};
+
+/**
+ * Describes the message agentmesh.v1.RunStopped.
+ * Use `create(RunStoppedSchema)` to create a new message.
+ */
+export const RunStoppedSchema: GenMessage<RunStopped> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 18);
+
+/**
+ * @generated from message agentmesh.v1.AgentPhaseChanged
+ */
+export type AgentPhaseChanged = Message$1<"agentmesh.v1.AgentPhaseChanged"> & {
+  /**
+   * @generated from field: agentmesh.v1.AgentPhase from = 1;
+   */
+  from: AgentPhase;
+
+  /**
+   * @generated from field: agentmesh.v1.AgentPhase to = 2;
+   */
+  to: AgentPhase;
+
+  /**
+   * "planned task", "plan sent", "plan approved", "direct task".
+   *
+   * @generated from field: string why = 3;
+   */
+  why: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentPhaseChanged.
+ * Use `create(AgentPhaseChangedSchema)` to create a new message.
+ */
+export const AgentPhaseChangedSchema: GenMessage<AgentPhaseChanged> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 19);
 
 /**
  * A hook's payload couldn't be decoded. Never read as any other event.
@@ -594,7 +892,7 @@ export type HookDecodeFailed = Message$1<"agentmesh.v1.HookDecodeFailed"> & {
  * Use `create(HookDecodeFailedSchema)` to create a new message.
  */
 export const HookDecodeFailedSchema: GenMessage<HookDecodeFailed> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 13);
+  messageDesc(file_agentmesh_v1_types, 20);
 
 /**
  * A setting was set or reset. Global: it carries no run, and every subscriber gets it. The actor and mutation id
@@ -633,7 +931,7 @@ export type SettingChanged = Message$1<"agentmesh.v1.SettingChanged"> & {
  * Use `create(SettingChangedSchema)` to create a new message.
  */
 export const SettingChangedSchema: GenMessage<SettingChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 14);
+  messageDesc(file_agentmesh_v1_types, 21);
 
 /**
  * What a setting's value may be, enough for a client to draw its editor and validate before it sends.
@@ -685,7 +983,7 @@ export type SettingSchema = Message$1<"agentmesh.v1.SettingSchema"> & {
  * Use `create(SettingSchemaSchema)` to create a new message.
  */
 export const SettingSchemaSchema: GenMessage<SettingSchema> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 15);
+  messageDesc(file_agentmesh_v1_types, 22);
 
 /**
  * One setting: its effective value, what it falls back to, and who last set it.
@@ -742,7 +1040,87 @@ export type Setting = Message$1<"agentmesh.v1.Setting"> & {
  * Use `create(SettingSchema$)` to create a new message.
  */
 export const SettingSchema$: GenMessage<Setting> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 16);
+  messageDesc(file_agentmesh_v1_types, 23);
+
+/**
+ * A paired client device.
+ *
+ * @generated from message agentmesh.v1.Device
+ */
+export type Device = Message$1<"agentmesh.v1.Device"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: agentmesh.v1.ActorClass class = 3;
+   */
+  class: ActorClass;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * Set once revoked.
+   *
+   * @generated from field: google.protobuf.Timestamp revoked_at = 5;
+   */
+  revokedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.Device.
+ * Use `create(DeviceSchema)` to create a new message.
+ */
+export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 24);
+
+/**
+ * @generated from message agentmesh.v1.DevicePaired
+ */
+export type DevicePaired = Message$1<"agentmesh.v1.DevicePaired"> & {
+  /**
+   * @generated from field: agentmesh.v1.Device device = 1;
+   */
+  device?: Device | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.DevicePaired.
+ * Use `create(DevicePairedSchema)` to create a new message.
+ */
+export const DevicePairedSchema: GenMessage<DevicePaired> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 25);
+
+/**
+ * @generated from message agentmesh.v1.DeviceRevoked
+ */
+export type DeviceRevoked = Message$1<"agentmesh.v1.DeviceRevoked"> & {
+  /**
+   * @generated from field: string device_id = 1;
+   */
+  deviceId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.DeviceRevoked.
+ * Use `create(DeviceRevokedSchema)` to create a new message.
+ */
+export const DeviceRevokedSchema: GenMessage<DeviceRevoked> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 26);
 
 /**
  * @generated from enum agentmesh.v1.RunStatus
@@ -860,6 +1238,28 @@ export enum AgentState {
    * @generated from enum value: AGENT_STATE_UNKNOWN = 6;
    */
   UNKNOWN = 6,
+
+  /**
+   * Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
+   * revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
+   *
+   * @generated from enum value: AGENT_STATE_RETIRED = 7;
+   */
+  RETIRED = 7,
+
+  /**
+   * Stopped on a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit): ready for SwitchAgent.
+   *
+   * @generated from enum value: AGENT_STATE_LIMITED = 8;
+   */
+  LIMITED = 8,
+
+  /**
+   * Turn ended in an error.
+   *
+   * @generated from enum value: AGENT_STATE_ERROR = 9;
+   */
+  ERROR = 9,
 }
 
 /**
@@ -867,6 +1267,36 @@ export enum AgentState {
  */
 export const AgentStateSchema: GenEnum<AgentState> = /*@__PURE__*/
   enumDesc(file_agentmesh_v1_types, 2);
+
+/**
+ * AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
+ *
+ * @generated from enum agentmesh.v1.AgentPhase
+ */
+export enum AgentPhase {
+  /**
+   * No plan phase: a direct task, a question, or a named model.
+   *
+   * @generated from enum value: AGENT_PHASE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: AGENT_PHASE_PLANNING = 1;
+   */
+  PLANNING = 1,
+
+  /**
+   * @generated from enum value: AGENT_PHASE_EXECUTING = 2;
+   */
+  EXECUTING = 2,
+}
+
+/**
+ * Describes the enum agentmesh.v1.AgentPhase.
+ */
+export const AgentPhaseSchema: GenEnum<AgentPhase> = /*@__PURE__*/
+  enumDesc(file_agentmesh_v1_types, 3);
 
 /**
  * @generated from enum agentmesh.v1.MessageType
@@ -922,5 +1352,5 @@ export enum MessageType {
  * Describes the enum agentmesh.v1.MessageType.
  */
 export const MessageTypeSchema: GenEnum<MessageType> = /*@__PURE__*/
-  enumDesc(file_agentmesh_v1_types, 3);
+  enumDesc(file_agentmesh_v1_types, 4);
 

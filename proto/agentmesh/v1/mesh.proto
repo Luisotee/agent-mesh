@@ -228,6 +228,22 @@ service MeshService {
     };
   }
 
+  // What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+  // to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+  // and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+  // lead reads its own run's.
+  rpc ListWaiting(ListWaitingRequest) returns (ListWaitingResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "waiting"
+      summary: "List what waits on the user"
+    };
+  }
+
   // The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
   // ends the stream, so a client resumes from its cursor after any other close.
   rpc SubscribeEvents(SubscribeEventsRequest) returns (stream SubscribeEventsResponse) {
@@ -489,6 +505,37 @@ message ListMessagesResponse {
   repeated Message messages = 1;
   // There are more messages after these.
   bool more = 2;
+}
+
+message ListWaitingRequest {
+  // Only this run's; empty means every open run (an agent's own run, whatever it asks).
+  string run_id = 1;
+}
+
+message ListWaitingResponse {
+  repeated Waiting waiting = 1;
+}
+
+enum WaitingKind {
+  WAITING_KIND_UNSPECIFIED = 0;
+  // A plan to approve or send back.
+  WAITING_KIND_PLAN = 1;
+  // A question to answer.
+  WAITING_KIND_QUESTION = 2;
+  // An agent stopped at a prompt in its terminal (a permission, say).
+  WAITING_KIND_INPUT = 3;
+}
+
+// One thing that waits on the user.
+message Waiting {
+  WaitingKind kind = 1;
+  string run_id = 2;
+  // The agent that wrote the plan or question, or is stopped at a prompt.
+  string agent_id = 3;
+  // The plan or question; unset for a prompt.
+  Message message = 4;
+  // For a prompt, why the agent is stopped (its state detail).
+  string detail = 5;
 }
 
 message SubscribeEventsRequest {
