@@ -7857,6 +7857,8 @@ def test_the_compaction_focus_skips_the_prefixes(mesh):
     assert mesh.task_gist(None) == ""
     assert mesh.task_gist("Direct task: push #114 with --force-with-lease\nthen report") == "push #114 with --force-with-lease"
     assert mesh.task_gist("Direct task (no plan)\n\nFix it.") == "Fix it."
+    assert mesh.task_gist("Direct task: --force push of #114") == "--force push of #114"  # only the prefix goes
+    assert mesh.task_gist("Direct task: .gitignore fix") == ".gitignore fix"
 
 
 def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
@@ -11621,7 +11623,8 @@ def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypat
 
 @pytest.mark.parametrize("task, planned", [
     ("Direct task (no plan): fix it", False), ("Direct task: fix it", False), ("Direct task. Fix it.", False),
-    ("  Direct task\n\nFix it.", False), ("Direct task", False),
+    ("  Direct task\n\nFix it.", False), ("Direct task", False), ("Direct task\r\n\r\nFix it.", False),
+    ("Direct task:fix it", False), ("Direct task.md should be restructured: plan it", True),
     ("Direct tasks are what we send often: plan the doc", True), ("Plan the Direct task feature", True),
     ("Direct task list: plan the doc", True), ("Direct task force, plan it", True),
 ])
@@ -11838,3 +11841,17 @@ def test_a_watchs_screen_target_follows_the_worker_to_a_new_pane(mesh, fake, run
     assert watch.screen_target(entry) == "repo-fix-typo"
     assert watch.screen_target({**entry, "pane": "w2:p8"}) == "repo-fix-typo"
     assert len(fake.called("agent", "get", "repo-fix-typo")) == 2  # asked again: a swap gave it a new pane
+
+
+def test_the_phase_line_ignores_leading_whitespace_like_planned_task(mesh):
+    assert mesh.worker_phase({"phase": "plan", "planning": True}, [], "w", "  Question (read-only)\nx").startswith(
+        "a read-only task")
+    assert mesh.worker_phase({}, [], "w", "\n Direct task: x").startswith("a direct task")
+
+
+def test_a_sized_spawn_adds_no_second_direct_header(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--tier", "mid", "--kind", "claude", "--size", "small", "--repo", str(repo),
+                      "--worktree", "copy", "--task", "Direct task: fix the footer."]) == 0
+    assert mesh.parse_message(mesh.unread(run, "proj-copy")[0])[1].startswith("Direct task: fix the footer.")
