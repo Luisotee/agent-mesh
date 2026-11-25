@@ -76,6 +76,22 @@ public enum AgentState
    * <code>AGENT_STATE_RETIRED = 7;</code>
    */
   AGENT_STATE_RETIRED(7),
+  /**
+   * <pre>
+   * Stopped on a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit): ready for SwitchAgent.
+   * </pre>
+   *
+   * <code>AGENT_STATE_LIMITED = 8;</code>
+   */
+  AGENT_STATE_LIMITED(8),
+  /**
+   * <pre>
+   * Turn ended in an error.
+   * </pre>
+   *
+   * <code>AGENT_STATE_ERROR = 9;</code>
+   */
+  AGENT_STATE_ERROR(9),
   UNRECOGNIZED(-1),
   ;
 
@@ -140,6 +156,22 @@ public enum AgentState
    * <code>AGENT_STATE_RETIRED = 7;</code>
    */
   public static final int AGENT_STATE_RETIRED_VALUE = 7;
+  /**
+   * <pre>
+   * Stopped on a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit): ready for SwitchAgent.
+   * </pre>
+   *
+   * <code>AGENT_STATE_LIMITED = 8;</code>
+   */
+  public static final int AGENT_STATE_LIMITED_VALUE = 8;
+  /**
+   * <pre>
+   * Turn ended in an error.
+   * </pre>
+   *
+   * <code>AGENT_STATE_ERROR = 9;</code>
+   */
+  public static final int AGENT_STATE_ERROR_VALUE = 9;
 
 
   @java.lang.Override
@@ -170,6 +202,8 @@ public enum AgentState
       case 5: return AGENT_STATE_EXITED;
       case 6: return AGENT_STATE_UNKNOWN;
       case 7: return AGENT_STATE_RETIRED;
+      case 8: return AGENT_STATE_LIMITED;
+      case 9: return AGENT_STATE_ERROR;
       default: return null;
     }
   }
