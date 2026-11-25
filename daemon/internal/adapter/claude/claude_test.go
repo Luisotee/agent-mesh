@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +14,18 @@ import (
 )
 
 func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) {
+	// The deny paths are made absolute and symlink-resolved (a temp dir may sit behind a symlink): so is the expectation.
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		real, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return real
+	}
 	cwd, repo := t.TempDir(), t.TempDir()
 	plan := func(role agentmeshv1.AgentRole) []string {
 		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
@@ -24,7 +37,7 @@ func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) 
 	}
 	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_ASKER, agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER} {
 		argv := strings.Join(plan(role), "\x00")
-		for _, want := range []string{"--disallowedTools", "Edit(/" + cwd + "/**)", "Edit(/" + repo + "/**)", "Bash(git push:*)", "Bash(gh pr comment:*)"} {
+		for _, want := range []string{"--disallowedTools", "Edit(/" + resolve(cwd) + "/**)", "Edit(/" + resolve(repo) + "/**)", "Bash(git push:*)", "Bash(gh pr comment:*)"} {
 			if !strings.Contains(argv, want) {
 				t.Errorf("%v: no %q in %q", role, want, argv)
 			}

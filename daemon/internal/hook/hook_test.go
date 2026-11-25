@@ -93,13 +93,15 @@ func TestNoTokenIsAnErrorNotACrash(t *testing.T) {
 	}
 }
 
-func TestAHookThatFailsEveryTimeIsDroppedAfterMaxAttemptsAndTheNextGoesThrough(t *testing.T) {
+func TestAHookThatFailsEveryTimeIsDroppedOnlyAfterMaxAttemptsAndMaxAge(t *testing.T) {
 	p, _ := setup(t)
+	clock := time.Unix(1_000_000, 0)
+	now = func() time.Time { return clock }
+	defer func() { now = time.Now }()
 	for i, ev := range []string{"A", "B"} {
 		spool(p, "a1", &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: ev}, EventName: ev}, time.Unix(int64(i), 0))
 	}
-	var sent []string
-	var dropped []string
+	var sent, dropped []string
 	send := func(r *v1.ReportHookRequest) error {
 		sent = append(sent, r.EventName)
 		if r.EventName == "A" {
@@ -110,16 +112,20 @@ func TestAHookThatFailsEveryTimeIsDroppedAfterMaxAttemptsAndTheNextGoesThrough(t
 	drain := func() error {
 		return DrainReporting(p, "a1", send, func(r *v1.ReportHookRequest, _ error) { dropped = append(dropped, r.EventName) })
 	}
-	for i := 0; i < MaxAttempts-1; i++ {
+	// Many quick failures: kept, and B waits behind it.
+	for i := 0; i < 3*MaxAttempts; i++ {
+		clock = clock.Add(2 * time.Second)
 		if err := drain(); err == nil {
 			t.Fatalf("attempt %d: no error", i+1)
 		}
 	}
 	if len(dropped) != 0 || strings.Contains(strings.Join(sent, ""), "B") {
-		t.Fatalf("dropped too early: %v, sent %v", dropped, sent)
+		t.Fatalf("dropped on seconds of trouble: %v, sent %v", dropped, sent)
 	}
+	// Past MaxAge it goes, and the next one is sent after it.
+	clock = clock.Add(MaxAge)
 	if err := drain(); err != nil {
-		t.Fatalf("the last attempt: %v", err)
+		t.Fatalf("after MaxAge: %v", err)
 	}
 	if strings.Join(dropped, "") != "A" || sent[len(sent)-1] != "B" {
 		t.Errorf("dropped %v, sent %v: want A dropped and B sent after it", dropped, sent)
@@ -130,8 +136,30 @@ func TestAHookThatFailsEveryTimeIsDroppedAfterMaxAttemptsAndTheNextGoesThrough(t
 	// While the daemon is down nothing is counted: a hook waits as long as it must.
 	spool(p, "a1", &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "C"}, EventName: "C"}, time.Unix(9, 0))
 	for i := 0; i < 3*MaxAttempts; i++ {
+		clock = clock.Add(time.Hour)
 		DrainReporting(p, "a1", func(*v1.ReportHookRequest) error {
 			return connect.NewError(connect.CodeUnavailable, errors.New("down"))
 		}, func(*v1.ReportHookRequest, error) { t.Fatal("dropped while the daemon was down") })
+	}
+}
+
+// The hook process's own drain can't report a drop, so it never makes one.
+func TestTheHookProcessesDrainNeverDrops(t *testing.T) {
+	p, _ := setup(t)
+	clock := time.Unix(1_000_000, 0)
+	now = func() time.Time { return clock }
+	defer func() { now = time.Now }()
+	spool(p, "a1", &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "A"}, EventName: "A"}, time.Unix(1, 0))
+	for i := 0; i < 3*MaxAttempts; i++ {
+		clock = clock.Add(time.Hour)
+		if err := Drain(p, "a1", func(*v1.ReportHookRequest) error { return errors.New("store") }); err == nil {
+			t.Fatal("no error")
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
+		t.Errorf("the hook was dropped by Drain: %v", left)
+	}
+	if bad, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.bad")); len(bad) != 0 {
+		t.Errorf("a .bad file: %v", bad)
 	}
 }

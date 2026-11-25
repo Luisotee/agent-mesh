@@ -1,11 +1,13 @@
-// Command meshctl is agent-mesh's CLI for agents and users (renamed `mesh` at the switchover). This build has
-// only its hand-written commands: `hook`, which a CLI's hooks run, and `version`.
+// Command meshctl is agent-mesh's CLI for agents and users (renamed `mesh` at the switchover). Its commands
+// are the action registry's, derived from the schemas at run time (internal/cli); only `hook` (what a CLI's
+// hooks run) and `version` are written by hand.
 package main
 
 import (
 	"fmt"
 	"os"
 
+	"github.com/Luisotee/agent-mesh/daemon/internal/cli"
 	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
 )
 
@@ -13,23 +15,10 @@ import (
 const Version = "0.1.0-dev"
 
 func main() {
-	os.Exit(run(os.Args[1:]))
-}
-
-func run(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: meshctl hook <kind> --state <dir> --agent <id> <event> | meshctl version")
-		return 2
-	}
-	switch args[0] {
-	case "version":
-		fmt.Println("meshctl", Version)
-		return 0
-	case "hook":
-		return runHook(args[1:])
-	}
-	fmt.Fprintf(os.Stderr, "meshctl: unknown command %q\n", args[0])
-	return 2
+	os.Exit(cli.Main(os.Args[1:], cli.OSEnv(), map[string]func([]string) int{
+		"hook":    runHook,
+		"version": func([]string) int { fmt.Println("meshctl", Version); return 0 },
+	}))
 }
 
 // runHook always exits 0: a hook that fails must not disturb the agent's CLI. Failures go to the state dir's
