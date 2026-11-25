@@ -371,6 +371,16 @@ func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.Su
 	defer cancel()
 	if actor != nil {
 		defer d.trackStream(actor.Id, cancel)()
+		// Re-check after trackStream so a RevokeDevice racing between auth and registration is not missed.
+		active, err := d.store.Read(ctx).HasActiveToken(actor.Id)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return connect.NewError(connect.CodeUnauthenticated, auth.ErrUnknownToken)
+		}
 	}
-	return d.bus.Serve(sctx, msg, d.stopping, stream.Send)
+	deviceEvents := actor != nil && (actor.Class == v1.ActorClass_ACTOR_CLASS_DEVICE ||
+		actor.Class == v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE)
+	return d.bus.Serve(sctx, msg, deviceEvents, d.stopping, stream.Send)
 }

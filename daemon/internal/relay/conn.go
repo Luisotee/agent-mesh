@@ -75,9 +75,20 @@ type wsStreamConn struct {
 	closeOnce sync.Once
 }
 
+const (
+	// MaxWSFrameBytes caps a single binary WebSocket message on relay stream connections.
+	// Splice writes 32 KiB chunks, so honest peers stay well below this bound.
+	MaxWSFrameBytes = 4 << 20
+	maxWSWriteChunk = 256 * 1024
+)
+
 // NewWSConn wraps a binary WebSocket connection as a deadline-safe net.Conn.
 func NewWSConn(ws *websocket.Conn, local, remote net.Addr) net.Conn {
-	ws.SetReadLimit(-1)
+	return newWSConn(ws, local, remote)
+}
+
+func newWSConn(ws *websocket.Conn, local, remote net.Addr) *wsStreamConn {
+	ws.SetReadLimit(MaxWSFrameBytes)
 	if local == nil {
 		local = wsAddr("websocket/local")
 	}
@@ -98,6 +109,8 @@ func NewWSConn(ws *websocket.Conn, local, remote net.Addr) net.Conn {
 	go c.readLoop()
 	return c
 }
+
+func (c *wsStreamConn) done() <-chan struct{} { return c.inClosed }
 
 func (c *wsStreamConn) readLoop() {
 	defer close(c.inClosed)
@@ -224,10 +237,15 @@ func (c *wsStreamConn) Write(p []byte) (int, error) {
 		wctx, cancel = context.WithDeadline(c.ctx, dl)
 		defer cancel()
 	}
-	if err := c.ws.Write(wctx, websocket.MessageBinary, p); err != nil {
-		return 0, err
+	written := 0
+	for written < len(p) {
+		end := min(written+maxWSWriteChunk, len(p))
+		if err := c.ws.Write(wctx, websocket.MessageBinary, p[written:end]); err != nil {
+			return written, err
+		}
+		written = end
 	}
-	return len(p), nil
+	return written, nil
 }
 
 func (c *wsStreamConn) Close() error {

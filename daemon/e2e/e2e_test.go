@@ -579,7 +579,7 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 
 	// Spawn a fake claude locally and attach to its terminal WebSocket *through mesh-relay*!
 	run := str(w.ctl("start-run", "--title", "relay-e2e"), "run", "id")
-	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker")
+	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker", "--tier", "mid")
 	agentID := str(spawned, "agent", "id")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

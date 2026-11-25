@@ -98,3 +98,82 @@ func TestSpliceBidirectional(t *testing.T) {
 	}
 	<-done
 }
+
+func TestWSStreamConnEnforcesReadLimitAndChunksLargeWrites(t *testing.T) {
+	// 1. A peer sending a single WS frame larger than MaxWSFrameBytes is rejected and closed.
+	srvReadErr := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			srvReadErr <- err
+			return
+		}
+		c := NewWSConn(ws, nil, nil)
+		defer c.Close()
+		_, err = io.ReadAll(c)
+		srvReadErr <- err
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rawWS, _, err := websocket.Dial(ctx, "ws"+srv.URL[len("http"):], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rawWS.CloseNow()
+	oversized := bytes.Repeat([]byte("a"), MaxWSFrameBytes+1)
+	_ = rawWS.Write(ctx, websocket.MessageBinary, oversized)
+
+	select {
+	case err := <-srvReadErr:
+		if err == nil {
+			t.Fatal("expected read error on oversized WS frame, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for server to reject oversized WS frame")
+	}
+
+	// 2. Large writes through wsStreamConn are chunked below MaxWSFrameBytes and arrive intact.
+	payload := bytes.Repeat([]byte("0123456789abcdef"), (maxWSWriteChunk*2+123)/16+1)[:maxWSWriteChunk*2+123]
+	echoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		c := NewWSConn(ws, nil, nil)
+		defer c.Close()
+		got := make([]byte, len(payload))
+		if _, err := io.ReadFull(c, got); err != nil {
+			t.Errorf("server ReadFull: %v", err)
+			return
+		}
+		if _, err := c.Write(got); err != nil {
+			t.Errorf("server Write: %v", err)
+		}
+	}))
+	defer echoSrv.Close()
+
+	ws2, _, err := websocket.Dial(ctx, "ws"+echoSrv.URL[len("http"):], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := NewWSConn(ws2, nil, nil)
+	defer c2.Close()
+
+	writeErr := make(chan error, 1)
+	go func() {
+		_, err := c2.Write(payload)
+		writeErr <- err
+	}()
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(c2, got); err != nil {
+		t.Fatalf("client ReadFull: %v", err)
+	}
+	if err := <-writeErr; err != nil {
+		t.Fatalf("client Write: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("chunked payload mismatch")
+	}
+}

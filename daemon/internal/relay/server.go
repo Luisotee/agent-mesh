@@ -21,15 +21,11 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 )
 
-// Typed WebSocket close codes on the relay's control and stream endpoints.
+// Typed WebSocket close codes on the relay's control endpoint.
 const (
-	CloseReplaced        websocket.StatusCode = 4001
-	CloseAuthFailed      websocket.StatusCode = 4002
-	CloseBadRequest      websocket.StatusCode = 4003
-	CloseDaemonOffline   websocket.StatusCode = 4004
-	CloseDialBackTimeout websocket.StatusCode = 4005
-	CloseShutdown        websocket.StatusCode = 4006
-	CloseInvalidTicket   websocket.StatusCode = 4007
+	CloseReplaced   websocket.StatusCode = 4001
+	CloseBadRequest websocket.StatusCode = 4003
+	CloseShutdown   websocket.StatusCode = 4006
 )
 
 var (
@@ -44,6 +40,8 @@ type ServerConfig struct {
 	Secret string
 	Logger *slog.Logger
 	Now    func() time.Time
+	// PreambleTimeout bounds how long a raw TCP client has to send its MESH1 line (default 10s).
+	PreambleTimeout time.Duration
 	// TicketTTL bounds how long a dial-back ticket remains valid (default 15s).
 	TicketTTL time.Duration
 	// DialBackTimeout bounds how long an app connection waits for the daemon to dial back (default 10s).
@@ -58,9 +56,10 @@ type pendingStream struct {
 }
 
 type pendingTicket struct {
-	hostID  string
-	expires time.Time
-	ch      chan pendingStream
+	hostID    string
+	expires   time.Time
+	abandoned bool
+	ch        chan pendingStream
 }
 
 type hostSession struct {
@@ -109,6 +108,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.PreambleTimeout == 0 {
+		cfg.PreambleTimeout = 10 * time.Second
+	}
 	if cfg.TicketTTL == 0 {
 		cfg.TicketTTL = 15 * time.Second
 	}
@@ -156,14 +158,37 @@ func (s *Server) HostOnline(hostID string) bool {
 // the daemon, answers OK\n, and splices raw bytes without inspecting inner TLS.
 func (s *Server) ServeClientTCP(ctx context.Context, l net.Listener) error {
 	nl := NoDelayListener(l)
+	var tempDelay time.Duration
 	for {
 		c, err := nl.Accept()
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			return err
+			select {
+			case <-s.stopping:
+				return nil
+			default:
+			}
+			if tempDelay == 0 {
+				tempDelay = 5 * time.Millisecond
+			} else {
+				tempDelay = min(tempDelay*2, time.Second)
+			}
+			s.log.Warn("relay client TCP accept error; retrying", "err", err, "backoff", tempDelay)
+			timer := time.NewTimer(tempDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil
+			case <-s.stopping:
+				timer.Stop()
+				return nil
+			case <-timer.C:
+			}
+			continue
 		}
+		tempDelay = 0
 		go s.HandleClientConn(ctx, c)
 	}
 }
@@ -173,8 +198,9 @@ func (s *Server) HandleClientConn(ctx context.Context, rawConn net.Conn) {
 	setNoDelay(rawConn)
 	defer rawConn.Close()
 
-	_ = rawConn.SetDeadline(s.now().Add(10 * time.Second))
+	_ = rawConn.SetReadDeadline(time.Now().Add(s.cfg.PreambleTimeout))
 	line, extra, err := readPreambleLine(rawConn, 512)
+	_ = rawConn.SetReadDeadline(time.Time{})
 	if err != nil {
 		writeTCPAbort(rawConn, "bad_request", err.Error())
 		return
@@ -206,11 +232,13 @@ func (s *Server) HandleClientConn(ctx context.Context, rawConn net.Conn) {
 	}
 	defer close(ps.done)
 
-	if _, err := rawConn.Write([]byte("OK\n")); err != nil {
+	_ = rawConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_, err = rawConn.Write([]byte("OK\n"))
+	_ = rawConn.SetWriteDeadline(time.Time{})
+	if err != nil {
 		_ = ps.conn.Close()
 		return
 	}
-	_ = rawConn.SetDeadline(time.Time{})
 
 	clientConn := rawConn
 	if len(extra) > 0 {
@@ -221,6 +249,7 @@ func (s *Server) HandleClientConn(ctx context.Context, rawConn net.Conn) {
 
 func writeTCPAbort(c net.Conn, code, msg string) {
 	msg = strings.ReplaceAll(strings.ReplaceAll(msg, "\n", " "), "\r", " ")
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_, _ = fmt.Fprintf(c, "ERR %s %s\n", code, msg)
 }
 
@@ -365,17 +394,20 @@ func (s *Server) serveDaemonStream(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	dc := NewWSConn(ws, nil, nil)
+	dc := newWSConn(ws, nil, nil)
 	done := make(chan struct{})
-	select {
-	case pt.ch <- pendingStream{conn: dc, done: done}:
-	default:
+	s.mu.Lock()
+	if pt.abandoned {
+		s.mu.Unlock()
 		_ = dc.Close()
 		return
 	}
+	pt.ch <- pendingStream{conn: dc, done: done}
+	s.mu.Unlock()
 
 	select {
 	case <-done:
+	case <-dc.done():
 	case <-s.stopping:
 		_ = dc.Close()
 	case <-r.Context().Done():
@@ -452,10 +484,18 @@ func (s *Server) openStream(ctx context.Context, hostID string) (pendingStream, 
 	s.tickets[tk] = pt
 	s.mu.Unlock()
 
-	cleanupTicket := func() {
+	abandon := func() {
 		s.mu.Lock()
 		delete(s.tickets, tk)
+		pt.abandoned = true
 		s.mu.Unlock()
+		// Drain if serveDaemonStream delivered just before pt.abandoned was set.
+		select {
+		case ps := <-pt.ch:
+			_ = ps.conn.Close()
+			close(ps.done)
+		default:
+		}
 	}
 
 	if err := sess.sendFrame(ctx, &relayv1.ControlFrame{
@@ -463,7 +503,7 @@ func (s *Server) openStream(ctx context.Context, hostID string) (pendingStream, 
 			DialBack: &relayv1.DialBack{Ticket: tk, StreamId: streamID},
 		},
 	}); err != nil {
-		cleanupTicket()
+		abandon()
 		return pendingStream{}, errDaemonOffline
 	}
 
@@ -474,16 +514,16 @@ func (s *Server) openStream(ctx context.Context, hostID string) (pendingStream, 
 	case ps := <-pt.ch:
 		return ps, nil
 	case <-sess.closed:
-		cleanupTicket()
+		abandon()
 		return pendingStream{}, errDaemonOffline
 	case <-s.stopping:
-		cleanupTicket()
+		abandon()
 		return pendingStream{}, errors.New("relay shutting down")
 	case <-ctx.Done():
-		cleanupTicket()
+		abandon()
 		return pendingStream{}, ctx.Err()
 	case <-timer.C:
-		cleanupTicket()
+		abandon()
 		return pendingStream{}, errDialBackTimeout
 	}
 }

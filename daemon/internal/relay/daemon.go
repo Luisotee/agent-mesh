@@ -98,7 +98,7 @@ func (c *Connector) Listener() net.Listener { return c.listener }
 func (c *Connector) Online() bool { return c.online.Load() }
 
 // Run keeps the control connection open with exponential backoff until ctx is canceled, authentication
-// permanently fails (401/403/4002), or a newer control session replaces this one (4001).
+// permanently fails (HTTP 401/403), or a newer control session replaces this one (close code 4001).
 func (c *Connector) Run(ctx context.Context) error {
 	defer c.listener.Close()
 	backoff := 100 * time.Millisecond
@@ -164,9 +164,6 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 	ack, err := readControlFrame(hctx, ws)
 	hcancel()
 	if err != nil {
-		if websocket.CloseStatus(err) == CloseAuthFailed {
-			return false, errControlAuthFailed
-		}
 		if websocket.CloseStatus(err) == CloseReplaced {
 			return false, errControlReplaced
 		}
@@ -246,10 +243,7 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 				return heartbeatAcked, herr
 			default:
 			}
-			switch websocket.CloseStatus(err) {
-			case CloseAuthFailed:
-				return heartbeatAcked, errControlAuthFailed
-			case CloseReplaced:
+			if websocket.CloseStatus(err) == CloseReplaced {
 				return heartbeatAcked, errControlReplaced
 			}
 			return heartbeatAcked, err

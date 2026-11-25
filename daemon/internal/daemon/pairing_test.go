@@ -2,12 +2,15 @@ package daemon_test
 
 import (
 	"context"
+	"math"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
@@ -15,6 +18,8 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
+	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 func pairingClient(state, hostURL string) agentmeshv1connect.PairingServiceClient {
@@ -80,9 +85,32 @@ func TestPairingRedeemListAndRevoke(t *testing.T) {
 		t.Fatalf("reused pairing token = %v, want Unauthenticated", err)
 	}
 
-	// The CreatePairing mutation record was scrubbed on redemption so the token is not left on disk.
-	if _, _, err := h.d.Store().Read(ctx).Mutation("device-local", "pair-1"); err == nil {
-		t.Fatal("CreatePairing mutation record survived redemption")
+	// The CreatePairing mutation record is kept as a tombstone with secrets cleared so retrying the same
+	// mutation_id replays the scrubbed response instead of minting a fresh pairing token.
+	_, rawMut, err := h.d.Store().Read(ctx).Mutation("device-local", "pair-1")
+	if err != nil {
+		t.Fatalf("CreatePairing mutation tombstone missing after redemption: %v", err)
+	}
+	if strings.Contains(string(rawMut), cp.Msg.Token) {
+		t.Fatal("CreatePairing mutation record still contains pairing token after redemption")
+	}
+	var scrubbedMut v1.CreatePairingResponse
+	if err := proto.Unmarshal(rawMut, &scrubbedMut); err != nil {
+		t.Fatal(err)
+	}
+	if scrubbedMut.PairingId != cp.Msg.PairingId || scrubbedMut.Token != "" || scrubbedMut.Uri != "" {
+		t.Fatalf("scrubbed mutation = %+v", &scrubbedMut)
+	}
+	replay, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta:       meta("pair-1"),
+		Name:       "my-phone",
+		TtlSeconds: 600,
+	}))
+	if err != nil {
+		t.Fatalf("retried CreatePairing failed: %v", err)
+	}
+	if replay.Msg.PairingId != cp.Msg.PairingId || replay.Msg.Token != "" || replay.Msg.Uri != "" {
+		t.Fatalf("retried CreatePairing minted new token or wrong replay: %+v", replay.Msg)
 	}
 
 	// Paired device can call Hello and StartRun, but cannot manage devices.
@@ -217,5 +245,216 @@ func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	now = now.Add(31 * time.Second)
 	if _, err := pc.RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: expPair.Msg.Token})); code(err) != connect.CodeUnauthenticated {
 		t.Fatalf("expired pairing = %v, want Unauthenticated", err)
+	}
+}
+
+func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
+	secret := relay.NewSecret()
+	h := startWithConfig(t, daemon.Config{
+		Relay: daemon.RelayConfig{
+			URL:   "https://relay-a.example",
+			TCP:   "relay-a.example:8443",
+			Token: secret,
+		},
+	})
+	ctx := context.Background()
+
+	// Huge ttl_seconds must be rejected instead of wrapping negative via time.Duration multiplication.
+	for _, badTTL := range []int64{-1, 86401, 9223372037, math.MaxInt64} {
+		if _, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+			Meta:       meta("bad-ttl"),
+			TtlSeconds: badTTL,
+		})); code(err) != connect.CodeInvalidArgument {
+			t.Fatalf("TtlSeconds=%d: got %v, want InvalidArgument", badTTL, err)
+		}
+	}
+
+	// Default uses configured relay URL, TCP, and derived client token.
+	defRes, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta: meta("def-relay"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defRes.Msg.RelayUrl != "https://relay-a.example" || defRes.Msg.RelayTcp != "relay-a.example:8443" || defRes.Msg.RelayClientToken == "" {
+		t.Fatalf("default relay pairing = %+v", defRes.Msg)
+	}
+
+	// Overriding relay_url to a different relay must not attach the configured relay's TCP address or token.
+	ovrRes, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta:     meta("ovr-relay"),
+		RelayUrl: "https://relay-b.example",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ovrRes.Msg.RelayUrl != "https://relay-b.example" || ovrRes.Msg.RelayTcp != "" || ovrRes.Msg.RelayClientToken != "" {
+		t.Fatalf("overridden relay pairing mixed relays: %+v", ovrRes.Msg)
+	}
+	parsed, err := pairing.ParseURI(ovrRes.Msg.Uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.RelayURL != "https://relay-b.example" || parsed.RelayTCP != "" || parsed.RelayClientToken != "" {
+		t.Fatalf("overridden pairing URI mixed relays: %+v", parsed)
+	}
+}
+
+func TestRevokeDeviceInvalidatesPendingTerminalTicketAndSubscribeRace(t *testing.T) {
+	home := t.TempDir()
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, home)
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+
+	repo := gitRepo(t)
+	run := startRun(t, h.device.Mesh, "term-revoke")
+	ag := h.spawn(run.Id, repo, "w1", "hi")
+
+	// Pair a remote device and obtain a terminal ticket BEFORE revocation.
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta: meta("pair-term"), Name: "stolen-phone",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	red, err := pairingClient(h.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{
+		Token: cp.Msg.Token,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	devClient := h.as(red.Msg.DeviceToken)
+	tkt, err := devClient.OpenTerminal(ctx, connect.NewRequest(&v1.OpenTerminalRequest{
+		Agent: ag.Id, Input: true,
+	}))
+	if err != nil {
+		t.Fatalf("OpenTerminal before revoke: %v", err)
+	}
+
+	// Revoke the device before it redeems the terminal ticket.
+	if _, err := h.device.Mesh.RevokeDevice(ctx, connect.NewRequest(&v1.RevokeDeviceRequest{
+		Meta: meta("rev-term"), DeviceId: red.Msg.DeviceId,
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempting to open the terminal with the pre-revocation ticket must fail with 401.
+	info, err := daemon.ReadInfo(h.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unixHC := client.UnixHTTP(info.Socket, 3*time.Second)
+	res, err := unixHC.Get(client.BaseURL + tkt.Msg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/term with revoked device's ticket: status %d, want 401", res.StatusCode)
+	}
+
+	// Re-check after trackStream also rejects a SubscribeEvents call whose actor was revoked after auth.
+	revActor := &v1.Actor{Id: red.Msg.DeviceId, Class: v1.ActorClass_ACTOR_CLASS_DEVICE, Name: "stolen-phone"}
+	if err := h.d.SubscribeEvents(auth.WithActor(ctx, revActor), connect.NewRequest(&v1.SubscribeEventsRequest{}), nil); code(err) != connect.CodeUnauthenticated {
+		t.Fatalf("SubscribeEvents for revoked actor after auth = %v, want Unauthenticated", err)
+	}
+}
+
+func TestDeviceEventsNotSentToRunAgents(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "r-scope")
+
+	workerTok := auth.NewToken()
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		return tx.PutToken(auth.Hash(workerTok), store.TokenRecord{
+			Class:     v1.ActorClass_ACTOR_CLASS_WORKER,
+			SubjectID: "a-worker-1",
+			Name:      "worker-1",
+			RunID:     run.Id,
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	workerClient := h.as(workerTok)
+
+	devStream, err := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devStream.Close()
+	if recv(t, devStream).GetSnapshot() == nil {
+		t.Fatal("device expected snapshot")
+	}
+
+	workerStream, err := workerClient.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workerStream.Close()
+	workerSnap := recv(t, workerStream).GetSnapshot()
+	if workerSnap == nil {
+		t.Fatal("worker expected snapshot")
+	}
+
+	// Pair and revoke a device, then close the worker's run.
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta: meta("pair-ev"), Name: "secret-phone",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	red, err := pairingClient(h.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{
+		Token: cp.Msg.Token,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.device.Mesh.RevokeDevice(ctx, connect.NewRequest(&v1.RevokeDeviceRequest{
+		Meta: meta("rev-ev"), DeviceId: red.Msg.DeviceId,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	// Emit a run-scoped event after the device events so we can assert the worker skips straight to it.
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		_, err := tx.AppendEvent(&v1.Event{
+			RunId:   run.Id,
+			Payload: &v1.Event_MessageDelivered{MessageDelivered: &v1.MessageDelivered{MessageId: "m-marker"}},
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Host device receives DevicePaired, DeviceRevoked, and MessageDelivered.
+	if ev := recv(t, devStream).GetEvent(); ev.GetDevicePaired().GetDevice().GetId() != red.Msg.DeviceId {
+		t.Fatalf("device stream 1 = %v, want DevicePaired", ev)
+	}
+	if ev := recv(t, devStream).GetEvent(); ev.GetDeviceRevoked().GetDeviceId() != red.Msg.DeviceId {
+		t.Fatalf("device stream 2 = %v, want DeviceRevoked", ev)
+	}
+	if ev := recv(t, devStream).GetEvent(); ev.GetMessageDelivered().GetMessageId() != "m-marker" {
+		t.Fatalf("device stream 3 = %v, want MessageDelivered", ev)
+	}
+
+	// Worker's live stream skips DevicePaired/DeviceRevoked and gets MessageDelivered directly.
+	if ev := recv(t, workerStream).GetEvent(); ev.GetMessageDelivered().GetMessageId() != "m-marker" {
+		t.Fatalf("worker live stream = %v, want MessageDelivered (no device events)", ev)
+	}
+
+	// Worker resuming from the pre-pairing cursor also skips DevicePaired/DeviceRevoked.
+	resumed, err := workerClient.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{
+		Cursor: workerSnap.Cursor,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resumed.Close()
+	if recv(t, resumed).GetResumed() == nil {
+		t.Fatal("worker expected Resumed frame")
+	}
+	if ev := recv(t, resumed).GetEvent(); ev.GetMessageDelivered().GetMessageId() != "m-marker" {
+		t.Fatalf("worker resumed stream = %v, want MessageDelivered (no device events)", ev)
 	}
 }

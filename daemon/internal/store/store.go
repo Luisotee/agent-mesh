@@ -592,6 +592,13 @@ func (r Reader) Token(hash string) (TokenRecord, error) {
 	return rec, err
 }
 
+// HasActiveToken reports whether subjectID currently has at least one unrevoked token.
+func (r Reader) HasActiveToken(subjectID string) (bool, error) {
+	var n int
+	err := r.q.QueryRowContext(r.ctx, `SELECT COUNT(*) FROM tokens WHERE subject_id = ? AND revoked_at IS NULL`, subjectID).Scan(&n)
+	return n > 0, err
+}
+
 // ── mutations ──
 
 // Mutation returns the stored response of a write this actor already applied under this id.
@@ -622,12 +629,32 @@ func (t *Tx) PruneMutations(hookBefore, before time.Time) (int64, error) {
 	return res.RowsAffected()
 }
 
-// DeleteMutation removes a stored write idempotency record (used to scrub one-time secrets once redeemed).
-func (t *Tx) DeleteMutation(actorID, id string) error {
+// ScrubPairingMutation keeps a CreatePairing mutation record (so retries with the same mutation_id replay
+// instead of minting a fresh token) while clearing its secret fields (token, uri, relay_client_token).
+func (t *Tx) ScrubPairingMutation(actorID, id string) error {
 	if actorID == "" || id == "" {
 		return nil
 	}
-	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM mutations WHERE actor_id = ? AND id = ?`, actorID, id)
+	_, raw, err := t.Mutation(actorID, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	resp := &v1.CreatePairingResponse{}
+	if err := proto.Unmarshal(raw, resp); err != nil {
+		return err
+	}
+	resp.Token = ""
+	resp.Uri = ""
+	resp.RelayClientToken = ""
+	scrubbed, err := proto.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `UPDATE mutations SET response = ? WHERE actor_id = ? AND id = ?`,
+		scrubbed, actorID, id)
 	return err
 }
 
@@ -729,7 +756,7 @@ func (t *Tx) PrunePairings(before time.Time) (int64, error) {
 		return 0, err
 	}
 	for _, m := range muts {
-		if err := t.DeleteMutation(m.actorID, m.id); err != nil {
+		if err := t.ScrubPairingMutation(m.actorID, m.id); err != nil {
 			return 0, err
 		}
 	}

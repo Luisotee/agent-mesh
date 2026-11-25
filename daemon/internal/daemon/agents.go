@@ -1132,6 +1132,13 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if t.actorID != "" {
 		defer d.trackStream(t.actorID, cancel)()
+		// Re-check after trackStream: if RevokeDevice ran between OpenTerminal/auth and trackStream,
+		// disconnectActor already completed and this catches the revocation cleanly.
+		active, err := d.store.Read(r.Context()).HasActiveToken(t.actorID)
+		if err != nil || !active {
+			http.Error(w, "actor revoked", http.StatusUnauthorized)
+			return
+		}
 	}
 	in := "0"
 	if t.input {

@@ -50,25 +50,51 @@ func ParseFingerprint(s string) ([32]byte, error) {
 }
 
 // LoadOrCreate loads the daemon's TLS certificate and private key from certPath and keyPath, generating an
-// ECDSA P-256 self-signed pair on first start. If one file exists without the other, or if either fails to
-// parse, it returns an error rather than rotating the certificate and invalidating paired clients' pins.
+// ECDSA P-256 self-signed pair on first start. First-start creation stages both halves in a single atomic
+// pending bundle so a crash between writing tls.key and tls.crt recovers on the next start. Once committed,
+// if one file exists without the other or either fails to parse, it returns an error rather than rotating
+// the certificate and invalidating paired clients' pins.
 func LoadOrCreate(certPath, keyPath, commonName string) (*tls.Config, string, error) {
+	pendingPath := certPath + ".pending"
 	_, certErr := os.Stat(certPath)
 	_, keyErr := os.Stat(keyPath)
+	_, pendErr := os.Stat(pendingPath)
 	certExists := certErr == nil
 	keyExists := keyErr == nil
+	pendExists := pendErr == nil
 	if certErr != nil && !errors.Is(certErr, os.ErrNotExist) {
 		return nil, "", certErr
 	}
 	if keyErr != nil && !errors.Is(keyErr, os.ErrNotExist) {
 		return nil, "", keyErr
 	}
-	if certExists != keyExists {
+	if pendErr != nil && !errors.Is(pendErr, os.ErrNotExist) {
+		return nil, "", pendErr
+	}
+	switch {
+	case certExists && keyExists:
+		if pendExists {
+			_ = os.Remove(pendingPath)
+		}
+	case pendExists:
+		certPEM, keyPEM, err := readPendingBundle(pendingPath)
+		if err == nil {
+			if err := commitKeypair(certPath, keyPath, pendingPath, certPEM, keyPEM); err != nil {
+				return nil, "", err
+			}
+		} else if !certExists && !keyExists {
+			_ = os.Remove(pendingPath)
+			if err := generateSelfSigned(certPath, keyPath, pendingPath, commonName); err != nil {
+				return nil, "", err
+			}
+		} else {
+			return nil, "", fmt.Errorf("incomplete TLS keypair with corrupt staging bundle (%s): %w", pendingPath, err)
+		}
+	case certExists != keyExists:
 		return nil, "", fmt.Errorf("incomplete TLS keypair (%s exists=%v, %s exists=%v): refusing to regenerate and break paired pins",
 			certPath, certExists, keyPath, keyExists)
-	}
-	if !certExists {
-		if err := generateSelfSigned(certPath, keyPath, commonName); err != nil {
+	default:
+		if err := generateSelfSigned(certPath, keyPath, pendingPath, commonName); err != nil {
 			return nil, "", err
 		}
 	}
@@ -92,7 +118,7 @@ func LoadOrCreate(certPath, keyPath, commonName string) (*tls.Config, string, er
 	return cfg, FormatFingerprint(leaf.Raw), nil
 }
 
-func generateSelfSigned(certPath, keyPath, commonName string) error {
+func generateSelfSigned(certPath, keyPath, pendingPath, commonName string) error {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
@@ -127,14 +153,51 @@ func generateSelfSigned(certPath, keyPath, commonName string) error {
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	bundle := append(append([]byte(nil), certPEM...), keyPEM...)
+	if err := fsutil.WriteAtomic(pendingPath, bundle, 0o600); err != nil {
+		return err
+	}
+	return commitKeypair(certPath, keyPath, pendingPath, certPEM, keyPEM)
+}
+
+func commitKeypair(certPath, keyPath, pendingPath string, certPEM, keyPEM []byte) error {
 	if err := fsutil.WriteAtomic(keyPath, keyPEM, 0o600); err != nil {
 		return err
 	}
 	if err := fsutil.WriteAtomic(certPath, certPEM, 0o600); err != nil {
-		_ = os.Remove(keyPath)
+		return err
+	}
+	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
+}
+
+func readPendingBundle(path string) (certPEM, keyPEM []byte, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	for len(data) > 0 {
+		var blk *pem.Block
+		blk, data = pem.Decode(data)
+		if blk == nil {
+			break
+		}
+		switch blk.Type {
+		case "CERTIFICATE":
+			certPEM = pem.EncodeToMemory(blk)
+		case "EC PRIVATE KEY", "PRIVATE KEY":
+			keyPEM = pem.EncodeToMemory(blk)
+		}
+	}
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return nil, nil, errors.New("pending bundle missing certificate or private key")
+	}
+	if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+		return nil, nil, err
+	}
+	return certPEM, keyPEM, nil
 }
 
 // PinnedConfig returns a client tls.Config that verifies the server's leaf certificate matches the pinned

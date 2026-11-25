@@ -48,6 +48,15 @@ func (d *Daemon) trackStream(actorID string, cancel context.CancelFunc) func() {
 }
 
 func (d *Daemon) disconnectActor(actorID string) {
+	if d.rt != nil {
+		d.rt.mu.Lock()
+		for tk, t := range d.rt.tickets {
+			if t.actorID == actorID {
+				delete(d.rt.tickets, tk)
+			}
+		}
+		d.rt.mu.Unlock()
+	}
 	d.streamsMu.Lock()
 	m := d.streams[actorID]
 	delete(d.streams, actorID)
@@ -70,9 +79,10 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 	if err := requireHostDevice(ctx); err != nil {
 		return nil, err
 	}
+	const maxPairingTTLSeconds = int64(maxPairingTTL / time.Second)
 	ttl := defaultPairingTTL
-	if req.Msg.TtlSeconds < 0 || time.Duration(req.Msg.TtlSeconds)*time.Second > maxPairingTTL {
-		return nil, invalid("ttl_seconds must be between 0 and %d", int(maxPairingTTL/time.Second))
+	if req.Msg.TtlSeconds < 0 || req.Msg.TtlSeconds > maxPairingTTLSeconds {
+		return nil, invalid("ttl_seconds must be between 0 and %d", maxPairingTTLSeconds)
 	}
 	if req.Msg.TtlSeconds > 0 {
 		ttl = time.Duration(req.Msg.TtlSeconds) * time.Second
@@ -82,13 +92,19 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		class = v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
 	}
 	relayURL := strings.TrimSpace(req.Msg.RelayUrl)
+	cfgRelayURL := strings.TrimSpace(d.cfg.Relay.URL)
+	var relayTCP, relayClientTok string
 	if relayURL == "" {
-		relayURL = d.cfg.Relay.URL
-	}
-	relayTCP := d.cfg.Relay.TCP
-	var relayClientTok string
-	if d.cfg.Relay.Token != "" {
-		relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
+		relayURL = cfgRelayURL
+		relayTCP = d.cfg.Relay.TCP
+		if d.cfg.Relay.Token != "" {
+			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
+		}
+	} else if cfgRelayURL != "" && strings.TrimRight(relayURL, "/") == strings.TrimRight(cfgRelayURL, "/") {
+		relayTCP = d.cfg.Relay.TCP
+		if d.cfg.Relay.Token != "" {
+			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
+		}
 	}
 	directURL := strings.TrimSpace(req.Msg.DirectUrl)
 	if directURL == "" && d.info.Listen != "" {
@@ -187,9 +203,10 @@ func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.Rede
 		}); err != nil {
 			return err
 		}
-		// Scrub the CreatePairing mutation response so the one-time pairing token is not kept on disk.
+		// Scrub secrets from the CreatePairing mutation record while keeping the idempotency tombstone so a retry
+		// with the same mutation_id does not mint a fresh pairing token.
 		if rec.MutationID != "" && rec.CreatedBy != nil {
-			if err := tx.DeleteMutation(rec.CreatedBy.Id, rec.MutationID); err != nil {
+			if err := tx.ScrubPairingMutation(rec.CreatedBy.Id, rec.MutationID); err != nil {
 				return err
 			}
 		}
@@ -247,7 +264,7 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 		return nil, invalid("cannot revoke the host's local device")
 	}
 	out := &v1.RevokeDeviceResponse{}
-	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeDeviceProcedure, out, func(tx *store.Tx) error {
+	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeDeviceProcedure, out, func(tx *store.Tx) error {
 		dev, err := tx.GetDevice(id)
 		if errors.Is(err, store.ErrNotFound) {
 			return notFound("no device %s", id)
@@ -272,8 +289,6 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 	if err != nil {
 		return nil, err
 	}
-	if !replayed {
-		d.disconnectActor(id)
-	}
+	d.disconnectActor(id)
 	return connect.NewResponse(out), nil
 }

@@ -61,6 +61,73 @@ func TestLoadOrCreatePersistsAcrossRestartsAndRefusesPartial(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateRecoversCrashBetweenKeyAndCert(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "tls.crt")
+	keyPath := filepath.Join(dir, "tls.key")
+	pendingPath := certPath + ".pending"
+
+	_, fp1, err := LoadOrCreate(certPath, keyPath, "h-crash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(pendingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending bundle left behind after clean start: %v", err)
+	}
+
+	certBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := append(append([]byte(nil), certBytes...), keyBytes...)
+
+	// Simulate crash after writing tls.key and staging bundle, before writing tls.crt.
+	if err := os.WriteFile(pendingPath, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(certPath); err != nil {
+		t.Fatal(err)
+	}
+
+	_, fp2, err := LoadOrCreate(certPath, keyPath, "h-crash")
+	if err != nil {
+		t.Fatalf("LoadOrCreate failed to recover interrupted first start: %v", err)
+	}
+	if fp1 != fp2 {
+		t.Fatalf("recovered fingerprint %s != original %s", fp2, fp1)
+	}
+	if _, err := os.Stat(pendingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending bundle not removed after recovery: %v", err)
+	}
+	if _, err := os.Stat(certPath); err != nil {
+		t.Fatalf("tls.crt not restored: %v", err)
+	}
+
+	// Simulate crash after writing both files, before removing pending bundle.
+	if err := os.WriteFile(pendingPath, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, fp3, err := LoadOrCreate(certPath, keyPath, "h-crash")
+	if err != nil || fp3 != fp1 {
+		t.Fatalf("reload with leftover pending = %s, %v; want %s", fp3, err, fp1)
+	}
+	if _, err := os.Stat(pendingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("leftover pending bundle not cleaned up: %v", err)
+	}
+
+	// Once committed (no pending bundle), deleting tls.crt still refuses to regenerate.
+	if err := os.Remove(certPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadOrCreate(certPath, keyPath, "h-crash"); err == nil {
+		t.Fatal("expected error when committed cert is missing without pending bundle")
+	}
+}
+
 func TestPinnedConfigAcceptsMatchAndRejectsMismatch(t *testing.T) {
 	dir1, dir2 := t.TempDir(), t.TempDir()
 	srvCfg, fp1, err := LoadOrCreate(filepath.Join(dir1, "tls.crt"), filepath.Join(dir1, "tls.key"), "h1")

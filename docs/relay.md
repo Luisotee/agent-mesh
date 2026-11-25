@@ -15,22 +15,18 @@
 Designed to run behind `nginx-proxy-manager` (TLS on port `443` with WebSockets enabled).
 
 - `GET /healthz` — returns `200 ok\n` for uptime monitoring.
-- `GET /v1/daemon/control` — daemon control WebSocket (`Authorization: Bearer <relay_secret>`).
+- `GET /v1/daemon/control` — daemon control WebSocket (`Authorization: Bearer <relay_secret>`). Invalid or missing bearer token returns HTTP `401` before upgrade (daemon stops retrying on `401`/`403`).
   1. Daemon sends binary `agentmesh.relay.v1.ControlFrame` (`Register{host_id, host_name, daemon_version}`).
   2. Relay replaces any older session for `host_id` with close code `4001` (`replaced`), then replies `Registered{host_id}`.
   3. Daemon sends `Ping{seq}` heartbeats; relay replies `Pong{seq}`. Client-backoff resets only after the first `Pong`.
   4. When an app connects, relay sends `DialBack{ticket, stream_id}`.
-- `GET /v1/daemon/stream?ticket=<rtk_...>` — daemon dial-back WebSocket (`Authorization: Bearer <relay_secret>`). The ticket is single-use (atomically deleted on claim) and expires after 15 s; reuse returns HTTP `404`.
-- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`), returning `503` if the daemon is offline or `401` on bad token.
+- `GET /v1/daemon/stream?ticket=<rtk_...>` — daemon dial-back WebSocket (`Authorization: Bearer <relay_secret>`). Pre-upgrade HTTP errors: `401` on bad token, `400` on missing ticket, `404` on unknown or already-used ticket (tickets are atomically deleted on claim), `410` on expired ticket (15 s TTL).
+- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`). Pre-upgrade HTTP errors: `400` on missing `host_id`, `401` on bad token, `503` if the daemon is offline, `429` if too many pending streams are queued for the host, `504` on dial-back timeout.
 
-Typed WebSocket close codes on control/stream connections:
+Typed WebSocket close codes sent after upgrade on `/v1/daemon/control`:
 - `4001` replaced by a newer daemon session
-- `4002` authentication failed (daemon stops retrying)
 - `4003` bad request / invalid handshake
-- `4004` daemon offline
-- `4005` dial-back timeout
 - `4006` relay shutdown
-- `4007` invalid or expired ticket
 
 ### 2. Relay raw TCP client listener (`mesh-relay --client-listen`, default `:8443`)
 
@@ -76,7 +72,10 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
    ```bash
    ./mesh-relay --gen-token > relay.token
    chmod 600 relay.token
+   # Required for the Docker container (USER 65532:65532, cap_drop: ALL; mesh-relay enforces mode 0600):
+   sudo chown 65532:65532 relay.token
    ```
+   For the root-owned systemd unit (`agent-mesh-relay.service`), skip the `chown`. For Dockge without a host-chowned file, drop `--token-file` and the volume from `compose.yaml` and set `AGENT_MESH_RELAY_TOKEN` in Dockge's `.env`.
 3. **Open both ports (required):**
    - **Port `443` (via `nginx-proxy-manager`):** create a Proxy Host (e.g. `relay.example.com`) forwarding to `127.0.0.1:8080` (or `agent-mesh-relay:8080` on NPM's Docker network). Enable **WebSockets Support** and SSL, and in the Advanced tab set `proxy_read_timeout 3600s; proxy_send_timeout 3600s;` so idle control/stream WebSockets are not closed every 60 s.
    - **Port `8443/tcp` (raw TCP client stream):** because native clients run end-to-end pinned TLS directly over TCP port `8443` without NPM terminating TLS, open **TCP 8443** in **both**:

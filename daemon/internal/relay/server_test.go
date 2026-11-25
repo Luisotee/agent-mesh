@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -323,4 +325,274 @@ func TestRelayPreambleReadPreservesPipelinedBytes(t *testing.T) {
 		t.Fatalf("got line=%q extra=%q", line, extra)
 	}
 	_ = tls.RecordHeaderError{}
+}
+
+func TestRelayRawTCPTimeoutAndSlowDialBack(t *testing.T) {
+	secret := NewSecret()
+	// Use a past clock for s.now() to verify socket deadlines use time.Now(), not the injected clock.
+	fixedNow := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	srv, err := NewServer(ServerConfig{
+		Secret:          secret,
+		Now:             func() time.Time { return fixedNow },
+		PreambleTimeout: 120 * time.Millisecond,
+		TicketTTL:       5 * time.Second,
+		DialBackTimeout: 150 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		srv.Close()
+		hs.Close()
+	})
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		tcpLn.Close()
+	})
+	go func() { _ = srv.ServeClientTCP(ctx, tcpLn) }()
+
+	// Connect a fake daemon control WS so we control whether and when it dials back.
+	wsBase, _ := toWSBase(hs.URL)
+	hdr := http.Header{"Authorization": {"Bearer " + secret}}
+	ctrlWS, _, err := websocket.Dial(ctx, wsBase+"/v1/daemon/control", &websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctrlWS.CloseNow()
+	if err := writeControlFrame(ctx, ctrlWS, &relayv1.ControlFrame{
+		Frame: &relayv1.ControlFrame_Register{Register: &relayv1.Register{HostId: "h-slow"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ack, err := readControlFrame(ctx, ctrlWS); err != nil || ack.GetRegistered() == nil {
+		t.Fatalf("ack = %v, %v", ack, err)
+	}
+
+	dir := t.TempDir()
+	_, fp, err := tlsutil.LoadOrCreate(filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key"), "h-slow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientTok := ClientToken(secret, "h-slow")
+
+	// 1. Daemon ignores DialBack -> relay must deliver ERR timeout (not fail on an expired preamble deadline).
+	dctx, dcancel := context.WithTimeout(ctx, 3*time.Second)
+	defer dcancel()
+	if _, err := DialRelayTCP(dctx, tcpLn.Addr().String(), "h-slow", clientTok, fp, "http/1.1"); !errors.Is(err, ErrTimeout) {
+		t.Fatalf("dial-back timeout = %v, want ErrTimeout", err)
+	}
+	// Drain the ignored DialBack frame from control WS.
+	if f, err := readControlFrame(dctx, ctrlWS); err != nil || f.GetDialBack() == nil {
+		t.Fatalf("expected DialBack frame, got %v, %v", f, err)
+	}
+
+	// 2. Slow preamble (70ms) + slow dial-back (90ms) = 160ms > PreambleTimeout (120ms), but each is within
+	// its own timeout -> OK\n must still be delivered and spliced cleanly.
+	raw, err := DialTCPNoDelay(dctx, "tcp", tcpLn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	time.Sleep(70 * time.Millisecond)
+	if _, err := fmt.Fprintf(raw, "MESH1 h-slow %s\n", clientTok); err != nil {
+		t.Fatal(err)
+	}
+	dbFrame, err := readControlFrame(dctx, ctrlWS)
+	if err != nil || dbFrame.GetDialBack() == nil {
+		t.Fatalf("expected second DialBack, got %v, %v", dbFrame, err)
+	}
+	time.Sleep(90 * time.Millisecond)
+	streamWS, _, err := websocket.Dial(dctx, wsBase+"/v1/daemon/stream?ticket="+dbFrame.GetDialBack().Ticket,
+		&websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		t.Fatalf("slow dial-back stream dial failed: %v", err)
+	}
+	defer streamWS.CloseNow()
+
+	line, _, err := readPreambleLine(raw, 512)
+	if err != nil || line != "OK" {
+		t.Fatalf("slow dial-back reply = %q, %v; want OK", line, err)
+	}
+}
+
+func TestRelayDialBackRaceWithTimeoutDoesNotLeak(t *testing.T) {
+	secret := NewSecret()
+	srv, hs, _ := startTestRelay(t, secret)
+	wsBase, _ := toWSBase(hs.URL)
+	hdr := http.Header{"Authorization": {"Bearer " + secret}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Case 1: ticket abandoned between claim and channel send (pt.abandoned == true) ->
+	// serveDaemonStream closes the WebSocket and returns immediately without leaking.
+	pt := &pendingTicket{
+		hostID:    "h-race",
+		expires:   time.Now().Add(time.Minute),
+		abandoned: true,
+		ch:        make(chan pendingStream, 1),
+	}
+	srv.mu.Lock()
+	srv.tickets["rtk_abandoned"] = pt
+	srv.mu.Unlock()
+
+	ws, _, err := websocket.Dial(ctx, wsBase+"/v1/daemon/stream?ticket=rtk_abandoned", &websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		t.Fatalf("dial abandoned ticket: %v", err)
+	}
+	defer ws.CloseNow()
+	// Because serveDaemonStream closes dc immediately on pt.abandoned, ws.Read must return promptly.
+	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+	defer rcancel()
+	if _, _, err := ws.Read(rctx); err == nil {
+		t.Fatal("expected abandoned dial-back WebSocket to be closed")
+	}
+
+	// Case 2: serveDaemonStream delivered to pt.ch, then openStream's ctx was already canceled ->
+	// abandon() drains pt.ch, closes the conn and closes done so serveDaemonStream exits cleanly.
+	srv2, err := NewServer(ServerConfig{
+		Secret:          secret,
+		TicketTTL:       5 * time.Second,
+		DialBackTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs2 := httptest.NewServer(srv2.Handler())
+	defer func() {
+		srv2.Close()
+		hs2.Close()
+	}()
+	wsBase2, _ := toWSBase(hs2.URL)
+	ctrlWS, _, err := websocket.Dial(ctx, wsBase2+"/v1/daemon/control", &websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctrlWS.CloseNow()
+	if err := writeControlFrame(ctx, ctrlWS, &relayv1.ControlFrame{
+		Frame: &relayv1.ControlFrame_Register{Register: &relayv1.Register{HostId: "h-race2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ack, err := readControlFrame(ctx, ctrlWS); err != nil || ack.GetRegistered() == nil {
+		t.Fatalf("ack = %v, %v", ack, err)
+	}
+
+	openCtx, openCancel := context.WithCancel(ctx)
+	openDone := make(chan error, 1)
+	go func() {
+		ps, err := srv2.openStream(openCtx, "h-race2")
+		if err == nil {
+			_ = ps.conn.Close()
+			close(ps.done)
+		}
+		openDone <- err
+	}()
+	dbFrame, err := readControlFrame(ctx, ctrlWS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cancel client and race dial-back simultaneously; neither side may hang.
+	openCancel()
+	streamWS, _, dialErr := websocket.Dial(ctx, wsBase2+"/v1/daemon/stream?ticket="+dbFrame.GetDialBack().Ticket,
+		&websocket.DialOptions{HTTPHeader: hdr})
+	if dialErr == nil {
+		defer streamWS.CloseNow()
+		rctx2, rcancel2 := context.WithTimeout(ctx, 2*time.Second)
+		defer rcancel2()
+		if _, _, err := streamWS.Read(rctx2); err == nil {
+			t.Fatal("raced dial-back stream was not closed after client cancel")
+		}
+	}
+	select {
+	case <-openDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("openStream did not return after cancel")
+	}
+}
+
+type flakyListener struct {
+	mu      sync.Mutex
+	errs    []error
+	conns   chan net.Conn
+	closed  chan struct{}
+	closeOp sync.Once
+}
+
+func (f *flakyListener) Accept() (net.Conn, error) {
+	f.mu.Lock()
+	if len(f.errs) > 0 {
+		err := f.errs[0]
+		f.errs = f.errs[1:]
+		f.mu.Unlock()
+		return nil, err
+	}
+	f.mu.Unlock()
+	select {
+	case c := <-f.conns:
+		return c, nil
+	case <-f.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+func (f *flakyListener) Close() error {
+	f.closeOp.Do(func() { close(f.closed) })
+	return nil
+}
+
+func (f *flakyListener) Addr() net.Addr { return wsAddr("flaky") }
+
+func TestServeClientTCPRetriesTransientAcceptErrors(t *testing.T) {
+	secret := NewSecret()
+	srv, err := NewServer(ServerConfig{Secret: secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	fl := &flakyListener{
+		errs:   []error{syscall.EMFILE, syscall.ECONNABORTED},
+		conns:  make(chan net.Conn, 1),
+		closed: make(chan struct{}),
+	}
+	defer fl.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- srv.ServeClientTCP(ctx, fl) }()
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	fl.conns <- serverConn
+
+	tok := ClientToken(secret, "h-after-emfile")
+	if _, err := fmt.Fprintf(clientConn, "MESH1 h-after-emfile %s\n", tok); err != nil {
+		t.Fatal(err)
+	}
+	_ = clientConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	line, _, err := readPreambleLine(clientConn, 512)
+	if err != nil {
+		t.Fatalf("failed to read reply after transient Accept errors: %v", err)
+	}
+	if !strings.HasPrefix(line, "ERR offline ") {
+		t.Fatalf("got %q, want ERR offline ...", line)
+	}
+
+	cancel()
+	fl.Close()
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Fatalf("ServeClientTCP returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeClientTCP did not stop on close")
+	}
 }
