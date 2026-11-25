@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The CI equivalent for proto/ and daemon/ (the repo runs no hosted CI): buf lint, buf breaking against main,
-# generated code up to date, go vet, go test -race, and the Python suite from the repo root.
+# generated code up to date, gofmt, go vet, go test -race, and the Python suite from the repo root.
 #
 #   daemon/scripts/check.sh            # everything
 #   SKIP_PYTEST=1 daemon/scripts/check.sh
@@ -37,6 +37,14 @@ step "generated code is current"
 if [ -n "$(git -C "$repo" status --porcelain -- daemon/gen)" ]; then
   git -C "$repo" status --short -- daemon/gen
   echo "daemon/gen is stale: commit the output of 'cd proto && buf generate'" >&2
+  exit 1
+fi
+
+step "gofmt"
+unformatted=$(cd "$daemon_dir" && gofmt -l cmd internal)
+if [ -n "$unformatted" ]; then
+  echo "$unformatted"
+  echo "not gofmt'd: run 'gofmt -w' on these" >&2
   exit 1
 fi
 

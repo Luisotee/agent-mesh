@@ -71,7 +71,7 @@ type NewScreenFunc func(cols, rows int, reply func([]byte)) Screen
 // DEC private modes a client must have set to behave like the program expects. The alternate screen (47,
 // 1047, 1049) and the cursor's visibility (25) are handled on their own.
 var preambleModes = map[int]bool{
-	1:    true, // application cursor keys
+	1:    true,                                                             // application cursor keys
 	1000: true, 1002: true, 1003: true, 1005: true, 1006: true, 1015: true, // mouse reporting
 	1004: true, // focus events
 	2004: true, // bracketed paste
