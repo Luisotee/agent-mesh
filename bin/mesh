@@ -2138,6 +2138,9 @@ def claimed_names(skip_pane: str | None = None, listed: list[dict] | None = None
     return names
 
 
+HERDR_GET_TIMEOUT = 10  # seconds `herdr_targets` gives herdr's `agent get`: a hung herdr mustn't block a poll
+
+
 def herdr_targets(name: str, entry: dict) -> list[str]:
     """What to address an agent by in herdr, best first: its name, then its pane id. A name herdr has moved to
     another pane (a rename takes a held name from its holder) isn't the agent's: its own pane id stands in while
@@ -2149,17 +2152,17 @@ def herdr_targets(name: str, entry: dict) -> list[str]:
     if not pane:
         return targets
     try:
-        got = herdr("agent", "get", name).get("agent") or {}
-    except HerdrError:
+        got = herdr("agent", "get", name, timeout=HERDR_GET_TIMEOUT).get("agent") or {}
+    except (HerdrError, MeshError, ValueError):  # a hung or missing herdr, or garbage from it: no word on the name
         return targets
     holder = got.get("pane_id")
     if not holder or holder == pane:
         return targets
     try:
-        herdr("agent", "get", pane)
+        herdr("agent", "get", pane, timeout=HERDR_GET_TIMEOUT)
         return [pane]
-    except HerdrError as exc:
-        if exc.code != "agent_not_found":  # can't tell it is gone: its recorded pane still stands for it
+    except (HerdrError, MeshError, ValueError) as exc:
+        if getattr(exc, "code", None) != "agent_not_found":  # can't tell it is gone: its pane still stands for it
             return [pane]
     theirs, mine = (got.get("agent_session") or {}).get("value"), entry.get("session")
     if theirs and mine:  # a Claude's session says whether the name's pane is this agent, renumbered, or not
@@ -7911,7 +7914,7 @@ class Watch:
         self.gone_polls = 0  # the run's retirer: polls in a row it read this worker gone (retire_poll)
         self.gone_after: str | None = None  # ...and the report after which it let it go as ended
         self.continue_failed: str | None = None  # the `continue_due` whose delivery this watch saw fail, logged once
-        self.screen: tuple[str, float] | None = None  # `screen_target`'s last answer, and when it was asked
+        self.screen: tuple[str | None, str, float] | None = None  # `screen_target`'s last answer: pane, target, time
 
     def tick(self, interval: float, alerts_only: bool = False, bg_rows: list[dict] | None = None,
              events: list[dict] | None = None) -> tuple[int, str] | None:
@@ -8312,11 +8315,12 @@ class Watch:
 
     def screen_target(self, entry: dict) -> str:
         """What this poll's screen reads address the worker by: its name, or its own pane while the name is
-        another agent's (`wait_target`). One answer serves the reads of a poll (`SCREEN_TARGET_TTL`), so the
-        reads cost herdr no more than one `agent get` a poll."""
-        if self.screen is None or time.monotonic() - self.screen[1] > SCREEN_TARGET_TTL:
-            self.screen = (wait_target(self.name, entry), time.monotonic())
-        return self.screen[0]
+        another agent's (`wait_target`). One answer serves the reads of a poll (`SCREEN_TARGET_TTL`) while the
+        worker stays in its pane, so they cost herdr no more than one `agent get` a poll."""
+        now, pane = time.monotonic(), entry.get("pane")
+        if self.screen is None or self.screen[0] != pane or now - self.screen[2] > SCREEN_TARGET_TTL:
+            self.screen = (pane, wait_target(self.name, entry), now)
+        return self.screen[1]
 
     def with_tail(self, line: str, bg: bool, entry: dict) -> str:
         tail = "" if bg else pane_tail(self.screen_target(entry)) or (pane_tail(entry["pane"]) if entry.get("pane") else "")
@@ -9542,7 +9546,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
-    taken = claimed_names(skip=(run_id, old_name) if old_run["id"] == run_id else None) | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
+    own = old_run["id"] == run_id  # reopened in its own run: its own entry doesn't hold its name against it
+    taken = claimed_names(skip=(run_id, old_name) if own else None) | (set(current["agents"]) - ({old_name} if own else set()))
     name, n = old_name, 2
     while name in taken:
         name, n = f"{old_name[:29]}-{n}", n + 1

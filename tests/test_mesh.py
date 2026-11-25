@@ -11776,3 +11776,21 @@ def test_claudes_auto_continue_is_read_from_its_own_pane(mesh, fake, run):
     assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is False
     fake.screen("w2:p5", "Continuing shortly")  # its own pane says it
     assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is True
+
+
+def test_a_hung_or_garbled_herdr_doesnt_block_a_screen_read(mesh, fake, run):
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "repo-fix-typo", errors=["timeout"])
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["repo-fix-typo", "w2:p5"]
+    assert fake.called("agent", "get")[-1][2] == "repo-fix-typo"
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", errors=["cli_error"])
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["w2:p5"]
+
+
+def test_a_watchs_screen_target_follows_the_worker_to_a_new_pane(mesh, fake, run):
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert watch.screen_target(entry) == "repo-fix-typo"
+    assert watch.screen_target({**entry, "pane": "w2:p8"}) == "repo-fix-typo"
+    assert len(fake.called("agent", "get", "repo-fix-typo")) == 2  # asked again: a swap gave it a new pane
