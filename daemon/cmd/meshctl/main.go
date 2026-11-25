@@ -22,7 +22,7 @@ func main() {
 }
 
 // runHook always exits 0: a hook that fails must not disturb the agent's CLI. Failures go to the state dir's
-// hook.log.
+// hook.log. With $AGENT_MESH_HOOK_CAPTURE set it also saves each payload there.
 func runHook(args []string) int {
 	var kind, state, agent, event string
 	rest := args
@@ -43,7 +43,8 @@ func runHook(args []string) int {
 		fmt.Fprintln(os.Stderr, "meshctl hook: need <kind> --state <dir> --agent <id> <event>")
 		return 0
 	}
-	if err := hook.Run(hook.Options{StateDir: state, AgentID: agent, Kind: kind, Event: event, Stdin: os.Stdin}); err != nil {
+	if err := hook.Run(hook.Options{StateDir: state, AgentID: agent, Kind: kind, Event: event, Stdin: os.Stdin,
+		CaptureDir: os.Getenv("AGENT_MESH_HOOK_CAPTURE")}); err != nil {
 		hook.Log(state, "agent %s %s %s: %v", agent, kind, event, err)
 	}
 	return 0

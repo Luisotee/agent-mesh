@@ -15,6 +15,7 @@ public  final class SendMessageResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.SendMessageResponse)
     SendMessageResponseOrBuilder {
   private SendMessageResponse() {
+    resumeError_ = "";
   }
   private int bitField0_;
   public static final int MESSAGE_FIELD_NUMBER = 1;
@@ -62,6 +63,150 @@ public  final class SendMessageResponse extends
   private void clearMessage() {
     message_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int RESUMED_FIELD_NUMBER = 2;
+  private dev.agentmesh.gen.agentmesh.v1.Reopen resumed_;
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   */
+  @java.lang.Override
+  public boolean hasResumed() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.Reopen getResumed() {
+    return resumed_ == null ? dev.agentmesh.gen.agentmesh.v1.Reopen.getDefaultInstance() : resumed_;
+  }
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   */
+  private void setResumed(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+    java.util.Objects.requireNonNull(value);
+    resumed_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeResumed(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+    java.util.Objects.requireNonNull(value);
+    if (resumed_ != null &&
+        resumed_ != dev.agentmesh.gen.agentmesh.v1.Reopen.getDefaultInstance()) {
+      resumed_ =
+        dev.agentmesh.gen.agentmesh.v1.Reopen.newBuilder(resumed_).mergeFrom(value).buildPartial();
+    } else {
+      resumed_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   */
+  private void clearResumed() {
+    resumed_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int RESUME_ERROR_FIELD_NUMBER = 3;
+  private java.lang.String resumeError_;
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @return The resumeError.
+   */
+  @java.lang.Override
+  public java.lang.String getResumeError() {
+    return resumeError_;
+  }
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @return The bytes for resumeError.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getResumeErrorBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(resumeError_);
+  }
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @param value The resumeError to set.
+   */
+  private void setResumeError(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    resumeError_ = value;
+  }
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   */
+  private void clearResumeError() {
+
+    resumeError_ = getDefaultInstance().getResumeError();
+  }
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @param value The bytes for resumeError to set.
+   */
+  private void setResumeErrorBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    resumeError_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SendMessageResponse parseFrom(
@@ -208,6 +353,156 @@ public  final class SendMessageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    @java.lang.Override
+    public boolean hasResumed() {
+      return instance.hasResumed();
+    }
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.Reopen getResumed() {
+      return instance.getResumed();
+    }
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    public Builder setResumed(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+      copyOnWrite();
+      instance.setResumed(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    public Builder setResumed(
+        dev.agentmesh.gen.agentmesh.v1.Reopen.Builder builderForValue) {
+      copyOnWrite();
+      instance.setResumed(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    public Builder mergeResumed(dev.agentmesh.gen.agentmesh.v1.Reopen value) {
+      copyOnWrite();
+      instance.mergeResumed(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+     */
+    public Builder clearResumed() {  copyOnWrite();
+      instance.clearResumed();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+     * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+     * resume.
+     * </pre>
+     *
+     * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+     * @return The resumeError.
+     */
+    @java.lang.Override
+    public java.lang.String getResumeError() {
+      return instance.getResumeError();
+    }
+    /**
+     * <pre>
+     * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+     * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+     * resume.
+     * </pre>
+     *
+     * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+     * @return The bytes for resumeError.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getResumeErrorBytes() {
+      return instance.getResumeErrorBytes();
+    }
+    /**
+     * <pre>
+     * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+     * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+     * resume.
+     * </pre>
+     *
+     * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+     * @param value The resumeError to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumeError(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setResumeError(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+     * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+     * resume.
+     * </pre>
+     *
+     * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearResumeError() {
+      copyOnWrite();
+      instance.clearResumeError();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+     * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+     * resume.
+     * </pre>
+     *
+     * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+     * @param value The bytes for resumeError to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumeErrorBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setResumeErrorBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageResponse)
   }
   @java.lang.Override
@@ -226,9 +521,12 @@ public  final class SendMessageResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "message_",
+            "resumed_",
+            "resumeError_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u1009\u0001\u0003\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

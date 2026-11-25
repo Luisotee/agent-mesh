@@ -161,6 +161,38 @@ public class MeshServiceClient(
 
 
   /**
+   *  Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+   *  branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+   */
+  override suspend fun retireAgent(request: RetireAgentRequest, headers: Headers): ResponseMessage<RetireAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RetireAgent",
+      dev.agentmesh.gen.agentmesh.v1.RetireAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RetireAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+   *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+   */
+  override suspend fun stopRun(request: StopRunRequest, headers: Headers): ResponseMessage<StopRunResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/StopRun",
+      dev.agentmesh.gen.agentmesh.v1.StopRunRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.StopRunResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   override suspend fun sendMessage(request: SendMessageRequest, headers: Headers): ResponseMessage<SendMessageResponse> = client.unary(
@@ -293,6 +325,52 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/OpenTerminal",
       dev.agentmesh.gen.agentmesh.v1.OpenTerminalRequest::class,
       dev.agentmesh.gen.agentmesh.v1.OpenTerminalResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+   *  may call this.
+   */
+  override suspend fun createPairing(request: CreatePairingRequest, headers: Headers): ResponseMessage<CreatePairingResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CreatePairing",
+      dev.agentmesh.gen.agentmesh.v1.CreatePairingRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CreatePairingResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  List paired devices. Only the host's own device may call this.
+   */
+  override suspend fun listDevices(request: ListDevicesRequest, headers: Headers): ResponseMessage<ListDevicesResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListDevices",
+      dev.agentmesh.gen.agentmesh.v1.ListDevicesRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListDevicesResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+   */
+  override suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers): ResponseMessage<RevokeDeviceResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RevokeDevice",
+      dev.agentmesh.gen.agentmesh.v1.RevokeDeviceRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RevokeDeviceResponse::class,
       StreamType.UNARY,
     ),
   )

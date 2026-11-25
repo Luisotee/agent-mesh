@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -67,6 +68,11 @@ type AgentConfig struct {
 	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
+	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
+	// /proc/pressure/memory); tests point them at files.
+	MeminfoPath, PressurePath string
+	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
+	RetireEvery time.Duration
 	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
@@ -90,6 +96,7 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 type ticket struct {
 	agentID    string
 	terminalID string
+	actorID    string
 	input      bool
 	expires    time.Time
 }
@@ -105,6 +112,7 @@ type runtime struct {
 	tickets    map[string]ticket
 	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
 	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	guard      guard
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -191,7 +199,14 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		}
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
-		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED && ok && !t.Exited {
+			// A crash between marking it retired and stopping its process: finish the stop.
+			if err := d.finishRetire(ctx, a.Id); err != nil {
+				return err
+			}
+			continue
+		}
+		if a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED {
 			// A crash between recording the exit and acknowledging it leaves the terminal (its ring and
 			// emulator) in the host: acknowledge it now. The exit is already recorded, so this only acks.
 			if ok && t.Exited {
@@ -244,7 +259,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			reason = "killed"
 		}
 	}
-	claimed, replaced, owner := false, false, ""
+	claimed, replaced, realExit, owner := false, false, false, ""
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -260,6 +275,14 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return err
 		}
 		claimed, owner = true, a.Id
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
+			// Stopped on purpose: nothing to record, only the terminal to forget.
+			if a.TerminalId == terminalID {
+				a.TerminalId = ""
+				return tx.PutAgent(a)
+			}
+			return nil
+		}
 		if p := a.PendingReopen; p != nil && p.Id != reopenID {
 			replaced = true
 			if a.TerminalId != terminalID {
@@ -279,6 +302,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return nil
 		}
 		// A reopen's own terminal that died: the reopen happened, and its agent exited.
+		realExit = true
 		a.PendingReopen = nil
 		a.TerminalId = terminalID
 		tx.Actor = &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId}
@@ -295,6 +319,9 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	})
 	if err != nil || !claimed {
 		return err
+	}
+	if realExit {
+		d.rt.guard.release(owner) // it launched, or failed to, and holds no more of the host's memory
 	}
 	if replaced {
 		// Its reopen goes on (a process that died mid-turn with one pending needn't wait for an IDLE).
@@ -320,10 +347,23 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned time.Time
+		var pruned, retired time.Time
+		var retiring atomic.Bool
+		retireEvery := d.rt.cfg.RetireEvery
+		if retireEvery == 0 {
+			retireEvery = retireQuiet
+		}
 		for {
 			d.drainSpool(ctx)
 			d.retryDoorbells(ctx)
+			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
+				retired = now
+				// Off this loop: stopping a process waits for it, and the spool and the doorbells must not.
+				go func() {
+					defer retiring.Store(false)
+					d.retireIdle(ctx)
+				}()
+			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
 				d.pruneMutations(ctx)
@@ -347,7 +387,10 @@ const (
 func (d *Daemon) pruneMutations(ctx context.Context) {
 	now := d.now()
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
-		_, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention))
+		if _, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention)); err != nil {
+			return err
+		}
+		_, err := tx.PrunePairings(now)
 		return err
 	})
 	if err != nil && ctx.Err() == nil {
@@ -504,6 +547,10 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 		if err != nil {
 			return err
 		}
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
+			out.State = a.State // a hook of the process it stopped, spooled before: nothing to apply
+			return nil
+		}
 		if err := d.applyEvents(tx, a, dec.Msg.Events); err != nil {
 			return err
 		}
@@ -647,6 +694,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
+	// The cap, early, before a worktree is made for nothing; the launch checks it again where it is stored.
+	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(m.Repo) == "" {
 		return nil, invalid("no repo given")
 	}
@@ -679,6 +730,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if _, err := git(ctx, top, "worktree", "add", "-b", branch, worktree, base); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	// Where its branch started, so a branch that never moved can be told from one with work (StopRun).
+	baseCommit, _ := git(ctx, worktree, "rev-parse", "HEAD")
 
 	token := auth.NewToken()
 	parent := ""
@@ -687,7 +740,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	now := d.now()
 	agent := &v1.Agent{Id: ids.New("a", 10), RunId: runID, Name: name, Role: role, ParentId: parent, Kind: kind,
-		Repo: top, Worktree: worktree, Branch: branch, Model: model, Effort: effort, Tier: spawnTier(m),
+		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
 		DenyEdits: m.Plan || claude.ReadOnly(role),
@@ -712,8 +765,20 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		return nil, err
 	}
 	agent.SessionId = plan.SessionId
+	if spawnPlannedHook != nil {
+		spawnPlannedHook()
+	}
 	out := &v1.SpawnAgentResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSpawnAgentProcedure, out, func(tx *store.Tx) error {
+		// The run was open when this began: StopRun may have closed it since (the writer serializes the two).
+		if run, err := tx.GetRun(runID); err != nil {
+			return err
+		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			return failedPrecondition("run %s is closed", runID)
+		}
+		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
+			return err
+		}
 		if err := tx.PutAgent(agent); err != nil {
 			return err
 		}
@@ -740,13 +805,18 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		return nil
 	})
 	if err != nil {
+		d.rt.guard.release(agent.Id)
 		cleanup()
 		return nil, err
+	}
+	if spawnCommittedHook != nil {
+		spawnCommittedHook(agent.Id)
 	}
 	launched, err := d.launch(ctx, agent, token, plan)
 	if err != nil {
 		d.log.Error("launch failed", "agent", name, "err", err)
 		d.failLaunch(ctx, actor, m.Meta.GetMutationId(), agent, err)
+		d.rt.guard.release(agent.Id)
 		cleanup()
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("launching %s: %w", name, err))
 	}
@@ -868,6 +938,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	mu.Lock()
 	defer mu.Unlock()
 	out := &v1.StopAgentResponse{}
+	dropped := false
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -877,7 +948,8 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			if err := cancelReopen(tx, cur, "stopped"); err != nil {
 				return err
 			}
-			if cur.TerminalId == "" && cur.State != v1.AgentState_AGENT_STATE_EXITED {
+			dropped = true
+			if cur.TerminalId == "" && !stopped(cur) {
 				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
 				if err := d.recordStopped(tx, cur); err != nil {
 					return err
@@ -892,7 +964,10 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	}); err != nil {
 		return nil, err
 	}
-	if a.State != v1.AgentState_AGENT_STATE_EXITED && a.TerminalId != "" && d.rt.term != nil {
+	if dropped {
+		d.rt.guard.release(a.Id) // the resume it ends would have launched, and no longer will
+	}
+	if !stopped(a) && a.TerminalId != "" && d.rt.term != nil {
 		if _, err := d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: a.TerminalId})); err != nil &&
 			connect.CodeOf(err) != connect.CodeNotFound {
 			return nil, err
@@ -1107,7 +1182,7 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 			delete(d.rt.tickets, k)
 		}
 	}
-	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, input: input, expires: exp}
+	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, actorID: actor.Id, input: input, expires: exp}
 	d.rt.mu.Unlock()
 	return connect.NewResponse(&v1.OpenTerminalResponse{Path: "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk),
 		Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
@@ -1124,6 +1199,22 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad or expired ticket", http.StatusUnauthorized)
 		return
 	}
+	sctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	if t.actorID != "" {
+		defer d.trackStream(t.actorID, cancel)()
+		// Re-check after trackStream: if RevokeDevice ran between OpenTerminal/auth and trackStream,
+		// disconnectActor already completed and this catches the revocation cleanly.
+		active, err := d.store.Read(r.Context()).HasActiveToken(t.actorID)
+		if err != nil {
+			http.Error(w, "cannot verify actor", http.StatusServiceUnavailable)
+			return
+		}
+		if !active {
+			http.Error(w, "actor revoked", http.StatusUnauthorized)
+			return
+		}
+	}
 	in := "0"
 	if t.input {
 		in = "1"
@@ -1137,7 +1228,7 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: host.HTTP.Transport,
 	}
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r.WithContext(sctx))
 }
 
 // lookPath finds an executable by name in a PATH list.

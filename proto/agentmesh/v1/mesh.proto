@@ -157,6 +157,32 @@ service MeshService {
   }
 
 
+  // Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+  // branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+  rpc RetireAgent(RetireAgentRequest) returns (RetireAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "retire"
+      summary: "Retire an agent: stop its process, keep its conversation"
+    };
+  }
+
+  // Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+  // it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+  rpc StopRun(StopRunRequest) returns (StopRunResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "stop-run"
+      summary: "Stop a run: retire its agents and close it"
+    };
+  }
+
   // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
     option (action) = {
@@ -287,6 +313,36 @@ service MeshService {
       summary: "Get a ticket for an agent's terminal stream"
     };
   }
+
+  // Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+  // may call this.
+  rpc CreatePairing(CreatePairingRequest) returns (CreatePairingResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "pair"
+      summary: "Create a one-time pairing token and QR/link payload for a device"
+    };
+  }
+
+  // List paired devices. Only the host's own device may call this.
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      cli: "devices"
+      summary: "List paired devices"
+    };
+  }
+
+  // Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+  rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "revoke-device"
+      summary: "Revoke a paired device"
+    };
+  }
 }
 
 message HelloRequest {
@@ -400,6 +456,12 @@ message SendMessageRequest {
 
 message SendMessageResponse {
   Message message = 1;
+  // The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+  Reopen resumed = 2;
+  // Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+  // closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+  // resume.
+  string resume_error = 3;
 }
 
 message ReadInboxRequest {
@@ -580,4 +642,87 @@ message ResumeAgentResponse {
   // The task, when one was given.
   Message message = 2;
   Reopen reopen = 3;
+}
+
+message CreatePairingRequest {
+  RequestMeta meta = 1;
+  // Optional label for the device (the redeeming app may override it).
+  string name = 2;
+  // Issue a read-only device token when redeemed.
+  bool read_only = 3;
+  // Lifetime in seconds (default 600, max 86400).
+  int64 ttl_seconds = 4;
+  // Optional direct HTTPS URL (`https://host:port`) to include in the pairing payload.
+  string direct_url = 5;
+  // Optional relay URL override; defaults to the daemon's configured relay URL.
+  string relay_url = 6;
+}
+
+message CreatePairingResponse {
+  string pairing_id = 1;
+  // One-time pairing token (`amp_...`).
+  string token = 2;
+  string host_id = 3;
+  string host_name = 4;
+  // Canonical TLS leaf certificate fingerprint (`sha256:<64-hex>`).
+  string cert_fingerprint = 5;
+  string relay_url = 6;
+  // Raw TCP client endpoint (`host:port`) on the relay, when configured.
+  string relay_tcp = 7;
+  // Client relay auth token (`amr_...`) for this host, when relay is configured.
+  string relay_client_token = 8;
+  string direct_url = 9;
+  // Canonical `agentmesh://pair?...` URI for QR codes and pairing links.
+  string uri = 10;
+  google.protobuf.Timestamp expires_at = 11;
+}
+
+message ListDevicesRequest {
+  bool include_revoked = 1;
+}
+
+message ListDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message RevokeDeviceRequest {
+  RequestMeta meta = 1;
+  string device_id = 2;
+}
+
+message RevokeDeviceResponse {
+  Device device = 1;
+}
+
+message RetireAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+}
+
+message RetireAgentResponse {
+  Agent agent = 1;
+}
+
+message StopRunRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+}
+
+message StopRunResponse {
+  Run run = 1;
+  // The agents this call retired (those already stopped are not listed).
+  repeated string retired = 2;
+  // What became of each agent's worktree.
+  repeated WorktreeOutcome worktrees = 3;
+}
+
+message WorktreeOutcome {
+  string agent_id = 1;
+  string worktree = 2;
+  string branch = 3;
+  bool worktree_removed = 4;
+  // The branch moved past its start or was pushed (a remote branch of its name), or its worktree stayed: it is kept.
+  bool branch_kept = 5;
+  // Why a worktree or branch stayed.
+  string reason = 6;
 }

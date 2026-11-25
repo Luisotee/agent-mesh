@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,9 +27,11 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
 	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/tlsutil"
 )
 
 // Version is the daemon's version.
@@ -40,13 +43,29 @@ const ProtocolVersion = 1
 // ShutdownWait bounds how long a stopping daemon waits for calls in flight.
 const ShutdownWait = 5 * time.Second
 
+// RelayConfig configures meshd's outbound connection to a self-hosted relay.
+type RelayConfig struct {
+	// URL is the relay's HTTP/WebSocket base URL (for example https://relay.example.com).
+	URL string
+	// TCP is the relay's raw TCP client address (host:port) advertised in pairing payloads.
+	TCP string
+	// Token is the relay shared secret.
+	Token string
+	// HostName is the readable host name advertised to the relay and paired devices (defaults to hostname).
+	HostName string
+}
+
 // Config is how meshd is started.
 type Config struct {
 	// StateDir holds the database, the socket, the lock and the secrets. Required: there is no default, so a
 	// dev or test run can't land in a real one by accident.
 	StateDir string
-	// TCP, when set, also listens on this loopback address ("127.0.0.1:0" picks a port).
-	TCP    string
+	// TCP, when set, also listens (plain HTTP) on this loopback address ("127.0.0.1:0" picks a port).
+	TCP string
+	// Listen, when set, also listens with the daemon's TLS certificate on this address (e.g. ":9443") for
+	// direct LAN / Tailscale clients. Off by default.
+	Listen string
+	Relay  RelayConfig
 	Now    func() time.Time
 	Logger *slog.Logger
 
@@ -69,6 +88,7 @@ func ReadInfo(stateDir string) (Info, error) { return statedir.ReadInfo(stateDir
 // Daemon is a running meshd.
 type Daemon struct {
 	agentmeshv1connect.UnimplementedMeshServiceHandler
+	agentmeshv1connect.UnimplementedPairingServiceHandler
 
 	cfg         Config
 	paths       Paths
@@ -80,8 +100,12 @@ type Daemon struct {
 	reg         *registry.Registry
 	schema      *settings.Schema
 	daemonID    string
+	hostName    string
 	instanceID  string
 	startedAt   time.Time
+	tlsCfg      *tls.Config
+	certFP      string
+	relay       *relay.Connector
 	mux         *http.ServeMux
 	stopping    chan struct{}
 	stopOnce    sync.Once
@@ -92,6 +116,10 @@ type Daemon struct {
 	// notify, when set, is told that an agent has a message to deliver.
 	notify func(agentID string)
 	rt     *runtime
+
+	streamsMu  sync.Mutex
+	streams    map[string]map[uint64]context.CancelFunc
+	nextStream uint64
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the
@@ -115,7 +143,8 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, paths: Paths{Dir: dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
 		instanceID: ids.New("i", 10), mux: http.NewServeMux(),
-		capabilities: []string{"events.resume", "mutations"}}
+		capabilities: []string{"events.resume", "mutations", "pairing"},
+		streams:      map[string]map[uint64]context.CancelFunc{}}
 	if d.lock, err = fsutil.TryLock(d.paths.Lock()); err != nil {
 		if errors.Is(err, fsutil.ErrLocked) {
 			return nil, fmt.Errorf("another meshd is running on %s", dir)
@@ -147,6 +176,34 @@ func New(cfg Config) (*Daemon, error) {
 	d.mux.HandleFunc("/v1/term/{agent}", d.serveTerminal)
 	if d.daemonID, err = d.loadDaemonID(); err != nil {
 		return nil, err
+	}
+	d.hostName = strings.TrimSpace(cfg.Relay.HostName)
+	if d.hostName == "" {
+		if hn, err := os.Hostname(); err == nil && hn != "" {
+			d.hostName = hn
+		} else {
+			d.hostName = d.daemonID
+		}
+	}
+	if d.tlsCfg, d.certFP, err = tlsutil.LoadOrCreate(d.paths.TLSCert(), d.paths.TLSKey(), d.daemonID); err != nil {
+		return nil, err
+	}
+	if cfg.Listen != "" {
+		d.capabilities = append(d.capabilities, "tls")
+	}
+	if cfg.Relay.URL != "" {
+		d.relay, err = relay.NewConnector(relay.ConnectorConfig{
+			RelayURL:      cfg.Relay.URL,
+			Secret:        cfg.Relay.Token,
+			HostID:        d.daemonID,
+			HostName:      d.hostName,
+			DaemonVersion: Version,
+			Logger:        d.log,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("relay: %w", err)
+		}
+		d.capabilities = append(d.capabilities, "relay")
 	}
 	if err := d.ensureDeviceToken(context.Background()); err != nil {
 		return nil, err
@@ -252,18 +309,26 @@ func (d *Daemon) agentView(a *v1.Agent) *v1.Agent {
 // Stopping is closed when the daemon starts shutting down.
 func (d *Daemon) Stopping() <-chan struct{} { return d.stopping }
 
+// CertFingerprint returns the daemon's TLS certificate SHA-256 fingerprint.
+func (d *Daemon) CertFingerprint() string { return d.certFP }
+
+// RelayOnline reports whether the daemon's relay control connection is registered and healthy.
+func (d *Daemon) RelayOnline() bool { return d.relay != nil && d.relay.Online() }
+
 // Handler is the daemon's HTTP handler: the API, browsers refused.
 func (d *Daemon) Handler() http.Handler {
 	d.handlerOnce.Do(func() {
 		path, h := agentmeshv1connect.NewMeshServiceHandler(d,
 			connect.WithInterceptors(auth.NewInterceptor(d.reg, d)))
 		d.mux.Handle(path, h)
+		ppath, ph := agentmeshv1connect.NewPairingServiceHandler(d)
+		d.mux.Handle(ppath, ph)
 	})
 	return auth.RefuseBrowsers(d.mux)
 }
 
-// Serve listens on the state dir's socket (and TCP when configured), writes meshd.json, and serves until ctx
-// ends; then it ends every event stream with an End message and stops within ShutdownWait.
+// Serve listens on the state dir's socket (and TCP/TLS/relay when configured), writes meshd.json, and serves
+// until ctx ends; then it ends every event stream with an End message and stops within ShutdownWait.
 func (d *Daemon) Serve(ctx context.Context) error {
 	defer d.close()
 	d.startedAt = d.now()
@@ -280,7 +345,16 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	if err := os.Remove(sock); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	var listeners []net.Listener
+	var plainListeners []net.Listener
+	var tlsListeners []net.Listener
+	closeAll := func() {
+		for _, l := range plainListeners {
+			_ = l.Close()
+		}
+		for _, l := range tlsListeners {
+			_ = l.Close()
+		}
+	}
 	ul, err := net.Listen("unix", sock)
 	if err != nil {
 		return err
@@ -289,38 +363,65 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		ul.Close()
 		return err
 	}
-	listeners = append(listeners, ul)
+	plainListeners = append(plainListeners, ul)
 	d.info = Info{Socket: sock, PID: os.Getpid(), DaemonID: d.daemonID, InstanceID: d.instanceID,
-		StartedAt: d.startedAt, Version: Version}
+		CertFingerprint: d.certFP, StartedAt: d.startedAt, Version: Version}
 	if d.cfg.TCP != "" {
 		tl, err := listenLoopback(d.cfg.TCP)
 		if err != nil {
-			ul.Close()
+			closeAll()
 			return err
 		}
-		listeners = append(listeners, tl)
+		plainListeners = append(plainListeners, tl)
 		d.info.TCP = tl.Addr().String()
+	}
+	if d.cfg.Listen != "" {
+		ll, err := net.Listen("tcp", d.cfg.Listen)
+		if err != nil {
+			closeAll()
+			return err
+		}
+		ll = relay.NoDelayListener(ll)
+		tlsListeners = append(tlsListeners, ll)
+		d.info.Listen = ll.Addr().String()
 	}
 	info, _ := json.MarshalIndent(d.info, "", "  ")
 	if err := fsutil.WriteAtomic(d.paths.Info(), info, 0o600); err != nil {
-		for _, l := range listeners {
-			l.Close()
-		}
+		closeAll()
 		os.Remove(sock)
 		return err
 	}
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
-	protocols.SetUnencryptedHTTP2(true)
-	srv := &http.Server{Handler: d.Handler(), Protocols: protocols, ReadHeaderTimeout: 10 * time.Second}
-	errc := make(chan error, len(listeners))
-	for _, l := range listeners {
-		go func(l net.Listener) { errc <- srv.Serve(l) }(l)
+	plainProtocols := new(http.Protocols)
+	plainProtocols.SetHTTP1(true)
+	plainProtocols.SetUnencryptedHTTP2(true)
+	plainSrv := &http.Server{Handler: d.Handler(), Protocols: plainProtocols, ReadHeaderTimeout: 10 * time.Second}
+
+	tlsProtocols := new(http.Protocols)
+	tlsProtocols.SetHTTP1(true)
+	tlsProtocols.SetHTTP2(true)
+	tlsSrv := &http.Server{Handler: d.Handler(), TLSConfig: d.tlsCfg, Protocols: tlsProtocols, ReadHeaderTimeout: 10 * time.Second}
+
+	errc := make(chan error, len(plainListeners)+len(tlsListeners)+1)
+	for _, l := range plainListeners {
+		go func(l net.Listener) { errc <- plainSrv.Serve(l) }(l)
 	}
-	d.log.Info("meshd serving", "socket", sock, "tcp", d.info.TCP, "daemon", d.daemonID, "instance", d.instanceID)
+	for _, l := range tlsListeners {
+		go func(l net.Listener) { errc <- tlsSrv.ServeTLS(l, "", "") }(l)
+	}
+	d.log.Info("meshd serving", "socket", sock, "tcp", d.info.TCP, "listen", d.info.Listen,
+		"relay", d.cfg.Relay.URL, "daemon", d.daemonID, "instance", d.instanceID)
 	bg, stopBG := context.WithCancel(ctx)
 	defer stopBG()
 	d.runBackground(bg)
+	if d.relay != nil {
+		go func() { _ = d.relay.Run(bg) }()
+		go func() {
+			if err := tlsSrv.ServeTLS(d.relay.Listener(), "", ""); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+				errc <- err
+			}
+		}()
+	}
 	var serveErr error
 	select {
 	case <-ctx.Done():
@@ -330,8 +431,11 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	stopBG()
 	sctx, cancel := context.WithTimeout(context.Background(), ShutdownWait)
 	defer cancel()
-	if err := srv.Shutdown(sctx); err != nil {
-		srv.Close()
+	if err := plainSrv.Shutdown(sctx); err != nil {
+		plainSrv.Close()
+	}
+	if err := tlsSrv.Shutdown(sctx); err != nil {
+		tlsSrv.Close()
 	}
 	os.Remove(d.paths.Info())
 	os.Remove(sock)

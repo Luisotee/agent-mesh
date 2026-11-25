@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
@@ -369,5 +370,169 @@ func TestSettingsRoundTripAndReplace(t *testing.T) {
 	}
 	if _, err := s.Read(ctx).Setting("quota_stop"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("after a delete: %v", err)
+	}
+}
+
+func TestVersionThreeDatabaseGainsPairingsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meshd.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateWith(db, path, clock, ms[:3]); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if devs, err := s.Read(context.Background()).ListDevices(true, "device-local"); err != nil || len(devs) != 0 {
+		t.Fatalf("ListDevices after migration: %v, %v", devs, err)
+	}
+	if matches, _ := filepath.Glob(path + ".bak-v3-*"); len(matches) != 1 {
+		t.Errorf("backups %v", matches)
+	}
+}
+
+func TestPairingsAndDevicesRoundTrip(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	by := &v1.Actor{Id: "device-local", Class: v1.ActorClass_ACTOR_CLASS_DEVICE, Name: "local"}
+
+	pairResp, err := proto.Marshal(&v1.CreatePairingResponse{
+		PairingId:        "p1",
+		Token:            "amp_secret_1",
+		Uri:              "agentmesh://pair?v=1&t=amp_secret_1",
+		RelayClientToken: "amr_secret_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expResp, err := proto.Marshal(&v1.CreatePairingResponse{
+		PairingId:        "p-exp",
+		Token:            "amp_secret_exp",
+		Uri:              "agentmesh://pair?v=1&t=amp_secret_exp",
+		RelayClientToken: "amr_secret_exp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.Write(ctx, by, "", func(tx *Tx) error {
+		if err := tx.PutMutation("device-local", "mut-pair", "CreatePairing", pairResp); err != nil {
+			return err
+		}
+		if err := tx.PutMutation("device-local", "mut-exp", "CreatePairing", expResp); err != nil {
+			return err
+		}
+		if err := tx.PutPairing(PairingRecord{
+			Hash:       "hpair1",
+			ID:         "p1",
+			Name:       "phone",
+			Class:      v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE,
+			CreatedAt:  fixed,
+			ExpiresAt:  fixed.Add(10 * time.Minute),
+			MutationID: "mut-pair",
+			CreatedBy:  by,
+		}); err != nil {
+			return err
+		}
+		return tx.PutPairing(PairingRecord{
+			Hash:       "hpair-exp",
+			ID:         "p-exp",
+			Name:       "expired-phone",
+			Class:      v1.ActorClass_ACTOR_CLASS_DEVICE,
+			CreatedAt:  fixed,
+			ExpiresAt:  fixed.Add(1 * time.Minute),
+			MutationID: "mut-exp",
+			CreatedBy:  by,
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec, err := s.Read(ctx).Pairing("hpair1")
+	if err != nil || rec.ID != "p1" || rec.Class != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE || !rec.UsedAt.IsZero() {
+		t.Fatalf("Pairing = %+v, %v", rec, err)
+	}
+
+	err = s.Write(ctx, by, "", func(tx *Tx) error {
+		if err := tx.MarkPairingUsed("hpair1", "dev1"); err != nil {
+			return err
+		}
+		if err := tx.ScrubPairingMutation("device-local", rec.MutationID); err != nil {
+			return err
+		}
+		if err := tx.PutToken("htok1", TokenRecord{Class: rec.Class, SubjectID: "dev1", Name: "Pixel"}); err != nil {
+			return err
+		}
+		return tx.PutToken("hlocal", TokenRecord{Class: v1.ActorClass_ACTOR_CLASS_DEVICE, SubjectID: "device-local", Name: "local"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := s.Read(ctx).Mutation("device-local", "mut-pair")
+	if err != nil {
+		t.Fatalf("mutation tombstone missing after scrub: %v", err)
+	}
+	var scrubbed v1.CreatePairingResponse
+	if err := proto.Unmarshal(raw, &scrubbed); err != nil {
+		t.Fatal(err)
+	}
+	if scrubbed.PairingId != "p1" || scrubbed.Token != "" || scrubbed.Uri != "" || scrubbed.RelayClientToken != "" {
+		t.Errorf("scrubbed mutation = %+v, want PairingId=p1 and empty secrets", &scrubbed)
+	}
+
+	// PrunePairings also scrubs the expired pairing's mutation in place instead of deleting it.
+	if err := s.Write(ctx, by, "", func(tx *Tx) error {
+		n, err := tx.PrunePairings(fixed.Add(5 * time.Minute))
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			t.Errorf("PrunePairings removed %d, want 1", n)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, expRaw, err := s.Read(ctx).Mutation("device-local", "mut-exp")
+	if err != nil {
+		t.Fatalf("expired pairing mutation tombstone missing: %v", err)
+	}
+	var expScrubbed v1.CreatePairingResponse
+	if err := proto.Unmarshal(expRaw, &expScrubbed); err != nil {
+		t.Fatal(err)
+	}
+	if expScrubbed.PairingId != "p-exp" || expScrubbed.Token != "" || expScrubbed.Uri != "" || expScrubbed.RelayClientToken != "" {
+		t.Errorf("pruned scrubbed mutation = %+v, want PairingId=p-exp and empty secrets", &expScrubbed)
+	}
+
+	if active, err := s.Read(ctx).HasActiveToken("dev1"); err != nil || !active {
+		t.Fatalf("HasActiveToken(dev1) before revoke = %v, %v; want true", active, err)
+	}
+	devs, err := s.Read(ctx).ListDevices(false, "device-local")
+	if err != nil || len(devs) != 1 || devs[0].Id != "dev1" || devs[0].Name != "Pixel" {
+		t.Fatalf("ListDevices = %+v, %v", devs, err)
+	}
+	if err := s.Write(ctx, by, "", func(tx *Tx) error { return tx.RevokeTokens("dev1") }); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := s.Read(ctx).HasActiveToken("dev1"); err != nil || active {
+		t.Fatalf("HasActiveToken(dev1) after revoke = %v, %v; want false", active, err)
+	}
+	if active, _ := s.Read(ctx).ListDevices(false, "device-local"); len(active) != 0 {
+		t.Errorf("revoked device still active: %+v", active)
+	}
+	if all, _ := s.Read(ctx).ListDevices(true, "device-local"); len(all) != 1 || all[0].RevokedAt == nil {
+		t.Errorf("includeRevoked = %+v", all)
 	}
 }

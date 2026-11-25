@@ -20,4 +20,47 @@ public interface SendMessageResponseOrBuilder extends
    * @return The message.
    */
   dev.agentmesh.gen.agentmesh.v1.Message getMessage();
+
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   * @return Whether the resumed field is set.
+   */
+  boolean hasResumed();
+  /**
+   * <pre>
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.Reopen resumed = 2 [json_name = "resumed"];</code>
+   * @return The resumed.
+   */
+  dev.agentmesh.gen.agentmesh.v1.Reopen getResumed();
+
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @return The resumeError.
+   */
+  java.lang.String getResumeError();
+  /**
+   * <pre>
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   * </pre>
+   *
+   * <code>string resume_error = 3 [json_name = "resumeError"];</code>
+   * @return The bytes for resumeError.
+   */
+  com.google.protobuf.ByteString
+      getResumeErrorBytes();
 }
