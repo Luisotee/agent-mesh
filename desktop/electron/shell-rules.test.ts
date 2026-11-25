@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { shouldHideOnClose, trayTooltip, validNotice } from './shell-rules'
+import { DEFAULT_PREFS } from '../src/prefs'
+import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip, validNotice } from './shell-rules'
 
 const ok = { tag: 'h:a1', title: 'x needs you', body: 'b', sound: true, hostId: 'h', agentId: 'a1', tab: 'terminal' }
 
@@ -19,6 +20,10 @@ describe('tray', () => {
   it('says how many wait', () => {
     expect(trayTooltip(0)).toBe('agent-mesh')
     expect(trayTooltip(3)).toBe('agent-mesh: 3 waiting on you')
+  })
+  it('really closes before the renderer has configured it: main starts from the setting\'s default', () => {
+    expect(DEFAULT_CLOSE_TO_TRAY).toBe(DEFAULT_PREFS.closeToTray)
+    expect(shouldHideOnClose({ closeToTray: DEFAULT_CLOSE_TO_TRAY, trayReady: true, quitting: false })).toBe(false)
   })
   it('hides the window on close only with the setting, a tray to return from, and no quit under way', () => {
     expect(shouldHideOnClose({ closeToTray: true, trayReady: true, quitting: false })).toBe(true)

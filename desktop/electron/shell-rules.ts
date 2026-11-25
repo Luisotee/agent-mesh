@@ -17,6 +17,9 @@ export function trayTooltip(waiting: number): string {
   return waiting > 0 ? `agent-mesh: ${waiting} waiting on you` : 'agent-mesh'
 }
 
+/** What closing the window does before the renderer has told main the host's setting: the setting's default (src/prefs.ts, tested equal). */
+export const DEFAULT_CLOSE_TO_TRAY = false
+
 /**
  * Closing the window hides it when the user asked for that and there is a tray icon to bring it back from; with
  * no tray (a desktop that has none), hiding would leave the app unreachable, so the window really closes.

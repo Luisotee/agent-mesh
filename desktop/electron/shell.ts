@@ -2,7 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { BrowserWindow, Menu, Notification, Tray, app, nativeImage } from 'electron'
 import type { NoticeClick, NoticeWire } from '../shared/api.js'
 import { ICON, ICON_WAITING } from './icons.js'
-import { shouldHideOnClose, trayTooltip } from './shell-rules.js'
+import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip } from './shell-rules.js'
 
 const image = (b64: string) => nativeImage.createFromDataURL(`data:image/png;base64,${b64}`)
 
@@ -14,7 +14,7 @@ const image = (b64: string) => nativeImage.createFromDataURL(`data:image/png;bas
 export class Shell {
   private tray?: Tray
   private waiting = 0
-  private closeToTray = true
+  private closeToTray = DEFAULT_CLOSE_TO_TRAY
   private quitting = false
   private readonly shown = new Map<string, Notification>()
 
