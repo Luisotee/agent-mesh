@@ -20,6 +20,9 @@ func at(sec int, ev *adapterv1.AgentEvent) *adapterv1.AgentEvent {
 func started(id string) *adapterv1.AgentEvent {
 	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionStarted{SessionStarted: &adapterv1.SessionStarted{SessionId: id}}}
 }
+func startedBy(id, source string) *adapterv1.AgentEvent {
+	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionStarted{SessionStarted: &adapterv1.SessionStarted{SessionId: id, Source: source}}}
+}
 func turn() *adapterv1.AgentEvent {
 	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnStarted{TurnStarted: &adapterv1.TurnStarted{}}}
 }
@@ -37,6 +40,9 @@ func bad() *adapterv1.AgentEvent {
 }
 func exit(code int32) *adapterv1.AgentEvent {
 	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: code}}}
+}
+func compacting() *adapterv1.AgentEvent {
+	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Compacting{Compacting: &adapterv1.Compacting{}}}
 }
 func ended() *adapterv1.AgentEvent {
 	return &adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionEnded{SessionEnded: &adapterv1.SessionEnded{Reason: "clear"}}}
@@ -58,6 +64,10 @@ func TestReduce(t *testing.T) {
 		{"stop clears it", []*adapterv1.AgentEvent{turn(), ask("Bash"), stop()}, v1.AgentState_AGENT_STATE_IDLE, 0},
 		{"a decode error is never a stop", []*adapterv1.AgentEvent{turn(), bad()}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"a session end alone doesn't end the agent", []*adapterv1.AgentEvent{turn(), stop(), ended(), started("s2")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a compaction's session start mid-turn is not idle", []*adapterv1.AgentEvent{started("s1"), turn(), compacting(), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_WORKING, 0},
+		{"a resume mid-turn is not idle", []*adapterv1.AgentEvent{started("s1"), turn(), startedBy("s1", "resume")}, v1.AgentState_AGENT_STATE_WORKING, 0},
+		{"a launch that resumes a conversation is idle", []*adapterv1.AgentEvent{startedBy("s1", "resume")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a /clear is idle", []*adapterv1.AgentEvent{started("s1"), turn(), startedBy("s2", "clear")}, v1.AgentState_AGENT_STATE_IDLE, 0},
 		{"exit is final", []*adapterv1.AgentEvent{turn(), exit(1), started("s3")}, v1.AgentState_AGENT_STATE_EXITED, 0},
 	}
 	for _, c := range cases {
@@ -106,5 +116,15 @@ func TestDisplayShowsSilentWorkAsUnknown(t *testing.T) {
 	idle := Reduce(s, at(1, stop()))
 	if got := Display(idle, t0.Add(time.Hour), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_IDLE {
 		t.Errorf("idle never turns unknown: %v", got)
+	}
+}
+
+func TestDisplayAgesOutAPromptNothingAnswered(t *testing.T) {
+	s := Reduce(Reduce(Start(t0), at(0, turn())), at(1, ask("Bash")))
+	if got := Display(s, t0.Add(5*time.Minute), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_NEEDS_INPUT {
+		t.Errorf("fresh prompt: %v", got)
+	}
+	if got := Display(s, t0.Add(11*time.Minute), time.Time{}, 10*time.Minute); got != v1.AgentState_AGENT_STATE_UNKNOWN {
+		t.Errorf("stale prompt: %v", got)
 	}
 }

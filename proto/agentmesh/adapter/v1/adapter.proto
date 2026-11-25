@@ -41,6 +41,8 @@ message PlanLaunchRequest {
   map<string, string> env = 10;
   // Start the CLI with its permission prompts off.
   bool skip_permissions = 11;
+  // The repository's main checkout. An ASKER or REVIEWER (read-only) agent may not edit it or its worktree.
+  string repo = 12;
 }
 
 message PlanLaunchResponse {

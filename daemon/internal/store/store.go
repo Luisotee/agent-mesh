@@ -481,6 +481,23 @@ func (t *Tx) PutMessage(m *v1.Message) error {
 	return err
 }
 
+// MarkDelivered records that a message's doorbell reached its agent, on the row as it is now: a read time set
+// since the caller looked is kept. A message that is gone, or already marked, is left as it is.
+func (t *Tx) MarkDelivered(id string) error {
+	m, err := scanOne(t.Reader, `SELECT data FROM messages WHERE id = ?`, []any{id}, &v1.Message{})
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if m.DeliveredAt != nil {
+		return nil
+	}
+	m.DeliveredAt = timestamppb.New(t.now)
+	return t.PutMessage(m)
+}
+
 // Inbox returns an agent's messages, oldest first: unread ones, or all.
 func (r Reader) Inbox(agentID string, all bool) ([]*v1.Message, error) {
 	query := `SELECT data FROM messages WHERE to_id = ? AND read_at IS NULL ORDER BY created_at, id`
@@ -564,6 +581,17 @@ func (t *Tx) PutMutation(actorID, id, procedure string, response []byte) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO mutations (actor_id, id, procedure, response, created_at)
 		VALUES (?, ?, ?, ?, ?)`, actorID, id, procedure, response, nanos(t.now))
 	return err
+}
+
+// PruneMutations forgets applied writes: hook reports (`hook-` ids, two per tool call, retried only within
+// minutes) older than hookBefore, any other older than before. It returns how many rows went.
+func (t *Tx) PruneMutations(hookBefore, before time.Time) (int64, error) {
+	res, err := t.tx.ExecContext(t.ctx, `DELETE FROM mutations WHERE created_at < ? OR (id LIKE 'hook-%' AND created_at < ?)`,
+		nanos(before), nanos(hookBefore))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // ── meta ──

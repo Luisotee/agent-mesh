@@ -53,6 +53,8 @@ message Terminal {
   map<string, string> labels = 16;
   // Attached clients that may type and are ready: while there are any, nothing else types into it.
   uint32 input_clients = 17;
+  // When a client with input rights last sent input. The daemon's own writes don't count.
+  google.protobuf.Timestamp last_client_input = 18;
 }
 
 message CreateTerminalRequest {

@@ -5,6 +5,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -12,6 +13,7 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
+	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 )
 
@@ -81,6 +83,44 @@ func Settings(hookArgv []string) (string, error) {
 	return string(b), err
 }
 
+// publishCommands are the shell commands a read-only agent may not run: what publishes to a remote or a PR.
+// The same list as bin/mesh's PUBLISH_COMMANDS.
+var publishCommands = []string{"git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close",
+	"gh issue comment"}
+
+// ReadOnly reports whether a role may not change code: an asker or a reviewer.
+func ReadOnly(role agentmeshv1.AgentRole) bool {
+	return role == agentmeshv1.AgentRole_AGENT_ROLE_ASKER || role == agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER
+}
+
+// DenyArgs is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
+// checkout, no publishing commands. Deny rules win over `--dangerously-skip-permissions`, so a read-only agent
+// stays read-only under it. The flag takes several values: put another flag after it. An edit rule stops Write
+// too; an agent can still write its report under the mesh's state dir.
+func DenyArgs(paths ...string) []string {
+	args := []string{"--disallowedTools"}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		if !seen[p] {
+			seen[p] = true
+			args = append(args, "Edit(/"+p+"/**)")
+		}
+	}
+	for _, c := range publishCommands {
+		args = append(args, "Bash("+c+":*)")
+	}
+	return args
+}
+
 // PlanLaunch builds the command line: a conversation id chosen now (so a resume finds it), the model and
 // effort, and the hooks.
 func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.PlanLaunchRequest]) (*connect.Response[adapterv1.PlanLaunchResponse], error) {
@@ -100,6 +140,9 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	}
 	if m.Effort != "" {
 		argv = append(argv, "--effort", m.Effort)
+	}
+	if ReadOnly(m.Role) {
+		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
 	}
 	argv = append(argv, "--settings", settings)
 	if m.SkipPermissions {

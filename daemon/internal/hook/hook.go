@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -134,9 +135,21 @@ func spool(p statedir.Paths, agent string, req *v1.ReportHookRequest, now time.T
 	return fsutil.WriteAtomic(filepath.Join(p.Spool(agent), name), b, 0o600)
 }
 
+// MaxAttempts is how many times the daemon may answer a spooled hook with an error it can't classify (not
+// unreachable, not a refusal) before the hook is dropped, so one that fails every time can't hold up the
+// agent's later hooks for good.
+const MaxAttempts = 10
+
 // Drain sends an agent's spooled hooks, oldest first, removing each once sent or refused; it stops at the
 // first one that should wait longer. The caller holds the spool lock.
 func Drain(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) error) error {
+	return DrainReporting(p, agent, send, nil)
+}
+
+// DrainReporting is Drain that also tells dropped about each hook it gave up on after MaxAttempts failures
+// (the file is kept as <name>.bad).
+func DrainReporting(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) error,
+	dropped func(*v1.ReportHookRequest, error)) error {
 	entries, err := os.ReadDir(p.Spool(agent))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -163,11 +176,35 @@ func Drain(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) erro
 			continue
 		}
 		if err := send(req); err != nil && Retryable(err) {
-			return err
+			// Only an answer the daemon couldn't classify counts: while it is down, a hook waits as long as it must.
+			if connect.CodeOf(err) != connect.CodeUnknown {
+				return err
+			}
+			tries := attempts(path) + 1
+			if tries < MaxAttempts {
+				fsutil.WriteAtomic(path+".tries", []byte(strconv.Itoa(tries)), 0o600)
+				return err
+			}
+			os.Rename(path, path+".bad")
+			os.Remove(path + ".tries")
+			if dropped != nil {
+				dropped(req, err)
+			}
+			continue
 		}
 		os.Remove(path)
+		os.Remove(path + ".tries")
 	}
 	return nil
+}
+
+func attempts(path string) int {
+	b, err := os.ReadFile(path + ".tries")
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n
 }
 
 // Agents lists the agents that have a spool dir.

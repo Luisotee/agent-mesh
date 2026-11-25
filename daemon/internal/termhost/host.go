@@ -488,6 +488,7 @@ type Terminal struct {
 	signal     int32
 	exitedAt   time.Time
 	lastOutput time.Time
+	lastInput  time.Time // newest input frame from a client with input rights
 	lastMark   time.Time
 }
 
@@ -509,6 +510,9 @@ func (t *Terminal) proto() *termv1.Terminal {
 	}
 	if !t.lastOutput.IsZero() {
 		p.LastOutput = timestamppb.New(t.lastOutput)
+	}
+	if !t.lastInput.IsZero() {
+		p.LastClientInput = timestamppb.New(t.lastInput)
 	}
 	return p
 }

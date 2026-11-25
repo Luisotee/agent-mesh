@@ -95,7 +95,7 @@ func frameOf(f any) *termv1.TermFrame {
 func (t *Terminal) attach(c *client, a *termv1.Attach) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	c.cols, c.rows = uint16(a.Cols), uint16(a.Rows)
+	c.cols, c.rows = clampSize(a.Cols, a.Rows)
 	t.clients[c] = struct{}{}
 	t.resizeLocked()
 
@@ -159,13 +159,29 @@ func (t *Terminal) ready(c *client) {
 	}
 }
 
-func (t *Terminal) resize(c *client, cols, rows uint16) {
+// The terminal sizes a client may ask for. A size of 0 is "unknown" and counts for nothing; anything else is
+// clamped, so a client can't make the host allocate a screen of 60000 x 60000 cells.
+const (
+	minCols, maxCols = 20, 500
+	minRows, maxRows = 5, 300
+)
+
+func clampSize(cols, rows uint32) (uint16, uint16) {
+	if cols == 0 || rows == 0 {
+		return 0, 0
+	}
+	return uint16(min(max(cols, minCols), maxCols)), uint16(min(max(rows, minRows), maxRows))
+}
+
+// resize applies a client's new size. Only a client with input rights may resize: a viewer's size was set at
+// attach, and a ticket for watching must not shrink every other client's terminal.
+func (t *Terminal) resize(c *client, cols, rows uint32) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if _, ok := t.clients[c]; !ok {
+	if _, ok := t.clients[c]; !ok || !c.input {
 		return
 	}
-	c.cols, c.rows = cols, rows
+	c.cols, c.rows = clampSize(cols, rows)
 	t.resizeLocked()
 }
 
@@ -263,10 +279,13 @@ func (h *Host) serveWS(w http.ResponseWriter, r *http.Request) {
 		case *termv1.TermFrame_Input:
 			// Input before Ready is the client answering replayed queries: dropped.
 			if t.canType(c) {
+				t.mu.Lock()
+				t.lastInput = time.Now()
+				t.mu.Unlock()
 				t.ptmx.Write(v.Input.Data)
 			}
 		case *termv1.TermFrame_Resize:
-			t.resize(c, uint16(v.Resize.Cols), uint16(v.Resize.Rows))
+			t.resize(c, v.Resize.Cols, v.Resize.Rows)
 		}
 	}
 	cancel()

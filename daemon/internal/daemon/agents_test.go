@@ -23,6 +23,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
 )
@@ -62,7 +63,7 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 		TermArgs: []string{"--max-lifetime", "3m"}, Meshctl: filepath.Join(bins, "meshctl"),
 		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude")},
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
-		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond,
+		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,
 	}
 }
 
@@ -241,7 +242,7 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		}
 	}
 
-	// While a user who can type is attached, a doorbell waits; it rings once they leave.
+	// While a user who can type is typing, a doorbell waits; it rings once they stop.
 	ictx, icancel := context.WithTimeout(ctx, 10*time.Second)
 	user := h.openTerminal(ictx, a, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
 	for {
@@ -254,10 +255,11 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		}
 	}
 	user.Ready(ictx)
-	waitFor(t, "the user counted as typing", func() bool {
+	waitFor(t, "the user counted as attached", func() bool {
 		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
 		return l.Msg.Terminals[0].InputClients == 1
 	})
+	user.Input(ictx, []byte("x\x7f")) // a keystroke, taken back: the user is typing
 	if _, err := h.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id,
 		Type: v1.MessageType_MESSAGE_TYPE_INFO, Body: "fyi"})); err != nil {
 		t.Fatal(err)
@@ -267,12 +269,13 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		peek.Msg.Messages[0].DeliveredAt != nil {
 		t.Errorf("the doorbell rang into a user's typing: %v", peek.Msg.Messages)
 	}
-	user.Close()
-	icancel()
-	waitFor(t, "the doorbell after the user left", func() bool {
+	// Still attached but quiet: the doorbell rings.
+	waitFor(t, "the doorbell once the user stopped typing", func() bool {
 		peek, _ := h.as(tok).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Peek: true}))
 		return len(peek.Msg.Messages) == 1 && peek.Msg.Messages[0].DeliveredAt != nil
 	})
+	user.Close()
+	icancel()
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	// A permission prompt is needs-input, and answering it clears it.
@@ -510,4 +513,52 @@ func TestAFailedLaunchFreesItsSlug(t *testing.T) {
 	if _, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id})); code(err) != connect.CodeInvalidArgument {
 		t.Errorf("no repo: %v", err)
 	}
+}
+
+func TestAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	home := t.TempDir()
+	h := startWithAgents(t, state, home)
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	a := h.spawn(run.Id, gitRepo(t), "gone", "")
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	h.stop()
+
+	// The crash this stands for: the exit was committed, but the daemon died before it acknowledged the host. (The
+	// host's watch replays exited terminals, which also acknowledges it; adopt does too, so either path passes.)
+	tc, err := termclient.New(statedir.Paths{Dir: state}.Term())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tc.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: a.TerminalId, Signal: int32(syscall.SIGKILL)})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the host to hold the exited terminal", func() bool {
+		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		return len(l.Msg.Terminals) == 1 && l.Msg.Terminals[0].Exited
+	})
+	st, err := store.Open(statedir.Paths{Dir: state}.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.Write(ctx, nil, "", func(tx *store.Tx) error {
+		ag, err := tx.GetAgent(a.Id)
+		if err != nil {
+			return err
+		}
+		ag.State = v1.AgentState_AGENT_STATE_EXITED
+		return tx.PutAgent(ag)
+	})
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startWithAgents(t, state, home)
+	waitFor(t, "the host to forget the exited terminal", func() bool {
+		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		return len(l.Msg.Terminals) == 0
+	})
 }

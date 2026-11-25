@@ -61,15 +61,26 @@ type AgentConfig struct {
 	// DeliveryDelay is the pause between a doorbell's text and its Enter (default 150 ms): a TUI reads input
 	// that arrives in one burst as a paste.
 	DeliveryDelay time.Duration
+	// TypingQuiet is how long after a client with input rights last typed a doorbell still waits (default 15 s).
+	// A client that is attached but quiet doesn't hold messages back.
+	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
 }
 
-// The environment an agent inherits from the daemon; anything else (secrets, the caller's own session) is
-// left out. MESH_* and Claude's session variables are never on this list.
+// The environment an agent inherits from the daemon; anything else (other secrets, the caller's own session) is
+// left out, and `--agent-env KEY=VALUE` adds to it. MESH_* and Claude's session variables are never on this list.
+// Besides the shell basics it carries what a CLI needs to reach its model: Claude's login and config
+// (CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_*), the proxy variables, and the Bedrock and Vertex
+// settings and credentials. A meshd started by a systemd user unit has none of these unless its unit sets them.
 var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
 	"TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
-	"SSH_AUTH_SOCK"}
+	"SSH_AUTH_SOCK",
+	"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
+	"GOOGLE_APPLICATION_CREDENTIALS", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
 type ticket struct {
 	agentID    string
@@ -93,6 +104,9 @@ type runtime struct {
 func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if cfg.UnknownAfter == 0 {
 		cfg.UnknownAfter = 10 * time.Minute
+	}
+	if cfg.TypingQuiet == 0 {
+		cfg.TypingQuiet = 15 * time.Second
 	}
 	if cfg.DeliveryDelay == 0 {
 		cfg.DeliveryDelay = 150 * time.Millisecond
@@ -164,10 +178,17 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	claimed := map[string]bool{}
 	for _, a := range agents {
 		claimed[a.TerminalId] = true
+		t, ok := byID[a.TerminalId]
 		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+			// A crash between recording the exit and acknowledging it leaves the terminal (its ring and
+			// emulator) in the host: acknowledge it now. The exit is already recorded, so this only acks.
+			if ok && t.Exited {
+				if err := d.recordExit(ctx, t.Id, a.Id, t.ExitCode, t.Signal, ""); err != nil {
+					return err
+				}
+			}
 			continue
 		}
-		t, ok := byID[a.TerminalId]
 		switch {
 		case !ok:
 			if err := d.recordExit(ctx, a.TerminalId, "", -1, 0, "lost"); err != nil {
@@ -259,9 +280,14 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
+		var pruned time.Time
 		for {
 			d.drainSpool(ctx)
 			d.retryDoorbells(ctx)
+			if now := d.now(); now.Sub(pruned) > time.Hour {
+				pruned = now
+				d.pruneMutations(ctx)
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -269,6 +295,24 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Retention of the idempotency records: a hook's is short (it is retried within minutes, and there is one per
+// hook), any other write's is long enough for a client to retry across a restart.
+const (
+	hookMutationRetention = 24 * time.Hour
+	mutationRetention     = 14 * 24 * time.Hour
+)
+
+func (d *Daemon) pruneMutations(ctx context.Context) {
+	now := d.now()
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		_, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention))
+		return err
+	})
+	if err != nil && ctx.Err() == nil {
+		d.log.Warn("pruning the mutation records", "err", err)
+	}
 }
 
 // watchTerminals follows exits and output marks, reconnecting until the daemon stops.
@@ -322,9 +366,17 @@ func (d *Daemon) drainSpool(ctx context.Context) {
 			continue
 		}
 		actx := auth.WithActor(ctx, &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId})
-		err = hook.Drain(d.paths, id, func(req *v1.ReportHookRequest) error {
+		err = hook.DrainReporting(d.paths, id, func(req *v1.ReportHookRequest) error {
 			_, err := d.reportHook(actx, req)
 			return err
+		}, func(req *v1.ReportHookRequest, cause error) {
+			d.log.Warn("dropped a hook that failed every time", "agent", a.Name, "event", req.EventName, "err", cause)
+			d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+				_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_HookDecodeFailed{
+					HookDecodeFailed: &v1.HookDecodeFailed{Error: fmt.Sprintf("dropped a %s hook after %d failed attempts: %v",
+						req.EventName, hook.MaxAttempts, cause)}}})
+				return err
+			})
 		})
 		if err == nil && a.State == v1.AgentState_AGENT_STATE_EXITED {
 			// Nothing more comes from an exited agent: its spool dir goes once it is empty.
@@ -553,6 +605,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if base == "" {
 		base = "HEAD"
 	}
+	if strings.HasPrefix(base, "-") {
+		return nil, invalid("base %q looks like an option", base)
+	}
 	branch := "mesh/" + runID + "/" + m.Slug
 	worktree := filepath.Join(d.worktrees(), runID, name)
 	if err := os.MkdirAll(filepath.Dir(worktree), 0o700); err != nil {
@@ -631,11 +686,18 @@ func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent
 		return nil, errors.New("no meshctl configured for the hooks")
 	}
 	plan, err := ad.PlanLaunch(ctx, connect.NewRequest(&adapterv1.PlanLaunchRequest{AgentId: a.Id, AgentName: a.Name,
-		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
+		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
 		HookArgv: []string{meshctl, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
 		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions}))
 	if err != nil {
 		return nil, err
+	}
+	// The host runs argv[0] on its own PATH (a systemd unit's is minimal): a bare name is resolved here, on the
+	// agent's.
+	if len(plan.Msg.Argv) > 0 && !strings.Contains(plan.Msg.Argv[0], "/") {
+		if path, ok := lookPath(plan.Msg.Argv[0], plan.Msg.Env["PATH"]); ok {
+			plan.Msg.Argv[0] = path
+		}
 	}
 	return plan.Msg, nil
 }
@@ -759,9 +821,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
-	// Never type into what a user is typing: while a client that can type is attached, the doorbell waits
-	// (retryDoorbells rings it once they leave).
-	if typing, err := d.userAttached(ctx, a.TerminalId); err != nil || typing {
+	// Never type into what a user is typing: while a client that can type has typed lately, the doorbell waits
+	// (retryDoorbells rings it once they pause).
+	if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
 		return err
 	}
 	if err := d.typeLine(ctx, a.TerminalId, Doorbell(msgs)); err != nil {
@@ -769,8 +831,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	}
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		for _, m := range msgs {
-			m.DeliveredAt = timestamppb.New(tx.Now())
-			if err := tx.PutMessage(m); err != nil {
+			// Only the delivery time is written, on the row as it is now: the agent may have read the message
+			// since the snapshot above, and a stale copy would make it unread again.
+			if err := tx.MarkDelivered(m.Id); err != nil {
 				return err
 			}
 			if _, err := tx.AppendEvent(&v1.Event{RunId: m.RunId, AgentId: m.ToId, Payload: &v1.Event_MessageDelivered{
@@ -782,15 +845,16 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	})
 }
 
-// userAttached reports whether a client that can type is attached to a terminal.
-func (d *Daemon) userAttached(ctx context.Context, terminalID string) (bool, error) {
+// userTyping reports whether a client that can type is attached to a terminal and typed within TypingQuiet.
+func (d *Daemon) userTyping(ctx context.Context, terminalID string) (bool, error) {
 	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
 	if err != nil {
 		return false, err
 	}
 	for _, t := range res.Msg.Terminals {
 		if t.Id == terminalID {
-			return t.InputClients > 0, nil
+			last := t.LastClientInput.AsTime()
+			return t.InputClients > 0 && t.LastClientInput != nil && d.now().Sub(last) < d.rt.cfg.TypingQuiet, nil
 		}
 	}
 	return false, nil
@@ -818,25 +882,35 @@ func (d *Daemon) typeLine(ctx context.Context, terminalID, line string) error {
 		return err
 	}
 	time.Sleep(d.rt.cfg.DeliveryDelay)
-	_, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
-		Data: []byte("\r")}))
+	// The text is in the input box: if Enter fails, try again, and if it can't be sent, take the text back out
+	// (Ctrl-U) so the retry doesn't type the line a second time.
+	var err error
+	for try := 0; try < 3; try++ {
+		if _, err = d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
+			Data: []byte("\r")})); err == nil {
+			return nil
+		}
+		time.Sleep(d.rt.cfg.DeliveryDelay)
+	}
+	d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
+		Data: []byte("\x15")}))
 	return err
 }
 
 // Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
-// read with `meshctl inbox`.
+// read from the agent's inbox.
 func Doorbell(msgs []*v1.Message) string {
 	kind := func(m *v1.Message) string {
 		return strings.ToLower(strings.TrimPrefix(m.Type.String(), "MESSAGE_TYPE_")) + " from " + m.From.GetName()
 	}
 	if len(msgs) == 1 {
-		return "📬 [mesh] " + kind(msgs[0]) + ": run `meshctl inbox`"
+		return "📬 [mesh] " + kind(msgs[0]) + ": read your inbox"
 	}
 	parts := make([]string, len(msgs))
 	for i, m := range msgs {
 		parts[i] = kind(m)
 	}
-	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `meshctl inbox`", len(msgs), strings.Join(parts, ", "))
+	return fmt.Sprintf("📬 [mesh] %d messages (%s): read your inbox", len(msgs), strings.Join(parts, ", "))
 }
 
 // ── terminal streams through the daemon ──
@@ -897,4 +971,18 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		Transport: host.HTTP.Transport,
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// lookPath finds an executable by name in a PATH list.
+func lookPath(name, pathList string) (string, bool) {
+	for _, dir := range filepath.SplitList(pathList) {
+		if dir == "" {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return p, true
+		}
+	}
+	return "", false
 }

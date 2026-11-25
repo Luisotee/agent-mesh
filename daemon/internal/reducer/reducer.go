@@ -48,7 +48,12 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 	}
 	switch k := ev.Kind.(type) {
 	case *adapterv1.AgentEvent_SessionStarted:
-		s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
+		// A fresh session (a start or a /clear) waits for a prompt. A compaction or a resume says nothing of the
+		// turn: it may come mid-turn, and the agent is not idle then. A launch's own resume starts from STARTING.
+		switch src := k.SessionStarted.Source; {
+		case src != "compact" && src != "resume", s.State == v1.AgentState_AGENT_STATE_STARTING:
+			s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
+		}
 		if k.SessionStarted.SessionId != "" {
 			s.SessionID = k.SessionStarted.SessionId
 		}
@@ -77,10 +82,13 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 	return s
 }
 
-// Display is the state to show at now: a working agent nothing was heard from for unknownAfter reads as
-// UNKNOWN. lastOutput is the terminal's newest output, which counts as a sign of life.
+// Display is the state to show at now: a working agent, or one waiting on a prompt, that nothing was heard from
+// for unknownAfter reads as UNKNOWN. lastOutput is the terminal's newest output, which counts as a sign of life.
+// A prompt is aged out too because Claude may fire no hook when one is dismissed (Esc): the agent would show
+// NEEDS_INPUT for good. The cost: a prompt a person leaves unanswered past unknownAfter shows UNKNOWN, still a
+// state that needs a look.
 func Display(s State, now, lastOutput time.Time, unknownAfter time.Duration) v1.AgentState {
-	if s.State != v1.AgentState_AGENT_STATE_WORKING || unknownAfter <= 0 {
+	if (s.State != v1.AgentState_AGENT_STATE_WORKING && s.State != v1.AgentState_AGENT_STATE_NEEDS_INPUT) || unknownAfter <= 0 {
 		return s.State
 	}
 	last := s.LastActivity

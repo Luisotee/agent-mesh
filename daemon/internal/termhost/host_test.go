@@ -435,6 +435,48 @@ func TestResizeFollowsTheSmallestClientAndMovesTheEpoch(t *testing.T) {
 	}
 }
 
+func TestSizesAreClampedAndOnlyATyperMayResize(t *testing.T) {
+	f := startHost(t)
+	term := f.spawn("echo")
+	ctx := context.Background()
+	// A viewer asking for a huge screen gets the cap, not an allocation of 60000 x 60000 cells.
+	viewer := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60000, Rows: 60000})
+	var cv collector
+	at := cv.next(t, viewer).GetAttached()
+	if at.Cols != 500 || at.Rows != 300 {
+		t.Errorf("attached at %dx%d, want the cap 500x300", at.Cols, at.Rows)
+	}
+	// It may not resize at all; a typer may, within the limits.
+	resize := func(s *termclient.Stream, cols, rows uint32) {
+		if err := s.Send(ctx, &termv1.TermFrame{Frame: &termv1.TermFrame_Resize{Resize: &termv1.Resize{Cols: cols, Rows: rows}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size := func() (uint32, uint32) {
+		l, _ := f.c.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		return l.Msg.Terminals[0].Cols, l.Msg.Terminals[0].Rows
+	}
+	resize(viewer, 1, 1)
+	typer := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 200, Rows: 50})
+	var ct collector
+	ct.next(t, typer)
+	if cols, rows := size(); cols != 200 || rows != 50 {
+		t.Errorf("size %dx%d after a viewer's resize to 1x1 and a typer at 200x50", cols, rows)
+	}
+	resize(typer, 1, 1)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if cols, rows := size(); cols == 20 && rows == 5 {
+			break
+		}
+		if time.Now().After(deadline) {
+			cols, rows := size()
+			t.Fatalf("a typer's 1x1 resize gave %dx%d, want the floor 20x5", cols, rows)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func newHelloRequest() (*http.Request, error) {
 	req, err := http.NewRequest("POST", "http://meshd"+termv1connect.TermHostServiceHelloProcedure, strings.NewReader("{}"))
 	if err == nil {

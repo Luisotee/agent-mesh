@@ -9,7 +9,37 @@ import (
 	"connectrpc.com/connect"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
+	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
+
+func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) {
+	cwd, repo := t.TempDir(), t.TempDir()
+	plan := func(role agentmeshv1.AgentRole) []string {
+		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			Role: role, Cwd: cwd, Repo: repo, SkipPermissions: true, HookArgv: []string{"meshctl", "hook"}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Argv
+	}
+	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_ASKER, agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER} {
+		argv := strings.Join(plan(role), "\x00")
+		for _, want := range []string{"--disallowedTools", "Edit(/" + cwd + "/**)", "Edit(/" + repo + "/**)", "Bash(git push:*)", "Bash(gh pr comment:*)"} {
+			if !strings.Contains(argv, want) {
+				t.Errorf("%v: no %q in %q", role, want, argv)
+			}
+		}
+		// Variadic: another flag follows the list.
+		if !strings.Contains(argv, "Bash(gh issue comment:*)\x00--settings") {
+			t.Errorf("%v: the deny list is not followed by a flag: %q", role, argv)
+		}
+	}
+	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, agentmeshv1.AgentRole_AGENT_ROLE_ROOT} {
+		if argv := strings.Join(plan(role), " "); strings.Contains(argv, "--disallowedTools") {
+			t.Errorf("%v got a deny list: %s", role, argv)
+		}
+	}
+}
 
 func TestPlanLaunch(t *testing.T) {
 	a := New()

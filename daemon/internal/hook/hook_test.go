@@ -92,3 +92,46 @@ func TestNoTokenIsAnErrorNotACrash(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestAHookThatFailsEveryTimeIsDroppedAfterMaxAttemptsAndTheNextGoesThrough(t *testing.T) {
+	p, _ := setup(t)
+	for i, ev := range []string{"A", "B"} {
+		spool(p, "a1", &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: ev}, EventName: ev}, time.Unix(int64(i), 0))
+	}
+	var sent []string
+	var dropped []string
+	send := func(r *v1.ReportHookRequest) error {
+		sent = append(sent, r.EventName)
+		if r.EventName == "A" {
+			return errors.New("a store failure") // reaches the client as CodeUnknown
+		}
+		return nil
+	}
+	drain := func() error {
+		return DrainReporting(p, "a1", send, func(r *v1.ReportHookRequest, _ error) { dropped = append(dropped, r.EventName) })
+	}
+	for i := 0; i < MaxAttempts-1; i++ {
+		if err := drain(); err == nil {
+			t.Fatalf("attempt %d: no error", i+1)
+		}
+	}
+	if len(dropped) != 0 || strings.Contains(strings.Join(sent, ""), "B") {
+		t.Fatalf("dropped too early: %v, sent %v", dropped, sent)
+	}
+	if err := drain(); err != nil {
+		t.Fatalf("the last attempt: %v", err)
+	}
+	if strings.Join(dropped, "") != "A" || sent[len(sent)-1] != "B" {
+		t.Errorf("dropped %v, sent %v: want A dropped and B sent after it", dropped, sent)
+	}
+	if bad, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.bad")); len(bad) != 1 {
+		t.Errorf("the dropped hook is kept as .bad: %v", bad)
+	}
+	// While the daemon is down nothing is counted: a hook waits as long as it must.
+	spool(p, "a1", &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "C"}, EventName: "C"}, time.Unix(9, 0))
+	for i := 0; i < 3*MaxAttempts; i++ {
+		DrainReporting(p, "a1", func(*v1.ReportHookRequest) error {
+			return connect.NewError(connect.CodeUnavailable, errors.New("down"))
+		}, func(*v1.ReportHookRequest, error) { t.Fatal("dropped while the daemon was down") })
+	}
+}
