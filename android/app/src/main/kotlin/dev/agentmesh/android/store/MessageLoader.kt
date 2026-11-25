@@ -29,7 +29,11 @@ class MessageLoader(
 
     /** Load the open runs of a snapshot. */
     fun load(runs: Collection<Run>) {
-        for (r in runs) if (r.status == RunStatus.RUN_STATUS_OPEN) scope.launch { loadRun(r.id) }
+        for (r in runs) if (r.status == RunStatus.RUN_STATUS_OPEN) {
+            // A new request (a new snapshot) starts the retries over: the host may be fine now.
+            retries.remove(r.id)
+            scope.launch { loadRun(r.id) }
+        }
     }
 
     private suspend fun loadRun(runId: String) {

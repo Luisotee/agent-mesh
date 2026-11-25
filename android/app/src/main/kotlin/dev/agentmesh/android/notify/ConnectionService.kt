@@ -31,16 +31,26 @@ class ConnectionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var watching: Job? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val container = (application as MeshApp).container
         ServiceCompat.startForeground(this, ID, build(this, "Connecting…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        scope.launch {
-            container.runtimes.flatMapLatest { rts ->
-                if (rts.isEmpty()) kotlinx.coroutines.flow.flowOf(0 to 0)
-                else combine(rts.values.map { it.state.map { s -> s.conn is ConnState.Ready } }) { ready -> ready.count { it } to ready.size }
-            }.combine(container.prefs.background) { counts, on -> counts to on }.collect { (counts, on) ->
-                if (!on || counts.second == 0) { stopSelf(); return@collect }
-                val text = if (counts.first == counts.second) "Connected to ${plural(counts.second)}" else "${counts.first} of ${plural(counts.second)} connected"
+        // Started again on every foregrounding: one watcher only.
+        watching?.cancel()
+        watching = scope.launch {
+            // The saved hosts decide whether to stay: the runtimes behind them are built a moment later.
+            val connected = container.runtimes.flatMapLatest { rts ->
+                if (rts.isEmpty()) kotlinx.coroutines.flow.flowOf(0)
+                else combine(rts.values.map { it.state.map { s -> s.conn is ConnState.Ready } }) { ready -> ready.count { it } }
+            }
+            combine(connected, container.hosts.hosts, container.prefs.background) { up, hosts, on -> Triple(up, hosts.size, on) }.collect { (up, total, on) ->
+                if (!on || total == 0) { stopSelf(); return@collect }
+                val text = when {
+                    up == total -> "Connected to ${plural(total)}"
+                    up == 0 -> "Connecting to ${plural(total)}…"
+                    else -> "$up of ${plural(total)} connected"
+                }
                 getSystemService(android.app.NotificationManager::class.java).notify(ID, build(this@ConnectionService, text))
             }
         }

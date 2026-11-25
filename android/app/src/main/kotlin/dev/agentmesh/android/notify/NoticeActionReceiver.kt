@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import dev.agentmesh.android.MeshApp
 import dev.agentmesh.android.store.ConnState
+import dev.agentmesh.android.AlreadyAnswered
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -22,15 +24,24 @@ class NoticeActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.scope.launch {
             try {
-                val rt = container.runtimes.first { it.containsKey(host) }[host]!!
-                val name = rt.state.value.agents[agent]?.name ?: "the agent"
-                try {
-                    withTimeout(15_000) { rt.state.first { it.conn is ConnState.Ready } }
-                    if (reply == null) rt.approve(agent) else rt.answer(agent, reply)
-                    container.notifier.cancel(host, agent)
-                } catch (e: Exception) {
-                    container.notifier.showError(host, agent, "Couldn't ${if (reply == null) "approve $name's plan" else "answer $name"}", e.message ?: "Open the app to try again.")
+                // Everything, the host's runtime included, within the time a broadcast may take (about 10 s).
+                withTimeout(8_000) {
+                    val rt = container.runtimes.first { it.containsKey(host) }[host]!!
+                    val name = rt.state.value.agents[agent]?.name ?: "the agent"
+                    try {
+                        rt.state.first { it.conn is ConnState.Ready }
+                        if (reply == null) rt.approve(agent) else rt.answer(agent, reply)
+                        container.notifier.cancel(host, agent)
+                    } catch (e: AlreadyAnswered) {
+                        container.notifier.cancel(host, agent)
+                    } catch (e: TimeoutCancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        container.notifier.showError(host, agent, "Couldn't ${if (reply == null) "approve $name's plan" else "answer $name"}", e.message ?: "Open the app to try again.")
+                    }
                 }
+            } catch (e: TimeoutCancellationException) {
+                container.notifier.showError(host, agent, "Couldn't reach the host", "Open the app to ${if (reply == null) "approve the plan" else "answer"} there.")
             } finally {
                 pending.finish()
             }

@@ -103,6 +103,19 @@ class MessagesTest {
         assertEquals(setOf("approved-1", "sent-1"), rt.state.value.messages.keys)
     }
 
+    @Test fun `a stale Approve sends nothing once the plan was answered elsewhere`() = runBlocking {
+        val rt = runtime()
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        rt.onFrame(messageSent(1, plan, at = 10_000))
+        rt.onFrame(messageSent(2, message("a1", from = "lead", to = "w1", type = MessageType.MESSAGE_TYPE_ANSWER, body = "approved", at = 11_000), at = 11_000))
+        val e = runCatching { rt.approve("w1") }.exceptionOrNull()
+        assertTrue("got $e", e is AlreadyAnswered)
+        assertEquals(emptyList<String>(), api.approved)
+        // A plan this process never saw (a cold start) is not "answered": the approval goes through.
+        rt.approve("lead")
+        assertEquals(1, api.sent.size)
+    }
+
     @Test fun `a question is answered with the text typed`() {
         val rt = runtime()
         rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))

@@ -76,7 +76,10 @@ private fun NotificationSettings() {
     val container = LocalContainer.current
     val background by container.prefs.background.collectAsStateWithLifecycleCompat()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val allowed = container.notifier.allowed()
+    // Read again on returning from the system's settings page.
+    val allowedState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(container.notifier.allowed()) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { allowedState.value = container.notifier.allowed(); onPauseOrDispose { } }
+    val allowed = allowedState.value
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
             Text("Stay connected in the background")

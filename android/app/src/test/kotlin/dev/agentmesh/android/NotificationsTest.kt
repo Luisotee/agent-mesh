@@ -48,7 +48,7 @@ class NotificationsTest {
     private val container get() = (app as MeshApp).container
     private val manager get() = shadowOf(app.getSystemService(NotificationManager::class.java))
 
-    private fun notice(kind: NoticeKind, agent: String = "w1") = Notice(kind, agent, "shop-fix sent a plan", "Change the typo", agent, Tab.Messages)
+    private fun notice(kind: NoticeKind, agent: String = "w1") = Notice(kind, "shop-fix sent a plan", "Change the typo", agent, Tab.Messages)
 
     @Test fun `a plan notification has Approve, a question has an inline Reply, and a tap opens the agent`() {
         api = RecordingApi()

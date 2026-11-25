@@ -16,8 +16,6 @@ enum class Tab { Overview, Messages, Terminal }
 
 class Notice(
     val kind: NoticeKind,
-    /** A later notice with the same tag replaces the earlier: one per agent. */
-    val tag: String,
     val title: String,
     val body: String,
     val agentId: String,
@@ -51,7 +49,7 @@ fun noticeFor(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Lo
             val a = agents[e.agentId] ?: return null
             val ch = e.agentStateChanged
             if (ch.to != AgentState.AGENT_STATE_NEEDS_INPUT || ch.from == AgentState.AGENT_STATE_NEEDS_INPUT) return null
-            return Notice(NoticeKind.Input, a.id, "${a.name} needs you", brief(ch.detail).ifEmpty { "It is stopped at a prompt in its terminal." }, a.id, Tab.Terminal)
+            return Notice(NoticeKind.Input, "${a.name} needs you", brief(ch.detail).ifEmpty { "It is stopped at a prompt in its terminal." }, a.id, Tab.Terminal)
         }
         Event.PayloadCase.MESSAGE_SENT -> {
             val m = e.messageSent.message
@@ -62,10 +60,10 @@ fun noticeFor(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Lo
             if (to == null || to.role != AgentRole.AGENT_ROLE_ROOT || from == null) return null
             val body = brief(m.body)
             return when (m.type) {
-                MessageType.MESSAGE_TYPE_PLAN -> Notice(NoticeKind.Plan, from.id, "${from.name} sent a plan", body, from.id, Tab.Messages)
-                MessageType.MESSAGE_TYPE_QUESTION -> Notice(NoticeKind.Question, from.id, "${from.name} has a question", body, from.id, Tab.Messages)
-                MessageType.MESSAGE_TYPE_DONE -> Notice(NoticeKind.Report, from.id, "${from.name} reported done", body, from.id, Tab.Messages)
-                MessageType.MESSAGE_TYPE_FAILED -> Notice(NoticeKind.Failed, from.id, "${from.name} failed", body, from.id, Tab.Messages)
+                MessageType.MESSAGE_TYPE_PLAN -> Notice(NoticeKind.Plan, "${from.name} sent a plan", body, from.id, Tab.Messages)
+                MessageType.MESSAGE_TYPE_QUESTION -> Notice(NoticeKind.Question, "${from.name} has a question", body, from.id, Tab.Messages)
+                MessageType.MESSAGE_TYPE_DONE -> Notice(NoticeKind.Report, "${from.name} reported done", body, from.id, Tab.Messages)
+                MessageType.MESSAGE_TYPE_FAILED -> Notice(NoticeKind.Failed, "${from.name} failed", body, from.id, Tab.Messages)
                 else -> null
             }
         }
@@ -80,7 +78,7 @@ fun noticeFor(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Lo
                 x.reason == "lost" -> "${a.name} was lost"
                 else -> "${a.name} exited with code ${x.exitCode}"
             }
-            return Notice(if (clean) NoticeKind.Exited else NoticeKind.Failed, a.id, title, "", a.id, Tab.Overview)
+            return Notice(if (clean) NoticeKind.Exited else NoticeKind.Failed, title, "", a.id, Tab.Overview)
         }
         else -> return null
     }

@@ -3,6 +3,7 @@ package dev.agentmesh.android.ui
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -40,9 +41,12 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     val link by container.deepLink.collectAsStateWithLifecycleCompat()
     LaunchedEffect(link) {
         val l = link ?: return@LaunchedEffect
+        // On a cold start the host's runtime isn't built yet: wait for it (a removed host never comes).
+        val there = kotlinx.coroutines.withTimeoutOrNull(5_000) { container.runtimes.first { it.containsKey(l.hostId) } }
+        container.deepLink.value = null
+        if (there == null) return@LaunchedEffect
         nav.navigate(Routes.host(l.hostId)) { popUpTo(Routes.HOSTS) }
         nav.navigate(Routes.agent(l.hostId, l.agentId, l.tab))
-        container.deepLink.value = null
     }
     NavHost(nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) {

@@ -40,6 +40,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
+/** The plan or question the action is about was answered meanwhile (by the lead or on another device). */
+class AlreadyAnswered : Exception("This was already answered")
+
 /**
  * One host as the app runs it: its connection, and the state built only from that connection's snapshot and
  * events. The UI reads [state] and calls [api] for its actions; nothing else reaches the host.
@@ -153,8 +156,21 @@ class HostRuntime(
      * (`ApproveAgent`); anything else just gets the answer "approved".
      */
     suspend fun approve(agentId: String): Message {
+        if (answeredSinceLastAsk(agentId)) throw AlreadyAnswered()
         val planning = _state.value.agents[agentId]?.phase == AgentPhase.AGENT_PHASE_PLANNING
         return stored(if (planning) live().approveAgent(agentId) else live().sendMessage(agentId, MessageType.MESSAGE_TYPE_ANSWER, "approved"))
+    }
+
+    /**
+     * Whether someone already answered this agent since its last plan or question (the user on the desktop, the
+     * lead): then a notification's Approve is stale and must not send a second answer. Only positive evidence
+     * counts: a plan this process hasn't seen (a cold start) is not "answered".
+     */
+    private fun answeredSinceLastAsk(agentId: String): Boolean {
+        val msgs = _state.value.messages.values
+        val ask = msgs.filter { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) }
+            .maxWithOrNull(dev.agentmesh.android.store.MessageOrder) ?: return false
+        return msgs.any { it.toId == agentId && it.type == MessageType.MESSAGE_TYPE_ANSWER && dev.agentmesh.android.store.isBefore(ask, it) }
     }
 
     suspend fun requestChanges(agentId: String, text: String): Message =

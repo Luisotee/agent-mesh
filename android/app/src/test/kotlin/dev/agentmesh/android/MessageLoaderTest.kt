@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -58,6 +59,15 @@ class MessageLoaderTest {
         advanceTimeBy(2_001); runCurrent()
         assertEquals("the third attempt succeeds", setOf("m1"), rig.state.messages.keys)
         assertEquals(2, rig.logs.size)
+
+        // A later snapshot starts the retries over: it isn't left without any after an earlier run of failures.
+        val flaky = RecordingApi().apply { failListings = 100 }
+        val rigF = Rig(flaky, backgroundScope)
+        rigF.loader.load(listOf(run("r1"))); advanceTimeBy(1_000L * (1 + 2 + 4 + 8 + 16) + 100); runCurrent()
+        val tries = flaky.listCalls.size
+        flaky.failListings = 1
+        rigF.loader.load(listOf(run("r1"))); runCurrent(); advanceTimeBy(1_100); runCurrent()
+        assertTrue("retried after the new request", flaky.listCalls.size >= tries + 2)
 
         val dead = RecordingApi().apply { failListings = 100 }
         val rig2 = Rig(dead, backgroundScope)
