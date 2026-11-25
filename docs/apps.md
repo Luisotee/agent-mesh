@@ -6,7 +6,7 @@ Mockups of the desktop and Android screens (all themes, the run tree, the live d
 
 This is a refactor of agent-mesh, not an add-on: where this plan and `docs/design.md` or `CLAUDE.md` disagree, this plan wins. design.md stays as the record of what today's `bin/mesh` learned, and its lessons apply unless this plan overrules them.
 
-agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, Linux and Android are required; macOS, iOS (once someone pays for the Apple developer account) and a browser client would be nice to have. herdr and the terminal workflow are replaced, not kept alongside: there is one user so far, so nothing legacy has to survive.
+agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, Linux and Android are required; macOS, iOS (once someone pays for the Apple developer account) would be nice to have; a browser client is deferred (2026-11-25). herdr and the terminal workflow are replaced, not kept alongside: there is one user so far, so nothing legacy has to survive.
 
 ## Principles
 
@@ -96,7 +96,7 @@ A plugin is a folder or git repo with a manifest, installed per host. The built-
 | Desktop | Electron + React + TypeScript, styled with Tailwind and shadcn/ui (Windows, Linux; macOS later) | For a terminal- and diff-heavy developer tool, the web has the best parts (xterm.js, diff viewers, Markdown and diagrams), and Electron gives the same Chromium on every OS (VS Code is the proof). Tauri uses WebKitGTK on Linux; Flutter, Avalonia, Qt and Compose Desktop have weaker terminals and rich content. No hand-written CSS: Tailwind for styling, shadcn/ui components (copied into the repo so we own and restyle them), as the desktops of emdash, Orca and Paradev do, built on Base UI rather than Radix (shadcn supports both; Base UI is the actively developed successor from Radix's authors, and emdash uses it). Colors, spacing, type and a compact density (a terminal and diff tool, not shadcn's roomy default) are design tokens in one file, which the Tailwind theme and the Android app's Compose theme are both generated from, so the two apps look like one product. |
 | Android | Kotlin + Jetpack Compose | Long, streaming, Markdown-heavy chats are the phone's main screen, and that is where the peers' React Native apps struggled ("Lessons from the peers' stacks"): happy rewrote its phone apps natively, Paseo's Android app still runs out of memory in React Native's UI pipeline. Native also removes the workarounds React Native needed: OkHttp pins the daemon's certificate per connection, UnifiedPush's official Android library and native notification actions (inline replies to approve a plan or answer a question) need no wrapper, and Termux's terminal emulator (Apache-2.0: only its `terminal-emulator` and `terminal-view` modules, the rest of Termux is GPLv3) is plain Java that needs no Android service. The API client is generated from the same protobuf schemas (connect-kotlin), so a third language adds no hand-kept wire types (happy's cost: hand-written wire, crypto and sync per platform). Builds with Gradle, released as an APK on GitHub Releases and F-Droid; no over-the-air updates. It starts as a focused companion and grows. |
 | iOS (later) | Swift, with a client generated from the same schemas (connect-swift) and SwiftTerm for terminals | Once someone pays for the Apple account. Sharing the Android app's non-UI code through Kotlin Multiplatform is the alternative to weigh then. |
-| Browser (nice to have) | The desktop's React app, served by the daemon | Comes almost free. |
+| Browser (deferred, 2026-11-25) | The desktop's React app, served by the daemon | Comes almost free, but is not being built now. |
 | Push | UnifiedPush, with ntfy (on the user's VPS, or the free ntfy.sh) as the distributor | The user's daemon sends to the user's own ntfy. Firebase would let only the app's publisher send pushes, which forces a central server of ours. The phone needs the ntfy app installed once. |
 | Auth | A token per device (paired by a QR code the daemon shows, revocable) and per agent (minted at spawn) | No accounts; every action is attributed ("Protocols and lifecycle"). |
 | Distribution | GitHub Releases (desktop builds, APK, daemon binaries) and F-Droid; a Docker image for the daemon and relay; Google Play optional later | Free. Releases are signed (minisign or cosign, pinned key), not checked against a hash from the same server; the daemon updates into immutable version dirs with an atomic switch, under a supervisor with backoff; an update never kills terminals; the Docker image doesn't self-update; app updates over the air only from release builds. |
@@ -206,6 +206,8 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ### Git, review, PRs and CI
 
+**Deferred (the user's call, 2026-11-25):** nothing in this section is in the first versions, whatever its ★; it comes after the rest of step 5.
+
 - ★ A diff viewer: uncommitted, branch or per-commit scope, split or unified, file tree (P, O).
 - ★ Comments on diff lines, sent to the agent in one batch (P, O).
 - ★ Git actions: commit with an AI message, push, create a PR with an AI draft, merge, auto-merge (P, O).
@@ -265,7 +267,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ### Other
 
-- ★ A Docker image and a static binary for VPS installs (P). The daemon serving the UI to a browser comes later.
+- ★ A Docker image and a static binary for VPS installs (P). The daemon serving the UI to a browser is deferred (2026-11-25).
 - ★ First-run onboarding: detect CLIs, add projects, pair a phone (P).
 - Voice dictation; a realtime voice mode (P, O).
 - A diagnostics report (P, O).
@@ -298,11 +300,50 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ## Order of work
 
 1. **Daemon core (Go, Linux):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI, with the built-in adapters and channels written on the plugin interfaces. At the end of this step, agents run without herdr.
-   - Milestone 1 is built (`daemon/README.md`): the registry, meshd with SQLite and resumable events, the terminal host, the Claude adapter with its hooks and the reducer, and `meshctl` generated from the schemas. An end-to-end test drives a fake `claude` through a daemon SIGKILL and restart. What's left of the step is in `TODO.md`.
+   - Milestone 1 is built (`daemon/README.md`): the registry, meshd with SQLite and resumable events, the terminal host, the Claude adapter with its hooks and the reducer, and `meshctl` generated from the schemas. An end-to-end test drives a fake `claude` through a daemon SIGKILL and restart. What's left of the step is in `TODO.md`; the switchover is planned in "Switchover".
 2. **Desktop app, first version:** hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray icon.
 3. **Connections:** the relay and pairing by QR, then built-in Tailscale.
 4. **Android app:** status, notifications with actions through UnifiedPush, plans, questions, reports, the terminal.
-5. **Then:** the git, PR and CI features, the structured chat view, schedules, usage, third-party plugins (install, consent, the index), the browser client, and the rest of the list.
+5. **Then:** the structured chat view, schedules, usage, third-party plugins (install, consent, the index), and the rest of the list. **Deferred (the user's call, 2026-11-25):** the web (browser) client, and the git, PR and CI review features ("Git, review, PRs and CI": diff viewer, line comments, git actions, the PR panel, CI wake-ups). Agents keep doing git and PRs through their own shell, as today; the apps show and steer agents, not code review, until these are picked up again.
+
+The switchover that ends step 1 is planned in "Switchover" below.
+
+## Switchover
+
+How agents move from `bin/mesh` and herdr to the daemon (the last part of step 1). Planned 2026-11-25, run mfb6a. Every agent on the machine runs this checkout through symlinks (`~/.local/bin/mesh`, `~/.config/agent-mesh`, the skills), so nothing that reaches `bin/mesh`, `protocol/` or `skills/` changes until the last PR, and the daemon world is installed beside it, not linked.
+
+**The cutover.**
+- The Go CLI is built as `mesh` and installed in `~/.local/lib/agent-mesh/bin/`, beside `meshd` and `mesh-term`. meshd puts that folder first on every agent's `PATH`, and `bin/mesh` execs the Go CLI when `AGENT_MESH_TOKEN` is set and `MESH_RUN` is not (the prepend alone isn't enough: a shell's rc file puts `~/.local/bin` first again). A live herdr agent never has `AGENT_MESH_*`, so it sees no change. The user gets the Go CLI as `~/.local/bin/meshctl` until the last PR.
+- The daemon's protocol and skills are `daemon/share/{protocol,skills}`; `install.sh --daemon` copies them (and builds the binaries) into `~/.local/lib/agent-mesh/`, so the daemon world is versioned by install, not by the checked-out branch. meshd hands each agent its skills per launch (Claude `--plugin-dir`; agy: checked when the protocol PR is built) and names the protocol in the first doorbell.
+- State is apart: meshd uses `~/.local/state/agent-mesh-daemon`, `bin/mesh` keeps `~/.local/state/agent-mesh`. No run migrates.
+- `install.sh --daemon` is opt-in, and never touches `~/.local/bin/mesh`, `~/.config/agent-mesh` or `~/.claude` settings.
+
+**PRs, in order.**
+1. Docs: this section, and the deferrals above.
+2. `mesh` beside `bin/mesh`: `cmd/meshctl` becomes `cmd/mesh`, the PATH prepend and the `bin/mesh` shim, `whoami` and `mesh dir`, run folders (`plans/`, `reports/`, `tasks/`), positional arguments for the commands agents already use (`send parent`, `approve <agent>`, …).
+3. `install.sh --daemon`: binaries, `share/`, the systemd user units, `meshctl` link; the opt-in and the temp-HOME test above.
+4. Worker accountability, which replaces `mesh watch` and its exit codes: the parent is told when a worker exits, is lost, hangs or hits a limit; a worker that ends its turn with no report is nudged once, then its parent is told; a declared `wait` pauses that; `send` refuses a report while a task or answer is unread.
+5. `ORCHESTRATE.md`, `PROTOCOL.md`, the root card and the skills rewritten for daemon events (a report or alert rings at the recipient's next idle; the root ends its turn to wait), herdr fallbacks dropped, skills passed per launch. Assigned after the adapter PRs merge. It changes `rules/global-snippet.md`, which every agent reads: **needs the user's yes**. A real run on the daemon (a small change here, one Claude and one agy worker, driven from the desktop app) follows, and its notes decide PR 6.
+6. Retire `bin/mesh`: flip `~/.local/bin/mesh` and `~/.config/agent-mesh`, rewrite the global snippet, `CLAUDE.md` and `install.sh` for the daemon only, rename "meshctl" in the apps' text, delete `bin/mesh`, `herdr/`, the old `protocol/`, `skills/` and their Python tests (`docs/design.md` stays as the record). **Needs the user's yes, and the user's pick of which follow-up gaps below come first** (recommended: review rounds, the quota reserve, peers, resume onto a finished PR).
+
+**Entry point.** The delegate skills run in the user's own session, which is no actor on the daemon. For now the skill starts a run and a daemon root, writes the request and what it knows to `tasks/`, and the user continues in the app. Adopting the current session as root (`mesh adopt`, the same feature as "Import a session") comes later.
+
+**What `bin/mesh` has that the daemon lacks.**
+
+Blocks the cutover:
+- Identity and run folders (`whoami`, `mesh dir`, `plans/`, `reports/`, `tasks/`, `notes.md`): PR 2.
+- Worker accountability, replacing `mesh watch` and the Stop hook's nudge: PR 4.
+- Claude's folder-trust dialog on a fresh worktree: in the Claude adapter, owned by the adapter worker, not this plan.
+- The entry point and the protocol a daemon agent reads (the doorbell and the global rules still name the old `PROTOCOL.md`): the decision above and PR 5.
+
+Can follow the first run on the daemon, but come before PR 6 if the user wants them:
+- Review rounds (`ask --reviewers`, reviewer choice, one merged findings file, `verdict`), `mesh ask` and peers (`peers.json`, `ask --peers`, `find-peers`, `harvest-peers`); meanwhile a root spawns `--role reviewer` and `--role asker` agents one by one.
+- The quota reserve and Claude limit detection with `switch next` or a continue at the reset on its own.
+- Resume onto a finished PR (`leave_finished_pr`), `mesh cost`, `ListWaiting` (status rows), `models` and `routing`.
+- Compaction on resume and approve, root reset, `brief` and `protocol <part>`, lean sessions and `tools add`, `--mcp`, plan review by the user.
+- Claude inbox-socket delivery and doorbells that never land on a human's draft; the OpenCode and Copilot adapters; the sweep of leftover processes and the CPU and memory scopes (in progress elsewhere).
+- A terminal in the CLI (`mesh open`): the desktop app covers it.
+- `PATH` from the login shell under systemd ("Protocols and lifecycle"): `install.sh --daemon` writes the current `PATH` into the unit meanwhile.
 
 ## Decided
 
