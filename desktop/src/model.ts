@@ -1,9 +1,10 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { DesktopApi, HostInfo, NewHost, SocketEvent, SocketHandle } from '../shared/api'
+import { joinWaiting } from './derive'
 import { createMeshClient, type MeshClient } from './actions'
-import { waitingOnYou } from './derive'
 import { HostConnection } from './connection'
 import { messageLoader } from './messages'
+import { hostRefresher } from './refresh'
 import { noticeFor } from './notify'
 import { appPrefs } from './prefs'
 import { listSettings } from './actions'
@@ -17,6 +18,8 @@ export interface HostRuntime {
   store: HostStore
   client: MeshClient
   connection: HostConnection
+  /** Stops the host's timers and calls (its connection is stopped separately). */
+  stop(): void
   /** A terminal's stream, by the path `OpenTerminal` gave. */
   openSocket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
 }
@@ -26,6 +29,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
   const client = createMeshClient(hostTransport(api, info.id))
   const sink = storeSink(store)
   const loader = messageLoader(client, store, sink.log)
+  const refresher = hostRefresher(client, store, sink.log)
   // Setting changes that arrive while the list is on its way are applied on top of it, not lost to it (and a late
   // list of an older connection is dropped).
   let settingsLoad = 0
@@ -37,6 +41,8 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
       const before = store.getState()
       sink.onFrame(f)
       if (f.case === 'event' && f.value.payload.case === 'settingChanged') pendingSettings.push(f)
+      if (f.case === 'event') refresher.event(f.value)
+      else if (f.case === 'snapshot' || f.case === 'resumed') refresher.synced()
       if (f.case === 'event') {
         // The host's own preferences say whether and what to notify about its events.
         const prefs = appPrefs(before.settings)
@@ -61,7 +67,8 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
     },
   })
   connection.start()
-  return { info, store, client, connection, openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent) }
+  refresher.start()
+  return { info, store, client, connection, stop: () => refresher.stop(), openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent) }
 }
 
 export interface AppState {
@@ -100,7 +107,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
   let waiting = -1
   const recount = () => {
-    const n = store.getState().hosts.reduce((sum, h) => sum + waitingOnYou(h.store.getState().runs, h.store.getState().agents, h.store.getState().messages).length, 0)
+    const n = store.getState().hosts.reduce((sum, h) => sum + joinWaiting(h.store.getState().waiting, h.store.getState().runs, h.store.getState().agents).length, 0)
     if (n !== waiting) {
       waiting = n
       api.shell.setWaiting(n)
@@ -115,7 +122,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     unwatch.set(
       rt.info.id,
       rt.store.subscribe((s, prev) => {
-        if (s.agents !== prev.agents || s.messages !== prev.messages || s.runs !== prev.runs) recount()
+        if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
         if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
       }),
     )
@@ -151,7 +158,9 @@ export function createAppModel(api: DesktopApi): AppModel {
     },
     async removeHost(id) {
       await api.hosts.remove(id)
-      store.getState().hosts.find((h) => h.info.id === id)?.connection.stop()
+      const gone = store.getState().hosts.find((h) => h.info.id === id)
+      gone?.connection.stop()
+      gone?.stop()
       unwatch.get(id)?.()
       unwatch.delete(id)
       set((s) => {

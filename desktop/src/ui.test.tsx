@@ -14,6 +14,7 @@ import type { ConnState } from './connection'
 import { AppContext } from './context'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
+import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { createHostStore } from './store'
 
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
@@ -213,10 +214,16 @@ const msg = (id: string, type: MessageType, from: string, to: string, ms: number
   create(MessageSchema, { id, runId: 'r1', type, body, toId: to, toName: to, createdAt: timestampFromMs(ms), from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: 0, runId: 'r1' } })
 const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host.store.setState((s) => ({ messages: { ...s.messages, ...Object.fromEntries(ms.map((m) => [m.id, m])) } }))
 
+/** What the host says waits: a row per plan or question, as ListWaiting returns them. */
+const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) =>
+  host.store.setState({ waiting: ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m })) })
+
 describe('MessagesPanel', () => {
   it('shows a plan awaiting the user and approves it with an answer to its author', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b'))
+    const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b')
+    putMessages(host, plan)
+    waitOn(host, plan)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     const card = screen.getByRole('article', { name: 'Plan from w1' })
     expect(within(card).getByRole('heading', { name: 'The plan' })).toBeInTheDocument()
@@ -225,15 +232,19 @@ describe('MessagesPanel', () => {
     await userEvent.click(within(card).getByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
     expect(client.sendMessage.mock.calls[0]![0]).toMatchObject({ to: 'w1', type: MessageType.ANSWER, body: 'approved' })
-    // The answer arrives as an event: the item closes by itself.
+    // The answer arrives as an event, the host is asked again and says nothing waits: the item closes by itself.
     putMessages(host, msg('a1', MessageType.ANSWER, 'lead', 'w1', 2000, 'approved'))
+    host.store.setState({ waiting: [] })
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Answer the plan' })).toBeNull())
     expect(screen.getByRole('article', { name: 'Plan from w1' })).not.toHaveTextContent('waiting for you')
   })
 
   it('asks for changes only with some text, and answers a question', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?'))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    const q1 = msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?')
+    putMessages(host, p1, q1)
+    waitOn(host, p1, q1)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     const plan = screen.getByRole('form', { name: 'Answer the plan' })
     expect(within(plan).getByRole('button', { name: 'Request changes' })).toBeDisabled()
@@ -252,7 +263,9 @@ describe('MessagesPanel', () => {
 
   it('does not approve over text typed for changes', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    waitOn(host, p1)
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
     await userEvent.type(screen.getByLabelText('Changes to ask for'), 'also add tests')
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
@@ -261,7 +274,9 @@ describe('MessagesPanel', () => {
 
   it('answers once on a double click, and shows a rejection', async () => {
     const { host, wrap, client } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    waitOn(host, p1)
     let release!: () => void
     client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
     render(wrap(<MessagesPanel host={host} agentId="w1" />))
@@ -315,8 +330,12 @@ describe('Markdown in messages', () => {
 describe('WaitingList', () => {
   it('lists what waits on the user and opens the agent on its messages (or terminal)', async () => {
     const { host, wrap, model } = fixture()
-    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000))
-    host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, name: 'app-fix', parentId: 'lead', state: AgentState.IDLE }), w2: agent('w2', { role: AgentRole.WORKER, name: 'app-two', parentId: 'lead', state: AgentState.NEEDS_INPUT, needsInput: 1 }) } }))
+    const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
+    putMessages(host, p1)
+    host.store.setState((s) => ({
+      agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, name: 'app-fix', parentId: 'lead', state: AgentState.IDLE }), w2: agent('w2', { role: AgentRole.WORKER, name: 'app-two', parentId: 'lead', state: AgentState.NEEDS_INPUT, needsInput: 1 }) },
+      waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w1', message: p1 }), create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId: 'w2' })],
+    }))
     render(wrap(<WaitingList host={host} />))
     const list = screen.getByRole('region', { name: 'Waiting on you' })
     expect(list).toHaveTextContent('app-fix sent a plan')

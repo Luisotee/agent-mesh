@@ -30,7 +30,7 @@ export interface Timers {
   random(): number
 }
 
-const realTimers: Timers = {
+export const realTimers: Timers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
   setInterval: (fn, ms) => setInterval(fn, ms),

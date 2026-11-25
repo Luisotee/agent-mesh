@@ -1,5 +1,6 @@
-import { compareMessages, isBefore } from './order'
+import { compareMessages } from './order'
 import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
+import { WaitingKind, type Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 
 export interface TreeNode {
   agent: Agent
@@ -127,40 +128,25 @@ export interface Waiting {
   message?: Message
 }
 
-const before = isBefore
+const KIND: Partial<Record<WaitingKind, Waiting['kind']>> = {
+  [WaitingKind.PLAN]: 'plan',
+  [WaitingKind.QUESTION]: 'question',
+  [WaitingKind.INPUT]: 'input',
+}
 
 /**
- * What waits on the user (what `mesh status` calls waiting rows, for the person): a plan or a question sent to
- * the run's lead that nobody has answered since, from an agent that is still there to hear the answer, and every
- * agent stopped at a prompt in its terminal. The user may answer in the lead's place, and the lead answering
- * first closes the item. Plans and questions come oldest first, then the prompts.
+ * What waits on the user, as the host's `ListWaiting` rows (a plan or question to the run's lead that nobody has
+ * answered, and agents stopped at a prompt; the rule is the host's, daemon/internal/daemon/waiting.go), joined to
+ * the agents and runs the app holds. A row whose agent hasn't reached the store yet is left out until it does.
  */
-export function waitingOnYou(runs: Record<string, Run>, agents: Record<string, Agent>, messages: Record<string, Message>): Waiting[] {
-  const byRun = new Map<string, Message[]>()
-  for (const m of Object.values(messages)) byRun.set(m.runId, [...(byRun.get(m.runId) ?? []), m])
-  const items: Array<Waiting & { message: Message }> = []
-  for (const run of Object.values(runs)) {
-    if (run.status !== RunStatus.OPEN) continue
-    const lead = Object.values(agents)
-      .filter((a) => a.runId === run.id && a.role === AgentRole.ROOT)
-      .sort(order)[0]
-    if (!lead) continue
-    const msgs = byRun.get(run.id) ?? []
-    for (const m of msgs) {
-      const kind = m.type === MessageType.PLAN ? 'plan' : m.type === MessageType.QUESTION ? 'question' : undefined
-      if (!kind || m.toId !== lead.id) continue
-      const author = agents[m.from?.id ?? '']
-      if (!author || author.state === AgentState.EXITED) continue
-      const answered = msgs.some((x) => x.type === MessageType.ANSWER && x.toId === author.id && before(m, x))
-      if (!answered) items.push({ kind, agent: author, run, message: m })
-    }
+export function joinWaiting(rows: WaitingRow[], runs: Record<string, Run>, agents: Record<string, Agent>): Waiting[] {
+  const out: Waiting[] = []
+  for (const w of rows) {
+    const kind = KIND[w.kind]
+    const agent = agents[w.agentId]
+    if (kind && agent) out.push({ kind, agent, run: runs[w.runId], message: w.message })
   }
-  items.sort((a, b) => compareMessages(a.message, b.message))
-  const prompts: Waiting[] = Object.values(agents)
-    .filter((a) => a.state === AgentState.NEEDS_INPUT && runs[a.runId]?.status === RunStatus.OPEN)
-    .sort(order)
-    .map((agent) => ({ kind: 'input' as const, agent, run: runs[agent.runId] }))
-  return [...items, ...prompts]
+  return out
 }
 
 /** The messages an agent sent or was sent, oldest first. */

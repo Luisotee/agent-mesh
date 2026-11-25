@@ -9,7 +9,7 @@ import { ConnectionBanner } from '@/components/connection-banner'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
 import { SettingsPanel } from '@/components/settings-panel'
-import { waitingOnYou } from '@/derive'
+import { joinWaiting } from '@/derive'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -86,7 +86,7 @@ const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-st
 
 function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
   const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => waitingOnYou(s.runs, s.agents, s.messages).length)
+  const waiting = useHostState(host, (s) => joinWaiting(s.waiting, s.runs, s.agents).length)
   return (
     <button
       type="button"
