@@ -2,7 +2,7 @@
 
 **Your coding agent hands work to agents that live in your other repos, then reviews what they send back.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue.svg)](LICENSE)
 ![Python 3.10+, stdlib only](https://img.shields.io/badge/python-3.10%2B%20stdlib-3776ab.svg)
 ![Linux or WSL](https://img.shields.io/badge/runs%20on-Linux%20%7C%20WSL-555.svg)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-supported-d97757.svg)
@@ -162,4 +162,4 @@ uvx pytest -q tests       # herdr and the agent CLIs are stubbed; git worktree t
 
 ## License
 
-[MIT](LICENSE).
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal, hobby, research, education, non-profit and government use. Any commercial use, including use inside a company and selling or reselling it, needs a commercial license: contact [@Luisotee](https://github.com/Luisotee). Versions published before this change remain under the MIT License.
