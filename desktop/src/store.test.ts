@@ -54,6 +54,11 @@ describe('applyFrame', () => {
     expect(s.cursor?.seq).toBe(6n)
   })
 
+  it('an adoption records the terminal', () => {
+    const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9' } })])
+    expect(s.agents.a1?.terminalId).toBe('t9')
+  })
+
   it('the stream and its replay give the same state', () => {
     const frames = [
       snapshot(),

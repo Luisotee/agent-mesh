@@ -28,9 +28,25 @@ describe('Hosts', () => {
     const h = new Hosts(tmp())
     await expect(h.add({ name: '', kind: 'state-dir', path: '/x' })).rejects.toThrow(/name/)
     await expect(h.add({ name: 'a', kind: 'state-dir', path: 'relative' })).rejects.toThrow(/absolute/)
-    await expect(h.add({ name: 'a', kind: 'tcp', address: 'nohost', token: 't' })).rejects.toThrow(/host:port/)
-    await expect(h.add({ name: 'a', kind: 'tcp', address: 'h:1', token: ' ' })).rejects.toThrow(/token/)
+    await expect(h.add({ name: 'a', kind: 'tcp', address: 'nohost', token: 't' })).rejects.toThrow(/loopback/)
+    // A bearer token over plain HTTP stays on this machine.
+    await expect(h.add({ name: 'a', kind: 'tcp', address: '203.0.113.5:7777', token: 't' })).rejects.toThrow(/loopback/)
+    await expect(h.add({ name: 'a', kind: 'tcp', address: '127.0.0.1:99999', token: 't' })).rejects.toThrow(/port/)
+    await expect(h.add({ name: 'a', kind: 'tcp', address: 'localhost:1', token: ' ' })).rejects.toThrow(/token/)
     expect(h.all()).toEqual([])
+  })
+
+  it('accepts loopback addresses, IPv6 included', async () => {
+    const h = new Hosts(tmp())
+    for (const address of ['localhost:7777', '127.0.0.1:1', '[::1]:7777']) await h.add({ name: address, kind: 'tcp', address, token: 't' })
+    expect(h.all()).toHaveLength(3)
+  })
+
+  it('overlapping adds all reach the file', async () => {
+    const file = tmp()
+    const h = new Hosts(file)
+    await Promise.all(['a', 'b', 'c', 'd'].map((n) => h.add({ name: n, kind: 'state-dir', path: `/s/${n}` })))
+    expect(JSON.parse(readFileSync(file, 'utf8')).map((x: { name: string }) => x.name).sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('leaves a damaged file alone and starts empty', async () => {

@@ -103,6 +103,15 @@ describe('bridge', () => {
     expect(seen).toHaveLength(0)
   })
 
+  it('refuses a malformed request from the renderer instead of throwing', async () => {
+    for (const bad of [undefined, null, 'x', {}, { method: 'POST', path: '/agentmesh.v1.MeshService/Hello' }, { ...call, headers: { a: 1 } }, { ...call, body: 'text' }]) {
+      const r = run(stateHost(), bad as never)
+      await r.done
+      expect(r.events).toEqual([{ type: 'error', code: 'refused', message: 'malformed request' }])
+    }
+    expect(seen).toHaveLength(0)
+  })
+
   it('says so when the host has no token, can\'t be reached, or is unknown', async () => {
     rmSync(path.join(dir, 'device.token'))
     const a = run(stateHost(), call)

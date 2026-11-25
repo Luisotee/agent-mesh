@@ -6,7 +6,7 @@ The app is a client of the daemon (`daemon/`). Everything it does to a host is a
 
 ## What the first version does
 
-Hosts (a daemon on this machine by its state dir, or a TCP address with its device token), a connection per host with a banner and a log, and the lead-agent view: each run as a tree from its lead, workers and their read-only agents under it, each row with its role, a plain status sentence, repo and model, and a state icon whose shape differs by state. It starts runs, spawns agents, messages and stops them. Terminals, plans, questions, reports, settings, notifications and the tray come in the PRs stacked on this one (`TODO.md`).
+Hosts (a daemon on this machine by its state dir, or a loopback TCP address with its device token: plain HTTP, so never a remote address until the connection is encrypted), a connection per host with a banner and a log, and the lead-agent view: each run as a tree from its lead, workers and their read-only agents under it, each row with its role, a plain status sentence, repo and model, and a state icon whose shape differs by state. It starts runs, spawns agents, messages and stops them. Terminals, plans, questions, reports, settings, notifications and the tray come in the PRs stacked on this one (`TODO.md`).
 
 ## Layout
 

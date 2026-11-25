@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
 import { Input, Select, Textarea } from '@/components/ui/input'
-import { useApp, useHostState } from '@/context'
+import { useHostState } from '@/context'
 import { knownRepos } from '@/derive'
 import { AgentRole } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
@@ -16,7 +16,6 @@ function message(e: unknown): string {
 
 /** StartRun: a run is a title; its agents come after. */
 export function NewRunDialog({ host }: { host: HostRuntime }) {
-  const app = useApp()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
@@ -26,10 +25,9 @@ export function NewRunDialog({ host }: { host: HostRuntime }) {
     setBusy(true)
     setError('')
     try {
-      const { run } = await startRun(host.client, title.trim())
+      await startRun(host.client, title.trim())
       setOpen(false)
       setTitle('')
-      if (run) app.selectHost(host.info.id)
     } catch (err) {
       setError(message(err))
     } finally {
@@ -68,7 +66,8 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
   const [open, setOpen] = useState(false)
   const [repo, setRepo] = useState('')
   const [slug, setSlug] = useState('')
-  const [role, setRole] = useState<AgentRole>(hasLead ? AgentRole.WORKER : AgentRole.ROOT)
+  const defaultRole = hasLead ? AgentRole.WORKER : AgentRole.ROOT
+  const [role, setRole] = useState<AgentRole>(defaultRole)
   const [kind, setKind] = useState('claude')
   const [model, setModel] = useState('')
   const [task, setTask] = useState('')
@@ -91,7 +90,14 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
     }
   }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        // A run's first agent is its lead, every later one a worker, whatever the last spawn was.
+        if (o) setRole(defaultRole)
+        setOpen(o)
+      }}
+    >
       <DialogTrigger render={trigger} />
       <DialogContent title="Add an agent" description="Starts the CLI in a new git worktree of the repo, on a branch of this run.">
         <form onSubmit={submit} className="flex flex-col gap-3">

@@ -93,4 +93,19 @@ describe('bridgeFetch', () => {
     await (await q).body!.cancel()
     expect(c.state.aborted).toBe(true)
   })
+
+  it('ignores events that arrive after the request was cancelled', async () => {
+    const b = fakeBridge()
+    const ctl = new AbortController()
+    const p = bridgeFetch(b, 'h')(post().url, { ...post(), signal: ctl.signal })
+    await new Promise((r) => setTimeout(r, 0))
+    b.state.emit({ type: 'head', status: 200, headers: {} })
+    const res = await p
+    ctl.abort()
+    expect(() => {
+      b.state.emit({ type: 'data', chunk: new Uint8Array([1]) })
+      b.state.emit({ type: 'end' })
+    }).not.toThrow()
+    await expect(res.arrayBuffer()).rejects.toThrow()
+  })
 })

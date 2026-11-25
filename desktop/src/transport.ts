@@ -19,11 +19,17 @@ export function bridgeFetch(api: Pick<DesktopApi, 'request'>, hostId: string): t
     return new Promise<Response>((resolve, reject) => {
       let controller!: ReadableStreamDefaultController<Uint8Array>
       let headed = false
+      // Set once the body is closed, errored or cancelled: an event still in flight must not touch it.
+      let closed = false
       const stream = new ReadableStream<Uint8Array>({
         start: (c) => (controller = c),
-        cancel: () => abort(),
+        cancel: () => {
+          closed = true
+          abort()
+        },
       })
       const onEvent = (e: BridgeEvent) => {
+        if (closed) return
         switch (e.type) {
           case 'head':
             headed = true
@@ -33,9 +39,11 @@ export function bridgeFetch(api: Pick<DesktopApi, 'request'>, hostId: string): t
             controller.enqueue(e.chunk)
             break
           case 'end':
+            closed = true
             controller.close()
             break
           case 'error': {
+            closed = true
             const err = bridgeError(e.code, e.message)
             if (headed) controller.error(err)
             else reject(err)
@@ -44,6 +52,8 @@ export function bridgeFetch(api: Pick<DesktopApi, 'request'>, hostId: string): t
       }
       const abort = api.request(hostId, { method: req.method, path: url.pathname, headers, body }, onEvent)
       const onAbort = () => {
+        if (closed) return
+        closed = true
         abort()
         const err = new ConnectError('the request was cancelled', Code.Canceled)
         if (headed) controller.error(err)
@@ -63,8 +73,6 @@ export function bridgeError(code: BridgeErrorCode, message: string): ConnectErro
     case 'unknown-host':
     case 'refused':
       return new ConnectError(message, Code.FailedPrecondition)
-    case 'unreachable':
-      return new ConnectError(message, Code.Unavailable)
     default:
       return new ConnectError(message, Code.Unavailable)
   }

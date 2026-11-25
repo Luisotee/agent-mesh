@@ -75,6 +75,7 @@ export class HostConnection {
   private retryTimer?: unknown
   private beatTimer?: unknown
   private beaten = false
+  private ready = false
 
   constructor(private readonly o: ConnOptions) {
     this.t = o.timers ?? realTimers
@@ -92,18 +93,21 @@ export class HostConnection {
 
   stop(): void {
     this.running = false
+    this.ready = false
+    this.attempt = 0
     this.gen++
     this.teardown()
   }
 
   /** Try again now: after a stop for the token or config, or to skip a backoff wait. */
   retryNow(): void {
-    if (!this.running) return
+    if (!this.running || this.ready) return
     this.attempt = 0
     void this.connect()
   }
 
   private teardown(): void {
+    this.ready = false
     this.abort?.abort()
     this.abort = undefined
     if (this.retryTimer !== undefined) this.t.clearTimeout(this.retryTimer)
@@ -128,6 +132,7 @@ export class HostConnection {
     }
     if (gen !== this.gen) return
     this.o.log(`connected to ${hello.daemonId} (instance ${hello.instanceId}, ${hello.version})`)
+    this.ready = true
     this.o.onState({ kind: 'ready', hello })
     this.beatTimer = this.t.setInterval(() => void this.beat(gen, ctl), this.heartbeatMs)
     void this.follow(gen, ctl)

@@ -16,6 +16,16 @@ const ALLOWED_PATH = /^\/agentmesh\.v1\.MeshService\/[A-Za-z]+$/
 /** The only request headers forwarded; the token and the host header are main's. */
 const FORWARDED = /^(content-type|accept|connect-[a-z-]+)$/i
 
+/** The renderer is untrusted: check the shape of a request before reading it. */
+export function wellFormed(req: unknown): req is BridgeRequest {
+  if (typeof req !== 'object' || req === null) return false
+  const r = req as Record<string, unknown>
+  if (typeof r.method !== 'string' || typeof r.path !== 'string') return false
+  if (typeof r.headers !== 'object' || r.headers === null) return false
+  if (!Object.values(r.headers).every((v) => typeof v === 'string')) return false
+  return r.body === undefined || r.body instanceof Uint8Array
+}
+
 export function allowed(req: BridgeRequest): boolean {
   return req.method === 'POST' && ALLOWED_PATH.test(req.path)
 }
@@ -40,7 +50,8 @@ class BridgeError extends Error {
 export async function resolve(h: StoredHost): Promise<Target> {
   if (h.kind === 'tcp') {
     const i = h.address.lastIndexOf(':')
-    return { host: h.address.slice(0, i), port: Number(h.address.slice(i + 1)), token: h.token }
+    // An IPv6 literal is bracketed in the address and bare for http.request.
+    return { host: h.address.slice(0, i).replace(/^\[(.*)\]$/, '$1'), port: Number(h.address.slice(i + 1)), token: h.token }
   }
   let token: string
   try {
@@ -69,6 +80,10 @@ export function forward(
     fail('unknown-host', 'no such host')
     return () => {}
   }
+  if (!wellFormed(req)) {
+    fail('refused', 'malformed request')
+    return () => {}
+  }
   if (!allowed(req)) {
     fail('refused', `the bridge forwards only registry calls, not ${req.method} ${req.path}`)
     return () => {}
@@ -90,11 +105,12 @@ export function forward(
       })
       abort = () => out.destroy()
       out.on('response', (res) => {
+        if (done) return
         const h: Record<string, string> = {}
         for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) h[k] = Array.isArray(v) ? v.join(', ') : v
         emit({ type: 'head', status: res.statusCode ?? 0, headers: h })
         res.on('data', (chunk: Buffer) => {
-          if (!done) emit({ type: 'data', chunk: new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength) })
+          if (!done) emit({ type: 'data', chunk: new Uint8Array(chunk) })
         })
         res.on('end', () => finish({ type: 'end' }))
         res.on('error', (e) => fail('failed', e.message))

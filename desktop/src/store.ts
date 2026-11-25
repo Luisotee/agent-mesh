@@ -85,6 +85,10 @@ function applyEvent(s: HostState, e: Event): HostState {
       }
       return { ...next, agents: { ...s.agents, [a.id]: changed } }
     }
+    case 'agentAdopted': {
+      const a = s.agents[e.agentId]
+      return a ? { ...next, agents: { ...s.agents, [a.id]: { ...a, terminalId: p.value.terminalId } } } : next
+    }
     default:
       return next
   }

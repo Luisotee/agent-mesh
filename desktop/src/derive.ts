@@ -1,4 +1,4 @@
-import { AgentRole, AgentState, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentState, RunStatus, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
 
 export interface TreeNode {
   agent: Agent
@@ -51,7 +51,7 @@ export function buildTrees(runs: Record<string, Run>, agents: Record<string, Age
   return trees.sort(
     (a, b) =>
       Number(b.needsInput > 0) - Number(a.needsInput > 0) ||
-      Number(a.run.status === 2) - Number(b.run.status === 2) ||
+      Number(a.run.status === RunStatus.CLOSED) - Number(b.run.status === RunStatus.CLOSED) ||
       runTime(b.run) - runTime(a.run),
   )
 }

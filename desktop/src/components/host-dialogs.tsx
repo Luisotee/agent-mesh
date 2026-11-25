@@ -37,7 +37,7 @@ export function AddHostForm({ onDone }: { onDone?: () => void }) {
       <Field label="How to reach it">
         <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
           <option value="state-dir">A daemon on this machine (its state dir)</option>
-          <option value="tcp">An address (loopback, VPN) with its token</option>
+          <option value="tcp">A loopback address with its token</option>
         </Select>
       </Field>
       {kind === 'state-dir' ? (
@@ -46,7 +46,7 @@ export function AddHostForm({ onDone }: { onDone?: () => void }) {
         </Field>
       ) : (
         <>
-          <Field label="Address" hint="host:port of meshd's --tcp listener.">
+          <Field label="Address" hint="host:port of meshd's --tcp listener. Loopback only: the token travels unencrypted until the connection is.">
             <Input required value={address} onChange={(e) => setAddress(e.target.value)} placeholder="127.0.0.1:7777" />
           </Field>
           <Field label="Device token" hint="Stored on this machine in the app's data folder, readable only by you.">

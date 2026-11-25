@@ -29,7 +29,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     runs: { r1: create(RunSchema, { id: 'r1', title: 'ship it', status: RunStatus.OPEN }) },
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
   })
-  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async () => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async () => ({})) }
+  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async () => ({})) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection } as unknown as HostRuntime
   const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn() } as unknown as DesktopApi
@@ -150,5 +150,26 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: 'rel' } })
     await userEvent.click(screen.getByRole('button', { name: 'Add host' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/^the state dir must be an absolute path$/)
+  })
+})
+
+describe('SpawnDialog', () => {
+  it('defaults to a lead for a run without one and a worker after, and sends what was typed', async () => {
+    const { host, wrap, client } = fixture()
+    host.store.setState({ agents: {} })
+    const { SpawnDialog } = await import('./components/spawn-dialogs')
+    const trigger = <button type="button">add</button>
+    render(wrap(<SpawnDialog host={host} runId="r1" trigger={trigger} />))
+    await userEvent.click(screen.getByRole('button', { name: 'add' }))
+    expect(screen.getByLabelText('Role')).toHaveValue(String(AgentRole.ROOT))
+    await userEvent.type(screen.getByLabelText('Repository'), '/p/app')
+    await userEvent.type(screen.getByLabelText('Slug'), 'lead')
+    await userEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
+    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', repo: '/p/app', slug: 'lead', role: AgentRole.ROOT, kind: 'claude' })
+    // The lead now exists: reopening offers a worker.
+    host.store.setState({ agents: { lead: agent('lead', { role: AgentRole.ROOT }) } })
+    await userEvent.click(await screen.findByRole('button', { name: 'add' }))
+    expect(screen.getByLabelText('Role')).toHaveValue(String(AgentRole.WORKER))
   })
 })

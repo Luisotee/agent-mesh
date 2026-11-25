@@ -190,6 +190,17 @@ describe('HostConnection', () => {
     expect(last(t.states)).toMatchObject({ kind: 'stopped', reason: 'incompatible' })
   })
 
+  it('retryNow leaves a healthy connection alone', async () => {
+    const t = setup()
+    t.conn.start()
+    await flush()
+    t.conn.retryNow()
+    await flush()
+    expect(t.streams).toHaveLength(1)
+    expect(t.calls.hello).toBe(1)
+    t.conn.stop()
+  })
+
   it('ignores a late answer of an older attempt', async () => {
     let release!: (h: ReturnType<typeof hello>) => void
     const t = setup({ hello: () => new Promise((r) => (release = r)) })

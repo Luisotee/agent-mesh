@@ -15,6 +15,16 @@ const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), proces
 
 const aborts = new Map<string, () => void>()
 
+/** Ends every host request a renderer has open (it reloaded or closed): its ids start over, and nobody reads the chunks. */
+function abortAll(senderId: number): void {
+  for (const [key, abort] of aborts) {
+    if (key.startsWith(`${senderId}:`)) {
+      abort()
+      aborts.delete(key)
+    }
+  }
+}
+
 function wire(): void {
   ipcMain.on('hosts:fixed', (e) => {
     e.returnValue = hosts.fixed
@@ -22,7 +32,8 @@ function wire(): void {
   ipcMain.handle('hosts:list', () => hosts.all().map(toInfo))
   ipcMain.handle('hosts:add', async (_e, n: NewHost) => toInfo(await hosts.add(n)))
   ipcMain.handle('hosts:remove', (_e, id: string) => hosts.remove(id))
-  ipcMain.on('bridge:request', (e, id: string, hostId: string, req: BridgeRequest) => {
+  ipcMain.on('bridge:request', (e, id: unknown, hostId: unknown, req: BridgeRequest) => {
+    if (typeof id !== 'string' || typeof hostId !== 'string') return
     const key = `${e.sender.id}:${id}`
     const emit = (ev: BridgeEvent) => {
       if (!e.sender.isDestroyed()) e.sender.send('bridge:event', id, ev)
@@ -30,7 +41,8 @@ function wire(): void {
     }
     aborts.set(key, forward(hosts.get(hostId), req, emit))
   })
-  ipcMain.on('bridge:abort', (e, id: string) => {
+  ipcMain.on('bridge:abort', (e, id: unknown) => {
+    if (typeof id !== 'string') return
     const key = `${e.sender.id}:${id}`
     aborts.get(key)?.()
     aborts.delete(key)
@@ -56,6 +68,12 @@ function createWindow(): BrowserWindow {
   // The app is one page: no navigation, no new windows.
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  const wc = win.webContents
+  const id = wc.id
+  wc.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) abortAll(id)
+  })
+  wc.once('destroyed', () => abortAll(id))
   void win.loadFile(path.join(here, '../../dist/index.html'))
   return win
 }

@@ -59,7 +59,14 @@ export class Hosts {
       if (!path.isAbsolute(n.path)) throw new Error('the state dir must be an absolute path')
       host = { id: randomUUID(), name, kind: 'state-dir', path: n.path }
     } else {
-      if (!/^[^\s:]+:\d{1,5}$/.test(n.address)) throw new Error('the address must be host:port')
+      const m = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]):(\d{1,5})$/.exec(n.address)
+      if (!m) {
+        // The bridge speaks plain HTTP with a bearer token: only to this machine until the connection is encrypted
+        // (docs/apps.md, "Reaching a host"). meshd's own --tcp listener is loopback only too.
+        throw new Error('the address must be a loopback host:port (127.0.0.1:7777, localhost:7777 or [::1]:7777)')
+      }
+      const port = Number(m[2])
+      if (port < 1 || port > 65535) throw new Error('the port must be 1-65535')
       if (!n.token.trim()) throw new Error('give the host its device token')
       host = { id: randomUUID(), name, kind: 'tcp', address: n.address, token: n.token.trim() }
     }
@@ -74,11 +81,19 @@ export class Hosts {
     await this.save()
   }
 
-  private async save(): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify(this.list, null, 2), { mode: 0o600 })
-    await rename(tmp, this.file)
+  private saving: Promise<void> = Promise.resolve()
+
+  /** Saves run one at a time, each writing the list as it is then, so overlapping adds can't clobber one another. */
+  private save(): Promise<void> {
+    const run = async () => {
+      await mkdir(path.dirname(this.file), { recursive: true })
+      const tmp = `${this.file}.tmp`
+      await writeFile(tmp, JSON.stringify(this.list, null, 2), { mode: 0o600 })
+      await rename(tmp, this.file)
+    }
+    const next = this.saving.then(run, run)
+    this.saving = next.catch(() => {})
+    return next
   }
 }
 
