@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 
 /** The shape that stands for a state, so colour is never the only difference. */
-enum class StateShape { Spinner, Triangle, Ring, Check, Cross, Dashed, Dot }
+enum class StateShape { Spinner, Triangle, Ring, Check, Cross, Dashed, Dot, Pause }
 
 fun shapeOf(state: AgentState): StateShape = when (state) {
     AgentState.AGENT_STATE_WORKING -> StateShape.Spinner
@@ -36,6 +36,7 @@ fun shapeOf(state: AgentState): StateShape = when (state) {
     AgentState.AGENT_STATE_IDLE -> StateShape.Ring
     AgentState.AGENT_STATE_EXITED -> StateShape.Check
     AgentState.AGENT_STATE_UNKNOWN -> StateShape.Dashed
+    AgentState.AGENT_STATE_RETIRED -> StateShape.Pause
     else -> StateShape.Dot
 }
 
@@ -44,7 +45,7 @@ fun colorOf(state: AgentState, exitCode: Int, detail: String, c: dev.agentmesh.a
     AgentState.AGENT_STATE_NEEDS_INPUT -> c.needs
     AgentState.AGENT_STATE_IDLE -> c.idle
     AgentState.AGENT_STATE_EXITED -> if (exitCode == 0 && detail != "lost") c.done else c.failed
-    AgentState.AGENT_STATE_UNKNOWN -> c.unknown
+    AgentState.AGENT_STATE_UNKNOWN, AgentState.AGENT_STATE_RETIRED -> c.unknown
     else -> c.idle
 }
 
@@ -57,7 +58,7 @@ private fun reducedMotion(): Boolean {
 
 /**
  * An agent's state as an icon: working spins, needs-you is a triangle, idle a ring, finished a check (a cross when
- * it failed), unknown a dashed ring, starting a dot. The shapes differ, and stay static under reduced motion.
+ * it failed), unknown a dashed ring, retired a ring with a pause mark, starting a dot. The shapes differ, and stay static under reduced motion.
  */
 @Composable
 fun StateIcon(state: AgentState, exitCode: Int, detail: String, description: String, size: Dp = 20.dp, modifier: Modifier = Modifier) {
@@ -83,6 +84,11 @@ private fun DrawScope.drawShape(shape: StateShape, color: Color, angle: Float) {
             drawArc(color, 0f, 100f, false, Offset(inset, inset), box, style = stroke)
         }
         StateShape.Ring -> drawCircle(color, radius = box.width / 2, style = stroke)
+        StateShape.Pause -> {
+            drawCircle(color, radius = box.width / 2, style = stroke)
+            drawLine(color, Offset(w * 0.4f, w * 0.33f), Offset(w * 0.4f, w * 0.67f), strokeWidth = w * 0.1f, cap = StrokeCap.Round)
+            drawLine(color, Offset(w * 0.6f, w * 0.33f), Offset(w * 0.6f, w * 0.67f), strokeWidth = w * 0.1f, cap = StrokeCap.Round)
+        }
         StateShape.Dot -> drawCircle(color, radius = w * 0.22f)
         StateShape.Dashed -> drawCircle(color, radius = box.width / 2, style = Stroke(width = w * 0.12f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(w * 0.14f, w * 0.12f))))
         StateShape.Triangle -> {

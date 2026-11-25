@@ -23,8 +23,7 @@ class NoticeActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         container.scope.launch {
             try {
-                // Everything, the host's runtime included, within the time a broadcast may take (about 10 s).
-                withTimeout(8_000) {
+                withTimeout(timeoutMs) {
                     val rt = container.runtimes.first { it.containsKey(host) }[host]!!
                     val name = rt.state.value.agents[agent]?.name ?: "the agent"
                     try {
@@ -41,10 +40,19 @@ class NoticeActionReceiver : BroadcastReceiver() {
                     }
                 }
             } catch (e: TimeoutCancellationException) {
-                container.notifier.showError(host, agent, "Couldn't reach the host", "Open the app to ${if (reply == null) "approve the plan" else "answer"} there.")
+                val what = if (reply == null) "approve the plan" else "answer"
+                // A host that is up but whose messages didn't load is a different problem from one that can't be reached.
+                val why = container.runtimes.value[host]?.waitingReason(agent)
+                if (why != null) container.notifier.showError(host, agent, "Couldn't $what", why)
+                else container.notifier.showError(host, agent, "Couldn't reach the host", "Open the app to $what there.")
             } finally {
                 pending.finish()
             }
         }
+    }
+
+    companion object {
+        /** Everything, the host's runtime included, within the time a broadcast may take (about 10 s). A test shortens it. */
+        @JvmStatic @androidx.annotation.VisibleForTesting var timeoutMs = 8_000L
     }
 }

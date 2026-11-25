@@ -118,4 +118,20 @@ class StoreTest {
         // A snapshot forgets deliveries nobody asked for.
         assertTrue(applyFrame(applyFrame(HostState(), delivered(1, "zz")), snapshot(emptyList(), emptyList())).earlyDeliveries.isEmpty())
     }
+
+    @Test fun `a run that starts while connected has nothing to load, its messages are complete as events bring them`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        assertTrue(s.messagesLoaded.isEmpty())
+        s = applyFrame(s, runStarted(1, run("r2")))
+        assertEquals(setOf("r2"), s.messagesLoaded)
+        // A run the snapshot already had is not made "loaded" by its start event arriving again.
+        assertEquals(setOf("r2"), applyFrame(s, runStarted(2, run("r1"))).messagesLoaded)
+    }
+
+    @Test fun `too many early deliveries drop the oldest, not the newest`() {
+        var s = HostState()
+        for (i in 1..205) s = applyFrame(s, delivered(i.toLong(), "m$i", at = 6_000))
+        assertEquals(200, s.earlyDeliveries.size)
+        assertFalse("m1" in s.earlyDeliveries); assertTrue("m205" in s.earlyDeliveries)
+    }
 }

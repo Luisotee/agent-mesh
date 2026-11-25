@@ -78,6 +78,10 @@ class NoticeTest {
         assertEquals("2*3 and 4*5", brief("2*3 and 4*5"))
         assertEquals("a *star and a ` tick", brief("a *star and a ` tick"))
         assertEquals("run it", brief("```sh\nrun it\n```"))
+        // A huge body isn't scanned whole.
+        val t0 = System.nanoTime()
+        assertEquals(200, brief("a *b* ".repeat(500_000)).length)
+        assertTrue("took ${(System.nanoTime() - t0) / 1_000_000} ms", System.nanoTime() - t0 < 2_000_000_000L)
     }
 
     private fun setting(key: String, json: String) =

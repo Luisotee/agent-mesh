@@ -119,4 +119,33 @@ class MessageLoaderTest {
         advanceTimeBy(120_000); runCurrent()
         assertEquals(6, dead.listCalls.size)
     }
+
+    @Test fun `a load asked for while one runs is not lost`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(m("m1", 1)))); listGate = gate }
+        val rig = Rig(api, backgroundScope)
+        rig.loader.load(listOf(run("r1"))); runCurrent()
+        // The snapshot of a new connection arrives while the first listing is on the wire.
+        rig.loader.load(listOf(run("r1"))); runCurrent()
+        assertEquals(emptySet<String>(), rig.state.messagesLoaded)
+        gate.complete(Unit); runCurrent()
+        assertEquals("the second request ran after the first", 2, api.listCalls.size)
+        assertEquals(setOf("r1"), rig.state.messagesLoaded)
+    }
+
+    @Test fun `a listing in flight when the daemon changed writes nothing`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(m("old", 1)))); listGate = gate }
+        val rig = Rig(api, backgroundScope)
+        rig.loader.load(listOf(run("r1"))); runCurrent()
+        rig.loader.reset()
+        gate.complete(Unit); runCurrent()
+        assertEquals(emptySet<String>(), rig.state.messages.keys)
+        assertEquals(emptySet<String>(), rig.state.messagesLoaded)
+        // The new daemon's run loads from the start, and the old load's end doesn't disturb it.
+        api.pages = mapOf("r1" to listOf(listOf(m("new", 1))))
+        rig.loader.load(listOf(run("r1"))); runCurrent()
+        assertEquals(setOf("new"), rig.state.messages.keys)
+        assertEquals(listOf("", ""), api.listCalls.map { it.second })
+    }
 }

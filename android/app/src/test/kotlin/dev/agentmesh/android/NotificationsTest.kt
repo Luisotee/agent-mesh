@@ -201,4 +201,39 @@ class NotificationsTest {
         rt.onFrame(messageSent(2, message("p10", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = now), at = now))
         waitFor("the notification") { manager.allNotifications.isNotEmpty() }
     }
+
+    @Test fun `a timeout on a host that is up says the messages didn't load, not that the host is unreachable`() {
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(plan))); failListings = 1_000 }
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = run {
+            var r: HostRuntime? = null
+            val deadline = System.currentTimeMillis() + 5_000
+            while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
+            r!!
+        }
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(agent("lead", role = AgentRole.AGENT_ROLE_ROOT), agent("w1", parent = "lead", name = "shop-fix"))))
+        val was = NoticeActionReceiver.timeoutMs
+        NoticeActionReceiver.timeoutMs = 600
+        try {
+            app.sendBroadcast(Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_APPROVE).putExtra(EXTRA_HOST, host.id).putExtra(EXTRA_AGENT, "w1"))
+            waitFor("the error notification") { manager.allNotifications.isNotEmpty() }
+            val shown = manager.allNotifications.single()
+            assertEquals("Couldn't approve the plan", shown.extras.getString("android.title"))
+            assertTrue(shown.extras.getString("android.text")!!, shown.extras.getString("android.text")!!.contains("messages"))
+        } finally { NoticeActionReceiver.timeoutMs = was }
+        assertEquals(emptyList<String>(), api.approved)
+    }
+
+    @Test fun `Approve with nothing waiting says nothing was sent, instead of vanishing`() {
+        api = RecordingApi()
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val (hostId, _) = readyHost()
+        app.sendBroadcast(Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_APPROVE).putExtra(EXTRA_HOST, hostId).putExtra(EXTRA_AGENT, "w1"))
+        waitFor("the error notification") { manager.allNotifications.isNotEmpty() }
+        val shown = manager.allNotifications.single()
+        assertTrue(shown.extras.getString("android.text")!!.endsWith("nothing was sent."))
+        assertEquals(emptyList<String>(), api.approved)
+    }
 }

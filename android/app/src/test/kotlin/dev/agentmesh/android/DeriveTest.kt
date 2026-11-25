@@ -101,4 +101,19 @@ class DeriveTest {
         assertEquals(2, revRow.depth); assertEquals(listOf(true), revRow.guides); assertEquals(true, revRow.last)
         assertEquals(true, w2Row.last)
     }
+
+    @Test fun `a retired agent's unanswered plan still waits on the user, since an answer wakes it`() {
+        val retired = w1.toBuilder().setState(AgentState.AGENT_STATE_RETIRED).build()
+        val waiting = waitingOnYou(mapOf("r1" to run("r1")), byId(lead, retired), listOf(plan).associateBy { it.id })
+        assertEquals(listOf("w1"), waiting.map { it.agent.id })
+        assertEquals("Retired: stopped on purpose, a message wakes it", statusSentence(retired))
+    }
+
+    @Test fun `a retired agent has an icon of its own`() {
+        val st = AgentState.AGENT_STATE_RETIRED
+        assertEquals(dev.agentmesh.android.ui.StateShape.Pause, dev.agentmesh.android.ui.shapeOf(st))
+        for (other in listOf(AgentState.AGENT_STATE_STARTING, AgentState.AGENT_STATE_UNKNOWN, AgentState.AGENT_STATE_IDLE)) {
+            assertTrue(dev.agentmesh.android.ui.shapeOf(other) != dev.agentmesh.android.ui.shapeOf(st))
+        }
+    }
 }
