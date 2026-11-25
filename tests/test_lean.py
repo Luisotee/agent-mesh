@@ -102,12 +102,17 @@ def test_what_an_agent_added_back_stays_in_and_a_tool_turns_the_snapshot_off(mes
     assert "AskUserQuestion" not in deny_rules(mesh.claude_launch_argv(run, "repo-fix-typo", user_review))
 
 
-def test_the_compaction_turn_runs_lean_too(mesh, lean):
+def test_the_compaction_turn_runs_lean_too(mesh, run, lean, cli):
     argv = mesh.CLIS["claude"].compact_argv("s-1", "opus", "/compact x", entry_for(lean))
     assert "Workflow" in deny_rules(argv)
     settings = json.loads(argv[argv.index("--settings") + 1])
     assert settings["promptCacheTtl"] == "5m" and settings["syncClaudeAiSkills"] is False
     assert "--mcp-config" not in argv and argv[-1] == "/compact x"
+    # a stopped worker's compaction: its own MCP servers, so the turn reads the prefix it cached
+    mesh.compact_stopped(run, "repo-fix-typo", entry_for(lean, model="opus"), "s-1", "keep X", "approve")
+    argv = cli.calls[-1]["argv"]
+    assert "--strict-mcp-config" in argv and mcp_servers(argv[argv.index("--mcp-config") + 1]) == {"sentry", "approved"}
+    assert json.loads(argv[argv.index("--settings") + 1])["env"] == {"ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
 
 
 def test_approve_reopens_a_planner_lean_without_its_edit_rules(mesh, fake, run, lean, capsys):
@@ -131,13 +136,15 @@ def test_a_resumed_worker_keeps_what_it_added(mesh):
 def test_retire_and_stop_remove_the_private_files(mesh, fake, run, lean):
     mesh.claude_launch_argv(run, "repo-fix-typo", entry_for(lean))
     path = mesh.mcp_file(run, "repo-fix-typo")
-    mesh.write_private(mesh.root_settings_file(run), "{}")
+    root = mesh.root_files("w1:p1") / "settings.json"
+    mesh.write_private(root, "{}")
     assert path.exists()
     mesh.retire_worker(run, "repo-fix-typo", mesh.load_run(run)["agents"]["repo-fix-typo"])
-    assert not path.exists() and mesh.root_settings_file(run).exists()
+    assert not path.exists()
     mesh.claude_launch_argv(run, "repo-two", entry_for(lean))
     mesh.remove_private(run)
-    assert not list((mesh.run_dir(run) / "mcp").glob("*.json")) and not mesh.root_settings_file(run).exists()
+    assert not list((mesh.run_dir(run) / "mcp").glob("*.json"))
+    assert root.exists()  # the root's Claude runs on it past the run, and the next run's reset reads it
 
 
 # ── tools on demand ──────────────────────────────────────────────────────
@@ -161,6 +168,18 @@ def test_a_worker_adds_tools_back_and_mesh_reopens_it_after_its_turn(mesh, run, 
     assert reopens == [(run, "repo-fix-typo", "publish the page")]
     assert mesh.live_wait(mesh.read_log(run), "repo-fix-typo")  # its Stop hook lets this turn end
     assert "end your turn now" in json.loads(capsys.readouterr().out)["then"]
+
+
+def test_a_tools_add_that_cant_start_its_reopen_records_nothing(mesh, run, lean, monkeypatch, capsys):
+    claude_worker(mesh, run, repo=str(lean), cwd=str(lean))
+
+    def busy(*a):
+        raise mesh.MeshError("a reopen of repo-fix-typo with added tools is already pending")
+    monkeypatch.setattr(mesh, "start_tools_reopen", busy)
+    assert mesh.main(["tools", "add", "Artifact", "--as", "repo-fix-typo"]) == 1
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert "added" not in entry and "tools_added" not in entry
+    assert not mesh.live_wait(mesh.read_log(run), "repo-fix-typo")
 
 
 def test_tools_add_refuses_what_isnt_cut(mesh, run, lean, capsys):
@@ -241,7 +260,7 @@ def test_relaunch_plan_merges_the_users_flags_into_one_settings_file(mesh, run, 
     argv = plan["argv"]
     assert "--resume" not in argv and argv.count("--settings") == 1 and argv.count("--disallowedTools") == 1
     assert deny_rules(argv)[0] == "Bash(rm:*)" and "Artifact" in deny_rules(argv) and "AskUserQuestion" not in argv
-    path = mesh.root_settings_file(run)
+    path = mesh.root_files("w1:p1") / "settings.json"
     settings = json.loads(path.read_text())
     assert settings["model"] == "opus" and settings["env"] == {"ALIAS_SET": "yes", "A": "1",
                                                                "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
@@ -261,9 +280,14 @@ def test_a_root_relaunched_before_gets_back_what_it_added(mesh, run, lean, monke
     plan, _ = mesh.relaunch_plan(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], "new1")
     rules = deny_rules(plan["argv"])
     assert "Artifact" not in rules and "Bash(rm:*)" in rules and "Workflow" in rules
-    settings = json.loads(mesh.root_settings_file(run).read_text())
+    settings = json.loads((mesh.root_files("w1:p1") / "settings.json").read_text())
     assert "dataviz" not in settings["skillOverrides"] and settings["model"] == "opus"
     assert settings["env"]["ALIAS_SET"] == "yes"  # what the alias set, kept from the first relaunch
+    # a later run (its own run dir) still knows it, and without the origin record the merged file stands in
+    (mesh.root_files("w1:p1") / "origin.json").unlink()
+    plan, why = mesh.relaunch_plan("mother", "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], "new2")
+    assert plan and "Bash(rm:*)" in deny_rules(plan["argv"]) and "Artifact" not in deny_rules(plan["argv"])
+    assert json.loads((mesh.root_files("w1:p1") / "settings.json").read_text())["env"]["ALIAS_SET"] == "yes"
 
 
 def test_a_root_already_running_lean_is_cleared_not_relaunched(mesh, run, lean, monkeypatch, tmp_path):
@@ -389,6 +413,12 @@ def test_the_keeper_runs_until_it_starts_a_reset_or_the_run_stops(mesh, run, mon
     assert mesh.ensure_root_keeper(run) is None
 
 
+def test_the_keeper_ends_once_its_roots_pane_is_gone(mesh, fake, run, monkeypatch):
+    monkeypatch.setattr(mesh, "maybe_autoreset", lambda *a: pytest.fail("no root to reset"))
+    fake.on("pane", "process-info", error="pane_not_found")
+    assert mesh.run_root_keeper(run, sleep=lambda s: None) == 0
+
+
 def test_the_keeper_holds_its_lock(mesh, run):
     import fcntl
     with mesh.keeper_lock_path(run).open("a") as handle:
@@ -464,6 +494,21 @@ def test_a_live_compaction_never_types_into_a_draft(mesh, fake, run, monkeypatch
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     result = mesh.compact_live_pane(run, "repo-fix-typo", entry, "s-1", "keep X", "followup")
     assert result["compacted"] is False and not fake.called("agent", "prompt")
+
+
+def test_a_follow_up_whose_background_copy_fails_is_stored_for_a_resume(mesh, fake, run, monkeypatch, capsys):
+    claude_worker(mesh, run, cwd="/wt/fix", session="s-1", view="bg", bg_id="b1", model="opus", effort="high")
+    transcript(mesh, "/wt/fix", "s-1", 300_000)
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="r.md")
+
+    def swap(*a, **k):
+        err = mesh.MeshError("repo-fix-typo was not reopened on opus (`claude --bg` did not start it)")
+        err.stored = mesh.record(run, "repo-lead", "repo-fix-typo", "answer", "x")
+        raise err
+    monkeypatch.setattr(mesh, "swap_model", swap)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Fix it."]) == 2
+    assert "mesh resume repo-fix-typo" in json.loads(capsys.readouterr().out)["error"]
 
 
 @pytest.mark.parametrize("tokens, read_only, report, compacts", [

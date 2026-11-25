@@ -604,17 +604,19 @@ class ClaudeCli(Cli):
     def settings_argv(self, env: dict[str, str]) -> list[str]:
         return ["--settings", worker_settings(env, bg=False)]
 
-    def compact_argv(self, session: str, model: str, prompt: str, entry: dict | None = None) -> list[str]:
+    def compact_argv(self, session: str, model: str, prompt: str, entry: dict | None = None,
+                     mcp: Path | None = None) -> list[str]:
         # A one-off turn whose summary the resumed worker reads at once: a 5-minute cache is all it needs.
-        # A lean agent's tools and settings too (not its MCP servers: the turn calls none), so the conversation
-        # isn't handed back to its next launch with the full set recorded.
+        # A lean agent's tools, settings and MCP servers (`mcp`: its file) too, so the turn's prefix is the one
+        # the worker cached, and the conversation isn't handed back to its next launch with the full set.
         lean = lean_on() and entry is not None
         tools = lean_tools(entry) if lean else []
+        strict = lean and mcp is not None and mcp_mode(entry) != "inherit"
         return [claude_bin(), "-p", "--resume", session, "--model", model, "--dangerously-skip-permissions",
                 *(["--disallowedTools", *tools] if tools else []),
-                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE,
-                                          **({k: v for k, v in lean_settings(entry).items() if k != "env"}
-                                             if lean else {})}), prompt]
+                *(["--strict-mcp-config", "--mcp-config", str(mcp)] if strict else []),
+                "--settings", json.dumps({"promptCacheTtl": SHORT_CACHE, **(lean_settings(entry) if lean else {})}),
+                prompt]
 
     def lookup_session(self, run_id: str, name: str, entry: dict, pinned_only: bool = False) -> str | None:
         return claude_session(name, entry["cwd"]) if entry.get("cwd") else None
@@ -3671,8 +3673,7 @@ def write_private(path: Path, text: str) -> None:
 def remove_private(run_id: str, name: str | None = None) -> None:
     """Remove an agent's MCP config (`name`), or every one of the run and the root's settings file: they copy
     servers' environment secrets, so none outlives its agent (retire) or its run (stop)."""
-    paths = [mcp_file(run_id, name)] if name else [*(run_dir(run_id) / "mcp").glob("*.json"), root_settings_file(run_id),
-                                                   root_origin_file(run_id)]
+    paths = [mcp_file(run_id, name)] if name else list((run_dir(run_id) / "mcp").glob("*.json"))
     for path in paths:
         try:
             path.unlink()
@@ -3680,14 +3681,12 @@ def remove_private(run_id: str, name: str | None = None) -> None:
             pass
 
 
-def root_settings_file(run_id: str) -> Path:
-    return run_dir(run_id) / "root-settings.json"
-
-
-def root_origin_file(run_id: str) -> Path:
-    """What the root's own command line gave before mesh first relaunched it: its settings, the environment its
-    alias set and its deny list (private: they may hold secrets)."""
-    return run_dir(run_id) / "root-origin.json"
+def root_files(pane: str) -> Path:
+    """Where a relaunched root's files live, per pane rather than per run: its Claude outlives the run (and
+    `mesh stop`), and the next run's reset reads them. `settings.json` and `mcp.json` are what it runs with;
+    `origin.json` what its own command line gave before mesh first relaunched it (its settings, the environment its
+    alias set, its deny list). All private: they may hold secrets."""
+    return mesh_home() / "roots" / re.sub(r"[^A-Za-z0-9_.-]", "_", pane)
 
 
 def claude_launch_argv(run_id: str, name: str, entry: dict) -> list[str]:
@@ -4133,10 +4132,13 @@ def should_compact(mode: str, entry: dict, tokens: int | None, read_only: bool, 
     return tokens is not None and tokens > at * (2 if read_only and not peer else 1)
 
 
-def compact_conversation(entry: dict, session: str, model: str, focus: str) -> tuple[bool, str]:
-    """Compact a stopped worker's conversation headless, in its own directory, before it is reopened."""
+def compact_conversation(entry: dict, session: str, model: str, focus: str,
+                         mcp: Path | None = None) -> tuple[bool, str]:
+    """Compact a stopped worker's conversation headless, in its own directory, before it is reopened (`mcp`: the
+    MCP file of the lean agent it is, when it ran with one)."""
     try:
-        argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}", entry)
+        argv = cli(entry.get("kind")).compact_argv(session, model, f"/compact {focus}", entry,
+                                                    **({"mcp": mcp} if mcp else {}))
     except MeshError as exc:  # a CLI that compacts itself (Copilot, OpenCode)
         return False, str(exc)
     # No identity at all: the compaction turn must not message anyone, or pass for the root.
@@ -5821,7 +5823,10 @@ def compaction_logged(run_id: str, name: str, why: str | None, via: str, before:
 def compact_stopped(run_id: str, name: str, entry: dict, session: str, focus: str, why: str | None) -> dict:
     """Compact a stopped worker's conversation headless, on the model it ran on; never a failure."""
     before = context_tokens(entry, session)
-    ok, output = compact_conversation(entry, session, entry.get("model") or "", focus)
+    mcp = mcp_file(run_id, name) if entry.get("kind", "claude") == "claude" and lean_on() else None
+    if mcp:  # what it ran with: the same file its launch writes
+        write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
+    ok, output = compact_conversation(entry, session, entry.get("model") or "", focus, mcp)
     after = context_tokens(entry, session) if ok else None
     return compaction_logged(run_id, name, why, "headless", before, after, ok,
                              None if ok else f"compaction failed, so it goes on as it was: {output}")
@@ -5915,6 +5920,13 @@ def followup_compaction(run_id: str, me: str, to: str, mtype: str, body: str, st
     except SwapNotStarted as exc:
         print(f"mesh: {to} wasn't compacted before this follow-up ({exc})", file=sys.stderr)
         return None
+    except MeshError as exc:
+        if not getattr(exc, "stored", None):
+            raise
+        # Stopped and compacted, but its copy didn't start: the message is in its mailbox, and a resume reads it.
+        if stored:
+            stored()
+        return {"stored": str(exc.stored), "rung": False, "error": f"{exc}; `mesh resume {to}` reopens it to read it"}
     delivery = swap.pop("delivery", None)
     if delivery and stored:
         stored()
@@ -12461,25 +12473,32 @@ def cmd_tools(args: argparse.Namespace) -> int:
     if root and reset_pending(run_id):
         raise MeshError("a reset is already pending for this run: add them after it")
     added = sorted({n.split("@")[0] if k == "plugin" else n for n, k in kinds.items()})
-    with editing_run(run_id) as run:
+    before = {k: entry.get(k) for k in ADDED_KEYS}
+    with editing_run(run_id) as run:  # first: the reopen it starts launches from the entry
         e = run["agents"][me]
         e["added"] = sorted(set(e.get("added") or []) | set(added))
         if "tool" in kinds.values():
             e["tools_added"] = True  # the snapshot would keep it out: every later launch turns it off
         if "connectors" in kinds.values():
             e["mcp_all"] = True
+    try:
+        pid = (start_reset(run_id, me, args.next, None, via="tools", reopen=True) if root
+               else start_tools_reopen(run_id, me, args.next))
+    except BaseException:
+        with editing_run(run_id) as run:  # nothing will reopen it: as it was
+            e = run["agents"][me]
+            for key, value in before.items():
+                e.pop(key, None) if value is None else e.update({key: value})
+        raise
     log_event(run_id, "tools_added", name=me, added=added, kinds=sorted(set(kinds.values())))
-    if root:
-        pid = start_reset(run_id, me, args.next, None, via="tools", reopen=True)
-    else:
+    if not root:  # its Stop hook and the watch let this turn end; the reopen waits for it to
         parent = entry.get("parent") or me_parent(run_id, me)
         until = datetime.now(timezone.utc) + TOOLS_WAIT
         text = (f"Waiting until {until.astimezone():%H:%M} ({until.isoformat(timespec='seconds')}): mesh reopens "
                 f"me with {', '.join(added)} (`mesh tools add`) once this turn ends")
-        path = store_message(run_id, me, parent, "wait", text)  # its Stop hook and the watch let the turn end
+        path = store_message(run_id, me, parent, "wait", text)
         log_event(run_id, "send", sender=me, to=parent, type="wait", file=path.name,
                   until=until.isoformat(timespec="seconds"))
-        pid = start_tools_reopen(run_id, me, args.next)
     emit({"added": added, "pending": True, "pid": pid,
           "then": "end your turn now: once it has ended, mesh reopens this same conversation with them (its "
                   "context is written to the cache again once, cold), then rings you to carry on"
@@ -12617,13 +12636,21 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
     if not claude:
         return None, why
     parsed = parse_claude_argv(claude["argv"])
-    path = root_settings_file(run_id)
-    # A root mesh relaunched before runs on mesh's merged file and deny list: what the user's own command line
-    # gave is kept from that first relaunch (`root_origin_file`), so what it added since isn't denied again.
-    relaunched_before = parsed["settings"][-1:] == [str(path)]
+    folder = root_files(entry["pane"])
+    path = folder / "settings.json"
+    # A root mesh relaunched before (in this run or an earlier one) runs on mesh's merged file and deny list:
+    # what the user's own command line gave is kept from that first relaunch (`origin.json`), so what it added
+    # since isn't denied again. With no such record, its merged file stands in, less mesh's own deny list.
+    last = Path(parsed["settings"][-1]) if parsed["settings"] else None
+    relaunched_before = bool(last and last.name == "settings.json" and last.parent.parent == mesh_home() / "roots")
     if relaunched_before:
-        origin = read_json_object(root_origin_file(run_id))
-        user, env, user_deny = (origin.get("settings") or {}), (origin.get("env") or {}), (origin.get("deny") or [])
+        origin = read_json_object(last.parent / "origin.json")
+        if origin:
+            user, env, user_deny = (origin.get("settings") or {}), (origin.get("env") or {}), (origin.get("deny") or [])
+        else:
+            user, env = read_json_object(last), {}
+            mesh_tools = {*setting("claude.root_deny_tools"), *LEAN_DENY, *ROOT_LEAN_DENY}
+            user_deny = [t for t in parsed["deny"] if t not in mesh_tools]
     else:
         user, user_deny = {}, parsed["deny"]
         for value in parsed["settings"][-1:]:  # Claude Code keeps only the last one
@@ -12639,15 +12666,15 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
     text = json.dumps(settings, indent=1)
     previous = path.read_text() if path.exists() else None
     argv = [*parsed["kept"], *(["--disallowedTools", *tools] if tools else []), "--settings", str(path)]
+    mcp = folder / "mcp.json"
     if mcp_mode(entry) != "inherit":
-        mcp = mcp_file(run_id, root)
         argv += ["--strict-mcp-config", "--mcp-config", str(mcp)]
     if resume is None and parsed["settings"][-1:] == [str(path)] and previous == text \
             and set(parsed["deny"]) == set(tools) and ("--strict-mcp-config" in claude["argv"]) == (mcp_mode(entry) != "inherit"):
         return None, "already lean"
     write_private(path, text)
-    if not relaunched_before:
-        write_private(root_origin_file(run_id), json.dumps({"settings": user, "env": env, "deny": user_deny}))
+    if not relaunched_before or not (folder / "origin.json").exists():
+        write_private(folder / "origin.json", json.dumps({"settings": user, "env": env, "deny": user_deny}))
     if mcp_mode(entry) != "inherit":
         write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
     if resume:
@@ -12953,6 +12980,8 @@ def run_root_keeper(run_id: str, poll: float = AUTORESET_EVERY, sleep=time.sleep
             return 0
         try:
             run = load_run(run_id)
+            if pane_probe((run["agents"].get(run.get("root")) or {}).get("pane"), None) == "missing":
+                return 0  # its root's pane is gone: a run abandoned without `mesh stop`
             if maybe_autoreset(run_id, run, read_log(run_id)):
                 return 0
         except MeshError as exc:
