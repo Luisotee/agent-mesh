@@ -30,8 +30,24 @@ type reopenWorld struct {
 
 func startReopen(t *testing.T) *reopenWorld {
 	t.Helper()
-	w := &reopenWorld{state: filepath.Join(t.TempDir(), "state"), home: t.TempDir()}
-	w.argvLog = filepath.Join(t.TempDir(), "argv.jsonl")
+	// Its own folder, removed with retries after the terminal host is stopped: an agent's last hook (a spooled
+	// file) can land while a plain t.TempDir() is being removed, which fails the test for nothing.
+	root, err := os.MkdirTemp("", "reopen-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for try := 0; try < 100; try++ {
+			if os.RemoveAll(root) == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Errorf("could not remove %s", root)
+	})
+	w := &reopenWorld{state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	os.MkdirAll(w.home, 0o700)
+	w.argvLog = filepath.Join(root, "argv.jsonl")
 	w.agentsHarness = w.restart(t)
 	t.Cleanup(func() { stopTermHost(t, w.state) })
 	return w
