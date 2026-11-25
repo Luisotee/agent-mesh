@@ -1,0 +1,133 @@
+import { useState } from 'react'
+import { sendMessage, stopAgent } from '@/actions'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input, Select } from '@/components/ui/input'
+import { useHostState } from '@/context'
+import { ROLE_LABEL, statusSentence } from '@/derive'
+import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import type { HostRuntime } from '@/model'
+import { StateIcon } from './state-icon'
+
+const SEND_TYPES: Array<[MessageType, string]> = [
+  [MessageType.TASK, 'Task'],
+  [MessageType.ANSWER, 'Answer'],
+  [MessageType.INFO, 'Info'],
+]
+
+function when(t: Agent['lastActivity']): string {
+  return t ? new Date(Number(t.seconds) * 1000).toLocaleString() : 'never'
+}
+
+/** One agent: where it is, what it is doing, and the actions a person has on it (message it, stop it). */
+export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: string }) {
+  const agent = useHostState(host, (s) => s.agents[agentId])
+  const parent = useHostState(host, (s) => (agent?.parentId ? s.agents[agent.parentId] : undefined))
+  if (!agent) return <Empty>That agent isn't on this host any more.</Empty>
+  const facts: Array<[string, string]> = [
+    ['Repository', agent.repo],
+    ['Worktree', agent.worktree],
+    ['Branch', agent.branch],
+    ['CLI', [agent.kind, agent.model, agent.effort].filter(Boolean).join(' · ')],
+    ['Parent', parent ? parent.name : agent.parentId ? agent.parentId : 'started by you'],
+    ['Last activity', when(agent.lastActivity)],
+    ['Session', agent.sessionId || 'none yet'],
+    ['Id', agent.id],
+  ]
+  return (
+    <article aria-label={agent.name} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
+      <header className="flex items-start gap-3">
+        <span className="mt-1"><StateIcon agent={agent} className="size-5" /></span>
+        <div className="min-w-0 flex-1">
+          <h1 className="flex items-center gap-2 text-base font-semibold">
+            {agent.name} <Badge>{ROLE_LABEL[agent.role]}</Badge>
+          </h1>
+          <p className="text-sm text-muted-foreground" data-testid="agent-status">{statusSentence(agent)}</p>
+        </div>
+        <StopButton host={host} agent={agent} />
+      </header>
+      <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+        {facts.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="font-mono text-xs break-all">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <SendForm host={host} agent={agent} />
+    </article>
+  )
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{children}</div>
+}
+
+function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  if (agent.state === AgentState.EXITED) return null
+  async function stop() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await stopAgent(host.client, agent.id)
+      setConfirm(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {confirm ? (
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>Keep running</Button>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={stop}>Stop {agent.name}</Button>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setConfirm(true)}>Stop agent</Button>
+      )}
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function SendForm({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const [type, setType] = useState<MessageType>(MessageType.TASK)
+  const [body, setBody] = useState('')
+  const [status, setStatus] = useState<{ ok: boolean; text: string }>()
+  const [busy, setBusy] = useState(false)
+  const dead = agent.state === AgentState.EXITED
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    // Each send has its own mutation id, so a double Enter would send twice: one at a time.
+    if (busy) return
+    setBusy(true)
+    try {
+      await sendMessage(host.client, agent.id, type, body.trim())
+      setBody('')
+      setStatus({ ok: true, text: 'Sent.' })
+    } catch (err) {
+      setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border bg-card p-3" aria-label="Send a message">
+      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Message {agent.name}</h2>
+      <div className="flex gap-2">
+        <Select aria-label="Message type" className="w-28" value={type} onChange={(e) => setType(Number(e.target.value))}>
+          {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+        <Input aria-label="Message" value={body} onChange={(e) => setBody(e.target.value)} placeholder={dead ? 'The agent has exited' : 'Write to the agent'} disabled={dead} />
+        <Button type="submit" disabled={dead || busy || !body.trim()}>Send</Button>
+      </div>
+      {status && <p role={status.ok ? 'status' : 'alert'} className={`text-xs ${status.ok ? 'text-muted-foreground' : 'text-destructive'}`}>{status.text}</p>}
+    </form>
+  )
+}
