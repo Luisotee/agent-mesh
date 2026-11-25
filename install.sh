@@ -18,7 +18,7 @@ WORKER_CLIS=(copilot)
 # OpenCode reads the first of ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md: the block goes into its own file
 # only when that exists or CLAUDE.md lacks the block, since creating it would hide the user's CLAUDE.md from OpenCode.
 OPENCODE_RULES="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/AGENTS.md"
-SKILLS=(delegate-claude delegate-agy delegate-review check-plan find-peers harvest-peers make-concise)
+SKILLS=(delegate-claude delegate-agy delegate-review check-plan self-review find-peers harvest-peers make-concise)
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
 PLUGIN_ID="local.mesh-notify"  # herdr/mesh-notify: desktop notifications without the workers' noise

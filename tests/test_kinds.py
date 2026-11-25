@@ -87,7 +87,11 @@ def test_resumed_model(mesh, monkeypatch):
     monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-4-{family}-{effort}")
     assert mesh.resumed_model({"kind": "claude", "model": "opus", "effort": "medium"}, None, None) == ("opus", "medium")
     assert mesh.resumed_model({"kind": "copilot", "requested_model": "gpt-5"}, None, "low") == ("gpt-5", "low")
-    assert mesh.resumed_model({"kind": "copilot"}, None, "low") == ("auto", "low")  # copilot_model's built-in
+    assert mesh.resumed_model({"kind": "copilot", "tier": "mid"}, None, "low") == ("auto", "low")  # its tier's
+    # one from before tiers planned on what `auto` was: the strong chain; one with neither, never a default
+    assert mesh.resumed_model({"kind": "copilot"}, None, "low") == ("auto", "low")
+    with pytest.raises(mesh.MeshError, match="no tier or model on record"):
+        mesh.resumed_model({"kind": "copilot", "tier": None}, None, "low")
     exact = {"kind": "agy", "model": "gemini-4-hydrogen-medium", "effort": "medium"}
     assert mesh.resumed_model(exact, None, None) == ("gemini-4-hydrogen-medium", "medium")
     assert mesh.resumed_model(exact, None, "high") == ("gemini-4-hydrogen-high", "high")

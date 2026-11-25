@@ -29,7 +29,7 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 ```
 your session in shop-web (root)                     keeps building the badge
  ├── shop-api-restocked-at   (claude, pane)    research ─▶ plan ─▶ approved ─▶ code ─▶ test ─▶ PR
- │                                                         plans on Opus, high   executes at medium
+ │                                                         plans on a strong tier, executes on mid
  └── shop-api-review-88-agy  (agy, read-only)  reviews the PR, reports findings
 ```
 
@@ -73,7 +73,7 @@ Your Claude Code session can be the root and hand the work to agy, so the planni
 /delegate-agy add tests for the date parser in shop-web and admin-web
 ```
 
-agy workers plan on the strongest model that still has quota (Argon, then Claude Opus through agy, then Hydrogen) and execute on Gemini 4 Hydrogen, the successor to Gemini Flash. Copilot workers (reviews by default, any task you give them) run on your GitHub plan. mesh reads Claude's and agy's quotas, plans on the best model with quota left, and by default starts nothing new on a quota once it is 90% used. Which model does what is [yours to set](docs/guide.md#configuration).
+The root picks each worker's model and effort as a tier (`light`, `mid`, `strong`) by the task, and an agy worker's `strong` tier plans on the strongest model that still has quota (Gemini 4 Neon, then Claude Opus through agy, then Carbon, then Hydrogen). Copilot workers (reviews by default, any task you give them) run on your GitHub plan. mesh reads Claude's and agy's quotas, plans on the best model with quota left, and by default starts nothing new on a quota once it is 90% used. Which model does what is [yours to set](docs/guide.md#configuration).
 
 ![A Claude root opening a PR and starting an agy reviewer in a pane beside it](docs/media/delegate.webp)
 <sub>A Claude root opens a PR and has agy review it: the reviewer starts on Gemini Flash in a pane beside the root, in its own worktree.</sub>
@@ -110,7 +110,7 @@ Each reviewer works inside the repo at the PR's head and changes nothing. You ge
 
 - **Agents work inside the repo, not from outside it.** Each worker follows the target repo's own instructions, hooks and skills.
 - **You can watch and step in.** Workers are live interactive sessions: a herdr pane, or a Claude Code background session you can attach to (`mesh open`). What you type into one overrides the agent that started it.
-- **Plan first, then the same agent executes.** Large tasks plan on the strongest model with quota left and get reviewed before any code changes; approval reopens the *same conversation* on the execution model. Small tasks skip the plan.
+- **Plan first, then the same agent executes.** Large tasks plan on the tier the root picks and get reviewed before any code changes; approval reopens the *same conversation* on the execution tier the root names. Small tasks skip the plan.
 - **Claude, Gemini and Copilot in one run.** Mix Claude Code and agy workers, and have a PR reviewed by several vendors at once.
 - **Supervised, not fire-and-forget.** Every message is stored in a mailbox before a doorbell wakes the recipient, so a missed doorbell loses nothing. While the root waits, a watchdog flags a worker that went silent, sits at a dialog, hung, crashed or hit a quota.
 
@@ -123,7 +123,7 @@ No server or database to install: one stdlib Python script, a few skills and a p
 
 Every worker and reviewer is a full Claude Code or agy session drawing on your own subscription, so a large task with two reviewers is three or more sessions. agent-mesh keeps that down:
 
-- **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan; a tiny PR is reviewed by the root alone, a small one by one reviewer in one round.
+- **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan, on a light model; every PR is reviewed by its author first, then a small one by one cheap reviewer in one round.
 - **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold).
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota once it is 90% used.
@@ -146,7 +146,7 @@ Every worker and reviewer is a full Claude Code or agy session drawing on your o
 
 ## Make it yours
 
-Every default (models and efforts per task size, reviewers per PR size, review rounds, the quota reserve, where your repos live) is a setting in an optional `~/.config/agent-mesh.json`, and `mesh routing` prints each value and where it came from. See [Configuration](docs/guide.md#configuration).
+Every default (what each tier runs per CLI, reviewers per PR size, review rounds, the quota reserve, where your repos live) is a setting in an optional `~/.config/agent-mesh.json`, and `mesh routing` prints each value and where it came from. See [Configuration](docs/guide.md#configuration).
 
 ## Docs
 

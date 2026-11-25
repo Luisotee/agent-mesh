@@ -113,7 +113,7 @@ def test_resume_and_ask_with_a_missing_file_fail_cleanly(mesh, fake, run, repo, 
     fake.on("agent", "get", error="agent_not_found")
     capsys.readouterr()
     assert mesh.main(["resume", "repo-fix-typo", "--task-file", str(tmp_path / "nope.md")]) == 1
-    assert mesh.main(["ask", "--repo", str(repo), "--file", str(tmp_path / "nope.md")]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--file", str(tmp_path / "nope.md")]) == 1
     err = capsys.readouterr().err
     assert err.count("can't read") == 2 and "Traceback" not in err
     assert not fake.called("agent", "start")
@@ -481,7 +481,7 @@ def test_a_refused_sessions_ask_starts_no_run(mesh, fake, run, repo, monkeypatch
     fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/x/repo"}]})
     mapping = (mesh.mesh_home() / "by-pane" / "w1_p1.json").read_text()
     capsys.readouterr()
-    assert mesh.main(["ask", "--repo", str(repo), "--body", "why?"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--body", "why?"]) == 1
     assert "isn't the process running there" in capsys.readouterr().err
     assert (mesh.mesh_home() / "by-pane" / "w1_p1.json").read_text() == mapping
     assert sorted(p.name for p in mesh.mesh_home().iterdir() if (p / "run.json").exists()) == [run]
@@ -922,7 +922,10 @@ def test_first_message_introduces_the_agent(mesh, fake, run):
 
 # ── models ───────────────────────────────────────────────────────────────
 
-AGY_MODELS = """gemini-4-argon-medium\tGemini 4 Argon (Medium)
+AGY_MODELS = """gemini-4-neon-high\tGemini 4 Neon (High)
+gemini-4-neon-medium\tGemini 4 Neon (Medium)
+gemini-4-carbon-high\tGemini 4 Carbon (High)
+gemini-4-argon-medium\tGemini 4 Argon (Medium)
 gemini-4-argon-high\tGemini 4 Argon (High)
 gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)
 gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)
@@ -940,7 +943,7 @@ USAGE = """Gemini Models\tWeekly Limit Remaining\t74%\t2026-10-29T17:21:38Z
 Gemini Models\tFive Hour Limit Remaining\t52%\t2026-10-24T05:50:54Z
 Claude and GPT models\tWeekly Limit Remaining\t49%\t2026-10-30T19:57:12Z
 Claude and GPT models\tFive Hour Limit Remaining\t100%\t2026-10-24T10:11:57Z
-Gemini 4 Argon\tGemini 4 Argon Weekly Limit\t0%\t2026-10-29T17:26:00Z
+Gemini 4 Neon\tGemini 4 Neon Weekly Limit\t0%\t2026-10-29T17:26:00Z
 """
 
 
@@ -969,7 +972,7 @@ def test_pick_agy_model_resolves_claude_families(mesh):
 def test_usage_rows_give_each_model_its_tightest_limit(mesh):
     rows = mesh.parse_usage("Fetching...\n" + USAGE)
     assert len(rows) == 5 and rows[0]["left"] == 74
-    assert mesh.model_quota("gemini-4-argon-high", "Gemini 4 Argon (High)", rows) == (0, "2026-10-29T17:26:00Z")
+    assert mesh.model_quota("gemini-4-neon-high", "Gemini 4 Neon (High)", rows) == (0, "2026-10-29T17:26:00Z")
     assert mesh.model_quota("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)", rows)[0] == 52
     assert mesh.model_quota("claude-opus-5-5-high", "Claude Opus 5.5 (High)", rows)[0] == 49
     assert mesh.model_quota("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)", rows)[0] == 49
@@ -978,18 +981,45 @@ def test_usage_rows_give_each_model_its_tightest_limit(mesh):
 
 def test_auto_plans_on_the_first_model_with_quota(mesh, monkeypatch):
     with_quotas(mesh, monkeypatch)
-    chain = mesh.PLAN_CHAIN["agy"]
+    chain = mesh.tier_chain("agy", "strong")
     assert mesh.choose_agy_model(chain, "high")[0] == "claude-opus-5-5-high"
-    assert mesh.choose_agy_model(chain, "high", skip=("claude-opus-5-5-high",))[0] == "gemini-4-hydrogen-high"
+    assert mesh.choose_agy_model(chain, "high", skip=("claude-opus-5-5-high",))[0] == "gemini-4-carbon-high"
     with_quotas(mesh, monkeypatch, USAGE.replace("74%", "5%").replace("49%", "3%"))
     model, notes = mesh.choose_agy_model(chain, "high")
-    assert model == "gemini-4-hydrogen-high" and "every model is under 10%" in notes[-1]
+    assert model == "gemini-4-carbon-high" and "every model is under 10%" in notes[-1]  # Gemini's 5%, its first
     with pytest.raises(mesh.MeshError, match="resets 2026-10-29"):
         mesh.choose_agy_model(chain, "high", fallback=False)
     monkeypatch.setenv("MESH_MIN_QUOTA", "4")
-    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-hydrogen-high"
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-carbon-high"
     monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: never block
-    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-argon-high"
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-neon-high"
+    model, notes = mesh.choose_agy_model(("xenon", "opus"), "high")  # a family agy doesn't list: the next one
+    assert model == "claude-opus-5-5-high" and notes == ["agy lists no xenon at high effort"]
+
+
+AGY_NEW_FAMILIES = AGY_MODELS + "gemini-5-xenon-high\tGemini 5 Xenon (High)\n"
+
+
+def test_a_new_model_family_is_pointed_out_once_a_day_until_acknowledged(mesh, run, monkeypatch, capsys):
+    clis(monkeypatch, "agy", "claude")
+    with_quotas(mesh, monkeypatch)  # agy lists argon and sonnet, which no built-in tier names
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
+    check = mesh.model_check(force=True)  # `mesh init` checked already, before agy listed anything
+    assert check["new"] == {"agy": ["argon", "sonnet", "xenon"]} and check["retired"] == {}
+    assert "new agy models no tier names: argon, sonnet, xenon" in mesh.model_notice(check)
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
+    assert mesh.model_check()["new"] == check["new"]  # a day's result is reused: no listing
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
+    assert mesh.main(["models", "--ack", "agy:sonnet", "agy:argon"]) == 0
+    out = capsys.readouterr().out
+    assert "new agy models no tier names: xenon." in out and "neon (a tier)" in out
+    with_config({"tiers": {"agy": {"strong": {"model": ["xenon", "opus"]}}}})
+    placed = mesh.model_check(force=True)
+    assert placed["new"] == {"agy": ["carbon", "neon"]} and placed["retired"] == {}  # they left every tier
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
+    assert mesh.model_check(force=True)["retired"] == {"agy": ["xenon"]}
+    monkeypatch.setattr(mesh, "status_rows", lambda run_id, data: [])
+    assert "agy no longer lists: xenon (a tier names it)" in mesh.render_brief(mesh.brief(run, "repo-lead"))
 
 
 def test_usage_is_cached_and_force_reads_it_again(mesh, monkeypatch):
@@ -2195,7 +2225,8 @@ ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo
              ["approve", "repo-fix-typo"], ["switch", "repo-fix-typo"], ["retire", "repo-fix-typo"],
              ["retirer", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
              ["ask", "--repo", ".", "--body", "x"], ["peers", "add", "/nowhere"], ["peers", "remove", "p"],
-             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"])
+             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"],
+            ["verdict", "pr", "--reviewer", "r", "--agree", "1"], ["models"])
 WORKER_RUNS = (["whoami"], ["whoami", "--reminder", "clear"], ["inbox"], ["dir"], ["peers", "list"], ["status"],
                ["log"], ["agents"], ["send", "parent", "--type", "info", "--body", "FYI."])
 
@@ -2257,7 +2288,7 @@ def test_the_root_and_a_plain_shell_keep_every_command(mesh, fake, run, monkeypa
 def test_a_pane_worker_herdr_restored_is_refused_too(mesh, fake, run, monkeypatch, capsys):
     restored(mesh, run, monkeypatch, fake)
     capsys.readouterr()
-    assert mesh.main(["spawn", "--repo", "."]) == 1
+    assert mesh.main(["spawn", "--tier", "strong", "--repo", "."]) == 1
     assert "repo-fix-typo is a worker of run mtest, and only a root runs `mesh spawn`" in capsys.readouterr().err
 
 
@@ -2325,7 +2356,7 @@ def test_spawn_creates_tab_then_splits(mesh, fake, run, repo, monkeypatch, capsy
     assert start[-3:] == ("--model", "gemini-3.8-flash-medium", "--dangerously-skip-permissions")
     assert first["delivery"]["rung"] is True
 
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "port"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "port"]) == 0
     second = json.loads(capsys.readouterr().out)
     assert second["pane"] == "w9:p11"
     assert second["model"] == "opus"
@@ -2403,13 +2434,14 @@ def test_spawn_defaults_to_auto_planning_then_hydrogen(mesh, fake, run, repo, mo
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
     with_quotas(mesh, monkeypatch)
-    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "fix-reactions"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--repo", str(repo), "--worktree", "fix-reactions"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["model"] == "claude-opus-5-5-high"  # Argon is at 0%
-    assert out["notes"] == ["gemini-4-argon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
+    assert out["model"] == "claude-opus-5-5-high"  # Neon is at 0%
+    assert out["notes"] == ["gemini-4-neon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
     entry = mesh.load_run(run)["agents"]["proj-fix-reactions"]
     assert (entry["role"], entry["kind"], entry["effort"]) == ("worker", "agy", "high")
-    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "hydrogen", "medium")
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", None, None)  # named at approval
+    assert entry["tier"] == "strong" and entry["models"][0]["tier"] == "strong"
     assert entry["log"].endswith("/mtest/logs/proj-fix-reactions.log")
     assert fake.called("agent", "start")[-1][-5:] == (
         "--log-file", entry["log"], "--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
@@ -2535,7 +2567,7 @@ def test_trust_then_a_settings_warning_holds_the_spawn_task(mesh, fake, run, rep
     fake.on("agent", "start", errors=["agent_not_ready"])
     fake.screen("w9:p10", CLAUDE_TRUST, CLAUDE_TRUST_YES, SETTINGS_WARNING)
 
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "fix", "--task", "Do it."]) == 4
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "fix", "--task", "Do it."]) == 4
     captured = capsys.readouterr()
     out = json.loads(captured.out)
     assert len(fake.called("agent", "start")) == 1  # not retried into a running CLI
@@ -2559,7 +2591,7 @@ def test_a_timed_out_start_is_classified_not_retried(mesh, fake, run, repo, caps
     fake.on("agent", "start", errors=["timeout"])
     fake.on("agent", "get", result={"agent": {"agent_status": "idle"}})
     fake.screen("w9:p10", "welcome\n────────────\n❯ \n")  # a slow start that got there
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "slow", "--task", "Go."]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "slow", "--task", "Go."]) == 0
     assert len(fake.called("agent", "start")) == 1
     assert json.loads(capsys.readouterr().out)["delivery"]["rung"] is True
 
@@ -2639,7 +2671,7 @@ def test_resume_holds_its_task_at_a_startup_screen(mesh, fake, run, repo, capsys
     stub_new_pane(fake)
     fake.on("agent", "start", errors=["agent_not_ready"])
     fake.screen("w9:p10", SETTINGS_WARNING)
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 4
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review."]) == 4
     assert not fake.called("agent", "prompt")
     entry = mesh.load_run(run)["agents"]["proj-fix"]
     assert entry["held"]["screen"] == "Settings Warning" and entry["status"] == "running"
@@ -3610,7 +3642,7 @@ def test_resume_brings_the_worker_back_with_its_conversation(mesh, fake, run, re
     path, branch = archived_worker(mesh, repo, session="c1")
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["name"], out["worktree_recreated"], out["resumed_from"]) == ("proj-fix", True, {"run": "mold", "name": "proj-fix"})
     # the worktree is back at the same path (Claude finds sessions by path) on the same branch
@@ -3695,7 +3727,7 @@ def test_resume_keeps_the_branch_for_an_open_pr_a_question_or_a_failing_gh(mesh,
         if n:
             mesh.main(["retire", out["name"]])
         capsys.readouterr()
-        assert mesh.main(["resume", "proj-fix", "--from-run", "mold", "--task", task]) == 0
+        assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--from-run", "mold", "--task", task]) == 0
         out = json.loads(capsys.readouterr().out)
         assert out["branch"] == branch and "left_pr" not in out
         assert bool(cli.called("pr", "list")) == (not task.startswith("Question"))
@@ -3712,7 +3744,7 @@ def test_resume_onto_a_closed_pr_starts_a_new_branch_at_the_old_tip(mesh, fake, 
     cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "CLOSED", "headRefOid": tip}]))
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Fix it."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["branch"] == "mesh/mtest/fix" and "its commits come along" in out["notes"][-1]
     git_out = lambda *a: subprocess.run(["git", *a], cwd=path, capture_output=True, text=True).stdout.strip()
@@ -3734,7 +3766,7 @@ def test_a_closed_prs_head_is_fetched_when_its_branch_lost_it(mesh, fake, cli, r
                                               "state": "CLOSED", "headRefOid": oid}]))
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Fix it."]) == 0
     out = json.loads(capsys.readouterr().out)
     tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip()
     task = mesh.parse_message(mesh.unread(run, "proj-fix")[0])[1]
@@ -3756,7 +3788,7 @@ def test_resume_onto_a_merged_pr_with_uncommitted_work_tells_the_worker(mesh, fa
     cli.on("pr", "list", stdout=json.dumps([{"number": 7, "url": "u7", "state": "MERGED"}]))
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Fix it."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Fix it."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["branch"] == branch and "the worktree has uncommitted changes, so it stays" in out["notes"][-1]
     head = subprocess.run(["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True).stdout.strip()
@@ -3811,19 +3843,24 @@ def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_move
     with_quotas(mesh, monkeypatch)
     archived_worker(mesh, repo, session="c1")  # it ran on gemini-3.8-flash-high
     stub_new_pane(fake)
-    assert mesh.main(["resume", "proj-fix", "--task", "Fix the review findings; send a plan first."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Fix the review findings; send a plan first."]) == 0
     entry = mesh.load_run(run)["agents"]["proj-fix"]
     assert (entry["model"], entry["effort"]) == ("claude-opus-5-5-high", "high")  # Argon is out of quota; not Hydrogen
     assert fake.called("agent", "start")[-1][-3:] == ("--model", "claude-opus-5-5-high", "--dangerously-skip-permissions")
-    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "hydrogen", "medium")
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", None, None)
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
     sent_plan(mesh, run, "proj-fix")
     capsys.readouterr()
-    assert mesh.main(["approve", "proj-fix"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-medium"
+    assert mesh.main(["approve", "proj-fix"]) == 1  # the root names the execution tier, having read the plan
+    assert "pass --tier light|mid|strong for proj-fix's execution" in capsys.readouterr().err
+    assert mesh.main(["approve", "proj-fix", "--tier", "mid", "--why", "a clear plan"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["exec_tier"], entry["models"][-1]["tier"], entry["models"][-1]["reason"]) == (
+        "mid", "mid", "a clear plan")
     assert fake.called("agent", "start")[-1][-5:] == (
-        "--conversation", "c1", "--model", "gemini-4-hydrogen-medium", "--dangerously-skip-permissions")
+        "--conversation", "c1", "--model", "gemini-4-hydrogen-high", "--dangerously-skip-permissions")
 
     # a direct task, a question or a named effort has no plan phase
     for extra in (["--task", "Direct task (no plan)\n\nBump it."], ["--task", "Plan it.", "--effort", "high"]):
@@ -3991,7 +4028,8 @@ def planning_worker(mesh, run, kind="agy", model="claude-opus-5-5-high", session
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(
             kind=kind, model=model, effort="high", repo="/repo", cwd="/wt/fix", session=session,
-            workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "opus",
+            workspace="w9", phase=phase, exec_model="flash" if kind == "agy" else "opus", exec_effort="medium",
+            tier="strong",
             log=str(log) if kind == "agy" else None,
             models=[{"model": model, "at": "t", "why": "spawn"}])
     sent_plan(mesh, run)
@@ -4037,6 +4075,66 @@ def test_approve_a_claude_worker_resumes_it_on_opus_at_medium(mesh, fake, run, c
     assert "hook stop --run mtest --as repo-fix-typo" in hooks["Stop"][0]["hooks"][0]["command"]
 
 
+
+def test_approve_names_the_execution_tier_after_reading_the_plan(mesh, fake, run, capsys):
+    planning_worker(mesh, run, kind="claude", model="opus", session="s-1")
+    with mesh.editing_run(run) as data:  # spawned with no --exec-tier: the root names it at approval
+        data["agents"]["repo-fix-typo"].update(exec_model=None, exec_effort=None)
+    stub_new_pane(fake)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 1
+    assert "pass --tier light|mid|strong|top for repo-fix-typo's execution" in capsys.readouterr().err
+    assert not fake.called("agent", "start")
+    assert mesh.main(["approve", "repo-fix-typo", "--tier", "mid", "--why", "the plan names every file"]) == 0
+    assert started(fake)[-7:] == (
+        "--resume", "s-1", "--model", "sonnet", "--effort", "high", "--dangerously-skip-permissions")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["phase"], entry["exec_tier"], entry["model"]) == ("exec", "mid", "sonnet")
+    swap = [e for e in mesh.read_log(run) if e.get("event") == "swap"][-1]
+    assert (swap["tier"], swap["reason"]) == ("mid", "the plan names every file")
+
+
+def test_switch_moves_a_worker_to_another_effort_or_tier_in_the_same_conversation(mesh, fake, run, capsys):
+    planning_worker(mesh, run, kind="claude", model="sonnet", session="s-1", phase="exec")
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(effort="high", exec_tier="mid", exec_model="sonnet",
+                                               exec_effort="high")
+    stub_new_pane(fake)
+    stub_split(fake)
+    assert mesh.main(["switch", "repo-fix-typo", "--effort", "xhigh", "--why", "a failed check"]) == 0
+    assert started(fake)[-7:] == (  # the same model: Claude keeps its cache
+        "--resume", "s-1", "--model", "sonnet", "--effort", "xhigh", "--dangerously-skip-permissions")
+    assert "your parent moved you" in mesh.unread(run, "repo-fix-typo")[-1].read_text()
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo", "--tier", "strong"]) == 0
+    assert started(fake)[-5:-1] == ("--model", "opus", "--effort", "high")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert (entry["exec_tier"], entry["models"][-1]["why"], entry["models"][-1]["tier"]) == ("strong", "moved", "strong")
+    capsys.readouterr()
+    assert mesh.main(["switch", "repo-fix-typo", "--tier", "strong"]) == 1
+    assert "already runs on opus at high" in capsys.readouterr().err
+
+
+
+def test_the_root_records_its_verdict_on_a_reviewers_findings(mesh, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-opencode"] = {"role": "worker", "kind": "opencode", "model": "opencode/big-pickle",
+                                                    "tier": "mid", "parent": "repo-lead", "status": "retired"}
+    pr = "https://github.com/Acme/proj/pull/7"
+    monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode", "--agree", "2"]) == 1
+    assert "only the run's root" in capsys.readouterr().err
+    monkeypatch.delenv("MESH_SELF")
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode"]) == 1
+    assert "count the reviewer's findings" in capsys.readouterr().err
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode", "--agree", "2", "--other", "1",
+                      "--disagree", "3", "--blocking", "1"]) == 0
+    capsys.readouterr()
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "verdict"]
+    assert (event["pr"], event["kind"], event["model"], event["tier"]) == (
+        "https://github.com/acme/proj/pull/7", "opencode", "opencode/big-pickle", "mid")
+    assert (event["agree"], event["other"], event["disagree"], event["blocking"]) == (2, 1, 3, 1)
+
+
 DIRECT_FIX = "Direct task (no plan)\n\nFix it."
 
 
@@ -4044,7 +4142,8 @@ def read_only_asker(mesh, run, **extra):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update({
             "kind": "claude", "model": "opus", "effort": "high", "repo": "/repo", "cwd": "/wt/fix", "session": "s-1",
-            "workspace": "w9", "read_only": True, "models": [{"model": "opus", "at": "t", "why": "spawn"}], **extra})
+            "workspace": "w9", "read_only": True, "tier": "strong",
+            "models": [{"model": "opus", "at": "t", "why": "spawn"}], **extra})
 
 
 def test_a_change_task_reopens_a_read_only_asker_without_its_deny_list(mesh, fake, run, capsys):
@@ -4196,7 +4295,7 @@ def claude_planner(mesh, run, **extra):
 
 def test_a_large_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, repo, capsys):
     stub_panes(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Add the feature."]) == 0
     out = json.loads(capsys.readouterr().out)
     rules = deny_rules(started(fake))
@@ -4208,10 +4307,10 @@ def test_a_large_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, r
     assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "pinned", "--model", "opus",
                       "--task", "Add another."]) == 0
     assert deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-pinned"]["planning"] is True
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "later"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "later"]) == 0
     assert deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-later"]["planning"] is True
     # A user-reviewed plan is in plan mode already, and a direct task has no plan: no list.
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
                       "--task", "Add a third."]) == 0
     assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"]["proj-user"]["planning"] is False
     # agy has no deny list: its planner is held by the prompt alone.
@@ -4226,7 +4325,7 @@ def launch_argv(fake):
 
 def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, fake, cli, run, repo, capsys):
     stub_panes(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Add the feature."]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
 
@@ -4236,7 +4335,7 @@ def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, f
     assert launched(run, name) and mesh.load_run(run)["agents"][name]["planning"]  # with its deny list
     assert not launched(run, "repo-fix-typo")  # names this worker of this run
     assert not launched("mold", name)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "user", "--plan-review", "user",
                       "--task", "Add a third."]) == 0
     assert launched(run, "proj-user")
     with mesh.editing_run(run) as data:  # a swap: `approve` reopening a planner (and `switch`, which shares it)
@@ -4245,7 +4344,7 @@ def test_every_way_mesh_starts_a_claude_pane_worker_is_recognised_as_its(mesh, f
     assert mesh.main(["approve", name]) == 0
     assert fake.called("pane", "close") and launched(run, name)
     archived_worker(mesh, repo, kind="claude", session="c1")  # a resume (a peer's ask spawns or resumes too)
-    assert mesh.main(["resume", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "https://github.com/acme/proj/pull/7", "--task", "Apply the review."]) == 0
     assert launched(run, "proj-fix")
     assert not mesh.mesh_launched(["claude", "--resume", "c1"], run, "proj-fix")  # what a herdr restore runs
     link = repo.parent / "mesh-link"
@@ -4395,7 +4494,7 @@ def test_a_relaunched_worker_in_a_turn_is_not_rung_without_its_flags(mesh, fake,
 def test_a_large_background_claude_worker_plans_under_the_deny_list(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
                       "--task", "Add the feature."]) == 0
     assert "Bash(git push:*)" in deny_rules(cli.called("--bg")[-1]["argv"])
     assert mesh.load_run(run)["agents"]["proj-feat"]["planning"] is True
@@ -4520,7 +4619,7 @@ def test_an_askers_planned_task_keeps_its_deny_list_until_approval(mesh, fake, r
 def test_resume_plans_under_the_deny_list_and_a_direct_task_gets_none(mesh, fake, run, repo, capsys):
     archived_worker(mesh, repo, kind="claude", session="s-1")
     stub_new_pane(fake)
-    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "mesh/mold/fix", "--task", "Add the feature."]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     assert "Bash(git push:*)" in deny_rules(started(fake))
     assert mesh.load_run(run)["agents"][name]["planning"] is True
@@ -4531,7 +4630,7 @@ def test_resume_plans_under_the_deny_list_and_a_direct_task_gets_none(mesh, fake
     assert deny_rules(started(fake)) and mesh.load_run(run)["agents"][name]["planning"] is True
     with mesh.editing_run(run) as data:
         data["agents"][name]["status"] = "retired"
-    assert mesh.main(["resume", name, "--task", DIRECT_FIX]) == 0
+    assert mesh.main(["resume", "--tier", "strong", name, "--task", DIRECT_FIX]) == 0
     assert not deny_rules(started(fake)) and mesh.load_run(run)["agents"][name]["planning"] is False
 
 
@@ -4539,7 +4638,7 @@ def test_a_finished_worker_plans_a_sent_task_unguarded_and_a_resume_mid_plan_gua
                                                                                        monkeypatch, capsys):
     archived_worker(mesh, repo, kind="claude", session="s-1")
     stub_new_pane(fake)
-    assert mesh.main(["resume", "mesh/mold/fix", "--task", DIRECT_FIX]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "mesh/mold/fix", "--task", DIRECT_FIX]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     starts = len(fake.called("agent", "start"))
     # Finished, then sent a task it plans: `send` never reopens it to add the list (ORCHESTRATE: retire + resume).
@@ -4560,10 +4659,10 @@ def test_a_finished_worker_plans_a_sent_task_unguarded_and_a_resume_mid_plan_gua
     assert "Bash(git push:*)" in deny_rules(started(fake))
     entry = mesh.load_run(run)["agents"][name]
     assert (entry["planning"], entry["phase"], entry["exec_effort"], entry["effort"]) == (
-        True, "plan", "medium", "high")
+        True, "plan", None, "high")  # its execution tier is named at approval
     sent_plan(mesh, run, name)
     capsys.readouterr()
-    assert mesh.main(["approve", name]) == 0  # lifts it, and moves it to its execution effort
+    assert mesh.main(["approve", name, "--tier", "strong", "--effort", "medium"]) == 0  # lifts it, at that effort
     assert not deny_rules(started(fake)) and started(fake)[-6:-1] == ("s-1", "--model", "opus", "--effort", "medium")
     entry = mesh.load_run(run)["agents"][name]
     assert (entry["planning"], entry["phase"]) == (False, "exec")
@@ -4572,7 +4671,7 @@ def test_a_finished_worker_plans_a_sent_task_unguarded_and_a_resume_mid_plan_gua
 def test_a_named_model_on_a_resume_mid_plan_keeps_the_list_but_not_the_phase(mesh, fake, run, repo, capsys):
     archived_worker(mesh, repo, kind="claude", session="s-1")
     stub_new_pane(fake)
-    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "mesh/mold/fix", "--task", "Add the feature."]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     with mesh.editing_run(run) as data:
         data["agents"][name].update(status="retired", planning=False)  # its plan phase came from a sent plan
@@ -4595,14 +4694,14 @@ def test_a_direct_task_ends_a_plan_phase_with_no_deny_list_too(mesh, fake, run, 
 def test_a_resume_mid_plan_keeps_an_agy_planner_and_not_one_that_finished(mesh, fake, run, repo, capsys):
     archived_worker(mesh, repo, kind="agy", session="c1")
     stub_new_pane(fake)
-    assert mesh.main(["resume", "mesh/mold/fix", "--task", "Add the feature."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "mesh/mold/fix", "--task", "Add the feature."]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     planned = mesh.load_run(run)["agents"][name]
     with mesh.editing_run(run) as data:
         data["agents"][name]["status"] = "retired"
     assert mesh.main(["resume", name]) == 0
     entry = mesh.load_run(run)["agents"][name]
-    assert (entry["phase"], entry["model"], entry["exec_model"]) == ("plan", planned["model"], "hydrogen")
+    assert (entry["phase"], entry["model"], entry["exec_model"]) == ("plan", planned["model"], None)
     # It reported `done` without an approval (the fix was already in): it no longer owes a plan.
     mesh.record(run, name, "repo-lead", "done", "Already fixed on main.")
     with mesh.editing_run(run) as data:
@@ -4916,7 +5015,7 @@ def test_watch_follows_a_log_that_restarts_shorter(mesh, fake, run, monkeypatch,
 
 
 def test_switch_never_returns_to_a_model_that_already_ran_out(mesh, fake, run, monkeypatch, capsys):
-    planning_worker(mesh, run, model="gemini-4-argon-high")
+    planning_worker(mesh, run, model="gemini-4-neon-high")
     with_quotas(mesh, monkeypatch)
     monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: everything looks free
     stub_new_pane(fake)
@@ -4924,8 +5023,8 @@ def test_switch_never_returns_to_a_model_that_already_ran_out(mesh, fake, run, m
     capsys.readouterr()
     assert mesh.main(["switch", "repo-fix-typo"]) == 0
     assert json.loads(capsys.readouterr().out)["model"] == "claude-opus-5-5-high"
-    assert mesh.main(["switch", "repo-fix-typo"]) == 0  # Opus ran out too: not back to Argon
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0  # Opus ran out too: not back to Neon
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-carbon-high"
 
 
 def test_switch_goes_ahead_when_the_stalled_worker_never_goes_idle(mesh, fake, run, monkeypatch, capsys):
@@ -4975,24 +5074,24 @@ def test_approve_does_not_suggest_keep_model_once_the_pane_is_gone(mesh, fake, r
 
 
 def test_approve_keep_model_executes_where_it_planned(mesh, fake, run, monkeypatch, capsys):
-    planning_worker(mesh, run, model="gemini-4-argon-high", session=None)
+    planning_worker(mesh, run, session=None)  # on claude-opus-5-5-high, with quota
     with_quotas(mesh, monkeypatch)
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo", "--keep-model"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["kept_model"] is True and out["model"] == "gemini-4-argon-high"
+    assert out["kept_model"] is True and out["model"] == "claude-opus-5-5-high"
     assert not fake.called("agent", "start") and not fake.called("pane", "close")
     assert bare(fake.called("agent", "prompt")[-1][3]).startswith("📬 [mesh] answer from repo-lead: approved")
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
-    assert (entry["phase"], entry["model"], entry["effort"]) == ("exec", "gemini-4-argon-high", "high")
+    assert (entry["phase"], entry["model"], entry["effort"]) == ("exec", "claude-opus-5-5-high", "high")
     assert entry["models"][-1]["why"] == "plan approved" and entry["models"][-1]["kept"] is True
 
-    # executing, so a quota hit moves it to the exec model, not down the plan chain
+    # executing on its planning tier, so a quota hit moves it down that tier's chain (Neon is at 0%)
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"]["session"] = "c1"
     stub_new_pane(fake)
     assert mesh.main(["switch", "repo-fix-typo"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-3.8-flash-medium"
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-carbon-high"
 
 
 def small_asker(mesh, run, **extra):
@@ -5016,7 +5115,7 @@ def test_a_worker_with_no_plan_phase_enters_one_when_it_sends_a_plan(mesh, fake,
         assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] is None
     assert mesh.main(["send", "parent", "--type", "plan", "--body", "# Plan: retries"]) == 0
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
-    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", "hydrogen", "medium")
+    assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", None, None)
     assert entry["model"] == "gemini-3.8-flash-low" and entry["models"][-1]["why"] == "planned task"
     assert len(mesh.unread(run, "repo-lead")) == 3  # stored first
 
@@ -5025,8 +5124,8 @@ def test_a_worker_with_no_plan_phase_enters_one_when_it_sends_a_plan(mesh, fake,
     with_quotas(mesh, monkeypatch)
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["approve", "repo-fix-typo"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-medium"
+    assert mesh.main(["approve", "repo-fix-typo", "--tier", "mid"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
 
 
@@ -5068,10 +5167,10 @@ def test_spawn_records_a_named_model_or_effort(mesh, fake, run, repo, monkeypatc
     stub_new_pane(fake)
     stub_split(fake)
     assert mesh.main(["spawn", "--kind", "agy", "--model", "opus", "--repo", str(repo), "--worktree", "a"]) == 0
-    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--worktree", "b"]) == 0
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--effort", "high", "--repo", str(repo),
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "agy", "--repo", str(repo), "--worktree", "b"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--effort", "high", "--repo", str(repo),
                       "--worktree", "c"]) == 0
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "d"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "d"]) == 0
     agents = mesh.load_run(run)["agents"]
     assert [agents[f"proj-{w}"]["pinned"] for w in "abcd"] == [True, False, True, False]
 
@@ -5089,7 +5188,7 @@ def test_a_sized_reviewers_own_effort_is_not_a_named_one(mesh, fake, run, repo, 
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
                       "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     entry = mesh.load_run(run)["agents"][name]
@@ -5184,11 +5283,11 @@ def test_a_named_effort_covers_both_phases(mesh, fake, run, repo, monkeypatch, c
     fake.on("workspace", "list", result={"workspaces": [{"workspace_id": "w9", "label": "proj"}]})
     fake.on("tab", "create", result={"tab": {"tab_id": "w9:t4"}, "root_pane": {"pane_id": "w9:p10"}})
     with_quotas(mesh, monkeypatch)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "a", "--effort", "max"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "a", "--effort", "max"]) == 0
     entry = mesh.load_run(run)["agents"]["proj-a"]
     assert (entry["effort"], entry["exec_effort"]) == ("max", "max")
     stub_split(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--name", "b",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--name", "b",
                       "--effort", "max", "--exec-effort", "low"]) == 0
     assert mesh.load_run(run)["agents"]["proj-b"]["exec_effort"] == "low"
 
@@ -5197,7 +5296,8 @@ def test_spawn_checks_the_exec_model_before_any_side_effect(mesh, fake, run, rep
     with_quotas(mesh, monkeypatch)
     agents = set(mesh.load_run(run)["agents"])
     capsys.readouterr()
-    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "w", "--exec-effort", "max"]) == 1
+    assert mesh.main(["spawn", "--tier", "strong", "--exec-tier", "mid", "--repo", str(repo), "--worktree", "w",
+                      "--exec-effort", "max"]) == 1
     assert "effort=max" in capsys.readouterr().err
     assert not fake.called("tab", "create") and set(mesh.load_run(run)["agents"]) == agents
     assert mesh.main(["spawn", "--repo", str(repo), "--model", "argon", "--exec-effort", "low"]) == 1
@@ -5288,7 +5388,7 @@ def test_spawn_refuses_claude_work_at_the_reserve_until_the_run_is_let_past_it(m
     claude_root(mesh, run)
     bg_cli(cli)
     claude_windows(mesh, monkeypatch, five=91)
-    spawn = ["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--task", "Fix it."]
+    spawn = ["spawn", "--tier", "mid", "--kind", "claude", "--size", "small", "--repo", str(repo), "--task", "Fix it."]
     assert mesh.main([*spawn, "--worktree", "a"]) == 1
     err = capsys.readouterr().err
     assert "Claude is at 91% of its five-hour window" in err and "mesh reserve off" in err
@@ -5313,16 +5413,16 @@ def test_agy_work_is_refused_on_a_model_at_the_reserve_and_auto_plans_only_over_
     with_quotas(mesh, monkeypatch, USAGE.replace("74%", "5%").replace("49%", "10%"))
     stub_new_pane(fake)
     stub_split(fake)
-    assert mesh.main(["spawn", "--kind", "agy", "--size", "small", "--repo", str(repo), "--worktree", "a",
+    assert mesh.main(["spawn", "--tier", "mid", "--kind", "agy", "--size", "small", "--repo", str(repo), "--worktree", "a",
                       "--task", "Fix it."]) == 1
-    assert "agy's hydrogen has 5% left" in capsys.readouterr().err
-    assert mesh.main(["spawn", "--kind", "agy", "--repo", str(repo), "--worktree", "b", "--task", "Fix it."]) == 1
+    assert "gemini-4-hydrogen-high has 5% left" in capsys.readouterr().err
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "agy", "--repo", str(repo), "--worktree", "b", "--task", "Fix it."]) == 1
     assert "no model with quota left over the reserve" in capsys.readouterr().err  # 10% left is the reserve
     with pytest.raises(mesh.MeshError):
-        mesh.plan_model("agy", "high", run)
+        mesh.plan_model("agy", mesh.tier_chain("agy", "strong"), "high", run)
     with mesh.editing_run(run) as data:
         data["over_reserve"] = True
-    assert mesh.plan_model("agy", "high", run)[0] == "claude-opus-5-5-high"  # the most left, as before
+    assert mesh.plan_model("agy", mesh.tier_chain("agy", "strong"), "high", run)[0] == "claude-opus-5-5-high"  # the most left, as before
 
 
 def test_send_refuses_a_task_at_the_reserve_but_an_answer_goes(mesh, fake, run, monkeypatch, capsys):
@@ -5372,7 +5472,7 @@ def test_usage_and_status_show_the_quotas_and_the_reserve(mesh, fake, run, monke
     mesh.write_atomic(mesh.mesh_home() / "agy-usage.txt", USAGE)
     line = mesh.quota_line(mesh.load_run(run))
     assert line.startswith("quota: Claude five-hour window 28%") and "[cached 5m ago]" in line
-    assert "agy at the reserve: Gemini 4 Argon gemini 4 argon weekly limit 0% left" in line
+    assert "agy at the reserve: Gemini 4 Neon gemini 4 neon weekly limit 0% left" in line
     assert line.endswith("reserve: mesh stops at 90% used")
 
 
@@ -5399,15 +5499,15 @@ def test_ask_starts_a_fresh_worker_and_prints_its_answer(mesh, fake, run, repo, 
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     with_quotas(mesh, monkeypatch)
     answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
-    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
     captured = capsys.readouterr()
     assert "── done from proj-ask-restockedat ──\nrestockedAt is set in stock.py." in captured.out
     assert "mesh ask proj-ask-restockedat" in captured.out
     assert "started proj-ask-restockedat" in captured.err
     entry = mesh.load_run(run)["agents"]["proj-ask-restockedat"]
-    # an ordinary worker on auto: a later change task plans, and approve moves it to Hydrogen
-    assert (entry["role"], entry["branch"], entry["phase"], entry["exec_model"]) == (
-        "worker", "mesh/mtest/ask-restockedat", "plan", "hydrogen")
+    # an ordinary worker: a later change task plans, and approve moves it to the tier the root names
+    assert (entry["role"], entry["branch"], entry["phase"], entry["exec_model"], entry["tier"]) == (
+        "worker", "mesh/mtest/ask-restockedat", "plan", None, "strong")
     [task] = (mesh.inbox_dir(run, "proj-ask-restockedat")).glob("*-task.md")
     assert mesh.parse_message(task)[1].startswith(mesh.ASK_PREFIX + "\n\nHow is restockedAt computed?")
     doorbell = fake.called("agent", "prompt")[0][3]
@@ -5420,7 +5520,7 @@ def test_ask_closes_the_agent_it_opened_once_it_answers(mesh, fake, run, repo, m
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     with_quotas(mesh, monkeypatch)
     answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
-    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
     assert "proj-ask-restockedat is closed" in capsys.readouterr().out
     entry = mesh.load_run(run)["agents"]["proj-ask-restockedat"]
     assert entry["status"] == "retired" and fake.called("pane", "close", entry["pane"])
@@ -5495,7 +5595,7 @@ def test_ask_without_a_run_starts_one(mesh, fake, repo, monkeypatch, capsys):
     fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
     stub_new_pane(fake)
     with_quotas(mesh, monkeypatch)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--body", "Where is auth?", "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--body", "Where is auth?", "--no-wait"]) == 0
     captured = capsys.readouterr()
     run_id = json.loads(captured.out)["delivery"]["stored"].split("/state/")[1].split("/")[0]
     assert f"started run {run_id}" in captured.err
@@ -5506,11 +5606,11 @@ def test_ask_without_a_run_starts_one(mesh, fake, repo, monkeypatch, capsys):
 
 def test_ask_needs_one_target_and_a_question(mesh, fake, run, repo, capsys):
     assert mesh.main(["ask", "--body", "x"]) == 1
-    assert mesh.main(["ask", "repo-fix-typo", "--repo", str(repo), "--body", "x"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "repo-fix-typo", "--repo", str(repo), "--body", "x"]) == 1
     assert mesh.main(["ask", "repo-fix-typo"]) == 1
     assert mesh.main(["ask", "repo-fix-typo", "--kind", "claude", "--body", "x"]) == 1
     assert "empty question" in capsys.readouterr().err
-    assert mesh.main(["ask", "--repo", str(repo), "--review", "7"]) == 1  # no GitHub remote to read a number against
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", "7"]) == 1  # no GitHub remote to read a number against
     assert "not on GitHub" in capsys.readouterr().err
     assert not fake.called("agent", "start")
 
@@ -5533,7 +5633,7 @@ def test_ask_for_a_review_checks_out_the_pr_head(mesh, fake, run, repo, tmp_path
     stub_new_pane(fake)
     with_quotas(mesh, monkeypatch)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["name"] == "proj-review-7-agy"
     wt_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=out["cwd"], capture_output=True, text=True).stdout
@@ -5551,11 +5651,11 @@ def test_a_second_fresh_reviewer_of_a_pr_gets_its_own_branch(mesh, fake, run, re
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
     first = json.loads(capsys.readouterr().out)
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
     second = json.loads(capsys.readouterr().out)  # the first one's branch is still there, as a retired one's is
     assert (first["branch"], second["branch"]) == ("mesh/mtest/review-7-claude", "mesh/mtest/review-7-claude-2")
     assert second["name"] != first["name"]
@@ -5565,7 +5665,8 @@ def test_a_named_reviewer_whose_branch_is_taken_gets_the_next_one(mesh, fake, ru
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    named = ["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--name", "review-7-claude", "--no-wait"]
+    named = ["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--name",
+             "review-7-claude", "--no-wait"]
     assert mesh.main(named) == 0  # /delegate-review always passes --name
     capsys.readouterr()
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
@@ -5609,37 +5710,38 @@ def test_a_fresh_reviewer_gets_high_effort_at_any_size(mesh, fake, run, repo, tm
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
                       "--no-wait"]) == 0
     assert json.loads(capsys.readouterr().out)["effort"] == "high"
     assert started(fake)[-5:-1] == ("--model", "opus", "--effort", "high")
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
                       "--effort", "medium", "--name", "review-again", "--no-wait"]) == 0
     assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a named effort wins
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--body", "Where is auth?",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--body", "Where is auth?",
                       "--no-wait"]) == 0
-    assert json.loads(capsys.readouterr().out)["effort"] == "medium"  # a question keeps its size's effort
+    assert json.loads(capsys.readouterr().out)["effort"] == "high"  # a question gets its tier's effort
 
 
 def test_a_trivial_reviewer_gets_high_effort_on_either_cli(mesh, fake, run, repo, tmp_path, monkeypatch, capsys):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
-    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-4-{family}-{effort}")
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: family if family.startswith("gemini")
+                        else f"gemini-4-{family}-{effort}")
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "agy", "--size", "trivial", "--review", pr,
+    assert mesh.main(["ask", "--tier", "mid", "--repo", str(repo), "--kind", "agy", "--size", "trivial", "--review", pr,
                       "--name", "review-agy", "--no-wait"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"  # not its size's low
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"  # review.effort, not its tier's
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "trivial", "--review", pr,
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "trivial", "--review", pr,
                       "--name", "review-claude", "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["model"], out["effort"]) == ("opus", "high")
 
 
-def test_a_large_reviewer_plans_high_and_still_executes_a_later_fix_at_medium(mesh, fake, run, repo, tmp_path,
+def test_a_large_reviewer_plans_high_and_gets_a_later_fixs_tier_at_approval(mesh, fake, run, repo, tmp_path,
                                                                               monkeypatch, capsys):
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
@@ -5649,10 +5751,10 @@ def test_a_large_reviewer_plans_high_and_still_executes_a_later_fix_at_medium(me
         if kind == "agy":
             fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
             fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
-        assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--review", pr, "--name", f"review-{kind}",
+        assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", kind, "--review", pr, "--name", f"review-{kind}",
                           "--no-wait"]) == 0
         entry = mesh.load_run(run)["agents"][json.loads(capsys.readouterr().out)["name"]]
-        assert (entry["effort"], entry["phase"], entry["exec_effort"]) == ("high", "plan", "medium"), kind
+        assert (entry["effort"], entry["phase"], entry["exec_tier"]) == ("high", "plan", None), kind
 
 
 def test_a_review_task_carries_the_diff_unless_it_is_too_long(mesh, fake, run, capsys):
@@ -5700,7 +5802,7 @@ def test_a_review_diff_is_of_the_head_the_task_names(mesh, fake, cli, run, repo,
     pr = "https://github.com/acme/proj/pull/7"
     cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
     cli.on("pr", "diff", stdout="+a newer push\n")  # gh shows the PR as it is now
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[-1])[1]
     base = subprocess.run(["git", "rev-parse", "main"], cwd=repo, capture_output=True, text=True).stdout.strip()
@@ -5800,7 +5902,7 @@ def fresh_reviewer_and_a_fix(mesh, fake, run, repo, tmp_path, monkeypatch, capsy
     stub_new_pane(fake)
     with_quotas(mesh, monkeypatch)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
     origin = tmp_path / "origin"
     subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
@@ -5963,7 +6065,7 @@ def test_a_fresh_claude_reviewer_runs_code_review_at_its_size(mesh, fake, run, r
     pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    argv = ["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]
+    argv = ["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]
     assert mesh.main(argv + (["--size", size] if size else [])) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
@@ -5989,7 +6091,7 @@ def test_code_review_targets_the_range_from_the_merge_base_in_a_fork_too(mesh, f
     stub_new_pane(fake)
     cli.on("pr", "view", stdout=json.dumps({"baseRefName": "main"}))
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     body = mesh.parse_message(mesh.unread(run, name)[0])[1]
     merge_base = real_git("merge-base", "main", head, cwd=repo)
@@ -6006,7 +6108,7 @@ def test_a_fresh_reviewer_in_a_claude_run_runs_code_review(mesh, fake, run, repo
     with mesh.editing_run(run) as data:
         data["mode"] = "claude"  # no --kind: the reviewer is of the run's mode
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "small", "--no-wait"]) == 0
     name = json.loads(capsys.readouterr().out)["name"]
     assert "`/code-review medium 7`" in mesh.parse_message(mesh.unread(run, name)[0])[1]  # a small review's level
 
@@ -6021,32 +6123,60 @@ def test_code_review_runs_at_the_reviews_size(mesh, cli, repo, tmp_path):
         assert f"`/code-review {level} 7`" in task, size
 
 
+
+def test_since_narrows_a_fresh_reviewer_to_the_fix_commits(mesh, cli, repo, tmp_path):
+    base, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", returncode=1)
+    cli.on("pr", "diff", stdout="+fixed\n")
+    origin = tmp_path / "origin"
+    since = subprocess.run(["git", "rev-parse", f"{head}~1"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    args = mesh.argparse.Namespace(since=since, size="small", repo=str(origin))
+    task = mesh.asker_task(args, "mtest", origin, None, "claude", "", pr, 7, head, None)[0]
+    assert f"An earlier review covered this PR up to {since}" in task and "You last reviewed" not in task
+    assert f"`/code-review medium {since}..{head}`" in task
+
+
+
+def test_a_prs_author_is_the_worker_whose_branch_it_came_from(mesh, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-feat"] = {"role": "worker", "kind": "claude", "branch": "mesh/mtest/feat"}
+    monkeypatch.setattr(mesh, "pr_head_branch", lambda pr: "mesh/mtest/feat")
+    assert mesh.pr_author_kind("https://github.com/acme/proj/pull/7") == "claude"
+    monkeypatch.setattr(mesh, "pr_head_branch", lambda pr: "someones-branch")
+    assert mesh.pr_author_kind("https://github.com/acme/proj/pull/8") is None  # a PR no mesh worker made
+
+
 AGY_LOW = USAGE.replace("Gemini Models\tFive Hour Limit Remaining\t52%", "Gemini Models\tFive Hour Limit Remaining\t3%")
 AGY_OUT = AGY_LOW.replace("Claude and GPT models\tWeekly Limit Remaining\t49%", "Claude and GPT models\tWeekly Limit Remaining\t2%")
 
 
-@pytest.mark.parametrize("usage, agy, copilot, size, kinds", [
-    (USAGE, True, True, "small", ["agy"]),
-    (AGY_LOW, True, True, "small", ["copilot"]),
-    (AGY_LOW, True, False, "small", ["claude"]),
-    (USAGE, False, True, "small", ["copilot"]),  # agy not installed
-    (None, True, True, "trivial", ["agy"]),  # quotas unreadable: available, as for a spawn
-    (USAGE, True, True, "large", ["claude", "agy"]),  # Argon is out, but Opus has quota
-    (AGY_LOW, True, True, "large", ["claude", "agy"]),  # Flash is low, but Opus plans
-    (AGY_OUT, True, True, "large", ["claude", "copilot"]),  # the whole plan chain is out
-    (AGY_OUT, True, False, "large", ["claude"]),
+@pytest.mark.parametrize("usage, agy, opencode, size, tier, avoid, kinds", [
+    (USAGE, True, True, "small", "mid", None, ["opencode"]),  # a small PR: one cheap reviewer
+    (USAGE, True, False, "small", "mid", None, ["agy"]),
+    (AGY_LOW, True, False, "small", "mid", None, []),  # nobody: never a Claude for a small PR
+    (None, True, False, "trivial", "light", None, ["agy"]),  # quotas unreadable: available, as for a spawn
+    (USAGE, True, True, "large", "strong", None, ["claude"]),
+    (USAGE, True, True, "large", "strong", "claude", ["agy"]),  # another CLI than the author's
+    (AGY_LOW, True, True, "large", "strong", "claude", ["agy"]),  # Flash is low, but Opus has quota
+    (AGY_OUT, True, False, "large", "strong", "claude", ["copilot"]),  # agy's whole strong chain is out
+    (AGY_OUT, False, False, "large", "strong", "agy", ["claude"]),
 ])
-def test_pick_reviewers_by_size_and_agy_quota(mesh, monkeypatch, usage, agy, copilot, size, kinds):
+def test_pick_reviewers_by_size_tier_and_quota(mesh, monkeypatch, usage, agy, opencode, size, tier, avoid, kinds):
     with_quotas(mesh, monkeypatch, usage or "")
     if usage is None:
         monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)
-    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {"agy": agy, "copilot": copilot, "claude": True}.get(cmd)
-                        else None)
-    picked, notes = mesh.pick_reviewers(size)
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: f"/bin/{cmd}" if {
+        "agy": agy, "opencode": opencode, "copilot": True, "claude": True}.get(cmd) else None)
+    monkeypatch.setattr(mesh, "opencode_pick", lambda chain, skip: ("opencode/big-pickle", []))
+    if not kinds:
+        with pytest.raises(mesh.MeshError, match="no reviewer to start.*a mid-tier Claude"):
+            mesh.pick_reviewers(size, tier=tier, avoid=avoid)
+        return
+    picked, notes = mesh.pick_reviewers(size, tier=tier, avoid=avoid)
     assert picked == kinds
-    assert bool(notes) == ("agy" not in kinds)
     if usage in (AGY_LOW, AGY_OUT) and notes:
-        assert "% left" in notes[0]
+        assert "% left" in " ".join(notes)
 
 
 def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypatch):
@@ -6058,13 +6188,14 @@ def test_a_re_review_asks_the_rounds_reviewers_again_but_copilot(mesh, monkeypat
     flash = {"kind": "agy", "model": "gemini-3.8-flash-high"}  # its own model is checked: Flash is at 3%
     kinds, notes = mesh.pick_reviewers("large", {"agy": flash, "claude": claude})
     assert kinds == ["claude"] and notes == ["agy: gemini-3.8-flash-high has 3% left (resets 2026-10-24T05:50:54Z); left out"]
-    with_quotas(mesh, monkeypatch, AGY_OUT)  # agy out on a re-review too: Claude takes its place
-    kinds, notes = mesh.pick_reviewers("small", {"agy": {"kind": "agy"}})
-    assert kinds == ["claude"] and "Claude instead" in notes[0]
-    kinds, notes = mesh.pick_reviewers("small", {"copilot": copilot})  # only Copilot: agy is out
-    assert kinds == ["claude"] and "Copilot" in notes[0]
+    with_quotas(mesh, monkeypatch, AGY_OUT)  # agy out on a re-review too: a cheap one takes its place, never Claude
+    monkeypatch.setattr(mesh, "opencode_pick", lambda chain, skip: ("opencode/big-pickle", []))
+    kinds, notes = mesh.pick_reviewers("small", {"agy": {"kind": "agy"}}, tier="mid")
+    assert kinds == ["opencode"] and "OpenCode instead" in notes[0]
+    kinds, notes = mesh.pick_reviewers("small", {"copilot": copilot}, tier="mid")  # only Copilot, left out
+    assert kinds == ["opencode"] and "Copilot" in notes[0]
     with_quotas(mesh, monkeypatch, USAGE)
-    assert mesh.pick_reviewers("large", {"copilot": copilot})[0] == ["claude", "agy"]  # a large one keeps Claude
+    assert mesh.pick_reviewers("large", {"copilot": copilot})[0] == ["claude"]  # the slot again, Copilot left out
 
 
 def test_a_claude_reviewer_asked_again_runs_code_review_on_the_new_commits(mesh, fake, run, repo, tmp_path, capsys):
@@ -6223,7 +6354,7 @@ def test_ask_prints_the_answer_even_if_the_root_already_read_it(mesh, fake, run,
 
 def test_only_the_root_asks(mesh, fake, run, repo, monkeypatch, capsys):
     as_worker(monkeypatch, run)
-    assert mesh.main(["ask", "--repo", str(repo), "--body", "x"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--body", "x"]) == 1
     assert "only a root runs `mesh ask`" in capsys.readouterr().err
     assert not fake.called("agent", "start")
 
@@ -6294,13 +6425,13 @@ def test_claude_address_is_the_socket_of_an_ancestor(mesh, monkeypatch):
 def test_small_claude_task_runs_in_the_background_with_no_plan(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+    assert mesh.main(["spawn", "--tier", "mid", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix the typo in the footer."]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "opus", "medium", None)
+    assert (out["view"], out["model"], out["effort"], out["exec_model"]) == ("bg", "sonnet", "high", None)
     launch = cli.called("--bg")[0]
     argv = launch["argv"]
-    assert argv[:8] == ["claude", "--bg", "-n", "proj-copy", "--model", "opus", "--effort", "medium"]
+    assert argv[:8] == ["claude", "--bg", "-n", "proj-copy", "--model", "sonnet", "--effort", "high"]
     assert argv[8] == "--settings" and argv[10] == "--dangerously-skip-permissions"
     assert argv[11].startswith("📬 [mesh] You are proj-copy (worker) in agent-mesh run mtest")
     assert launch["cwd"] == mesh.worktree_root() / "mtest" / "proj-copy"
@@ -6400,16 +6531,16 @@ def test_background_falls_back_to_a_pane_where_settings_hold_messages(mesh, fake
     write_settings(repo / ".claude" / "settings.json", "hold")
     subprocess.run(["git", "add", ".claude/settings.json"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "hold"], cwd=repo, check=True)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "named",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "named",
                       "--view", "bg"]) == 1
     assert "--view bg: Claude Code's settings there hold" in capsys.readouterr().err
     # Refused with no worktree, branch or row left: a retry under the same name works.
     assert not [w for w in mesh.load_run(run)["worktrees"] if w["branch"] == "mesh/mtest/named"]
     assert subprocess.run(["git", "rev-parse", "--verify", "-q", "mesh/mtest/named"], cwd=repo).returncode != 0
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "named",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "named",
                       "--view", "pane"]) == 0
     capsys.readouterr()
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "crossSessionInbound" in out["notes"][0]
     assert not cli.called("--bg")
@@ -6421,7 +6552,7 @@ def test_any_failure_before_the_worker_runs_takes_its_worktree_back(mesh, fake, 
         raise mesh.MeshError("no room for a pane")
     place_pane = mesh.place_pane
     monkeypatch.setattr(mesh, "place_pane", no_pane)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
                       "--view", "pane"]) == 1
     assert "no room for a pane" in capsys.readouterr().err
     assert mesh.load_run(run)["worktrees"] == []
@@ -6429,7 +6560,7 @@ def test_any_failure_before_the_worker_runs_takes_its_worktree_back(mesh, fake, 
     assert subprocess.run(["git", "rev-parse", "--verify", "-q", "mesh/mtest/fix"], cwd=repo).returncode != 0
     monkeypatch.setattr(mesh, "place_pane", place_pane)
     stub_new_pane(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
                       "--view", "pane"]) == 0
 
 
@@ -6447,19 +6578,19 @@ def test_a_refused_bg_resume_takes_back_the_worktree_it_recreated(mesh, fake, cl
     subprocess.run(["git", "add", ".claude/settings.json"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "hold"], cwd=repo, check=True)
     path, branch = archived_worker(mesh, repo, kind="claude", session="s-1")
-    assert mesh.main(["resume", "proj-fix", "--view", "bg", "--task", "Address the review."]) == 1
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--view", "bg", "--task", "Address the review."]) == 1
     assert "--view bg: Claude Code's settings there hold" in capsys.readouterr().err
     assert not path.exists()  # nothing owns it: no row in this run
     assert subprocess.run(["git", "rev-parse", "--verify", "-q", branch], cwd=repo).returncode == 0  # kept
     stub_new_pane(fake)
-    assert mesh.main(["resume", "proj-fix", "--view", "pane", "--task", "Address the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--view", "pane", "--task", "Address the review."]) == 0
 
 
 def test_background_reads_the_worktrees_settings_not_the_checkouts(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
     write_settings(repo / ".claude" / "settings.local.json", "hold")  # the user's untracked file, main checkout only
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix it."]) == 0
     assert json.loads(capsys.readouterr().out)["view"] == "bg" and cli.called("--bg")
     assert mesh.load_run(run)["agents"]["proj-copy"]["inbound"] == "accept"  # launched accepting
@@ -6475,7 +6606,7 @@ def test_a_bg_launch_gives_its_identity_and_config_by_settings_only(mesh, fake, 
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "root-s")  # the root's own session, not the worker's
     monkeypatch.setenv("CLAUDE_CODE_MESSAGING_TOKEN", "t")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/cfg")
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix it."]) == 0
     launch = cli.called("--bg")[0]
     assert not any(k.startswith("MESH_") or k in mesh.CLAUDE_SESSION_VARS or k in mesh.HERDR_IDS
@@ -6509,10 +6640,10 @@ def test_an_empty_config_variable_counts_as_unset(mesh, monkeypatch, tmp_path):
 
 def test_background_falls_back_to_a_pane_without_a_claude_root(mesh, fake, cli, run, repo, capsys):
     stub_new_pane(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    assert mesh.main(["spawn", "--tier", "light", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "starting a pane" in out["notes"][0]
-    assert started(fake)[-5:] == ("--model", "opus", "--effort", "medium",
+    assert started(fake)[-5:] == ("--model", "haiku", "--effort", "medium",
                                                       "--dangerously-skip-permissions")
     assert not cli.called("--bg")
 
@@ -6521,7 +6652,7 @@ def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake,
     claude_root(mesh, run)
     stub_new_pane(fake)
     cli.on("--bg", returncode=1, stdout="Workspace not trusted. Run `claude` in /x once")
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
                       "--task", "Tweak the button."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "doesn't trust" in out["notes"][0]
@@ -6531,28 +6662,29 @@ def test_an_untrusted_folder_falls_back_to_a_pane_with_the_task_kept(mesh, fake,
     assert [(e["to"], e["via"]) for e in mesh.read_log(run) if e["event"] == "rung"] == [("proj-ui", "working")]
 
 
-def test_small_and_trivial_agy_tasks_are_hydrogen_at_high_and_low_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
+def test_small_and_trivial_agy_tasks_run_their_tiers_model_in_a_pane(mesh, fake, run, repo, monkeypatch, capsys):
     stub_new_pane(fake)
-    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: f"gemini-4-{family}-{effort}")
-    assert mesh.main(["spawn", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
+    monkeypatch.setattr(mesh, "resolve_agy_model", lambda family, effort: family if family.startswith("gemini")
+                        else f"gemini-4-{family}-{effort}")
+    assert mesh.main(["spawn", "--tier", "mid", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-4-hydrogen-high", None)
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
-    assert mesh.main(["spawn", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-low"
-    assert mesh.main(["spawn", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
+    assert mesh.main(["spawn", "--tier", "light", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-flash-low"
+    assert mesh.main(["spawn", "--tier", "strong", "--size", "small", "--view", "bg", "--repo", str(repo), "--worktree", "no"]) == 1
     assert "for Claude workers" in capsys.readouterr().err
 
 
 def test_a_size_has_no_execution_phase_to_override(mesh, fake, run, repo, capsys):
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--exec-model", "opus", "--repo", str(repo)]) == 1
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--exec-model", "opus", "--repo", str(repo)]) == 1
     assert "no execution phase" in capsys.readouterr().err
 
 
 def test_user_reviewed_plan_runs_opus_in_plan_mode(mesh, fake, run, repo, capsys):
     stub_new_pane(fake)
-    assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "feat",
                       "--task", "Build it."]) == 0
     start = started(fake)
     assert start[start.index("--model") + 1] == "opus" and start[-3:] == ("--permission-mode", "plan", "--allow-dangerously-skip-permissions")
@@ -6950,7 +7082,7 @@ def test_resume_compacts_a_large_conversation_before_reopening_it(mesh, fake, cl
     started = []
     cli.on("-p", effect=lambda argv: started.append(bool(fake.called("agent", "start"))))
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review.\nDetails…"]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review.\nDetails…"]) == 0
     out = json.loads(capsys.readouterr().out)
     argv = cli.called("-p")[0]["argv"]
     assert argv[:7] == ["claude", "-p", "--resume", "s-1", "--model", "opus", "--dangerously-skip-permissions"]
@@ -6967,7 +7099,7 @@ def test_a_failed_compaction_still_resumes(mesh, fake, cli, run, repo, monkeypat
     stub_new_pane(fake)
     cli.on("-p", returncode=1, stderr="boom")
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Go.", "--focus", "the API contract"]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Go.", "--focus", "the API contract"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert cli.called("-p")[0]["argv"][-1] == "/compact the API contract"
     assert out["compaction"]["compacted"] is False and "boom" in out["notes"][0]
@@ -6977,7 +7109,7 @@ def test_a_failed_compaction_still_resumes(mesh, fake, cli, run, repo, monkeypat
 def test_agy_compacts_when_it_comes_back_from_another_run(mesh, fake, cli, run, repo, capsys):
     archived_worker(mesh, repo, session="c1")
     stub_new_pane(fake)
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review."]) == 0
     argv = cli.calls[0]["argv"]
     assert argv[:4] == ["agy", "--conversation", "c1", "--model"] and argv[-2] == "-p"
     assert argv[-1].startswith("/compact ")
@@ -6989,7 +7121,7 @@ def test_a_small_agy_conversation_from_another_run_is_not_compacted(mesh, fake, 
     agy_conversation_file(mesh, "c1", [(15, agy_call(3_000, cached=40_000))])
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review."]) == 0
     assert not cli.called("--conversation")
     assert json.loads(capsys.readouterr().out)["compaction"] == {"context_tokens": 43_000, "compacted": False}
 
@@ -7011,7 +7143,7 @@ def test_resume_of_a_bg_worker_starts_a_copy_with_the_new_runs_identity(mesh, fa
     (mesh.mesh_home() / "archive" / "mold" / "run.json").write_text(json.dumps(data))
     bg_cli(cli, rows=[{"id": "c0ffee01", "sessionId": "copy-s", "status": "busy", "pid": 5}], short="c0ffee01")
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Address the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Address the review."]) == 0
     out = json.loads(capsys.readouterr().out)
     launch = cli.called("--bg")[0]
     assert launch["argv"][1:4] == ["--bg", "--resume", "s-1"] and launch_settings_env(launch)["MESH_RUN"] == "mtest"
@@ -7034,7 +7166,7 @@ def test_ask_under_a_claude_root_returns_once_delivered(mesh, fake, run, monkeyp
 def test_a_small_fresh_asker_gets_the_question_not_a_direct_task(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small",
                       "--body", "How is restockedAt computed?"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "bg"
@@ -7054,7 +7186,7 @@ def deny_rules(argv):
 def test_a_claude_asker_can_neither_edit_nor_publish(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small",
                       "--body", "How is restockedAt computed?", "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
     rules = deny_rules(cli.called("--bg")[0]["argv"])
@@ -7063,7 +7195,7 @@ def test_a_claude_asker_can_neither_edit_nor_publish(mesh, fake, cli, run, repo,
     assert "Bash(git push:*)" in rules and rules[0].startswith("Edit(//")
     assert mesh.load_run(run)["agents"][out["name"]]["read_only"] is True
     # A change task gets no deny list.
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "copy",
                       "--task", "Fix the typo in the footer."]) == 0
     assert not deny_rules(cli.called("--bg")[-1]["argv"])
     assert mesh.load_run(run)["agents"]["proj-copy"]["read_only"] is False
@@ -7075,7 +7207,7 @@ def test_a_claude_reviewer_in_a_pane_gets_the_deny_list_and_agy_none(mesh, fake,
     stub_new_pane(fake)
     with_quotas(mesh, monkeypatch)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--review", pr, "--no-wait"]) == 0
     argv = started(fake)
     assert "Bash(gh pr comment:*)" in deny_rules(argv) and argv[-1] == "--dangerously-skip-permissions"
     # agy has no deny list: its askers are held by the prompt alone.
@@ -7088,11 +7220,11 @@ def test_a_fresh_reviewer_opens_in_a_pane_where_a_question_would_not(mesh, fake,
     bg_cli(cli)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and fake.called("agent", "start") and not cli.called("--bg")
     # A named view still wins.
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--review", pr,
                       "--view", "bg", "--name", "review-bg"]) == 0
     assert json.loads(capsys.readouterr().out)["view"] == "bg"
 
@@ -7140,7 +7272,7 @@ def test_a_running_watch_holds_its_workers_lock_and_root_commands_warn_without_o
     assert not mesh.watched(run, "repo-fix-typo")
     monkeypatch.setattr(mesh, "spawn_worker", lambda args, run_id, me: {"name": "repo-other"})
     capsys.readouterr()
-    assert mesh.main(["spawn", "--kind", "agy", "--repo", ".", "--task", "x"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "agy", "--repo", ".", "--task", "x"]) == 0
     assert "warning: no `mesh watch` covers repo-fix-typo (it owes a report)" in capsys.readouterr().err
     seen = {}
 
@@ -7412,7 +7544,7 @@ def test_a_bg_session_that_never_lists_is_stopped_and_the_spawn_takes_a_pane(mes
     claude_root(mesh, run)
     stub_new_pane(fake)
     bg_cli(cli, rows=[])
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "ui",
                       "--task", "Tweak the button."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert cli.called("stop", "ab12cd34")  # no stray session left to do the task too
@@ -7431,7 +7563,7 @@ def test_a_bg_resume_in_an_untrusted_folder_reopens_in_a_pane(mesh, fake, cli, r
     stub_new_pane(fake)
     cli.on("--bg", returncode=1, stdout="Workspace not trusted. Run `claude` in /x once")
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Address the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Address the review."]) == 0
     out = json.loads(capsys.readouterr().out)
     entry = mesh.load_run(run)["agents"]["proj-fix"]
     assert (out["view"], entry["view"], entry["status"]) == ("pane", "pane", "running")
@@ -7552,7 +7684,7 @@ def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, 
     stub_new_pane(fake)
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")  # the root's pane, which by-pane maps to the root
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Go."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Go."]) == 0
     env = cli.called("-p")[0]["env"]
     assert "HERDR_PANE_ID" not in env and not any(k in env for k in mesh.MESH_IDS)
     assert env["MESH_HOME"] == str(mesh.mesh_home())  # configuration stays
@@ -7561,11 +7693,15 @@ def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, 
     capsys.readouterr()
 
 
-def test_model_auto_on_a_small_task_means_its_default(mesh, fake, cli, run, repo, capsys):
+def test_model_auto_names_the_tiers_chain_and_a_missing_tier_starts_nothing(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli)
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--repo", str(repo),
-                      "--worktree", "copy"]) == 0
+    agents = set(mesh.load_run(run)["agents"])
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--repo", str(repo), "--worktree", "none"]) == 1
+    assert "pass --tier light|mid|strong|top for a claude small task" in capsys.readouterr().err
+    assert set(mesh.load_run(run)["agents"]) == agents and not cli.called("--bg")
+    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--model", "auto", "--tier", "strong",
+                      "--repo", str(repo), "--worktree", "copy"]) == 0
     assert json.loads(capsys.readouterr().out)["model"] == "opus"
     assert cli.called("--bg")[0]["argv"][4:6] == ["--model", "opus"]
 
@@ -8104,9 +8240,9 @@ def test_a_copilot_answer_with_no_time_lifts_no_hold(mesh):
 def test_routing_shows_copilot_model_standing_in_for_the_built_ins(mesh, monkeypatch, capsys):
     monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
     policy = mesh.routing()["policy"]
-    assert policy["models.copilot.exec"] == {"value": "gpt-5.6-luna", "source": "copilot_model"}
-    assert policy["models.copilot.plan"] == {"value": ["gpt-5.6-luna"], "source": "copilot_model"}
-    assert policy["models.claude.exec"]["source"] == "built-in"
+    assert policy["tiers.copilot.mid.model"] == {"value": ["gpt-5.6-luna"], "source": "copilot_model"}
+    assert policy["tiers.copilot.strong.model"] == {"value": ["gpt-5.6-luna"], "source": "copilot_model"}
+    assert policy["tiers.claude.mid.model"]["source"] == "built-in"
 
 
 
@@ -8115,7 +8251,7 @@ def test_a_copilot_reviewer_is_a_pane_worker_under_its_deny_list(mesh, fake, cli
     head = pr_origin(tmp_path, repo)
     stub_new_pane(fake)
     pr = "https://github.com/acme/proj/pull/7"
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--kind", "copilot", "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--kind", "copilot", "--no-wait"]) == 0
     out = json.loads(capsys.readouterr().out)
     entry = mesh.load_run(run)["agents"][out["name"]]
     assert (entry["kind"], entry["view"], entry["read_only"], entry["base"]) == ("copilot", "pane", True, head)
@@ -8133,12 +8269,12 @@ def test_a_copilot_reviewer_is_a_pane_worker_under_its_deny_list(mesh, fake, cli
 
 def test_a_copilot_worker_plans_under_the_deny_list_and_a_direct_task_has_none(mesh, fake, run, repo, capsys):
     stub_new_pane(fake)
-    assert mesh.main(["spawn", "--kind", "copilot", "--repo", str(repo), "--worktree", "feature",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "copilot", "--repo", str(repo), "--worktree", "feature",
                       "--task", "Add a dark mode."]) == 0
     entry = mesh.load_run(run)["agents"]["proj-feature"]
-    assert (entry["planning"], entry["phase"], entry["model"], entry["exec_model"]) == (True, "plan", "auto", "auto")
+    assert (entry["planning"], entry["phase"], entry["model"], entry["exec_model"]) == (True, "plan", "auto", None)
     assert "--deny-tool" in started(fake)
-    assert mesh.main(["spawn", "--kind", "copilot", "--size", "small", "--repo", str(repo), "--worktree", "typo",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "copilot", "--size", "small", "--repo", str(repo), "--worktree", "typo",
                       "--task", "Fix the typo."]) == 0
     entry = mesh.load_run(run)["agents"]["proj-typo"]
     assert (entry["planning"], entry["read_only"], entry["view"]) == (False, False, "pane")
@@ -8153,7 +8289,7 @@ def test_a_copilot_ask_starts_its_run_in_the_roots_own_mode(mesh, fake, cli, rep
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
     fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/repo"}]})
     stub_new_pane(fake)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?", "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "copilot", "--body", "Where is auth?", "--no-wait"]) == 0
     run_id = capsys.readouterr().err.split("started run ")[1].split()[0]
     assert mesh.load_run(run_id)["mode"] == "claude"  # no root runs on Copilot
 
@@ -8233,17 +8369,16 @@ def test_copilot_is_never_the_default_cli_and_copilot_model_stands_in_for_the_bu
     clis(monkeypatch, "copilot")
     with pytest.raises(mesh.MeshError, match="neither Claude Code"):
         mesh.default_kind()
-    assert mesh.cli("copilot").plan_model("high", None)[0] == "auto"
+    assert mesh.tier_chain("copilot", "strong") == ("auto",)
     monkeypatch.setenv("MESH_COPILOT_MODEL", "gpt-5.6-luna")
     copilot = mesh.cli("copilot")
-    assert copilot.plan_model("high", None)[0] == mesh.exec_model_for("copilot") == "gpt-5.6-luna"
-    assert mesh.size_policy("copilot", "small")["model"] == "gpt-5.6-luna"
-    assert copilot.resumed_model({"kind": "copilot"}, None, "high") == ("gpt-5.6-luna", "high")
+    assert mesh.tier_chain("copilot", "strong") == mesh.tier_chain("copilot", "light") == ("gpt-5.6-luna",)
+    assert copilot.resumed_model({"kind": "copilot", "tier": "mid"}, None, "high") == ("gpt-5.6-luna", "high")
     # ...but never for a model named on the command line, nor a models.copilot.* leaf set in the config.
     assert copilot.resumed_model({"kind": "copilot"}, "gpt-x", "high") == ("gpt-x", "high")
     assert copilot.launch_argv("gpt-x", "high", None)[1] == "gpt-x"
-    with_config({"models": {"copilot": {"exec": "gpt-y"}}})
-    assert mesh.exec_model_for("copilot") == "gpt-y"
+    with_config({"tiers": {"copilot": {"mid": {"model": ["gpt-y"]}}}})
+    assert mesh.tier_chain("copilot", "mid") == ("gpt-y",) and mesh.tier_chain("copilot", "light") == ("gpt-5.6-luna",)
 
 
 # ── root context: measuring, resetting and briefing the root ─────────────
@@ -9094,10 +9229,10 @@ def test_a_failed_write_to_the_root_rings_its_pane(mesh, fake, run):
 
 def test_a_refused_bg_view_without_a_root_makes_no_worktree(mesh, fake, cli, run, repo, capsys):
     # No root socket: refused before anything is made, by `spawn` and `ask` alike.
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "fix",
                       "--view", "bg"]) == 1
     assert "needs a Claude root" in capsys.readouterr().err
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--size", "small", "--view", "bg",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--size", "small", "--view", "bg",
                       "--body", "Why?"]) == 1
     assert "needs a Claude root" in capsys.readouterr().err
     assert mesh.load_run(run).get("worktrees", []) == []
@@ -9208,7 +9343,7 @@ def test_resume_refuses_under_the_memory_floor_before_it_logs_resuming(mesh, fak
     stub_new_pane(fake)
     low_memory(mesh, tmp_path, monkeypatch)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 1
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review."]) == 1
     assert "not starting proj-fix again" in capsys.readouterr().err
     assert not [e for e in mesh.read_log(run) if e["event"] in ("resuming", "resume_failed")]
     assert "proj-fix" not in mesh.load_run(run)["agents"] and not fake.called("agent", "start")
@@ -9220,7 +9355,7 @@ def test_ask_refuses_under_the_memory_floor_before_it_starts_a_run(mesh, fake, r
     low_memory(mesh, tmp_path, monkeypatch)
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", kind, "--body", "Why?"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", kind, "--body", "Why?"]) == 1
     assert "not starting an asker in" in capsys.readouterr().err
     assert not (tmp_path / "state").exists() or not list((tmp_path / "state").glob("*/run.json"))
 
@@ -9677,7 +9812,7 @@ def test_ask_whose_closing_retire_fails_still_answers_with_0(mesh, fake, run, re
     fake.on("pane", "close", error="boom")
     with_quotas(mesh, monkeypatch)
     answer_on_sleep(mesh, monkeypatch, run, "proj-ask-restockedat")
-    assert mesh.main(["ask", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--body", "How is restockedAt computed?"]) == 0
     out, err = capsys.readouterr()
     assert "restockedAt is set in stock.py." in out and "is closed" not in out
     assert "couldn't close proj-ask-restockedat" in err and "mesh retire proj-ask-restockedat" in err
@@ -9705,8 +9840,8 @@ def test_a_failed_resume_sets_the_entry_as_that_resume_would_have(mesh, fake, ru
     assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", body]) == 1
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     assert (entry["read_only"], entry["planning"], entry.get("phase")) == (read_only, planning, phase)
-    if phase == "plan":
-        assert entry["exec_model"] and entry["exec_effort"]
+    if phase == "plan":  # its execution tier is named at `mesh approve`
+        assert (entry["exec_model"], entry["exec_effort"], entry["exec_tier"]) == (None, None, None)
 
 
 def test_send_to_a_worker_still_retiring_past_the_wait_exits_2_with_the_hint(mesh, fake, run, monkeypatch, capsys):
@@ -10020,7 +10155,7 @@ def test_a_review_round_collects_its_reviewers_into_one_file(mesh, fake, cli, ru
                                   {"review-7-claude": "1. a.py:1 claude's finding.", "review-7-agy": "Nothing found.",
                                    "review-7-copilot": "1. b.py:2 copilot's finding."})
     capsys.readouterr()
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers",
                       "claude,agy,copilot"]) == 0
     out = capsys.readouterr().out
     assert out.startswith(f"3 of 3 reviewers answered: {pr} at {head[:9]}")
@@ -10051,7 +10186,7 @@ def test_a_review_round_says_which_round_it_was_and_offers_a_re_review_only_whil
     (other / "review-7-1.md").write_text("# Review of https://github.com/Acme/Proj/pull/7 at abc\n\nAsked …\n")
     (other / "review-7-2.md").write_text("# Review of https://github.com/acme/proj/pull/7 at abc\n"
                                          "<!-- mesh: 0 reviews -->\n")
-    args = ["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude"]
+    args = ["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--reviewers", "claude"]
     assert mesh.main([*args, "--size", "large"]) == 0
     out = capsys.readouterr().out
     assert "(round 2 of at most 2 for a large PR (`review.rounds.large`), its last: check any fix yourself" in out
@@ -10069,7 +10204,7 @@ def test_a_review_round_says_which_round_it_was_and_offers_a_re_review_only_whil
 def test_a_review_round_nobody_answered_doesnt_count(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {})  # nobody answers
     monkeypatch.setattr(mesh, "watch_each", lambda run_id, names, *a, **k: {n: (3, f"{n}: stopped") for n in names})
-    mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
+    mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
     out = capsys.readouterr().out
     assert out.startswith("0 of 1 reviewers answered")
     assert "didn't count toward `review.rounds.small` (0 of at most 1 so far)" in out and "its last" not in out
@@ -10124,7 +10259,7 @@ def test_pr_ref_gives_a_pasted_link_and_a_bare_number_one_spelling(mesh, monkeyp
 def test_a_re_review_by_another_spelling_moves_the_reviewer_and_names_its_last_head(
         mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "1. a finding."})
-    args = ["ask", "--repo", str(repo), "--size", "large", "--reviewers", "claude", "--review"]
+    args = ["ask", "--tier", "strong", "--repo", str(repo), "--size", "large", "--reviewers", "claude", "--review"]
     assert mesh.main([*args, "https://github.com/ACME/Proj/pull/7"]) == 0  # pasted, mixed case
     entry = mesh.load_run(run)["agents"]["proj-review-7-claude"]
     assert entry["review_checkout"] == pr and entry["review_heads"] == {pr: head}  # one spelling recorded
@@ -10158,10 +10293,11 @@ def test_a_reviewer_recorded_under_an_old_spelling_is_still_its_prs(mesh, run):
 
 def test_auto_gives_a_small_review_one_reviewer(mesh, fake, cli, run, repo, tmp_path, monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-agy": "Looks right."})
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
+    monkeypatch.setattr(mesh.shutil, "which", lambda cmd: None if cmd == "opencode" else f"/bin/{cmd}")
+    assert mesh.main(["ask", "--tier", "mid", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "auto"]) == 0
     captured = capsys.readouterr()
     assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-agy" in captured.out
-    assert "a fresh agy" in captured.err
+    assert "a fresh agy" in captured.err and "OpenCode isn't installed; agy instead" in captured.err
     assert [n for n in mesh.load_run(run)["agents"] if "review" in n] == ["proj-review-7-agy"]
 
 
@@ -10169,14 +10305,14 @@ def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, 
                                                                capsys):
     head, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path,
                                   {"review-7-claude": "1. a.py:1 a finding.", "review-7-copilot": "1. b.py:2 another."})
-    monkeypatch.setattr(mesh, "agy_has_quota", lambda size, model=None: (False, "gemini has 3% left"))
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
-    assert "proj-review-7-copilot" in capsys.readouterr().out  # agy is out: Claude plus Copilot
+    monkeypatch.setattr(mesh, "agy_has_quota", lambda tier, model=None: (False, "gemini has 3% left"))
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "claude,copilot"]) == 0
+    assert "proj-review-7-copilot" in capsys.readouterr().out  # a first round of the two named
     origin = tmp_path / "origin"
     subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "the fix"], cwd=origin, check=True)
     new = subprocess.run(["git", "rev-parse", "HEAD"], cwd=origin, capture_output=True, text=True).stdout.strip()
     subprocess.run(["git", "update-ref", "refs/pull/7/head", new], cwd=origin, check=True)
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "auto"]) == 0
     captured = capsys.readouterr()
     assert captured.out.startswith("1 of 1 reviewers answered") and "proj-review-7-claude again" in captured.err
     to_copilot = [e for e in mesh.read_log(run) if e.get("event") == "send" and e.get("to") == "proj-review-7-copilot"]
@@ -10190,7 +10326,7 @@ def test_a_re_review_round_asks_the_same_reviewers_but_copilot(mesh, fake, cli, 
 def test_a_review_round_keeps_the_answers_it_has_when_a_reviewer_alerts(mesh, fake, cli, run, repo, tmp_path,
                                                                         monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Found nothing."})
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "claude,agy",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "large", "--reviewers", "claude,agy",
                       "--timeout", "1"]) == 6
     out = capsys.readouterr().out
     assert out.startswith("1 of 2 reviewers answered") and "has not answered within 1s" in out
@@ -10207,7 +10343,7 @@ def test_a_review_round_keeps_the_answers_it_has_when_a_reviewer_alerts(mesh, fa
     (["--reviewers", "claude,gpt"], "--reviewers takes auto, all"),
 ])
 def test_a_review_round_refuses_what_it_cant_run(mesh, fake, run, repo, capsys, extra, error):
-    argv = ["ask", "--repo", str(repo), "--review", "7", "--reviewers", "auto", *extra]
+    argv = ["ask", "--tier", "strong", "--repo", str(repo), "--review", "7", "--reviewers", "auto", *extra]
     assert mesh.main(argv) == 1
     assert error in capsys.readouterr().err
     assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
@@ -10222,24 +10358,24 @@ def test_an_interrupted_review_round_clears_its_marks(mesh, fake, cli, run, repo
 
     monkeypatch.setattr(mesh, "watch_each", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
+        mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"])
     assert "collect" not in mesh.load_run(run)["agents"]["proj-review-7-claude"]  # its report rings as usual
 
 
 def test_a_review_rounds_copilot_reviews_at_the_rounds_size(mesh, fake, cli, run, repo, tmp_path, monkeypatch,
                                                             capsys):
     review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-copilot": "Nothing found."})
-    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers",
                       "copilot"]) == 0  # no --size: large, which plans first
     entry = mesh.load_run(run)["agents"]["proj-review-7-copilot"]
-    assert (entry["size"], entry["effort"], entry["read_only"]) == ("large", mesh.plan_effort_for("copilot"), True)
+    assert (entry["size"], entry["effort"], entry["read_only"]) == ("large", mesh.setting("review.effort"), True)
 
 
 def test_a_round_of_several_clis_refuses_one_clis_flags(mesh, fake, run, repo, monkeypatch, capsys):
-    monkeypatch.setattr(mesh, "pick_reviewers", lambda size, earlier: (["claude", "agy"], []))
-    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "auto", "--model", "opus"]) == 1
+    monkeypatch.setattr(mesh, "pick_reviewers", lambda size, earlier, tier, avoid: (["claude", "agy"], []))
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "auto", "--model", "opus"]) == 1
     assert "--model and --view are one CLI's" in capsys.readouterr().err
-    assert mesh.main(["ask", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "claude,copilot",
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", "https://github.com/acme/proj/pull/7", "--reviewers", "claude,copilot",
                       "--view", "bg"]) == 1
     assert not [n for n in mesh.load_run(run)["agents"] if "review" in n]
 
@@ -10264,8 +10400,8 @@ def test_earlier_reviewers_are_the_newest_of_each_kind_across_runs(mesh, run):
 def test_a_re_review_round_with_no_size_keeps_the_earlier_reviewers(mesh, fake, cli, run, repo, tmp_path,
                                                                     monkeypatch, capsys):
     _, pr = review_round_setup(mesh, fake, monkeypatch, run, repo, tmp_path, {"review-7-claude": "Fine."})
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"]) == 0
-    assert mesh.main(["ask", "--repo", str(repo), "--review", pr, "--reviewers", "claude", "--no-wait"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--size", "small", "--reviewers", "claude"]) == 0
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--review", pr, "--reviewers", "claude", "--no-wait"]) == 0
     assert "--no-wait don't apply to a review round" in capsys.readouterr().err
     tasks = sorted(mesh.inbox_dir(run, "proj-review-7-claude").rglob("*-task.md"))
     assert len(tasks) == 2 and "`/code-review medium" in mesh.parse_message(tasks[-1])[1]  # small, as recorded
@@ -10462,7 +10598,7 @@ def test_a_doorbell_mid_turn_leaves_the_turn_the_users(mesh, tmp_path):
 
 def test_a_refused_ask_makes_no_run(mesh, fake, repo, monkeypatch, capsys):
     claude_windows(mesh, monkeypatch, five=95)
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "claude", "--body", "Where is X?"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "claude", "--body", "Where is X?"]) == 1
     assert "Claude is at 95%" in capsys.readouterr().err
     assert not [p for p in mesh.mesh_home().glob("*/run.json")]
 
@@ -10607,16 +10743,18 @@ def test_mesh_routing_shows_the_former_env_only_knobs(mesh, monkeypatch, capsys)
 
 
 def test_a_nested_config_value_leaves_its_siblings_at_their_defaults(mesh):
-    with_config({"models": {"agy": {"small": {"effort": "medium"}}}, "_comment": "ignored"})
-    assert mesh.size_policy("agy", "small") == {"model": "hydrogen", "effort": "medium", "view": "pane"}
-    assert mesh.size_policy("agy", "trivial") == {"model": "hydrogen", "effort": "low", "view": "pane"}
-    assert mesh.plan_chain("agy") == ("argon", "opus", "hydrogen") and mesh.size_policy("agy", "large") is None
+    with_config({"tiers": {"agy": {"mid": {"effort": "high"}}}, "_comment": "ignored"})
+    assert (mesh.tier_chain("agy", "mid"), mesh.tier_effort("agy", "mid")) == (("hydrogen",), "high")
+    assert (mesh.tier_chain("agy", "light"), mesh.tier_effort("agy", "light")) == (("flash",), "low")
+    assert mesh.tier_chain("agy", "strong") == ("neon", "opus", "carbon", "hydrogen") and mesh.size_view("agy", "large") is None
 
 
 @pytest.mark.parametrize("data, error", [
-    ({"models": {"agy": {"exce": "flash"}}}, "unknown key models.agy.exce"),
+    ({"models": {"agy": {"exec": "flash"}}}, "unknown key models.agy.exec (models and efforts are per tier now"),
+    ({"tiers": {"agy": {"top": {"model": ["neon"]}}}}, "unknown key tiers.agy.top"),
     ({"review": {"rounds": {"small": "one"}}}, "review.rounds.small should be a whole number"),
-    ({"models": {"claude": {"plan_effort": "huge"}}}, "should be one of low, medium"),
+    ({"tiers": {"claude": {"strong": {"effort": "huge"}}}}, "should be one of low, medium"),
+    ({"tiers": {"claude": {"mid": {"model": []}}}}, "should be a non-empty list of model names"),
     ({"review": {"reviewers": {"small": [["gemini"]]}}}, "should be a list of slots"),
     ({"quota_stop": 120}, "quota_stop should be a whole number 0-100"),
     ([1, 2], "expected a JSON object"),
@@ -10635,25 +10773,26 @@ def test_config_that_isnt_json_fails_routing_but_shows_the_rest(mesh, capsys):
     assert "isn't valid JSON" in out and "quota_stop" in out and "[built-in]" in out
 
 
-def test_config_sets_a_claude_tasks_models_and_efforts(mesh, fake, run, repo, capsys):
+def test_config_sets_a_tiers_models_and_efforts(mesh, fake, run, repo, capsys):
     stub_new_pane(fake)
-    with_config({"models": {"claude": {"plan": ["fable"], "exec": "sonnet", "plan_effort": "xhigh",
-                                       "exec_effort": "low"}}})
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat"]) == 0
+    with_config({"tiers": {"claude": {"strong": {"model": ["fable"], "effort": "xhigh"},
+                                      "mid": {"model": ["sonnet"], "effort": "low"}}}})
+    assert mesh.main(["spawn", "--tier", "strong", "--exec-tier", "mid", "--kind", "claude", "--repo", str(repo),
+                      "--worktree", "feat"]) == 0
     out = json.loads(capsys.readouterr().out)
     entry = mesh.load_run(run)["agents"][out["name"]]
-    assert (entry["model"], entry["effort"], entry["exec_model"], entry["exec_effort"]) == ("fable", "xhigh", "sonnet", "low")
+    assert (entry["model"], entry["effort"], entry["exec_tier"], entry["exec_effort"]) == ("fable", "xhigh", "mid", "low")
 
 
 def test_skip_permissions_off_drops_the_flag_and_keeps_workers_in_panes(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     stub_new_pane(fake)
     with_config({"skip_permissions": False})
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "trivial", "--repo", str(repo), "--worktree", "cfg"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["view"] == "pane" and "skip_permissions is off" in out["notes"][0]
     assert "--dangerously-skip-permissions" not in started(fake) and not cli.called("--bg")
-    assert mesh.main(["spawn", "--kind", "claude", "--size", "small", "--view", "bg", "--repo", str(repo),
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--size", "small", "--view", "bg", "--repo", str(repo),
                       "--worktree", "cfg2"]) == 1
     assert "skip_permissions is off" in capsys.readouterr().err
 
@@ -10662,28 +10801,28 @@ def test_config_sets_the_reviewers_of_a_size(mesh, monkeypatch):
     with_quotas(mesh, monkeypatch)
     with_config({"review": {"reviewers": {"small": [["claude"], ["copilot"]]}}})
     assert mesh.pick_reviewers("small") == (["claude", "copilot"], [])
-    assert mesh.pick_reviewers("large")[0] == ["claude", "agy"]  # the other size keeps its default
+    assert mesh.pick_reviewers("large")[0] == ["claude"]  # the other size keeps its default
 
 
 def test_agy_only_rounds_review_with_agy_and_refuse_claude(mesh, fake, run, repo, monkeypatch, capsys):
     clis(monkeypatch, "agy")
     with_quotas(mesh, monkeypatch)
-    assert mesh.pick_reviewers("small") == (["agy"], [])
+    assert mesh.pick_reviewers("small", tier="mid")[0] == ["agy"]
     kinds, notes = mesh.pick_reviewers("large")
     assert kinds == ["agy"] and "Claude Code isn't installed" in notes[0]
-    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}})[0] == ["agy"]  # keep: Claude, if installed
+    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}})[0] == ["agy"]
     with_quotas(mesh, monkeypatch, AGY_OUT)
     with pytest.raises(mesh.MeshError, match="no reviewer to start") as exc:
-        mesh.pick_reviewers("small")
+        mesh.pick_reviewers("small", tier="mid")
     assert "% left" in str(exc.value) and "installed: agy" in str(exc.value)
     with pytest.raises(mesh.MeshError, match=r"needs Claude Code \(`claude`\), which isn't on PATH"):
         mesh.parse_reviewers("claude,agy")
     assert mesh.parse_reviewers("all") == ["agy"]
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "x"]) == 1
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "x"]) == 1
     assert "a claude worker needs Claude Code" in capsys.readouterr().err
-    assert mesh.main(["spawn", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "x"]) == 1
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--plan-review", "user", "--repo", str(repo), "--worktree", "x"]) == 1
     assert "--plan-review user (Claude Code's plan mode) needs Claude Code" in capsys.readouterr().err
-    assert mesh.main(["ask", "--repo", str(repo), "--kind", "copilot", "--body", "why?"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--repo", str(repo), "--kind", "copilot", "--body", "why?"]) == 1
     assert "`--kind copilot` needs Copilot" in capsys.readouterr().err
     assert mesh.default_kind("claude") == "agy"
 
@@ -10691,12 +10830,12 @@ def test_agy_only_rounds_review_with_agy_and_refuse_claude(mesh, fake, run, repo
 def test_claude_only_rounds_review_with_claude_and_spawn_defaults_to_it(mesh, fake, run, repo, monkeypatch, capsys):
     clis(monkeypatch, "claude")
     stub_new_pane(fake)
-    kinds, notes = mesh.pick_reviewers("small")
-    assert kinds == ["claude"] and "agy isn't installed" in notes[0]
+    with pytest.raises(mesh.MeshError, match="agy isn't installed"):  # never a Claude for a small PR by itself
+        mesh.pick_reviewers("small", tier="mid")
     assert mesh.pick_reviewers("large")[0] == ["claude"]
     assert mesh.pick_reviewers("large", {"claude": {"kind": "claude"}, "copilot": {"kind": "copilot"}})[0] == ["claude"]
-    assert mesh.pick_reviewers("small", {"agy": {"kind": "agy"}})[0] == ["claude"]
-    assert mesh.main(["spawn", "--repo", str(repo), "--worktree", "feat"]) == 0
+    assert mesh.pick_reviewers("large", {"agy": {"kind": "agy"}})[0] == ["claude"]
+    assert mesh.main(["spawn", "--tier", "strong", "--repo", str(repo), "--worktree", "feat"]) == 0
     assert mesh.load_run(run)["agents"][json.loads(capsys.readouterr().out)["name"]]["kind"] == "claude"
 
 
@@ -10714,13 +10853,15 @@ def test_copilot_over_its_quota_is_left_out_of_auto_rounds(mesh, monkeypatch):
                                                  "message": "You have exceeded your monthly quota"}}]
     assert mesh.copilot_quota_error(events) == "You have exceeded your monthly quota"
     assert mesh.copilot_quota_error([{"type": "assistant.message", "data": {"content": "hi"}}]) is None
-    assert mesh.pick_reviewers("small")[0] == ["copilot"]
+    slots = [["copilot", "claude"]]
+    with_config({"review": {"reviewers": {"small": slots}}})
+    assert mesh.pick_reviewers("small", tier="mid")[0] == ["copilot"]
     mesh.note_copilot_limit("You have exceeded your monthly quota")
-    kinds, notes = mesh.pick_reviewers("small")
+    kinds, notes = mesh.pick_reviewers("small", tier="mid")
     assert kinds == ["claude"] and "Copilot is over its quota" in notes[0]
     limit = json.loads(mesh.copilot_limit_path().read_text())
     mesh.copilot_limit_path().write_text(json.dumps({**limit, "until": time.time() - 1}))  # it may have reset
-    assert mesh.pick_reviewers("small")[0] == ["copilot"]
+    assert mesh.pick_reviewers("small", tier="mid")[0] == ["copilot"]
 
 
 def test_a_bare_repo_name_is_looked_up_in_repos_dir(mesh, repo, monkeypatch, tmp_path):
@@ -10746,18 +10887,19 @@ def test_workers_read_the_policy_file_their_launch_read(mesh):
 
 def test_mesh_routing_shows_each_value_and_its_source(mesh, monkeypatch, capsys):
     clis(monkeypatch, "agy", "copilot")
-    with_config({"models": {"agy": {"exec": "sonnet"}}, "review": {"tiny_pr_lines": 200}})
+    with_config({"tiers": {"agy": {"mid": {"model": ["sonnet"]}}}, "review": {"rounds": {"small": 2}}})
     monkeypatch.setenv("MESH_QUOTA_STOP", "95")
     assert mesh.main(["routing"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^models\.agy\.exec +sonnet  \[config\]$", out, re.M)
-    assert re.search(r"^review\.tiny_pr_lines +200  \[config\]$", out, re.M)
+    assert re.search(r"^tiers\.agy\.mid\.model +sonnet  \[config\]$", out, re.M)
+    assert re.search(r"^tiers\.agy\.strong\.model +neon, opus, carbon, hydrogen  \[built-in\]$", out, re.M)
+    assert re.search(r"^review\.rounds\.small +2  \[config\]$", out, re.M)
     assert re.search(r"^quota_stop +95  \[env MESH_QUOTA_STOP\]$", out, re.M)
-    assert re.search(r"^review\.reviewers\.large +claude \| agy or copilot or opencode  \[built-in\]$", out, re.M)
-    assert "Claude Code missing" in out and "large: agy\n" in out  # agy and Copilot share a slot
+    assert re.search(r"^review\.reviewers\.large +claude or agy or copilot or opencode  \[built-in\]$", out, re.M)
+    assert "Claude Code missing" in out and "large: agy\n" in out  # one slot: the first installed
     assert mesh.main(["routing", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["policy"]["models.agy.exec"] == {"value": "sonnet", "source": "config"}
+    assert data["policy"]["tiers.agy.mid.model"] == {"value": ["sonnet"], "source": "config"}
     assert data["installed"]["claude"] is None and data["auto_reviewers"] == {"small": ["agy"], "large": ["agy"]}
     assert set(data["policy"]) == set(mesh.POLICY) and data["config"]["exists"]
     assert "routing" in mesh.WORKER_COMMANDS  # a reading: workers may run it
@@ -10808,7 +10950,7 @@ def test_a_bare_name_prefers_repos_dir_over_a_subfolder_here_and_refuses_two_rep
 def test_an_unfilled_slot_says_why_without_calling_the_round_empty(mesh, monkeypatch):
     clis(monkeypatch, "agy", "copilot")
     with_quotas(mesh, monkeypatch)
-    assert mesh.pick_reviewers("large") == (["agy"], ["Claude Code isn't installed"])
+    assert mesh.pick_reviewers("large") == (["agy"], ["Claude Code isn't installed; agy instead"])
 
 
 def test_reserve_messages_name_where_the_line_comes_from(mesh, monkeypatch):
@@ -10828,10 +10970,10 @@ def test_an_unreadable_config_is_a_mesh_error(mesh, capsys):
     assert "ERROR: config" in capsys.readouterr().out
 
 
-def test_an_empty_plan_chain_is_refused_not_replaced(mesh):
-    with_config({"models": {"agy": {"plan": []}}})
-    with pytest.raises(mesh.MeshError, match="models.agy.plan should be a non-empty list"):
-        mesh.plan_chain("agy")
+def test_an_empty_tier_chain_is_refused_not_replaced(mesh):
+    with_config({"tiers": {"agy": {"strong": {"model": []}}}})
+    with pytest.raises(mesh.MeshError, match="tiers.agy.strong.model should be a non-empty list"):
+        mesh.tier_chain("agy", "strong")
 
 
 def test_a_plain_folder_in_repos_dir_never_shadows_a_repo_here(mesh, repo, tmp_path, monkeypatch):
@@ -10914,7 +11056,7 @@ def test_an_older_copilot_quota_error_doesnt_move_the_hold_back(mesh):
 def test_routing_shows_the_built_in_auto_reviewers_while_the_config_is_broken(mesh, capsys):
     Path(os.environ["MESH_CONFIG_FILE"]).write_text("{oops")
     assert mesh.main(["routing", "--json"]) == 1
-    assert json.loads(capsys.readouterr().out)["auto_reviewers"] == {"small": ["agy"], "large": ["claude", "agy"]}
+    assert json.loads(capsys.readouterr().out)["auto_reviewers"] == {"small": ["opencode"], "large": ["claude"]}
 
 
 # ── CPU caps ─────────────────────────────────────────────────────────────
@@ -11061,7 +11203,7 @@ def test_a_pane_worker_is_pinned_once_it_runs(mesh, fake, run, repo, monkeypatch
 def test_a_background_worker_is_pinned_by_its_sessions_pid(mesh, fake, cli, run, repo, capsys):
     claude_root(mesh, run)
     bg_cli(cli, rows=[{"id": "ab12cd34", "sessionId": "ab12cd34-s", "status": "busy", "pid": NO_PID}])
-    assert mesh.main(["spawn", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", "feat", "--view", "bg",
                       "--task", "Add the feature."]) == 0
     assert mesh.pins == [(NO_PID, [0, 1, 2])]
 
@@ -11209,13 +11351,13 @@ def test_resume_compacts_a_cold_conversation_but_not_a_warm_one(mesh, fake, cli,
     session_file(mesh, monkeypatch, tmp_path, str(path), "s-1", [usage_ttl(250_000, "1h")])
     stub_new_pane(fake)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the review."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["compaction"]["cache_cold"] is False and not cli.called("-p")
     assert mesh.main(["retire", "proj-fix"]) == 0
     aged(mesh, {"kind": "claude", "cwd": str(path)}, "s-1", 2 * 3600)
     capsys.readouterr()
-    assert mesh.main(["resume", "proj-fix", "--task", "Apply the next review."]) == 0
+    assert mesh.main(["resume", "--tier", "strong", "proj-fix", "--task", "Apply the next review."]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["compaction"]["cache_cold"] is True and cli.called("-p")
 
