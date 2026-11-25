@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -201,5 +202,26 @@ func TestACaptureThatFailsStillReportsTheHook(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
 		t.Errorf("the hook stopped reporting: %v", left)
+	}
+}
+
+func TestAgyPreToolUseDenyEvaluatesLocallyEvenWhenDaemonIsDown(t *testing.T) {
+	p, o := setup(t)
+	wt := t.TempDir()
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.Cwd = "agy", "PreToolUse", &out, wt
+	o.DenyPaths, o.DenyPublish = []string{wt}, true
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"foo.txt"}}}`)
+	// Daemon is down: Run returns spool/dial error (meshctl still exits 0), and stdout got the deny JSON.
+	_ = Run(o)
+	if !strings.Contains(out.String(), `"decision":"deny"`) {
+		t.Fatalf("expected deny decision on stdout, got %q", out.String())
+	}
+	// Allowed path outside denyPaths prints nothing at all.
+	out.Reset()
+	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"` + p.Dir + `/plans/a1.md"}}}`)
+	_ = Run(o)
+	if out.Len() != 0 {
+		t.Fatalf("allowed path should print nothing, got %q", out.String())
 	}
 }

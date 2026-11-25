@@ -1,0 +1,21 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000001",
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "cwd": "/work/state/worktrees/rcweyuj/repo-capture",
+  "error": "",
+  "hookEventName": "PostToolUse",
+  "lastUserInput": "📬 [mesh] info from local: run `meshctl inbox`",
+  "modelName": "gemini-3.8-flash-medium",
+  "stepIdx": 11,
+  "toolCall": {
+    "args": {
+      "Path": "/home/user/.config/agent-mesh/PROTOCOL.md"
+    },
+    "id": "call_5533394857591505968",
+    "name": "read_file"
+  },
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000001/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/work/state/worktrees/rcweyuj/repo-capture"
+  ]
+}

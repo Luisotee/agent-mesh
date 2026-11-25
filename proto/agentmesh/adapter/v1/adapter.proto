@@ -12,6 +12,7 @@ service CliAdapterService {
   rpc Describe(DescribeRequest) returns (DescribeResponse);
   rpc PlanLaunch(PlanLaunchRequest) returns (PlanLaunchResponse);
   rpc DecodeHook(DecodeHookRequest) returns (DecodeHookResponse);
+  rpc LookupSession(LookupSessionRequest) returns (LookupSessionResponse);
 }
 
 message DescribeRequest {}
@@ -50,11 +51,36 @@ message PlanLaunchRequest {
   bool deny_edits = 14;
 }
 
+message WorktreeFile {
+  // Relative path inside the worktree (must not escape it).
+  string path = 1;
+  bytes content = 2;
+  // File mode (0600 by default when 0).
+  uint32 mode = 3;
+  // Add to <git-common-dir>/info/exclude and mark an existing tracked file skip-worktree.
+  bool git_exclude = 4;
+}
+
 message PlanLaunchResponse {
   repeated string argv = 1;
   map<string, string> env = 2;
   // The conversation id, when the adapter chose it up front.
   string session_id = 3;
+  // Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).
+  repeated WorktreeFile worktree_files = 4;
+}
+
+message LookupSessionRequest {
+  string agent_id = 1;
+  string agent_name = 2;
+  string run_id = 3;
+  string cwd = 4;
+  string repo = 5;
+  map<string, string> env = 6;
+}
+
+message LookupSessionResponse {
+  string session_id = 1;
 }
 
 message DecodeHookRequest {
@@ -84,6 +110,8 @@ message AgentEvent {
     SessionEnded session_ended = 16;
     ProcessExited process_exited = 17;
     DecodeError decode_error = 18;
+    RateLimited rate_limited = 19;
+    TurnFailed turn_failed = 20;
   }
 }
 
@@ -120,5 +148,16 @@ message ProcessExited {
 }
 
 message DecodeError {
+  string error = 1;
+}
+
+// The CLI hit a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit); ready for SwitchAgent.
+message RateLimited {
+  string message = 1;
+  string reset_in = 2;
+}
+
+// The turn ended in a non-limit error.
+message TurnFailed {
   string error = 1;
 }

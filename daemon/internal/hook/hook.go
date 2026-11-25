@@ -5,6 +5,7 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
@@ -31,12 +33,16 @@ const MaxPayload = 4 << 20
 
 // Options of one hook call.
 type Options struct {
-	StateDir string
-	AgentID  string
-	Kind     string
-	Event    string
-	Stdin    io.Reader
-	Now      func() time.Time
+	StateDir    string
+	AgentID     string
+	Kind        string
+	Event       string
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Cwd         string
+	DenyPaths   []string
+	DenyPublish bool
+	Now         func() time.Time
 	// CaptureDir, when set, also saves each hook's raw payload there, numbered in order, for the fixtures
 	// (daemon/scripts/capture-claude-hooks.sh). Never set by the daemon: only a person capturing sets it.
 	CaptureDir string
@@ -61,6 +67,16 @@ func Run(o Options) error {
 	payload, err := io.ReadAll(io.LimitReader(o.Stdin, MaxPayload))
 	if err != nil {
 		return err
+	}
+	// agy PreToolUse is fail-closed and runs locally so deny rules hold even while the daemon is down.
+	if o.Kind == agy.Kind && o.Event == "PreToolUse" && (len(o.DenyPaths) > 0 || o.DenyPublish) {
+		if deny, reason := agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish); deny && o.Stdout != nil {
+			b, _ := json.Marshal(struct {
+				Decision string `json:"decision"`
+				Reason   string `json:"reason"`
+			}{"deny", reason})
+			o.Stdout.Write(append(b, '\n'))
+		}
 	}
 	// Capturing is a side channel: when it fails the hook still reports (its error is returned after).
 	var captureErr error

@@ -148,6 +148,10 @@ const (
 	// Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
 	// revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
 	AgentState_AGENT_STATE_RETIRED AgentState = 7
+	// Stopped on a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit): ready for SwitchAgent.
+	AgentState_AGENT_STATE_LIMITED AgentState = 8
+	// Turn ended in an error.
+	AgentState_AGENT_STATE_ERROR AgentState = 9
 )
 
 // Enum value maps for AgentState.
@@ -161,6 +165,8 @@ var (
 		5: "AGENT_STATE_EXITED",
 		6: "AGENT_STATE_UNKNOWN",
 		7: "AGENT_STATE_RETIRED",
+		8: "AGENT_STATE_LIMITED",
+		9: "AGENT_STATE_ERROR",
 	}
 	AgentState_value = map[string]int32{
 		"AGENT_STATE_UNSPECIFIED": 0,
@@ -171,6 +177,8 @@ var (
 		"AGENT_STATE_EXITED":      5,
 		"AGENT_STATE_UNKNOWN":     6,
 		"AGENT_STATE_RETIRED":     7,
+		"AGENT_STATE_LIMITED":     8,
+		"AGENT_STATE_ERROR":       9,
 	}
 )
 
@@ -2722,7 +2730,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x0fAGENT_ROLE_ROOT\x10\x01\x12\x15\n" +
 	"\x11AGENT_ROLE_WORKER\x10\x02\x12\x14\n" +
 	"\x10AGENT_ROLE_ASKER\x10\x03\x12\x17\n" +
-	"\x13AGENT_ROLE_REVIEWER\x10\x04*\xd9\x01\n" +
+	"\x13AGENT_ROLE_REVIEWER\x10\x04*\x89\x02\n" +
 	"\n" +
 	"AgentState\x12\x1b\n" +
 	"\x17AGENT_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2732,7 +2740,9 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x17AGENT_STATE_NEEDS_INPUT\x10\x04\x12\x16\n" +
 	"\x12AGENT_STATE_EXITED\x10\x05\x12\x17\n" +
 	"\x13AGENT_STATE_UNKNOWN\x10\x06\x12\x17\n" +
-	"\x13AGENT_STATE_RETIRED\x10\a*^\n" +
+	"\x13AGENT_STATE_RETIRED\x10\a\x12\x17\n" +
+	"\x13AGENT_STATE_LIMITED\x10\b\x12\x15\n" +
+	"\x11AGENT_STATE_ERROR\x10\t*^\n" +
 	"\n" +
 	"AgentPhase\x12\x1b\n" +
 	"\x17AGENT_PHASE_UNSPECIFIED\x10\x00\x12\x18\n" +

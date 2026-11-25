@@ -58,6 +58,10 @@ enum AgentState {
   // Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
   // revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
   AGENT_STATE_RETIRED = 7;
+  // Stopped on a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit): ready for SwitchAgent.
+  AGENT_STATE_LIMITED = 8;
+  // Turn ended in an error.
+  AGENT_STATE_ERROR = 9;
 }
 
 message Agent {

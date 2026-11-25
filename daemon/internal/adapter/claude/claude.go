@@ -59,7 +59,12 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // Describe says what the adapter is.
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "Claude Code",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id"}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook"}}), nil
+}
+
+// LookupSession returns empty: Claude picks its session id up front in PlanLaunch.
+func (a *Adapter) LookupSession(context.Context, *connect.Request[adapterv1.LookupSessionRequest]) (*connect.Response[adapterv1.LookupSessionResponse], error) {
+	return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
 }
 
 type hookCommand struct {
@@ -91,9 +96,7 @@ var publishCommands = []string{"git push", "gh pr review", "gh pr comment", "gh 
 	"gh issue comment"}
 
 // ReadOnly reports whether a role may not change code: an asker or a reviewer.
-func ReadOnly(role agentmeshv1.AgentRole) bool {
-	return role == agentmeshv1.AgentRole_AGENT_ROLE_ASKER || role == agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER
-}
+func ReadOnly(role agentmeshv1.AgentRole) bool { return adapter.ReadOnly(role) }
 
 // DenyArgs is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
 // checkout, no publishing commands. Deny rules win over `--dangerously-skip-permissions`, so a read-only agent

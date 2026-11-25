@@ -1,0 +1,14 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000001",
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "cwd": "/work/state/worktrees/rcweyuj/repo-capture",
+  "hookEventName": "PostInvocation",
+  "initialNumSteps": 1,
+  "invocationNum": 0,
+  "lastUserInput": "Read README.md and reply with only the word ok.",
+  "modelName": "gemini-3.8-flash-low",
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000001/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/work/state/worktrees/rcweyuj/repo-capture"
+  ]
+}

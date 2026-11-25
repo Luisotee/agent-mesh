@@ -13,7 +13,13 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
+	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
+
+// ReadOnly reports whether a role may not change code: an asker or a reviewer.
+func ReadOnly(role agentmeshv1.AgentRole) bool {
+	return role == agentmeshv1.AgentRole_AGENT_ROLE_ASKER || role == agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER
+}
 
 // Adapter is one CLI's adapter.
 type Adapter = adapterv1connect.CliAdapterServiceHandler
@@ -62,6 +68,20 @@ func (r *Registry) Kinds() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// HasCapability reports whether an adapter kind advertised a capability in Describe.
+func (r *Registry) HasCapability(kind, capability string) bool {
+	d := r.about[kind]
+	if d == nil {
+		return false
+	}
+	for _, c := range d.Capabilities {
+		if c == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // ShellQuote quotes argv for a POSIX shell, the way hook commands are run.

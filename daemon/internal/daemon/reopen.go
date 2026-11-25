@@ -22,7 +22,7 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
-	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/reducer"
@@ -181,7 +181,7 @@ func isDirectTask(body string) bool { return directStartRe.MatchString(strings.T
 // is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
 func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	model, effort, deny := target(a)
-	lift := deny && !claude.ReadOnly(a.Role)
+	lift := deny && !adapter.ReadOnly(a.Role)
 	if a.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED && !lift {
 		return nil
 	}
@@ -191,6 +191,9 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	if lift {
 		switch {
 		case a.PendingReopen != nil || !stopped(a):
+			if a.SessionId == "" {
+				a.SessionId = d.lookupSession(context.Background(), a)
+			}
 			if a.SessionId == "" {
 				return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened without its "+
 					"planning deny list: send the task again once it has started", a.Name)
@@ -330,9 +333,12 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 				execTier = "" // a named model has no chain to walk
 			}
 		}
-		deny := claude.ReadOnly(a.Role) // the planning reason goes; a read-only role keeps its list
+		deny := adapter.ReadOnly(a.Role) // the planning reason goes; a read-only role keeps its list
 		cm, ce, cd := target(a)
 		reopen := model != cm || effort != ce || deny != cd
+		if reopen && a.SessionId == "" {
+			a.SessionId = d.lookupSession(ctx, a)
+		}
 		if reopen && a.SessionId == "" {
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened on its "+
 				"execution model: approve it again once it has started", a.Name)
@@ -396,6 +402,9 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		}
 		if stopped(a) {
 			return failedPrecondition("%s has stopped: resume it (with a tier or model) instead", a.Name)
+		}
+		if a.SessionId == "" {
+			a.SessionId = d.lookupSession(ctx, a)
 		}
 		if a.SessionId == "" {
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened", a.Name)
@@ -554,6 +563,9 @@ type reviveSpec struct {
 // it). The launch is refused (ResourceExhausted) when it would pass the host's agent cap or its memory floor.
 func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
 	if a.SessionId == "" {
+		a.SessionId = d.lookupSession(context.Background(), a)
+	}
+	if a.SessionId == "" {
 		return nil, failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a.Name)
 	}
 	if run, err := tx.GetRun(a.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
@@ -603,7 +615,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		} else if spec.effort != "" {
 			effort = spec.effort
 		}
-		a.Pinned, deny = spec.model != "" || spec.effort != "", claude.ReadOnly(a.Role)
+		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
 			return nil, err
 		}
@@ -638,8 +650,9 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	// process (its retire failed, or its caller gave up): it is stopped here, whatever it is doing.
 	leftover := a.State == v1.AgentState_AGENT_STATE_RETIRED && a.TerminalId != ""
 	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED || (stopped(a) && !leftover)
-	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE {
-		return nil // at its next IDLE: never cut a turn short
+	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE &&
+		a.State != v1.AgentState_AGENT_STATE_LIMITED && a.State != v1.AgentState_AGENT_STATE_ERROR {
+		return nil // at its next IDLE (or once stopped on a limit/error): never cut a turn short
 	}
 	if d.rt.term == nil {
 		return nil
