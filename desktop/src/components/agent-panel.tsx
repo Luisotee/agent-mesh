@@ -65,14 +65,20 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   if (agent.state === AgentState.EXITED) return null
   async function stop() {
+    if (busy) return
+    setBusy(true)
+    setError('')
     try {
       await stopAgent(host.client, agent.id)
       setConfirm(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
     }
   }
   return (
@@ -80,7 +86,7 @@ function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
       {confirm ? (
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>Keep running</Button>
-          <Button size="sm" variant="destructive" onClick={stop}>Stop {agent.name}</Button>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={stop}>Stop {agent.name}</Button>
         </div>
       ) : (
         <Button size="sm" variant="outline" onClick={() => setConfirm(true)}>Stop agent</Button>
@@ -94,15 +100,21 @@ function SendForm({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [type, setType] = useState<MessageType>(MessageType.TASK)
   const [body, setBody] = useState('')
   const [status, setStatus] = useState<{ ok: boolean; text: string }>()
+  const [busy, setBusy] = useState(false)
   const dead = agent.state === AgentState.EXITED
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    // Each send has its own mutation id, so a double Enter would send twice: one at a time.
+    if (busy) return
+    setBusy(true)
     try {
       await sendMessage(host.client, agent.id, type, body.trim())
       setBody('')
       setStatus({ ok: true, text: 'Sent.' })
     } catch (err) {
       setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
     }
   }
   return (
@@ -113,7 +125,7 @@ function SendForm({ host, agent }: { host: HostRuntime; agent: Agent }) {
           {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
         <Input aria-label="Message" value={body} onChange={(e) => setBody(e.target.value)} placeholder={dead ? 'The agent has exited' : 'Write to the agent'} disabled={dead} />
-        <Button type="submit" disabled={dead || !body.trim()}>Send</Button>
+        <Button type="submit" disabled={dead || busy || !body.trim()}>Send</Button>
       </div>
       {status && <p role={status.ok ? 'status' : 'alert'} className={`text-xs ${status.ok ? 'text-muted-foreground' : 'text-destructive'}`}>{status.text}</p>}
     </form>

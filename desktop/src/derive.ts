@@ -39,10 +39,18 @@ export function buildTrees(runs: Record<string, Run>, agents: Record<string, Age
       if (a.parentId && known.has(a.parentId)) kids.set(a.parentId, [...(kids.get(a.parentId) ?? []), a])
       else roots.push(a)
     }
-    const node = (a: Agent): TreeNode => ({ agent: a, children: (kids.get(a.id) ?? []).sort(order).map(node) })
+    // Built once per agent, so a parent loop in corrupt data can't recurse forever.
+    const seen = new Set<string>()
+    const node = (a: Agent): TreeNode => {
+      seen.add(a.id)
+      return { agent: a, children: (kids.get(a.id) ?? []).filter((c) => !seen.has(c.id)).sort(order).map(node) }
+    }
+    const nodes = roots.sort(order).map(node)
+    // Agents in a parent loop are reached from no root: show each such group under its first agent.
+    for (const a of [...members].sort(order)) if (!seen.has(a.id)) nodes.push(node(a))
     trees.push({
       run,
-      roots: roots.sort(order).map(node),
+      roots: nodes,
       needsInput: members.filter((a) => a.state === AgentState.NEEDS_INPUT).length,
       live: members.filter((a) => a.state !== AgentState.EXITED).length,
     })

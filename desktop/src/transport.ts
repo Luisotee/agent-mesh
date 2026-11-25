@@ -55,7 +55,9 @@ export function bridgeFetch(api: Pick<DesktopApi, 'request'>, hostId: string): t
         if (closed) return
         closed = true
         abort()
-        const err = new ConnectError('the request was cancelled', Code.Canceled)
+        // Keep why it was aborted: a timeout is not a cancel.
+        const reason: unknown = signal?.reason
+        const err = reason instanceof ConnectError ? reason : new ConnectError('the request was cancelled', Code.Canceled)
         if (headed) controller.error(err)
         else reject(err)
       }
@@ -65,11 +67,12 @@ export function bridgeFetch(api: Pick<DesktopApi, 'request'>, hostId: string): t
   }
 }
 
-/** The error a failed bridge request becomes. `no-token` and `refused` aren't worth retrying. */
+/**
+ * The error a failed bridge request becomes. A host with no token yet (meshd never ran there, or is about to)
+ * is unreachable like any other and retried with a backoff; only a request the bridge refuses isn't.
+ */
 export function bridgeError(code: BridgeErrorCode, message: string): ConnectError {
   switch (code) {
-    case 'no-token':
-      return new ConnectError(message, Code.Unauthenticated)
     case 'unknown-host':
     case 'refused':
       return new ConnectError(message, Code.FailedPrecondition)

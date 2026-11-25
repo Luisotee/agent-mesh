@@ -22,7 +22,8 @@ export function wellFormed(req: unknown): req is BridgeRequest {
   const r = req as Record<string, unknown>
   if (typeof r.method !== 'string' || typeof r.path !== 'string') return false
   if (typeof r.headers !== 'object' || r.headers === null) return false
-  if (!Object.values(r.headers).every((v) => typeof v === 'string')) return false
+  // A header value with a line break would split the request; refuse it rather than let http.request throw.
+  if (!Object.values(r.headers).every((v) => typeof v === 'string' && !/[\r\n]/.test(v))) return false
   return r.body === undefined || r.body instanceof Uint8Array
 }
 
@@ -88,39 +89,47 @@ export function forward(
     fail('refused', `the bridge forwards only registry calls, not ${req.method} ${req.path}`)
     return () => {}
   }
+  const start = (t: Target) => {
+    const headers: Record<string, string> = {}
+    for (const [k, v] of Object.entries(req.headers)) if (FORWARDED.test(k)) headers[k.toLowerCase()] = v
+    headers.authorization = `Bearer ${t.token}`
+    if (req.body) headers['content-length'] = String(req.body.byteLength)
+    const out = http.request({
+      method: req.method,
+      path: req.path,
+      socketPath: t.socketPath,
+      host: t.host,
+      port: t.port,
+      headers: { ...headers, host: 'meshd' },
+    })
+    abort = () => out.destroy()
+    out.on('response', (res) => {
+      if (done) return
+      const h: Record<string, string> = {}
+      for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) h[k] = Array.isArray(v) ? v.join(', ') : v
+      emit({ type: 'head', status: res.statusCode ?? 0, headers: h })
+      res.on('data', (chunk: Buffer) => {
+        if (!done) emit({ type: 'data', chunk: new Uint8Array(chunk) })
+      })
+      res.on('end', () => finish({ type: 'end' }))
+      res.on('error', (e) => fail('failed', e.message))
+      res.on('aborted', () => fail('failed', 'the connection closed'))
+    })
+    out.on('error', (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
+      else fail('failed', e.message)
+    })
+    out.end(req.body ? Buffer.from(req.body) : undefined)
+  }
   void resolve(host).then(
     (t) => {
       if (done) return
-      const headers: Record<string, string> = {}
-      for (const [k, v] of Object.entries(req.headers)) if (FORWARDED.test(k)) headers[k.toLowerCase()] = v
-      headers.authorization = `Bearer ${t.token}`
-      if (req.body) headers['content-length'] = String(req.body.byteLength)
-      const out = http.request({
-        method: req.method,
-        path: req.path,
-        socketPath: t.socketPath,
-        host: t.host,
-        port: t.port,
-        headers: { ...headers, host: 'meshd' },
-      })
-      abort = () => out.destroy()
-      out.on('response', (res) => {
-        if (done) return
-        const h: Record<string, string> = {}
-        for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) h[k] = Array.isArray(v) ? v.join(', ') : v
-        emit({ type: 'head', status: res.statusCode ?? 0, headers: h })
-        res.on('data', (chunk: Buffer) => {
-          if (!done) emit({ type: 'data', chunk: new Uint8Array(chunk) })
-        })
-        res.on('end', () => finish({ type: 'end' }))
-        res.on('error', (e) => fail('failed', e.message))
-        res.on('aborted', () => fail('failed', 'the connection closed'))
-      })
-      out.on('error', (e: NodeJS.ErrnoException) => {
-        if (e.code === 'ENOENT' || e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET') fail('unreachable', e.message)
-        else fail('failed', e.message)
-      })
-      out.end(req.body ? Buffer.from(req.body) : undefined)
+      // http.request can throw (an invalid header, say): that is a failed request, not an unhandled rejection.
+      try {
+        start(t)
+      } catch (e) {
+        fail('failed', e instanceof Error ? e.message : String(e))
+      }
     },
     (e: unknown) => {
       if (e instanceof BridgeError) fail(e.code, e.message)

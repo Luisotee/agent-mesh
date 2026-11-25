@@ -26,6 +26,14 @@ describe('buildTrees', () => {
     expect(t!.roots.map((n) => n.agent.id)).toEqual(['x'])
   })
 
+  it('still shows agents whose parents form a loop', () => {
+    const [t] = buildTrees(runs, byId([a('p', { parentId: 'q', createdAt: timestampFromMs(1000) }), a('q', { parentId: 'p', createdAt: timestampFromMs(2000) }), a('ok')]))
+    const ids: string[] = []
+    const walk = (ns: NonNullable<typeof t>["roots"]) => ns.forEach((n) => (ids.push(n.agent.id), walk(n.children)))
+    walk(t!.roots)
+    expect(ids.sort()).toEqual(['ok', 'p', 'q'])
+  })
+
   it('counts what needs the user and what is alive, and sorts runs needing the user first', () => {
     const two = { ...runs, r2: create(RunSchema, { id: 'r2', status: RunStatus.OPEN, createdAt: timestampFromMs(99_000) }) }
     const trees = buildTrees(two, byId([

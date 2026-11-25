@@ -78,6 +78,29 @@ describe('AgentPanel', () => {
     expect(await screen.findByText('Sent.')).toBeInTheDocument()
   })
 
+  it('sends once on a double submit, and stops once on a double click', async () => {
+    const { host, wrap, client } = fixture()
+    let release!: () => void
+    client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
+    render(wrap(<AgentPanel host={host} agentId="w1" />))
+    await userEvent.type(screen.getByLabelText('Message', { exact: true }), 'once')
+    const input = screen.getByLabelText('Message', { exact: true })
+    fireEvent.submit(input.closest('form')!)
+    fireEvent.submit(input.closest('form')!)
+    release()
+    await screen.findByText('Sent.')
+    expect(client.sendMessage).toHaveBeenCalledTimes(1)
+
+    let releaseStop!: () => void
+    client.stopAgent.mockImplementationOnce(() => new Promise((r) => (releaseStop = () => r({}))))
+    await userEvent.click(screen.getByRole('button', { name: 'Stop agent' }))
+    const confirm = screen.getByRole('button', { name: 'Stop app-fix' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    releaseStop()
+    await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
+  })
+
   it('stops an agent only after a second click', async () => {
     const { host, wrap, client } = fixture()
     render(wrap(<AgentPanel host={host} agentId="w1" />))

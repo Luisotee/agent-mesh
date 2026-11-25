@@ -35,11 +35,17 @@ function wire(): void {
   ipcMain.on('bridge:request', (e, id: unknown, hostId: unknown, req: BridgeRequest) => {
     if (typeof id !== 'string' || typeof hostId !== 'string') return
     const key = `${e.sender.id}:${id}`
+    let finished = false
     const emit = (ev: BridgeEvent) => {
       if (!e.sender.isDestroyed()) e.sender.send('bridge:event', id, ev)
-      if (ev.type === 'end' || ev.type === 'error') aborts.delete(key)
+      if (ev.type === 'end' || ev.type === 'error') {
+        finished = true
+        aborts.delete(key)
+      }
     }
-    aborts.set(key, forward(hosts.get(hostId), req, emit))
+    const abort = forward(hosts.get(hostId), req, emit)
+    // A request refused on the spot has finished before it returns: there is nothing to keep.
+    if (!finished) aborts.set(key, abort)
   })
   ipcMain.on('bridge:abort', (e, id: unknown) => {
     if (typeof id !== 'string') return

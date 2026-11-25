@@ -49,6 +49,29 @@ describe('Hosts', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).map((x: { name: string }) => x.name).sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 
+  it('refuses a host that is already in the list', async () => {
+    const h = new Hosts(tmp())
+    await h.add({ name: 'a', kind: 'state-dir', path: '/s/a' })
+    await expect(h.add({ name: 'b', kind: 'state-dir', path: '/s/a/' })).rejects.toThrow(/already/)
+    await h.add({ name: 'c', kind: 'tcp', address: '127.0.0.1:1', token: 't' })
+    await expect(h.add({ name: 'd', kind: 'tcp', address: '127.0.0.1:1', token: 'u' })).rejects.toThrow(/already/)
+    expect(h.all()).toHaveLength(2)
+  })
+
+  it('keeps entries it does not understand when it saves', async () => {
+    const file = tmp()
+    const h = new Hosts(file)
+    await h.add({ name: 'a', kind: 'state-dir', path: '/s/a' })
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as unknown[]
+    const newer = { id: 'x', name: 'new', kind: 'ssh', host: 'vps', token: 'secret' }
+    writeFileSync(file, JSON.stringify([...saved, newer]))
+    const again = new Hosts(file)
+    await again.load()
+    expect(again.all()).toHaveLength(1)
+    await again.add({ name: 'b', kind: 'state-dir', path: '/s/b' })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toContainEqual(newer)
+  })
+
   it('leaves a damaged file alone and starts empty', async () => {
     const file = tmp()
     const h = new Hosts(file)

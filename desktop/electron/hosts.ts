@@ -21,6 +21,8 @@ export function toInfo(h: StoredHost): HostInfo {
  */
 export class Hosts {
   private list: StoredHost[] = []
+  /** Entries this build doesn't understand (a newer kind, say): kept as they are and written back. */
+  private foreign: unknown[] = []
   readonly fixed: boolean
 
   constructor(
@@ -35,7 +37,9 @@ export class Hosts {
     if (this.fixed || !existsSync(this.file)) return
     try {
       const parsed: unknown = JSON.parse(await readFile(this.file, 'utf8'))
-      this.list = Array.isArray(parsed) ? parsed.filter(isStored) : []
+      const entries = Array.isArray(parsed) ? parsed : []
+      this.list = entries.filter(isStored)
+      this.foreign = entries.filter((e) => !isStored(e))
     } catch {
       // A damaged file is left alone on disk and not used; the next add writes a fresh one.
       this.list = []
@@ -70,6 +74,7 @@ export class Hosts {
       if (!n.token.trim()) throw new Error('give the host its device token')
       host = { id: randomUUID(), name, kind: 'tcp', address: n.address, token: n.token.trim() }
     }
+    if (this.list.some((x) => sameTarget(x, host))) throw new Error('that host is already in the list')
     this.list = [...this.list, host]
     await this.save()
     return host
@@ -88,13 +93,18 @@ export class Hosts {
     const run = async () => {
       await mkdir(path.dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
-      await writeFile(tmp, JSON.stringify(this.list, null, 2), { mode: 0o600 })
+      await writeFile(tmp, JSON.stringify([...this.list, ...this.foreign], null, 2), { mode: 0o600 })
       await rename(tmp, this.file)
     }
     const next = this.saving.then(run, run)
     this.saving = next.catch(() => {})
     return next
   }
+}
+
+function sameTarget(a: StoredHost, b: StoredHost): boolean {
+  if (a.kind === 'state-dir' && b.kind === 'state-dir') return path.resolve(a.path) === path.resolve(b.path)
+  return a.kind === 'tcp' && b.kind === 'tcp' && a.address === b.address
 }
 
 function isStored(v: unknown): v is StoredHost {

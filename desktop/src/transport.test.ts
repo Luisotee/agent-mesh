@@ -1,7 +1,8 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { describe, expect, it } from 'vitest'
 import type { BridgeEvent, BridgeRequest } from '../shared/api'
-import { bridgeFetch } from './transport'
+import { createMeshClient } from './actions'
+import { bridgeFetch, hostTransport } from './transport'
 
 /** A bridge a test controls: it records the request and lets the test push events. */
 function fakeBridge() {
@@ -52,7 +53,7 @@ describe('bridgeFetch', () => {
 
   it('rejects with the right Connect code when the bridge fails before an answer', async () => {
     const cases: Array<[Extract<BridgeEvent, { type: 'error' }>['code'], Code]> = [
-      ['no-token', Code.Unauthenticated],
+      ['no-token', Code.Unavailable],
       ['unreachable', Code.Unavailable],
       ['refused', Code.FailedPrecondition],
       ['failed', Code.Unavailable],
@@ -107,5 +108,24 @@ describe('bridgeFetch', () => {
       b.state.emit({ type: 'end' })
     }).not.toThrow()
     await expect(res.arrayBuffer()).rejects.toThrow()
+  })
+
+  it('keeps why a request was aborted: a timeout is not a cancel', async () => {
+    const b = fakeBridge()
+    const ctl = new AbortController()
+    const p = bridgeFetch(b, 'h')(post().url, { ...post(), signal: ctl.signal })
+    await new Promise((r) => setTimeout(r, 0))
+    ctl.abort(new ConnectError('no answer', Code.DeadlineExceeded))
+    expect(ConnectError.from(await p.catch((e: unknown) => e)).code).toBe(Code.DeadlineExceeded)
+  })
+
+  it('a generated client call aborted with a timeout rejects as a deadline, not a cancel', async () => {
+    const b = fakeBridge()
+    const client = createMeshClient(hostTransport(b, 'h'))
+    const ctl = new AbortController()
+    const p = client.hello({ client: 't', protocolVersion: 1 }, { signal: ctl.signal }).catch((e: unknown) => e)
+    await new Promise((r) => setTimeout(r, 0))
+    ctl.abort(new ConnectError('no answer', Code.DeadlineExceeded))
+    expect(ConnectError.from(await p).code).toBe(Code.DeadlineExceeded)
   })
 })

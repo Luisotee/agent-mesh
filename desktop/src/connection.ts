@@ -150,7 +150,7 @@ export class HostConnection {
   private async beat(gen: number, ctl: AbortController): Promise<void> {
     // A heartbeat uses its own signal: aborting it must not close the event stream unless it fails.
     const own = new AbortController()
-    const timeout = this.t.setTimeout(() => own.abort(), this.helloTimeoutMs)
+    const timeout = this.t.setTimeout(() => own.abort(new ConnectError('no answer to the heartbeat', Code.DeadlineExceeded)), this.helloTimeoutMs)
     try {
       await this.o.client.hello({ client: 'agent-mesh-desktop', protocolVersion: PROTOCOL_VERSION }, { signal: own.signal })
     } catch (e) {
