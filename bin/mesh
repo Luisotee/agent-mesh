@@ -3855,14 +3855,14 @@ def resolve_mcp(names: list[str] | None, kind: str, repo: str | Path | None) -> 
 
 
 def mcp_holder(name: str, skip: tuple[str, str] | None = None) -> tuple[str, str] | None:
-    """(run, agent) of an agent of an unarchived run that holds the server `name` (the root passed it, or it
-    added it back) and hasn't retired, but the (run, agent) `skip`: what mesh itself recorded."""
+    """(run, agent) of an agent of an unarchived run that holds the server `name` (`mcp`: the root passed it, or it
+    added it back with `mesh tools add`) and hasn't retired, but the (run, agent) `skip`: what mesh recorded."""
     for path in sorted(mesh_home().glob("*/run.json")):
         try:
             agents = json.loads(path.read_text()).get("agents") or {}
             for agent, entry in agents.items():
                 if (isinstance(entry, dict) and entry.get("status") != "retired" and (path.parent.name, agent) != skip
-                        and name in {*agent_mcp(entry), *agent_added(entry)}):
+                        and name in agent_mcp(entry)):
                     return path.parent.name, agent
         except (OSError, ValueError, AttributeError):
             continue  # unreadable, or not a run
@@ -9656,12 +9656,13 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
     # The servers its root passed it stay, unless this resume names others (`--mcp none`: none).
     named_mcp = resolve_mcp(getattr(args, "mcp", None), old["kind"], old.get("repo"))
-    mcp = agent_mcp(old) if named_mcp is None else named_mcp
-    lease = [*mcp, *agent_added(old)]  # what it added back holds a shared server too
-    try:
-        check_mcp_lease(lease, skip=(old_run["id"], old_name))
-    except MeshError as exc:
-        raise MeshError(f"{exc}" + ("; or resume it without: `--mcp none`" if named_mcp is None else "")) from None
+    mcp, mcp_dropped = (named_mcp, []) if named_mcp is not None else (agent_mcp(old), [])
+    if named_mcp is None:  # carried over, not asked for: a shared server another agent holds now is left out
+        mcp_dropped = [n for n in mcp if n in setting("claude.mcp_exclusive")
+                       and mcp_holder(n, skip=(old_run["id"], old_name))]
+        mcp = [n for n in mcp if n not in mcp_dropped]
+    else:
+        check_mcp_lease(mcp, skip=(old_run["id"], old_name))
     # By the entry too: a resume that was given a `-2` name is still that peer.
     peer_name, peer = worker_peer(old_name, old, getattr(args, "peer", None))
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
@@ -9690,6 +9691,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         # what it ran on last: an executor's tier is its execution one
         tier = None if args.model else old.get("exec_tier") if old.get("phase") == "exec" and old.get("exec_tier") \
             else tier
+    if mcp_dropped:
+        notes.append(f"{', '.join(mcp_dropped)} is held by another agent now, so {old_name} starts without it "
+                     "(`mesh tools servers` shows who holds it)")
     view = getattr(args, "view", None) or (old.get("view") if old.get("view") != HEADLESS else None) or "pane"
     if view == "bg" and "bg" not in cli(old["kind"]).views:
         raise MeshError(f"--view bg is for Claude workers; {cli(old['kind']).name} has no background sessions")
@@ -9761,7 +9765,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     exec_model = old.get("exec_model") if keeps_phase else None
     exec_effort = old.get("exec_effort") if keeps_phase else None
     reason = getattr(args, "why", None)
-    with mcp_lease(lease, skip=(old_run["id"], old_name)), editing_run(run_id) as run:
+    with mcp_lease(mcp, skip=(old_run["id"], old_name)), editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
@@ -10302,6 +10306,9 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
     if state != "working" and owes_report(events, name):
         task = f"{task.rstrip()}\n\n{UNANSWERED_NOTE}"
     if state != "gone":
+        if getattr(args, "mcp", None) is not None:
+            raise MeshError(f"--mcp applies when a worker starts or is reopened, and {name} is live: "
+                            f"it runs with what it has (`mesh tools add` is its own, once it needs a server)")
         finals = sends_from(run_id, name, FINAL_TYPES)
         if state == "working" and not args.no_wait:
             # Its next `done` would be for the task it's on, not this question.
@@ -13018,6 +13025,8 @@ def cmd_tools(args: argparse.Namespace) -> int:
     with mcp_lease(servers, skip=(run_id, me)), editing_run(run_id) as run:  # first: the reopen launches from the entry
         e = run["agents"][me]
         e["added"] = sorted(set(e.get("added") or []) | set(added))
+        if servers:  # a server is held (`mcp_holder`) by what is in `mcp`, not by a plugin's or skill's name
+            e["mcp"] = sorted(set(agent_mcp(e)) | set(servers))
         if "tool" in kinds.values():
             e["tools_added"] = True  # the snapshot would keep it out: every later launch turns it off
         if "connectors" in kinds.values():

@@ -944,15 +944,42 @@ def test_the_browser_is_held_across_runs_until_that_run_stops(mesh, run, users):
 
 
 def test_a_worker_that_added_the_browser_back_holds_it_too(mesh, run, users, monkeypatch, capsys):
-    claude_worker(mesh, run, added=["playwright"])
+    claude_worker(mesh, run)
     with mesh.editing_run(run) as data:
         data["agents"]["repo-lead"]["kind"] = "claude"
+    monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: 77)
+    assert mesh.main(["tools", "add", "playwright", "--as", "repo-fix-typo"]) == 0
     assert mesh.mcp_holder("playwright") == (run, "repo-fix-typo")
     monkeypatch.setattr(mesh, "start_reset", lambda *a, **k: 5)
     monkeypatch.setenv("MESH_ROOT_RELAUNCH", "1")
     assert mesh.main(["tools", "add", "playwright"]) == 1  # the root can't take it from the worker
     assert "repo-fix-typo" in capsys.readouterr().err
     assert "playwright" not in (mesh.load_run(run)["agents"]["repo-lead"].get("added") or [])
+
+
+def test_a_plugin_or_skill_added_back_doesnt_hold_the_browser(mesh, run, users):
+    claude_worker(mesh, run, added=["playwright"])  # a plugin or skill of that name, not the server
+    assert mesh.mcp_holder("playwright") is None
+
+
+def test_a_send_that_reopens_a_worker_leaves_out_a_server_someone_else_holds(mesh, fake, run, gitrepo, users, capsys):
+    stub_new_pane(fake)
+    archived_worker(mesh, gitrepo, kind="claude", session="c1", run_id="mold")
+    archive = mesh.mesh_home() / "archive" / "mold" / "run.json"
+    data = json.loads(archive.read_text())
+    data["agents"]["proj-fix"].update(mcp=["playwright", "flow"], status="retired")
+    archive.write_text(json.dumps(data))
+    other_run(mesh, "m2", {"w-shot": lease_entry(mcp=["playwright"])})
+    capsys.readouterr()
+    assert mesh.main(["resume", "--tier", "strong", "--from-run", "mold", "proj-fix", "--task", "Go on."]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert launched_servers(mesh, run, out["name"]) == {"context7", "flow"}
+    assert any("playwright is held" in n for n in out["notes"])
+    assert mesh.load_run(run)["agents"][out["name"]]["mcp"] == ["flow"]
+    capsys.readouterr()  # asked for by name, it is refused
+    assert mesh.main(["resume", "--tier", "strong", "--from-run", "mold", "proj-fix", "--task", "Go on.",
+                      "--mcp", "playwright"]) == 1
+    assert "w-shot" in capsys.readouterr().err
 
 
 def test_a_second_spawn_on_the_browser_is_refused_naming_the_holder(mesh, fake, run, gitrepo, users, capsys):
