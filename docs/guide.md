@@ -471,4 +471,4 @@ uvx pytest -q tests       # herdr is stubbed; git worktree tests use real temp r
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](../LICENSE): free for personal, hobby, research, education, non-profit and government use. Any commercial use, including use inside a company and selling or reselling it, needs a commercial license: contact [@Luisotee](https://github.com/Luisotee). Versions published before this change remain under the MIT License.
+[PolyForm Noncommercial 1.0.0](../LICENSE): free for personal use, hobby projects and research, and for charitable organizations, educational institutions, public research, safety, health or environmental organizations and government institutions. Any commercial use, including use inside a company and selling or reselling it, needs a commercial license: contact [@Luisotee](https://github.com/Luisotee). This is a summary: the LICENSE text governs. Commits up to f73ee32 (2026-11-25) remain under the MIT License.
