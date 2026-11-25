@@ -204,7 +204,9 @@ type Terminal struct {
 	ExitedAt   *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=exited_at,json=exitedAt,proto3" json:"exited_at,omitempty"`
 	LastOutput *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=last_output,json=lastOutput,proto3" json:"last_output,omitempty"`
 	// Set by the daemon at creation (its agent id, say), so terminals can be matched without the daemon's db.
-	Labels        map[string]string `protobuf:"bytes,16,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Labels map[string]string `protobuf:"bytes,16,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Attached clients that may type and are ready: while there are any, nothing else types into it.
+	InputClients  uint32 `protobuf:"varint,17,opt,name=input_clients,json=inputClients,proto3" json:"input_clients,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -349,6 +351,13 @@ func (x *Terminal) GetLabels() map[string]string {
 		return x.Labels
 	}
 	return nil
+}
+
+func (x *Terminal) GetInputClients() uint32 {
+	if x != nil {
+		return x.InputClients
+	}
+	return 0
 }
 
 type CreateTerminalRequest struct {
@@ -1816,7 +1825,7 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x10\n" +
 	"\x03pid\x18\x03 \x01(\x03R\x03pid\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\"\xca\x04\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"\xef\x04\n" +
 	"\bTerminal\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04argv\x18\x02 \x03(\tR\x04argv\x12\x10\n" +
@@ -1836,7 +1845,8 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\texited_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\bexitedAt\x12;\n" +
 	"\vlast_output\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastOutput\x12?\n" +
-	"\x06labels\x18\x10 \x03(\v2'.agentmesh.term.v1.Terminal.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x10 \x03(\v2'.agentmesh.term.v1.Terminal.LabelsEntryR\x06labels\x12#\n" +
+	"\rinput_clients\x18\x11 \x01(\rR\finputClients\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x02\n" +
