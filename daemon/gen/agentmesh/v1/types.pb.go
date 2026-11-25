@@ -425,9 +425,12 @@ type Agent struct {
 	LastActivity *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=last_activity,json=lastActivity,proto3" json:"last_activity,omitempty"`
 	CreatedAt    *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Set once it exited.
-	ExitCode      int32 `protobuf:"varint,19,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExitCode int32 `protobuf:"varint,19,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// What state the agent was in when a compaction began (a compaction has no turn of its own): restored when
+	// the compacted session starts. UNSPECIFIED when none is under way.
+	StateBeforeCompact AgentState `protobuf:"varint,20,opt,name=state_before_compact,json=stateBeforeCompact,proto3,enum=agentmesh.v1.AgentState" json:"state_before_compact,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -591,6 +594,13 @@ func (x *Agent) GetExitCode() int32 {
 		return x.ExitCode
 	}
 	return 0
+}
+
+func (x *Agent) GetStateBeforeCompact() AgentState {
+	if x != nil {
+		return x.StateBeforeCompact
+	}
+	return AgentState_AGENT_STATE_UNSPECIFIED
 }
 
 type Message struct {
@@ -1424,7 +1434,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
-	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\"\xe3\x04\n" +
+	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\"\xaf\x05\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -1449,7 +1459,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\rlast_activity\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\flastActivity\x129\n" +
 	"\n" +
 	"created_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1b\n" +
-	"\texit_code\x18\x13 \x01(\x05R\bexitCode\"\xf9\x02\n" +
+	"\texit_code\x18\x13 \x01(\x05R\bexitCode\x12J\n" +
+	"\x14state_before_compact\x18\x14 \x01(\x0e2\x18.agentmesh.v1.AgentStateR\x12stateBeforeCompact\"\xf9\x02\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12'\n" +
@@ -1594,31 +1605,32 @@ var file_agentmesh_v1_types_proto_depIdxs = []int32{
 	2,  // 5: agentmesh.v1.Agent.state:type_name -> agentmesh.v1.AgentState
 	18, // 6: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
 	18, // 7: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
-	19, // 8: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
-	3,  // 9: agentmesh.v1.Message.type:type_name -> agentmesh.v1.MessageType
-	18, // 10: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	18, // 11: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
-	18, // 12: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
-	18, // 13: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
-	19, // 14: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
-	10, // 15: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
-	11, // 16: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
-	12, // 17: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
-	13, // 18: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
-	14, // 19: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
-	15, // 20: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
-	16, // 21: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
-	17, // 22: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
-	5,  // 23: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
-	6,  // 24: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
-	2,  // 25: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
-	2,  // 26: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
-	7,  // 27: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	2,  // 8: agentmesh.v1.Agent.state_before_compact:type_name -> agentmesh.v1.AgentState
+	19, // 9: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
+	3,  // 10: agentmesh.v1.Message.type:type_name -> agentmesh.v1.MessageType
+	18, // 11: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	18, // 12: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
+	18, // 13: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
+	18, // 14: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
+	19, // 15: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
+	10, // 16: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
+	11, // 17: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
+	12, // 18: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
+	13, // 19: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
+	14, // 20: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
+	15, // 21: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
+	16, // 22: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
+	17, // 23: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
+	5,  // 24: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
+	6,  // 25: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
+	2,  // 26: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
+	2,  // 27: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
+	7,  // 28: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_types_proto_init() }
