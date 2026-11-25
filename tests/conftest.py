@@ -121,6 +121,9 @@ def mesh(tmp_path, monkeypatch):
     monkeypatch.setenv("MESH_CC_SOCKS", str(tmp_path / "socks"))
     # Most tests check the run-tab placement; the side-pane tests turn it back on.
     monkeypatch.setenv("MESH_SIDE_PANES", "0")
+    # Most tests check a launch's argv and a reset's /clear as they were; tests/test_lean.py turns both back on.
+    monkeypatch.setenv("MESH_CLAUDE_LEAN", "0")
+    monkeypatch.setenv("MESH_ROOT_RELAUNCH", "0")
     # Never Copilot's real session events: a test that wants some writes them here (see copilot_events).
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "copilot"))
     # ...nor OpenCode's real session db (a test that wants one builds it here, see opencode_db in test_kinds).
@@ -183,6 +186,10 @@ def mesh(tmp_path, monkeypatch):
     module.retirers = []
     module.real_start_retirer = module.start_retirer
     monkeypatch.setattr(module, "start_retirer", lambda run_id, handle: module.retirers.append(run_id) or 4242)
+    # ...nor a real root keeper (a root command starts one): `module.keepers` lists what would have started.
+    module.keepers = []
+    module.real_start_root_keeper = module.start_root_keeper
+    monkeypatch.setattr(module, "start_root_keeper", lambda run_id, handle: module.keepers.append(run_id) or 4243)
     with timeout_guard():
         yield module
 
