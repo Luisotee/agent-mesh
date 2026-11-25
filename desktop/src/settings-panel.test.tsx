@@ -79,6 +79,24 @@ describe('SettingsPanel', () => {
     expect(sentValue(client)).toMatchObject({ key: 'quota_stop', value: 120 })
   })
 
+  it('puts a refused edit back to what the host has, and resets once on a double click', async () => {
+    const { ui, client } = fixture(list())
+    client.setSetting.mockRejectedValueOnce(new Error('[invalid_argument] nope'))
+    render(ui)
+    const select = screen.getByRole('combobox', { name: 'Value of tiers.claude.mid.effort' })
+    await userEvent.selectOptions(select, 'low')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^nope$/)
+    await waitFor(() => expect(select).toHaveValue('high'))
+
+    let release!: () => void
+    client.resetSetting.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
+    const reset = screen.getByRole('button', { name: 'Reset quota_stop' })
+    fireEvent.click(reset)
+    fireEvent.click(reset)
+    release()
+    await waitFor(() => expect(client.resetSetting).toHaveBeenCalledTimes(1))
+  })
+
   it('does not send an unchanged value, or a number that is not one', async () => {
     const { ui, client } = fixture(list())
     render(ui)

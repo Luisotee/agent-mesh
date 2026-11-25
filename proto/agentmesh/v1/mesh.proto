@@ -261,6 +261,9 @@ message HelloResponse {
   repeated string capabilities = 6;
   // The caller, as its token says.
   Actor actor = 7;
+  // The host's clock when it answered. A client measures how far its own clock is from the host's with it, to
+  // judge whether an event's time is recent (the host's clock may be minutes off, WSL's often is).
+  google.protobuf.Timestamp server_time = 8;
 }
 
 message StartRunRequest {

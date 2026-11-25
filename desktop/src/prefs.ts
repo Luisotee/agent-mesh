@@ -14,12 +14,15 @@ export function jsonOf(s: Setting | undefined): unknown {
   return s?.value ? toJson(ValueSchema, s.value) : undefined
 }
 
-/** Until the settings arrive the app notifies as the defaults say, so a first event isn't lost to a race. */
+/**
+ * Until the settings arrive the app acts as the host's defaults say (daemon/internal/settings/schema.go, AppLeaves),
+ * so a first event isn't lost to a race.
+ */
 export const DEFAULT_PREFS: AppPrefs = {
   notifyEnabled: true,
   notifySound: true,
   notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed']),
-  closeToTray: true,
+  closeToTray: false,
 }
 
 export function appPrefs(settings: Record<string, Setting>): AppPrefs {

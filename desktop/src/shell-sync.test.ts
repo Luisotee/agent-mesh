@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { create } from '@bufbuild/protobuf'
 import { ValueSchema, timestampFromMs, type Value } from '@bufbuild/protobuf/wkt'
-import { fromJson } from '@bufbuild/protobuf'
+import { fromJson, toJson } from '@bufbuild/protobuf'
 import { connectNodeAdapter } from '@connectrpc/connect-node'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -21,6 +21,7 @@ let server: http.Server
 let push: (e: Event) => void
 let settings: Record<string, Value>
 let closeStreams: () => void
+let settingsGate: Promise<void> | undefined
 
 const NOW = () => Date.now()
 const agent = (id: string, name: string, role: AgentRole, parentId = '') => create(AgentSchema, { id, name, role, runId: 'r1', parentId, state: AgentState.IDLE })
@@ -35,6 +36,7 @@ beforeEach(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'amn-'))
   writeFileSync(path.join(dir, 'device.token'), 'tok')
   settings = {}
+  settingsGate = undefined
   const queue: Event[] = []
   let wake: (() => void) | undefined
   let closed = false
@@ -52,10 +54,12 @@ beforeEach(async () => {
         router.service(MeshService, {
           hello: () => create(HelloResponseSchema, { daemonId: 'd', instanceId: 'i', version: 't', capabilities: [] }),
           listMessages: () => create(ListMessagesResponseSchema, { messages: [] }),
-          listSettings: () =>
-            create(ListSettingsResponseSchema, {
-              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed']), settingOf('app.tray.close_to_tray', 'bool', true)],
-            }),
+          listSettings: async () => {
+            await settingsGate
+            return create(ListSettingsResponseSchema, {
+              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed']), settingOf('app.tray.close_to_tray', 'bool', false)],
+            })
+          },
           async *subscribeEvents() {
             yield create(SubscribeEventsResponseSchema, {
               frame: {
@@ -102,7 +106,7 @@ async function boot() {
 
 it('turns live events into notifications by the host\'s own preferences, and counts what waits for the tray', async () => {
   const { shell } = await boot()
-  expect(shell.configure).toHaveBeenLastCalledWith({ closeToTray: true })
+  expect(shell.configure).toHaveBeenLastCalledWith({ closeToTray: false }) // hiding to a tray is opt-in
 
   // History replayed after a reconnect (an old event) is silent; a live plan notifies, with the sound setting.
   push(sentEvent(1, msg('m0', MessageType.PLAN, 'w1', 'lead', 'old plan'), 3_600_000))
@@ -140,9 +144,35 @@ it('stays quiet when notifications are off or the kind is not chosen', async () 
 
 it('follows a change of the tray setting, and a click on a notification opens the agent', async () => {
   const { model, shell, hostStore } = await boot()
-  hostStore.setState((s) => ({ settings: { ...s.settings, 'app.tray.close_to_tray': { ...s.settings['app.tray.close_to_tray']!, value: fromJson(ValueSchema, false) } } }))
-  expect(shell.configure).toHaveBeenLastCalledWith({ closeToTray: false })
+  hostStore.setState((s) => ({ settings: { ...s.settings, 'app.tray.close_to_tray': { ...s.settings['app.tray.close_to_tray']!, value: fromJson(ValueSchema, true) } } }))
+  expect(shell.configure).toHaveBeenLastCalledWith({ closeToTray: true })
   const click = shell.onNotificationClick.mock.calls[0]![0] as (c: { hostId: string; agentId: string; tab: string }) => void
   click({ hostId: 'h', agentId: 'w1', tab: 'messages' })
   expect(model.store.getState()).toMatchObject({ hostId: 'h', agentId: 'w1', tab: 'messages', settingsOpen: false })
+  // A click on a notification of a host that isn't there any more goes nowhere.
+  click({ hostId: 'gone', agentId: 'x', tab: 'terminal' })
+  expect(model.store.getState()).toMatchObject({ hostId: 'h', agentId: 'w1' })
+})
+
+it('a setting changed while the list is on its way is not lost to it', async () => {
+  let open!: () => void
+  settingsGate = new Promise<void>((r) => (open = r))
+  const host: StoredHost = { id: 'h', name: 'home', kind: 'state-dir', path: dir }
+  const shell = { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn((_cb: unknown) => () => {}) }
+  const api = {
+    hosts: { list: async () => [{ id: 'h', name: 'home', kind: 'state-dir' as const, target: dir }], fixed: true },
+    request: (_id: string, req: Parameters<typeof forward>[1], cb: Parameters<typeof forward>[2]) => forward(host, req, cb),
+    openSocket: vi.fn(),
+    shell,
+  } as unknown as DesktopApi
+  const model = createAppModel(api)
+  await model.load()
+  const hostStore = model.store.getState().hosts[0]!.store
+  await vi.waitFor(() => expect(hostStore.getState().synced).toBe(true))
+  // Someone turns notifications off while the host's list (computed before that) is still in flight.
+  push(event(1, { case: 'settingChanged', value: { $typeName: 'agentmesh.v1.SettingChanged', key: 'app.notify.enabled', value: fromJson(ValueSchema, false), toDefault: false } }))
+  await vi.waitFor(() => expect(hostStore.getState().cursor?.seq).toBe(1n))
+  open()
+  await vi.waitFor(() => expect(Object.keys(hostStore.getState().settings)).toHaveLength(4))
+  expect(toJson(ValueSchema, hostStore.getState().settings['app.notify.enabled']!.value!)).toBe(false)
 })

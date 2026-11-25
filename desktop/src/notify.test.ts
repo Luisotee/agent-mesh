@@ -47,6 +47,16 @@ describe('noticeFor', () => {
     expect(noticeFor(exit(-1, 'killed'), agents, NOW)).toBeUndefined()
   })
 
+  it('judges "recent" by the host\'s clock: a host minutes behind still notifies, and one ahead still ignores history', () => {
+    const e = sent(MessageType.PLAN, 'w1', 'lead', 'x', ActorClass.WORKER, 5 * 60_000 + 1000) // stamped 5 min 1 s before our now
+    expect(noticeFor(e, agents, NOW)).toBeUndefined() // we think it is old...
+    // ...but the host's clock is 5 minutes behind ours, so it is 1 s old by the host's own reading.
+    expect(noticeFor(e, agents, NOW, -5 * 60_000)).toBeDefined()
+    // A host 5 minutes ahead: an event stamped just now (by it) is live; one a minute and a bit old is not.
+    expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', 'x', ActorClass.WORKER, -5 * 60_000 + 1000), agents, NOW, 5 * 60_000)).toBeDefined()
+    expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', 'x', ActorClass.WORKER, -5 * 60_000 + LIVE_WITHIN_MS + 1000), agents, NOW, 5 * 60_000)).toBeUndefined()
+  })
+
   it('stays quiet for history: an event older than a minute is a replay', () => {
     expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', 'x', ActorClass.WORKER, LIVE_WITHIN_MS - 1), agents, NOW)).toBeDefined()
     expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', 'x', ActorClass.WORKER, LIVE_WITHIN_MS + 1), agents, NOW)).toBeUndefined()

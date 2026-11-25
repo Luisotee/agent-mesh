@@ -80,35 +80,29 @@ function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `control` is derived from the schema, which doesn't change with the value
   }, [sig])
 
-  async function save(value: unknown) {
+  const say = (e: unknown) => setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+  /** One change at a time; a refused one puts the field back to what the host has. */
+  async function change(act: () => Promise<unknown>) {
     if (busy) return
     setBusy(true)
     setError('')
     try {
-      await setSetting(host.client, s.key, value as never)
+      await act()
     } catch (e) {
-      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+      say(e)
+      setDraft(toText(control, current))
     } finally {
       setBusy(false)
     }
   }
+  const save = (value: unknown) => change(() => setSetting(host.client, s.key, value as never))
   async function commit(text: string) {
     const p = fromText(type, control, text)
     if (!p.ok) return setError(p.error)
     if (JSON.stringify(p.value) === sig) return setError('')
     await save(p.value)
   }
-  async function reset() {
-    setBusy(true)
-    setError('')
-    try {
-      await resetSetting(host.client, s.key)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+  const reset = () => change(() => resetSetting(host.client, s.key))
   return (
     <div className="flex flex-col gap-2 px-3 py-2.5" data-setting={s.key}>
       <div className="flex items-center gap-2">

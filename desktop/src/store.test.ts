@@ -1,8 +1,9 @@
-import { create } from '@bufbuild/protobuf'
+import { create, fromJson, toJson } from '@bufbuild/protobuf'
+import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { applyFrame, emptyHost, mergeMessages, type HostState } from './store'
-import { AgentSchema, AgentState, EventSchema, MessageSchema, RunSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
+import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, RunSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -86,6 +87,19 @@ describe('applyFrame', () => {
     const gone = create(MessageSchema, { id: 'm2', runId: 'old' })
     const s = applyFrame({ ...emptyHost(), messages: { m1: kept, m2: gone } }, snapshot())
     expect(Object.keys(s.messages)).toEqual(['m1'])
+  })
+
+  it('a reset falls back to the default when the event carries no value', () => {
+    const cur = create(SettingDescriptor, { key: 'quota_stop', value: fromJson(ValueSchema, 80), default: fromJson(ValueSchema, 90), isSet: true })
+    const s = applyFrame({ ...emptyHost(), settings: { quota_stop: cur } }, ev(6, { case: 'settingChanged', value: { $typeName: 'agentmesh.v1.SettingChanged', key: 'quota_stop', toDefault: true } }))
+    expect(s.settings.quota_stop).toMatchObject({ isSet: false })
+    expect(toJson(ValueSchema, s.settings.quota_stop!.value!)).toBe(90)
+  })
+
+  it('measures the host\'s clock from its hello', () => {
+    const store = createHostStore()
+    storeSink(store).onHello({ $typeName: 'agentmesh.v1.HelloResponse', serverTime: timestampFromMs(Date.now() + 120_000) } as never)
+    expect(Math.abs(store.getState().clockSkewMs - 120_000)).toBeLessThan(1000)
   })
 
   it('the stream and its replay give the same state', () => {

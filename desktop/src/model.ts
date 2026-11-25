@@ -7,7 +7,8 @@ import { messageLoader } from './messages'
 import { noticeFor } from './notify'
 import { appPrefs } from './prefs'
 import { listSettings } from './actions'
-import { createHostStore, setSettings, storeSink, type HostStore } from './store'
+import { applyFrame, createHostStore, setSettings, storeSink, type HostStore } from './store'
+import type { Frame } from './connection'
 import { hostTransport } from './transport'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -25,24 +26,36 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
   const client = createMeshClient(hostTransport(api, info.id))
   const sink = storeSink(store)
   const loader = messageLoader(client, store, sink.log)
+  // Setting changes that arrive while the list is on its way are applied on top of it, not lost to it (and a late
+  // list of an older connection is dropped).
+  let settingsLoad = 0
+  let pendingSettings: Frame[] = []
   const connection = new HostConnection({
     client,
     ...sink,
     onFrame: (f) => {
       const before = store.getState()
       sink.onFrame(f)
+      if (f.case === 'event' && f.value.payload.case === 'settingChanged') pendingSettings.push(f)
       if (f.case === 'event') {
         // The host's own preferences say whether and what to notify about its events.
         const prefs = appPrefs(before.settings)
-        const n = prefs.notifyEnabled ? noticeFor(f.value, before.agents, Date.now()) : undefined
+        const n = prefs.notifyEnabled ? noticeFor(f.value, before.agents, Date.now(), before.clockSkewMs) : undefined
         if (n && prefs.notifyEvents.has(n.kind)) {
           api.shell.notify({ tag: `${info.id}:${n.tag}`, title: n.title, body: n.body, sound: prefs.notifySound, hostId: info.id, agentId: n.agentId, tab: n.tab })
         }
       }
       if (f.case === 'snapshot') {
         void loader.load(f.value.runs)
+        const mine = ++settingsLoad
+        pendingSettings = []
         void listSettings(client)
-          .then((r) => store.setState(setSettings(r.settings)))
+          .then((r) => {
+            if (mine !== settingsLoad) return
+            store.setState(setSettings(r.settings))
+            for (const e of pendingSettings) store.setState((s) => applyFrame(s, e))
+            pendingSettings = []
+          })
           .catch((e: unknown) => sink.log(`couldn't load the settings: ${e instanceof Error ? e.message : String(e)}`))
       }
     },
@@ -97,12 +110,19 @@ export function createAppModel(api: DesktopApi): AppModel {
     const first = store.getState().hosts[0]
     api.shell.configure({ closeToTray: appPrefs(first?.store.getState().settings ?? {}).closeToTray })
   }
+  const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
-    rt.store.subscribe((s, prev) => {
-      if (s.agents !== prev.agents || s.messages !== prev.messages || s.runs !== prev.runs) recount()
-      if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
-    })
-  api.shell.onNotificationClick((c) => store.setState({ hostId: c.hostId, agentId: c.agentId, tab: c.tab, settingsOpen: false }))
+    unwatch.set(
+      rt.info.id,
+      rt.store.subscribe((s, prev) => {
+        if (s.agents !== prev.agents || s.messages !== prev.messages || s.runs !== prev.runs) recount()
+        if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
+      }),
+    )
+  api.shell.onNotificationClick((c) => {
+    // A click on a notification of a host that has since been removed goes nowhere.
+    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) store.setState({ hostId: c.hostId, agentId: c.agentId, tab: c.tab, settingsOpen: false })
+  })
   let loading: Promise<void> | undefined
   async function loadHosts() {
     try {
@@ -132,6 +152,8 @@ export function createAppModel(api: DesktopApi): AppModel {
     async removeHost(id) {
       await api.hosts.remove(id)
       store.getState().hosts.find((h) => h.info.id === id)?.connection.stop()
+      unwatch.get(id)?.()
+      unwatch.delete(id)
       set((s) => {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
         return { hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }

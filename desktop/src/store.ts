@@ -14,6 +14,8 @@ export interface HostState {
   conn: ConnState
   /** What the host last said about itself, kept while it is unreachable so the view doesn't change under the user. */
   daemon?: HelloResponse
+  /** How far the host's clock is ahead of ours, in ms (negative: behind), from its last `Hello`. */
+  clockSkewMs: number
   /** True once a snapshot or a resume arrived on the current connection. */
   synced: boolean
   runs: Record<string, Run>
@@ -29,7 +31,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -78,7 +80,7 @@ function applyEvent(s: HostState, e: Event): HostState {
       const cur = s.settings[p.value.key]
       if (!cur) return next
       // The event carries the effective value now; a reset means the default applies again.
-      const changed: Setting = { ...cur, value: p.value.value ?? cur.value, isSet: !p.value.toDefault, updatedBy: e.actor ?? cur.updatedBy, updatedAt: e.time ?? cur.updatedAt }
+      const changed: Setting = { ...cur, value: p.value.value ?? (p.value.toDefault ? cur.default : cur.value), isSet: !p.value.toDefault, updatedBy: e.actor ?? cur.updatedBy, updatedAt: e.time ?? cur.updatedAt }
       return { ...next, settings: { ...s.settings, [cur.key]: changed } }
     }
     case 'agentSpawned':
@@ -140,6 +142,10 @@ export function storeSink(store: HostStore) {
     onState: (conn: ConnState) =>
       store.setState(() => (conn.kind === 'ready' ? { conn, daemon: conn.hello } : { conn, synced: false })),
     onFrame: (f: Frame) => store.setState((s) => applyFrame(s, f)),
+    onHello: (h: HelloResponse) => {
+      const t = h.serverTime
+      if (t) store.setState({ clockSkewMs: Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) - Date.now() })
+    },
     cursor: () => store.getState().cursor,
     log: (text: string) =>
       store.setState((s) => ({ log: [...s.log.slice(-(MAX_LOG - 1)), { at: Date.now(), text }] })),

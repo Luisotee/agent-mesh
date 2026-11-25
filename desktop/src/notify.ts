@@ -34,11 +34,13 @@ function brief(text: string): string {
 /**
  * What an event means to the person, if anything: an agent stopped at a prompt, a plan, a question, a report or a
  * failure sent to a run's lead, an agent that died. Only live events (history replayed after a reconnect stays
- * quiet), and never what the user did themselves. `agents` is the state before the event.
+ * quiet), and never what the user did themselves. `agents` is the state before the event; `clockSkewMs` is how
+ * far the host's clock is ahead of ours.
  */
-export function noticeFor(e: Event, agents: Record<string, Agent>, now: number): Notice | undefined {
+export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, clockSkewMs = 0): Notice | undefined {
   const at = e.time ? Number(e.time.seconds) * 1000 + Math.floor(e.time.nanos / 1e6) : 0
-  if (now - at > LIVE_WITHIN_MS) return undefined
+  // The event's time is the host's: compare it with the host's clock now, not ours.
+  if (now + clockSkewMs - at > LIVE_WITHIN_MS) return undefined
   const p = e.payload
   switch (p.case) {
     case 'agentStateChanged': {

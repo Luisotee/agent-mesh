@@ -130,6 +130,9 @@ func TestHelloTakesTheActorFromTheToken(t *testing.T) {
 	if res.Msg.Actor.GetClass() != v1.ActorClass_ACTOR_CLASS_DEVICE || res.Msg.DaemonId == "" || res.Msg.InstanceId == "" {
 		t.Errorf("hello %v", res.Msg)
 	}
+	if d := time.Since(res.Msg.ServerTime.AsTime()); d < -time.Minute || d > time.Minute || res.Msg.ServerTime == nil {
+		t.Errorf("hello's server time %v is not the host's clock now", res.Msg.ServerTime)
+	}
 	run := startRun(t, h.device.Mesh, "")
 	worker := h.seedAgent(run.Id, "a1", "repo-fix", "", v1.AgentRole_AGENT_ROLE_WORKER)
 	res, err = h.as(worker).Hello(ctx, connect.NewRequest(&v1.HelloRequest{}))

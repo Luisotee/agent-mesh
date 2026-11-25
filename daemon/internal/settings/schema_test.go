@@ -33,6 +33,9 @@ func TestTheAppRowsAreInTheTable(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("app rows %v, want %v", got, want)
 	}
+	if l, _ := s.Lookup("app.tray.close_to_tray"); l.Default != false {
+		t.Errorf("close to tray defaults to %v: a desktop without a tray would strand the window", l.Default)
+	}
 	l, _ := s.Lookup("app.notify.events")
 	if _, err := Check(l, []any{"plan", "failed"}); err != nil {
 		t.Error(err)

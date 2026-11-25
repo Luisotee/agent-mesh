@@ -325,12 +325,16 @@ func DefaultLeaves() []Leaf {
 // NotifyEvents are the events the desktop app can notify about (app.notify.events).
 var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited"}
 
+// DefaultNotifyEvents are the ones that notify until the user chooses (every event but a clean exit). The desktop
+// app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
+var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed"}
+
 // AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
 // and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
 func AppLeaves() []Leaf {
-	events := make([]any, 0, 5)
-	for _, e := range NotifyEvents[:5] {
-		events = append(events, e)
+	events := make([]any, len(DefaultNotifyEvents))
+	for i, e := range DefaultNotifyEvents {
+		events[i] = e
 	}
 	return []Leaf{
 		{Key: "app.notify.enabled", Type: Bool, Default: true,
@@ -339,8 +343,8 @@ func AppLeaves() []Leaf {
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
 			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, or any agent's exit"},
-		{Key: "app.tray.close_to_tray", Type: Bool, Default: true,
-			Summary: "closing the desktop window keeps the app running in the tray"},
+		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,
+			Summary: "closing the desktop window keeps the app running in the tray (off by default: a desktop with no tray would leave no way back to the window)"},
 	}
 }
 
