@@ -25,7 +25,7 @@ herdr and the terminal workflow are replaced by a daemon per host plus desktop, 
 - [ ] Port the skills and protocol to the daemon: keep the `mesh` command names agents already use where they still fit, rewrite `ORCHESTRATE.md` and `PROTOCOL.md` for daemon events instead of doorbells, panes and `mesh watch` exit codes, drop the herdr fallbacks in the skills (`harvest-peers` "No herdr", `delegate-*` panes), and have the daemon install the skills into each CLI.
 - [ ] Desktop app (Electron + React), first version: hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray.
 - [ ] Connections: `mesh relay` on the user's VPS (outbound from the daemon, TLS end to end, QR pairing), then built-in Tailscale (`tsnet`).
-- [ ] Android app (React Native with Expo): status, notifications with actions through UnifiedPush, plans, questions, reports, terminal.
+- [ ] Android app (Kotlin + Compose): status, notifications with actions through UnifiedPush, plans, questions, reports, terminal.
 - [ ] Workers on other hosts: a daemon on the Oracle server, reached through the same routes.
 - [ ] The rest of `docs/apps.md`'s feature list: git, PRs and CI, the structured chat view with diff review notes, schedules, usage, plugins.
 
