@@ -692,7 +692,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		// A planner plans under the deny list until approved; a read-only role keeps it.
 		DenyEdits: m.Plan || claude.ReadOnly(role),
 		// A named model or effort covers the whole task: no plan phase, now or later.
-		Pinned: !m.Plan && (m.Model != "" || m.Effort != "")}
+		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
 		agent.Phase, agent.ExecTier = v1.AgentPhase_AGENT_PHASE_PLANNING, m.ExecTier
 	}

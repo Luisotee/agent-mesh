@@ -34,8 +34,8 @@ import (
 var StopWait = 15 * time.Second
 
 // launchedHook is a test seam: called once a reopen's terminal is started and before it is recorded, with a
-// function that kills that process and returns once its exit was seen.
-var launchedHook func(agentID string, die func())
+// function that kills that process and reports whether its exit was seen.
+var launchedHook func(agentID string, die func() bool)
 
 // namedEffort is the effort of a model named without one (bin/mesh's NAMED_EFFORT).
 const namedEffort = "high"
@@ -160,7 +160,13 @@ func endPlanPhase(tx *store.Tx, a *v1.Agent, why string) error {
 	return setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, why)
 }
 
-// directTask applies a task its parent sent to a child outside resume: the plan phase it was in ends, and the
+// directStart is how a direct task begins (bin/mesh's DIRECT_PREFIX): the marker the daemon reads, as bin/mesh
+// does, to tell a task with no plan phase from one the agent plans.
+const directStart = "Direct task"
+
+func isDirectTask(body string) bool { return strings.HasPrefix(strings.TrimSpace(body), directStart) }
+
+// directTask applies a direct task sent to an agent outside resume: the plan phase it was in ends, and the
 // planning deny list goes unless the role is read-only. A running process can't change its deny list, so that
 // is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
 func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
@@ -502,11 +508,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		model, effort, deny := target(a)
 		switch {
 		case m.Plan:
-			// A task it plans: on the tier given, else the one the root picked for it before, never a default.
+			// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
+			// tier's, which is not where plans are made).
 			tier := m.Tier
-			if tier == "" && m.Model == "" {
-				tier = a.Tier
-			}
 			if model, effort, err = d.pick(tx.Reader, a.Kind, tier, m.Model, m.Effort, a.Name+"'s planning"); err != nil {
 				return err
 			}
@@ -667,16 +671,18 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		return d.dropReopen(ctx, a.Id, r, "starting its terminal: "+err.Error())
 	}
 	if launchedHook != nil {
-		launchedHook(a.Id, func() {
+		launchedHook(a.Id, func() bool {
 			d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: tid}))
 			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 				d.rt.mu.Lock()
 				died := d.rt.launching[r.Id]
 				d.rt.mu.Unlock()
-				if died {
-					return
+				cur, err := d.store.Read(ctx).GetAgent(a.Id)
+				if died || (err == nil && cur.TerminalId == tid && cur.State == v1.AgentState_AGENT_STATE_EXITED) {
+					return true // the exit was seen: marked for the replaced reopen, or recorded as the agent's
 				}
 			}
+			return false
 		})
 	}
 	return d.finishReopen(ctx, a.Id, r, tid, plan)
@@ -692,8 +698,8 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 			return err
 		}
 		if a.PendingReopen == nil || a.PendingReopen.Id != r.Id {
-			if a.PendingReopen == nil && a.TerminalId == tid {
-				return nil // its process died at once, and that exit is recorded
+			if a.TerminalId == tid && a.State == v1.AgentState_AGENT_STATE_EXITED {
+				return nil // its process died at once, and that exit is recorded (a newer request may be pending)
 			}
 			stale = a.PendingReopen == nil // stopped meanwhile: the new process goes too
 			if stale {
@@ -706,7 +712,9 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 			died = d.rt.launching[r.Id]
 			d.rt.mu.Unlock()
 			if died {
-				return nil
+				_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentReopenDropped{
+					AgentReopenDropped: &v1.AgentReopenDropped{Reopen: r, Reason: "its process exited before it was recorded"}}})
+				return err
 			}
 		} else {
 			a.PendingReopen = nil
@@ -726,7 +734,10 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 	if err != nil {
 		// Without its terminal recorded the agent would sit starting for good: give the reopen up (its event
 		// says why) before the process goes, so its exit isn't taken for the agent's own.
-		d.dropReopen(ctx, agentID, r, "recording its terminal: "+err.Error())
+		// Not on ctx: a failed write may be a daemon shutting down, which the drop must outlive.
+		if derr := d.dropReopen(context.WithoutCancel(ctx), agentID, r, "recording its terminal: "+err.Error()); derr != nil {
+			d.log.Error("giving up a reopen", "agent", agentID, "err", derr)
+		}
 	}
 	if err != nil || stale {
 		// A terminal no agent records would run on unseen.

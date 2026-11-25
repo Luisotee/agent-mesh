@@ -263,13 +263,14 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					return err
 				}
 			}
-			// A task from the parent is a direct one: a plan phase it was in ends, and the planning deny list goes
-			// (by a reopen, since it can't change in a running process) unless the role is read-only. A later plan
-			// enters a phase again. A task with a plan phase starts with resume --plan.
-			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.ParentId == self.Id {
-				if err := d.directTask(t, to); err != nil {
-					return err
-				}
+		}
+		// A task marked direct ends the plan phase of the agent it is for and lifts its planning deny list (by a
+		// reopen, since a running process can't change it), as bin/mesh's `cmd_send` does for a `Direct task`; a
+		// planned follow-up leaves a planner planning. From a device as from the agent's parent.
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
+			(!IsAgent(actor.Class) || to.ParentId == actor.Id) {
+			if err := d.directTask(t, to); err != nil {
+				return err
 			}
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
