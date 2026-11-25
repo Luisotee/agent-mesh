@@ -14,7 +14,7 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 - [ ] `mesh cost`: join the root's verdicts and review-fix rounds to the PR author's execution tier, so a cheaper executor's quality shows per tier (today verdicts sum per reviewer only).
 - [ ] The worker starts its own PR's review round once its self-review is done (mesh starts the reviewers as the root's agents, the answers go to the worker, which judges and fixes them, then sends one `done` with its verdicts); the root checks only what the worker disagreed with. One root wake per PR and warm fixes, against design §7's rule that workers start no agents and the root's independent check of each finding.
 - [ ] Three Copilot hold tests use 2026-11-19 timestamps and fail since that day passed (`test_a_copilot_at_its_monthly_quota_is_continued_only_once_the_hold_ends`, `test_copilot_limits_read_from_its_pane_and_its_events`, `test_a_copilot_quota_error_counts_only_until_a_later_turn`): date them relative to now.
-- [ ] A per-repo setting for which repos' code may go to OpenCode's free models (whose providers may log prompts), in the apps' settings (`docs/apps.md`); all repos for now.
+- [ ] An option in the apps' settings (`docs/apps.md`), per repo, for whether its code may go to free models whose providers keep prompts or train on them (some of OpenCode's do, per its Zen docs); today every repo may, by the user's choice (2026-11-25).
 
 ## From the Orca / Paseo comparison (2026-11-24)
 

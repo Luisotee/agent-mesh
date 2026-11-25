@@ -70,11 +70,14 @@ TIER_DEFAULTS = {
             "strong": (["argon", "opus", "hydrogen"], "high")},
     "copilot": {"light": ([COPILOT_MODEL], "low"), "mid": ([COPILOT_MODEL], "medium"),
                 "strong": ([COPILOT_MODEL], "high")},
-    # Named, not `free`: of OpenCode's free models only these two keep no prompts and train on none (OpenCode Zen's
-    # docs, 2026-11-25); `free` takes the newest, which was a stealth model that does both.
-    "opencode": {"light": (["opencode/deepseek-v4.1-flash-free"], "low"),
-                 "mid": (["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "high"),
-                 "strong": (["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "high")},
+    # The free models with some evidence on coding first (2026-11-25 research), then `free`: any other free one,
+    # newest first. Some keep prompts or train on them (OpenCode Zen's docs); the user accepts that for now, and a
+    # per-repo choice is planned for the apps (TODO).
+    "opencode": {"light": ([OPENCODE_FREE], "low"),
+                 "mid": (["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free",
+                          OPENCODE_FREE], "high"),
+                 "strong": (["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free",
+                             OPENCODE_FREE], "high")},
 }
 TIER_NOTES = {
     "light": "trivial tasks (copy, translations, a version bump, config) and short mechanical text",

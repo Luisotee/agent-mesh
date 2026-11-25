@@ -363,11 +363,11 @@ This file reproduces the built-in policy, plus a `repos_dir`:
                "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     },
     "opencode": {
-      "light": {"model": ["opencode/deepseek-v4.1-flash-free"], "effort": "low",
+      "light": {"model": ["free"], "effort": "low",
                "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
-      "mid": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "effort": "high",
+      "mid": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"], "effort": "high",
                "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
-      "strong": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"], "effort": "high",
+      "strong": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"], "effort": "high",
                "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     }
   },
