@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""PreToolUse guard for Edit, Write and MultiEdit: deny a hand edit to generated code, naming the command that
-regenerates it. Silent otherwise, and on a payload it can't read (it guards against a mistake, never blocks work;
-the settings' `|| true` keeps a missing script or a crash from blocking every edit, as exit 2 would).
+"""PreToolUse tripwire for Claude's editing tools (Edit, Write, MultiEdit, NotebookEdit): deny a hand edit to
+generated code, naming the command that regenerates it. A shell write (`sed -i`, a redirect) passes it; each part's
+`scripts/check.sh` failing on stale generated code is the backstop. Silent otherwise, and on a payload it can't
+read: it guards against a mistake and never blocks work (the settings' `|| true` keeps a missing script from
+blocking every edit, as exit 2 would).
 Stdlib only; tested by tests/test_project_claude.py."""
 import json
 import sys
@@ -20,7 +22,7 @@ GENERATED = {  # folder under ROOT -> how to regenerate it
 def reason(payload: dict) -> str | None:
     """Why this tool call must not run, or None to let it through."""
     tool_input = payload.get("tool_input")
-    raw = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    raw = (tool_input.get("file_path") or tool_input.get("notebook_path")) if isinstance(tool_input, dict) else None
     if not isinstance(raw, str) or not raw:
         return None
     path = Path(raw)
@@ -37,7 +39,7 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
         why = reason(payload) if isinstance(payload, dict) else None
-    except (ValueError, OSError, TypeError):
+    except Exception:  # an unreadable payload, a symlink loop (RuntimeError before 3.13): let the edit through
         return 0
     if why:
         json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

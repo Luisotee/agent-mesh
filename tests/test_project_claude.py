@@ -72,7 +72,7 @@ def test_a_payload_it_cant_read_passes_silently(payload):
 
 def test_the_project_settings_run_the_guard_on_every_editing_tool():
     groups = SETTINGS["hooks"]["PreToolUse"]
-    assert len(groups) == 1 and set(groups[0]["matcher"].split("|")) == {"Edit", "Write", "MultiEdit"}
+    assert len(groups) == 1 and set(groups[0]["matcher"].split("|")) == {"Edit", "Write", "MultiEdit", "NotebookEdit"}
     [hook] = groups[0]["hooks"]
     assert hook["type"] == "command" and ".claude/hooks/guard_generated.py" in hook["command"]
     # The command exactly as Claude Code runs it, from a folder other than the repo's.
@@ -83,6 +83,21 @@ def test_the_project_settings_run_the_guard_on_every_editing_tool():
     missing = hook["command"].replace("$CLAUDE_PROJECT_DIR", "/nonexistent")
     result = guard(edit(str(ROOT / "daemon/gen/x.go")), command=missing)
     assert result.returncode == 0 and result.stdout == ""
+
+
+def test_a_notebook_edit_names_its_file_by_notebook_path():
+    payload = {"cwd": str(ROOT), "tool_name": "NotebookEdit",
+               "tool_input": {"notebook_path": str(ROOT / "daemon/gen/x.ipynb"), "new_source": "x"}}
+    assert "buf generate" in denial(guard(payload))
+    payload["tool_input"]["notebook_path"] = str(ROOT / "docs/x.ipynb")
+    assert guard(payload).stdout == ""
+
+
+def test_a_symlink_loop_passes_silently(tmp_path):
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    result = guard(edit(str(loop / "x")))
+    assert result.returncode == 0 and result.stdout == "" and result.stderr == ""
 
 
 def test_the_generated_tray_icons_are_guarded_too():
