@@ -64,7 +64,7 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
                 ?: repo.hosts.value.firstOrNull { h -> h.daemonId == null && h.routes.any { r -> routes.any { sameRoute(r, it, got.hostId) } } }
             if (existing != null) {
                 // The same host paired again (a revoked device, a new relay): its entry gets the new routes and token.
-                repo.update(existing.id, existing.name, routes, got.deviceToken)
+                repo.update(existing.id, existing.name, mergeRoutes(existing.routes, routes), got.deviceToken)
                 repo.setDaemonId(existing.id, got.hostId)
                 repo.get(existing.id)!!
             } else {
@@ -78,6 +78,25 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
     private companion object {
         /** Codes that say the call never got an answer from the host (or not a real one): the next route is tried. */
         val NOT_AN_ANSWER = setOf(Code.UNKNOWN, Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.CANCELED)
+    }
+
+    /**
+     * The host's routes after pairing again: each route the code names replaces the one of the same kind and address (it may carry a new
+     * client token), and every other route the host had (a Tailscale address added by hand) is kept. Routes only the code names come last.
+     */
+    private fun mergeRoutes(existing: List<Route>, fromCode: List<Route>): List<Route> {
+        val result = existing.toMutableList()
+        for (r in fromCode) {
+            val at = result.indexOfFirst { sameRoute(it, r) }
+            if (at >= 0) result[at] = r else result.add(r)
+        }
+        return result
+    }
+
+    private fun sameRoute(a: Route, b: Route): Boolean = when {
+        a is Route.Direct && b is Route.Direct -> a.url.trim().trimEnd('/').equals(b.url.trim().trimEnd('/'), ignoreCase = true)
+        a is Route.Relay && b is Route.Relay -> a.relayTcp.equals(b.relayTcp, ignoreCase = true)
+        else -> false
     }
 
     private fun sameRoute(a: Route, b: Route, hostId: String): Boolean = when {

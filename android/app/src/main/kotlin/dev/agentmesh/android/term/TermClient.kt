@@ -4,6 +4,9 @@ import dev.agentmesh.android.net.ApiException
 import dev.agentmesh.android.net.MeshApi
 import dev.agentmesh.android.net.TermEvent
 import dev.agentmesh.android.net.TerminalSocket
+import dev.agentmesh.android.net.describeFailure
+import dev.agentmesh.android.net.isFinalRouteFailure
+import dev.agentmesh.android.net.relayRefusal
 import dev.agentmesh.gen.agentmesh.term.v1.Attach
 import dev.agentmesh.gen.agentmesh.term.v1.AttachMode
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
@@ -105,13 +108,16 @@ class TermClient(
             } catch (e: javax.net.ssl.SSLPeerUnverifiedException) {
                 // The host's certificate isn't the pinned one: waiting won't change that.
                 _state.value = TermState.Failed("The host's certificate is not the one pinned for it"); return
-            } catch (e: ApiException) {
-                if (e.refusedToken || e.code == com.connectrpc.Code.NOT_FOUND || e.code == com.connectrpc.Code.PERMISSION_DENIED || e.code == com.connectrpc.Code.FAILED_PRECONDITION) {
+            } catch (e: Exception) {
+                // The relay refused this device's client token, or the pin doesn't match (PinnedTrust's
+                // CertificateException, wrapped in an SSLHandshakeException): waiting won't change either.
+                if (isFinalRouteFailure(e)) {
+                    _state.value = TermState.Failed(describeFailure(e) + if (relayRefusal(e) != null) ". Pair with the host again." else ""); return
+                }
+                if (e is ApiException && (e.refusedToken || e.code == com.connectrpc.Code.NOT_FOUND || e.code == com.connectrpc.Code.PERMISSION_DENIED || e.code == com.connectrpc.Code.FAILED_PRECONDITION)) {
                     _state.value = TermState.Failed(e.message ?: e.code.name.lowercase()); return
                 }
-                Outcome.Retry(e.message ?: e.code.name.lowercase())
-            } catch (e: Exception) {
-                Outcome.Retry(e.message ?: e.javaClass.simpleName)
+                Outcome.Retry(describeFailure(e))
             }
             when (outcome) {
                 is Outcome.Done -> return

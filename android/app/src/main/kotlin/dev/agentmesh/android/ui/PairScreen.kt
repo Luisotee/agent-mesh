@@ -74,10 +74,12 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
     var error by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
     // A link opened from outside while this screen is up (or that brought the user here): taken once, and shown for confirmation.
     val incoming by container.pairLink.collectAsStateWithLifecycleCompat()
-    LaunchedEffect(incoming) {
-        incoming?.let { text = it; error = null; container.pairLink.value = null }
+    // Not while a pairing is in flight: the link waits in the container, and is taken once the call has finished.
+    LaunchedEffect(incoming, busy) {
+        if (!busy) incoming?.let { text = it; error = null; notice = null; container.pairLink.value = null }
     }
     val parsed = remember(text) { if (text.isBlank()) null else runCatching { PairingLink.parse(text) } }
     val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -90,14 +92,21 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
     }
     fun pair(p: PairingPayload) {
         if (busy) return
-        busy = true; error = null
+        busy = true; error = null; notice = null
+        val link = text
         scope.launch {
             try {
                 val host = container.pairing.pair(p, deviceName)
-                text = ""
                 // A host paired again (a stopped connection with a refused token, new routes) picks up its new token and routes now.
                 container.runtimes.value[host.id]?.reconnect()
-                onPaired(host.id)
+                if (container.pairLink.value != null) {
+                    // Another link came in during the call: it is the user's next step, so stay and show it.
+                    text = container.pairLink.value.orEmpty(); container.pairLink.value = null
+                    notice = "Paired with ${host.name}. Another pairing link came in: check it and tap Pair."
+                } else {
+                    if (text == link) text = ""
+                    onPaired(host.id)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: PairingException) {
@@ -128,7 +137,7 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
                 "On the host, run meshctl pair (or open Pair a device in the desktop app). Scan its QR code, or paste the agentmesh://pair link.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(onClick = ::scan, Modifier.fillMaxWidth().testTag("scan")) { Text("Scan the QR code") }
+            OutlinedButton(onClick = ::scan, Modifier.fillMaxWidth().testTag("scan"), enabled = !busy) { Text("Scan the QR code") }
             cameraError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(
                 text, { text = it; error = null }, Modifier.fillMaxWidth().testTag("link"), label = { Text("Pairing link") },
@@ -144,6 +153,7 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
                 }
                 OutlinedTextField(deviceName, { deviceName = it }, Modifier.fillMaxWidth(), label = { Text("Name of this device") }, singleLine = true, enabled = !busy)
             }
+            notice?.let { Text(it, modifier = Modifier.testTag("paired-notice")) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("pair-error")) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Button(onClick = { ok?.let(::pair) }, enabled = ok != null && !busy && deviceName.isNotBlank(), modifier = Modifier.testTag("pair")) { Text("Pair") }

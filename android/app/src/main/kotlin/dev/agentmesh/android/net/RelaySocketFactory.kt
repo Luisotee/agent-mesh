@@ -8,8 +8,8 @@ import java.net.Socket
 import java.net.SocketAddress
 import javax.net.SocketFactory
 
-/** True when [s] can sit in the one-line preamble as a single word: no whitespace or control characters (a link is untrusted text), and not absurdly long. */
-fun isPreambleWord(s: String): Boolean = s.isNotEmpty() && s.length <= 200 && s.none { it.isWhitespace() || it.isISOControl() }
+/** True when [s] can sit in the one-line preamble as a single word: printable ASCII only (the preamble is written as ASCII; a link is untrusted text), and not absurdly long. */
+fun isPreambleWord(s: String): Boolean = s.isNotEmpty() && s.length <= 200 && s.all { it in '!'..'~' }
 
 /** The relay answered the preamble with an error, or with nothing a relay says. [code] is the relay's word for it. */
 class RelayRefused(val code: String, message: String) : IOException(message)

@@ -131,13 +131,26 @@ class PairingTest {
         assertEquals(emptyList<Any>(), repo.hosts.value)
     }
 
-    @Test fun `pairing the same host again replaces its routes and token instead of adding a second entry`() = runBlocking {
+    @Test fun `pairing the same host again updates its token instead of adding a second entry, and adds the code's new address`() = runBlocking {
         val host = FakeHost(fp = fp); val repo = repo()
         val first = PairingFlow(repo, host.clients).pair(PairingLink.parse(full), "a")
         val again = PairingFlow(repo, host.clients).pair(PairingLink.parse("agentmesh://pair?v=1&h=h1234567890ab&fp=$fp&t=amp_second&d=https://new:1"), "a")
         assertEquals(first.id, again.id)
         assertEquals(1, repo.hosts.value.size)
-        assertEquals(listOf<Route>(Route.Direct("https://new:1", fp)), repo.get(first.id)!!.routes)
+        assertEquals(
+            listOf<Route>(Route.Direct("https://100.64.0.1:9443", fp), Route.Relay("relay.example.com:8443", "h1234567890ab", "amr_client", fp), Route.Direct("https://new:1", fp)),
+            repo.get(first.id)!!.routes,
+        )
+    }
+
+    @Test fun `pairing again keeps the routes the code doesn't name, and a route it does name takes the code's token`() = runBlocking {
+        val host = FakeHost(fp = fp); val repo = repo()
+        val tailscale = Route.Direct("https://mine.tailnet.ts.net", fp)
+        val old = Route.Relay("relay.example.com:8443", "h1234567890ab", "amr_old", fp)
+        val known = repo.add("Home", listOf(tailscale, old), "amt_old", daemonId = "h1234567890ab")
+        PairingFlow(repo, host.clients).pair(PairingLink.parse("agentmesh://pair?v=1&h=h1234567890ab&fp=$fp&t=amp_x&rtcp=relay.example.com%3A8443&rt=amr_new"), "a")
+        assertEquals(listOf<Route>(tailscale, Route.Relay("relay.example.com:8443", "h1234567890ab", "amr_new", fp)), repo.get(known.id)!!.routes)
+        assertEquals("amt_device", repo.token(known.id))
     }
 
     @Test fun `a save that fails after the host accepted says the code is used up`() = runBlocking {
@@ -157,6 +170,14 @@ class PairingTest {
         }
         val e = runCatching { PairingLink.parse("agentmesh://pair?v=1&h=h&fp=$fp&t=amp_x&rtcp=relay:8443&rt=amr%0AGET%20x") }.exceptionOrNull()
         assertTrue("$e", e is PairingException && "relay token" in e.message.orEmpty())
+    }
+
+    @Test fun `a host id or relay token with a character outside printable ASCII is refused, since the preamble is written as ASCII`() {
+        assertFalse(dev.agentmesh.android.net.isPreambleWord("h\u00f4st"))
+        assertFalse(dev.agentmesh.android.net.isPreambleWord("h\u007fx"))
+        assertTrue(dev.agentmesh.android.net.isPreambleWord("h1234567890ab-_.:"))
+        val e = runCatching { PairingLink.parse("agentmesh://pair?v=1&h=h%C3%B4st&fp=$fp&t=amp_x&d=https://b:1") }.exceptionOrNull()
+        assertTrue("$e", e is PairingException && "host id" in e.message.orEmpty())
     }
 
     @Test fun `an address the app can't use is said to be skipped, not silently dropped`() {

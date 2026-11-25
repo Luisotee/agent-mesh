@@ -41,6 +41,7 @@ class PairScreenTest {
     private val link = "agentmesh://pair?v=1&h=h1234567890ab&fp=sha256:$fp&t=amp_secret&hn=work+station&rtcp=relay.example.com%3A8443&rt=amr_c&d=https%3A%2F%2F100.64.0.1%3A9443"
 
     private fun show(initial: String? = null, onPaired: (String) -> Unit = {}) {
+        PairTestApp.calls.clear()
         PairTestApp.redeem = { _, name -> Redeemed("dev1", name, "amt_device", "h1234567890ab", "work station", "sha256:$fp") }
         compose.setContent {
             CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { PairScreen(initial, {}, onPaired) } }
@@ -98,6 +99,30 @@ class PairScreenTest {
         assertEquals(null, container.pairLink.value)
     }
 
+    @Test fun `a link that comes in while a pairing is running waits, and is shown after it instead of being wiped`() {
+        var paired: String? = null
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        show(initial = link, onPaired = { paired = it })
+        PairTestApp.gate = gate
+        try {
+            compose.onNodeWithTag("pair").performClick()
+            compose.waitUntil(5_000) { PairTestApp.calls.isNotEmpty() }
+            container.pairLink.value = link.replace("hn=work+station", "hn=other+box")
+            compose.waitForIdle()
+            // Mid-call: the field is still the first code, and the second one is held.
+            compose.onNode(hasText("work station", substring = true)).assertIsDisplayed()
+            assertTrue(container.pairLink.value != null)
+            compose.onNodeWithTag("scan").assertIsNotEnabled()
+            gate.complete(Unit)
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("paired-notice").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(hasText("other box", substring = true)).assertIsDisplayed()
+            assertEquals("the screen stays for the second code", null, paired)
+            assertEquals(null, container.pairLink.value)
+        } finally {
+            PairTestApp.gate = null
+        }
+    }
+
     @Test fun `pairing a host again reconnects it with its new token and routes`() {
         val known = container.hosts.add("Home", listOf(dev.agentmesh.android.net.Route.Direct("https://old:1", fp)), "amt_old", daemonId = "h1234567890ab")
         val rt = run {
@@ -124,6 +149,7 @@ class PairTestApp : MeshApp() {
             object : PairingApi {
                 override suspend fun redeem(token: String, deviceName: String): Redeemed {
                     calls += if (route is dev.agentmesh.android.net.Route.Direct) "direct" else "relay"
+                    PairTestApp.gate?.await()
                     return PairTestApp.redeem(token, deviceName)
                 }
             }
@@ -132,6 +158,8 @@ class PairTestApp : MeshApp() {
 
     companion object {
         val calls = mutableListOf<String>()
+        /** When set, a redeem waits for it: a pairing that is still running. */
+        @Volatile var gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         var redeem: (String, String) -> Redeemed = { _, _ -> error("no host") }
     }
 }

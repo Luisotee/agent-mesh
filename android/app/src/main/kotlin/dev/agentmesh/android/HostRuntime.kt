@@ -82,7 +82,7 @@ class HostRuntime(
 
     private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
-    val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs)
+    val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs, routeCount = { host?.routes?.size ?: 1 })
     private var watcher: Job? = null
 
     val host: Host? get() = repo.get(hostId)
