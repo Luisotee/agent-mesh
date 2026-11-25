@@ -71,7 +71,7 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
     override fun close() {
         meshd?.let { it.destroy(); it.waitFor(10, TimeUnit.SECONDS); if (it.isAlive) it.destroyForcibly() }
         // The terminal host and the agents die with it: meshd was told to stop mesh-term with itself.
-        val info = File(state, "term/info.json")
+        val info = File(state, "term/term.json")
         runCatching { Json.parseToJsonElement(info.readText()).jsonObject["pid"]?.jsonPrimitive?.longOrNull }.getOrNull()?.let { pid ->
             ProcessHandle.of(pid).ifPresent { it.destroy() }
         }

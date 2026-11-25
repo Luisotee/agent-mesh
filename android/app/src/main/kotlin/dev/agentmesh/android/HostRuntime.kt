@@ -59,6 +59,8 @@ class HostRuntime(
     private fun buildApi(): MeshApi {
         val h = host ?: throw RouteException("this host was removed")
         if (h.routes.isEmpty()) throw RouteException("this host has no route")
+        // A token the Keystore can no longer open (a restored backup, a new lock screen) is the user's to re-enter.
+        if (repo.token(hostId) == null) throw RouteException("this device can't read the saved token: edit the host and enter it again")
         val r = h.routes[route.get() % h.routes.size]
         val api = newApi(r) { repo.token(hostId) ?: "" }
         current = api
