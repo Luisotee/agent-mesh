@@ -89,6 +89,44 @@ message Agent {
   // What state the agent was in when a compaction began (a compaction has no turn of its own): restored when
   // the compacted session starts. UNSPECIFIED when none is under way.
   AgentState state_before_compact = 20;
+  // The tier its model came from (`tiers.<kind>.<tier>`), for its planning or only phase; empty for a named
+  // model.
+  string tier = 21;
+  // The execution phase's tier: preset at spawn, or named at approval.
+  string exec_tier = 22;
+  AgentPhase phase = 23;
+  // A model or effort named for the whole task: it never gets a plan phase.
+  bool pinned = 24;
+  // The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer,
+  // or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.
+  bool deny_edits = 25;
+  // A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
+  Reopen pending_reopen = 26;
+}
+
+// AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
+enum AgentPhase {
+  // No plan phase: a direct task, a question, or a named model.
+  AGENT_PHASE_UNSPECIFIED = 0;
+  AGENT_PHASE_PLANNING = 1;
+  AGENT_PHASE_EXECUTING = 2;
+}
+
+// Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
+// deny list. A model change is always a reopen of the same conversation, never a fresh agent.
+message Reopen {
+  // Unique per request: the terminal it launches carries it as a label, so a daemon that died mid-launch finds
+  // the terminal it started instead of starting a second one.
+  string id = 1;
+  string model = 2;
+  string effort = 3;
+  bool deny_edits = 4;
+  // "plan approved", "moved", "quota", "resumed".
+  string why = 5;
+  // The caller's own reason, when it gave one.
+  string reason = 6;
+  google.protobuf.Timestamp requested_at = 7;
+  Actor requested_by = 8;
 }
 
 enum MessageType {
@@ -148,6 +186,10 @@ message Event {
     AgentAdopted agent_adopted = 16;
     HookDecodeFailed hook_decode_failed = 17;
     SettingChanged setting_changed = 18;
+    AgentReopenRequested agent_reopen_requested = 19;
+    AgentReopened agent_reopened = 20;
+    AgentPhaseChanged agent_phase_changed = 21;
+    AgentReopenDropped agent_reopen_dropped = 22;
   }
 }
 
@@ -184,6 +226,32 @@ message AgentExited {
 // The daemon found the agent's terminal still running at boot and took it back.
 message AgentAdopted {
   string terminal_id = 1;
+}
+
+// A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
+message AgentReopenRequested {
+  Reopen reopen = 1;
+}
+
+// The agent's conversation was relaunched in a new terminal: same agent, session and worktree.
+message AgentReopened {
+  Reopen reopen = 1;
+  string terminal_id = 2;
+  string session_id = 3;
+}
+
+// A reopen asked for was not done: the agent was stopped first, or its relaunch failed (then the agent is
+// EXITED, and ResumeAgent tries again).
+message AgentReopenDropped {
+  Reopen reopen = 1;
+  string reason = 2;
+}
+
+message AgentPhaseChanged {
+  AgentPhase from = 1;
+  AgentPhase to = 2;
+  // "planned task", "plan sent", "plan approved", "direct task".
+  string why = 3;
 }
 
 // A hook's payload couldn't be decoded. Never read as any other event.

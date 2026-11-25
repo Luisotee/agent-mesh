@@ -1,4 +1,5 @@
-// Command fakeclaude stands in for Claude Code in tests. It takes the flags the Claude adapter passes, runs the
+// Command fakeclaude stands in for Claude Code in tests. It takes the flags the Claude adapter passes (and, when
+// $FAKECLAUDE_ARGV_LOG is set, appends its argv there as one JSON line per launch), runs the
 // hooks from its --settings the way Claude Code does (a shell command with the event's JSON on stdin), and acts
 // out turns from lines typed into its terminal:
 //
@@ -6,6 +7,8 @@
 //	/ask          UserPromptSubmit, then Notification (permission_prompt) and waits for a line; then
 //	              PostToolUse and Stop
 //	/clear        SessionEnd (clear), then SessionStart (clear) under a new session id
+//	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
+//	              Stop
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
 package main
@@ -38,11 +41,22 @@ var (
 
 func main() {
 	args := os.Args[1:]
+	if log := os.Getenv("FAKECLAUDE_ARGV_LOG"); log != "" {
+		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			line, _ := json.Marshal(args)
+			f.Write(append(line, '\n'))
+			f.Close()
+		}
+	}
+	source := "startup"
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--session-id":
 			i++
 			session = args[i]
+		case "--resume":
+			i++
+			session, source = args[i], "resume"
 		case "--settings":
 			i++
 			if err := json.Unmarshal([]byte(args[i]), &conf); err != nil {
@@ -51,10 +65,15 @@ func main() {
 			}
 		case "--model", "--effort":
 			i++
+		case "--disallowedTools":
+			// Several values, up to the next flag.
+			for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+			}
 		}
 	}
 	fmt.Printf("fake claude %s\r\n", session)
-	hook("SessionStart", map[string]any{"source": "startup"})
+	hook("SessionStart", map[string]any{"source": source})
 	prompt()
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
@@ -71,6 +90,13 @@ func main() {
 			hook("SessionEnd", map[string]any{"reason": "clear"})
 			session += "-cleared"
 			hook("SessionStart", map[string]any{"source": "clear"})
+		case "/hold":
+			hook("UserPromptSubmit", map[string]any{"prompt": line})
+			hook("PreToolUse", map[string]any{"tool_name": "Bash"})
+			fmt.Print("holding\r\n")
+			in.Scan()
+			hook("PostToolUse", map[string]any{"tool_name": "Bash"})
+			hook("Stop", map[string]any{"stop_hook_active": false})
 		case "/ask":
 			hook("UserPromptSubmit", map[string]any{"prompt": line})
 			hook("Notification", map[string]any{"notification_type": "permission_prompt",

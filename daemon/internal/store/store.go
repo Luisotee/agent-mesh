@@ -388,11 +388,13 @@ func (t *Tx) PutAgent(a *v1.Agent) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agents (id, run_id, name, parent_id, terminal_id, created_at, data)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agents (id, run_id, name, parent_id, terminal_id, created_at, data,
+		reopen_pending)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET run_id = excluded.run_id, name = excluded.name,
-		parent_id = excluded.parent_id, terminal_id = excluded.terminal_id, data = excluded.data`,
-		a.Id, a.RunId, a.Name, a.ParentId, a.TerminalId, a.CreatedAt.AsTime().UnixNano(), b)
+		parent_id = excluded.parent_id, terminal_id = excluded.terminal_id, data = excluded.data,
+		reopen_pending = excluded.reopen_pending`,
+		a.Id, a.RunId, a.Name, a.ParentId, a.TerminalId, a.CreatedAt.AsTime().UnixNano(), b, a.PendingReopen != nil)
 	return err
 }
 
@@ -451,6 +453,12 @@ func (r Reader) AgentsWithUndelivered() ([]string, error) {
 // AgentByTerminal returns the agent running in a terminal.
 func (r Reader) AgentByTerminal(terminalID string) (*v1.Agent, error) {
 	return scanOne(r, `SELECT data FROM agents WHERE terminal_id = ?`, []any{terminalID}, &v1.Agent{})
+}
+
+// AgentsWithPendingReopen lists the agents with a reopen asked for and not done yet, in any run.
+func (r Reader) AgentsWithPendingReopen() ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT data FROM agents WHERE reopen_pending = 1 ORDER BY created_at, id`, nil,
+		func() *v1.Agent { return &v1.Agent{} })
 }
 
 // AgentsWithTerminals returns every agent that has a terminal id, in any run.

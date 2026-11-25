@@ -43,6 +43,11 @@ message PlanLaunchRequest {
   bool skip_permissions = 11;
   // The repository's main checkout. An ASKER or REVIEWER (read-only) agent may not edit it or its worktree.
   string repo = 12;
+  // Reopen this conversation instead of starting one (`claude --resume <id>`).
+  string resume_session_id = 13;
+  // Deny edits under cwd and repo, and publishing, whatever the role: a planner not yet approved. A read-only
+  // role is denied either way.
+  bool deny_edits = 14;
 }
 
 message PlanLaunchResponse {

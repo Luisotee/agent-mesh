@@ -301,7 +301,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Spawn a Claude agent (the fake) in a worktree of the repo.
-	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker")
+	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker", "--tier", "mid")
 	agent := str(spawned, "agent", "id")
 	worktree, branch := str(spawned, "agent", "worktree"), str(spawned, "agent", "branch")
 	if branch != "mesh/"+run+"/fix" {
@@ -361,8 +361,13 @@ func TestEndToEnd(t *testing.T) {
 		files, _ := filepath.Glob(filepath.Join(spool, "*.json"))
 		return len(files) == 0
 	})
-	after := w.ctl("agent", "--agent", agent)
-	if str(after, "agent", "terminalId") != terminal || str(after, "agent", "state") != "AGENT_STATE_IDLE" {
+	// The spool can be empty between two hooks of the turn: wait for its end.
+	var after map[string]any
+	w.waitFor("idle after the restart", func() bool {
+		after = w.ctl("agent", "--agent", agent)
+		return str(after, "agent", "state") == "AGENT_STATE_IDLE"
+	})
+	if str(after, "agent", "terminalId") != terminal {
 		t.Fatalf("after restart %v", after)
 	}
 	list, _ = tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
@@ -428,4 +433,27 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), "fix the typo") {
 		t.Errorf("inbox %s, %v", out, err)
 	}
+
+	// A model change reopens the same conversation: a switch to another tier, then a stop and a resume for a
+	// task it plans (the strong tier, under the deny list).
+	session := str(after, "agent", "sessionId")
+	w.ctl("switch", "--agent", agent, "--tier", "light", "--why", "e2e")
+	var moved map[string]any
+	w.waitFor("the switch's reopen", func() bool {
+		moved = w.ctl("agent", "--agent", agent)
+		return str(moved, "agent", "model") == "haiku" && str(moved, "agent", "terminalId") != terminal &&
+			str(moved, "agent", "state") == "AGENT_STATE_IDLE"
+	})
+	if str(moved, "agent", "sessionId") != session {
+		t.Fatalf("the switch started another conversation: %v", moved)
+	}
+	w.ctl("stop", "--agent", agent)
+	w.waitFor("stopped", func() bool { return w.agentState(agent) == "AGENT_STATE_EXITED" })
+	w.ctl("resume", "--agent", agent, "--task", "plan the next fix", "--plan", "--tier", "strong")
+	w.waitFor("the resume", func() bool {
+		a := w.ctl("agent", "--agent", agent)
+		return str(a, "agent", "model") == "opus" && str(a, "agent", "phase") == "AGENT_PHASE_PLANNING" &&
+			get(a, "agent", "denyEdits") == true && str(a, "agent", "state") == "AGENT_STATE_IDLE" &&
+			str(a, "agent", "sessionId") == session
+	})
 }
