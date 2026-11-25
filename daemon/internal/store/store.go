@@ -1,0 +1,562 @@
+// Package store keeps the host's state in one SQLite database: runs, agents, messages, tokens, applied
+// mutations and the event log. Every change goes through Tx, which numbers the events it appends and hands
+// them to OnCommit after the commit, in sequence order.
+package store
+
+import (
+	"context"
+	"database/sql"
+	"embed"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
+
+	_ "modernc.org/sqlite" // the pure-Go driver, so builds stay static
+)
+
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+// ErrNotFound is returned by lookups that find nothing.
+var ErrNotFound = errors.New("not found")
+
+// Store is the open database.
+type Store struct {
+	path       string
+	w          *sql.DB // one connection, BEGIN IMMEDIATE: the only writer
+	r          *sql.DB // readers, which WAL lets run beside the writer
+	wmu        sync.Mutex
+	generation string
+	now        func() time.Time
+
+	// OnCommit receives each committed transaction's events, in sequence order, before the next write starts.
+	OnCommit func([]*v1.Event)
+}
+
+// Open opens (creating or migrating) the database at path. A database with an older schema is backed up next
+// to it before it is migrated.
+func Open(path string) (*Store, error) {
+	return OpenAt(path, time.Now)
+}
+
+// OpenAt is Open with a clock, for tests.
+func OpenAt(path string, now func() time.Time) (*Store, error) {
+	// The path goes into a URI: escape what a URI would read as its query, fragment or an escape.
+	uriPath := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
+	dsn := func(lock string) string {
+		return "file:" + uriPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)" +
+			"&_pragma=synchronous(FULL)&_txlock=" + lock
+	}
+	w, err := sql.Open("sqlite", dsn("immediate"))
+	if err != nil {
+		return nil, err
+	}
+	w.SetMaxOpenConns(1)
+	if err := migrate(w, path, now); err != nil {
+		w.Close()
+		return nil, err
+	}
+	r, err := sql.Open("sqlite", dsn("deferred"))
+	if err != nil {
+		w.Close()
+		return nil, err
+	}
+	r.SetMaxOpenConns(4)
+	s := &Store{path: path, w: w, r: r, now: now}
+	if err := s.loadGeneration(); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Close closes the database.
+func (s *Store) Close() error {
+	return errors.Join(s.r.Close(), s.w.Close())
+}
+
+// Generation identifies this event log: a cursor from another generation can't be resumed.
+func (s *Store) Generation() string { return s.generation }
+
+func (s *Store) loadGeneration() error {
+	err := s.r.QueryRow(`SELECT value FROM meta WHERE key = 'generation'`).Scan(&s.generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		s.generation = ids.New("g", 12)
+		_, err = s.w.Exec(`INSERT INTO meta (key, value) VALUES ('generation', ?)`, s.generation)
+	}
+	return err
+}
+
+type migration struct {
+	version int
+	name    string
+	sql     string
+}
+
+func migrations() ([]migration, error) {
+	entries, err := fs.ReadDir(migrationFiles, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	var out []migration
+	for _, e := range entries {
+		num, _, ok := strings.Cut(e.Name(), "_")
+		v, err := strconv.Atoi(num)
+		if !ok || err != nil {
+			return nil, fmt.Errorf("migration %q: name must start with its number", e.Name())
+		}
+		b, err := migrationFiles.ReadFile("migrations/" + e.Name())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, migration{v, e.Name(), string(b)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].version < out[j].version })
+	for i, m := range out {
+		if m.version != i+1 {
+			return nil, fmt.Errorf("migrations must be numbered 1, 2, …: found %s at %d", m.name, i+1)
+		}
+	}
+	return out, nil
+}
+
+// SchemaVersion is the newest migration's number.
+func SchemaVersion() int {
+	ms, err := migrations()
+	if err != nil {
+		panic(err)
+	}
+	return len(ms)
+}
+
+func migrate(db *sql.DB, path string, now func() time.Time) error {
+	ms, err := migrations()
+	if err != nil {
+		return err
+	}
+	return migrateWith(db, path, now, ms)
+}
+
+// migrateWith applies the migrations past the database's user_version, after backing up a database that
+// already has a schema.
+func migrateWith(db *sql.DB, path string, now func() time.Time, ms []migration) error {
+	var have int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&have); err != nil {
+		return err
+	}
+	if have > len(ms) {
+		return fmt.Errorf("%s has schema %d, newer than this daemon's %d: upgrade the daemon", path, have, len(ms))
+	}
+	if have == len(ms) {
+		return nil
+	}
+	if have > 0 {
+		backup := fmt.Sprintf("%s.bak-v%d-%s", path, have, now().UTC().Format("20060102T150405"))
+		if _, err := os.Stat(backup); err == nil {
+			return fmt.Errorf("backup %s already exists", backup)
+		}
+		if _, err := db.Exec(`VACUUM INTO ?`, backup); err != nil {
+			return fmt.Errorf("backing up before migrating: %w", err)
+		}
+	}
+	for _, m := range ms[have:] {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(m.sql); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %s: %w", m.name, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, m.version)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// queryer is what both a transaction and the reader pool offer.
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// Reader reads committed state. Store's read methods use it; Tx embeds one over its own transaction.
+type Reader struct {
+	q   queryer
+	ctx context.Context
+}
+
+// Read returns a Reader over the reader pool.
+func (s *Store) Read(ctx context.Context) Reader { return Reader{q: s.r, ctx: ctx} }
+
+// Snapshot runs fn in one read transaction, so everything it reads is from the same moment.
+func (s *Store) Snapshot(ctx context.Context, fn func(Reader) error) error {
+	tx, err := s.r.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return fn(Reader{q: tx, ctx: ctx})
+}
+
+// Tx is a write transaction.
+type Tx struct {
+	Reader
+	tx  *sql.Tx
+	s   *Store
+	now time.Time
+	// Stamped on every event appended in this transaction.
+	Actor      *v1.Actor
+	MutationID string
+	events     []*v1.Event
+}
+
+// Now is the transaction's clock reading: every record it writes shares it.
+func (t *Tx) Now() time.Time { return t.now }
+
+// Write runs fn in a write transaction. The events fn appends are published through OnCommit once it commits.
+func (s *Store) Write(ctx context.Context, actor *v1.Actor, mutationID string, fn func(*Tx) error) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+	sqlTx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// A no-op once committed; a panic in fn leaves no open transaction on the one writer connection.
+	defer sqlTx.Rollback()
+	t := &Tx{Reader: Reader{q: sqlTx, ctx: ctx}, tx: sqlTx, s: s, now: s.now(), Actor: actor, MutationID: mutationID}
+	if err := fn(t); err != nil {
+		return err
+	}
+	if err := sqlTx.Commit(); err != nil {
+		return err
+	}
+	if s.OnCommit != nil && len(t.events) > 0 {
+		s.OnCommit(t.events)
+	}
+	return nil
+}
+
+func nanos(t time.Time) int64 { return t.UnixNano() }
+
+// ── events ──
+
+// AppendEvent numbers ev, stamps it with the generation, time, actor and mutation id, and stores it.
+func (t *Tx) AppendEvent(ev *v1.Event) (*v1.Event, error) {
+	ev.Generation = t.s.generation
+	ev.Time = timestamppb.New(t.now)
+	if ev.Actor == nil {
+		ev.Actor = t.Actor
+	}
+	if ev.MutationId == "" {
+		ev.MutationId = t.MutationID
+	}
+	// The row is inserted first to get its number, then rewritten with the number inside.
+	res, err := t.tx.ExecContext(t.ctx, `INSERT INTO events (time, run_id, agent_id, data) VALUES (?, ?, ?, x'')`,
+		nanos(t.now), ev.RunId, ev.AgentId)
+	if err != nil {
+		return nil, err
+	}
+	seq, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	ev.Seq = seq
+	b, err := proto.Marshal(ev)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := t.tx.ExecContext(t.ctx, `UPDATE events SET data = ? WHERE seq = ?`, b, seq); err != nil {
+		return nil, err
+	}
+	t.events = append(t.events, ev)
+	return ev, nil
+}
+
+// LastSeq is the newest event's number, 0 for an empty log.
+func (r Reader) LastSeq() (int64, error) {
+	var seq sql.NullInt64
+	err := r.q.QueryRowContext(r.ctx, `SELECT MAX(seq) FROM events`).Scan(&seq)
+	return seq.Int64, err
+}
+
+// EventsAfter returns up to limit events numbered after seq, oldest first, of one run when runID is set.
+func (r Reader) EventsAfter(seq int64, runID string, limit int) ([]*v1.Event, error) {
+	query := `SELECT data FROM events WHERE seq > ? ORDER BY seq LIMIT ?`
+	args := []any{seq, limit}
+	if runID != "" {
+		query = `SELECT data FROM events WHERE seq > ? AND run_id = ? ORDER BY seq LIMIT ?`
+		args = []any{seq, runID, limit}
+	}
+	return scanAll(r, query, args, func() *v1.Event { return &v1.Event{} })
+}
+
+func scanAll[T proto.Message](r Reader, query string, args []any, mk func() T) ([]T, error) {
+	rows, err := r.q.QueryContext(r.ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		m := mk()
+		if err := proto.Unmarshal(b, m); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func scanOne[T proto.Message](r Reader, query string, args []any, m T) (T, error) {
+	var b []byte
+	err := r.q.QueryRowContext(r.ctx, query, args...).Scan(&b)
+	if errors.Is(err, sql.ErrNoRows) {
+		return m, ErrNotFound
+	}
+	if err != nil {
+		return m, err
+	}
+	return m, proto.Unmarshal(b, m)
+}
+
+// ── runs ──
+
+// ErrExists is a create that found its row already there.
+var ErrExists = errors.New("already exists")
+
+// PutRun creates a run; a run with that id already there is ErrExists, never overwritten.
+func (t *Tx) PutRun(run *v1.Run) error {
+	b, err := proto.Marshal(run)
+	if err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `INSERT INTO runs (id, status, created_at, data) VALUES (?, ?, ?, ?)
+		ON CONFLICT (id) DO NOTHING`, run.Id, int32(run.Status), run.CreatedAt.AsTime().UnixNano(), b)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrExists
+	}
+	return err
+}
+
+// GetRun returns one run.
+func (r Reader) GetRun(id string) (*v1.Run, error) {
+	return scanOne(r, `SELECT data FROM runs WHERE id = ?`, []any{id}, &v1.Run{})
+}
+
+// ListRuns returns the runs, oldest first; only open ones unless all.
+func (r Reader) ListRuns(all bool) ([]*v1.Run, error) {
+	query := `SELECT data FROM runs WHERE status = ? ORDER BY created_at, id`
+	args := []any{int32(v1.RunStatus_RUN_STATUS_OPEN)}
+	if all {
+		query, args = `SELECT data FROM runs ORDER BY created_at, id`, nil
+	}
+	return scanAll(r, query, args, func() *v1.Run { return &v1.Run{} })
+}
+
+// ── agents ──
+
+// PutAgent inserts or replaces an agent.
+func (t *Tx) PutAgent(a *v1.Agent) error {
+	b, err := proto.Marshal(a)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agents (id, run_id, name, parent_id, terminal_id, created_at, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET run_id = excluded.run_id, name = excluded.name,
+		parent_id = excluded.parent_id, terminal_id = excluded.terminal_id, data = excluded.data`,
+		a.Id, a.RunId, a.Name, a.ParentId, a.TerminalId, a.CreatedAt.AsTime().UnixNano(), b)
+	return err
+}
+
+// GetAgent returns one agent by id.
+func (r Reader) GetAgent(id string) (*v1.Agent, error) {
+	return scanOne(r, `SELECT data FROM agents WHERE id = ?`, []any{id}, &v1.Agent{})
+}
+
+// AgentsNamed returns the agents with this name in the given run, or in every open run when runID is empty.
+func (r Reader) AgentsNamed(runID, name string) ([]*v1.Agent, error) {
+	if runID != "" {
+		return scanAll(r, `SELECT data FROM agents WHERE run_id = ? AND name = ?`, []any{runID, name},
+			func() *v1.Agent { return &v1.Agent{} })
+	}
+	return scanAll(r, `SELECT a.data FROM agents a JOIN runs r ON r.id = a.run_id
+		WHERE a.name = ? AND r.status = ? ORDER BY a.created_at`, []any{name, int32(v1.RunStatus_RUN_STATUS_OPEN)},
+		func() *v1.Agent { return &v1.Agent{} })
+}
+
+// ListAgents returns a run's agents, or every open run's when runID is empty, oldest first.
+func (r Reader) ListAgents(runID string) ([]*v1.Agent, error) {
+	if runID != "" {
+		return scanAll(r, `SELECT data FROM agents WHERE run_id = ? ORDER BY created_at, id`, []any{runID},
+			func() *v1.Agent { return &v1.Agent{} })
+	}
+	return scanAll(r, `SELECT a.data FROM agents a JOIN runs r ON r.id = a.run_id WHERE r.status = ?
+		ORDER BY a.created_at, a.id`, []any{int32(v1.RunStatus_RUN_STATUS_OPEN)},
+		func() *v1.Agent { return &v1.Agent{} })
+}
+
+// AgentsWithTerminals returns every agent that has a terminal id, in any run.
+func (r Reader) AgentsWithTerminals() ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT data FROM agents WHERE terminal_id != '' ORDER BY created_at, id`, nil,
+		func() *v1.Agent { return &v1.Agent{} })
+}
+
+// ── messages ──
+
+// PutMessage inserts or replaces a message.
+func (t *Tx) PutMessage(m *v1.Message) error {
+	b, err := proto.Marshal(m)
+	if err != nil {
+		return err
+	}
+	var delivered, read sql.NullInt64
+	if m.DeliveredAt != nil {
+		delivered = sql.NullInt64{Int64: m.DeliveredAt.AsTime().UnixNano(), Valid: true}
+	}
+	if m.ReadAt != nil {
+		read = sql.NullInt64{Int64: m.ReadAt.AsTime().UnixNano(), Valid: true}
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO messages (id, run_id, to_id, created_at, delivered_at, read_at, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET delivered_at = excluded.delivered_at, read_at = excluded.read_at,
+		data = excluded.data`,
+		m.Id, m.RunId, m.ToId, m.CreatedAt.AsTime().UnixNano(), delivered, read, b)
+	return err
+}
+
+// Inbox returns an agent's messages, oldest first: unread ones, or all.
+func (r Reader) Inbox(agentID string, all bool) ([]*v1.Message, error) {
+	query := `SELECT data FROM messages WHERE to_id = ? AND read_at IS NULL ORDER BY created_at, id`
+	if all {
+		query = `SELECT data FROM messages WHERE to_id = ? ORDER BY created_at, id`
+	}
+	return scanAll(r, query, []any{agentID}, func() *v1.Message { return &v1.Message{} })
+}
+
+// Undelivered returns an agent's messages whose doorbell hasn't reached it, oldest first.
+func (r Reader) Undelivered(agentID string) ([]*v1.Message, error) {
+	return scanAll(r, `SELECT data FROM messages WHERE to_id = ? AND delivered_at IS NULL AND read_at IS NULL
+		ORDER BY created_at, id`, []any{agentID}, func() *v1.Message { return &v1.Message{} })
+}
+
+// ── tokens ──
+
+// TokenRecord is what a token stands for.
+type TokenRecord struct {
+	Class     v1.ActorClass
+	SubjectID string
+	Name      string
+	RunID     string
+}
+
+// PutToken stores a token's hash. A token of an agent class names its run: without one it would read every run.
+func (t *Tx) PutToken(hash string, rec TokenRecord) error {
+	switch rec.Class {
+	case v1.ActorClass_ACTOR_CLASS_ROOT, v1.ActorClass_ACTOR_CLASS_WORKER,
+		v1.ActorClass_ACTOR_CLASS_ASKER, v1.ActorClass_ACTOR_CLASS_REVIEWER:
+		if rec.RunID == "" {
+			return errors.New("a token for an agent needs a run id")
+		}
+	}
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO tokens (hash, class, subject_id, name, run_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, hash, int32(rec.Class), rec.SubjectID, rec.Name, rec.RunID, nanos(t.now))
+	return err
+}
+
+// RevokeTokens revokes every token of a subject.
+func (t *Tx) RevokeTokens(subjectID string) error {
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE tokens SET revoked_at = ? WHERE subject_id = ? AND revoked_at IS NULL`,
+		nanos(t.now), subjectID)
+	return err
+}
+
+// TokenKnown reports whether a hash is stored at all, revoked or not.
+func (r Reader) TokenKnown(hash string) (bool, error) {
+	var n int
+	err := r.q.QueryRowContext(r.ctx, `SELECT COUNT(*) FROM tokens WHERE hash = ?`, hash).Scan(&n)
+	return n > 0, err
+}
+
+// Token resolves a token hash; revoked tokens are ErrNotFound.
+func (r Reader) Token(hash string) (TokenRecord, error) {
+	var rec TokenRecord
+	var class int32
+	err := r.q.QueryRowContext(r.ctx, `SELECT class, subject_id, name, run_id FROM tokens
+		WHERE hash = ? AND revoked_at IS NULL`, hash).Scan(&class, &rec.SubjectID, &rec.Name, &rec.RunID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return rec, ErrNotFound
+	}
+	rec.Class = v1.ActorClass(class)
+	return rec, err
+}
+
+// ── mutations ──
+
+// Mutation returns the stored response of a write this actor already applied under this id.
+func (r Reader) Mutation(actorID, id string) (procedure string, response []byte, err error) {
+	err = r.q.QueryRowContext(r.ctx, `SELECT procedure, response FROM mutations WHERE actor_id = ? AND id = ?`,
+		actorID, id).Scan(&procedure, &response)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, ErrNotFound
+	}
+	return procedure, response, err
+}
+
+// PutMutation records an applied write and its response.
+func (t *Tx) PutMutation(actorID, id, procedure string, response []byte) error {
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO mutations (actor_id, id, procedure, response, created_at)
+		VALUES (?, ?, ?, ?, ?)`, actorID, id, procedure, response, nanos(t.now))
+	return err
+}
+
+// ── meta ──
+
+// Meta reads a value of the meta table.
+func (r Reader) Meta(key string) (string, error) {
+	var v string
+	err := r.q.QueryRowContext(r.ctx, `SELECT value FROM meta WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return v, err
+}
+
+// PutMeta writes a value of the meta table.
+func (t *Tx) PutMeta(key, value string) error {
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO meta (key, value) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}
+
+// Exec runs a statement in the transaction; for tests and one-off fixes.
+func (t *Tx) Exec(query string, args ...any) error {
+	_, err := t.tx.ExecContext(t.ctx, query, args...)
+	return err
+}

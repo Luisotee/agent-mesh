@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/actor.proto";
+import "google/protobuf/descriptor.proto";
+
+// ActionOptions makes an RPC an action of the registry. Every RPC of a registry service must carry one: the
+// daemon refuses to start otherwise, and a test checks it.
+message ActionOptions {
+  // The actor classes allowed to call it. Anyone else gets PermissionDenied.
+  repeated ActorClass actors = 1;
+  // Whether it changes state. A write takes a RequestMeta (idempotency and expiry).
+  bool write = 2;
+  // The command name in the generated CLI; empty means the method name in kebab case.
+  string cli = 3;
+  // A one-line description for the CLI's help.
+  string summary = 4;
+}
+
+// PermissionOptions names a right that isn't an RPC of its own, such as typing into a terminal.
+message PermissionOptions {
+  string name = 1;
+  repeated ActorClass actors = 2;
+}
+
+extend google.protobuf.MethodOptions {
+  ActionOptions action = 50001;
+}
+
+extend google.protobuf.ServiceOptions {
+  repeated PermissionOptions permissions = 50002;
+}

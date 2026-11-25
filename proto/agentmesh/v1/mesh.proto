@@ -1,0 +1,363 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/actor.proto";
+import "agentmesh/v1/options.proto";
+import "agentmesh/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// MeshService is the host's action registry: every action the apps, the CLI and the agents can take. Each RPC
+// names the actor classes allowed to call it; the caller's class comes from its token.
+service MeshService {
+  option (permissions) = {
+    name: "terminal.input"
+    actors: [ACTOR_CLASS_DEVICE]
+  };
+
+  // The handshake: who the daemon is and what it supports. A connection is ready once this answers.
+  rpc Hello(HelloRequest) returns (HelloResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      summary: "Show the daemon's id, version and capabilities, and who you are to it"
+    };
+  }
+
+  rpc StartRun(StartRunRequest) returns (StartRunResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      summary: "Start a run"
+    };
+  }
+
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      summary: "List runs"
+    };
+  }
+
+  // Start an agent in a repo's new worktree. A device starts any role, a root workers and read-only agents, a
+  // worker only read-only agents (askers, reviewers).
+  rpc SpawnAgent(SpawnAgentRequest) returns (SpawnAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "spawn"
+      summary: "Start an agent in a new worktree of a repo"
+    };
+  }
+
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "agents"
+      summary: "List agents with their state"
+    };
+  }
+
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "agent"
+      summary: "Show one agent"
+    };
+  }
+
+  // Stop an agent's process (its whole process group). A device stops any agent, an agent only its children.
+  rpc StopAgent(StopAgentRequest) returns (StopAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "stop"
+      summary: "Stop an agent"
+    };
+  }
+
+  // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "send"
+      summary: "Send a message to an agent"
+    };
+  }
+
+  // The calling agent's messages; unread ones are marked read unless peek is set.
+  rpc ReadInbox(ReadInboxRequest) returns (ReadInboxResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER
+      ]
+      write: true
+      cli: "inbox"
+      summary: "Read your messages"
+    };
+  }
+
+  // The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
+  // ends the stream, so a client resumes from its cursor after any other close.
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream SubscribeEventsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "events"
+      summary: "Follow the event log"
+    };
+  }
+
+  // A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
+  rpc ReportHook(ReportHookRequest) returns (ReportHookResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER
+      ]
+      write: true
+      summary: "Report a CLI hook (used by the hook command)"
+    };
+  }
+
+  // A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
+  rpc OpenTerminal(OpenTerminalRequest) returns (OpenTerminalResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      summary: "Get a ticket for an agent's terminal stream"
+    };
+  }
+}
+
+message HelloRequest {
+  string client = 1;
+  // The protocol major version the client speaks.
+  int32 protocol_version = 2;
+}
+
+message HelloResponse {
+  // Stable per host (kept in its state dir).
+  string daemon_id = 1;
+  // Changes on every daemon start.
+  string instance_id = 2;
+  google.protobuf.Timestamp started_at = 3;
+  int32 protocol_version = 4;
+  string version = 5;
+  repeated string capabilities = 6;
+  // The caller, as its token says.
+  Actor actor = 7;
+}
+
+message StartRunRequest {
+  RequestMeta meta = 1;
+  string title = 2;
+}
+
+message StartRunResponse {
+  Run run = 1;
+}
+
+message ListRunsRequest {
+  // Include closed runs.
+  bool all = 1;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+}
+
+message SpawnAgentRequest {
+  RequestMeta meta = 1;
+  // Defaults to the caller's run for an agent; required for a device.
+  string run_id = 2;
+  // Path to the git repository.
+  string repo = 3;
+  // Names the branch (mesh/<run>/<slug>) and the agent (<repo>-<slug>).
+  string slug = 4;
+  AgentRole role = 5;
+  // The CLI adapter, such as "claude".
+  string kind = 6;
+  string model = 7;
+  string effort = 8;
+  // The branch or commit to start the worktree from; empty means the repo's HEAD.
+  string base = 9;
+  // The first message, sent as a task once the agent is ready.
+  string task = 10;
+}
+
+message SpawnAgentResponse {
+  Agent agent = 1;
+}
+
+message ListAgentsRequest {
+  // Empty means every open run.
+  string run_id = 1;
+}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+}
+
+message GetAgentRequest {
+  // An agent id, or a name (within the caller's run, or unique across open runs).
+  string agent = 1;
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message StopAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+}
+
+message StopAgentResponse {
+  Agent agent = 1;
+}
+
+message SendMessageRequest {
+  RequestMeta meta = 1;
+  // An agent id or name, or "parent" for the caller's parent.
+  string to = 2;
+  MessageType type = 3;
+  string body = 4;
+}
+
+message SendMessageResponse {
+  Message message = 1;
+}
+
+message ReadInboxRequest {
+  RequestMeta meta = 1;
+  // Show unread messages without marking them read.
+  bool peek = 2;
+  // Include messages already read.
+  bool all = 3;
+}
+
+message ReadInboxResponse {
+  repeated Message messages = 1;
+}
+
+message SubscribeEventsRequest {
+  // Resume after this cursor; unset starts from a snapshot.
+  Cursor cursor = 1;
+  // Only this run's events; empty means all.
+  string run_id = 2;
+}
+
+message SubscribeEventsResponse {
+  oneof frame {
+    // The current runs and agents; the events that follow come after cursor.
+    Snapshot snapshot = 1;
+    // The cursor was resumed: the events that follow come after it.
+    Resumed resumed = 2;
+    Event event = 3;
+    // The stream ends on purpose (the daemon is shutting down); reconnect from the last cursor.
+    End end = 4;
+  }
+}
+
+message Snapshot {
+  Cursor cursor = 1;
+  repeated Run runs = 2;
+  repeated Agent agents = 3;
+}
+
+message Resumed {
+  Cursor from = 1;
+}
+
+message End {
+  string reason = 1;
+}
+
+message ReportHookRequest {
+  // Its mutation_id is the hook call's own id, so a spooled hook that is also sent applies once.
+  RequestMeta meta = 1;
+  // The adapter kind the hook belongs to.
+  string kind = 2;
+  // The CLI's event name, such as "Stop".
+  string event_name = 3;
+  // The hook's stdin, verbatim.
+  bytes payload = 4;
+  // When the hook fired (a spooled one is sent later).
+  google.protobuf.Timestamp fired_at = 5;
+}
+
+message ReportHookResponse {
+  // The agent's state after the hook.
+  AgentState state = 1;
+}
+
+message OpenTerminalRequest {
+  string agent = 1;
+  // Ask for input rights; granted only to actors with the terminal.input right.
+  bool input = 2;
+}
+
+message OpenTerminalResponse {
+  // The WebSocket path on the daemon's listener, ticket included.
+  string path = 1;
+  string ticket = 2;
+  bool input = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}

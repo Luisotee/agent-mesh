@@ -1,0 +1,9 @@
+# buf module for agent-mesh's API: the action registry, the terminal protocol and the CLI-adapter plugin interface.
+# Lint and breaking checks run from daemon/scripts/check.sh.
+version: v2
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

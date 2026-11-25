@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+// ActorClass is who calls an action. The daemon takes it from the caller's token, never from the request, and
+// each class has a fixed set of actions (the `action` option on every RPC; pinned by a test).
+enum ActorClass {
+  ACTOR_CLASS_UNSPECIFIED = 0;
+  // The run's lead agent: starts change workers and read-only agents.
+  ACTOR_CLASS_ROOT = 1;
+  // A change worker: starts only read-only agents (its PR's reviewers, askers).
+  ACTOR_CLASS_WORKER = 2;
+  // A read-only agent answering a question.
+  ACTOR_CLASS_ASKER = 3;
+  // A read-only agent reviewing a PR.
+  ACTOR_CLASS_REVIEWER = 4;
+  // A user's device: the host's own CLI, later a paired desktop or phone.
+  ACTOR_CLASS_DEVICE = 5;
+  // A device paired for viewing only. No token of this class is issued yet.
+  ACTOR_CLASS_READ_ONLY_DEVICE = 6;
+}
+
+// Actor is the resolved caller of an action, recorded with every event it causes.
+message Actor {
+  ActorClass class = 1;
+  // The agent's or device's id.
+  string id = 2;
+  // A readable name: the agent's name, or the device's.
+  string name = 3;
+  // The run an agent belongs to; empty for a device.
+  string run_id = 4;
+}
