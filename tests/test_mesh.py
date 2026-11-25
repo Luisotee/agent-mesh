@@ -992,6 +992,31 @@ def test_auto_plans_on_the_first_model_with_quota(mesh, monkeypatch):
     assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-argon-high"
 
 
+AGY_NEW_FAMILIES = AGY_MODELS + "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-carbon-low\tGemini 4 Carbon (Low)\n"
+
+
+def test_a_new_model_family_is_pointed_out_once_a_day_until_acknowledged(mesh, run, monkeypatch, capsys):
+    clis(monkeypatch, "agy", "claude")
+    with_quotas(mesh, monkeypatch)
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
+    check = mesh.model_check(force=True)  # `mesh init` checked already, before agy listed anything
+    assert check["new"] == {"agy": ["carbon", "neon", "sonnet"]} and check["retired"] == {}
+    assert "new agy models no tier names: carbon, neon, sonnet" in mesh.model_notice(check)
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
+    assert mesh.model_check()["new"] == check["new"]  # a day's result is reused: no listing
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
+    assert mesh.main(["models", "--ack", "agy:sonnet", "agy:carbon"]) == 0
+    out = capsys.readouterr().out
+    assert "new agy models no tier names: neon." in out and "argon (a tier)" in out
+    with_config({"tiers": {"agy": {"strong": {"model": ["neon", "opus"]}}}})
+    retired = mesh.model_check(force=True)
+    assert retired["new"] == {"agy": ["argon"]} and retired["retired"] == {}  # neon placed; argon left no tier
+    mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
+    assert mesh.model_check(force=True)["retired"] == {"agy": ["neon"]}
+    monkeypatch.setattr(mesh, "status_rows", lambda run_id, data: [])
+    assert "agy no longer lists: neon (a tier names it)" in mesh.render_brief(mesh.brief(run, "repo-lead"))
+
+
 def test_usage_is_cached_and_force_reads_it_again(mesh, monkeypatch):
     monkeypatch.setattr(mesh, "agy_usage", mesh.real_agy_usage)
     calls = []
@@ -2196,7 +2221,7 @@ ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo
              ["retirer", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
              ["ask", "--repo", ".", "--body", "x"], ["peers", "add", "/nowhere"], ["peers", "remove", "p"],
              ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"],
-            ["verdict", "pr", "--reviewer", "r", "--agree", "1"])
+            ["verdict", "pr", "--reviewer", "r", "--agree", "1"], ["models"])
 WORKER_RUNS = (["whoami"], ["whoami", "--reminder", "clear"], ["inbox"], ["dir"], ["peers", "list"], ["status"],
                ["log"], ["agents"], ["send", "parent", "--type", "info", "--body", "FYI."])
 

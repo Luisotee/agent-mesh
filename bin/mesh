@@ -5315,6 +5315,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     emit(result)
     for line in inbound_warnings(load_run(result["run"])):
         print(line, file=sys.stderr)
+    if notice := model_notice(quietly(model_check)):  # at most one listing a day
+        print(notice, file=sys.stderr)
     return 0
 
 
@@ -11300,6 +11302,108 @@ def cmd_verdict(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── model check: new and retired model families ───────────────────────────
+# Model ids resolve to the newest of a family on their own; a new *family* (agy's neon) or a retired one is what
+# no code can place, so mesh points it out and the root proposes a research ask to the user (design §9).
+
+MODEL_CHECK_TTL = 86400  # seconds a check's result is reused: at most one listing a day for this
+
+
+def model_check_path() -> Path:
+    return mesh_home() / "model-check.json"
+
+
+def tier_families(kind: str) -> set[str]:
+    """The families (or ids) every tier of a kind names, in this machine's config."""
+    return {model_family(m) if kind == "agy" else m for tier in kind_tiers(kind) for m in tier_chain(kind, tier)}
+
+
+def listed_families(fresh: bool) -> dict[str, set[str]]:
+    """What each CLI lists: agy's families, OpenCode's free models; from the listings spawns already cache, or
+    (`fresh`) listed again. Claude and Copilot list none (Claude's come by aliases; Hermes's weekly watch covers new
+    ones). A CLI that can't be read is left out."""
+    def cached(name: str) -> str | None:
+        try:
+            return (mesh_home() / name).read_text()
+        except OSError:
+            return None
+    found: dict[str, set[str]] = {}
+    if installed("agy"):
+        listing = quietly(agy_model_listing) if fresh else cached("agy-models.txt")
+        if listing:
+            found["agy"] = {parsed[0] for mid in listing_names(listing) if (parsed := parse_agy_id(mid))}
+    if installed("opencode"):
+        models = quietly(opencode_listing) if fresh else quietly(json.loads, cached("opencode-models.json") or "{}")
+        if models:
+            found["opencode"] = set(opencode_free(models))
+    return found
+
+
+def model_check(force: bool = False) -> dict:
+    """New and retired model families, from a result at most a day old unless `force`: `new` are listed families
+    no tier names and nobody acknowledged (`mesh models --ack`), `retired` tier families no longer listed. OpenCode's
+    free models are compared with the last check's, since `free` takes any of them."""
+    path = model_check_path()
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    if not force and time.time() - float(saved.get("at") or 0) < MODEL_CHECK_TTL:
+        return saved
+    acked = {k: set(v) for k, v in (saved.get("acked") or {}).items()}
+    listed = listed_families(fresh=force)
+    new, retired = {}, {}
+    for kind, families in listed.items():
+        if kind == "opencode":
+            before = set((saved.get("listed") or {}).get("opencode") or families)
+            known = before | acked.get(kind, set())
+        else:
+            known = tier_families(kind) | acked.get(kind, set())
+            gone = sorted(f for f in tier_families(kind) if f not in families)
+            if gone:
+                retired[kind] = gone
+        if fresh := sorted(families - known):
+            new[kind] = fresh
+    result = {"at": time.time(), "listed": {k: sorted(v) for k, v in listed.items()}, "new": new, "retired": retired,
+              "acked": {k: sorted(v) for k, v in acked.items()}}
+    write_atomic(path, json.dumps(result))
+    return result
+
+
+def model_notice(check: dict | None) -> str | None:
+    """One line for the root when the check found something, else None."""
+    if not check or not (check.get("new") or check.get("retired")):
+        return None
+    parts = [f"new {kind} models no tier names: {', '.join(v)}" for kind, v in (check.get("new") or {}).items()]
+    parts += [f"{kind} no longer lists: {', '.join(v)} (a tier names it)" for kind, v in
+              (check.get("retired") or {}).items()]
+    return ("mesh: " + "; ".join(parts) + ". Propose a research ask on them to the user (ORCHESTRATE \"New models\"), "
+            "or `mesh models --ack <kind>:<name>` once decided")
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    """The model families each CLI lists against the tiers, and what's new or gone; --ack records a decision."""
+    check = model_check(force=bool(args.check or args.ack))
+    if args.ack:
+        acked = {k: set(v) for k, v in (check.get("acked") or {}).items()}
+        for item in args.ack:
+            kind, _, name = item.partition(":")
+            if kind not in KINDS or not name:
+                raise MeshError(f"--ack takes <kind>:<name>, like agy:neon (not {item})")
+            acked.setdefault(kind, set()).add(name)
+        write_atomic(model_check_path(), json.dumps({**check, "at": 0, "acked": {k: sorted(v) for k, v in
+                                                                                 acked.items()}}))
+        check = model_check(force=True)
+    if args.json:
+        emit(check)
+        return 0
+    for kind, families in (check.get("listed") or {}).items():
+        in_tiers = tier_families(kind)
+        print(f"{kind}: " + ", ".join(f + (" (a tier)" if f in in_tiers else "") for f in families))
+    print(model_notice(check) or "mesh: nothing new or retired since the tiers were set")
+    return 0
+
+
 # ── root context: measuring, resetting and briefing the root ─────────────
 
 
@@ -12002,15 +12106,18 @@ def brief(run_id: str, me: str) -> dict:
         "last_reset": reset and {"time": reset["time"], "next": reset.get("next"),
                                  "old_transcript": reset.get("transcript")},
         "repos_dir": [str(d) for d in quietly(repos_dirs) or []],
+        "models": model_notice(quietly(model_check)),
     }
 
 
 def render_brief(b: dict) -> str:
     out = [f"run {b['run']} ({b['mode']}), {b['dir']}", f"request: {b['request'] or '(none recorded)'}",
            b["procedure"] + ".",
-           "policy (models, reviewers, rounds, tiny-PR lines, reserve): `mesh routing`; repos: "
+           "policy (tiers, reviewers, rounds, reserve): `mesh routing`; repos: "
            + (", ".join(b["repos_dir"]) + " (a bare `--repo <name>` is looked up there)" if b["repos_dir"]
               else "no repos_dir set: pass --repo paths")]
+    if b.get("models"):
+        out.append(b["models"].removeprefix("mesh: "))
     if b["root_context"]:
         out.append(context_text(b["root_context"]))
     for key, title, empty in (("notes", "notes", "none yet: write the user's standing instructions, decisions and "
@@ -13074,6 +13181,13 @@ def build_parser() -> argparse.ArgumentParser:
                                              "it to the reserve again (on); no argument shows the quotas"))
     p.add_argument("state", nargs="?", choices=("off", "on"))
     p.set_defaults(func=cmd_reserve)
+
+    p = sub.add_parser("models", help="the model families each CLI lists, against the tiers: new and retired ones")
+    p.add_argument("--check", action="store_true", help="list again now (default: a result up to a day old)")
+    p.add_argument("--ack", nargs="+", metavar="KIND:NAME", help="a family decided on (placed in a tier or "
+                                                                   "declined): no longer reported as new")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_models)
 
     p = ident(sub.add_parser("verdict", help="root only: record how many of a reviewer's findings you agreed with, "
                                              "once checked (for `mesh cost`)"))
