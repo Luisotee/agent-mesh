@@ -45,11 +45,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-private object Plain : SecretBox {
-    override fun seal(plain: String) = plain
-    override fun open(sealed: String) = sealed
-}
-
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w411dp-h900dp-xxhdpi")
 class MessagesTest {

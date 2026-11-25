@@ -37,11 +37,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-private object Plain : SecretBox {
-    override fun seal(plain: String) = plain
-    override fun open(sealed: String) = sealed
-}
-
 /** A host that never answers: the screens are driven by the state the test puts in. */
 private object Silent : MeshApi {
     override suspend fun hello(): HelloResponse = kotlinx.coroutines.CompletableDeferred<HelloResponse>().await()

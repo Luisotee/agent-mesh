@@ -71,7 +71,7 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
                 if (open) Text("waiting for you", style = MaterialTheme.typography.labelSmall, color = colors.needs)
                 Text(stamp(m, skewMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            MarkdownText(if (long && !expanded) preview(m.body) else m.body)
+            MarkdownText(if (long && !expanded) preview(m.body) else m.body, large = long && expanded)
             if (long) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all") }
             if (open) AnswerForm(runtime, m)
         }

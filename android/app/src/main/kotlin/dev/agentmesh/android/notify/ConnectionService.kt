@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import dev.agentmesh.android.MainActivity
 import dev.agentmesh.android.MeshApp
 import dev.agentmesh.android.R
@@ -32,7 +33,7 @@ class ConnectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val container = (application as MeshApp).container
-        startForeground(ID, build(this, "Connecting…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        ServiceCompat.startForeground(this, ID, build(this, "Connecting…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         scope.launch {
             container.runtimes.flatMapLatest { rts ->
                 if (rts.isEmpty()) kotlinx.coroutines.flow.flowOf(0 to 0)

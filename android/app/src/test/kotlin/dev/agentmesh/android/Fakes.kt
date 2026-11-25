@@ -14,6 +14,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
+/** A secret box that seals nothing: tests don't have the Keystore. */
+object Plain : dev.agentmesh.android.hosts.SecretBox {
+    override fun seal(plain: String) = plain
+    override fun open(sealed: String) = sealed
+}
+
 /**
  * A host that records what the app asks of it. Its handshake never answers (the screens are driven by the state a
  * test puts in), and its message pages are whatever the test gives it.

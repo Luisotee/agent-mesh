@@ -78,7 +78,7 @@ class Notifier(private val context: Context) {
             }
             else -> {}
         }
-        manager.notify(tag(hostId), nid, b.build())
+        notifySafely(tag(hostId), nid, b.build())
     }
 
     private fun action(nid: Int, action: String, hostId: String, agentId: String, mutable: Boolean): PendingIntent =
@@ -88,12 +88,20 @@ class Notifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (mutable && Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE),
         )
 
+    /** The permission is checked in [allowed], but the user can revoke it at any moment: that is a lost notification, not a crash. */
+    private fun notifySafely(tag: String, id: Int, n: Notification) {
+        try {
+            manager.notify(tag, id, n)
+        } catch (_: SecurityException) {
+        }
+    }
+
     fun cancel(hostId: String, agentId: String) = manager.cancel(tag(hostId), id(hostId, agentId))
 
     /** Replaces an agent's notification with the outcome of its action (an error the user should see). */
     fun showError(hostId: String, agentId: String, title: String, text: String) {
         if (!allowed()) return
-        manager.notify(
+        notifySafely(
             tag(hostId), id(hostId, agentId),
             NotificationCompat.Builder(context, CH_WAITING).setSmallIcon(R.drawable.ic_stat_mesh).setContentTitle(title).setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setAutoCancel(true).build(),
