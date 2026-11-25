@@ -147,7 +147,12 @@ type PlanLaunchRequest struct {
 	// Start the CLI with its permission prompts off.
 	SkipPermissions bool `protobuf:"varint,11,opt,name=skip_permissions,json=skipPermissions,proto3" json:"skip_permissions,omitempty"`
 	// The repository's main checkout. An ASKER or REVIEWER (read-only) agent may not edit it or its worktree.
-	Repo          string `protobuf:"bytes,12,opt,name=repo,proto3" json:"repo,omitempty"`
+	Repo string `protobuf:"bytes,12,opt,name=repo,proto3" json:"repo,omitempty"`
+	// Reopen this conversation instead of starting one (`claude --resume <id>`).
+	ResumeSessionId string `protobuf:"bytes,13,opt,name=resume_session_id,json=resumeSessionId,proto3" json:"resume_session_id,omitempty"`
+	// Deny edits under cwd and repo, and publishing, whatever the role: a planner not yet approved. A read-only
+	// role is denied either way.
+	DenyEdits     bool `protobuf:"varint,14,opt,name=deny_edits,json=denyEdits,proto3" json:"deny_edits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -264,6 +269,20 @@ func (x *PlanLaunchRequest) GetRepo() string {
 		return x.Repo
 	}
 	return ""
+}
+
+func (x *PlanLaunchRequest) GetResumeSessionId() string {
+	if x != nil {
+		return x.ResumeSessionId
+	}
+	return ""
+}
+
+func (x *PlanLaunchRequest) GetDenyEdits() bool {
+	if x != nil {
+		return x.DenyEdits
+	}
+	return false
 }
 
 type PlanLaunchResponse struct {
@@ -1054,7 +1073,7 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
 	"\x11verified_versions\x18\x03 \x03(\tR\x10verifiedVersions\x12\"\n" +
-	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xc1\x03\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\x8c\x04\n" +
 	"\x11PlanLaunchRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -1069,7 +1088,10 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x03env\x18\n" +
 	" \x03(\v20.agentmesh.adapter.v1.PlanLaunchRequest.EnvEntryR\x03env\x12)\n" +
 	"\x10skip_permissions\x18\v \x01(\bR\x0fskipPermissions\x12\x12\n" +
-	"\x04repo\x18\f \x01(\tR\x04repo\x1a6\n" +
+	"\x04repo\x18\f \x01(\tR\x04repo\x12*\n" +
+	"\x11resume_session_id\x18\r \x01(\tR\x0fresumeSessionId\x12\x1d\n" +
+	"\n" +
+	"deny_edits\x18\x0e \x01(\bR\tdenyEdits\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +

@@ -47,6 +47,13 @@ const (
 	MeshServiceGetAgentProcedure = "/agentmesh.v1.MeshService/GetAgent"
 	// MeshServiceStopAgentProcedure is the fully-qualified name of the MeshService's StopAgent RPC.
 	MeshServiceStopAgentProcedure = "/agentmesh.v1.MeshService/StopAgent"
+	// MeshServiceApproveAgentProcedure is the fully-qualified name of the MeshService's ApproveAgent
+	// RPC.
+	MeshServiceApproveAgentProcedure = "/agentmesh.v1.MeshService/ApproveAgent"
+	// MeshServiceSwitchAgentProcedure is the fully-qualified name of the MeshService's SwitchAgent RPC.
+	MeshServiceSwitchAgentProcedure = "/agentmesh.v1.MeshService/SwitchAgent"
+	// MeshServiceResumeAgentProcedure is the fully-qualified name of the MeshService's ResumeAgent RPC.
+	MeshServiceResumeAgentProcedure = "/agentmesh.v1.MeshService/ResumeAgent"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
@@ -85,6 +92,15 @@ type MeshServiceClient interface {
 	GetAgent(context.Context, *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error)
 	// Stop an agent's process (its whole process group). A device stops any agent, an agent only its children.
 	StopAgent(context.Context, *connect.Request[v1.StopAgentRequest]) (*connect.Response[v1.StopAgentResponse], error)
+	// Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+	// conversation without the planning deny list. Only its parent or a device, and only when its newest report
+	// since its last task or answer is a plan.
+	ApproveAgent(context.Context, *connect.Request[v1.ApproveAgentRequest]) (*connect.Response[v1.ApproveAgentResponse], error)
+	// Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+	// its own conversation. A move asked for mid-turn runs at its next IDLE.
+	SwitchAgent(context.Context, *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error)
+	// Reopen a stopped agent's conversation, with a new task or as it was.
+	ResumeAgent(context.Context, *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
@@ -162,6 +178,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("StopAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		approveAgent: connect.NewClient[v1.ApproveAgentRequest, v1.ApproveAgentResponse](
+			httpClient,
+			baseURL+MeshServiceApproveAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ApproveAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		switchAgent: connect.NewClient[v1.SwitchAgentRequest, v1.SwitchAgentResponse](
+			httpClient,
+			baseURL+MeshServiceSwitchAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SwitchAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeAgent: connect.NewClient[v1.ResumeAgentRequest, v1.ResumeAgentResponse](
+			httpClient,
+			baseURL+MeshServiceResumeAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ResumeAgent")),
+			connect.WithClientOptions(opts...),
+		),
 		sendMessage: connect.NewClient[v1.SendMessageRequest, v1.SendMessageResponse](
 			httpClient,
 			baseURL+MeshServiceSendMessageProcedure,
@@ -228,6 +262,9 @@ type meshServiceClient struct {
 	listAgents      *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	getAgent        *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
 	stopAgent       *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
+	approveAgent    *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
+	switchAgent     *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
+	resumeAgent     *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
 	listMessages    *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
@@ -272,6 +309,21 @@ func (c *meshServiceClient) GetAgent(ctx context.Context, req *connect.Request[v
 // StopAgent calls agentmesh.v1.MeshService.StopAgent.
 func (c *meshServiceClient) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgentRequest]) (*connect.Response[v1.StopAgentResponse], error) {
 	return c.stopAgent.CallUnary(ctx, req)
+}
+
+// ApproveAgent calls agentmesh.v1.MeshService.ApproveAgent.
+func (c *meshServiceClient) ApproveAgent(ctx context.Context, req *connect.Request[v1.ApproveAgentRequest]) (*connect.Response[v1.ApproveAgentResponse], error) {
+	return c.approveAgent.CallUnary(ctx, req)
+}
+
+// SwitchAgent calls agentmesh.v1.MeshService.SwitchAgent.
+func (c *meshServiceClient) SwitchAgent(ctx context.Context, req *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error) {
+	return c.switchAgent.CallUnary(ctx, req)
+}
+
+// ResumeAgent calls agentmesh.v1.MeshService.ResumeAgent.
+func (c *meshServiceClient) ResumeAgent(ctx context.Context, req *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error) {
+	return c.resumeAgent.CallUnary(ctx, req)
 }
 
 // SendMessage calls agentmesh.v1.MeshService.SendMessage.
@@ -332,6 +384,15 @@ type MeshServiceHandler interface {
 	GetAgent(context.Context, *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error)
 	// Stop an agent's process (its whole process group). A device stops any agent, an agent only its children.
 	StopAgent(context.Context, *connect.Request[v1.StopAgentRequest]) (*connect.Response[v1.StopAgentResponse], error)
+	// Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+	// conversation without the planning deny list. Only its parent or a device, and only when its newest report
+	// since its last task or answer is a plan.
+	ApproveAgent(context.Context, *connect.Request[v1.ApproveAgentRequest]) (*connect.Response[v1.ApproveAgentResponse], error)
+	// Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+	// its own conversation. A move asked for mid-turn runs at its next IDLE.
+	SwitchAgent(context.Context, *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error)
+	// Reopen a stopped agent's conversation, with a new task or as it was.
+	ResumeAgent(context.Context, *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
@@ -405,6 +466,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("StopAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceApproveAgentHandler := connect.NewUnaryHandler(
+		MeshServiceApproveAgentProcedure,
+		svc.ApproveAgent,
+		connect.WithSchema(meshServiceMethods.ByName("ApproveAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSwitchAgentHandler := connect.NewUnaryHandler(
+		MeshServiceSwitchAgentProcedure,
+		svc.SwitchAgent,
+		connect.WithSchema(meshServiceMethods.ByName("SwitchAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceResumeAgentHandler := connect.NewUnaryHandler(
+		MeshServiceResumeAgentProcedure,
+		svc.ResumeAgent,
+		connect.WithSchema(meshServiceMethods.ByName("ResumeAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceSendMessageHandler := connect.NewUnaryHandler(
 		MeshServiceSendMessageProcedure,
 		svc.SendMessage,
@@ -475,6 +554,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceGetAgentHandler.ServeHTTP(w, r)
 		case MeshServiceStopAgentProcedure:
 			meshServiceStopAgentHandler.ServeHTTP(w, r)
+		case MeshServiceApproveAgentProcedure:
+			meshServiceApproveAgentHandler.ServeHTTP(w, r)
+		case MeshServiceSwitchAgentProcedure:
+			meshServiceSwitchAgentHandler.ServeHTTP(w, r)
+		case MeshServiceResumeAgentProcedure:
+			meshServiceResumeAgentHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
@@ -528,6 +613,18 @@ func (UnimplementedMeshServiceHandler) GetAgent(context.Context, *connect.Reques
 
 func (UnimplementedMeshServiceHandler) StopAgent(context.Context, *connect.Request[v1.StopAgentRequest]) (*connect.Response[v1.StopAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StopAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ApproveAgent(context.Context, *connect.Request[v1.ApproveAgentRequest]) (*connect.Response[v1.ApproveAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ApproveAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SwitchAgent(context.Context, *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SwitchAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ResumeAgent(context.Context, *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResumeAgent is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
