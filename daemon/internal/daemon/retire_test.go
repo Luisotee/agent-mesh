@@ -154,7 +154,7 @@ func TestRetireStopsTheProcessKeepsTheConversationAndAMessageResumesIt(t *testin
 	}
 }
 
-func TestAnAnswerBringsARetiredPlannerBackPlanningAndATaskMakesItADirectOne(t *testing.T) {
+func TestAnAnswerBringsARetiredPlannerBackPlanningAndOnlyADirectTaskEndsThePhase(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
@@ -173,16 +173,31 @@ func TestAnAnswerBringsARetiredPlannerBackPlanningAndATaskMakesItADirectOne(t *t
 		t.Fatalf("an answer brought it back as %v", back)
 	}
 	waitFor(t, "delivered", func() bool { return w.delivered(t, a.Id, ans.Msg.Message.Id) })
-	// Retired again; a task is a direct one, as to a live planner: the phase and the deny list go (a planned task
-	// needs ResumeAgent's plan flag).
-	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+	// Retired again; a planned follow-up leaves it planning, as to a live planner; a task marked direct ends the
+	// phase and drops the deny list.
+	retire := func() {
+		if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retire()
+	planned, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "plan it again"}))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "plan it again"})); err != nil {
+	again := w.waitReopened(t, a.Id, "")
+	if again.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !again.DenyEdits {
+		t.Fatalf("a planned task to a planner: %v", again)
+	}
+	waitFor(t, "delivered", func() bool { return w.delivered(t, a.Id, planned.Msg.Message.Id) })
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	retire()
+	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK,
+		Body: "Direct task (no plan): make the change"})); err != nil {
 		t.Fatal(err)
 	}
-	if again := w.waitReopened(t, a.Id, ""); again.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || again.DenyEdits {
-		t.Fatalf("a task to a planner: %v", again)
+	if direct := w.waitReopened(t, a.Id, ""); direct.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || direct.DenyEdits {
+		t.Fatalf("a direct task to a planner: %v", direct)
 	}
 }
 

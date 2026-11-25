@@ -284,10 +284,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		out.Message = msg
 		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
-		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task is
-		// direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase.
+		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task
+		// marked direct is direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase;
+		// any other comes back as it was (a planner still planning), as `send` leaves a live one.
 		if stopped(to) && resumes(req.Msg.Type) {
-			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK}
+			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body)}
 			// The guards answer before anything is written: a refusal keeps the message and says why the agent
 			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 			switch rv, err := d.revive(t, to, spec); {
