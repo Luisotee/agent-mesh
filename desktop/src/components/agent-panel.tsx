@@ -100,7 +100,7 @@ function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  if (agent.state === AgentState.EXITED) return null
+  if (agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED) return null
   async function stop() {
     if (busy) return
     setBusy(true)

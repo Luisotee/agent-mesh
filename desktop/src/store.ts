@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
-import { AgentState } from './gen/agentmesh/v1/types_pb'
+import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { ConnState, Frame } from './connection'
 
@@ -115,9 +115,39 @@ function applyEvent(s: HostState, e: Event): HostState {
       const a = s.agents[e.agentId]
       return a ? { ...next, agents: { ...s.agents, [a.id]: { ...a, terminalId: p.value.terminalId } } } : next
     }
+    // A model change reopens the same conversation (daemon/internal/daemon/reopen.go): the agent keeps its identity
+    // and gets the new model, terminal and session.
+    case 'agentReopenRequested':
+      return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: p.value.reopen }))
+    case 'agentReopenDropped':
+      return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: undefined }))
+    case 'agentReopened':
+      return withAgent(next, e.agentId, (a) => ({
+        ...a,
+        pendingReopen: undefined,
+        terminalId: p.value.terminalId,
+        sessionId: p.value.sessionId,
+        model: p.value.reopen?.model ?? a.model,
+        effort: p.value.reopen?.effort ?? a.effort,
+        denyEdits: p.value.reopen?.denyEdits ?? a.denyEdits,
+      }))
+    case 'agentPhaseChanged':
+      return withAgent(next, e.agentId, (a) => ({ ...a, phase: p.value.to }))
+    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
+    case 'agentRetired':
+      return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
+    case 'runStopped': {
+      const r = s.runs[e.runId]
+      return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
+    }
     default:
       return next
   }
+}
+
+function withAgent(s: HostState, id: string, change: (a: Agent) => Agent): HostState {
+  const a = s.agents[id]
+  return a ? { ...s, agents: { ...s.agents, [id]: change(a) } } : s
 }
 
 /** Adds messages (a loaded page) to the ones we have; one we already have, which events may have updated, is kept. */

@@ -53,7 +53,7 @@ export function buildTrees(runs: Record<string, Run>, agents: Record<string, Age
       run,
       roots: nodes,
       needsInput: members.filter((a) => a.state === AgentState.NEEDS_INPUT).length,
-      live: members.filter((a) => a.state !== AgentState.EXITED).length,
+      live: members.filter((a) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED).length,
     })
   }
   // Runs needing the user first, then open before closed, then the newest.
@@ -94,6 +94,12 @@ export function statusSentence(a: Agent): string {
       return a.exitCode === 0 ? 'Finished' : `Exited with code ${a.exitCode}`
     case AgentState.UNKNOWN:
       return 'Quiet for a while: state unknown'
+    case AgentState.RETIRED:
+      return 'Retired: stopped on purpose, a message wakes it'
+    case AgentState.LIMITED:
+      return `Hit a usage limit${a.stateDetail ? `: ${a.stateDetail}` : ''}; switch it to another model to go on`
+    case AgentState.ERROR:
+      return `Its last turn ended in an error${a.stateDetail ? `: ${a.stateDetail}` : ''}`
     default:
       return 'Unknown'
   }
