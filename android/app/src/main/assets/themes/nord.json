@@ -1,0 +1,42 @@
+{
+  "name": "Nord",
+  "dark": true,
+  "tokens": {
+    "background": "#2e3440",
+    "foreground": "#eceff4",
+    "surface": "#272c36",
+    "card": "#343b49",
+    "popover": "#3b4252",
+    "muted": "#3b4252",
+    "muted-foreground": "#a7b1c4",
+    "border": "#4c566a",
+    "input": "#4c566a",
+    "ring": "#88c0d0",
+    "primary": "#88c0d0",
+    "primary-foreground": "#2e3440",
+    "secondary": "#434c5e",
+    "secondary-foreground": "#eceff4",
+    "accent": "#434c5e",
+    "accent-foreground": "#eceff4",
+    "destructive": "#bf616a",
+    "destructive-foreground": "#eceff4",
+    "state-working": "#8fbcbb",
+    "state-needs": "#d08770",
+    "state-idle": "#616e88",
+    "state-done": "#a3be8c",
+    "state-failed": "#bf616a",
+    "state-unknown": "#ebcb8b"
+  },
+  "terminal": {
+    "background": "#2e3440",
+    "foreground": "#d8dee9",
+    "cursor": "#d8dee9",
+    "selection": "#434c5e",
+    "red": "#bf616a",
+    "green": "#a3be8c",
+    "yellow": "#ebcb8b",
+    "blue": "#81a1c1",
+    "magenta": "#b48ead",
+    "cyan": "#88c0d0"
+  }
+}

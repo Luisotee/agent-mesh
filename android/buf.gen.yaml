@@ -1,0 +1,21 @@
+# `buf generate --template ../android/buf.gen.yaml` from proto/ (scripts/gen.sh): protobuf-lite Java messages and
+# ConnectRPC Kotlin clients into app/src/gen. The connect-kotlin plugin is run by scripts/protoc-gen-connect-kotlin
+# on a classpath Gradle resolves and verifies (gradle/verification-metadata.xml). Nothing is installed globally.
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: java_package_prefix
+      value: dev.agentmesh.gen
+plugins:
+  - protoc_builtin: java
+    protoc_path: ../android/build/codegen/protoc
+    out: ../android/app/src/gen/java
+    opt: lite
+  - local: ../android/scripts/protoc-gen-connect-kotlin
+    out: ../android/app/src/gen/kotlin
+    opt:
+      - generateCallbackMethods=false
+      - generateCoroutineMethods=true
+      - generateBlockingMethods=false

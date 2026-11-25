@@ -1,0 +1,23 @@
+# Adds a host and checks it connects. Needs a meshd with `--tcp 127.0.0.1:<port>` on the machine running the
+# emulator, reached through `adb reverse tcp:<port> tcp:<port>`; pass its port and device token:
+#   maestro test -e PORT=43111 -e TOKEN=$(cat $STATE/device.token) android/maestro/add-host.yaml
+appId: dev.agentmesh.android.debug
+---
+- launchApp:
+    clearState: true
+- assertVisible: "No hosts yet"
+- tapOn: "Add a host"
+- tapOn: "Name"
+- inputText: "Test host"
+- tapOn: "Address"
+- eraseText
+- inputText: "http://127.0.0.1:${PORT}"
+- tapOn: "Device token"
+- inputText: "${TOKEN}"
+- tapOn: "Add and connect"
+- assertVisible: "Test host"
+- assertVisible:
+    text: ".*open runs.*|Syncing….*"
+    timeout: 20000
+- tapOn: "Test host"
+- assertNotVisible: "The host refused this device's token"
