@@ -9,25 +9,24 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 - [ ] `mesh cost`: agy workers whose entries have no `size` show as `agy worker ? pane` (1,064 calls over 2026-10-28 → 11-04): record or derive their size.
 - [ ] OpenCode: a doorbell or a model swap through its HTTP API (the TUI's `--port`: `/api/session/<id>/prompt`, `/tui/*`) instead of typing and a reopen; a Stop-hook equivalent from its plugin events; its own `cost` in `mesh cost`; telling a model the server silently didn't serve (the TUI falls back to its default) from the one asked for.
 - [ ] Copilot refused by policy isn't read as a failure: with the account's Copilot CLI policy denying models (`Failed to load models: access denied by Copilot policy`, then `✗ Execution failed: … 403 … unauthorized: not authorized to use this Copilot feature`), both reviewers of run mebd0 (curupira-bot #64, ai-boilerplate #60) idled and the watch gave exit 3 (nudged, task unread) instead of an alert naming the policy; `--reviewers` kept picking Copilot.
+- [ ] More economical model choice: every Claude default is Opus (`models.claude.plan`, `.exec`, `.trivial.model` and `.small.model`), so even a translation runs on the top model; the user had to name Sonnet by hand for a small direct task (run mea1a). Default by size to the cheapest model that does the job (for example Haiku for trivial, Sonnet for small work and for executing an approved plan, Opus only for planning and for large or unclear work), and escalate one tier on a failed verify, a `question` or a review round that needs a fix, rather than starting high. Check what each tier costs against what it gets right with `mesh cost` and `docs/cost-research/`.
 - [ ] OpenCode false `human_draft`: in run mebd0 (castanha-bot #47's reviewer) `mesh ring` refused with `"error": "human_draft"` and the watch said "someone has a draft typed in its pane", but the input box held only the placeholder (`Ask anything… "Fix a TODO in the codebase"`): the task was never delivered. Read the placeholder as empty.
 
 ## From the Orca / Paseo comparison (2026-11-24)
 
 Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was trialled and dropped (design, "Alternatives considered"): agent-mesh gets its own apps instead.
 
-**Leaving herdr**
+**Apps (plan in `docs/apps.md`)**
 
-- [ ] A `Host` adapter for what `bin/mesh` asks herdr (about 170 calls: agent state, a prompt with delivery confirmation, pane process info, names, workspaces), like the `Cli` adapters (design §22); herdr becomes the first adapter, and tmux or a PTY daemon of mesh's own the next.
-- [ ] Drive workers over structured channels instead of their TUI: agy through ACP (`agy acp`), Claude through its inbox socket (already) or stream-json, OpenCode through its HTTP API (see the OpenCode item above). State and limits then come from events, not screen reads, which drops most of the `human_draft`, startup-screen and limit-screen scraping.
-- [ ] Workers on other machines over SSH (the Oracle ARM server): spawn, mail, watch and worktrees on a remote host, with the run state staying with the root.
+herdr and the terminal workflow are replaced by a daemon per host plus desktop, Android and web apps; nothing of herdr is kept. Steps, in order (`docs/apps.md`, "Order of work"):
 
-**Desktop and mobile apps**
-
-- [ ] `mesh serve`: a local HTTP/WebSocket API over the run state (runs, agents, mail, plans, reports, PRs, usage) with live events and actions (approve, answer, send, stop, resume), and auth for clients off the machine. Every UI below builds on it.
-- [ ] Desktop app for Windows, Linux and macOS on `mesh serve` (Tauri or Electron): runs and workers live, plans to approve, questions to answer, reports, diffs, usage per vendor, a worker's terminal.
-- [ ] Mobile app (iOS, Android), or a PWA first: notifications when a root is done or blocked (what `herdr/mesh-notify` does on the desktop), approve plans, answer questions, read reports; reached over Tailscale or an end-to-end encrypted relay.
-- [ ] Interim mobile: send `mesh-notify` events and plan/question prompts to Telegram (Hermes on the Oracle server already has a bot), and take the reply as the answer.
-- [ ] Diff review in the app: notes on lines of a worker's PR, sent back to that worker as one message (Orca, Paseo).
+- [ ] Settle the open decisions in `docs/apps.md` (repo layout, PTYs plus structured channels).
+- [ ] Daemon core (Go): protobuf action registry and ConnectRPC API with event streams, agents in daemon-owned PTYs with state from hooks (Claude, then agy), SQLite run state, the generated `mesh` CLI. Agents run without herdr.
+- [ ] Desktop app (Electron + React), first version: hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray.
+- [ ] Connections: `mesh relay` on the user's VPS (outbound from the daemon, TLS end to end, QR pairing), then built-in Tailscale (`tsnet`).
+- [ ] Android app (React Native with Expo): status, notifications with actions through UnifiedPush, plans, questions, reports, terminal.
+- [ ] Workers on other hosts: a daemon on the Oracle server, reached through the same routes.
+- [ ] The rest of `docs/apps.md`'s feature list: git, PRs and CI, the structured chat view with diff review notes, schedules, usage, plugins.
 
 **Orchestration ideas from them**
 

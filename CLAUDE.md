@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
-agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing pitch and `docs/guide.md` the full reference; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour.
+agent-mesh lets an agent working in repo A hand repo B's part of a change to an agent running *inside* B (with B's `CLAUDE.md`/`AGENTS.md`, skills and hooks loaded), in a visible herdr pane with two-way messaging. `README.md` is the user-facing pitch and `docs/guide.md` the full reference; `docs/design.md` records why each decision was made and the alternatives that lost: read its section before changing behaviour. `docs/apps.md` is the plan for the apps and daemon that replace herdr.
 
 ## Task tracking
 
