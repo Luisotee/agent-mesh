@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -56,7 +57,11 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	global := flag.NewFlagSet("meshctl", flag.ContinueOnError)
 	global.SetOutput(env.Stderr)
 	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
-	global.Usage = func() { fmt.Fprintln(env.Stderr, "usage: meshctl [--state <dir>] <command> [flags]; meshctl help") }
+	// --json is also a command's own flag; given here, before the command, it is that command's.
+	whole := global.String("json", "", "the whole request as JSON, for the command that follows")
+	global.Usage = func() {
+		fmt.Fprintln(env.Stderr, "usage: meshctl [--state <dir>] [--json <request>] <command> [flags]; meshctl help")
+	}
 	if err := global.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -93,6 +98,7 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 		return ExitUsage
 	}
 	cmd := newCommand(a, env, *state)
+	cmd.whole = *whole
 	req, err := cmd.parse(rest[1:])
 	if errors.Is(err, flag.ErrHelp) {
 		cmd.usage(env.Stdout)
@@ -137,7 +143,7 @@ func find(reg *registry.Registry, name string) *registry.Action {
 }
 
 func usage(w io.Writer, reg *registry.Registry, hand map[string]func([]string) int) {
-	fmt.Fprintln(w, "usage: meshctl [--state <dir>] <command> [flags]   (meshctl help <command> for its flags)")
+	fmt.Fprintln(w, "usage: meshctl [--state <dir>] [--json <request>] <command> [flags]   (meshctl help <command> for its flags)")
 	fmt.Fprintln(w, "\ncommands:")
 	for _, a := range reg.Actions() {
 		fmt.Fprintf(w, "  %-14s %s\n", a.CLI, a.Summary)
@@ -160,8 +166,10 @@ type command struct {
 	env    Env
 	state  string
 	whole  string
-	// The field flags, in the order given: applied after --json, so they override it wherever they stand.
+	// The field flags, in the order given: applied after --json, so they override it wherever they stand. A list
+	// field's first flag replaces the list --json gave; the next ones add to it.
 	pending   []func()
+	listSeen  map[protoreflect.FieldNumber]bool
 	stdinRead bool
 	// meta: the write's mutation id and expiry, filled in unless given.
 	mutationID string
@@ -194,13 +202,13 @@ func (v fieldFlag) Set(s string) error {
 }
 
 func newCommand(a *registry.Action, env Env, state string) *command {
-	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env, state: state,
+	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env, state: state, listSeen: map[protoreflect.FieldNumber]bool{},
 		flags: flag.NewFlagSet("meshctl "+a.CLI, flag.ContinueOnError)}
 	// The flag package would print its error and the usage itself; Main prints the error once instead.
 	c.flags.SetOutput(io.Discard)
 	c.flags.Usage = func() {}
 	c.flags.StringVar(&c.state, "state", state, "the daemon's state dir (or $"+client.StateEnv+")")
-	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON; the other flags override its fields")
+	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON; the other flags override its fields (a repeated field's first flag replaces its list)")
 	fields := a.Method.Input().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Get(i)
@@ -232,6 +240,8 @@ func describe(f protoreflect.FieldDescriptor) string {
 			names = append(names, enumShort(f.Enum(), vals.Get(i)))
 		}
 		kind = "one of " + strings.Join(names, ", ")
+	case isValue(f):
+		kind = "a JSON value; bare text that is not JSON is a string"
 	case f.Kind() == protoreflect.MessageKind:
 		kind = "JSON " + string(f.Message().Name())
 	case f.Kind() == protoreflect.BoolKind:
@@ -280,6 +290,11 @@ func (c *command) text(v string) (string, error) {
 	return string(b), nil
 }
 
+// isValue reports whether a field is a google.protobuf.Value, which holds any JSON.
+func isValue(f protoreflect.FieldDescriptor) bool {
+	return f.Kind() == protoreflect.MessageKind && f.Message().FullName() == "google.protobuf.Value"
+}
+
 func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.Value, error) {
 	switch f.Kind() {
 	case protoreflect.StringKind:
@@ -315,7 +330,21 @@ func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.
 	case protoreflect.MessageKind:
 		m := dynamicpb.NewMessage(f.Message())
 		if err := protojson.Unmarshal([]byte(v), m); err != nil {
-			return protoreflect.Value{}, err
+			// Text that starts like JSON (a list, an object, a quoted string) is a JSON typo, not a string.
+			if !isValue(f) || strings.HasPrefix(v, "[") || strings.HasPrefix(v, "{") || strings.HasPrefix(v, `"`) {
+				return protoreflect.Value{}, err
+			}
+			// A google.protobuf.Value is any JSON; text that isn't JSON is the string it spells (a setting's
+			// `sonnet`, no quotes needed; `'"5"'` is the string 5, and `5` the number).
+			s, terr := c.text(v)
+			if terr != nil {
+				return protoreflect.Value{}, terr
+			}
+			quoted, _ := json.Marshal(s)
+			m = dynamicpb.NewMessage(f.Message())
+			if err := protojson.Unmarshal(quoted, m); err != nil {
+				return protoreflect.Value{}, err
+			}
 		}
 		return protoreflect.ValueOfMessage(m), nil
 	}
@@ -324,6 +353,10 @@ func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.
 
 func (c *command) set(f protoreflect.FieldDescriptor, val protoreflect.Value) {
 	if f.IsList() {
+		if !c.listSeen[f.Number()] {
+			c.listSeen[f.Number()] = true
+			c.req.Clear(f)
+		}
 		c.req.Mutable(f).List().Append(val)
 	} else {
 		c.req.Set(f, val)

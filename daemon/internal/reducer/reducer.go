@@ -56,6 +56,10 @@ func Reduce(s State, ev *adapterv1.AgentEvent) State {
 		case src == "compact" && s.BeforeCompact != v1.AgentState_AGENT_STATE_UNSPECIFIED:
 			// The compaction ended: back to what it interrupted (idle between turns, working mid-turn).
 			s.State, s.Detail = s.BeforeCompact, ""
+			if s.State != v1.AgentState_AGENT_STATE_NEEDS_INPUT {
+				// A count of prompts left from before the compaction would show a working or idle agent as needing input.
+				s.NeedsInput = 0
+			}
 		case src != "compact" && src != "resume", s.State == v1.AgentState_AGENT_STATE_STARTING:
 			s.State, s.NeedsInput, s.Detail = v1.AgentState_AGENT_STATE_IDLE, 0, ""
 		}

@@ -66,6 +66,8 @@ func TestReduce(t *testing.T) {
 		{"a session end alone doesn't end the agent", []*adapterv1.AgentEvent{turn(), stop(), ended(), started("s2")}, v1.AgentState_AGENT_STATE_IDLE, 0},
 		{"a compaction's session start mid-turn is not idle", []*adapterv1.AgentEvent{started("s1"), turn(), compacting(), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"a compaction from idle goes back to idle", []*adapterv1.AgentEvent{started("s1"), compacting(), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a prompt during a compaction doesn't outlive it", []*adapterv1.AgentEvent{started("s1"), compacting(), ask("Bash"), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_IDLE, 0},
+		{"a compaction from a prompt goes back to it", []*adapterv1.AgentEvent{started("s1"), turn(), ask("Bash"), compacting(), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_NEEDS_INPUT, 1},
 		{"a compaction that hasn't finished is working", []*adapterv1.AgentEvent{started("s1"), compacting()}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"the next turn forgets an unfinished compaction", []*adapterv1.AgentEvent{started("s1"), compacting(), turn(), stop(), compacting(), turn(), startedBy("s1", "compact")}, v1.AgentState_AGENT_STATE_WORKING, 0},
 		{"a resume mid-turn is not idle", []*adapterv1.AgentEvent{started("s1"), turn(), startedBy("s1", "resume")}, v1.AgentState_AGENT_STATE_WORKING, 0},

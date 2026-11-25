@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
@@ -227,4 +230,95 @@ func TestAParseErrorIsPrintedOnce(t *testing.T) {
 	if code := Main([]string{"--state", "/x", "send", "-h"}, env, nil); code != ExitOK || !strings.Contains(out.String(), "-mutation-id") {
 		t.Errorf("-h: %d %q", code, out.String())
 	}
+}
+
+// A google.protobuf.Value flag takes any JSON, and text that isn't JSON is the string it spells.
+func TestAValueFlagTakesJSONOrBareText(t *testing.T) {
+	read := func(args ...string) *v1.SetSettingRequest {
+		t.Helper()
+		m, err := Request(action(t, "set"), append([]string{"--key", "k"}, args...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return as(t, m, &v1.SetSettingRequest{})
+	}
+	for _, c := range []struct {
+		arg  string
+		want any
+	}{
+		{"75", 75.0}, {"true", true}, {"null", nil}, {`"5"`, "5"}, {"sonnet", "sonnet"}, {"auto", "auto"},
+		{`["haiku","sonnet"]`, []any{"haiku", "sonnet"}}, {"opencode/free", "opencode/free"},
+	} {
+		got := read("--value", c.arg).Value.AsInterface()
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("--value %s is %#v, want %#v", c.arg, got, c.want)
+		}
+	}
+	// A typo in JSON is an error, not a string.
+	for _, bad := range []string{`["sonnet"`, `{"a":`, `"open`} {
+		if _, err := Request(action(t, "set"), []string{"--key", "k", "--value", bad}); err == nil {
+			t.Errorf("--value %s was accepted", bad)
+		}
+	}
+	// The whole request as JSON, before the command or after it.
+	if got := read("--json", `{"value":["a"]}`).Value.AsInterface(); !reflect.DeepEqual(got, []any{"a"}) {
+		t.Errorf("--json: %#v", got)
+	}
+	if help := describe(action(t, "set").Method.Input().Fields().ByName("value")); !strings.Contains(help, "bare text") {
+		t.Errorf("help: %q", help)
+	}
+}
+
+// A repeated field's flags add up; the first replaces what --json gave; the help says so only for those.
+func TestRepeatedFlagsAddUpAndTheFirstReplacesJSON(t *testing.T) {
+	desc := (&v1.HelloResponse{}).ProtoReflect().Descriptor().Fields().ByName("capabilities")
+	if desc == nil || !desc.IsList() {
+		t.Fatal("HelloResponse.capabilities is not a list any more: pick another repeated field")
+	}
+	c := &command{req: dynamicpb.NewMessage((&v1.HelloResponse{}).ProtoReflect().Descriptor()), listSeen: map[protoreflect.FieldNumber]bool{}}
+	if err := protojson.Unmarshal([]byte(`{"capabilities":["from-json"]}`), c.req); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"a", "b", "c"} {
+		val, err := c.value(desc, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.set(desc, val)
+	}
+	if got := as(t, c.req, &v1.HelloResponse{}).Capabilities; !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Errorf("capabilities %v", got)
+	}
+	if !strings.Contains(describe(desc), "(repeatable)") {
+		t.Errorf("a list's help: %q", describe(desc))
+	}
+	if strings.Contains(describe(action(t, "send").Method.Input().Fields().ByName("body")), "repeatable") {
+		t.Error("a scalar's help says repeatable")
+	}
+}
+
+// `meshctl --json <request> <command>`: the global flag is the command's own.
+func TestGlobalJSONIsTheCommandsRequest(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	// No state: Main stops after parsing, so a bad request shows the flag reached the command.
+	if code := Main([]string{"--state", "/x", "--json", `{"key":`, "set"}, env, nil); code != ExitUsage || !strings.Contains(errb.String(), "--json") {
+		t.Errorf("a bad global --json: %d %q", code, errb.String())
+	}
+	errb.Reset()
+	if code := Main([]string{"--json"}, env, nil); code != ExitUsage {
+		t.Errorf("--json without a value: %d", code)
+	}
+	if !strings.Contains(func() string { var b bytes.Buffer; usage(&b, mustReg(t), nil); return b.String() }(), "--json") {
+		t.Error("the usage line doesn't mention --json")
+	}
+}
+
+func mustReg(t *testing.T) *registry.Registry {
+	t.Helper()
+	reg, err := registry.Mesh()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
 }

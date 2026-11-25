@@ -66,6 +66,10 @@ type AgentConfig struct {
 	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
+	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
+	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
+	// would pass them either way.
+	NoTerminalWatch bool
 }
 
 // The environment an agent inherits from the daemon; anything else (other secrets, the caller's own session) is
@@ -274,7 +278,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID string, cod
 }
 
 func (d *Daemon) runBackground(ctx context.Context) {
-	if d.rt.term != nil {
+	if d.rt.term != nil && !d.rt.cfg.NoTerminalWatch {
 		go d.watchTerminals(ctx)
 	}
 	go func() {
