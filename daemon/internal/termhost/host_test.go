@@ -20,6 +20,7 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
+	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
 )
@@ -351,6 +352,34 @@ func TestKillStopsTheProcessGroup(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("a TERM-ignoring program was not killed after the grace period")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestKillReachesGroupMembersAfterTheLeaderDied(t *testing.T) {
+	f := startHost(t)
+	ctx := context.Background()
+	// The leader dies on TERM; its child ignores TERM and must still be killed by the escalation.
+	res, err := f.c.API.CreateTerminal(ctx, connect.NewRequest(&termv1.CreateTerminalRequest{
+		Argv: []string{"sh", "-c", `sh -c 'trap "" TERM; exec sleep 60' & exec sleep 60`},
+		Env:  map[string]string{"PATH": os.Getenv("PATH")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	term := res.Msg.Terminal
+	time.Sleep(200 * time.Millisecond)
+	tty, err := proc.TTY(int(term.Pid))
+	if err != nil || tty == 0 {
+		t.Fatalf("tty %d, %v", tty, err)
+	}
+	if _, err := f.c.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: term.Id})); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for proc.GroupAlive(int(term.Pid), tty) {
+		if time.Now().After(deadline) {
+			t.Fatal("a TERM-ignoring group member survived its leader")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

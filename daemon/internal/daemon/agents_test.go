@@ -66,10 +66,14 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 	}
 }
 
-func startWithAgents(t *testing.T, state, home string) *agentsHarness {
+func startWithAgents(t *testing.T, state, home string, tweak ...func(*daemon.AgentConfig)) *agentsHarness {
 	t.Helper()
+	cfg := agentConfig(t, home)
+	for _, f := range tweak {
+		f(&cfg)
+	}
 	d, err := daemon.New(daemon.Config{StateDir: state, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Agents: agentConfig(t, home)})
+		Agents: cfg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +223,57 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		inbox.Msg.Messages[0].Type != v1.MessageType_MESSAGE_TYPE_TASK {
 		t.Fatalf("inbox %v, %v", inbox, err)
 	}
+
+	// The agent doesn't inherit an ignored SIGHUP from the host: it must die when its terminal hangs up.
+	tc, _ := termclient.New(statedir.Paths{Dir: state}.Term())
+	list, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", list.Msg.Terminals[0].Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if mask, ok := strings.CutPrefix(line, "SigIgn:"); ok {
+			var bits uint64
+			fmt.Sscanf(strings.TrimSpace(mask), "%x", &bits)
+			if bits&1 != 0 {
+				t.Errorf("the agent ignores SIGHUP (SigIgn %s)", strings.TrimSpace(mask))
+			}
+		}
+	}
+
+	// While a user who can type is attached, a doorbell waits; it rings once they leave.
+	ictx, icancel := context.WithTimeout(ctx, 10*time.Second)
+	user := h.openTerminal(ictx, a, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
+	for {
+		f, err := user.Recv(ictx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.GetReplayDone() != nil {
+			break
+		}
+	}
+	user.Ready(ictx)
+	waitFor(t, "the user counted as typing", func() bool {
+		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		return l.Msg.Terminals[0].InputClients == 1
+	})
+	if _, err := h.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_INFO, Body: "fyi"})); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if peek, _ := h.as(tok).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Peek: true})); len(peek.Msg.Messages) != 1 ||
+		peek.Msg.Messages[0].DeliveredAt != nil {
+		t.Errorf("the doorbell rang into a user's typing: %v", peek.Msg.Messages)
+	}
+	user.Close()
+	icancel()
+	waitFor(t, "the doorbell after the user left", func() bool {
+		peek, _ := h.as(tok).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Peek: true}))
+		return len(peek.Msg.Messages) == 1 && peek.Msg.Messages[0].DeliveredAt != nil
+	})
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	// A permission prompt is needs-input, and answering it clears it.
 	h.typeInto(a, "/ask\r")
@@ -416,5 +471,43 @@ func TestAnAgentWhoseTerminalVanishedIsMarkedLost(t *testing.T) {
 	}
 	if !lost || got.ExitCode != -1 {
 		t.Errorf("exit %d, lost %v", got.ExitCode, lost)
+	}
+}
+
+func TestACLIThatExitsAtOnceIsRecordedExited(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Binaries["claude"] = "/bin/false" })
+	t.Cleanup(func() { stopTermHost(t, state) })
+	run := startRun(t, h.device.Mesh, "")
+	a := h.spawn(run.Id, gitRepo(t), "quick", "")
+	got := h.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED)
+	if got.ExitCode != 1 || got.TerminalId == "" {
+		t.Errorf("exited agent %v", got)
+	}
+}
+
+func TestAFailedLaunchFreesItsSlug(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Binaries["claude"] = "/nonexistent/claude" })
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	repo := gitRepo(t)
+	for i := 0; i < 2; i++ {
+		_, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			Meta: meta("same"), RunId: run.Id, Repo: repo, Slug: "fix"}))
+		if code(err) != connect.CodeFailedPrecondition {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", "mesh/*").Output(); len(strings.TrimSpace(string(out))) != 0 {
+		t.Errorf("branches left: %s", out)
+	}
+	agents, _ := h.device.Mesh.ListAgents(ctx, connect.NewRequest(&v1.ListAgentsRequest{RunId: run.Id}))
+	if len(agents.Msg.Agents) != 0 {
+		t.Errorf("agents left: %v", agents.Msg.Agents)
+	}
+	if _, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("no repo: %v", err)
 	}
 }

@@ -26,10 +26,10 @@ func TestStartTicksIdentifiesAProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A wrong start time (a reused pid) is never signalled.
-	if err := SignalGroup(cmd.Process.Pid, ticks+1, syscall.SIGKILL); err != ErrGone {
+	if err := SignalGroup(cmd.Process.Pid, ticks+1, 0, syscall.SIGKILL); err != ErrGone {
 		t.Errorf("signalled a process with another start time: %v", err)
 	}
-	if err := SignalGroup(cmd.Process.Pid, ticks, syscall.SIGKILL); err != nil {
+	if err := SignalGroup(cmd.Process.Pid, ticks, 0, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -39,7 +39,7 @@ func TestStartTicksIdentifiesAProcess(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("not killed")
 	}
-	if err := SignalGroup(cmd.Process.Pid, ticks, syscall.SIGKILL); err != ErrGone {
+	if err := SignalGroup(cmd.Process.Pid, ticks, 0, syscall.SIGKILL); err != ErrGone {
 		t.Errorf("signalled a dead process: %v", err)
 	}
 }

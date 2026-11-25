@@ -170,11 +170,11 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		t, ok := byID[a.TerminalId]
 		switch {
 		case !ok:
-			if err := d.recordExit(ctx, a.TerminalId, -1, 0, "lost"); err != nil {
+			if err := d.recordExit(ctx, a.TerminalId, "", -1, 0, "lost"); err != nil {
 				return err
 			}
 		case t.Exited:
-			if err := d.recordExit(ctx, t.Id, t.ExitCode, t.Signal, ""); err != nil {
+			if err := d.recordExit(ctx, t.Id, t.Labels["agent"], t.ExitCode, t.Signal, ""); err != nil {
 				return err
 			}
 		default:
@@ -198,21 +198,35 @@ func (d *Daemon) adopt(ctx context.Context) error {
 }
 
 // recordExit marks a terminal's agent exited (unless it already is), then lets the host forget the terminal.
-func (d *Daemon) recordExit(ctx context.Context, terminalID string, code, signal int32, reason string) error {
+// The agent is found by the terminal, or by the agent label the terminal was created with: a CLI that exits
+// at once can do so before its spawn recorded the terminal. A terminal no agent claims is not acknowledged.
+func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID string, code, signal int32, reason string) error {
 	if reason == "" {
 		reason = "exited"
 		if signal != 0 {
 			reason = "killed"
 		}
 	}
+	claimed := false
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
+		if errors.Is(err, store.ErrNotFound) && agentID != "" {
+			a, err = tx.GetAgent(agentID)
+			if err == nil && a.TerminalId != "" && a.TerminalId != terminalID {
+				err = store.ErrNotFound
+			}
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			return nil
 		}
-		if err != nil || a.State == v1.AgentState_AGENT_STATE_EXITED {
+		if err != nil {
 			return err
 		}
+		claimed = true
+		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+			return nil
+		}
+		a.TerminalId = terminalID
 		tx.Actor = &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId}
 		ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
 			Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: code, Signal: signal}}}
@@ -225,9 +239,15 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID string, code, signal
 		}
 		return tx.RevokeTokens(a.Id)
 	})
-	if err != nil || reason == "lost" {
+	if err != nil || reason == "lost" || !claimed {
 		return err
 	}
+	d.rt.mu.Lock()
+	delete(d.rt.lastOutput, terminalID)
+	if agentID != "" {
+		delete(d.rt.delivering, agentID)
+	}
+	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	return err
 }
@@ -241,6 +261,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		defer t.Stop()
 		for {
 			d.drainSpool(ctx)
+			d.retryDoorbells(ctx)
 			select {
 			case <-ctx.Done():
 				return
@@ -260,7 +281,7 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 				backoff = 100 * time.Millisecond
 				switch f := stream.Msg().Frame.(type) {
 				case *termv1.WatchTerminalsResponse_Exited:
-					if err := d.recordExit(ctx, f.Exited.Id, f.Exited.ExitCode, f.Exited.Signal, ""); err != nil && ctx.Err() == nil {
+					if err := d.recordExit(ctx, f.Exited.Id, f.Exited.Labels["agent"], f.Exited.ExitCode, f.Exited.Signal, ""); err != nil && ctx.Err() == nil {
 						d.log.Error("recording an exit", "terminal", f.Exited.Id, "err", err)
 					}
 				case *termv1.WatchTerminalsResponse_Output:
@@ -290,6 +311,7 @@ func (d *Daemon) drainSpool(ctx context.Context) {
 	for _, id := range agents {
 		a, err := d.store.Read(ctx).GetAgent(id)
 		if errors.Is(err, store.ErrNotFound) {
+			os.RemoveAll(d.paths.Spool(id)) // an agent that never ran (its launch failed)
 			continue
 		}
 		if err != nil {
@@ -304,6 +326,12 @@ func (d *Daemon) drainSpool(ctx context.Context) {
 			_, err := d.reportHook(actx, req)
 			return err
 		})
+		if err == nil && a.State == v1.AgentState_AGENT_STATE_EXITED {
+			// Nothing more comes from an exited agent: its spool dir goes once it is empty.
+			if left, _ := filepath.Glob(filepath.Join(d.paths.Spool(id), "*.json")); len(left) == 0 {
+				os.RemoveAll(d.paths.Spool(id))
+			}
+		}
 		unlock()
 		if err != nil && ctx.Err() == nil {
 			d.log.Warn("draining the hook spool", "agent", a.Name, "err", err)
@@ -504,6 +532,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
+	if strings.TrimSpace(m.Repo) == "" {
+		return nil, invalid("no repo given")
+	}
 	repoArg, err := filepath.Abs(m.Repo)
 	if err != nil {
 		return nil, invalid("repo: %v", err)
@@ -585,7 +616,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	launched, err := d.launch(ctx, agent, token, plan)
 	if err != nil {
 		d.log.Error("launch failed", "agent", name, "err", err)
-		d.failLaunch(agent, err)
+		d.failLaunch(ctx, actor, m.Meta.GetMutationId(), agent, err)
+		cleanup()
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("launching %s: %w", name, err))
 	}
 	// Its first hooks may have come before its terminal was recorded: ring for its task now.
@@ -622,36 +654,47 @@ func (d *Daemon) launch(ctx context.Context, a *v1.Agent, token string, plan *ad
 	if err != nil {
 		return nil, err
 	}
+	tid := term.Msg.Terminal.Id
 	var out *v1.Agent
 	err = d.store.Write(ctx, auth.ActorFrom(ctx), "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
 			return err
 		}
-		cur.TerminalId = term.Msg.Terminal.Id
+		cur.TerminalId = tid
 		out = cur
 		return tx.PutAgent(cur)
 	})
+	if err != nil {
+		// A terminal no agent records would run on unseen: stop it.
+		d.rt.term.API.KillTerminal(context.Background(), connect.NewRequest(&termv1.KillTerminalRequest{Id: tid}))
+	}
 	return out, err
 }
 
-// failLaunch records a launch that never started: the agent is exited and its token revoked.
-func (d *Daemon) failLaunch(a *v1.Agent, cause error) {
-	err := d.store.Write(context.Background(), nil, "", func(tx *store.Tx) error {
-		cur, err := tx.GetAgent(a.Id)
-		if err != nil {
-			return err
-		}
-		cur.State, cur.StateDetail, cur.ExitCode = v1.AgentState_AGENT_STATE_EXITED, "launch failed: "+cause.Error(), -1
-		if err := tx.PutAgent(cur); err != nil {
-			return err
-		}
+// failLaunch undoes a launch that never started: the agent's record, token, pending messages and the
+// spawn's mutation go, so the same slug (or a retry of the same write) can try again; the events stay, ending
+// with the agent's exit as "launch failed".
+func (d *Daemon) failLaunch(ctx context.Context, actor *v1.Actor, mutationID string, a *v1.Agent, cause error) {
+	err := d.store.Write(context.Background(), actor, "", func(tx *store.Tx) error {
 		if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
-			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "launch failed"}}}); err != nil {
+			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "launch failed: " + cause.Error()}}}); err != nil {
 			return err
 		}
-		return tx.RevokeTokens(a.Id)
+		if err := tx.RevokeTokens(a.Id); err != nil {
+			return err
+		}
+		if err := tx.Exec(`DELETE FROM messages WHERE to_id = ?`, a.Id); err != nil {
+			return err
+		}
+		if mutationID != "" {
+			if err := tx.Exec(`DELETE FROM mutations WHERE actor_id = ? AND id = ?`, actor.Id, mutationID); err != nil {
+				return err
+			}
+		}
+		return tx.DeleteAgent(a.Id)
 	})
+	os.RemoveAll(d.paths.Agent(a.Id))
 	if err != nil {
 		d.log.Error("recording a failed launch", "agent", a.Name, "err", err)
 	}
@@ -716,6 +759,11 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
+	// Never type into what a user is typing: while a client that can type is attached, the doorbell waits
+	// (retryDoorbells rings it once they leave).
+	if typing, err := d.userAttached(ctx, a.TerminalId); err != nil || typing {
+		return err
+	}
 	if err := d.typeLine(ctx, a.TerminalId, Doorbell(msgs)); err != nil {
 		return err
 	}
@@ -732,6 +780,35 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 		}
 		return nil
 	})
+}
+
+// userAttached reports whether a client that can type is attached to a terminal.
+func (d *Daemon) userAttached(ctx context.Context, terminalID string) (bool, error) {
+	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		return false, err
+	}
+	for _, t := range res.Msg.Terminals {
+		if t.Id == terminalID {
+			return t.InputClients > 0, nil
+		}
+	}
+	return false, nil
+}
+
+// retryDoorbells rings again for messages whose doorbell couldn't ring (the agent was busy, a user was
+// typing, a trigger was missed).
+func (d *Daemon) retryDoorbells(ctx context.Context) {
+	if d.rt.term == nil {
+		return
+	}
+	ids, err := d.store.Read(ctx).AgentsWithUndelivered()
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		d.deliverSoon(id)
+	}
 }
 
 // typeLine types a line into a terminal, then Enter after a pause, so the TUI doesn't read it as a paste.

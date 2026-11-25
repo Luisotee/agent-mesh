@@ -422,6 +422,31 @@ func (r Reader) ListAgents(runID string) ([]*v1.Agent, error) {
 		func() *v1.Agent { return &v1.Agent{} })
 }
 
+// DeleteAgent removes an agent that never ran (its launch failed), so its name can be used again. Its
+// events stay.
+func (t *Tx) DeleteAgent(id string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM agents WHERE id = ?`, id)
+	return err
+}
+
+// AgentsWithUndelivered lists the agents that have messages whose doorbell hasn't rung.
+func (r Reader) AgentsWithUndelivered() ([]string, error) {
+	rows, err := r.q.QueryContext(r.ctx, `SELECT DISTINCT to_id FROM messages WHERE delivered_at IS NULL AND read_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // AgentByTerminal returns the agent running in a terminal.
 func (r Reader) AgentByTerminal(terminalID string) (*v1.Agent, error) {
 	return scanOne(r, `SELECT data FROM agents WHERE terminal_id = ?`, []any{terminalID}, &v1.Agent{})

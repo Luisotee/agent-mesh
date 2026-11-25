@@ -24,8 +24,15 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	// A daemon that exits must not take us along: ignore the hangup of a closed session.
-	signal.Ignore(syscall.SIGHUP)
+	// A daemon that exits must not take us along: catch the hangup of a closed session and drop it. Caught,
+	// not ignored: an ignored signal stays ignored in every program we start, and the agents must die on a
+	// hangup.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+		}
+	}()
 	if *maxLife > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, *maxLife)

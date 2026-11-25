@@ -230,14 +230,14 @@ func (h *Host) hangUpAll() {
 	for _, t := range terms {
 		t.closeClients("shutdown")
 		if !t.isExited() {
-			proc.SignalGroup(t.pid, t.startTicks, syscall.SIGHUP)
+			proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGHUP)
 		}
 	}
 	for _, t := range terms {
 		select {
 		case <-t.done:
 		case <-time.After(2 * time.Second):
-			proc.SignalGroup(t.pid, t.startTicks, syscall.SIGKILL)
+			proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGKILL)
 		}
 		t.ptmx.Close()
 	}
@@ -299,13 +299,18 @@ func (h *Host) CreateTerminal(_ context.Context, req *connect.Request[termv1.Cre
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("starting %s: %w", m.Argv[0], err))
 	}
+	// Without its start time the terminal could never be signalled safely: refuse it.
 	ticks, err := proc.StartTicks(cmd.Process.Pid)
-	if err != nil {
-		h.log.Warn("no start time for a new terminal", "pid", cmd.Process.Pid, "err", err)
+	tty, terr := proc.TTY(cmd.Process.Pid)
+	if err = errors.Join(err, terr); err != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
+		ptmx.Close()
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("identifying the new process: %w", err))
 	}
 	t := &Terminal{h: h, id: ids.New("t", 10), argv: m.Argv, cwd: m.Cwd, labels: m.Labels, cmd: cmd, ptmx: ptmx,
-		pid: cmd.Process.Pid, startTicks: ticks, startedAt: time.Now(), ring: NewRing(h.cfg.RingSize),
-		epoch: 1, cols: cols, rows: rows,
+		pid: cmd.Process.Pid, startTicks: ticks, tty: tty, startedAt: time.Now(), ring: NewRing(h.cfg.RingSize),
+		epoch: 1, cols: cols, rows: rows, replies: make(chan []byte, 64),
 		clients: map[*client]struct{}{}, done: make(chan struct{}), readDone: make(chan struct{})}
 	t.screen = h.cfg.NewScreen(int(cols), int(rows), t.reply)
 	h.mu.Lock()
@@ -313,6 +318,7 @@ func (h *Host) CreateTerminal(_ context.Context, req *connect.Request[termv1.Cre
 	h.mu.Unlock()
 	go t.readLoop()
 	go t.waitLoop()
+	go t.replyLoop()
 	h.log.Info("terminal started", "id", t.id, "pid", t.pid, "argv0", m.Argv[0])
 	return connect.NewResponse(&termv1.CreateTerminalResponse{Terminal: t.proto()}), nil
 }
@@ -340,21 +346,26 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 	if t == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no terminal %s", req.Msg.Id))
 	}
+	sig := syscall.Signal(req.Msg.Signal)
 	if t.isExited() {
+		// The leader is gone, but members of its group may still hold the PTY.
+		if sig == 0 {
+			sig = syscall.SIGKILL
+		}
+		proc.SignalGroup(t.pid, t.startTicks, t.tty, sig)
 		return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
 	}
-	sig := syscall.Signal(req.Msg.Signal)
 	if sig == 0 {
 		sig = syscall.SIGTERM
 		go func() {
 			select {
 			case <-t.done:
 			case <-time.After(h.cfg.KillGrace):
-				proc.SignalGroup(t.pid, t.startTicks, syscall.SIGKILL)
+				proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGKILL)
 			}
 		}()
 	}
-	if err := proc.SignalGroup(t.pid, t.startTicks, sig); err != nil && !errors.Is(err, proc.ErrGone) {
+	if err := proc.SignalGroup(t.pid, t.startTicks, t.tty, sig); err != nil && !errors.Is(err, proc.ErrGone) {
 		return nil, err
 	}
 	return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
@@ -388,6 +399,12 @@ func (h *Host) AckExit(_ context.Context, req *connect.Request[termv1.AckExitReq
 	}
 	if !t.isExited() {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("terminal %s is running", t.id))
+	}
+	// Close the PTY (its fd would leak otherwise), let the reader finish, then the screen it writes to.
+	t.ptmx.Close()
+	select {
+	case <-t.readDone:
+	case <-time.After(2 * time.Second):
 	}
 	t.mu.Lock()
 	t.screen.Close()
@@ -451,7 +468,9 @@ type Terminal struct {
 	ptmx       *os.File
 	pid        int
 	startTicks uint64
+	tty        uint64 // the PTY's device number, which the group's members share
 	startedAt  time.Time
+	replies    chan []byte
 	done       chan struct{} // closed once the program exited and its output was read
 	readDone   chan struct{}
 
@@ -483,7 +502,8 @@ func (t *Terminal) proto() *termv1.Terminal {
 	defer t.mu.Unlock()
 	p := &termv1.Terminal{Id: t.id, Argv: t.argv, Cwd: t.cwd, Pid: int64(t.pid), PidStartTicks: t.startTicks,
 		Epoch: t.epoch, Offset: t.ring.End(), Cols: uint32(t.cols), Rows: uint32(t.rows), Exited: t.exited,
-		ExitCode: t.exitCode, Signal: t.signal, StartedAt: timestamppb.New(t.startedAt), Labels: t.labels}
+		ExitCode: t.exitCode, Signal: t.signal, StartedAt: timestamppb.New(t.startedAt), Labels: t.labels,
+		InputClients: uint32(t.inputClients.Load())}
 	if t.exited {
 		p.ExitedAt = timestamppb.New(t.exitedAt)
 	}
@@ -533,10 +553,27 @@ func (t *Terminal) output(p []byte) {
 }
 
 // reply takes the emulator's answers to terminal queries. They go to the program only while no client that
-// can type is attached: an attached terminal answers for itself.
+// can type is attached: an attached terminal answers for itself. It never blocks: the emulator calls it while
+// the terminal's lock is held, and a program not reading its input must not stall the host. A full queue
+// drops the answer.
 func (t *Terminal) reply(b []byte) {
-	if t.inputClients.Load() == 0 {
-		t.ptmx.Write(b)
+	if t.inputClients.Load() != 0 {
+		return
+	}
+	select {
+	case t.replies <- b:
+	default:
+	}
+}
+
+func (t *Terminal) replyLoop() {
+	for {
+		select {
+		case b := <-t.replies:
+			t.ptmx.Write(b)
+		case <-t.done:
+			return
+		}
 	}
 }
 
