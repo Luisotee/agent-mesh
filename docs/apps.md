@@ -300,10 +300,17 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 4. **Android app:** status, notifications with actions through UnifiedPush, plans, questions, reports, the terminal.
 5. **Then:** the git, PR and CI features, the structured chat view, schedules, usage, third-party plugins (install, consent, the index), the browser client, and the rest of the list.
 
+## Decided
+
+Settled for step 1 (2026-11-25, run mfb6a):
+
+- **Repo layout:** this repo. `proto/` holds the schemas (with `buf.yaml`), `daemon/` the Go module; `desktop/` and `android/` come later. The schemas and every client change in one PR.
+- **PTYs plus structured channels:** both, as "Architecture" says. Step 1 builds only the PTY side.
+- **Terminal replay: both mechanisms.** The terminal host keeps a ring buffer of raw output per terminal (epoch plus byte offset) for exact replay, and feeds the same bytes to a server-side emulator per terminal, so any client can get a repaint. The emulator is [`charmbracelet/x/vt`](https://github.com/charmbracelet/x/tree/main/vt) (MIT, maintained, used by Charm's crush): it keeps the screen and scrollback, renders a snapshot, tracks modes through callbacks, and answers DA1/DA2 itself, which the host forwards only while no client is attached. It has no tagged release past v0.1.0, so it is pinned by commit, behind a small interface so it can be swapped. `hinshun/vt10x` lost: no commit since 2023.
+- **Roles and actor classes:** the registry knows root, worker, asker, reviewer, device and read-only device from the start, each with a fixed set of actions pinned by a test. Only the root (or a device) starts change workers; a worker starts only read-only agents (askers, reviewers); askers and reviewers start none.
+- **Names until the switchover:** `meshd` (the daemon), `mesh-term` (the terminal host), `meshctl` (the generated CLI, renamed `mesh` when it replaces `bin/mesh`). Their environment variables use the prefix `AGENT_MESH_`, which the live mesh doesn't read.
+
 ## Open decisions
 
-- Whether the apps live in this repo (`daemon/`, `desktop/`, `android/`, `proto/`; the pick, so the schemas and every client change in one PR) or in their own repos.
-- Whether to drive agents through PTYs plus structured channels (the pick), or structured channels only.
-- Terminal replay: a server-side terminal emulator that can always repaint any client (happy, unconfirmed), or reanchor plus a forced repaint (Paradev).
 - agy's hooks: one peer says a hook with no output denies the call, another that it times out at about 30 s and fails open. Test on our agy before relying on its hooks for permissions.
 - Tailcat (a Tailscale-compatible library with no account and your own relay server, per happy) instead of `tsnet`, later.

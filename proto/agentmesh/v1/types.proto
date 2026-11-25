@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/actor.proto";
+import "google/protobuf/timestamp.proto";
+
+// RequestMeta comes with every write. A retried write with the same mutation id returns the first result
+// instead of running twice, and a write that arrives after expires_at is refused, so a delayed tap neither
+// runs twice nor runs late. Events a write causes carry its mutation id.
+message RequestMeta {
+  // Chosen by the client, unique per intended write (a UUID).
+  string mutation_id = 1;
+  // Refuse the write after this time; unset means no expiry.
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_OPEN = 1;
+  RUN_STATUS_CLOSED = 2;
+}
+
+message Run {
+  string id = 1;
+  string title = 2;
+  RunStatus status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Who started it.
+  Actor created_by = 5;
+}
+
+// AgentRole is an agent's place in its run. It is also its token's actor class.
+enum AgentRole {
+  AGENT_ROLE_UNSPECIFIED = 0;
+  AGENT_ROLE_ROOT = 1;
+  AGENT_ROLE_WORKER = 2;
+  AGENT_ROLE_ASKER = 3;
+  AGENT_ROLE_REVIEWER = 4;
+}
+
+// AgentState is what the agent's state reducer derived from its CLI's hooks and process events.
+enum AgentState {
+  AGENT_STATE_UNSPECIFIED = 0;
+  // Launched; its CLI hasn't reported a session yet.
+  AGENT_STATE_STARTING = 1;
+  // Waiting for input at its prompt.
+  AGENT_STATE_IDLE = 2;
+  // In a turn.
+  AGENT_STATE_WORKING = 3;
+  // Stopped at a permission prompt or a question to the user.
+  AGENT_STATE_NEEDS_INPUT = 4;
+  // Its process ended.
+  AGENT_STATE_EXITED = 5;
+  // Working, but nothing heard from it for a while. Derived when read, never stored.
+  AGENT_STATE_UNKNOWN = 6;
+}
+
+message Agent {
+  string id = 1;
+  string run_id = 2;
+  // `<repo>-<slug>`, unique within its run.
+  string name = 3;
+  AgentRole role = 4;
+  // The agent that started it; empty for one a device started.
+  string parent_id = 5;
+  // The CLI adapter's kind, such as "claude".
+  string kind = 6;
+  // The repository it works in, and its worktree and branch there.
+  string repo = 7;
+  string worktree = 8;
+  string branch = 9;
+  string model = 10;
+  string effort = 11;
+  // The CLI's conversation id.
+  string session_id = 12;
+  // The terminal host's id for its PTY.
+  string terminal_id = 13;
+  AgentState state = 14;
+  // How many reasons it currently needs input for (permission prompts, questions).
+  int32 needs_input = 15;
+  // A short reason for the state, such as the permission prompt's tool.
+  string state_detail = 16;
+  google.protobuf.Timestamp last_activity = 17;
+  google.protobuf.Timestamp created_at = 18;
+  // Set once it exited.
+  int32 exit_code = 19;
+}
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_TASK = 1;
+  MESSAGE_TYPE_PLAN = 2;
+  MESSAGE_TYPE_QUESTION = 3;
+  MESSAGE_TYPE_ANSWER = 4;
+  MESSAGE_TYPE_DONE = 5;
+  MESSAGE_TYPE_FAILED = 6;
+  MESSAGE_TYPE_INFO = 7;
+  MESSAGE_TYPE_WAIT = 8;
+}
+
+message Message {
+  string id = 1;
+  string run_id = 2;
+  Actor from = 3;
+  // The recipient agent's id.
+  string to_id = 4;
+  string to_name = 5;
+  MessageType type = 6;
+  string body = 7;
+  google.protobuf.Timestamp created_at = 8;
+  // When its doorbell reached the recipient's terminal; unset until then.
+  google.protobuf.Timestamp delivered_at = 9;
+  // When the recipient read it with ReadInbox; unset until then.
+  google.protobuf.Timestamp read_at = 10;
+}
+
+// Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't
+// be resumed: the stream starts over from a snapshot.
+message Cursor {
+  string generation = 1;
+  int64 seq = 2;
+}
+
+// Event is one entry of the host's event log: durable, numbered and replayable. Ephemeral frames are not
+// events.
+message Event {
+  int64 seq = 1;
+  string generation = 2;
+  google.protobuf.Timestamp time = 3;
+  string run_id = 4;
+  string agent_id = 5;
+  // Who caused it: the actor of the action, or the agent whose hook reported it.
+  Actor actor = 6;
+  // The mutation id of the write that caused it, if any.
+  string mutation_id = 7;
+  oneof payload {
+    RunStarted run_started = 10;
+    AgentSpawned agent_spawned = 11;
+    AgentStateChanged agent_state_changed = 12;
+    MessageSent message_sent = 13;
+    MessageDelivered message_delivered = 14;
+    AgentExited agent_exited = 15;
+    AgentAdopted agent_adopted = 16;
+    HookDecodeFailed hook_decode_failed = 17;
+  }
+}
+
+message RunStarted {
+  Run run = 1;
+}
+
+message AgentSpawned {
+  Agent agent = 1;
+}
+
+message AgentStateChanged {
+  AgentState from = 1;
+  AgentState to = 2;
+  string detail = 3;
+  int32 needs_input = 4;
+}
+
+message MessageSent {
+  Message message = 1;
+}
+
+message MessageDelivered {
+  string message_id = 1;
+}
+
+message AgentExited {
+  int32 exit_code = 1;
+  int32 signal = 2;
+  // "exited", "killed", or "lost" (its terminal was gone when the daemon looked).
+  string reason = 3;
+}
+
+// The daemon found the agent's terminal still running at boot and took it back.
+message AgentAdopted {
+  string terminal_id = 1;
+}
+
+// A hook's payload couldn't be decoded. Never read as any other event.
+message HookDecodeFailed {
+  string event_name = 1;
+  string error = 2;
+}

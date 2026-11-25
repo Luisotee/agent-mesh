@@ -24,7 +24,6 @@ Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was
 
 herdr and the terminal workflow are replaced by a daemon per host plus desktop, Android and web apps; nothing of herdr is kept. Steps, in order (`docs/apps.md`, "Order of work"):
 
-- [ ] Settle the open decisions in `docs/apps.md` (repo layout, PTYs plus structured channels).
 - [ ] Daemon core (Go): protobuf action registry and ConnectRPC API with event streams, agents in daemon-owned PTYs with state from hooks (Claude, then agy), SQLite run state, the generated `mesh` CLI. Agents run without herdr.
 - [ ] Port the skills and protocol to the daemon: keep the `mesh` command names agents already use where they still fit, rewrite `ORCHESTRATE.md` and `PROTOCOL.md` for daemon events instead of doorbells, panes and `mesh watch` exit codes, drop the herdr fallbacks in the skills (`harvest-peers` "No herdr", `delegate-*` panes), and have the daemon install the skills into each CLI.
 - [ ] Desktop app (Electron + React), first version: hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray.

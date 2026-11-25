@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package agentmesh.adapter.v1;
+
+import "agentmesh/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// CliAdapterService is the plugin interface for an agent CLI: what to run, and what its hooks mean. Built-in
+// adapters implement it in the daemon's process; a process plugin serves the same service over its own socket.
+// Everything CLI-specific lives behind it; the daemon handles only the neutral AgentEvents it returns.
+service CliAdapterService {
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+  rpc PlanLaunch(PlanLaunchRequest) returns (PlanLaunchResponse);
+  rpc DecodeHook(DecodeHookRequest) returns (DecodeHookResponse);
+}
+
+message DescribeRequest {}
+
+message DescribeResponse {
+  // The kind agents name it by, such as "claude".
+  string kind = 1;
+  string display_name = 2;
+  // CLI versions its decoding was verified against; others get a warning.
+  repeated string verified_versions = 3;
+  repeated string capabilities = 4;
+}
+
+message PlanLaunchRequest {
+  string agent_id = 1;
+  string agent_name = 2;
+  string run_id = 3;
+  agentmesh.v1.AgentRole role = 4;
+  string cwd = 5;
+  string model = 6;
+  string effort = 7;
+  // The CLI's binary, from the host's settings.
+  string binary = 8;
+  // The command every hook runs, as argv; the adapter appends its own arguments (the event name).
+  repeated string hook_argv = 9;
+  // The environment to start from: the daemon's allowlist plus the agent's identity.
+  map<string, string> env = 10;
+  // Start the CLI with its permission prompts off.
+  bool skip_permissions = 11;
+}
+
+message PlanLaunchResponse {
+  repeated string argv = 1;
+  map<string, string> env = 2;
+  // The conversation id, when the adapter chose it up front.
+  string session_id = 3;
+}
+
+message DecodeHookRequest {
+  string agent_id = 1;
+  // The conversation id the daemon knows for the agent; hooks from another conversation are dropped.
+  string session_id = 2;
+  string event_name = 3;
+  bytes payload = 4;
+  google.protobuf.Timestamp fired_at = 5;
+}
+
+message DecodeHookResponse {
+  repeated AgentEvent events = 1;
+}
+
+// AgentEvent is a neutral event an adapter derives from a hook, a stream or the process. One pure reducer turns
+// a sequence of them into the agent's state.
+message AgentEvent {
+  google.protobuf.Timestamp time = 1;
+  oneof kind {
+    SessionStarted session_started = 10;
+    TurnStarted turn_started = 11;
+    Activity activity = 12;
+    NeedsInput needs_input = 13;
+    TurnEnded turn_ended = 14;
+    Compacting compacting = 15;
+    SessionEnded session_ended = 16;
+    ProcessExited process_exited = 17;
+    DecodeError decode_error = 18;
+  }
+}
+
+// The CLI is up and idle at its prompt (also after /clear or a resume).
+message SessionStarted {
+  string session_id = 1;
+  // "startup", "resume", "clear", "compact".
+  string source = 2;
+}
+
+message TurnStarted {}
+
+// Something happened in a turn (a tool ran); keeps the agent from reading as unknown.
+message Activity {
+  string detail = 1;
+}
+
+// The CLI waits on the user: a permission prompt, a question.
+message NeedsInput {
+  string reason = 1;
+}
+
+message TurnEnded {}
+
+message Compacting {}
+
+message SessionEnded {
+  string reason = 1;
+}
+
+message ProcessExited {
+  int32 exit_code = 1;
+  int32 signal = 2;
+}
+
+message DecodeError {
+  string error = 1;
+}

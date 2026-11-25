@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package agentmesh.term.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TermHostService is the terminal host's control API, called only by the daemon (with the host's token). The
+// terminals' bytes go over one WebSocket per terminal, as TermFrame messages, not over this service.
+service TermHostService {
+  rpc Hello(HelloRequest) returns (HelloResponse);
+  rpc CreateTerminal(CreateTerminalRequest) returns (CreateTerminalResponse);
+  rpc ListTerminals(ListTerminalsRequest) returns (ListTerminalsResponse);
+  // Signal a terminal's process group. The host checks the process's start time before signalling.
+  rpc KillTerminal(KillTerminalRequest) returns (KillTerminalResponse);
+  // Daemon-side input, such as a doorbell.
+  rpc WriteTerminal(WriteTerminalRequest) returns (WriteTerminalResponse);
+  // Forget an exited terminal once the daemon has recorded its exit.
+  rpc AckExit(AckExitRequest) returns (AckExitResponse);
+  // Exits and "has output" marks, live.
+  rpc WatchTerminals(WatchTerminalsRequest) returns (stream WatchTerminalsResponse);
+}
+
+message HelloRequest {}
+
+message HelloResponse {
+  // Changes on every start of the host; a daemon that sees a new one knows the old terminals are gone.
+  string instance_id = 1;
+  google.protobuf.Timestamp started_at = 2;
+  int64 pid = 3;
+  string version = 4;
+}
+
+message Terminal {
+  string id = 1;
+  repeated string argv = 2;
+  string cwd = 3;
+  int64 pid = 4;
+  // The process's start time in clock ticks since boot (/proc/<pid>/stat field 22): with the pid, its identity.
+  uint64 pid_start_ticks = 5;
+  // The ring buffer's position: output bytes are numbered from 0, and epoch changes at every sync boundary
+  // (a resize).
+  uint64 epoch = 6;
+  uint64 offset = 7;
+  uint32 cols = 8;
+  uint32 rows = 9;
+  bool exited = 10;
+  int32 exit_code = 11;
+  int32 signal = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp exited_at = 14;
+  google.protobuf.Timestamp last_output = 15;
+  // Set by the daemon at creation (its agent id, say), so terminals can be matched without the daemon's db.
+  map<string, string> labels = 16;
+}
+
+message CreateTerminalRequest {
+  repeated string argv = 1;
+  // The complete environment; nothing is inherited from the host.
+  map<string, string> env = 2;
+  string cwd = 3;
+  uint32 cols = 4;
+  uint32 rows = 5;
+  map<string, string> labels = 6;
+}
+
+message CreateTerminalResponse {
+  Terminal terminal = 1;
+}
+
+message ListTerminalsRequest {}
+
+message ListTerminalsResponse {
+  repeated Terminal terminals = 1;
+}
+
+message KillTerminalRequest {
+  string id = 1;
+  // A signal number; 0 means SIGTERM, then SIGKILL after a grace period.
+  int32 signal = 2;
+}
+
+message KillTerminalResponse {}
+
+message WriteTerminalRequest {
+  string id = 1;
+  bytes data = 2;
+}
+
+message WriteTerminalResponse {}
+
+message AckExitRequest {
+  string id = 1;
+}
+
+message AckExitResponse {}
+
+message WatchTerminalsRequest {}
+
+message WatchTerminalsResponse {
+  oneof frame {
+    Terminal exited = 1;
+    // Output arrived; at most one mark per terminal per second.
+    OutputMark output = 2;
+  }
+}
+
+message OutputMark {
+  string id = 1;
+  uint64 offset = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+// TermFrame is one binary WebSocket message on a terminal's stream, either way.
+message TermFrame {
+  oneof frame {
+    // Client to host.
+    Attach attach = 1;
+    Input input = 2;
+    Resize resize = 3;
+    Ready ready = 4;
+    // Host to client.
+    Attached attached = 10;
+    Output output = 11;
+    Screen screen = 12;
+    ReplayDone replay_done = 13;
+    Exited exited = 14;
+    Closing closing = 15;
+  }
+}
+
+enum AttachMode {
+  ATTACH_MODE_UNSPECIFIED = 0;
+  // Continue from (epoch, offset): the client still has its screen. Falls back to REPAINT, marked
+  // reanchored, when the epoch changed or the offset left the ring.
+  ATTACH_MODE_EXACT = 1;
+  // The mode preamble, then live output only.
+  ATTACH_MODE_TAIL = 2;
+  // The mode preamble and a repaint of the screen from the host's emulator, then live output.
+  ATTACH_MODE_REPAINT = 3;
+}
+
+// The first frame a client sends.
+message Attach {
+  AttachMode mode = 1;
+  uint64 epoch = 2;
+  uint64 offset = 3;
+  uint32 cols = 4;
+  uint32 rows = 5;
+  // Make the program redraw (shrink the width by one, then restore it): Ink TUIs redraw only on a shrink.
+  bool redraw = 6;
+}
+
+message Attached {
+  string terminal_id = 1;
+  AttachMode mode = 2;
+  // EXACT was asked for but couldn't be served.
+  bool reanchored = 3;
+  uint64 epoch = 4;
+  // Where the output that follows starts.
+  uint64 offset = 5;
+  uint32 cols = 6;
+  uint32 rows = 7;
+  // Whether this client's input is accepted.
+  bool input = 8;
+}
+
+message Input {
+  bytes data = 1;
+}
+
+message Resize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+// Sent by the client after ReplayDone: input before it is dropped, so replayed queries draw no replies.
+message Ready {}
+
+message Output {
+  uint64 epoch = 1;
+  // The offset of data's first byte.
+  uint64 offset = 2;
+  bytes data = 3;
+  // Part of the replay that precedes ReplayDone.
+  bool replay = 4;
+}
+
+// A repaint: the mode preamble and the screen, as bytes a terminal renders.
+message Screen {
+  uint64 epoch = 1;
+  // The output offset the screen reflects; live output continues from here.
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message ReplayDone {
+  uint64 offset = 1;
+}
+
+message Exited {
+  int32 exit_code = 1;
+  int32 signal = 2;
+}
+
+// The host closes the stream: "slow" (the client fell behind; reattach by offset), "exited", "shutdown".
+message Closing {
+  string reason = 1;
+}

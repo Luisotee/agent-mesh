@@ -1,0 +1,15 @@
+# `buf generate` from proto/: Go types and ConnectRPC stubs into daemon/gen, with the plugin versions pinned by
+# daemon/go.mod's `tool` directives (nothing installed globally). Needs `go` on PATH.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/Luisotee/agent-mesh/daemon/gen
+plugins:
+  - local: ["go", "-C", "../daemon", "tool", "protoc-gen-go"]
+    out: ../daemon/gen
+    opt: paths=source_relative
+  - local: ["go", "-C", "../daemon", "tool", "protoc-gen-connect-go"]
+    out: ../daemon/gen
+    opt: paths=source_relative
