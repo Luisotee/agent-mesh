@@ -68,7 +68,7 @@ def test_the_free_family_is_opencodes_own_costless_models_newest_first(mesh):
     assert mesh.opencode_pick(["free"]) == ("opencode/big-pickle", [])
     assert mesh.opencode_pick(["anthropic/claude-y", "free"]) == ("anthropic/claude-y", [])  # a provider's, as given
     assert mesh.opencode_variants("opencode/beam-free") == {"low", "high"}
-    assert mesh.cli("opencode").plan_model("high", None) == ("opencode/big-pickle", [])
+    assert mesh.cli("opencode").plan_model(("free",), "high", None) == ("opencode/big-pickle", [])
 
 
 def test_an_opencode_worker_starts_in_a_pane_with_its_own_agent_config(mesh, fake, run, repo):
@@ -137,7 +137,7 @@ def test_progress_context_and_cost_come_from_the_session_rows(mesh, tmp_path):
 def test_opencodes_free_limit_reads_as_a_quota_and_switch_rotates(mesh, fake, run, tmp_path, capsys):
     seed_listing(mesh)
     with mesh.editing_run(run) as data:
-        data["agents"]["repo-fix-typo"].update(kind="opencode", model="opencode/big-pickle", effort="high",
+        data["agents"]["repo-fix-typo"].update(kind="opencode", model="opencode/big-pickle", effort="high", tier="strong",
                                                phase="plan", cwd=str(tmp_path),
                                                models=[{"model": "opencode/big-pickle", "why": "spawn"}])
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Fix the typo.")
@@ -151,7 +151,7 @@ def test_opencodes_free_limit_reads_as_a_quota_and_switch_rotates(mesh, fake, ru
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     model, notes = mesh.cli("opencode").switch_model(entry, "high")
     assert model == "opencode/beam-free"  # the next free one: it ran on big-pickle, which is spent too
-    assert "big-pickle is at its limit" in mesh.cli("opencode").plan_model("high", None)[1][0]  # for a new worker
+    assert "big-pickle is at its limit" in mesh.cli("opencode").plan_model(("free",), "high", None)[1][0]  # for a new worker
     mesh.note_model_limit("opencode", "opencode/beam-free", "free", time.time() + 600)
     with pytest.raises(mesh.NoModelLeft, match="no OpenCode model left") as left:
         mesh.cli("opencode").switch_model(entry, "high")

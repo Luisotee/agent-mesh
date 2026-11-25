@@ -597,7 +597,7 @@ def test_ask_peers_reports_a_peer_that_asks_back_instead(mesh, fake, cli, run, r
 def test_ask_peers_needs_peers_and_no_other_target(mesh, fake, run, repo, capsys):
     assert mesh.main(["ask", "--peers", "all", "--body", "How?"]) == 1
     assert "no peers yet" in capsys.readouterr().err
-    assert mesh.main(["ask", "--peers", "all", "--repo", str(repo), "--body", "How?"]) == 1
+    assert mesh.main(["ask", "--tier", "strong", "--peers", "all", "--repo", str(repo), "--body", "How?"]) == 1
     assert "drop the worker, --repo" in capsys.readouterr().err
 
 
@@ -802,7 +802,7 @@ def test_a_removed_fresh_peer_comes_back_at_the_code_it_last_read(mesh, fake, cl
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     commit(up, "two")
     new = commit(up, "three")
-    assert mesh.main(["ask", "swarm-research", "--body", "Q1?", "--no-wait"]) == 0
+    assert mesh.main(["ask", "swarm-research", "--tier", "mid", "--body", "Q1?", "--no-wait"]) == 0
     assert mesh.load_run(run)["agents"]["swarm-research"]["base"] == new
     with mesh.editing_run(run) as data:
         data["agents"]["swarm-research"]["status"] = "retired"
