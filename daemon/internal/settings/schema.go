@@ -319,7 +319,29 @@ func DefaultLeaves() []Leaf {
 		Leaf{Key: "caps.agents", Type: Int, Default: 8.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
 	)
-	return ls
+	return append(ls, AppLeaves()...)
+}
+
+// NotifyEvents are the events the desktop app can notify about (app.notify.events).
+var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited"}
+
+// AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
+// and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
+func AppLeaves() []Leaf {
+	events := make([]any, 0, 5)
+	for _, e := range NotifyEvents[:5] {
+		events = append(events, e)
+	}
+	return []Leaf{
+		{Key: "app.notify.enabled", Type: Bool, Default: true,
+			Summary: "desktop notifications for what happens on this host"},
+		{Key: "app.notify.sound", Type: Bool, Default: true,
+			Summary: "play the system sound with a desktop notification"},
+		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
+			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, or any agent's exit"},
+		{Key: "app.tray.close_to_tray", Type: Bool, Default: true,
+			Summary: "closing the desktop window keeps the app running in the tray"},
+	}
 }
 
 // Default returns the host's schema.
