@@ -52,7 +52,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // A worker the lead starts (with the lead's own token, as an agent would) joins the tree under it, live.
   const leadId = await agentId('repo-lead')
   const asLead = host.client(host.agentToken(leadId))
-  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude' })
+  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const workerRow = run.getByRole('listitem').filter({ has: page.getByRole('button', { name: /repo-lead/ }) }).getByRole('list').getByRole('button', { name: /repo-fix/ })
   await workerRow.waitFor()
   await expect.poll(() => workerRow.innerText(), { timeout: 20_000 }).toContain('Idle')
@@ -84,7 +84,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   await host.start()
   await page.getByRole('button', { name: 'Host local, ready' }).waitFor({ timeout: 30_000 })
   await run.getByRole('button', { name: /repo-lead/ }).waitFor()
-  await host.client().spawnAgent({ runId: await runId(), repo: host.repo, slug: 'after', role: AgentRole.WORKER, kind: 'claude' })
+  await host.client().spawnAgent({ runId: await runId(), repo: host.repo, slug: 'after', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   await run.getByRole('button', { name: /repo-after/ }).waitFor()
 })
 
@@ -154,7 +154,7 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   const { page } = app
   // A worker the lead started (so its parent is the lead, the plan's recipient).
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude' })
+  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const asWorker = host.client(host.agentToken(worker!.id))
   await asWorker.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n1. fix the typo\n2. add a test\n\nSee [the docs](https://example.com/docs).' })
 
@@ -236,7 +236,7 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   const log = () => readFileSync(app.shellLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
   const notices = () => log().filter((l) => l.type === 'notify').map((l) => `${l.title}`)
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  const { agent: noisy } = await asLead.spawnAgent({ repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude' })
+  const { agent: noisy } = await asLead.spawnAgent({ repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const asNoisy = host.client(host.agentToken(noisy!.id))
 
   await asNoisy.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n- one thing' })

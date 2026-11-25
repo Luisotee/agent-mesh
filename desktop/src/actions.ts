@@ -27,7 +27,7 @@ export function meta(now = Date.now()) {
 
 export const startRun = (c: MeshClient, title: string) => c.startRun({ meta: meta(), title })
 
-export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'kind' | 'model' | 'effort' | 'task'> & {
+export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'kind' | 'tier' | 'model' | 'effort' | 'task'> & {
   role: AgentRole
 }
 export const spawnAgent = (c: MeshClient, input: SpawnInput) => c.spawnAgent({ meta: meta(), ...input })

@@ -216,11 +216,36 @@ describe('SpawnDialog', () => {
     await userEvent.type(screen.getByLabelText('Slug'), 'lead')
     await userEvent.click(screen.getByRole('button', { name: 'Start agent' }))
     await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
-    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', repo: '/p/app', slug: 'lead', role: AgentRole.ROOT, kind: 'claude' })
-    // The lead now exists: reopening offers a worker.
+    // A lead may take the CLI's default: no tier, no model.
+    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', repo: '/p/app', slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: '', model: '' })
+    // The lead now exists: reopening offers a worker, which the host only starts on a tier or a model.
     host.store.setState({ agents: { lead: agent('lead', { role: AgentRole.ROOT }) } })
     await userEvent.click(await screen.findByRole('button', { name: 'add' }))
     expect(screen.getByLabelText('Role')).toHaveValue(String(AgentRole.WORKER))
+    expect(screen.getByLabelText('Tier')).toHaveValue('mid')
+    expect(within(screen.getByLabelText('Tier')).queryByRole('option', { name: "The CLI's default" })).toBeNull()
+    await userEvent.type(screen.getByLabelText('Repository'), '/p/app')
+    await userEvent.type(screen.getByLabelText('Slug'), 'fix')
+    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
+    await userEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(2))
+    expect(client.spawnAgent.mock.calls[1]![0]).toMatchObject({ role: AgentRole.WORKER, tier: 'strong' })
+  })
+
+  it('offers the tiers the host defines for the CLI, and never leaves a worker with none', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState({ agents: {}, settings: Object.fromEntries(['tiers.claude.light.model', 'tiers.claude.deep.effort', 'tiers.agy.fast.model'].map((k) => [k, {} as never])) })
+    const { SpawnDialog, tiersOf } = await import('./components/spawn-dialogs')
+    expect(tiersOf(host.store.getState().settings, 'claude')).toEqual(['light', 'deep'])
+    expect(tiersOf({}, 'claude')).toEqual(['light', 'mid', 'strong', 'top'])
+    render(wrap(<SpawnDialog host={host} runId="r1" trigger={<button type="button">add</button>} />))
+    await userEvent.click(screen.getByRole('button', { name: 'add' }))
+    expect(screen.getByLabelText('Tier')).toHaveValue('')
+    // Switching the lead to a worker picks a tier (this host has no mid, so its first); back to a lead, the default.
+    await userEvent.selectOptions(screen.getByLabelText('Role'), String(AgentRole.WORKER))
+    expect(screen.getByLabelText('Tier')).toHaveValue('light')
+    await userEvent.selectOptions(screen.getByLabelText('Role'), String(AgentRole.ROOT))
+    expect(screen.getByLabelText('Tier')).toHaveValue('')
   })
 })
 
