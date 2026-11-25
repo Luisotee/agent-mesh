@@ -54,4 +54,19 @@ class QrDecoderTest {
         assertEquals(y.toList(), tight.toList())
         assertEquals(link, QrDecoder.decode(tight, size, size))
     }
+
+    @Test fun `a plane that is short on its last row, or has a pixel stride, is read without an exception`() {
+        val (y, size) = luminance(link, size = 300)
+        // No padding on the last row: the buffer ends where the picture does.
+        val stride = size + 13
+        val short = ByteBuffer.allocate(stride * (size - 1) + size)
+        for (r in 0 until size) { short.position(r * stride); short.put(y, r * size, size) }
+        assertEquals(link, QrDecoder.decode(QrDecoder.tight(short, size, size, stride, 1), size, size))
+        // Every other byte (a pixel stride of 2).
+        val spaced = ByteBuffer.allocate(size * 2 * size)
+        for (r in 0 until size) for (c in 0 until size) spaced.put(r * size * 2 + c * 2, y[r * size + c])
+        assertEquals(y.toList(), QrDecoder.tight(spaced, size, size, size * 2, 2).toList())
+        // A buffer far too small gives a (dark) picture, not a crash.
+        assertNull(QrDecoder.decode(QrDecoder.tight(ByteBuffer.allocate(50), size, size, size, 1), size, size))
+    }
 }

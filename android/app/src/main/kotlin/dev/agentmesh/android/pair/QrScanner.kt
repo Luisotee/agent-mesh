@@ -39,17 +39,21 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String) -> Unit, modifier: Mod
         val main = Handler(Looper.getMainLooper())
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
+            // Closed before the camera provider was ready: nothing to bind.
+            if (finished.get()) return@addListener
             try {
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.surfaceProvider = view.surfaceProvider }
                 val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
                 analysis.setAnalyzer(executor) { image ->
                     try {
-                        if (!finished.get()) {
+                        if (!finished.get()) try {
                             val plane = image.planes[0]
                             val y = QrDecoder.tight(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
                             val text = QrDecoder.decode(y, image.width, image.height)
                             if (text != null && PairingLink.find(text) != null && finished.compareAndSet(false, true)) main.post { code(text) }
+                        } catch (_: RuntimeException) {
+                            // A frame this decoder can't read (an odd plane layout): the next one may be fine.
                         }
                     } finally {
                         image.close()
@@ -63,7 +67,7 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String) -> Unit, modifier: Mod
         }, ContextCompat.getMainExecutor(context))
         onDispose {
             finished.set(true)
-            runCatching { future.get().unbindAll() }
+            if (future.isDone) runCatching { future.get().unbindAll() }
             executor.shutdown()
         }
     }

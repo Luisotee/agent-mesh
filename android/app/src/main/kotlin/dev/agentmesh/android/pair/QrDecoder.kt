@@ -35,10 +35,17 @@ object QrDecoder {
         val out = ByteArray(width * height)
         val row = ByteArray(rowStride)
         for (r in 0 until height) {
-            plane.position(r * rowStride)
+            val start = r * rowStride
+            if (start >= plane.limit()) break
+            plane.position(start)
+            // The last row may be shorter than a padded one: read what is there, and leave the rest black.
             val n = minOf(rowStride, plane.remaining())
+            java.util.Arrays.fill(row, 0)
             plane.get(row, 0, n)
-            for (c in 0 until width) out[r * width + c] = row[c * pixelStride]
+            for (c in 0 until width) {
+                val i = c * pixelStride
+                if (i < n) out[r * width + c] = row[i]
+            }
         }
         return out
     }

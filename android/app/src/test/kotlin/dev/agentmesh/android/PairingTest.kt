@@ -149,4 +149,51 @@ class PairingTest {
         // (Running as root, the directory stays writable: then there is nothing to check.)
         if (e is PairingException) assertTrue(e.message!!, "make a new one" in e.message!!)
     }
+
+    @Test fun `a host id or relay token with spaces or a newline is refused, since it would be written into the relay preamble`() {
+        for (bad in listOf("h%0Aevil", "h%20x", "h%00")) {
+            val e = runCatching { PairingLink.parse("agentmesh://pair?v=1&h=$bad&fp=$fp&t=amp_x&d=https://b:1") }.exceptionOrNull()
+            assertTrue("$bad: $e", e is PairingException && "host id" in e.message.orEmpty())
+        }
+        val e = runCatching { PairingLink.parse("agentmesh://pair?v=1&h=h&fp=$fp&t=amp_x&rtcp=relay:8443&rt=amr%0AGET%20x") }.exceptionOrNull()
+        assertTrue("$e", e is PairingException && "relay token" in e.message.orEmpty())
+    }
+
+    @Test fun `an address the app can't use is said to be skipped, not silently dropped`() {
+        val p = PairingLink.parse("agentmesh://pair?v=1&h=h&fp=$fp&t=amp_x&d=http://100.64.0.1:7777&rtcp=relay:8443&rt=amr_c")
+        assertEquals(1, p.routes().size)
+        assertTrue(p.skipped.single().contains("http://100.64.0.1:7777"))
+        assertTrue(dev.agentmesh.android.ui.pairingSummary(p).any { it.startsWith("Not used:") && "needs https" in it })
+        val e = runCatching { PairingLink.parse("agentmesh://pair?v=1&h=h&fp=$fp&t=amp_x&d=http://100.64.0.1:7777") }.exceptionOrNull()
+        assertTrue("$e", e is PairingException && "offered the direct address http://100.64.0.1:7777" in e.message.orEmpty())
+    }
+
+    @Test fun `any answer of the host is final, whatever its code, but a relay's refusal or a dropped connection is not`() = runBlocking {
+        val host = FakeHost(fp = fp).apply { failRoute = { if (it is Route.Direct) ApiException(Code.RESOURCE_EXHAUSTED, "too many pairing attempts") else null } }
+        val e = runCatching { PairingFlow(repo(), host.clients).pair(PairingLink.parse(full), "x") }.exceptionOrNull()!!
+        assertTrue("$e", e is PairingException && "too many pairing attempts" in e.message.orEmpty())
+        assertEquals("the other route isn't tried", 1, host.calls.size)
+        val relayAuth = FakeHost(fp = fp).apply { failRoute = { if (it is Route.Relay) ApiException(Code.UNKNOWN, "x", RelayRefused("auth", "the relay refused this device's client token")) else IOException("down") } }
+        val e2 = runCatching { PairingFlow(repo(), relayAuth.clients).pair(PairingLink.parse(full), "x") }.exceptionOrNull()!!
+        assertTrue("$e2", e2 is PairingException && "relay refused" in e2.message.orEmpty() && relayAuth.calls.size == 2)
+    }
+
+    @Test fun `a code used up after an earlier route failed says the first try may have taken it`() = runBlocking {
+        val host = FakeHost(fp = fp).apply { failRoute = { if (it is Route.Direct) java.net.SocketTimeoutException("read timed out") else ApiException(Code.UNAUTHENTICATED, "pairing token already used") } }
+        val e = runCatching { PairingFlow(repo(), host.clients).pair(PairingLink.parse(full), "x") }.exceptionOrNull()!!
+        assertTrue("$e", e is PairingException && "read timed out" in e.message.orEmpty() && "make a new code" in e.message.orEmpty())
+    }
+
+    @Test fun `a host added by hand is recognised by its address when it is paired, and not added twice`() = runBlocking {
+        val host = FakeHost(fp = fp); val repo = repo()
+        val byHand = repo.add("Mine", listOf(Route.Direct("https://100.64.0.1:9443/", fp)), "amt_hand")
+        val saved = PairingFlow(repo, host.clients).pair(PairingLink.parse(full), "x")
+        assertEquals(byHand.id, saved.id)
+        assertEquals(1, repo.hosts.value.size)
+        assertEquals("Mine", repo.get(byHand.id)!!.name); assertEquals("h1234567890ab", repo.get(byHand.id)!!.daemonId); assertEquals("amt_device", repo.token(byHand.id))
+        // A host with another address is another host.
+        val other = repo.add("Other", listOf(Route.Direct("https://elsewhere:1", fp)), "t")
+        PairingFlow(repo, FakeHost(hostId = "hx", fp = fp).clients).pair(PairingLink.parse(full.replace("h1234567890ab", "hx")), "y")
+        assertEquals(3, repo.hosts.value.size); assertEquals(null, repo.get(other.id)!!.daemonId)
+    }
 }

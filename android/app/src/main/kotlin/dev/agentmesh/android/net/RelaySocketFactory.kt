@@ -8,6 +8,9 @@ import java.net.Socket
 import java.net.SocketAddress
 import javax.net.SocketFactory
 
+/** True when [s] can sit in the one-line preamble as a single word: no whitespace or control characters (a link is untrusted text), and not absurdly long. */
+fun isPreambleWord(s: String): Boolean = s.isNotEmpty() && s.length <= 200 && s.none { it.isWhitespace() || it.isISOControl() }
+
 /** The relay answered the preamble with an error, or with nothing a relay says. [code] is the relay's word for it. */
 class RelayRefused(val code: String, message: String) : IOException(message)
 
@@ -52,12 +55,15 @@ private class RelaySocket(
     private val answerTimeoutMs: Int,
 ) : Socket() {
     override fun connect(endpoint: SocketAddress, timeout: Int) {
+        // Never write what isn't one word each: a host id or token with a newline would add lines to the preamble.
+        val word = token()
+        if (!isPreambleWord(hostId) || !isPreambleWord(word)) throw IOException("the host id or relay token holds characters the relay protocol can't carry")
         val (host, port) = splitHostPort(relayTcp) ?: throw IOException("the relay address \"$relayTcp\" isn't host:port")
         try {
             super.connect(InetSocketAddress(host, port), timeout)
             tcpNoDelay = true
             soTimeout = answerTimeoutMs
-            getOutputStream().apply { write("MESH1 $hostId ${token()}\n".toByteArray(Charsets.US_ASCII)); flush() }
+            getOutputStream().apply { write("MESH1 $hostId $word\n".toByteArray(Charsets.US_ASCII)); flush() }
             val answer = readLine()
             if (answer != "OK") throw refused(answer)
             soTimeout = 0

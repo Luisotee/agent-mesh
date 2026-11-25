@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -65,10 +64,9 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             )
         }
         composable(Routes.PAIR) {
-            // Taken once: the screen holds the link, and a later visit starts empty.
-            val first = remember { container.pairLink.value.also { container.pairLink.value = null } }
+            // The screen takes a waiting link (and any that arrives while it is up) itself, once.
             PairScreen(
-                first, onBack = { nav.popBackStack() },
+                null, onBack = { nav.popBackStack() },
                 onPaired = { id -> nav.navigate(Routes.host(id)) { popUpTo(Routes.HOSTS) } },
             )
         }

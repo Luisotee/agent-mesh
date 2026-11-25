@@ -20,6 +20,8 @@ data class PairingPayload(
     val relayClientToken: String? = null,
     /** The device name the host suggests (`n`), if the code was made with one. */
     val deviceName: String = "",
+    /** What the code offered that this app doesn't use (an `http://` address), so the user isn't left guessing. */
+    val skipped: List<String> = emptyList(),
 ) {
     /** The routes the code offers, direct first. */
     fun routes(): List<Route> = listOfNotNull(
@@ -51,14 +53,18 @@ object PairingLink {
         if (hostId.isEmpty() || token.isEmpty()) throw PairingException("The pairing link is incomplete (no host or token)")
         val fp = q["fp"].orEmpty()
         if (!Fingerprint.isValid(fp)) throw PairingException("The pairing link has no valid certificate fingerprint")
-        val direct = q["d"]?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) }
+        if (!isPreambleWord(hostId)) throw PairingException("The pairing link's host id has characters that can't be right (spaces or control characters)")
+        val rawDirect = q["d"]?.trim()?.takeIf { it.isNotEmpty() }
+        val direct = rawDirect?.takeIf { it.startsWith("https://", ignoreCase = true) }
+        val skipped = listOfNotNull(rawDirect?.takeIf { direct == null }?.let { "the direct address $it (this app needs https:// for a host it pins)" })
         val rtcp = q["rtcp"]?.trim()?.takeIf { splitHostPort(it) != null }
         val rt = q["rt"]?.trim()?.takeIf { it.isNotEmpty() }
+        if (rt != null && !isPreambleWord(rt)) throw PairingException("The pairing link's relay token has characters that can't be right (spaces or control characters)")
         val payload = PairingPayload(
             hostId = hostId, hostName = q["hn"].orEmpty().trim(), pinSha256 = Fingerprint.normalize(fp), token = token,
-            directUrl = direct, relayTcp = if (rt != null) rtcp else null, relayClientToken = if (rtcp != null) rt else null, deviceName = q["n"].orEmpty().trim(),
+            directUrl = direct, relayTcp = if (rt != null) rtcp else null, relayClientToken = if (rtcp != null) rt else null, deviceName = q["n"].orEmpty().trim(), skipped = skipped,
         )
-        if (payload.routes().isEmpty()) throw PairingException("The pairing link names no address this app can use (it needs an https:// address or a relay)")
+        if (payload.routes().isEmpty()) throw PairingException("The pairing link names no address this app can use (it needs an https:// address or a relay)" + skipped.joinToString("") { ": it offered $it" })
         return payload
     }
 

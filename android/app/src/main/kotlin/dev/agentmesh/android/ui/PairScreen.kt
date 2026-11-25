@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,7 @@ fun pairingSummary(p: PairingPayload): List<String> = buildList {
     add(p.hostName.ifEmpty { "A host" } + " (" + p.hostId.take(10) + ")")
     for (r in p.routes()) add(when (r) { is Route.Direct -> "Direct: ${r.url}"; is Route.Relay -> "Through your relay: ${r.relayTcp}" })
     add("Pinned certificate: " + p.pinSha256.take(16).chunked(4).joinToString(" ") + "…")
+    for (s in p.skipped) add("Not used: $s")
 }
 
 /**
@@ -72,6 +74,11 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
     var error by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    // A link opened from outside while this screen is up (or that brought the user here): taken once, and shown for confirmation.
+    val incoming by container.pairLink.collectAsStateWithLifecycleCompat()
+    LaunchedEffect(incoming) {
+        incoming?.let { text = it; error = null; container.pairLink.value = null }
+    }
     val parsed = remember(text) { if (text.isBlank()) null else runCatching { PairingLink.parse(text) } }
     val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) { scanning = true; cameraError = null } else cameraError = "Without the camera permission the app can't scan. Paste the link instead."
@@ -88,6 +95,8 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
             try {
                 val host = container.pairing.pair(p, deviceName)
                 text = ""
+                // A host paired again (a stopped connection with a refused token, new routes) picks up its new token and routes now.
+                container.runtimes.value[host.id]?.reconnect()
                 onPaired(host.id)
             } catch (e: CancellationException) {
                 throw e

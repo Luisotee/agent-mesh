@@ -56,6 +56,7 @@ class DefaultRouteConnector(private val base: OkHttpClient = OkHttpClient()) : R
     private fun relay(route: Route.Relay, token: (() -> String)?): Connection {
         if (splitHostPort(route.relayTcp) == null) throw RouteException("the relay address \"${route.relayTcp}\" isn't host:port")
         if (route.hostId.isBlank()) throw RouteException("this route has no host id at the relay")
+        if (!isPreambleWord(route.hostId) || (route.relayClientToken.isNotBlank() && !isPreambleWord(route.relayClientToken))) throw RouteException("this route's host id or relay token has characters the relay can't take: pair with the host again")
         if (route.relayClientToken.isBlank()) throw RouteException("this device can't read the saved relay token: pair with the host again")
         if (!Fingerprint.isValid(route.pinSha256)) throw RouteException("the pinned fingerprint isn't a SHA-256 (64 hex digits)")
         val http = client(token, route.pinSha256)

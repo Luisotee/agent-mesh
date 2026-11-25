@@ -11,6 +11,7 @@ import dev.agentmesh.android.net.PairingPayload
 import dev.agentmesh.android.net.Route
 import dev.agentmesh.android.net.RouteException
 import dev.agentmesh.android.net.describeFailure
+import dev.agentmesh.android.net.relayRefusal
 import kotlinx.coroutines.CancellationException
 
 /** How a pairing call reaches a route: the real one builds a pinned client without a token; a test stands in. */
@@ -40,8 +41,10 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                // The host answered and said no: the same token fails on the other route too.
-                if (e.code == Code.UNAUTHENTICATED || e.code == Code.INVALID_ARGUMENT || e.code == Code.PERMISSION_DENIED) throw PairingException(refusal(e))
+                // The host answered and said no (the relay's own refusals are not the host's): the same token fails on the other route too.
+                if (relayRefusal(e) == null && e.code !in NOT_AN_ANSWER) {
+                    throw PairingException(refusal(e, earlierFailures = failures))
+                }
                 failures += "${label(route)}: ${describeFailure(e)}"
             } catch (e: RouteException) {
                 failures += "${label(route)}: ${e.message}"
@@ -56,10 +59,13 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
         }
         val name = payload.hostName.ifEmpty { got.hostName }.ifEmpty { "Host" }
         return try {
+            // The same host: by the daemon's id, or (a host added by hand has none yet) by an address the code also names.
             val existing = repo.hosts.value.firstOrNull { it.daemonId == got.hostId }
+                ?: repo.hosts.value.firstOrNull { h -> h.daemonId == null && h.routes.any { r -> routes.any { sameRoute(r, it, got.hostId) } } }
             if (existing != null) {
                 // The same host paired again (a revoked device, a new relay): its entry gets the new routes and token.
                 repo.update(existing.id, existing.name, routes, got.deviceToken)
+                repo.setDaemonId(existing.id, got.hostId)
                 repo.get(existing.id)!!
             } else {
                 repo.add(name, routes, got.deviceToken, daemonId = got.hostId)
@@ -69,11 +75,25 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
         }
     }
 
+    private companion object {
+        /** Codes that say the call never got an answer from the host (or not a real one): the next route is tried. */
+        val NOT_AN_ANSWER = setOf(Code.UNKNOWN, Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.CANCELED)
+    }
+
+    private fun sameRoute(a: Route, b: Route, hostId: String): Boolean = when {
+        a is Route.Direct && b is Route.Direct -> a.url.trim().trimEnd('/').equals(b.url.trim().trimEnd('/'), ignoreCase = true)
+        a is Route.Relay && b is Route.Relay -> a.relayTcp.equals(b.relayTcp, ignoreCase = true) && a.hostId == hostId
+        else -> false
+    }
+
     private fun label(r: Route) = when (r) { is Route.Direct -> "direct (${r.url})"; is Route.Relay -> "relay (${r.relayTcp})" }
 
-    private fun refusal(e: ApiException): String {
+    private fun refusal(e: ApiException, earlierFailures: List<String>): String {
         val m = e.message.orEmpty()
         return when {
+            // The host may have taken the token on a route whose reply never came back.
+            "already used" in m && earlierFailures.isNotEmpty() ->
+                "This pairing code is used up. An earlier try (${earlierFailures.first()}) may have reached the host before its reply was lost: make a new code on the host (meshctl pair)."
             "expired" in m -> "This pairing code has expired. Make a new one on the host (meshctl pair)."
             "already used" in m -> "This pairing code was already used. Make a new one on the host (meshctl pair)."
             "unknown" in m -> "The host doesn't know this pairing code. It may be for another host, or it expired and was cleaned up: make a new one."

@@ -123,4 +123,15 @@ class RelaySocketFactoryTest {
         assertEquals("::1" to 8443, splitHostPort("[::1]:8443"))
         assertNull(splitHostPort("relay.example.com")); assertNull(splitHostPort(":8443")); assertNull(splitHostPort("h:")); assertNull(splitHostPort("h:0")); assertNull(splitHostPort("h:99999"))
     }
+
+    @Test fun `a host id or token that isn't one word is never written to the relay`() {
+        var read = ""
+        relay { s -> s.soTimeout = 500; read = runCatching { s.readLine() }.getOrDefault("(nothing)") }
+        for ((host, token) in listOf("h\nGET /" to "t", "h" to "a b", "h" to "t\r\nMESH1 other x", "" to "t", "h" to "")) {
+            val e = runCatching { connect(token = token, host = host) }.exceptionOrNull()
+            assertTrue("$host/$token: $e", e is IOException && e.message!!.contains("can't carry"))
+        }
+        Thread.sleep(700)
+        assertTrue("nothing reached the relay beyond a connection, got \"$read\"", read.isEmpty() || read == "(nothing)")
+    }
 }

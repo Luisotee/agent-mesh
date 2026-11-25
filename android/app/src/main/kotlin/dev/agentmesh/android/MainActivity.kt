@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         // A pairing link opened from a camera app, a browser or a message: the pairing screen shows it for the user to confirm.
         val data = intent?.data
-        if (intent?.action == Intent.ACTION_VIEW && data != null && data.scheme.equals("agentmesh", ignoreCase = true) && data.host.equals("pair", ignoreCase = true)) {
+        if (intent?.action == Intent.ACTION_VIEW && data != null && data.scheme.equals("agentmesh", ignoreCase = true) && data.host.equals("pair", ignoreCase = true) && dev.agentmesh.android.net.PairingLink.find(data.toString()) != null) {
             container.pairLink.value = data.toString()
             intent.data = null
             return

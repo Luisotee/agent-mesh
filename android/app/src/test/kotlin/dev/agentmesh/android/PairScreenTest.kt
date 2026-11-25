@@ -89,6 +89,31 @@ class PairScreenTest {
         compose.onNodeWithTag("pair").assertIsEnabled()
         assertFalse(container.hosts.hosts.value.any { it.name == "work station" && it.daemonId == null })
     }
+
+    @Test fun `a second link opened while the screen is up replaces the first, and is taken once`() {
+        show(initial = link)
+        compose.onNode(hasText("work station", substring = true)).assertIsDisplayed()
+        container.pairLink.value = link.replace("hn=work+station", "hn=other+box")
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("other box", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(null, container.pairLink.value)
+    }
+
+    @Test fun `pairing a host again reconnects it with its new token and routes`() {
+        val known = container.hosts.add("Home", listOf(dev.agentmesh.android.net.Route.Direct("https://old:1", fp)), "amt_old", daemonId = "h1234567890ab")
+        val rt = run {
+            val deadline = System.currentTimeMillis() + 5_000
+            while (container.runtimes.value[known.id] == null && System.currentTimeMillis() < deadline) Thread.sleep(20)
+            container.runtimes.value[known.id]!!
+        }
+        rt.onState(dev.agentmesh.android.store.ConnState.Stopped(dev.agentmesh.android.store.ConnState.Reason.Auth, "the host refused this device's token"))
+        var paired: String? = null
+        show(initial = link, onPaired = { paired = it })
+        compose.onNodeWithTag("pair").performClick()
+        compose.waitUntil(5_000) { paired != null }
+        assertEquals(known.id, paired)
+        assertEquals("amt_device", container.hosts.token(known.id))
+        compose.waitUntil(5_000) { rt.state.value.conn !is dev.agentmesh.android.store.ConnState.Stopped }
+    }
 }
 
 /** The app with a host that answers pairing from a lambda: what the screen does with each answer is checked end to end. */
