@@ -26,3 +26,6 @@ func (d *Daemon) Reserved(agentID string) bool {
 	_, ok := d.rt.guard.reserved[agentID]
 	return ok
 }
+
+// SameRelayURL exposes sameRelayURL.
+func SameRelayURL(a, b string) bool { return sameRelayURL(a, b) }

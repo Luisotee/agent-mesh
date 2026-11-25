@@ -20,8 +20,8 @@ Designed to run behind `nginx-proxy-manager` (TLS on port `443` with WebSockets 
   2. Relay replaces any older session for `host_id` with close code `4001` (`replaced`), then replies `Registered{host_id}`.
   3. Daemon sends `Ping{seq}` heartbeats; relay replies `Pong{seq}`. Client-backoff resets only after the first `Pong`.
   4. When an app connects, relay sends `DialBack{ticket, stream_id}`.
-- `GET /v1/daemon/stream?ticket=<rtk_...>` — daemon dial-back WebSocket (`Authorization: Bearer <relay_secret>`). Pre-upgrade HTTP errors: `401` on bad token, `400` on missing ticket, `404` on unknown or already-used ticket (tickets are atomically deleted on claim), `410` on expired ticket (15 s TTL).
-- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`). Pre-upgrade HTTP errors: `400` on missing `host_id`, `401` on bad token, `503` if the daemon is offline, `429` if too many pending streams are queued for the host, `504` on dial-back timeout.
+- `GET /v1/daemon/stream?ticket=<rtk_...>` — daemon dial-back WebSocket (`Authorization: Bearer <relay_secret>`). Pre-upgrade HTTP errors: `401` on bad token, `400` on missing ticket, `404` on an unknown, already-used or expired ticket (tickets are atomically deleted on claim, and the relay drops an unclaimed one when its dial-back wait ends, so a late claim finds nothing).
+- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`). Pre-upgrade HTTP errors: `400` on missing `host_id`, `401` on bad token, `503` if the daemon is offline, `429` if too many pending streams are queued for the host, `504` on dial-back timeout. Each WebSocket message is capped at 4 MiB here: unlike the raw-TCP endpoint, a browser client gets no chunking, so it must send smaller messages.
 
 Typed WebSocket close codes sent after upgrade on `/v1/daemon/control`:
 - `4001` replaced by a newer daemon session
@@ -52,7 +52,7 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
    agentmesh://pair?v=1&h=<host_id>&fp=<sha256_fp>&t=<amp_token>[&hn=<host_name>][&r=<relay_url>][&rtcp=<relay_tcp>][&rt=<relay_client_token>][&d=<direct_url>][&n=<device_name>]
    ```
 3. The app connects over either `Direct` (`d`, `https://...` with leaf pin `fp`) or `Relay` (`rtcp` + `h` + `rt` + pin `fp`), calls `PairingService/RedeemPairing{token, device_name}` (unauthenticated by bearer token, guarded by `RefuseBrowsers` and the single-use `amp_...` token), receives a permanent per-device `amt_...` bearer token (`ACTOR_CLASS_DEVICE` or `ACTOR_CLASS_READ_ONLY_DEVICE`), and persists `{host_id, device_token, cert_fingerprint, direct_url, relay_tcp, relay_client_token}`.
-4. `CreatePairing`'s `mutations` record is scrubbed on redemption and expiry so the one-time pairing token is not retained on disk.
+4. `CreatePairing`'s `mutations` record is scrubbed on redemption and expiry so the one-time pairing token is not retained on disk. A retry of `CreatePairing` with the same mutation id after that returns `FailedPrecondition` (`pairing already redeemed`), not an empty link. `DevicePaired` and `DeviceRevoked` events reach only the host's own device. A `relay_url` override keeps the configured relay's TCP address and client token when it names the same relay (scheme and host case-insensitive, default port and trailing slash ignored); any other relay gets neither.
 5. `ListDevices` and `RevokeDevice` list paired devices and revoke a device's `amt_...` token; revocation immediately cancels the device's open `SubscribeEvents` and `/v1/term/*` streams.
 
 ## Integration notes for Android and Desktop workers

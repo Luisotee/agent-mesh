@@ -66,8 +66,8 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
-  /agentmesh.v1.MeshService/RevokeDevice
   /agentmesh.v1.MeshService/RetireAgent
+  /agentmesh.v1.MeshService/RevokeDevice
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -170,6 +171,9 @@ func (s *Server) ServeClientTCP(ctx context.Context, l net.Listener) error {
 				return nil
 			default:
 			}
+			if !temporaryAcceptError(err) {
+				return err
+			}
 			if tempDelay == 0 {
 				tempDelay = 5 * time.Millisecond
 			} else {
@@ -191,6 +195,17 @@ func (s *Server) ServeClientTCP(ctx context.Context, l net.Listener) error {
 		tempDelay = 0
 		go s.HandleClientConn(ctx, c)
 	}
+}
+
+// temporaryAcceptError reports whether an Accept error is worth retrying: a timeout, or running out of file
+// descriptors or a connection aborted before Accept returned it.
+func temporaryAcceptError(err error) bool {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) ||
+		errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.ENOBUFS) || errors.Is(err, syscall.ENOMEM)
 }
 
 // HandleClientConn handles one raw TCP client connection.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -100,7 +101,7 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		if d.cfg.Relay.Token != "" {
 			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
 		}
-	} else if cfgRelayURL != "" && strings.TrimRight(relayURL, "/") == strings.TrimRight(cfgRelayURL, "/") {
+	} else if cfgRelayURL != "" && sameRelayURL(relayURL, cfgRelayURL) {
 		relayTCP = d.cfg.Relay.TCP
 		if d.cfg.Relay.Token != "" {
 			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
@@ -114,7 +115,7 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 	}
 
 	out := &v1.CreatePairingResponse{}
-	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCreatePairingProcedure, out, func(tx *store.Tx) error {
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCreatePairingProcedure, out, func(tx *store.Tx) error {
 		now := tx.Now()
 		exp := now.Add(ttl)
 		tok := ids.Secret(pairingTokenPrefix)
@@ -159,7 +160,42 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		out.ExpiresAt = tsOf(exp)
 		return nil
 	})
-	return connect.NewResponse(out), err
+	if err != nil {
+		return nil, err
+	}
+	if replayed && out.Token == "" {
+		// The stored response was scrubbed when the pairing was redeemed or expired: there is no token or URI
+		// left to hand back.
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("pairing already redeemed"))
+	}
+	return connect.NewResponse(out), nil
+}
+
+// sameRelayURL reports whether two relay URLs name the same endpoint: scheme and host compare
+// case-insensitively, the scheme's default port equals no port, and a trailing slash is ignored.
+func sameRelayURL(a, b string) bool {
+	norm := func(raw string) (string, bool) {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || u.Host == "" {
+			return "", false
+		}
+		scheme := strings.ToLower(u.Scheme)
+		host := strings.ToLower(u.Hostname())
+		port := u.Port()
+		if (scheme == "https" || scheme == "wss") && port == "443" || (scheme == "http" || scheme == "ws") && port == "80" {
+			port = ""
+		}
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		if port != "" {
+			host += ":" + port
+		}
+		return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/"), true
+	}
+	na, oka := norm(a)
+	nb, okb := norm(b)
+	return oka && okb && na == nb
 }
 
 // RedeemPairing exchanges a one-time pairing token for a per-device bearer token.

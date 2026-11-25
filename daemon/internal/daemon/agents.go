@@ -1206,7 +1206,11 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		// Re-check after trackStream: if RevokeDevice ran between OpenTerminal/auth and trackStream,
 		// disconnectActor already completed and this catches the revocation cleanly.
 		active, err := d.store.Read(r.Context()).HasActiveToken(t.actorID)
-		if err != nil || !active {
+		if err != nil {
+			http.Error(w, "cannot verify actor", http.StatusServiceUnavailable)
+			return
+		}
+		if !active {
 			http.Error(w, "actor revoked", http.StatusUnauthorized)
 			return
 		}

@@ -101,16 +101,14 @@ func TestPairingRedeemListAndRevoke(t *testing.T) {
 	if scrubbedMut.PairingId != cp.Msg.PairingId || scrubbedMut.Token != "" || scrubbedMut.Uri != "" {
 		t.Fatalf("scrubbed mutation = %+v", &scrubbedMut)
 	}
-	replay, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	// A retry after redemption has no token or URI left to return: it is refused, not answered with an empty link.
+	_, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
 		Meta:       meta("pair-1"),
 		Name:       "my-phone",
 		TtlSeconds: 600,
 	}))
-	if err != nil {
-		t.Fatalf("retried CreatePairing failed: %v", err)
-	}
-	if replay.Msg.PairingId != cp.Msg.PairingId || replay.Msg.Token != "" || replay.Msg.Uri != "" {
-		t.Fatalf("retried CreatePairing minted new token or wrong replay: %+v", replay.Msg)
+	if code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "pairing already redeemed") {
+		t.Fatalf("retried CreatePairing after redemption = %v, want FailedPrecondition pairing already redeemed", err)
 	}
 
 	// Paired device can call Hello and StartRun, but cannot manage devices.
@@ -278,6 +276,18 @@ func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
 	}
 	if defRes.Msg.RelayUrl != "https://relay-a.example" || defRes.Msg.RelayTcp != "relay-a.example:8443" || defRes.Msg.RelayClientToken == "" {
 		t.Fatalf("default relay pairing = %+v", defRes.Msg)
+	}
+
+	// A differently written URL for the configured relay keeps its TCP address and token.
+	sameRes, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		Meta:     meta("same-relay"),
+		RelayUrl: "https://Relay-A.example:443/",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameRes.Msg.RelayTcp != "relay-a.example:8443" || sameRes.Msg.RelayClientToken == "" {
+		t.Fatalf("equivalent relay override dropped the relay's TCP/token: %+v", sameRes.Msg)
 	}
 
 	// Overriding relay_url to a different relay must not attach the configured relay's TCP address or token.
@@ -456,5 +466,123 @@ func TestDeviceEventsNotSentToRunAgents(t *testing.T) {
 	}
 	if ev := recv(t, resumed).GetEvent(); ev.GetMessageDelivered().GetMessageId() != "m-marker" {
 		t.Fatalf("worker resumed stream = %v, want MessageDelivered (no device events)", ev)
+	}
+}
+
+func TestDeviceEventsOnlyToHostDevice(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "r-dev-scope")
+
+	pair := func(id string, readOnly bool) *v1.RedeemPairingResponse {
+		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+			Meta: meta("pair-" + id), Name: id, ReadOnly: readOnly,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		red, err := pairingClient(h.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return red.Msg
+	}
+	full, ro := pair("full", false), pair("ro", true)
+
+	subscribe := func(tok string) *connect.ServerStreamForClient[v1.SubscribeEventsResponse] {
+		st, err := h.as(tok).SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { st.Close() })
+		if recv(t, st).GetSnapshot() == nil {
+			t.Fatal("expected snapshot")
+		}
+		return st
+	}
+	fullStream, roStream := subscribe(full.DeviceToken), subscribe(ro.DeviceToken)
+
+	// Pairing a third device and revoking it, then a run event as a marker.
+	third := pair("third", false)
+	if _, err := h.device.Mesh.RevokeDevice(ctx, connect.NewRequest(&v1.RevokeDeviceRequest{
+		Meta: meta("rev-third"), DeviceId: third.DeviceId,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		_, err := tx.AppendEvent(&v1.Event{
+			RunId:   run.Id,
+			Payload: &v1.Event_MessageDelivered{MessageDelivered: &v1.MessageDelivered{MessageId: "m-marker"}},
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, st := range map[string]*connect.ServerStreamForClient[v1.SubscribeEventsResponse]{"device": fullStream, "read-only device": roStream} {
+		if ev := recv(t, st).GetEvent(); ev.GetMessageDelivered().GetMessageId() != "m-marker" {
+			t.Fatalf("%s stream got %v first, want MessageDelivered (no device events)", name, ev)
+		}
+	}
+}
+
+func TestSameRelayURL(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"https://relay.example.com", "https://relay.example.com", true},
+		{"https://relay.example.com/", "https://relay.example.com", true},
+		{"https://Relay.Example.com", "https://relay.example.com", true},
+		{"HTTPS://relay.example.com:443", "https://relay.example.com", true},
+		{"http://relay.example.com:80", "http://relay.example.com", true},
+		{"https://relay.example.com:8443", "https://relay.example.com", false},
+		{"http://relay.example.com", "https://relay.example.com", false},
+		{"https://relay-b.example.com", "https://relay.example.com", false},
+		{"https://relay.example.com/a", "https://relay.example.com/b", false},
+		{"not a url", "not a url", false},
+	} {
+		if got := daemon.SameRelayURL(c.a, c.b); got != c.want {
+			t.Errorf("SameRelayURL(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestTerminalTicketStoreErrorIs503(t *testing.T) {
+	home := t.TempDir()
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, home)
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+
+	repo := gitRepo(t)
+	run := startRun(t, h.device.Mesh, "term-503")
+	ag := h.spawn(run.Id, repo, "w1", "hi")
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-503"), Name: "phone"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	red, err := pairingClient(h.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tkt, err := h.as(red.Msg.DeviceToken).OpenTerminal(ctx, connect.NewRequest(&v1.OpenTerminalRequest{Agent: ag.Id, Input: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := daemon.ReadInfo(h.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A failing store is "cannot verify", not "revoked": the client must not drop its credentials.
+	if err := h.d.Store().Close(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.UnixHTTP(info.Socket, 3*time.Second).Get(client.BaseURL + tkt.Msg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("GET /v1/term with the store closed: status %d, want 503", res.StatusCode)
 	}
 }

@@ -596,3 +596,29 @@ func TestServeClientTCPRetriesTransientAcceptErrors(t *testing.T) {
 		t.Fatal("ServeClientTCP did not stop on close")
 	}
 }
+
+type brokenListener struct {
+	flakyListener
+	err error
+}
+
+func (b *brokenListener) Accept() (net.Conn, error) { return nil, b.err }
+
+func TestServeClientTCPReturnsOnPermanentAcceptError(t *testing.T) {
+	srv, err := NewServer(ServerConfig{Secret: NewSecret()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	want := errors.New("listener is broken")
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- srv.ServeClientTCP(context.Background(), &brokenListener{err: want}) }()
+	select {
+	case err := <-serveDone:
+		if !errors.Is(err, want) {
+			t.Fatalf("ServeClientTCP returned %v, want %v", err, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeClientTCP kept retrying a permanent Accept error")
+	}
+}

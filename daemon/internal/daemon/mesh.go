@@ -421,7 +421,8 @@ func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.Su
 			return connect.NewError(connect.CodeUnauthenticated, auth.ErrUnknownToken)
 		}
 	}
-	deviceEvents := actor != nil && (actor.Class == v1.ActorClass_ACTOR_CLASS_DEVICE ||
-		actor.Class == v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE)
+	// Device pairing/revocation events go only to the host's own device, the one that may manage devices
+	// (requireHostDevice).
+	deviceEvents := actor != nil && actor.Id == localDeviceID
 	return d.bus.Serve(sctx, msg, deviceEvents, d.stopping, stream.Send)
 }
