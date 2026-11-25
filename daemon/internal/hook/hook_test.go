@@ -163,3 +163,43 @@ func TestTheHookProcessesDrainNeverDrops(t *testing.T) {
 		t.Errorf("a .bad file: %v", bad)
 	}
 }
+
+// With a capture dir the raw payload is saved, byte for byte, in the order the hooks fired, and the hook still
+// reports (here: spools, the daemon being down).
+func TestACaptureDirKeepsEachRawPayloadInOrder(t *testing.T) {
+	p, o := setup(t)
+	o.CaptureDir = filepath.Join(t.TempDir(), "cap")
+	clock := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	payloads := map[string]string{"SessionStart": `{"session_id":"s","source":"startup","x":[1, 2]}`, "Stop": `{"session_id":"s"}`}
+	for i, ev := range []string{"SessionStart", "Stop"} {
+		o.Event, o.Stdin = ev, strings.NewReader(payloads[ev])
+		o.Now = func() time.Time { return clock.Add(time.Duration(i) * time.Second) }
+		Run(o)
+	}
+	files, _ := filepath.Glob(filepath.Join(o.CaptureDir, "*.json"))
+	if len(files) != 2 || !strings.HasSuffix(files[0], "-SessionStart.json") || !strings.HasSuffix(files[1], "-Stop.json") {
+		t.Fatalf("captured %v", files)
+	}
+	if b, _ := os.ReadFile(files[0]); string(b) != payloads["SessionStart"] {
+		t.Errorf("payload %q", b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 2 {
+		t.Errorf("the hook stopped reporting: %v", left)
+	}
+}
+
+// A capture that fails (an unwritable folder) is only a side channel: the hook still reports.
+func TestACaptureThatFailsStillReportsTheHook(t *testing.T) {
+	p, o := setup(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, []byte("x"), 0o600)
+	o.CaptureDir = filepath.Join(blocker, "cap") // under a file: can't be made
+	o.Event, o.Stdin = "Stop", strings.NewReader(`{"session_id":"s"}`)
+	err := Run(o)
+	if err == nil || !strings.Contains(err.Error(), "capturing the payload") {
+		t.Errorf("the capture's failure isn't reported: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
+		t.Errorf("the hook stopped reporting: %v", left)
+	}
+}

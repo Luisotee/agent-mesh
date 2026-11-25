@@ -33,6 +33,13 @@ import (
 // after its own grace).
 var StopWait = 15 * time.Second
 
+// Test seams (nil in production): called at the points a race needs to be forced at.
+var (
+	spawnPlannedHook   func()               // SpawnAgent: planned, before the agent is stored
+	spawnCommittedHook func(agentID string) // SpawnAgent: stored, before its terminal starts (its lock held)
+	stopRunLockedHook  func()               // StopRun: the run's agents locked, before the run is closed
+)
+
 // launchedHook is a test seam: called once a reopen's terminal is started and before it is recorded, with a
 // function that kills that process and reports whether its exit was seen.
 var launchedHook func(agentID string, die func() bool)
@@ -180,7 +187,7 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	}
 	if lift {
 		switch {
-		case a.PendingReopen != nil || a.State != v1.AgentState_AGENT_STATE_EXITED:
+		case a.PendingReopen != nil || !stopped(a):
 			if a.SessionId == "" {
 				return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened without its "+
 					"planning deny list: send the task again once it has started", a.Name)
@@ -275,7 +282,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		if err := mayMove(tx.Actor, a, "approve"); err != nil {
 			return err
 		}
-		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+		if stopped(a) {
 			// Approving must not undo a stop: resume brings it back planning, then approve it.
 			return failedPrecondition("%s has stopped: resume it, then approve its plan", a.Name)
 		}
@@ -384,7 +391,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		if err := mayMove(tx.Actor, a, "switch"); err != nil {
 			return err
 		}
-		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+		if stopped(a) {
 			return failedPrecondition("%s has stopped: resume it (with a tier or model) instead", a.Name)
 		}
 		if a.SessionId == "" {
@@ -499,80 +506,121 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		if err := mayMove(tx.Actor, a, "resume"); err != nil {
 			return err
 		}
-		if a.State != v1.AgentState_AGENT_STATE_EXITED {
+		if !stopped(a) {
 			return failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a.Name)
 		}
-		if a.SessionId == "" {
-			return failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a.Name)
-		}
-		model, effort, deny := target(a)
-		switch {
-		case m.Plan:
-			// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
-			// tier's, which is not where plans are made).
-			tier := m.Tier
-			if model, effort, err = d.pick(tx.Reader, a.Kind, tier, m.Model, m.Effort, a.Name+"'s planning"); err != nil {
-				return err
-			}
-			if m.Model != "" {
-				tier = "" // a named model has no chain to walk
-			}
-			a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
-			if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "planned task"); err != nil {
-				return err
-			}
-		case task != "":
-			// The phase ends: the chain `next` walks is the one of the tier it runs on (the execution tier, if it
-			// was executing), or none when the model is named.
-			endExecution(a)
-			if m.Tier != "" || m.Model != "" {
-				if model, effort, err = d.pick(tx.Reader, a.Kind, m.Tier, m.Model, m.Effort, a.Name); err != nil {
-					return err
-				}
-				a.Tier = m.Tier
-				if m.Model != "" {
-					a.Tier = ""
-				}
-			} else if m.Effort != "" {
-				effort = m.Effort
-			}
-			a.Pinned, deny = m.Model != "" || m.Effort != "", claude.ReadOnly(a.Role)
-			if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
-				return err
-			}
-		case m.Tier != "" || m.Model != "":
-			if model, effort, err = d.pick(tx.Reader, a.Kind, m.Tier, m.Model, m.Effort, a.Name); err != nil {
-				return err
-			}
-			tier := m.Tier
-			if m.Model != "" {
-				tier = "" // a named model has no chain to walk
-			}
-			if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
-				a.ExecTier = tier
-			} else {
-				a.Tier = tier
-			}
-		case m.Effort != "":
-			effort = m.Effort
-		}
+		spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
 		if task != "" {
 			if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, task); err != nil {
 				return err
 			}
 		}
-		if out.Reopen, err = requestReopen(tx, a, model, effort, deny, "resumed", m.Why); err != nil {
+		if out.Reopen, err = d.revive(tx, a, spec); err != nil {
 			return err
 		}
 		out.Agent = a
 		return tx.PutAgent(a)
 	})
 	if err != nil {
+		if out.Reopen != nil {
+			d.rt.guard.release(out.Agent.GetId()) // the write failed after the guard passed: nothing was requested
+		}
 		return nil, err
 	}
 	d.deliverSoon(out.Agent.Id)
 	out.Agent = d.view(out.Agent)
 	return connect.NewResponse(out), nil
+}
+
+// stopped reports whether an agent has no process and may be resumed: it exited, or was retired.
+func stopped(a *v1.Agent) bool {
+	return a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED
+}
+
+// reviveSpec says how a stopped agent comes back. Nothing set brings it back as it was; a task decides its phase
+// and deny list (plan: it plans, under the list, on the tier given or the one it had; else a direct task, which
+// ends a plan phase), as `mesh resume --task` does; a tier, model or effort alone moves it.
+type reviveSpec struct {
+	task                bool
+	plan                bool
+	tier, model, effort string
+	why                 string
+}
+
+// revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
+// it). The launch is refused (ResourceExhausted) when it would pass the host's agent cap or its memory floor.
+func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
+	if a.SessionId == "" {
+		return nil, failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a.Name)
+	}
+	if run, err := tx.GetRun(a.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+		return nil, failedPrecondition("run %s is closed", a.RunId)
+	}
+	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
+		return nil, err
+	}
+	rv, err := d.reviveAs(tx, a, spec)
+	if err != nil {
+		d.rt.guard.release(a.Id) // the guard passed but nothing was requested
+	}
+	return rv, err
+}
+
+// reviveAs is revive past its guards.
+func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
+	model, effort, deny := target(a)
+	var err error
+	switch {
+	case spec.plan:
+		// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
+		// tier's, which is not where plans are made).
+		tier := spec.tier
+		if model, effort, err = d.pick(tx.Reader, a.Kind, tier, spec.model, spec.effort, a.Name+"'s planning"); err != nil {
+			return nil, err
+		}
+		if spec.model != "" {
+			tier = "" // a named model has no chain to walk
+		}
+		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
+		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "planned task"); err != nil {
+			return nil, err
+		}
+	case spec.task:
+		// The phase ends: the chain `next` walks is the one of the tier it runs on (the execution tier, if it
+		// was executing), or none when the model is named.
+		endExecution(a)
+		if spec.tier != "" || spec.model != "" {
+			if model, effort, err = d.pick(tx.Reader, a.Kind, spec.tier, spec.model, spec.effort, a.Name); err != nil {
+				return nil, err
+			}
+			a.Tier = spec.tier
+			if spec.model != "" {
+				a.Tier = ""
+			}
+		} else if spec.effort != "" {
+			effort = spec.effort
+		}
+		a.Pinned, deny = spec.model != "" || spec.effort != "", claude.ReadOnly(a.Role)
+		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
+			return nil, err
+		}
+	case spec.tier != "" || spec.model != "":
+		if model, effort, err = d.pick(tx.Reader, a.Kind, spec.tier, spec.model, spec.effort, a.Name); err != nil {
+			return nil, err
+		}
+		tier := spec.tier
+		if spec.model != "" {
+			tier = "" // a named model has no chain to walk
+		}
+		if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
+			a.ExecTier = tier
+		} else {
+			a.Tier = tier
+		}
+	case spec.effort != "":
+		effort = spec.effort
+	}
+	return requestReopen(tx, a, model, effort, deny, "resumed", spec.why)
 }
 
 // ── carrying a reopen out ──
@@ -583,16 +631,21 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 // worktree and session.
 func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	r := a.PendingReopen
-	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED
-	if !gone && a.State != v1.AgentState_AGENT_STATE_IDLE {
+	// A retired agent is marked before its process is stopped, so one that still has a terminal may have a live
+	// process (its retire failed, or its caller gave up): it is stopped here, whatever it is doing.
+	leftover := a.State == v1.AgentState_AGENT_STATE_RETIRED && a.TerminalId != ""
+	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED || (stopped(a) && !leftover)
+	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE {
 		return nil // at its next IDLE: never cut a turn short
 	}
 	if d.rt.term == nil {
 		return nil
 	}
 	if !gone {
-		if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
-			return err
+		if !leftover {
+			if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
+				return err
+			}
 		}
 		if err := d.stopTerminal(ctx, a.TerminalId); err != nil {
 			return fmt.Errorf("stopping %s for its reopen: %w", a.Name, err)
@@ -614,6 +667,15 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		if cur.PendingReopen == nil || cur.PendingReopen.Id != r.Id {
 			// Replaced by a newer request meanwhile: that one runs next, from here.
 			err := tx.PutAgent(cur)
+			cur = nil
+			return err
+		}
+		if run, err := tx.GetRun(cur.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			// Nothing starts in a closed run (StopRun drops the requests it finds; this one slipped past).
+			err := cancelReopen(tx, cur, "its run is closed")
+			if err == nil {
+				err = tx.PutAgent(cur)
+			}
 			cur = nil
 			return err
 		}
@@ -753,6 +815,7 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 // with its token revoked; ResumeAgent tries again.
 func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, reason string) error {
 	d.log.Error("reopen failed", "agent", agentID, "reason", reason)
+	d.rt.guard.release(agentID)
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {

@@ -365,6 +365,22 @@ func (t *Tx) PutRun(run *v1.Run) error {
 	return err
 }
 
+// UpdateRun replaces a run's record (its status, say).
+func (t *Tx) UpdateRun(run *v1.Run) error {
+	b, err := proto.Marshal(run)
+	if err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE runs SET status = ?, data = ? WHERE id = ?`, int32(run.Status), b, run.Id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
 // GetRun returns one run.
 func (r Reader) GetRun(id string) (*v1.Run, error) {
 	return scanOne(r, `SELECT data FROM runs WHERE id = ?`, []any{id}, &v1.Run{})

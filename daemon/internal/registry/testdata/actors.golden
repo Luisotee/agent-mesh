@@ -10,6 +10,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
+  /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
@@ -26,6 +27,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResumeAgent
+  /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StopAgent
@@ -65,11 +67,13 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RevokeDevice
+  /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StartRun
   /agentmesh.v1.MeshService/StopAgent
+  /agentmesh.v1.MeshService/StopRun
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
   permission terminal.input
