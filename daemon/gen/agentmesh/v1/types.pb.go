@@ -1017,6 +1017,8 @@ type Event struct {
 	//	*Event_AgentReopened
 	//	*Event_AgentPhaseChanged
 	//	*Event_AgentReopenDropped
+	//	*Event_DevicePaired
+	//	*Event_DeviceRevoked
 	Payload       isEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1225,6 +1227,24 @@ func (x *Event) GetAgentReopenDropped() *AgentReopenDropped {
 	return nil
 }
 
+func (x *Event) GetDevicePaired() *DevicePaired {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_DevicePaired); ok {
+			return x.DevicePaired
+		}
+	}
+	return nil
+}
+
+func (x *Event) GetDeviceRevoked() *DeviceRevoked {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_DeviceRevoked); ok {
+			return x.DeviceRevoked
+		}
+	}
+	return nil
+}
+
 type isEvent_Payload interface {
 	isEvent_Payload()
 }
@@ -1281,6 +1301,14 @@ type Event_AgentReopenDropped struct {
 	AgentReopenDropped *AgentReopenDropped `protobuf:"bytes,22,opt,name=agent_reopen_dropped,json=agentReopenDropped,proto3,oneof"`
 }
 
+type Event_DevicePaired struct {
+	DevicePaired *DevicePaired `protobuf:"bytes,25,opt,name=device_paired,json=devicePaired,proto3,oneof"`
+}
+
+type Event_DeviceRevoked struct {
+	DeviceRevoked *DeviceRevoked `protobuf:"bytes,26,opt,name=device_revoked,json=deviceRevoked,proto3,oneof"`
+}
+
 func (*Event_RunStarted) isEvent_Payload() {}
 
 func (*Event_AgentSpawned) isEvent_Payload() {}
@@ -1306,6 +1334,10 @@ func (*Event_AgentReopened) isEvent_Payload() {}
 func (*Event_AgentPhaseChanged) isEvent_Payload() {}
 
 func (*Event_AgentReopenDropped) isEvent_Payload() {}
+
+func (*Event_DevicePaired) isEvent_Payload() {}
+
+func (*Event_DeviceRevoked) isEvent_Payload() {}
 
 type RunStarted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2184,6 +2216,180 @@ func (x *Setting) GetUpdatedBy() *Actor {
 	return nil
 }
 
+// A paired client device.
+type Device struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Class     ActorClass             `protobuf:"varint,3,opt,name=class,proto3,enum=agentmesh.v1.ActorClass" json:"class,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Set once revoked.
+	RevokedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Device) Reset() {
+	*x = Device{}
+	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Device) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Device) ProtoMessage() {}
+
+func (x *Device) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Device.ProtoReflect.Descriptor instead.
+func (*Device) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *Device) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Device) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Device) GetClass() ActorClass {
+	if x != nil {
+		return x.Class
+	}
+	return ActorClass_ACTOR_CLASS_UNSPECIFIED
+}
+
+func (x *Device) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Device) GetRevokedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RevokedAt
+	}
+	return nil
+}
+
+type DevicePaired struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Device        *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DevicePaired) Reset() {
+	*x = DevicePaired{}
+	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DevicePaired) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DevicePaired) ProtoMessage() {}
+
+func (x *DevicePaired) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DevicePaired.ProtoReflect.Descriptor instead.
+func (*DevicePaired) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *DevicePaired) GetDevice() *Device {
+	if x != nil {
+		return x.Device
+	}
+	return nil
+}
+
+type DeviceRevoked struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceRevoked) Reset() {
+	*x = DeviceRevoked{}
+	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceRevoked) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceRevoked) ProtoMessage() {}
+
+func (x *DeviceRevoked) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceRevoked.ProtoReflect.Descriptor instead.
+func (*DeviceRevoked) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DeviceRevoked) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *DeviceRevoked) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 var File_agentmesh_v1_types_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_types_proto_rawDesc = "" +
@@ -2262,7 +2468,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x01 \x01(\tR\n" +
 	"generation\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xbb\t\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xc4\n" +
+	"\n" +
 	"\x05Event\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x1e\n" +
 	"\n" +
@@ -2288,7 +2495,9 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x16agent_reopen_requested\x18\x13 \x01(\v2\".agentmesh.v1.AgentReopenRequestedH\x00R\x14agentReopenRequested\x12D\n" +
 	"\x0eagent_reopened\x18\x14 \x01(\v2\x1b.agentmesh.v1.AgentReopenedH\x00R\ragentReopened\x12Q\n" +
 	"\x13agent_phase_changed\x18\x15 \x01(\v2\x1f.agentmesh.v1.AgentPhaseChangedH\x00R\x11agentPhaseChanged\x12T\n" +
-	"\x14agent_reopen_dropped\x18\x16 \x01(\v2 .agentmesh.v1.AgentReopenDroppedH\x00R\x12agentReopenDroppedB\t\n" +
+	"\x14agent_reopen_dropped\x18\x16 \x01(\v2 .agentmesh.v1.AgentReopenDroppedH\x00R\x12agentReopenDropped\x12A\n" +
+	"\rdevice_paired\x18\x19 \x01(\v2\x1a.agentmesh.v1.DevicePairedH\x00R\fdevicePaired\x12D\n" +
+	"\x0edevice_revoked\x18\x1a \x01(\v2\x1b.agentmesh.v1.DeviceRevokedH\x00R\rdeviceRevokedB\t\n" +
 	"\apayload\"1\n" +
 	"\n" +
 	"RunStarted\x12#\n" +
@@ -2352,7 +2561,20 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x122\n" +
 	"\n" +
-	"updated_by\x18\a \x01(\v2\x13.agentmesh.v1.ActorR\tupdatedBy*S\n" +
+	"updated_by\x18\a \x01(\v2\x13.agentmesh.v1.ActorR\tupdatedBy\"\xd2\x01\n" +
+	"\x06Device\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12.\n" +
+	"\x05class\x18\x03 \x01(\x0e2\x18.agentmesh.v1.ActorClassR\x05class\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\"<\n" +
+	"\fDevicePaired\x12,\n" +
+	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\"@\n" +
+	"\rDeviceRevoked\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name*S\n" +
 	"\tRunStatus\x12\x1a\n" +
 	"\x16RUN_STATUS_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fRUN_STATUS_OPEN\x10\x01\x12\x15\n" +
@@ -2403,7 +2625,7 @@ func file_agentmesh_v1_types_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_types_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_agentmesh_v1_types_proto_goTypes = []any{
 	(RunStatus)(0),                // 0: agentmesh.v1.RunStatus
 	(AgentRole)(0),                // 1: agentmesh.v1.AgentRole
@@ -2432,31 +2654,35 @@ var file_agentmesh_v1_types_proto_goTypes = []any{
 	(*SettingChanged)(nil),        // 24: agentmesh.v1.SettingChanged
 	(*SettingSchema)(nil),         // 25: agentmesh.v1.SettingSchema
 	(*Setting)(nil),               // 26: agentmesh.v1.Setting
-	(*timestamppb.Timestamp)(nil), // 27: google.protobuf.Timestamp
-	(*Actor)(nil),                 // 28: agentmesh.v1.Actor
-	(*structpb.Value)(nil),        // 29: google.protobuf.Value
+	(*Device)(nil),                // 27: agentmesh.v1.Device
+	(*DevicePaired)(nil),          // 28: agentmesh.v1.DevicePaired
+	(*DeviceRevoked)(nil),         // 29: agentmesh.v1.DeviceRevoked
+	(*timestamppb.Timestamp)(nil), // 30: google.protobuf.Timestamp
+	(*Actor)(nil),                 // 31: agentmesh.v1.Actor
+	(*structpb.Value)(nil),        // 32: google.protobuf.Value
+	(ActorClass)(0),               // 33: agentmesh.v1.ActorClass
 }
 var file_agentmesh_v1_types_proto_depIdxs = []int32{
-	27, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.Run.status:type_name -> agentmesh.v1.RunStatus
-	27, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	28, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
+	30, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	31, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
 	1,  // 4: agentmesh.v1.Agent.role:type_name -> agentmesh.v1.AgentRole
 	2,  // 5: agentmesh.v1.Agent.state:type_name -> agentmesh.v1.AgentState
-	27, // 6: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
-	27, // 7: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
+	30, // 6: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
+	30, // 7: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 8: agentmesh.v1.Agent.state_before_compact:type_name -> agentmesh.v1.AgentState
 	3,  // 9: agentmesh.v1.Agent.phase:type_name -> agentmesh.v1.AgentPhase
 	8,  // 10: agentmesh.v1.Agent.pending_reopen:type_name -> agentmesh.v1.Reopen
-	27, // 11: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
-	28, // 12: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
-	28, // 13: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
+	30, // 11: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
+	31, // 12: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
+	31, // 13: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
 	4,  // 14: agentmesh.v1.Message.type:type_name -> agentmesh.v1.MessageType
-	27, // 15: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	27, // 16: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
-	27, // 17: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
-	27, // 18: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
-	28, // 19: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
+	30, // 15: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	30, // 16: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
+	30, // 17: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
+	30, // 18: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
+	31, // 19: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
 	12, // 20: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
 	13, // 21: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
 	14, // 22: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
@@ -2470,28 +2696,34 @@ var file_agentmesh_v1_types_proto_depIdxs = []int32{
 	20, // 30: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
 	22, // 31: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
 	21, // 32: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
-	6,  // 33: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
-	7,  // 34: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
-	2,  // 35: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
-	2,  // 36: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
-	9,  // 37: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
-	8,  // 38: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
-	8,  // 39: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
-	8,  // 40: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
-	3,  // 41: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
-	3,  // 42: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
-	29, // 43: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
-	29, // 44: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
-	29, // 45: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
-	29, // 46: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
-	25, // 47: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
-	27, // 48: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
-	28, // 49: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
-	50, // [50:50] is the sub-list for method output_type
-	50, // [50:50] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	28, // 33: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
+	29, // 34: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
+	6,  // 35: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
+	7,  // 36: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
+	2,  // 37: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
+	2,  // 38: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
+	9,  // 39: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
+	8,  // 40: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
+	8,  // 41: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
+	8,  // 42: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
+	3,  // 43: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
+	3,  // 44: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
+	32, // 45: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
+	32, // 46: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
+	32, // 47: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
+	32, // 48: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
+	25, // 49: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
+	30, // 50: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
+	31, // 51: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
+	33, // 52: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
+	30, // 53: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
+	30, // 54: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
+	27, // 55: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_types_proto_init() }
@@ -2514,6 +2746,8 @@ func file_agentmesh_v1_types_proto_init() {
 		(*Event_AgentReopened)(nil),
 		(*Event_AgentPhaseChanged)(nil),
 		(*Event_AgentReopenDropped)(nil),
+		(*Event_DevicePaired)(nil),
+		(*Event_DeviceRevoked)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2521,7 +2755,7 @@ func file_agentmesh_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_types_proto_rawDesc), len(file_agentmesh_v1_types_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   22,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

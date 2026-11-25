@@ -371,3 +371,93 @@ func TestSettingsRoundTripAndReplace(t *testing.T) {
 		t.Errorf("after a delete: %v", err)
 	}
 }
+
+func TestVersionTwoDatabaseGainsPairingsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meshd.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateWith(db, path, clock, ms[:2]); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if devs, err := s.Read(context.Background()).ListDevices(true, "device-local"); err != nil || len(devs) != 0 {
+		t.Fatalf("ListDevices after migration: %v, %v", devs, err)
+	}
+	if matches, _ := filepath.Glob(path + ".bak-v2-*"); len(matches) != 1 {
+		t.Errorf("backups %v", matches)
+	}
+}
+
+func TestPairingsAndDevicesRoundTrip(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	by := &v1.Actor{Id: "device-local", Class: v1.ActorClass_ACTOR_CLASS_DEVICE, Name: "local"}
+
+	err := s.Write(ctx, by, "", func(tx *Tx) error {
+		if err := tx.PutMutation("device-local", "mut-pair", "CreatePairing", []byte("secret")); err != nil {
+			return err
+		}
+		return tx.PutPairing(PairingRecord{
+			Hash:       "hpair1",
+			ID:         "p1",
+			Name:       "phone",
+			Class:      v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE,
+			CreatedAt:  fixed,
+			ExpiresAt:  fixed.Add(10 * time.Minute),
+			MutationID: "mut-pair",
+			CreatedBy:  by,
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec, err := s.Read(ctx).Pairing("hpair1")
+	if err != nil || rec.ID != "p1" || rec.Class != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE || !rec.UsedAt.IsZero() {
+		t.Fatalf("Pairing = %+v, %v", rec, err)
+	}
+
+	err = s.Write(ctx, by, "", func(tx *Tx) error {
+		if err := tx.MarkPairingUsed("hpair1", "dev1"); err != nil {
+			return err
+		}
+		if err := tx.DeleteMutation("device-local", rec.MutationID); err != nil {
+			return err
+		}
+		if err := tx.PutToken("htok1", TokenRecord{Class: rec.Class, SubjectID: "dev1", Name: "Pixel"}); err != nil {
+			return err
+		}
+		return tx.PutToken("hlocal", TokenRecord{Class: v1.ActorClass_ACTOR_CLASS_DEVICE, SubjectID: "device-local", Name: "local"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Read(ctx).Mutation("device-local", "mut-pair"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("mutation not scrubbed: %v", err)
+	}
+	devs, err := s.Read(ctx).ListDevices(false, "device-local")
+	if err != nil || len(devs) != 1 || devs[0].Id != "dev1" || devs[0].Name != "Pixel" {
+		t.Fatalf("ListDevices = %+v, %v", devs, err)
+	}
+	if err := s.Write(ctx, by, "", func(tx *Tx) error { return tx.RevokeTokens("dev1") }); err != nil {
+		t.Fatal(err)
+	}
+	if active, _ := s.Read(ctx).ListDevices(false, "device-local"); len(active) != 0 {
+		t.Errorf("revoked device still active: %+v", active)
+	}
+	if all, _ := s.Read(ctx).ListDevices(true, "device-local"); len(all) != 1 || all[0].RevokedAt == nil {
+		t.Errorf("includeRevoked = %+v", all)
+	}
+}

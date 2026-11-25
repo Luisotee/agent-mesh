@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,9 +24,14 @@ import (
 	"connectrpc.com/connect"
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
+	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
@@ -38,7 +45,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for out, pkg := range map[string]string{"meshd": "./cmd/meshd", "mesh-term": "./cmd/mesh-term",
-		"meshctl": "./cmd/meshctl", "claude": "./internal/testutil/fakeclaude"} {
+		"meshctl": "./cmd/meshctl", "mesh-relay": "./cmd/mesh-relay", "claude": "./internal/testutil/fakeclaude"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = ".."
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -456,4 +463,175 @@ func TestEndToEnd(t *testing.T) {
 			get(a, "agent", "denyEdits") == true && str(a, "agent", "state") == "AGENT_STATE_IDLE" &&
 			str(a, "agent", "sessionId") == session
 	})
+}
+
+func TestRelayAndPairingEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	os.MkdirAll(w.home, 0o700)
+	t.Cleanup(w.stopAll)
+
+	repo := filepath.Join(root, "shop-api")
+	os.MkdirAll(repo, 0o755)
+	for _, args := range [][]string{{"init", "-q", "-b", "main"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = repo, w.env()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+
+	// Start the real mesh-relay binary on loopback.
+	secret := relay.NewSecret()
+	secretFile := filepath.Join(root, "relay.token")
+	if err := fsutil.WriteAtomic(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Reserve free loopback ports for the relay's HTTP and raw TCP listeners, then close before starting mesh-relay.
+	pickAddr := func() string {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := l.Addr().String()
+		l.Close()
+		return addr
+	}
+	relayHTTPAddr := pickAddr()
+	relayTCPAddr := pickAddr()
+	relayLog := &lockedBuffer{}
+	rcmd := exec.Command(filepath.Join(bins, "mesh-relay"),
+		"--listen", relayHTTPAddr,
+		"--client-listen", relayTCPAddr,
+		"--token-file", secretFile,
+		"--max-lifetime", "3m",
+	)
+	rcmd.Env = w.env()
+	rcmd.Stdout, rcmd.Stderr = relayLog, relayLog
+	if err := rcmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if rcmd.Process != nil && rcmd.ProcessState == nil {
+			_ = rcmd.Process.Signal(syscall.SIGTERM)
+			_ = rcmd.Wait()
+		}
+	})
+	w.waitFor("mesh-relay /healthz", func() bool {
+		resp, err := http.Get("http://" + relayHTTPAddr + "/healthz")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	})
+
+	// Start real meshd wired to mesh-relay + opt-in --listen TLS.
+	w.log = &lockedBuffer{}
+	cmd := exec.Command(filepath.Join(bins, "meshd"),
+		"--state", w.state,
+		"--term-launch", "detached",
+		"--max-lifetime", "3m",
+		"--cli", "claude="+filepath.Join(bins, "claude"),
+		"--listen", "127.0.0.1:0",
+		"--relay-url", "http://"+relayHTTPAddr,
+		"--relay-tcp", relayTCPAddr,
+		"--relay-token-file", secretFile,
+		"--host-name", "e2e-host",
+		"--agent-env", "HOME="+w.home,
+		"--agent-env", "PATH="+os.Getenv("PATH"),
+	)
+	cmd.Env = w.env()
+	cmd.Stdout, cmd.Stderr = w.log, w.log
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	w.meshd = cmd
+	w.waitFor("meshd up", func() bool {
+		info, err := statedir.ReadInfo(w.state)
+		return err == nil && info.PID == cmd.Process.Pid && info.Listen != "" && info.CertFingerprint != ""
+	})
+
+	// Create a pairing via real meshctl pair.
+	pairOut := w.ctl("pair", "--name", "e2e-phone")
+	p, err := pairing.ParseURI(str(pairOut, "uri"))
+	if err != nil {
+		t.Fatalf("ParseURI(%q): %v", str(pairOut, "uri"), err)
+	}
+
+	// Wait until meshd has registered with mesh-relay, then redeem and call APIs through the relay binary.
+	var red *connect.Response[v1.RedeemPairingResponse]
+	relayHC, err := relay.NewTCPHTTPClient(p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer relayHC.CloseIdleConnections()
+	pc := agentmeshv1connect.NewPairingServiceClient(relayHC, relay.BaseURL)
+	w.waitFor("pairing redeemed over relay", func() bool {
+		r, err := pc.RedeemPairing(context.Background(), connect.NewRequest(&v1.RedeemPairingRequest{Token: p.Token}))
+		if err != nil {
+			return false
+		}
+		red = r
+		return true
+	})
+
+	// Spawn a fake claude locally and attach to its terminal WebSocket *through mesh-relay*!
+	run := str(w.ctl("start-run", "--title", "relay-e2e"), "run", "id")
+	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "claude", "--role", "worker")
+	agentID := str(spawned, "agent", "id")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	rm := agentmeshv1connect.NewMeshServiceClient(relayHC, relay.BaseURL,
+		connect.WithInterceptors(auth.ClientToken(red.Msg.DeviceToken)))
+	open, err := rm.OpenTerminal(ctx, connect.NewRequest(&v1.OpenTerminalRequest{Agent: agentID, Input: true}))
+	if err != nil {
+		t.Fatalf("OpenTerminal over relay: %v", err)
+	}
+	wsHC, err := relay.NewTCPHTTPClient(p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsHC.CloseIdleConnections()
+	s, err := termclient.Attach(ctx, wsHC, relay.BaseURL+open.Msg.Path, "",
+		&termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_REPAINT, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatalf("Attach terminal over relay: %v", err)
+	}
+	var gotAttached, gotReplayDone bool
+	for !gotReplayDone {
+		f, err := s.Recv(ctx)
+		if err != nil {
+			t.Fatalf("terminal Recv over relay: %v", err)
+		}
+		if f.GetAttached() != nil {
+			gotAttached = true
+		}
+		if f.GetReplayDone() != nil {
+			gotReplayDone = true
+		}
+	}
+	s.Close()
+	if !gotAttached {
+		t.Fatal("missing Attached frame over relay")
+	}
+
+	// Verify direct TLS route also works against --listen.
+	directHC, err := relay.NewDirectHTTPClient(p.CertFingerprint, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dm := agentmeshv1connect.NewMeshServiceClient(directHC, p.DirectURL,
+		connect.WithInterceptors(auth.ClientToken(red.Msg.DeviceToken)))
+	if _, err := dm.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); err != nil {
+		t.Fatalf("direct TLS Hello: %v", err)
+	}
+
+	// Revoke via meshctl revoke-device and verify remote client loses access.
+	w.ctl("revoke-device", "--device-id", red.Msg.DeviceId)
+	if _, err := dm.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("revoked device Hello = %v, want Unauthenticated", err)
+	}
 }

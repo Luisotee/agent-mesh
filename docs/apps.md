@@ -326,6 +326,13 @@ Settled for step 2, the desktop app's first version (2026-11-25, run mfb6a):
 - **A test pins the UI to the registry**: every action the UI calls must be a `MeshService` method a device may call (read from the descriptor's `action` option), and no source file outside the transport reaches the network.
 - **Tests:** vitest and Testing Library for the React side; the bridge against real sockets; the generated client through bridge and adapter to a ConnectRPC server; and the built app driven over the Chrome DevTools Protocol with `playwright-core` (`connectOverCDP`, no browser download: Electron's own Chromium) against a real meshd on a temp state dir with the fake Claude CLI, in a HOME and user-data dir of their own.
 
+Settled for step 3, connections part 1 (`mesh-relay`, TLS pinning and pairing, 2026-11-25, run mfb6a):
+
+- **Separate relay binary (`cmd/mesh-relay`), shared protocol (`docs/relay.md`):** keeps SQLite and PTY host dependencies out of the VPS binary while keeping everything in `daemon/`.
+- **Two relay listeners:** `--listen` (HTTP/WebSocket, port `443` behind `nginx-proxy-manager`) for daemon control (`/v1/daemon/control`), single-use dial-back streams (`/v1/daemon/stream?ticket=...`), `/healthz`, and an optional browser WS endpoint (`/v1/client/connect`); `--client-listen` (raw TCP port `8443`) for native apps (`MESH1 <host_id> <client_token>\n` -> `OK\n` -> raw splice), so Android OkHttp and desktop clients run pinned end-to-end TLS directly on the TCP socket without layering TLS over WebSockets.
+- **Opt-in direct TLS (`meshd --listen`):** uses the same persistent ECDSA P-256 certificate (`tls.crt`/`tls.key`) as the relay route (`--tcp` remains plain loopback HTTP).
+- **Separate `PairingService`:** `RedeemPairing` exchanges the one-time `amp_...` token (stored hashed, mutation scrubbed on redeem/expiry) for a per-device `amt_...` token without relaxing `MeshService`'s bearer-token interceptor; `CreatePairing`, `ListDevices` and `RevokeDevice` are restricted to `device-local`, and revocation cancels the device's open event and terminal streams immediately.
+
 ## Open decisions
 
 - Tailcat (a Tailscale-compatible library with no account and your own relay server, per happy) instead of `tsnet`, later.

@@ -6,7 +6,9 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 
 - `../proto/`: the API as protobuf. `agentmesh/v1` is the action registry (`MeshService`, each RPC with its allowed actor classes in the `action` option), `agentmesh/term/v1` the terminal host's API and WebSocket frames, `agentmesh/adapter/v1` the CLI-adapter plugin interface. `buf.yaml` and `buf.gen.yaml` live there.
 - `gen/`: the generated Go code (committed; regenerate with `cd proto && buf generate`). Reviewers can skip it.
-- `cmd/meshd`: the daemon.
+- `cmd/meshd`: the daemon (including optional `--listen` TLS and `--relay-url` outbound relay connector).
+- `cmd/mesh-relay`: the self-hosted stream relay (`docs/relay.md`), static binary for VPS deployment (`packaging/relay/`, `packaging/systemd/agent-mesh-relay.service`).
+- `internal/tlsutil`, `internal/pairing`, `internal/relay`: persistent ECDSA P-256 cert & SHA-256 fingerprint pinning, `agentmesh://pair` URI codec, and zero-trust relay server/connector/client.
 - `internal/registry`: the action registry read from the descriptors; `testdata/actors.golden` pins what each actor class may call.
 - `internal/auth`: tokens (stored as SHA-256), the interceptor that takes the actor from the token, and the browser refusal.
 - `internal/store`: SQLite (pure Go, WAL), embedded numbered migrations, backed up before migrating.

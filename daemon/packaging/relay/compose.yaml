@@ -1,0 +1,25 @@
+services:
+  mesh-relay:
+    build:
+      context: ../..
+      dockerfile: packaging/relay/Dockerfile
+    container_name: agent-mesh-relay
+    restart: unless-stopped
+    command:
+      - --listen=:8080
+      - --client-listen=:8443
+      - --token-file=/run/secrets/relay.token
+    ports:
+      # HTTP/WebSocket daemon control & dial-back: keep loopback-only if nginx-proxy-manager is on the host,
+      # or join nginx-proxy-manager's Docker network instead of publishing 8080.
+      - "127.0.0.1:8080:8080"
+      # Raw TCP client stream port (cannot sit behind an HTTP reverse proxy; open in Oracle Security List + firewall).
+      - "8443:8443"
+    volumes:
+      # Generate with: mesh-relay --gen-token > relay.token && chmod 600 relay.token
+      - ./relay.token:/run/secrets/relay.token:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

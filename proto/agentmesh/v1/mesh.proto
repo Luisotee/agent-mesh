@@ -287,6 +287,36 @@ service MeshService {
       summary: "Get a ticket for an agent's terminal stream"
     };
   }
+
+  // Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+  // may call this.
+  rpc CreatePairing(CreatePairingRequest) returns (CreatePairingResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "pair"
+      summary: "Create a one-time pairing token and QR/link payload for a device"
+    };
+  }
+
+  // List paired devices. Only the host's own device may call this.
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      cli: "devices"
+      summary: "List paired devices"
+    };
+  }
+
+  // Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+  rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "revoke-device"
+      summary: "Revoke a paired device"
+    };
+  }
 }
 
 message HelloRequest {
@@ -580,4 +610,54 @@ message ResumeAgentResponse {
   // The task, when one was given.
   Message message = 2;
   Reopen reopen = 3;
+}
+
+message CreatePairingRequest {
+  RequestMeta meta = 1;
+  // Optional label for the device (the redeeming app may override it).
+  string name = 2;
+  // Issue a read-only device token when redeemed.
+  bool read_only = 3;
+  // Lifetime in seconds (default 600, max 86400).
+  int64 ttl_seconds = 4;
+  // Optional direct HTTPS URL (`https://host:port`) to include in the pairing payload.
+  string direct_url = 5;
+  // Optional relay URL override; defaults to the daemon's configured relay URL.
+  string relay_url = 6;
+}
+
+message CreatePairingResponse {
+  string pairing_id = 1;
+  // One-time pairing token (`amp_...`).
+  string token = 2;
+  string host_id = 3;
+  string host_name = 4;
+  // Canonical TLS leaf certificate fingerprint (`sha256:<64-hex>`).
+  string cert_fingerprint = 5;
+  string relay_url = 6;
+  // Raw TCP client endpoint (`host:port`) on the relay, when configured.
+  string relay_tcp = 7;
+  // Client relay auth token (`amr_...`) for this host, when relay is configured.
+  string relay_client_token = 8;
+  string direct_url = 9;
+  // Canonical `agentmesh://pair?...` URI for QR codes and pairing links.
+  string uri = 10;
+  google.protobuf.Timestamp expires_at = 11;
+}
+
+message ListDevicesRequest {
+  bool include_revoked = 1;
+}
+
+message ListDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message RevokeDeviceRequest {
+  RequestMeta meta = 1;
+  string device_id = 2;
+}
+
+message RevokeDeviceResponse {
+  Device device = 1;
 }

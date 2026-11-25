@@ -360,11 +360,17 @@ func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInbo
 // SubscribeEvents streams the event log.
 func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.SubscribeEventsRequest],
 	stream *connect.ServerStream[v1.SubscribeEventsResponse]) error {
-	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	actor := auth.ActorFrom(ctx)
+	runID, err := scopedRun(actor, req.Msg.RunId)
 	if err != nil {
 		return err
 	}
 	msg := proto.Clone(req.Msg).(*v1.SubscribeEventsRequest)
 	msg.RunId = runID
-	return d.bus.Serve(ctx, msg, d.stopping, stream.Send)
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if actor != nil {
+		defer d.trackStream(actor.Id, cancel)()
+	}
+	return d.bus.Serve(sctx, msg, d.stopping, stream.Send)
 }

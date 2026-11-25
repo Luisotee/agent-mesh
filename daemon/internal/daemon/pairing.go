@@ -1,0 +1,279 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"net"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
+	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
+	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+)
+
+const (
+	pairingTokenPrefix = "amp_"
+	defaultPairingTTL  = 10 * time.Minute
+	maxPairingTTL      = 24 * time.Hour
+)
+
+func (d *Daemon) trackStream(actorID string, cancel context.CancelFunc) func() {
+	d.streamsMu.Lock()
+	d.nextStream++
+	id := d.nextStream
+	m := d.streams[actorID]
+	if m == nil {
+		m = map[uint64]context.CancelFunc{}
+		d.streams[actorID] = m
+	}
+	m[id] = cancel
+	d.streamsMu.Unlock()
+	return func() {
+		d.streamsMu.Lock()
+		if m := d.streams[actorID]; m != nil {
+			delete(m, id)
+			if len(m) == 0 {
+				delete(d.streams, actorID)
+			}
+		}
+		d.streamsMu.Unlock()
+	}
+}
+
+func (d *Daemon) disconnectActor(actorID string) {
+	d.streamsMu.Lock()
+	m := d.streams[actorID]
+	delete(d.streams, actorID)
+	d.streamsMu.Unlock()
+	for _, cancel := range m {
+		cancel()
+	}
+}
+
+func requireHostDevice(ctx context.Context) error {
+	actor := auth.ActorFrom(ctx)
+	if actor == nil || actor.Id != localDeviceID {
+		return denied("only the host's own device may manage paired devices")
+	}
+	return nil
+}
+
+// CreatePairing mints a one-time pairing token and QR/link payload. Only the host's own device may call it.
+func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
+	if err := requireHostDevice(ctx); err != nil {
+		return nil, err
+	}
+	ttl := defaultPairingTTL
+	if req.Msg.TtlSeconds < 0 || time.Duration(req.Msg.TtlSeconds)*time.Second > maxPairingTTL {
+		return nil, invalid("ttl_seconds must be between 0 and %d", int(maxPairingTTL/time.Second))
+	}
+	if req.Msg.TtlSeconds > 0 {
+		ttl = time.Duration(req.Msg.TtlSeconds) * time.Second
+	}
+	class := v1.ActorClass_ACTOR_CLASS_DEVICE
+	if req.Msg.ReadOnly {
+		class = v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
+	}
+	relayURL := strings.TrimSpace(req.Msg.RelayUrl)
+	if relayURL == "" {
+		relayURL = d.cfg.Relay.URL
+	}
+	relayTCP := d.cfg.Relay.TCP
+	var relayClientTok string
+	if d.cfg.Relay.Token != "" {
+		relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
+	}
+	directURL := strings.TrimSpace(req.Msg.DirectUrl)
+	if directURL == "" && d.info.Listen != "" {
+		if host, _, err := net.SplitHostPort(d.info.Listen); err == nil && host != "" && host != "0.0.0.0" && host != "::" {
+			directURL = "https://" + d.info.Listen
+		}
+	}
+
+	out := &v1.CreatePairingResponse{}
+	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCreatePairingProcedure, out, func(tx *store.Tx) error {
+		now := tx.Now()
+		exp := now.Add(ttl)
+		tok := ids.Secret(pairingTokenPrefix)
+		pid := ids.New("p", 10)
+		name := strings.TrimSpace(req.Msg.Name)
+		uri, err := pairing.EncodeURI(pairing.Payload{
+			HostID:           d.daemonID,
+			HostName:         d.hostName,
+			CertFingerprint:  d.certFP,
+			Token:            tok,
+			RelayURL:         relayURL,
+			RelayTCP:         relayTCP,
+			RelayClientToken: relayClientTok,
+			DirectURL:        directURL,
+			DeviceName:       name,
+		})
+		if err != nil {
+			return err
+		}
+		if err := tx.PutPairing(store.PairingRecord{
+			Hash:       auth.Hash(tok),
+			ID:         pid,
+			Name:       name,
+			Class:      class,
+			CreatedAt:  now,
+			ExpiresAt:  exp,
+			MutationID: req.Msg.Meta.GetMutationId(),
+			CreatedBy:  tx.Actor,
+		}); err != nil {
+			return err
+		}
+		out.PairingId = pid
+		out.Token = tok
+		out.HostId = d.daemonID
+		out.HostName = d.hostName
+		out.CertFingerprint = d.certFP
+		out.RelayUrl = relayURL
+		out.RelayTcp = relayTCP
+		out.RelayClientToken = relayClientTok
+		out.DirectUrl = directURL
+		out.Uri = uri
+		out.ExpiresAt = tsOf(exp)
+		return nil
+	})
+	return connect.NewResponse(out), err
+}
+
+// RedeemPairing exchanges a one-time pairing token for a per-device bearer token.
+func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.RedeemPairingRequest]) (*connect.Response[v1.RedeemPairingResponse], error) {
+	tok := strings.TrimSpace(req.Msg.Token)
+	if tok == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing pairing token"))
+	}
+	var out *v1.RedeemPairingResponse
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		rec, err := tx.Pairing(auth.Hash(tok))
+		if errors.Is(err, store.ErrNotFound) {
+			return connect.NewError(connect.CodeUnauthenticated, errors.New("unknown pairing token"))
+		}
+		if err != nil {
+			return err
+		}
+		if !rec.UsedAt.IsZero() {
+			return connect.NewError(connect.CodeUnauthenticated, errors.New("pairing token already used"))
+		}
+		now := tx.Now()
+		if now.After(rec.ExpiresAt) {
+			return connect.NewError(connect.CodeUnauthenticated, errors.New("pairing token expired"))
+		}
+		name := strings.TrimSpace(req.Msg.DeviceName)
+		if name == "" {
+			name = rec.Name
+		}
+		if name == "" {
+			name = "device"
+		}
+		devID := ids.New("dev", 10)
+		devTok := auth.NewToken()
+		if err := tx.MarkPairingUsed(rec.Hash, devID); err != nil {
+			return err
+		}
+		if err := tx.PutToken(auth.Hash(devTok), store.TokenRecord{
+			Class:     rec.Class,
+			SubjectID: devID,
+			Name:      name,
+		}); err != nil {
+			return err
+		}
+		// Scrub the CreatePairing mutation response so the one-time pairing token is not kept on disk.
+		if rec.MutationID != "" && rec.CreatedBy != nil {
+			if err := tx.DeleteMutation(rec.CreatedBy.Id, rec.MutationID); err != nil {
+				return err
+			}
+		}
+		dev := &v1.Device{
+			Id:        devID,
+			Name:      name,
+			Class:     rec.Class,
+			CreatedAt: tsOf(now),
+		}
+		tx.Actor = &v1.Actor{Class: rec.Class, Id: devID, Name: name}
+		if _, err := tx.AppendEvent(&v1.Event{
+			Payload: &v1.Event_DevicePaired{DevicePaired: &v1.DevicePaired{Device: dev}},
+		}); err != nil {
+			return err
+		}
+		out = &v1.RedeemPairingResponse{
+			DeviceId:        devID,
+			DeviceName:      name,
+			Class:           rec.Class,
+			DeviceToken:     devTok,
+			HostId:          d.daemonID,
+			HostName:        d.hostName,
+			CertFingerprint: d.certFP,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// ListDevices lists paired devices. Only the host's own device may call it.
+func (d *Daemon) ListDevices(ctx context.Context, req *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error) {
+	if err := requireHostDevice(ctx); err != nil {
+		return nil, err
+	}
+	devs, err := d.store.Read(ctx).ListDevices(req.Msg.IncludeRevoked, localDeviceID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.ListDevicesResponse{Devices: devs}), nil
+}
+
+// RevokeDevice revokes a paired device's token and immediately closes its active streams.
+func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
+	if err := requireHostDevice(ctx); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.DeviceId)
+	if id == "" {
+		return nil, invalid("no device_id given")
+	}
+	if id == localDeviceID {
+		return nil, invalid("cannot revoke the host's local device")
+	}
+	out := &v1.RevokeDeviceResponse{}
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeDeviceProcedure, out, func(tx *store.Tx) error {
+		dev, err := tx.GetDevice(id)
+		if errors.Is(err, store.ErrNotFound) {
+			return notFound("no device %s", id)
+		}
+		if err != nil {
+			return err
+		}
+		if dev.RevokedAt == nil {
+			if err := tx.RevokeTokens(id); err != nil {
+				return err
+			}
+			dev.RevokedAt = tsOf(tx.Now())
+			if _, err := tx.AppendEvent(&v1.Event{
+				Payload: &v1.Event_DeviceRevoked{DeviceRevoked: &v1.DeviceRevoked{DeviceId: dev.Id, Name: dev.Name}},
+			}); err != nil {
+				return err
+			}
+		}
+		out.Device = dev
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !replayed {
+		d.disconnectActor(id)
+	}
+	return connect.NewResponse(out), nil
+}
