@@ -146,8 +146,10 @@ type PlanLaunchRequest struct {
 	Env map[string]string `protobuf:"bytes,10,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Start the CLI with its permission prompts off.
 	SkipPermissions bool `protobuf:"varint,11,opt,name=skip_permissions,json=skipPermissions,proto3" json:"skip_permissions,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The repository's main checkout. An ASKER or REVIEWER (read-only) agent may not edit it or its worktree.
+	Repo          string `protobuf:"bytes,12,opt,name=repo,proto3" json:"repo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PlanLaunchRequest) Reset() {
@@ -255,6 +257,13 @@ func (x *PlanLaunchRequest) GetSkipPermissions() bool {
 		return x.SkipPermissions
 	}
 	return false
+}
+
+func (x *PlanLaunchRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
 }
 
 type PlanLaunchResponse struct {
@@ -1045,7 +1054,7 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
 	"\x11verified_versions\x18\x03 \x03(\tR\x10verifiedVersions\x12\"\n" +
-	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xad\x03\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xc1\x03\n" +
 	"\x11PlanLaunchRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -1059,7 +1068,8 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\thook_argv\x18\t \x03(\tR\bhookArgv\x12B\n" +
 	"\x03env\x18\n" +
 	" \x03(\v20.agentmesh.adapter.v1.PlanLaunchRequest.EnvEntryR\x03env\x12)\n" +
-	"\x10skip_permissions\x18\v \x01(\bR\x0fskipPermissions\x1a6\n" +
+	"\x10skip_permissions\x18\v \x01(\bR\x0fskipPermissions\x12\x12\n" +
+	"\x04repo\x18\f \x01(\tR\x04repo\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +

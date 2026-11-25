@@ -206,9 +206,11 @@ type Terminal struct {
 	// Set by the daemon at creation (its agent id, say), so terminals can be matched without the daemon's db.
 	Labels map[string]string `protobuf:"bytes,16,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Attached clients that may type and are ready: while there are any, nothing else types into it.
-	InputClients  uint32 `protobuf:"varint,17,opt,name=input_clients,json=inputClients,proto3" json:"input_clients,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	InputClients uint32 `protobuf:"varint,17,opt,name=input_clients,json=inputClients,proto3" json:"input_clients,omitempty"`
+	// When a client with input rights last sent input. The daemon's own writes don't count.
+	LastClientInput *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=last_client_input,json=lastClientInput,proto3" json:"last_client_input,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Terminal) Reset() {
@@ -358,6 +360,13 @@ func (x *Terminal) GetInputClients() uint32 {
 		return x.InputClients
 	}
 	return 0
+}
+
+func (x *Terminal) GetLastClientInput() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastClientInput
+	}
+	return nil
 }
 
 type CreateTerminalRequest struct {
@@ -1825,7 +1834,7 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x10\n" +
 	"\x03pid\x18\x03 \x01(\x03R\x03pid\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\"\xef\x04\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"\xb7\x05\n" +
 	"\bTerminal\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04argv\x18\x02 \x03(\tR\x04argv\x12\x10\n" +
@@ -1846,7 +1855,8 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\vlast_output\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastOutput\x12?\n" +
 	"\x06labels\x18\x10 \x03(\v2'.agentmesh.term.v1.Terminal.LabelsEntryR\x06labels\x12#\n" +
-	"\rinput_clients\x18\x11 \x01(\rR\finputClients\x1a9\n" +
+	"\rinput_clients\x18\x11 \x01(\rR\finputClients\x12F\n" +
+	"\x11last_client_input\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\x0flastClientInput\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x02\n" +
@@ -2015,44 +2025,45 @@ var file_agentmesh_term_v1_term_proto_depIdxs = []int32{
 	31, // 2: agentmesh.term.v1.Terminal.exited_at:type_name -> google.protobuf.Timestamp
 	31, // 3: agentmesh.term.v1.Terminal.last_output:type_name -> google.protobuf.Timestamp
 	28, // 4: agentmesh.term.v1.Terminal.labels:type_name -> agentmesh.term.v1.Terminal.LabelsEntry
-	29, // 5: agentmesh.term.v1.CreateTerminalRequest.env:type_name -> agentmesh.term.v1.CreateTerminalRequest.EnvEntry
-	30, // 6: agentmesh.term.v1.CreateTerminalRequest.labels:type_name -> agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
-	3,  // 7: agentmesh.term.v1.CreateTerminalResponse.terminal:type_name -> agentmesh.term.v1.Terminal
-	3,  // 8: agentmesh.term.v1.ListTerminalsResponse.terminals:type_name -> agentmesh.term.v1.Terminal
-	3,  // 9: agentmesh.term.v1.WatchTerminalsResponse.exited:type_name -> agentmesh.term.v1.Terminal
-	16, // 10: agentmesh.term.v1.WatchTerminalsResponse.output:type_name -> agentmesh.term.v1.OutputMark
-	31, // 11: agentmesh.term.v1.OutputMark.time:type_name -> google.protobuf.Timestamp
-	18, // 12: agentmesh.term.v1.TermFrame.attach:type_name -> agentmesh.term.v1.Attach
-	20, // 13: agentmesh.term.v1.TermFrame.input:type_name -> agentmesh.term.v1.Input
-	21, // 14: agentmesh.term.v1.TermFrame.resize:type_name -> agentmesh.term.v1.Resize
-	22, // 15: agentmesh.term.v1.TermFrame.ready:type_name -> agentmesh.term.v1.Ready
-	19, // 16: agentmesh.term.v1.TermFrame.attached:type_name -> agentmesh.term.v1.Attached
-	23, // 17: agentmesh.term.v1.TermFrame.output:type_name -> agentmesh.term.v1.Output
-	24, // 18: agentmesh.term.v1.TermFrame.screen:type_name -> agentmesh.term.v1.Screen
-	25, // 19: agentmesh.term.v1.TermFrame.replay_done:type_name -> agentmesh.term.v1.ReplayDone
-	26, // 20: agentmesh.term.v1.TermFrame.exited:type_name -> agentmesh.term.v1.Exited
-	27, // 21: agentmesh.term.v1.TermFrame.closing:type_name -> agentmesh.term.v1.Closing
-	0,  // 22: agentmesh.term.v1.Attach.mode:type_name -> agentmesh.term.v1.AttachMode
-	0,  // 23: agentmesh.term.v1.Attached.mode:type_name -> agentmesh.term.v1.AttachMode
-	1,  // 24: agentmesh.term.v1.TermHostService.Hello:input_type -> agentmesh.term.v1.HelloRequest
-	4,  // 25: agentmesh.term.v1.TermHostService.CreateTerminal:input_type -> agentmesh.term.v1.CreateTerminalRequest
-	6,  // 26: agentmesh.term.v1.TermHostService.ListTerminals:input_type -> agentmesh.term.v1.ListTerminalsRequest
-	8,  // 27: agentmesh.term.v1.TermHostService.KillTerminal:input_type -> agentmesh.term.v1.KillTerminalRequest
-	10, // 28: agentmesh.term.v1.TermHostService.WriteTerminal:input_type -> agentmesh.term.v1.WriteTerminalRequest
-	12, // 29: agentmesh.term.v1.TermHostService.AckExit:input_type -> agentmesh.term.v1.AckExitRequest
-	14, // 30: agentmesh.term.v1.TermHostService.WatchTerminals:input_type -> agentmesh.term.v1.WatchTerminalsRequest
-	2,  // 31: agentmesh.term.v1.TermHostService.Hello:output_type -> agentmesh.term.v1.HelloResponse
-	5,  // 32: agentmesh.term.v1.TermHostService.CreateTerminal:output_type -> agentmesh.term.v1.CreateTerminalResponse
-	7,  // 33: agentmesh.term.v1.TermHostService.ListTerminals:output_type -> agentmesh.term.v1.ListTerminalsResponse
-	9,  // 34: agentmesh.term.v1.TermHostService.KillTerminal:output_type -> agentmesh.term.v1.KillTerminalResponse
-	11, // 35: agentmesh.term.v1.TermHostService.WriteTerminal:output_type -> agentmesh.term.v1.WriteTerminalResponse
-	13, // 36: agentmesh.term.v1.TermHostService.AckExit:output_type -> agentmesh.term.v1.AckExitResponse
-	15, // 37: agentmesh.term.v1.TermHostService.WatchTerminals:output_type -> agentmesh.term.v1.WatchTerminalsResponse
-	31, // [31:38] is the sub-list for method output_type
-	24, // [24:31] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	31, // 5: agentmesh.term.v1.Terminal.last_client_input:type_name -> google.protobuf.Timestamp
+	29, // 6: agentmesh.term.v1.CreateTerminalRequest.env:type_name -> agentmesh.term.v1.CreateTerminalRequest.EnvEntry
+	30, // 7: agentmesh.term.v1.CreateTerminalRequest.labels:type_name -> agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
+	3,  // 8: agentmesh.term.v1.CreateTerminalResponse.terminal:type_name -> agentmesh.term.v1.Terminal
+	3,  // 9: agentmesh.term.v1.ListTerminalsResponse.terminals:type_name -> agentmesh.term.v1.Terminal
+	3,  // 10: agentmesh.term.v1.WatchTerminalsResponse.exited:type_name -> agentmesh.term.v1.Terminal
+	16, // 11: agentmesh.term.v1.WatchTerminalsResponse.output:type_name -> agentmesh.term.v1.OutputMark
+	31, // 12: agentmesh.term.v1.OutputMark.time:type_name -> google.protobuf.Timestamp
+	18, // 13: agentmesh.term.v1.TermFrame.attach:type_name -> agentmesh.term.v1.Attach
+	20, // 14: agentmesh.term.v1.TermFrame.input:type_name -> agentmesh.term.v1.Input
+	21, // 15: agentmesh.term.v1.TermFrame.resize:type_name -> agentmesh.term.v1.Resize
+	22, // 16: agentmesh.term.v1.TermFrame.ready:type_name -> agentmesh.term.v1.Ready
+	19, // 17: agentmesh.term.v1.TermFrame.attached:type_name -> agentmesh.term.v1.Attached
+	23, // 18: agentmesh.term.v1.TermFrame.output:type_name -> agentmesh.term.v1.Output
+	24, // 19: agentmesh.term.v1.TermFrame.screen:type_name -> agentmesh.term.v1.Screen
+	25, // 20: agentmesh.term.v1.TermFrame.replay_done:type_name -> agentmesh.term.v1.ReplayDone
+	26, // 21: agentmesh.term.v1.TermFrame.exited:type_name -> agentmesh.term.v1.Exited
+	27, // 22: agentmesh.term.v1.TermFrame.closing:type_name -> agentmesh.term.v1.Closing
+	0,  // 23: agentmesh.term.v1.Attach.mode:type_name -> agentmesh.term.v1.AttachMode
+	0,  // 24: agentmesh.term.v1.Attached.mode:type_name -> agentmesh.term.v1.AttachMode
+	1,  // 25: agentmesh.term.v1.TermHostService.Hello:input_type -> agentmesh.term.v1.HelloRequest
+	4,  // 26: agentmesh.term.v1.TermHostService.CreateTerminal:input_type -> agentmesh.term.v1.CreateTerminalRequest
+	6,  // 27: agentmesh.term.v1.TermHostService.ListTerminals:input_type -> agentmesh.term.v1.ListTerminalsRequest
+	8,  // 28: agentmesh.term.v1.TermHostService.KillTerminal:input_type -> agentmesh.term.v1.KillTerminalRequest
+	10, // 29: agentmesh.term.v1.TermHostService.WriteTerminal:input_type -> agentmesh.term.v1.WriteTerminalRequest
+	12, // 30: agentmesh.term.v1.TermHostService.AckExit:input_type -> agentmesh.term.v1.AckExitRequest
+	14, // 31: agentmesh.term.v1.TermHostService.WatchTerminals:input_type -> agentmesh.term.v1.WatchTerminalsRequest
+	2,  // 32: agentmesh.term.v1.TermHostService.Hello:output_type -> agentmesh.term.v1.HelloResponse
+	5,  // 33: agentmesh.term.v1.TermHostService.CreateTerminal:output_type -> agentmesh.term.v1.CreateTerminalResponse
+	7,  // 34: agentmesh.term.v1.TermHostService.ListTerminals:output_type -> agentmesh.term.v1.ListTerminalsResponse
+	9,  // 35: agentmesh.term.v1.TermHostService.KillTerminal:output_type -> agentmesh.term.v1.KillTerminalResponse
+	11, // 36: agentmesh.term.v1.TermHostService.WriteTerminal:output_type -> agentmesh.term.v1.WriteTerminalResponse
+	13, // 37: agentmesh.term.v1.TermHostService.AckExit:output_type -> agentmesh.term.v1.AckExitResponse
+	15, // 38: agentmesh.term.v1.TermHostService.WatchTerminals:output_type -> agentmesh.term.v1.WatchTerminalsResponse
+	32, // [32:39] is the sub-list for method output_type
+	25, // [25:32] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_term_v1_term_proto_init() }
