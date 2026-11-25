@@ -85,6 +85,9 @@ message Agent {
   google.protobuf.Timestamp created_at = 18;
   // Set once it exited.
   int32 exit_code = 19;
+  // What state the agent was in when a compaction began (a compaction has no turn of its own): restored when
+  // the compacted session starts. UNSPECIFIED when none is under way.
+  AgentState state_before_compact = 20;
 }
 
 enum MessageType {

@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -140,16 +139,29 @@ func spool(p statedir.Paths, agent string, req *v1.ReportHookRequest, now time.T
 // agent's later hooks for good.
 const MaxAttempts = 10
 
+// MaxAge is how long such a hook must also have been failing, counted from its first failed attempt, before it is
+// dropped: ten quick tries at the drain's pace are seconds of store trouble, which must not cost a Stop.
+const MaxAge = 5 * time.Minute
+
+// now is the clock of the attempt counting, for tests.
+var now = time.Now
+
 // Drain sends an agent's spooled hooks, oldest first, removing each once sent or refused; it stops at the
-// first one that should wait longer. The caller holds the spool lock.
+// first one that should wait longer, however it failed, and never drops one: the hook process (which calls it)
+// has no way to report a drop. The caller holds the spool lock.
 func Drain(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) error) error {
-	return DrainReporting(p, agent, send, nil)
+	return drain(p, agent, send, nil, false)
 }
 
-// DrainReporting is Drain that also tells dropped about each hook it gave up on after MaxAttempts failures
-// (the file is kept as <name>.bad).
+// DrainReporting is Drain for the daemon: it counts the failures it can't classify, and gives up on a hook after
+// MaxAttempts of them over MaxAge, telling dropped (the file is kept as <name>.bad).
 func DrainReporting(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) error,
 	dropped func(*v1.ReportHookRequest, error)) error {
+	return drain(p, agent, send, dropped, true)
+}
+
+func drain(p statedir.Paths, agent string, send func(*v1.ReportHookRequest) error,
+	dropped func(*v1.ReportHookRequest, error), count bool) error {
 	entries, err := os.ReadDir(p.Spool(agent))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -177,12 +189,16 @@ func DrainReporting(p statedir.Paths, agent string, send func(*v1.ReportHookRequ
 		}
 		if err := send(req); err != nil && Retryable(err) {
 			// Only an answer the daemon couldn't classify counts: while it is down, a hook waits as long as it must.
-			if connect.CodeOf(err) != connect.CodeUnknown {
+			if !count || connect.CodeOf(err) != connect.CodeUnknown {
 				return err
 			}
-			tries := attempts(path) + 1
-			if tries < MaxAttempts {
-				fsutil.WriteAtomic(path+".tries", []byte(strconv.Itoa(tries)), 0o600)
+			tries, first := attempts(path)
+			if first.IsZero() {
+				first = now()
+			}
+			tries++
+			if tries < MaxAttempts || now().Sub(first) < MaxAge {
+				fsutil.WriteAtomic(path+".tries", []byte(fmt.Sprintf("%d %d", tries, first.Unix())), 0o600)
 				return err
 			}
 			os.Rename(path, path+".bad")
@@ -198,13 +214,18 @@ func DrainReporting(p statedir.Paths, agent string, send func(*v1.ReportHookRequ
 	return nil
 }
 
-func attempts(path string) int {
+// attempts reads a hook's failure record: how many answers it got that were errors, and when the first came.
+func attempts(path string) (int, time.Time) {
 	b, err := os.ReadFile(path + ".tries")
 	if err != nil {
-		return 0
+		return 0, time.Time{}
 	}
-	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-	return n
+	var n int
+	var unix int64
+	if _, err := fmt.Sscanf(string(b), "%d %d", &n, &unix); err != nil {
+		return 0, time.Time{}
+	}
+	return n, time.Unix(unix, 0)
 }
 
 // Agents lists the agents that have a spool dir.

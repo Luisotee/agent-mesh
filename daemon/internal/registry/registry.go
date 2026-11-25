@@ -69,6 +69,13 @@ func New(services ...protoreflect.ServiceDescriptor) (*Registry, error) {
 					return nil, fmt.Errorf("%s lists ACTOR_CLASS_UNSPECIFIED", proc)
 				}
 			}
+			if opt.Write {
+				// Every write carries RequestMeta (the mutation id and expiry); the daemon and the CLI both rely on it.
+				if f := m.Input().Fields().ByName("meta"); f == nil || f.Message() == nil ||
+					f.Message().FullName() != "agentmesh.v1.RequestMeta" {
+					return nil, fmt.Errorf("%s is a write, so its request needs a `meta` field of agentmesh.v1.RequestMeta", proc)
+				}
+			}
 			cli := opt.Cli
 			if cli == "" {
 				cli = Kebab(string(m.Name()))

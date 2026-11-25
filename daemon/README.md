@@ -16,6 +16,8 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `internal/adapter`: the CLI-adapter registry; `internal/adapter/claude`: Claude Code's adapter. `internal/reducer`: the pure state reducer. `internal/hook` and `cmd/meshctl`: the hook command and its spool. `internal/proc`: pids checked by start time.
 - `internal/testutil/fakeclaude`: the fake `claude` the tests run (it acts out turns and fires the hooks from its `--settings`).
 - `packaging/systemd/`: the two user units for production (shipped, not installed).
+- `cmd/meshctl`, `internal/cli`: the CLI, generated from the registry at run time.
+- `e2e/`: the end-to-end test of the real binaries (`TestEndToEnd`).
 
 ## Toolchain
 
@@ -44,6 +46,21 @@ Every call needs a token. The host's own CLI uses the device token meshd writes 
 
 A run is one trust domain for events for now: every agent of a run receives its run's events, so a reviewer or asker sees the bodies of the `MessageSent` events between the run's other agents, though it can send only to its parent and children. `TODO.md` tracks revisiting it.
 
+## meshctl
+
+Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request and the other flags override it, and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
+
+```bash
+export AGENT_MESH_STATE=$state
+daemon/bin/meshctl start-run --title demo
+daemon/bin/meshctl spawn --run-id <run> --repo ~/projects/shop-api --slug fix-typo --task @task.md
+daemon/bin/meshctl agents --run-id <run>
+daemon/bin/meshctl send --to shop-api-fix-typo --type task --body "…"
+daemon/bin/meshctl events --run-id <run>                 # follow; resume with --cursor '{"generation":…,"seq":…}'
+```
+
+An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`meshctl inbox`, `meshctl send --to parent …`).
+
 ## Terminals
 
 `mesh-term` owns the agents' PTYs, in a process of its own so a daemon restart leaves them running; at boot the daemon adopts what it finds (`AgentAdopted`), records exits that happened while it was down, marks an agent whose terminal is gone as `lost`, and never kills a terminal no agent claims.
@@ -55,7 +72,7 @@ A run is one trust domain for events for now: every agent of a run receives its 
 
 An agent starts with an allowlist of meshd's environment, not all of it: the shell basics (`HOME`, `PATH`, `LANG`, `TMPDIR`, `XDG_*`, `SSH_AUTH_SOCK`), what Claude Code needs to reach its model (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_*`, the proxy variables, the Bedrock and Vertex settings and credentials), a terminal, and its own identity. `meshd --agent-env KEY=VALUE` adds more, and `--cli claude=<path>` pins the binary; without it a bare `claude` is looked up on the agent's `PATH` by meshd, not on `mesh-term`'s. A meshd run by a systemd user unit has only what the unit sets, so put the login variables there (or in `--agent-env`).
 
-`SpawnAgent` makes a worktree on `mesh/<run>/<slug>`, mints the agent's token (in `AGENT_MESH_TOKEN`, and in `<state>/agents/<id>/token` for its hooks), and starts its CLI through the adapter. Claude Code gets a `--session-id` and per-launch `--settings` hooks that run `meshctl hook claude --state <dir> --agent <id> <Event>`. The hook reads the daemon's address at call time and, when the daemon is down, spools to `<state>/spool/<agent>/`; the daemon drains the spool every few seconds. Hooks always exit 0 and print nothing (failures go to `<state>/hook.log`). The adapter turns each hook into neutral events and `reducer.Reduce` derives the state; a working agent, or one waiting on a prompt, that nothing was heard from for 10 minutes shows as unknown (Claude may fire no hook when a prompt is dismissed). A `SessionStart` from a compaction or a resume mid-turn does not make an agent idle. A spooled hook the daemon answers with an error ten times is dropped (kept as `.bad`, with a `HookDecodeFailed` event); idempotency records of hooks are pruned after a day, others after two weeks. Messages are stored and announced by a one-line doorbell typed into the agent's terminal once it is idle and no client with input rights has typed in the last 15 seconds (it retries every 2 s); the agent reads them from its inbox. An asker or reviewer launches with a `--disallowedTools` list (no edits under its worktree or the repo, no `git push` or `gh pr` writes), which holds under `--dangerously-skip-permissions`.
+`SpawnAgent` makes a worktree on `mesh/<run>/<slug>`, mints the agent's token (in `AGENT_MESH_TOKEN`, and in `<state>/agents/<id>/token` for its hooks), and starts its CLI through the adapter. Claude Code gets a `--session-id` and per-launch `--settings` hooks that run `meshctl hook claude --state <dir> --agent <id> <Event>`. The hook reads the daemon's address at call time and, when the daemon is down, spools to `<state>/spool/<agent>/`; the daemon drains the spool every few seconds. Hooks always exit 0 and print nothing (failures go to `<state>/hook.log`). The adapter turns each hook into neutral events and `reducer.Reduce` derives the state; a working agent, or one waiting on a prompt, that nothing was heard from for 10 minutes shows as unknown (Claude may fire no hook when a prompt is dismissed). A compaction remembers the state it interrupted and restores it when the compacted session starts (idle stays idle, mid-turn stays working); a resume's `SessionStart` does not make an agent idle. A spooled hook the daemon's drain gets an error for (not "unreachable") at least ten times over at least five minutes is dropped (kept as `.bad`, with a `HookDecodeFailed` event); the hook process's own drain never drops one; idempotency records of hooks are pruned after a day, others after two weeks. Messages are stored and announced by a one-line doorbell typed into the agent's terminal once it is idle and no client with input rights has typed in the last 15 seconds (it retries every 2 s); the agent reads them with `meshctl inbox`. An asker or reviewer launches with a `--disallowedTools` list (no edits under its worktree or the repo, no `git push` or `gh pr` writes), which holds under `--dangerously-skip-permissions`.
 
 ## Protocol notes
 
