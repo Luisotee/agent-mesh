@@ -456,4 +456,18 @@ func TestEndToEnd(t *testing.T) {
 			get(a, "agent", "denyEdits") == true && str(a, "agent", "state") == "AGENT_STATE_IDLE" &&
 			str(a, "agent", "sessionId") == session
 	})
+
+	// Retire keeps the conversation; a message to a retired agent resumes it; stopping the run retires what is
+	// left and closes it.
+	w.ctl("retire", "--agent", agent)
+	w.waitFor("retired", func() bool { return w.agentState(agent) == "AGENT_STATE_RETIRED" })
+	w.ctl("send", "--to", agent, "--type", "task", "--body", "one more thing")
+	w.waitFor("resumed by the message", func() bool {
+		a := w.ctl("agent", "--agent", agent)
+		return str(a, "agent", "state") == "AGENT_STATE_IDLE" && str(a, "agent", "sessionId") == session
+	})
+	stopped := w.ctl("stop-run", "--run-id", run)
+	if str(stopped, "run", "status") != "RUN_STATUS_CLOSED" || w.agentState(agent) != "AGENT_STATE_RETIRED" {
+		t.Fatalf("stop-run %v", stopped)
+	}
 }

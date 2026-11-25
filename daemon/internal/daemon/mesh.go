@@ -266,9 +266,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		// A task marked direct ends the plan phase of the agent it is for and lifts its planning deny list (by a
 		// reopen, since a running process can't change it), as bin/mesh's `cmd_send` does for a `Direct task`; a
-		// planned follow-up leaves a planner planning. From a device as from the agent's parent.
-		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
-			(!IsAgent(actor.Class) || to.ParentId == actor.Id) {
+		// planned follow-up leaves a planner planning. From a device as from the agent's parent. A stopped agent
+		// gets it from `revive` below instead, behind the same guards as any resume, so that a refusal leaves it
+		// as it was and nothing is requested twice.
+		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
+			(!IsAgent(actor.Class) || to.ParentId == actor.Id)
+		if direct && !stopped(to) {
 			if err := d.directTask(t, to); err != nil {
 				return err
 			}
@@ -283,9 +286,36 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
+		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
+		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task
+		// marked direct is direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase;
+		// any other comes back as it was (a planner still planning), as `send` leaves a live one.
+		if stopped(to) && resumes(req.Msg.Type) {
+			spec := reviveSpec{task: direct}
+			// The guards answer before anything is written: a refusal keeps the message and says why the agent
+			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
+			switch rv, err := d.revive(t, to, spec); {
+			case connect.CodeOf(err) == connect.CodeResourceExhausted || connect.CodeOf(err) == connect.CodeFailedPrecondition:
+				out.ResumeError = err.Error()
+				var ce *connect.Error
+				if errors.As(err, &ce) {
+					out.ResumeError = ce.Message()
+				}
+			case err != nil:
+				return err
+			default:
+				out.Resumed = rv
+				if err := t.PutAgent(to); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
+		if out.Resumed != nil {
+			d.rt.guard.release(out.Message.GetToId()) // the write failed after the guard passed: nothing was requested
+		}
 		return nil, err
 	}
 	if d.notify != nil && !replayed {
@@ -333,6 +363,12 @@ func (d *Daemon) ListMessages(ctx context.Context, req *connect.Request[v1.ListM
 		msgs = msgs[:limit]
 	}
 	return connect.NewResponse(&v1.ListMessagesResponse{Messages: msgs, More: more}), nil
+}
+
+// resumes reports whether a message of this type reopens a stopped agent.
+func resumes(t v1.MessageType) bool {
+	return t == v1.MessageType_MESSAGE_TYPE_TASK || t == v1.MessageType_MESSAGE_TYPE_ANSWER ||
+		t == v1.MessageType_MESSAGE_TYPE_QUESTION
 }
 
 // ReadInbox returns the calling agent's messages.

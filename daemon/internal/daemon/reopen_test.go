@@ -26,9 +26,10 @@ import (
 type reopenWorld struct {
 	*agentsHarness
 	state, home, argvLog string
+	tweaks               []func(*daemon.AgentConfig)
 }
 
-func startReopen(t *testing.T) *reopenWorld {
+func startReopen(t *testing.T, tweaks ...func(*daemon.AgentConfig)) *reopenWorld {
 	t.Helper()
 	// Its own folder, removed with retries after the terminal host is stopped: an agent's last hook (a spooled
 	// file) can land while a plain t.TempDir() is being removed, which fails the test for nothing.
@@ -45,7 +46,7 @@ func startReopen(t *testing.T) *reopenWorld {
 		}
 		t.Errorf("could not remove %s", root)
 	})
-	w := &reopenWorld{state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	w := &reopenWorld{state: filepath.Join(root, "state"), home: filepath.Join(root, "home"), tweaks: tweaks}
 	os.MkdirAll(w.home, 0o700)
 	w.argvLog = filepath.Join(root, "argv.jsonl")
 	w.agentsHarness = w.restart(t)
@@ -54,9 +55,9 @@ func startReopen(t *testing.T) *reopenWorld {
 }
 
 func (w *reopenWorld) restart(t *testing.T) *agentsHarness {
-	return startWithAgents(t, w.state, w.home, func(c *daemon.AgentConfig) {
+	return startWithAgents(t, w.state, w.home, append([]func(*daemon.AgentConfig){func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_ARGV_LOG"] = w.argvLog
-	})
+	}}, w.tweaks...)...)
 }
 
 // launches lists the argv of every launch of a conversation, oldest first.
