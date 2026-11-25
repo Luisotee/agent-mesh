@@ -8211,13 +8211,19 @@ def test_parallel_new_panes_make_the_runs_tab_once(mesh, fake, run, monkeypatch)
 # ── Copilot as a full worker (design §22) ────────────────────────────────
 
 
+def ago(seconds):
+    """An events.jsonl timestamp that long before now: a hold (COPILOT_LIMIT_HOLD) runs from its error's own
+    time, so fixed dates would pass out of it."""
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def test_a_copilot_at_its_monthly_quota_is_continued_only_once_the_hold_ends(mesh, fake, run, tmp_path):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(kind="copilot", session="s-9", cwd=str(tmp_path), model="auto")
     mesh.deliver(run, "repo-lead", "repo-fix-typo", "task", "Review it.")
     write_events(tmp_path / "copilot" / "session-state" / "s-9" / "events.jsonl", [
-        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "Review it."}},
-        {"type": "session.error", "timestamp": "2026-11-19T11:00:03Z",
+        {"type": "user.message", "timestamp": ago(600), "data": {"content": "Review it."}},
+        {"type": "session.error", "timestamp": ago(597),
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}}])
     fake.screen("repo-fix-typo", "> ")
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
@@ -8344,12 +8350,13 @@ def test_copilot_limits_read_from_its_pane_and_its_events(mesh, fake, run, tmp_p
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "7pm (UTC)")
     fake.screen("repo-fix-typo", "● The docs say \"You've hit your session rate limit\" when it happens\n> ")
     assert mesh.cli("copilot").limited(watch, entry, False) is None  # quoted, not shown
+    failed = ago(3600)
     write_events(tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl", [
-        {"type": "session.error", "timestamp": "2026-11-19T10:00:00Z",
+        {"type": "session.error", "timestamp": failed,
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota exceeded"}}])
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
     held = mesh.copilot_limit()  # auto rounds leave it out meanwhile, dated by its event
-    assert held["message"] == "monthly quota exceeded" and held["at"] == mesh.epoch("2026-11-19T10:00:00+00:00")
+    assert held["message"] == "monthly quota exceeded" and held["at"] == mesh.epoch(failed)
     assert mesh.cli("copilot").progress_files(entry, "s-1") == [
         tmp_path / "copilot" / "session-state" / "s-1" / "events.jsonl"]
 
@@ -8359,21 +8366,21 @@ def test_a_copilot_quota_error_counts_only_until_a_later_turn(mesh, fake, run, t
     watch = mesh.Watch(run, "repo-fix-typo", grace=1)
     fake.screen("repo-fix-typo", "> ")
     events = tmp_path / "copilot" / "session-state" / "s-2" / "events.jsonl"
-    old = mesh.epoch("2026-11-19T08:00:00+00:00")
-    mesh.note_copilot_limit("monthly quota", at=old)
+    first, answered, again, errored = ago(10800), ago(7200), ago(3600), ago(3598)
+    mesh.note_copilot_limit("monthly quota", at=mesh.epoch(first))
     write_events(events, [
-        {"type": "session.error", "timestamp": "2026-11-19T08:00:00Z",
+        {"type": "session.error", "timestamp": first,
          "data": {"errorType": "quota", "statusCode": 402, "message": "monthly quota"}},
-        {"type": "user.message", "timestamp": "2026-11-19T11:00:00Z", "data": {"content": "continue"}},
-        {"type": "assistant.message", "timestamp": "2026-11-19T11:00:05Z", "data": {"content": "Done."}}])
+        {"type": "user.message", "timestamp": answered, "data": {"content": "continue"}},
+        {"type": "assistant.message", "timestamp": ago(7195), "data": {"content": "Done."}}])
     assert mesh.cli("copilot").limited(watch, entry, False) is None  # topped up: it answered since
     assert mesh.copilot_limit() is None  # and the hold from before that answer is lifted
-    write_events(events, [{"type": "user.message", "timestamp": "2026-11-19T11:30:00Z", "data": {"content": "go"}},
-                          {"type": "session.error", "timestamp": "2026-11-19T11:30:02Z",
+    write_events(events, [{"type": "user.message", "timestamp": again, "data": {"content": "go"}},
+                          {"type": "session.error", "timestamp": errored,
                            "data": {"errorType": "quota", "message": "monthly quota again"}}])
     assert mesh.cli("copilot").limited(watch, entry, False) == ("limit", "")
     held = mesh.copilot_limit()
-    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch("2026-11-19T11:30:02+00:00")
+    assert held["message"] == "monthly quota again" and held["at"] == mesh.epoch(errored)
 
 
 def test_a_swap_records_a_headless_asker_it_reopens_as_a_pane_worker(mesh, fake, run, repo, monkeypatch):
