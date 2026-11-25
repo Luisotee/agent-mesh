@@ -157,6 +157,32 @@ service MeshService {
   }
 
 
+  // Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+  // branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+  rpc RetireAgent(RetireAgentRequest) returns (RetireAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "retire"
+      summary: "Retire an agent: stop its process, keep its conversation"
+    };
+  }
+
+  // Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+  // it has a commit (or an upstream); a worktree with uncommitted changes stays.
+  rpc StopRun(StopRunRequest) returns (StopRunResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "stop-run"
+      summary: "Stop a run: retire its agents and close it"
+    };
+  }
+
   // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
     option (action) = {
@@ -400,6 +426,8 @@ message SendMessageRequest {
 
 message SendMessageResponse {
   Message message = 1;
+  // The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+  Reopen resumed = 2;
 }
 
 message ReadInboxRequest {
@@ -580,4 +608,37 @@ message ResumeAgentResponse {
   // The task, when one was given.
   Message message = 2;
   Reopen reopen = 3;
+}
+
+message RetireAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+}
+
+message RetireAgentResponse {
+  Agent agent = 1;
+}
+
+message StopRunRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+}
+
+message StopRunResponse {
+  Run run = 1;
+  // The agents this call retired (those already stopped are not listed).
+  repeated string retired = 2;
+  // What became of each agent's worktree.
+  repeated WorktreeOutcome worktrees = 3;
+}
+
+message WorktreeOutcome {
+  string agent_id = 1;
+  string worktree = 2;
+  string branch = 3;
+  bool worktree_removed = 4;
+  // The branch has a commit (or an upstream), or its worktree stayed: it is kept.
+  bool branch_kept = 5;
+  // Why a worktree or branch stayed.
+  string reason = 6;
 }

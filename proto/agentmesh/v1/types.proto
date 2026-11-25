@@ -55,6 +55,9 @@ enum AgentState {
   AGENT_STATE_EXITED = 5;
   // Working, but nothing heard from it for a while. Derived when read, never stored.
   AGENT_STATE_UNKNOWN = 6;
+  // Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
+  // revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
+  AGENT_STATE_RETIRED = 7;
 }
 
 message Agent {
@@ -190,6 +193,8 @@ message Event {
     AgentReopened agent_reopened = 20;
     AgentPhaseChanged agent_phase_changed = 21;
     AgentReopenDropped agent_reopen_dropped = 22;
+    AgentRetired agent_retired = 23;
+    RunStopped run_stopped = 24;
   }
 }
 
@@ -246,6 +251,15 @@ message AgentReopenDropped {
   Reopen reopen = 1;
   string reason = 2;
 }
+
+// An agent was retired: its process stopped on purpose.
+message AgentRetired {
+  // "requested", "idle after its report", "run stopped".
+  string reason = 1;
+}
+
+// A run was stopped: its agents retired and the run closed.
+message RunStopped {}
 
 message AgentPhaseChanged {
   AgentPhase from = 1;
