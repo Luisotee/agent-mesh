@@ -20,7 +20,9 @@ If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agen
 - `firstmate`: a bash supervisor over herdr panes (watcher, turn-end hooks, leases, caps). Its failure modes: hung agents, stale herdr registrations, trust dialogs.
 - `gastown`: patrol agents that respawn workers, a merge queue, convoys. Stop-hook guards, nudge queues, auto-restart, mostly as lessons in what broke.
 - `mcp-agent-mail`: an MCP server with mailboxes, identities and file leases. Inbox hooks, leases, two-store drift.
-- `orca`: tmux plus raw typing, roles from env vars. Guarding a user's draft, spawning panes on demand.
+- `orca` (fmfsaisai/orca): tmux plus raw typing, roles from env vars. Guarding a user's draft, spawning panes on demand.
+- `orca-ide` (stablyai/orca): an Electron agent IDE with mobile and remote servers; experimental runs, tasks and dispatches with a mailbox, coordinator wake, gates and permission escalation.
+- `paseo`: a daemon per host with desktop, mobile, web and CLI clients; agents orchestrate over MCP or its CLI (`update_agent`, finish notifications), daemon plugins with lifecycle hooks. Trialled and dropped as a replacement (design, "Alternatives considered"); ask it about app, daemon and remote-host design.
 - `repowire`: a Go daemon meshing live sessions: asks with acks and reminders, Claude's inbox socket, identity across reconnects.
 - `rove`: a daemon and PTY host owning every engine, flat dispatch with lineage. Delivery, matching reports to tasks.
 - `tmux-orchestrator`: an archived orchestrator → manager → engineer tree over `send-keys`. Mostly a contrast.
