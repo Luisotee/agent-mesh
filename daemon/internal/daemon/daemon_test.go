@@ -410,3 +410,47 @@ func TestUnknownRunIsNotFound(t *testing.T) {
 		t.Errorf("not a connect error: %v", s.Err())
 	}
 }
+
+func TestARetryOfAnAppliedWriteGetsItsResultEvenPastItsExpiry(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	m := &v1.RequestMeta{MutationId: "m-late", ExpiresAt: timestamppb.New(time.Now().Add(300 * time.Millisecond))}
+	first, err := h.device.Mesh.StartRun(ctx, connect.NewRequest(&v1.StartRunRequest{Meta: m}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	again, err := h.device.Mesh.StartRun(ctx, connect.NewRequest(&v1.StartRunRequest{Meta: m}))
+	if err != nil || again.Msg.Run.Id != first.Msg.Run.Id {
+		t.Errorf("late retry: %v, %v", again, err)
+	}
+}
+
+func TestAnAgentReadsOnlyItsOwnRun(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	r1, r2 := startRun(t, h.device.Mesh, ""), startRun(t, h.device.Mesh, "")
+	asker := h.seedAgent(r1.Id, "a1", "repo-ask", "", v1.AgentRole_AGENT_ROLE_ASKER)
+	h.seedAgent(r2.Id, "a2", "repo-other", "", v1.AgentRole_AGENT_ROLE_WORKER)
+	c := h.as(asker)
+	runs, err := c.ListRuns(ctx, connect.NewRequest(&v1.ListRunsRequest{All: true}))
+	if err != nil || len(runs.Msg.Runs) != 1 || runs.Msg.Runs[0].Id != r1.Id {
+		t.Errorf("runs %v, %v", runs, err)
+	}
+	agents, err := c.ListAgents(ctx, connect.NewRequest(&v1.ListAgentsRequest{}))
+	if err != nil || len(agents.Msg.Agents) != 1 {
+		t.Errorf("agents %v, %v", agents, err)
+	}
+	if _, err := c.ListAgents(ctx, connect.NewRequest(&v1.ListAgentsRequest{RunId: r2.Id})); code(err) != connect.CodePermissionDenied {
+		t.Errorf("another run's agents: %v", err)
+	}
+	if _, err := c.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: "a2"})); code(err) != connect.CodeNotFound {
+		t.Errorf("another run's agent by id: %v", err)
+	}
+	s, _ := c.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+	defer s.Close()
+	snap := recv(t, s).GetSnapshot()
+	if len(snap.Runs) != 1 || snap.Runs[0].Id != r1.Id || len(snap.Agents) != 1 {
+		t.Errorf("snapshot %v", snap)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
@@ -52,24 +53,53 @@ func denied(format string, args ...any) error {
 	return connect.NewError(connect.CodePermissionDenied, fmt.Errorf(format, args...))
 }
 
+// getAgent reads an agent by id; a missing one is NotFound.
+func (d *Daemon) getAgent(r store.Reader, id string) (*v1.Agent, error) {
+	a, err := r.GetAgent(id)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no agent %s", id)
+	}
+	return a, err
+}
+
+// runScope is the only run an agent may read; empty (any run) for a device.
+func runScope(actor *v1.Actor) string {
+	if actor != nil && IsAgent(actor.Class) {
+		return actor.RunId
+	}
+	return ""
+}
+
+// scopedRun returns the run a read covers: an agent's own (asking for another is refused), or what a
+// device asked for.
+func scopedRun(actor *v1.Actor, asked string) (string, error) {
+	own := runScope(actor)
+	if own == "" {
+		return asked, nil
+	}
+	if asked != "" && asked != own {
+		return "", denied("an agent reads only its own run")
+	}
+	return own, nil
+}
+
 // FindAgent resolves an agent reference: an id, else a name within the caller's run (an agent) or unique
-// across the open runs (a device).
+// across the open runs (a device). An agent finds only agents of its own run.
 func (d *Daemon) FindAgent(r store.Reader, actor *v1.Actor, ref string) (*v1.Agent, error) {
 	if ref == "" {
 		return nil, invalid("no agent given")
 	}
 	a, err := r.GetAgent(ref)
 	if err == nil {
+		if own := runScope(actor); own != "" && a.RunId != own {
+			return nil, notFound("no agent %q", ref)
+		}
 		return a, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	runID := ""
-	if actor != nil && IsAgent(actor.Class) {
-		runID = actor.RunId
-	}
-	found, err := r.AgentsNamed(runID, ref)
+	found, err := r.AgentsNamed(runScope(actor), ref)
 	if err != nil {
 		return nil, err
 	}
@@ -129,13 +159,25 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 
 // ListRuns lists runs.
 func (d *Daemon) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
-	runs, err := d.store.Read(ctx).ListRuns(req.Msg.All)
+	r := d.store.Read(ctx)
+	if own := runScope(auth.ActorFrom(ctx)); own != "" {
+		run, err := r.GetRun(own)
+		if err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(&v1.ListRunsResponse{Runs: []*v1.Run{run}}), nil
+	}
+	runs, err := r.ListRuns(req.Msg.All)
 	return connect.NewResponse(&v1.ListRunsResponse{Runs: runs}), err
 }
 
 // ListAgents lists agents with their derived state.
 func (d *Daemon) ListAgents(ctx context.Context, req *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
-	agents, err := d.store.Read(ctx).ListAgents(req.Msg.RunId)
+	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := d.store.Read(ctx).ListAgents(runID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +210,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if !IsAgent(actor.Class) {
 				return invalid("only an agent has a parent")
 			}
-			self, err := t.GetAgent(actor.Id)
+			self, err := d.getAgent(t.Reader, actor.Id)
 			if err != nil {
 				return err
 			}
@@ -176,7 +218,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return connect.NewError(connect.CodeFailedPrecondition,
 					errors.New("you have no parent agent: a device started you"))
 			}
-			to, err = t.GetAgent(self.ParentId)
+			to, err = d.getAgent(t.Reader, self.ParentId)
 			if err != nil {
 				return err
 			}
@@ -184,7 +226,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		if IsAgent(actor.Class) {
-			self, err := t.GetAgent(actor.Id)
+			self, err := d.getAgent(t.Reader, actor.Id)
 			if err != nil {
 				return err
 			}
@@ -238,5 +280,11 @@ func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInbo
 // SubscribeEvents streams the event log.
 func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.SubscribeEventsRequest],
 	stream *connect.ServerStream[v1.SubscribeEventsResponse]) error {
-	return d.bus.Serve(ctx, req.Msg, d.stopping, stream.Send)
+	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	if err != nil {
+		return err
+	}
+	msg := proto.Clone(req.Msg).(*v1.SubscribeEventsRequest)
+	msg.RunId = runID
+	return d.bus.Serve(ctx, msg, d.stopping, stream.Send)
 }

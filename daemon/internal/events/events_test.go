@@ -64,3 +64,22 @@ func TestSlowSubscriberIsDroppedNotWaitedFor(t *testing.T) {
 		t.Errorf("%d subscribers left", bus.Subscribers())
 	}
 }
+
+func TestOtherRunsDoNotFillAFilteredSubscriber(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	sub := bus.subscribe("r1")
+	evs := make([]*v1.Event, LiveBuffer+10)
+	for i := range evs {
+		evs[i] = &v1.Event{Seq: int64(i + 1), RunId: "r2"}
+	}
+	bus.Publish(evs)
+	bus.Publish([]*v1.Event{{Seq: 9999, RunId: "r1"}})
+	if sub.dropped || len(sub.ch) != 1 {
+		t.Errorf("dropped %v, %d queued", sub.dropped, len(sub.ch))
+	}
+}

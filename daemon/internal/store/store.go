@@ -20,8 +20,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 
 	_ "modernc.org/sqlite" // the pure-Go driver, so builds stay static
 )
@@ -53,8 +53,10 @@ func Open(path string) (*Store, error) {
 
 // OpenAt is Open with a clock, for tests.
 func OpenAt(path string, now func() time.Time) (*Store, error) {
+	// The path goes into a URI: escape what a URI would read as its query, fragment or an escape.
+	uriPath := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
 	dsn := func(lock string) string {
-		return "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)" +
+		return "file:" + uriPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)" +
 			"&_pragma=synchronous(NORMAL)&_txlock=" + lock
 	}
 	w, err := sql.Open("sqlite", dsn("immediate"))
@@ -378,7 +380,8 @@ func (t *Tx) PutAgent(a *v1.Agent) error {
 	}
 	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agents (id, run_id, name, parent_id, terminal_id, created_at, data)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET terminal_id = excluded.terminal_id, data = excluded.data`,
+		ON CONFLICT (id) DO UPDATE SET run_id = excluded.run_id, name = excluded.name,
+		parent_id = excluded.parent_id, terminal_id = excluded.terminal_id, data = excluded.data`,
 		a.Id, a.RunId, a.Name, a.ParentId, a.TerminalId, a.CreatedAt.AsTime().UnixNano(), b)
 	return err
 }

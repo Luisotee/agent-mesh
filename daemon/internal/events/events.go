@@ -33,6 +33,7 @@ type Bus struct {
 
 type sub struct {
 	ch      chan *v1.Event
+	runID   string // only this run's events, when set
 	dropped bool
 }
 
@@ -47,6 +48,9 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	defer b.mu.Unlock()
 	for s := range b.subs {
 		for _, ev := range evs {
+			if s.runID != "" && ev.RunId != s.runID {
+				continue
+			}
 			select {
 			case s.ch <- ev:
 			default:
@@ -61,8 +65,8 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	}
 }
 
-func (b *Bus) subscribe() *sub {
-	s := &sub{ch: make(chan *v1.Event, LiveBuffer)}
+func (b *Bus) subscribe(runID string) *sub {
+	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
 	b.mu.Unlock()
@@ -90,7 +94,7 @@ func (b *Bus) Subscribers() int {
 func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
-	live := b.subscribe()
+	live := b.subscribe(req.RunId)
 	defer b.unsubscribe(live)
 
 	gen := b.store.Generation()

@@ -22,6 +22,10 @@ func WriteAtomic(path string, data []byte, perm os.FileMode) error {
 		tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Chmod(perm); err != nil {
 		tmp.Close()
 		return err
@@ -29,7 +33,15 @@ func WriteAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	// The rename itself must survive a crash too.
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		dir.Sync()
+		dir.Close()
+	}
+	return nil
 }
 
 // Lock is an exclusive flock held for the life of a process: liveness and "one instance" in one.
@@ -74,7 +86,8 @@ func (l *Lock) Release() {
 	}
 }
 
-// ReadSecret reads a secret file, refusing one that others can read.
+// ReadSecret reads a secret file, refusing one that others can read. An empty file (a crash while it was first
+// written) reads as missing, so it is made again.
 func ReadSecret(path string) (string, error) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -87,7 +100,11 @@ func ReadSecret(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(b)), nil
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return "", fmt.Errorf("%s is empty: %w", path, os.ErrNotExist)
+	}
+	return s, nil
 }
 
 // EnsureDir makes dir with mode 0700 if it is missing.

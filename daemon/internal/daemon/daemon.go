@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,21 +84,22 @@ func ReadInfo(stateDir string) (Info, error) {
 type Daemon struct {
 	agentmeshv1connect.UnimplementedMeshServiceHandler
 
-	cfg        Config
-	paths      Paths
-	log        *slog.Logger
-	now        func() time.Time
-	lock       *fsutil.Lock
-	store      *store.Store
-	bus        *events.Bus
-	reg        *registry.Registry
-	daemonID   string
-	instanceID string
-	startedAt  time.Time
-	mux        *http.ServeMux
-	stopping   chan struct{}
-	stopOnce   sync.Once
-	info       Info
+	cfg         Config
+	paths       Paths
+	log         *slog.Logger
+	now         func() time.Time
+	lock        *fsutil.Lock
+	store       *store.Store
+	bus         *events.Bus
+	reg         *registry.Registry
+	daemonID    string
+	instanceID  string
+	startedAt   time.Time
+	mux         *http.ServeMux
+	stopping    chan struct{}
+	stopOnce    sync.Once
+	handlerOnce sync.Once
+	info        Info
 	// capabilities the host advertises in Hello.
 	capabilities []string
 	// notify, when set, is told that an agent has a message to deliver.
@@ -158,8 +160,11 @@ func New(cfg Config) (*Daemon, error) {
 
 func (d *Daemon) loadDaemonID() (string, error) {
 	b, err := os.ReadFile(d.paths.DaemonID())
+	if err == nil && strings.TrimSpace(string(b)) != "" {
+		return strings.TrimSpace(string(b)), nil
+	}
 	if err == nil {
-		return string(b), nil
+		err = os.ErrNotExist // empty: a crash while it was first written
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -239,9 +244,11 @@ func (d *Daemon) Stopping() <-chan struct{} { return d.stopping }
 
 // Handler is the daemon's HTTP handler: the API, browsers refused.
 func (d *Daemon) Handler() http.Handler {
-	path, h := agentmeshv1connect.NewMeshServiceHandler(d,
-		connect.WithInterceptors(auth.NewInterceptor(d.reg, d)))
-	d.mux.Handle(path, h)
+	d.handlerOnce.Do(func() {
+		path, h := agentmeshv1connect.NewMeshServiceHandler(d,
+			connect.WithInterceptors(auth.NewInterceptor(d.reg, d)))
+		d.mux.Handle(path, h)
+	})
 	return auth.RefuseBrowsers(d.mux)
 }
 
@@ -278,6 +285,10 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	}
 	info, _ := json.MarshalIndent(d.info, "", "  ")
 	if err := fsutil.WriteAtomic(d.paths.Info(), info, 0o600); err != nil {
+		for _, l := range listeners {
+			l.Close()
+		}
+		os.Remove(sock)
 		return err
 	}
 	protocols := new(http.Protocols)

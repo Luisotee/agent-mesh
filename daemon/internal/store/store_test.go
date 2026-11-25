@@ -198,3 +198,19 @@ func TestRecordsRoundTrip(t *testing.T) {
 		t.Errorf("missing agent: %v", err)
 	}
 }
+
+func TestAPathWithURICharactersOpensThatFileInWAL(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a#b?c%d")
+	os.MkdirAll(dir, 0o700)
+	path := filepath.Join(dir, "meshd.db")
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var mode string
+	s.r.QueryRow(`PRAGMA journal_mode`).Scan(&mode)
+	if _, err := os.Stat(path); err != nil || mode != "wal" {
+		t.Errorf("file %v, journal_mode %q", err, mode)
+	}
+}
