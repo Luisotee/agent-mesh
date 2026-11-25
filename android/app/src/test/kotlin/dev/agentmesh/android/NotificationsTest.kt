@@ -81,6 +81,10 @@ class NotificationsTest {
         assertEquals(0, manager.allNotifications.size)
     }
 
+    private val plan = message("p1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "Change the typo", at = 10_000)
+    private val question = message("q1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_QUESTION, body = "Which branch?", at = 10_000)
+
+    /** A connected host whose snapshot is in and whose stored history (what [api] pages) is loaded. */
     private fun readyHost(): Pair<String, HostRuntime> {
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         val rt = run {
@@ -93,6 +97,7 @@ class NotificationsTest {
         val lead = agent("lead", role = AgentRole.AGENT_ROLE_ROOT)
         val worker = agent("w1", parent = "lead", name = "shop-fix").toBuilder().setPhase(AgentPhase.AGENT_PHASE_PLANNING).build()
         rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        waitFor("the history to load") { "r1" in rt.state.value.messagesLoaded }
         return host.id to rt
     }
 
@@ -102,7 +107,7 @@ class NotificationsTest {
     }
 
     @Test fun `the Approve button approves the plan through the registry and clears the notification`() {
-        api = RecordingApi()
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(plan))) }
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val (hostId, _) = readyHost()
         container.notifier.post(hostId, null, notice(NoticeKind.Plan))
@@ -113,7 +118,7 @@ class NotificationsTest {
     }
 
     @Test fun `typing into Reply answers the question`() {
-        api = RecordingApi()
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(question))) }
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val (hostId, _) = readyHost()
         val reply = Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_HOST, hostId).putExtra(EXTRA_AGENT, "w1")
@@ -124,7 +129,7 @@ class NotificationsTest {
     }
 
     @Test fun `a failed action says so in the notification instead of failing silently`() {
-        api = RecordingApi().apply { failSend = IllegalStateException("agent cap reached") }
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(question))); failSend = IllegalStateException("agent cap reached") }
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val (hostId, _) = readyHost()
         val reply = Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_HOST, hostId).putExtra(EXTRA_AGENT, "w1")
@@ -145,5 +150,55 @@ class NotificationsTest {
         waitFor("the notice") { got.isNotEmpty() }
         assertEquals(NoticeKind.Plan, got.single().kind)
         job.cancel()
+    }
+
+    /** The process was just started for the tap: the host answers Hello, but the snapshot and history come later. */
+    @Test fun `Approve on a cold start waits for the snapshot and the history, then sends ApproveAgent`() {
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(plan))) }
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = run {
+            var r: HostRuntime? = null
+            val deadline = System.currentTimeMillis() + 5_000
+            while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
+            r!!
+        }
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        app.sendBroadcast(Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_APPROVE).putExtra(EXTRA_HOST, host.id).putExtra(EXTRA_AGENT, "w1"))
+        // Connected, nothing known yet: a plain "approved" would be wrong, so nothing is sent.
+        Thread.sleep(500); shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(emptyList<String>(), api.approved)
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(agent("lead", role = AgentRole.AGENT_ROLE_ROOT), agent("w1", parent = "lead", name = "shop-fix").toBuilder().setPhase(AgentPhase.AGENT_PHASE_PLANNING).build())))
+        waitFor("ApproveAgent") { api.approved.isNotEmpty() }
+        assertEquals(listOf("w1"), api.approved)
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
+    }
+
+    @Test fun `a Reply to a question that was answered elsewhere sends nothing and clears the notification`() {
+        val answered = message("a1", from = "lead", to = "w1", type = MessageType.MESSAGE_TYPE_ANSWER, body = "main", at = 11_000)
+        api = RecordingApi().apply { pages = mapOf("r1" to listOf(listOf(question, answered))) }
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val (hostId, _) = readyHost()
+        container.notifier.post(hostId, null, notice(NoticeKind.Question))
+        val reply = Intent(app, NoticeActionReceiver::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_HOST, hostId).putExtra(EXTRA_AGENT, "w1")
+        RemoteInput.addResultsToIntent(arrayOf(RemoteInput.Builder(KEY_REPLY).build()), reply, Bundle().apply { putCharSequence(KEY_REPLY, "use dev") })
+        app.sendBroadcast(reply)
+        waitFor("the notification to clear") { manager.allNotifications.isEmpty() }
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
+    }
+
+    @Test fun `nothing is posted for the agent whose screen the user is looking at`() {
+        api = RecordingApi()
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val (hostId, rt) = readyHost()
+        container.viewing.value = hostId to "w1"
+        val now = System.currentTimeMillis()
+        rt.onFrame(messageSent(1, message("p9", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = now), at = now))
+        Thread.sleep(400); shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(0, manager.allNotifications.size)
+        container.viewing.value = null
+        rt.onFrame(messageSent(2, message("p10", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = now), at = now))
+        waitFor("the notification") { manager.allNotifications.isNotEmpty() }
     }
 }

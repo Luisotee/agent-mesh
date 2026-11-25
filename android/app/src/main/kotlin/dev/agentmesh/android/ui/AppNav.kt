@@ -45,6 +45,8 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         val there = kotlinx.coroutines.withTimeoutOrNull(5_000) { container.runtimes.first { it.containsKey(l.hostId) } }
         container.deepLink.value = null
         if (there == null) return@LaunchedEffect
+        // `popUpTo` drops whatever is open (an agent already on screen included), so the stack is always hosts, the
+        // host, the agent, however often a notification is tapped (NavTest).
         nav.navigate(Routes.host(l.hostId)) { popUpTo(Routes.HOSTS) }
         nav.navigate(Routes.agent(l.hostId, l.agentId, l.tab))
     }

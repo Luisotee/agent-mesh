@@ -60,7 +60,7 @@ fun buildTrees(runs: Map<String, Run>, agents: Map<String, Agent>): List<RunTree
         RunTree(
             run, nodes,
             needsInput = members.count { it.state == AgentState.AGENT_STATE_NEEDS_INPUT },
-            live = members.count { it.state != AgentState.AGENT_STATE_EXITED },
+            live = members.count { it.state != AgentState.AGENT_STATE_EXITED && it.state != AgentState.AGENT_STATE_RETIRED },
         )
     }
     // Runs needing the user first, then open before closed, then the newest.
@@ -95,6 +95,7 @@ fun statusSentence(a: Agent): String = when (a.state) {
         else -> "Exited with code ${a.exitCode}"
     }
     AgentState.AGENT_STATE_UNKNOWN -> "Quiet for a while: state unknown"
+    AgentState.AGENT_STATE_RETIRED -> "Retired: stopped on purpose, a message wakes it"
     else -> "Unknown"
 }
 

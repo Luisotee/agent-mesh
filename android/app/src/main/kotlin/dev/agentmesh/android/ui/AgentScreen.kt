@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,6 +49,13 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
     var tab by rememberSaveable { mutableStateOf(if (initialTab == Tab.Terminal) Tab.Overview else initialTab) }
     // Looking at an agent answers its notification.
     LaunchedEffect(agentId) { container.notifier.cancel(runtime.hostId, agentId) }
+    // While it is on screen and the app resumed, nothing new is posted for it (see AppContainer.viewing).
+    LifecycleResumeEffect(agentId) {
+        val me = runtime.hostId to agentId
+        container.viewing.value = me
+        container.notifier.cancel(runtime.hostId, agentId)
+        onPauseOrDispose { container.viewing.compareAndSet(me, null) }
+    }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(agent?.name ?: "Agent") },

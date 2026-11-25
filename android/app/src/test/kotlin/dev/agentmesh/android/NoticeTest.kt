@@ -72,6 +72,12 @@ class NoticeTest {
     @Test fun `bodies are plain text, cut to a notification's size`() {
         assertEquals("a b c", brief("## a\n\n> b\n1. c"))
         assertEquals(200, brief("x".repeat(500)).length)
+        // Paired marks go; a lone `*` or backtick is the author's own character.
+        assertEquals("Change the typo in main.go", brief("Change **the typo** in `main.go`"))
+        assertEquals("does 2*3 equal 6?", brief("does 2*3 equal 6?"))
+        assertEquals("2*3 and 4*5", brief("2*3 and 4*5"))
+        assertEquals("a *star and a ` tick", brief("a *star and a ` tick"))
+        assertEquals("run it", brief("```sh\nrun it\n```"))
     }
 
     private fun setting(key: String, json: String) =

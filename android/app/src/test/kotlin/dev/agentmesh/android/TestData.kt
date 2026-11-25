@@ -64,3 +64,10 @@ fun reopened(seq: Long, agentId: String, model: String, terminal: String) =
 
 fun reopenRequested(seq: Long, agentId: String) =
     ev(seq, agentId = agentId) { setAgentReopenRequested(dev.agentmesh.gen.agentmesh.v1.AgentReopenRequested.newBuilder().setReopen(dev.agentmesh.gen.agentmesh.v1.Reopen.newBuilder().setId("ro1"))) }
+
+fun retired(seq: Long, agentId: String, runId: String = "r1", reason: String = "requested") =
+    ev(seq, agentId = agentId, runId = runId) { setAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired.newBuilder().setReason(reason)) }
+fun runStopped(seq: Long, runId: String) =
+    ev(seq, runId = runId) { setRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped.getDefaultInstance()) }
+fun delivered(seq: Long, messageId: String, at: Long = 6_000) =
+    ev(seq, at) { setMessageDelivered(dev.agentmesh.gen.agentmesh.v1.MessageDelivered.newBuilder().setMessageId(messageId)) }

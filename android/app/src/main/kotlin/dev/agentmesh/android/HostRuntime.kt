@@ -5,7 +5,10 @@ import dev.agentmesh.android.notify.Notice
 import dev.agentmesh.android.notify.noticeFor
 import dev.agentmesh.android.store.MessageLoader
 import dev.agentmesh.android.store.mergeMessages
+import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentPhase
+import dev.agentmesh.gen.agentmesh.v1.RunStatus
+import kotlinx.coroutines.flow.first
 import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.MessageType
 import kotlinx.coroutines.channels.BufferOverflow
@@ -43,6 +46,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** The plan or question the action is about was answered meanwhile (by the lead or on another device). */
 class AlreadyAnswered : Exception("This was already answered")
 
+/** The app doesn't know this agent's conversation (yet), so it can't tell what an answer would answer. */
+class NotLoaded(message: String) : Exception(message)
+
 /**
  * One host as the app runs it: its connection, and the state built only from that connection's snapshot and
  * events. The UI reads [state] and calls [api] for its actions; nothing else reaches the host.
@@ -56,6 +62,7 @@ class HostRuntime(
     private val now: () -> Long = System::currentTimeMillis,
     random: () -> Double = Math::random,
     heartbeatMs: Long = 15_000,
+    messageRetryMs: Long = 1_000,
 ) : ConnectionSink {
     private val _state = MutableStateFlow(HostState())
     val state: StateFlow<HostState> get() = _state
@@ -69,7 +76,7 @@ class HostRuntime(
     /** What just happened that the user may want to know: live events only (see [noticeFor]). */
     val notices: SharedFlow<Notice> get() = _notices
 
-    private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log)
+    private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs)
     private var watcher: Job? = null
@@ -116,6 +123,9 @@ class HostRuntime(
 
     fun nudge() = connection.nudge()
 
+    /** Try a run's messages again after the load gave up. */
+    fun reloadMessages() = loader.load(_state.value.runs.values)
+
     /** Reconnect now, on the host's current routes and token (they were edited). */
     fun reconnect() = connection.restart()
 
@@ -156,27 +166,59 @@ class HostRuntime(
      * (`ApproveAgent`); anything else just gets the answer "approved".
      */
     suspend fun approve(agentId: String): Message {
-        if (answeredSinceLastAsk(agentId)) throw AlreadyAnswered()
+        unansweredAsk(agentId)
         val planning = _state.value.agents[agentId]?.phase == AgentPhase.AGENT_PHASE_PLANNING
         return stored(if (planning) live().approveAgent(agentId) else live().sendMessage(agentId, MessageType.MESSAGE_TYPE_ANSWER, "approved"))
     }
 
     /**
-     * Whether someone already answered this agent since its last plan or question (the user on the desktop, the
-     * lead): then a notification's Approve is stale and must not send a second answer. Only positive evidence
-     * counts: a plan this process hasn't seen (a cold start) is not "answered".
+     * Waits until this connection has the agent's conversation: the snapshot is in and its run's messages loaded.
+     * A notification's action may run in a process that was just started, where the state is still empty and a
+     * guard would see no plan at all. Throws [NotLoaded] when the run's messages can't be loaded.
      */
-    private fun answeredSinceLastAsk(agentId: String): Boolean {
-        val msgs = _state.value.messages.values
-        val ask = msgs.filter { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) }
-            .maxWithOrNull(dev.agentmesh.android.store.MessageOrder) ?: return false
-        return msgs.any { it.toId == agentId && it.type == MessageType.MESSAGE_TYPE_ANSWER && dev.agentmesh.android.store.isBefore(ask, it) }
+    suspend fun awaitFresh(agentId: String) {
+        _state.first { it.synced && it.conn is ConnState.Ready && (it.agents[agentId]?.let { a -> historyKnown(it, a) } ?: true) }
+        notLoaded(_state.value, agentId)?.let { throw NotLoaded(it) }
     }
 
-    suspend fun requestChanges(agentId: String, text: String): Message =
-        send(agentId, MessageType.MESSAGE_TYPE_ANSWER, "changes: ${text.trim()}")
+    private fun historyKnown(s: HostState, a: Agent): Boolean {
+        val run = s.runs[a.runId]
+        return run == null || run.status != RunStatus.RUN_STATUS_OPEN || a.runId in s.messagesLoaded || a.runId in s.messagesFailed
+    }
 
-    suspend fun answer(agentId: String, text: String): Message = send(agentId, MessageType.MESSAGE_TYPE_ANSWER, text.trim())
+    /** Why the conversation of [agentId] can't be relied on right now, or null when it can. */
+    private fun notLoaded(s: HostState, agentId: String): String? {
+        val a = s.agents[agentId] ?: return if (s.synced) "That agent isn't on the host any more." else "Not synced with the host yet."
+        if (!s.synced) return "Not synced with the host yet."
+        if (a.runId in s.messagesFailed) return "Couldn't load this agent's messages. Open the app to answer there."
+        if (!historyKnown(s, a)) return "Still loading this agent's messages. Try again in a moment."
+        return null
+    }
+
+    /**
+     * The agent's latest plan or question when nobody has answered it since (the user on another device, the lead):
+     * a notification's Approve or Reply on anything else is stale and must not send a second answer. Throws
+     * [NotLoaded] while the conversation isn't known, and [AlreadyAnswered] when there is nothing to answer.
+     */
+    private fun unansweredAsk(agentId: String): Message {
+        val s = _state.value
+        notLoaded(s, agentId)?.let { throw NotLoaded(it) }
+        val msgs = s.messages.values
+        val ask = msgs.filter { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) }
+            .maxWithOrNull(dev.agentmesh.android.store.MessageOrder) ?: throw AlreadyAnswered()
+        if (msgs.any { it.toId == agentId && it.type == MessageType.MESSAGE_TYPE_ANSWER && dev.agentmesh.android.store.isBefore(ask, it) }) throw AlreadyAnswered()
+        return ask
+    }
+
+    suspend fun requestChanges(agentId: String, text: String): Message {
+        unansweredAsk(agentId)
+        return send(agentId, MessageType.MESSAGE_TYPE_ANSWER, "changes: ${text.trim()}")
+    }
+
+    suspend fun answer(agentId: String, text: String): Message {
+        unansweredAsk(agentId)
+        return send(agentId, MessageType.MESSAGE_TYPE_ANSWER, text.trim())
+    }
 
     // ── ConnectionSink ──
 
@@ -186,7 +228,7 @@ class HostRuntime(
         _state.update {
             when (state) {
                 is ConnState.Ready -> it.copy(conn = state, daemon = state.hello)
-                else -> it.copy(conn = state, synced = false)
+                else -> it.copy(conn = state, synced = false, messagesLoaded = emptySet(), messagesFailed = emptySet())
             }
         }
     }
@@ -197,6 +239,7 @@ class HostRuntime(
         if (known != null && known != hello.daemonId) {
             // Another daemon answers at this address: nothing we hold is about it.
             log("the host at this address is a different daemon ($known before, ${hello.daemonId} now): starting over")
+            loader.reset()
             _state.update { HostState(conn = it.conn, daemon = hello, log = it.log) }
         }
         if (known != hello.daemonId) repo.setDaemonId(hostId, hello.daemonId)
