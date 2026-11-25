@@ -30,7 +30,7 @@ mesh send parent --type done     --file "$(mesh dir)/reports/<your-name>.md"
 
 Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. While you plan, only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. A message longer than a few lines goes through `--file`, written under `$(mesh dir)/reports/`. **Never write mesh files inside the repo.**
 
-If `mesh send`'s output has a `send_message` (a report to a Claude root that takes cross-session messages only from a session in its own permission mode), reach that Claude session with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded), with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell.
+If `mesh send`'s output has a `send_message` (a report to a Claude root that takes cross-session messages only from a session in its own permission mode), reach that Claude session with the **`SendMessage` tool** (load it with ToolSearch if it isn't loaded), with `to` and `message` exactly as printed. The message is already stored; `SendMessage` only rings the doorbell, and if you end your turn without it your Stop hook reminds you once.
 
 If `mesh send` exits 2, the message is stored but the doorbell didn't ring. Carry on: the recipient will see it.
 

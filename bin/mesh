@@ -101,7 +101,7 @@ APPROVE_COMPACT_AT = 250_000  # the execution model is the planning one: the reo
 APPROVE_SWITCH_COMPACT_AT = 200_000  # it changes: the new model writes the whole context anyway
 FOLLOWUP_COMPACT_AT = 250_000
 FOLLOWUP_COMPACT_COLD_AT = 200_000
-ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh reset`, and its root keeper resets it idle
+ROOT_RESET_AT = 150_000  # root context tokens past which mesh suggests `mesh reset`, and its root keeper resets it idle
 # Lean Claude sessions (design §11, "Lean sessions"): what a mesh agent starts without. Tools by name (a bare
 # name drops the tool's schema from every request); bundled skills hidden from the model's listing (the user can
 # still type them); plugins nothing in mesh uses. An agent adds one back with `mesh tools add`.
@@ -123,6 +123,8 @@ NAMED_EFFORT = "high"  # a model the user named, with no tier or effort given, r
 ROLES = ("worker",)
 TYPES = ("task", "plan", "question", "answer", "done", "failed", "info", "wait")
 FINAL_TYPES = ("done", "failed")
+REPORT_LOST_AFTER = 120  # seconds a report may sit unread, its doorbell never rung, before the watch calls it lost
+WATCH_TIMEOUT = 7200  # seconds a root's `mesh watch --any` runs by default (`watch.timeout`)
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # agy model ids: gemini-<version>-<family>-<effort> and claude-<family>-<version>-<effort>.
 GEMINI_ID_RE = re.compile(r"^gemini-([\d.]+)-([a-z]+)-(low|medium|high|xhigh|max)$")
@@ -1056,6 +1058,7 @@ POLICY = {  # leaf: (built-in default, check)
     # Before a task or answer to a live change worker that has reported `done` (warm / cold cache); 0: off.
     "compact.followup": (FOLLOWUP_COMPACT_AT, "int"),
     "compact.followup_cold": (FOLLOWUP_COMPACT_COLD_AT, "int"),
+    "watch.timeout": (WATCH_TIMEOUT, "seconds"),  # a root's `mesh watch --any` with no --timeout; 0: none
     "root_reset.at": (ROOT_RESET_AT, "int"),
     "root_reset.auto": (True, "bool"),
     "root_reset.wait": (RESET_WAIT, "seconds"),
@@ -1082,7 +1085,7 @@ POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MO
               "compact.claude_cold": "MESH_COMPACT_COLD_AT", "compact.agy": "MESH_AGY_COMPACT_AT",
               "root_reset.at": "MESH_ROOT_RESET_AT", "root_reset.auto": "MESH_ROOT_AUTORESET",
               "root_reset.wait": "MESH_RESET_WAIT", "root_reset.relaunch": "MESH_ROOT_RELAUNCH",
-              "claude.lean": "MESH_CLAUDE_LEAN"}
+              "claude.lean": "MESH_CLAUDE_LEAN", "watch.timeout": "MESH_WATCH_TIMEOUT"}
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
@@ -2785,15 +2788,25 @@ def hook_text(text: str, limit: int = HOOK_OUTPUT_MAX - 1) -> str:
     return (text[:cut if cut > 0 else room] + more + tail)[:limit]
 
 
+def hook_group(command: str, matcher: str | None = None) -> dict:
+    hook = {"type": "command", "command": command, "timeout": HOOK_TIMEOUT}
+    return {**({"matcher": matcher} if matcher else {}), "hooks": [hook]}
+
+
+def root_hooks() -> dict:
+    """The hooks a relaunched root's Claude is started with: a SessionStart reminder to run `mesh brief` (its root
+    card is what the root acts on) after a compaction, a /clear or a resume. It names no run: the root is found by
+    its pane, as for every root command, so a hook written for one run is right for the next in the same pane."""
+    return {"SessionStart": [hook_group(hook_command("whoami", "--reminder", source), source)
+                             for source in REMINDER_SOURCES]}
+
+
 def worker_hooks(run_id: str, name: str) -> dict:
     """The hooks a Claude worker is started with (design, "The Stop hook"). The command names the worker,
     as only the sessions mesh starts for it carry these hooks: nothing has to be read from the hook's
     environment. Claude Code adds them to the user's and the repo's own hooks."""
     ident = ("--run", run_id, "--as", name)
-
-    def group(command: str, matcher: str | None = None) -> dict:
-        hook = {"type": "command", "command": command, "timeout": HOOK_TIMEOUT}
-        return {**({"matcher": matcher} if matcher else {}), "hooks": [hook]}
+    group = hook_group
 
     return {"Stop": [group(hook_command("hook", "stop", *ident))],
             "SessionStart": [group(hook_command("whoami", "--reminder", source, *ident), source)
@@ -4940,10 +4953,11 @@ def deliver(run_id: str, sender: str, to: str, mtype: str, body: str, first: boo
         if rung:
             return rung
     if "send_message" in route:
-        log_event(run_id, "native", sender=sender, to=to, address=route["send_message"], file=path.name)
+        message = doorbell_text(run, sender, to, mtype, body, first)
+        log_event(run_id, "native", sender=sender, to=to, address=route["send_message"], file=path.name,
+                  type=mtype, message=message)  # the sender's Stop hook checks it was passed on (`owed_send_message`)
         return {"stored": str(path), "rung": False, "error": None,
-                "send_message": {"to": route["send_message"],
-                                 "message": doorbell_text(run, sender, to, mtype, body, first)}}
+                "send_message": {"to": route["send_message"], "message": message}}
     if entry.get("view") == "bg":
         error = bg_unreached(to, entry, rows)
         log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error=error)
@@ -6432,7 +6446,9 @@ def cmd_send(args: argparse.Namespace) -> int:
         print(f"warning: stored, not rung: {result['error']}", file=sys.stderr)
         return 2
     if "send_message" in result:
-        print(f"mesh: stored; now tell {to} with SendMessage: `to` and `message` exactly as in send_message",
+        note = result["send_message"]
+        print(f"mesh: stored, but {to} hears of it only from your SendMessage: call it now, with these exactly "
+              f"(JSON):\n{json.dumps({'to': note['to'], 'message': note['message']}, ensure_ascii=False)}",
               file=sys.stderr)
         return 0
     if not delivered(result):
@@ -6785,6 +6801,10 @@ def cmd_ring(args: argparse.Namespace) -> int:
             data["agents"][args.agent].pop("held", None)
             data["agents"][args.agent].pop("swapped", None)
     emit({**result, "unread": count})
+    if result.get("error") == "human_draft":
+        print(f"mesh: someone has a draft typed in {args.agent}'s pane, so nothing was typed. Tell the user; don't "
+              "type into the pane yourself (no `herdr agent prompt`, no `send-keys`). The message stays stored and "
+              "`mesh status` lists it as unrung.", file=sys.stderr)
     return 0 if result["rung"] else 2
 
 
@@ -7196,6 +7216,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
     run_id, me = caller(args, args.run_id)
     every, alerts = getattr(args, "any", False), getattr(args, "alerts", False)
     root = me == (maybe_run(run_id) or {}).get("root")
+    if root and every:  # a root's watch is the supervising one: alerts only, bounded, unless it says otherwise
+        alerts = alerts or not getattr(args, "reports", False)
+        if args.timeout is None:
+            args.timeout = setting("watch.timeout")
+    args.timeout = args.timeout or 0
     if bool(args.agent) == bool(every):
         raise MeshError("watch whom? name a worker, or pass --any for every live worker of the run")
     if root:  # the idle reset runs in the keeper, which outlives this watch (`root_reset.auto`)
@@ -7397,6 +7422,74 @@ def task_line(run_id: str, name: str, events: list[dict]) -> str:
     return f" Your current task: “{line}”." if line else ""
 
 
+SENT_TAIL = 4_000_000  # bytes of a session file `sent_message` reads, from its end
+
+
+def sent_message(transcript: str | None, address: str, since: float) -> bool | None:
+    """Whether a Claude session file shows a `SendMessage` to `address` after `since` (epoch seconds). None
+    (unknown) when the file can't be read, or when only its tail (`SENT_TAIL`) was read, and that tail has none
+    but doesn't provably cover `since` (its first timestamped record is after it), or holds a match with no
+    readable time (which may be an old one). A whole file's record with no time counts as a match: it may be the one."""
+    if not transcript:
+        return None
+    try:
+        with open(transcript, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - SENT_TAIL))
+            lines = handle.read().decode(errors="replace").splitlines()
+    except OSError:
+        return None
+    cut = size > SENT_TAIL
+    first = 0.0  # the tail's first timestamped record: what it covers begins there
+    blind = False  # a match with no time, in a cut file
+    for line in lines:
+        if first and "SendMessage" not in line:
+            continue
+        record = json_object(line)
+        stamp = epoch(record.get("timestamp"))
+        first = first or stamp
+        if "SendMessage" not in line:
+            continue
+        content = (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
+        if stamp and stamp < since:
+            continue
+        for block in content if isinstance(content, list) else ():
+            if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "SendMessage" \
+                    and (block.get("input") or {}).get("to") == address:
+                if stamp or not cut:
+                    return True
+                blind = True
+    if not cut:
+        return False
+    return False if first and first <= since and not blind else None
+
+
+def owed_send_message(run_id: str, name: str, events: list[dict], payload: dict, entry: dict) -> str | None:
+    """The Stop hook's reason when `name`'s newest report went by a `native` delivery (a `send_message` mesh
+    handed back for the worker to pass on, as its parent runs in bypass mode) and its own session file shows no
+    `SendMessage` to that address since: nobody else rings that doorbell. Once per report (`hook_send`)."""
+    last = next((e for e in reversed(events) if e.get("event") == "native" and e.get("sender") == name
+                 and e.get("type") in REPORT_TYPES), None)  # an `info` after it doesn't hide a report
+    if not last or not last.get("message") or not last.get("address"):
+        return None
+    file = str(last.get("file"))
+    if not (inbox_dir(run_id, last.get("to")) / file).exists() or any(
+            e.get("event") == "hook_send" and e.get("file") == file for e in events):
+        return None  # read already, or reminded already
+    transcript = payload.get("transcript_path") or (claude_transcript(entry, entry["session"])
+                                                    if entry.get("session") else None)
+    if sent_message(str(transcript) if transcript else None, last["address"], epoch(last.get("time"))) is not False:
+        return None  # sent, or can't tell
+    with run_lock(run_id):
+        if any(e.get("event") == "hook_send" and e.get("file") == file for e in read_log(run_id)):
+            return None
+        log_event(run_id, "hook_send", name=name, file=file)
+    return (f"agent-mesh: your {last.get('type')} to {last.get('to')} is stored, but {last.get('to')} hears of it "
+            f"only from your SendMessage, which you haven't called: call it now, with these exactly (JSON): "
+            f"{json.dumps({'to': last['address'], 'message': last['message']}, ensure_ascii=False)}")
+
+
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     """The reason a Claude worker's Stop hook keeps its turn going, or None to let it end.
 
@@ -7414,6 +7507,8 @@ def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
     if entry.get("plan_review") == "user" and "permission_mode" not in payload:
         return None  # can't tell whether it is still in plan mode: the watch judges it
     events = read_log(run_id)
+    if owed := owed_send_message(run_id, name, events, payload, entry):
+        return owed
     received, sent, _ = since_last_task(events, name)
     paths = unread(run_id, name)
     mail = [parse_message(p)[0].get("type") or "message" for p in paths]
@@ -7616,6 +7711,8 @@ class Watch:
         # ...but a report its parent hasn't read yet is news, whenever it was sent (not for `mesh ask`, whose
         # baseline is the count before its question, and which reads the reply itself).
         self.unread_report = None if finals_at_start is not None else unread_report(run_id, entry.get("parent"), name)
+        self.lost_check = finals_at_start is None  # not for `mesh ask`, which reads the reply itself
+        self.lost_noted: set[str] = set()  # reports (files) already called lost
         self.log = entry.get("log")
         self.log_offset = Path(self.log).stat().st_size if self.log and Path(self.log).exists() else 0
         self.session: str | None = None  # its conversation, once found (see conversation)
@@ -7786,7 +7883,38 @@ class Watch:
             if not alerts_only:
                 return 0, f"{name} reported {last['type']}: read it with `mesh inbox`"
             self.finals_at_start, self.reported = finals, True
-        return None
+        return self.lost_report(events)
+
+    def lost_report(self, events: list[dict]) -> tuple[int, str] | None:
+        """Exit 0 for a report (plan, question, done, failed) that has sat unread in its parent's mailbox for
+        REPORT_LOST_AFTER with no doorbell rung for it (and not collected by a fan-out): a `native` delivery (a `send_message` handed back to the
+        worker) the worker never made reaches the root's session otherwise never. Once per report."""
+        if not self.lost_check:
+            return None
+        sends = [e for e in events if e.get("event") == "send" and e.get("sender") == self.name
+                 and e.get("type") in REPORT_TYPES]
+        last = sends[-1] if sends else None
+        file = str(last.get("file")) if last else ""
+        if not last or file in self.lost_noted or age_seconds(last.get("time")) < REPORT_LOST_AFTER \
+                or any(e.get("event") == "lost_noted" and str(e.get("file")) == file for e in events):
+            return None  # (the log, so a watch the root starts again doesn't repeat it)
+        if not (inbox_dir(self.run_id, last.get("to")) / file).exists():
+            return None  # read
+        if any(e.get("event") in ("rung", "collected") and str(e.get("file")) == file for e in events):
+            return None  # rung, or an answer a fan-out collects (it is stored and never rung)
+        native = next((e for e in reversed(events) if e.get("event") == "native" and str(e.get("file")) == file), None)
+        if native and native.get("address"):  # passed on by the worker's own SendMessage: the root is just busy
+            entry = agent_entry(load_run(self.run_id), self.name)
+            transcript = claude_transcript(entry, entry["session"]) if entry.get("session") else None
+            if sent_message(str(transcript) if transcript else None, native["address"], epoch(native.get("time"))):
+                return None  # (True only: when it can't be told, the root is asked to look, which costs one `mesh inbox`)
+        self.lost_noted.add(file)
+        try:
+            log_event(self.run_id, "lost_noted", name=self.name, file=file)
+        except OSError:  # the run folder moved (`mesh stop`): the alert still goes out
+            pass
+        return 0, (f"{self.name}'s {last['type']} has sat unread for {ago(age_seconds(last.get('time')))} and its "
+                   "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
 
     def quota_event(self) -> tuple[int, str] | None:
         """A quota error agy logged since the last poll, or one the worker's CLI shows (Cli.quota_hit: OpenCode's
@@ -9514,8 +9642,18 @@ def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
     return (diff, f"{merge_base}..{head}") if diff.strip() else None
 
 
+def since_diff(repo: Path, last: str, head: str) -> tuple[str, str] | None:
+    """`git diff last head` and its range (`<last>..<head>`), for a reviewer given `--since`; None when git can't
+    build it (then the whole PR stays what the task shows) or it is empty."""
+    try:
+        diff = git("diff", "--no-color", "--no-ext-diff", last, head, cwd=repo)
+    except (MeshError, OSError):
+        return None
+    return (diff, f"{last}..{head}") if diff.strip() else None
+
+
 def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = None) -> str:
-    """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit.
+    """The diff for a review task (the whole PR, or the fixes of `--since`), so the reviewer starts from it; a note when it doesn't fit.
 
     Of the head the task names, from git (`built`, by `head_diff`), since `gh pr diff` shows the PR as it is now,
     which an author's push since may have moved past `head`; from `gh pr diff` without it (`head` is then only
@@ -9546,18 +9684,21 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`). `size` is
     the review's, which sets `/code-review`'s level (`review.level.<size>`; large's when unknown)."""
     skill = ""
-    built = head_diff(repo, pr, head) if pr and repo and head else None
+    again = bool(pr and last and head and last != head)
+    # `--since` on a narrow range: the diff the task names and embeds is the fixes', for any CLI (not only the
+    # `/code-review` target), else a reviewer without that skill reviews the whole PR.
+    full = head_diff(repo, pr, head) if pr and repo and head else None
+    built = (since_diff(repo, last, head) if since and narrow and again and repo else None) or full
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
         show = f"git diff {built[1]}" if built else f"gh pr diff {pr}"
         where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
-        again = bool(last and head and last != head)
         if again:
             text = REVIEW_SINCE if since and narrow else REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE
             where += " " + text.format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if cli_has(kind, "code_review") and head:
-            whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
+            whole = full[1] if full else number if pr_remote_is_origin(repo, pr) else pr
             skill = CODE_REVIEW.format(level=setting(f"review.level.{size if size in SIZES else 'large'}"), target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow and not since else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
@@ -11365,7 +11506,7 @@ def is_worker(run_id: str | None, name: str | None) -> bool:
 # What a worker may run (`check_worker`, at dispatch): its own messages and readings. Everything else starts
 # agents or changes another agent's or the machine's mesh state, so it's the root's (or the user's).
 WORKER_COMMANDS = frozenset({"send", "inbox", "whoami", "dir", "hook", "status", "log", "agents", "conflicts",
-                             "brief", "model", "usage", "cost", "routing", "peers list", "tools"})
+                             "brief", "model", "usage", "cost", "routing", "peers list", "tools", "protocol"})
 # Commands that tell a worker apart themselves: `stop` also looks at the run it is asked to stop.
 OWN_WORKER_CHECK = frozenset({"stop"})
 # What a worker refused a command is told: trying mesh out goes in a sandbox, never the real state.
@@ -11549,11 +11690,26 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
     return "working on it: report `done` or `failed` with `mesh send parent` when it's finished (stuck: send a `question`)"
 
 
+def reset_typing(run_id: str) -> bool:
+    """Whether a `mesh reset` is running and has begun restarting the root (typed `/clear`, `/compact` or the
+    `/exit` of a relaunch: `reset_typing` event after the last `reset_requested`), so a bootstrap prompt follows."""
+    if not reset_pending(run_id):
+        return False
+    marks = [e.get("event") for e in read_log(run_id) if e.get("event") in ("reset_requested", "reset_typing")]
+    return marks[-1:] == ["reset_typing"]
+
+
 def reminder(run_id: str, me: str, source: str) -> str:
     """What `mesh whoami --reminder` prints, for a session that may have lost its context (SessionStart hook).
     Its wording must not match `first_doorbell`, which agy's conversation lookup searches for."""
     run = load_run(run_id)
     entry = agent_entry(run, me)
+    if entry["role"] == "root":
+        if reset_typing(run_id):  # `mesh reset` has started its restart: its prompt, typed next, says `mesh brief`
+            return ""
+        return (f"agent-mesh reminder ({source}): you are {me}, the root of run {run_id} (no parent to report to). "
+                f"Your earlier context may be gone: run `mesh brief` now and act by the root card it prints, "
+                f"not from memory. Run dir: {run_dir(run_id)}.")
     events = read_log(run_id)
     files = current_task(run_id, me, events)
     task = parse_message(files[0])[1].strip() if files else None
@@ -11580,11 +11736,14 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         try:
             run_id, me = identity(args)
             text = reminder(run_id, me, args.reminder)
-            log_event(run_id, "reminder", name=me, source=args.reminder)
+            if text:
+                log_event(run_id, "reminder", name=me, source=args.reminder)
         except Exception as exc:  # noqa: BLE001
-            print(f"mesh whoami --reminder: {exc}", file=sys.stderr)
+            if not (isinstance(exc, MeshError) and not (args.run or args.as_)):  # a root's hook names no run, and
+                print(f"mesh whoami --reminder: {exc}", file=sys.stderr)  # its run may be over: then say nothing
             return 0
-        print(hook_text(text))
+        if text:
+            print(hook_text(text))
         return 0
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), me)
@@ -12540,7 +12699,9 @@ CLAUDE_SESSION_FLAGS = frozenset({"-r", "--resume", "-c", "--continue", "--sessi
 # Variables Claude Code or the pane set for one process, which a relaunch's settings `env` must not pin.
 RELAUNCH_ENV_SKIP = frozenset({"_", "SHLVL", "PWD", "OLDPWD", "COLUMNS", "LINES", *MESH_IDS, *HERDR_IDS,
                                *CLAUDE_SESSION_VARS})
-RELAUNCH_EXIT = 20  # seconds a typed /exit gets to end the root's Claude
+RELAUNCH_EXIT = 60  # seconds a typed /exit gets to end the root's Claude before its screen is judged
+RELAUNCH_EXIT_LATE = 240  # more seconds a Claude whose screen is gone gets to finish exiting, before it is ended
+RELAUNCH_TERM = 10  # seconds a SIGTERM gets, then SIGKILL (and again as long)
 RELAUNCH_START = 60  # seconds a relaunched Claude gets to lead the pane with a session of its own
 
 
@@ -12629,10 +12790,17 @@ def settings_arg(value: str, cwd: str) -> dict | None:
 
 
 def merged_settings(user: dict, ours: dict) -> dict:
-    """The user's settings with ours laid over them, object keys (skillOverrides, enabledPlugins, env) merged."""
+    """The user's settings with ours laid over them, object keys (skillOverrides, enabledPlugins, env) merged, and
+    each event's hook list (`hooks`) the user's followed by ours (one already there isn't added twice)."""
     out = dict(user)
     for key, value in ours.items():
-        out[key] = {**out[key], **value} if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+        if key == "hooks" and isinstance(value, dict) and isinstance(out.get(key), dict):
+            hooks = {event: list(groups) for event, groups in out[key].items() if isinstance(groups, list)}
+            for event, groups in value.items():
+                hooks[event] = hooks.get(event, []) + [g for g in groups if g not in hooks.get(event, [])]
+            out[key] = {**out[key], **hooks}
+        else:
+            out[key] = {**out[key], **value} if isinstance(value, dict) and isinstance(out.get(key), dict) else value
     return out
 
 
@@ -12676,7 +12844,7 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
                 return None, f"its --settings {value} can't be read"
         env = {k: v for k, v in claude["env"].items()
                if claude["shell_env"].get(k) != v and k not in RELAUNCH_ENV_SKIP and not k.startswith("CLAUDE_CODE_")}
-    settings = merged_settings(user, lean_settings(entry))
+    settings = merged_settings(user, {**lean_settings(entry), "hooks": root_hooks()})
     if env:
         settings["env"] = {**env, **(settings.get("env") or {})}
     tools = list(dict.fromkeys([*(t for t in user_deny if t not in agent_added(entry)), *lean_tools(entry)]))
@@ -12730,6 +12898,75 @@ def start_root_claude(root: str, pane: str, argv: list[str], old_pid: int) -> tu
     return None, why
 
 
+def wait_gone(plan: dict, seconds: float) -> bool:
+    """Whether the old Claude's process ends within `seconds` (it is polled once a second)."""
+    deadline = time.monotonic() + seconds
+    while pid_alive(plan["pid"], plan["start"]) and time.monotonic() < deadline:
+        time.sleep(1)
+    return not pid_alive(plan["pid"], plan["start"])
+
+
+EXIT_FAREWELL = "Resume this session with"  # what Claude Code prints as it exits
+
+
+def farewells(lines: list[str] | None) -> int | None:
+    """How many exit farewells a screen read shows (None: it couldn't be read)."""
+    return None if lines is None else sum(EXIT_FAREWELL in strip_sgr(line) for line in lines)
+
+
+def exiting(pane: str, lines: list[str] | None, before: int | None) -> bool:
+    """Positive evidence that a Claude still alive after /exit is on its way out: its screen shows more exit
+    farewells than it did when the /exit was typed (`before`: an earlier reset in the pane leaves one in the
+    scrollback; None when that read failed, so no farewell counts), or the pane's foreground is its shell again
+    (it no longer holds the terminal). Not an unreadable screen, a dialog or any other screen."""
+    if before is not None and (farewells(lines) or 0) > before:
+        return True
+    info = pane_process_info(pane)
+    return bool(info and info.get("shell_pid") is not None
+                and info.get("foreground_process_group_id") == info.get("shell_pid"))
+
+
+def end_root_claude(pane: str, plan: dict, before: int | None = None) -> str:
+    """After a typed /exit: wait until the old Claude is gone, and say why not (else ""). It may take minutes
+    (run mfb6a, 2026-11-25: one outlived its /exit by far longer than 20 s, and a reset that gave up then left the
+    user a pane with no root). A Claude still alive after `RELAUNCH_EXIT` whose screen shows its input box didn't
+    take the /exit: it is left running, as it was. Otherwise it gets `RELAUNCH_EXIT_LATE` more, and is signalled
+    (SIGTERM, then SIGKILL; its conversation is on disk already) only on positive evidence that it is exiting
+    (`exiting`; `before`: the farewells on its screen before the /exit). An unreadable screen, a dialog or any screen nobody recognises is not that: the reset fails and
+    the root keeps running. herdr's agent status isn't consulted: it can stay `working` after the screen is gone."""
+
+    def read() -> list[str] | None:
+        return pane_lines(pane, RESET_READ_LINES, ansi=True)
+
+    def box(lines: list[str] | None) -> bool:
+        return lines is not None and typed_text(lines, "claude") is not None
+
+    still = "it was sent /exit, but its Claude still runs and shows its input box; nothing else was typed"
+    if wait_gone(plan, RELAUNCH_EXIT):
+        return ""
+    if box(read()):
+        return still
+    if wait_gone(plan, RELAUNCH_EXIT_LATE):
+        return ""
+    lines = read()
+    if box(lines):
+        return still
+    if not exiting(pane, lines, before):
+        return ("it was sent /exit, but its Claude still runs and nothing on its screen or in its pane shows it "
+                f"exiting ({'its screen could not be read' if lines is None else 'a screen with no input box'}); "
+                "it was not signalled and nothing else was typed")
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if pid_alive(plan["pid"], plan["start"]):
+            print(f"mesh reset: the old root's Claude ({plan['pid']}) outlived its /exit: {sig.name}", flush=True)
+            try:
+                os.kill(plan["pid"], sig)
+            except OSError:
+                pass
+            if wait_gone(plan, RELAUNCH_TERM):
+                return ""
+    return "it was sent /exit and then a SIGKILL, but its Claude still runs; nothing else was typed"
+
+
 def relaunch_root(run_id: str, root: str, entry: dict, plan: dict) -> tuple[dict | None, str]:
     """Type /exit into the root's idle pane, then start its Claude again with the plan's flags; on any failure
     after the exit, start the old command line on its own session instead, so the pane never stays without its
@@ -12737,15 +12974,13 @@ def relaunch_root(run_id: str, root: str, entry: dict, plan: dict) -> tuple[dict
     could be. The root's address, pid and session are re-recorded at once, so workers' doorbells don't go to a
     socket that died with the old process."""
     pane = entry["pane"]
+    seen = farewells(pane_lines(pane, RESET_READ_LINES, ansi=True))  # an earlier reset's stays in the scrollback
     try:
         herdr("agent", "prompt", pane, "/exit", timeout=30)
     except HerdrError as exc:
         return None, f"typing /exit failed: {exc.code}"
-    deadline = time.monotonic() + RELAUNCH_EXIT
-    while pid_alive(plan["pid"], plan["start"]) and time.monotonic() < deadline:
-        time.sleep(1)
-    if pid_alive(plan["pid"], plan["start"]):
-        return None, "it was sent /exit, but its Claude still runs; nothing else was typed"
+    if why_alive := end_root_claude(pane, plan, seen):
+        return None, why_alive
     record, why = start_root_claude(root, pane, plan["argv"], plan["pid"])
     if not record:
         leader = (pane_process_info(pane) or {})
@@ -12790,8 +13025,8 @@ def bootstrap_text(run_id: str, root: str, next_task: str | None, compacted: boo
         then += ("; if notes.md says you were waiting on an answer from the user, ask the user again rather "
                  "than going on without it")
     return (f"{DOORBELL_PREFIX} (ref {token}) You are {root}, the root of agent-mesh run {run_id}, and `mesh reset` "
-            f"just {what}. You have no parent to report to. Run `mesh brief` and rebuild your picture from it, "
-            f"not from memory. Then: {then}")
+            f"just {what}. You have no parent to report to. Run `mesh brief`, act by the root card it prints, "
+            f"and rebuild your picture from it, not from memory. Then: {then}")
 
 
 def reset_root(run_id: str, root: str, next_task: str | None, compact: str | None, via: str = "command",
@@ -12858,6 +13093,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
                         run_id, root, load_run(run_id)["agents"][root], before if reopen else None)
                     if reopen and not plan:
                         return failed("reset_failed", f"couldn't reopen it with what it added: {plan_why}")
+                    log_event(run_id, "reset_typing", name=root)  # from here on, its SessionStart reminder is silent
                     if plan:
                         relaunched, why_not = relaunch_root(run_id, root, entry, plan)
                         if not relaunched:
@@ -13082,15 +13318,25 @@ def brief(run_id: str, me: str) -> dict:
                        if path.exists() else None}
     reset = next((e for e in reversed(events) if e.get("event") == "reset"), None)
     context = quietly(root_context, run, as_root=me == root)
-    procedure = ("you are the run's root: follow ~/.config/agent-mesh/ORCHESTRATE.md (Root, and Task lists or "
-                 "Questions and reviews as this run needs) and PROTOCOL.md; read them again now if this session "
-                 "hasn't") if me == root else (f"you are {me}, not this run's root ({root}): this is its view of "
-                                               "the run, and nothing in it is yours to act on")
+    is_root = me == root
+    procedure = ("you are the run's root: act on the root card below; the protocol part to read before each step "
+                 "is named in it (`mesh protocol <name>`)") if is_root else (
+        f"you are {me}, not this run's root ({root}): this is its view of the run, and nothing in it is yours "
+        "to act on")
+    pointers = []
+    if is_root:
+        for r in workers:
+            if r["needs"] == "root" and r.get("report") == "plan":
+                pointers.append(f"{r['name']}'s plan waits: before you approve or answer it, `mesh protocol root.6`")
+            elif r["needs"] == "root" and r.get("report") == "done":
+                pointers.append(f"{r['name']}'s done waits: before you check it, `mesh protocol root.8` and "
+                                "`mesh protocol questions-and-reviews`")
     return {
         "run": run_id, "mode": run["mode"], "dir": str(folder), "you": me, "root": root,
         "request": capped(run.get("request") or "", BRIEF_REQUEST,
                           f"python3 -c 'import json; print(json.load(open(\"{folder / 'run.json'}\"))[\"request\"])'"),
-        "procedure": procedure,
+        "procedure": procedure, "card": (quietly(protocol_sections) or {}).get("root-card") if is_root else None,
+        "pointers": pointers,
         "root_context": context, "notes": texts["notes.md"], "board": texts["board.md"],
         "workers": capped_list(lines, BRIEF_ROWS, "mesh status"),
         "needs_root": [r["name"] for r in rows if r["needs"] == "root"],
@@ -13107,10 +13353,13 @@ def brief(run_id: str, me: str) -> dict:
 
 def render_brief(b: dict) -> str:
     out = [f"run {b['run']} ({b['mode']}), {b['dir']}", f"request: {b['request'] or '(none recorded)'}",
-           b["procedure"] + ".",
-           "policy (tiers, reviewers, rounds, reserve): `mesh routing`; repos: "
+           b["procedure"] + "."]
+    if b.get("card"):
+        out += ["", b["card"], ""]
+    out += ["policy (tiers, reviewers, rounds, reserve): `mesh routing`; repos: "
            + (", ".join(b["repos_dir"]) + " (a bare `--repo <name>` is looked up there)" if b["repos_dir"]
               else "no repos_dir set: pass --repo paths")]
+    out += [f"NOW: {line}" for line in b.get("pointers") or []]
     if b.get("models"):
         out.append(b["models"].removeprefix("mesh: "))
     if b["root_context"]:
@@ -13133,8 +13382,8 @@ def render_brief(b: dict) -> str:
         out += ["", f"not watched yet: {', '.join(b['unwatched'])}; the running `mesh watch --any` takes them on at "
                     "its next poll (one that's gone raises exit 5)"]
     elif b["unwatched"]:
-        out += ["", f"no `mesh watch` covers {', '.join(b['unwatched'])}: start `mesh watch --any --alerts` in the "
-                    "background"]
+        out += ["", f"no `mesh watch` covers {', '.join(b['unwatched'])}: start `mesh watch --any` in the "
+                    "background (it implies --alerts for a root)"]
     if reset := b["last_reset"]:
         out += ["", f"## last reset ({reset['time']})"]
         if reset.get("next"):
@@ -13210,6 +13459,68 @@ def cmd_routing(args: argparse.Namespace) -> int:
     else:
         print(render_routing(data))
     return 1 if data["config"]["error"] else 0
+
+
+# ── protocol sections ────────────────────────────────────────────────────
+
+
+def protocol_files() -> dict[str, Path]:
+    """The protocol Markdown: this checkout's `protocol/` (what ~/.config/agent-mesh links to), else the installed one."""
+    folder = Path(__file__).resolve().parent.parent / "protocol"
+    if not (folder / "ORCHESTRATE.md").exists():
+        folder = Path(PROTOCOL_PATH).expanduser().parent
+    return {"orchestrate": folder / "ORCHESTRATE.md", "protocol": folder / "PROTOCOL.md",
+            "root-card": folder / "ROOT_CARD.md"}
+
+
+def slug(heading: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
+
+
+def protocol_sections() -> dict[str, str]:
+    """Every readable part of the protocol by name: each heading of ORCHESTRATE.md and PROTOCOL.md (its slug, up to
+    the next heading), `protocol` (all of PROTOCOL.md), `root-card`, and `root.<n>` (Root's numbered step n)."""
+    files = protocol_files()
+    out: dict[str, str] = {}
+    for key in ("orchestrate", "protocol"):
+        path = files[key]
+        if not path.exists():
+            continue
+        lines = path.read_text().splitlines()
+        if key == "protocol":
+            out["protocol"] = "\n".join(lines)
+        fence, start, name = False, None, None
+        for i, line in enumerate([*lines, "## "]):
+            if line.startswith("```"):
+                fence = not fence
+            if not fence and re.match(r"#{2,3} ", line):
+                if name and name not in out:
+                    out[name] = "\n".join(lines[start:i]).rstrip()
+                start, name = i, slug(line.lstrip("# "))
+    root = out.get("root", "")
+    steps = re.split(r"(?m)^(?=\d+\. )", root.split("\n", 1)[-1])
+    for step in steps:
+        if m := re.match(r"(\d+)\. ", step):
+            out[f"root.{m.group(1)}"] = f"## Root, step {m.group(1)}\n\n{step.rstrip()}"
+    if files["root-card"].exists():
+        out["root-card"] = files["root-card"].read_text().rstrip()
+    if files["protocol"].exists():
+        out["protocol"] = files["protocol"].read_text().rstrip()  # reserved: all of PROTOCOL.md
+    return out
+
+
+def cmd_protocol(args: argparse.Namespace) -> int:
+    sections = protocol_sections()
+    if not args.name:
+        print("mesh protocol <name> prints one part of ORCHESTRATE.md or PROTOCOL.md (about 4 characters a token):")
+        for name, text in sections.items():
+            print(f"  {name.ljust(26)} {len(text):>6} chars")
+        return 0
+    name = args.name.lower().removeprefix("orchestrate.").removeprefix("protocol.")
+    if name not in sections:
+        raise MeshError(f"no protocol part named {args.name}; the names are: {', '.join(sections)}")
+    print(sections[name])
+    return 0
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
@@ -14000,9 +14311,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent", nargs="?")
     p.add_argument("--any", action="store_true", help="every live worker of the run: exit on the first event")
     p.add_argument("--alerts", action="store_true",
-                   help="alerts only: keep watching through done/failed (for cross-session reports)")
+                   help="alerts only: keep watching through done/failed (for cross-session reports); a root's "
+                        "--any does so unless --reports")
+    p.add_argument("--reports", action="store_true",
+                   help="exit on every done/failed too (a root's --any with --alerts implied otherwise)")
     p.add_argument("--run-id")
-    p.add_argument("--timeout", type=int, default=0, help="seconds (0 = none)")
+    p.add_argument("--timeout", type=int, default=None, help="seconds (0 = none; a root's --any: `watch.timeout`)")
     p.add_argument("--interval", type=float, default=5.0)
     p.add_argument("--grace", type=float, default=SETTLE_GRACE,
                    help="seconds a worker must stay idle before it counts as stopped (default %(default)s)")
@@ -14140,6 +14454,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="print a reminder of who you are, your phase and your task instead (a SessionStart hook "
                         "passes compact, clear or resume)")
     p.set_defaults(func=cmd_whoami)
+    p = sub.add_parser("protocol", help="print one part of the protocol (a heading's slug, `root.<n>`, `root-card`); "
+                                         "with no name, list them")
+    p.add_argument("name", nargs="?")
+    p.set_defaults(func=cmd_protocol)
     p = ident(sub.add_parser("hook", help="a Claude worker's hook (Claude Code runs it)"))
     p.add_argument("event", choices=("stop",))
     p.set_defaults(func=cmd_hook)
