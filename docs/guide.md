@@ -8,7 +8,7 @@ Both commands work from Claude Code and from agy. Nothing starts until you say g
 
 | Command | Workers (one per repo) |
 |---|---|
-| `/delegate-agy` | agy, on the tier the root picks per task (`strong`: Argon → Claude Opus → Hydrogen, the first with quota left; `mid`: Hydrogen; `light`: Flash) |
+| `/delegate-agy` | agy, on the tier the root picks per task (`strong`: Neon → Claude Opus → Carbon → Hydrogen, the first with quota left; `mid`: Hydrogen at high; `light`: Flash) |
 | `/delegate-claude` | Claude, on the tier the root picks per task (`strong`: Opus; `mid`: Sonnet; `light`: Haiku) |
 
 - **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
@@ -48,7 +48,7 @@ Background workers report to a Claude root as cross-session messages, so the roo
 
 A worker on a large task has two phases in one conversation, each on the tier the root picks:
 
-- **Planning** runs on the first model of its tier's chain (`tiers.<kind>.<tier>.model`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Argon is exhausted, `strong` workers plan on Claude Opus through agy's pool.
+- **Planning** runs on the first model of its tier's chain (`tiers.<kind>.<tier>.model`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Neon is exhausted, `strong` workers plan on Claude Opus through agy's pool.
 - **Executing:** `mesh approve <worker> --tier <tier>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on that tier's model in a new pane, and delivers the approval there. `mesh switch <worker> --effort <e>` or `--tier <t>` moves a worker later, in the same conversation (an effort-only move keeps Claude's cache).
 - **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time. The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Hydrogen, so a Hydrogen quota hit is reported to you with its reset time.
 - **The quota reserve:** mesh keeps the last 10% of every quota for you by default. Once a quota is 90% used (`quota_stop` in the config, or `MESH_QUOTA_STOP`; `100` turns the reserve off), it starts nothing new on it: `spawn`, `ask`, `resume` with a task, `send --type task` and `approve` are refused with the window, its use and its reset, and nothing is started or sent. Answers still go, and running workers finish their current task: the root's `mesh watch` exits 7 once per window when a quota they draw on reaches the reserve, and nothing is stopped. Claude's usage comes live from the endpoint Claude Code's `/usage` reads (`/api/oauth/usage`, with the login Claude Code keeps in `~/.claude/.credentials.json`; never refreshed by mesh), shared machine-wide for 2 minutes, else from a cached copy at most 15 minutes old; `MESH_CLAUDE_USAGE=off` keeps mesh off the network. agy's comes from `agy -p /usage`. A quota mesh can't read never blocks. For a run you want finished anyway, `mesh reserve off` lets it past the reserve (`mesh reserve on` holds it again).
@@ -349,9 +349,9 @@ This file reproduces the built-in policy, plus a `repos_dir`:
     "agy": {
       "light": {"model": ["flash"], "effort": "low",
                "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
-      "mid": {"model": ["hydrogen"], "effort": "medium",
+      "mid": {"model": ["hydrogen"], "effort": "high",
                "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
-      "strong": {"model": ["argon", "opus", "hydrogen"], "effort": "high",
+      "strong": {"model": ["neon", "opus", "carbon", "hydrogen"], "effort": "high",
                "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
     },
     "copilot": {

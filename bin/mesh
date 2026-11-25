@@ -66,8 +66,10 @@ TIERS = ("light", "mid", "strong", "top")
 TIER_DEFAULTS = {
     "claude": {"light": (["haiku"], "medium"), "mid": (["sonnet"], "high"), "strong": (["opus"], "high"),
                "top": (["fable"], "high")},
-    "agy": {"light": (["flash"], "low"), "mid": (["hydrogen"], "medium"),
-            "strong": (["argon", "opus", "hydrogen"], "high")},
+    # Research of 2026-11-25 (Artificial Analysis, Terminal-Bench 4.1): Hydrogen at medium scores half what it does at
+    # high; Neon (2026-11-18) outscores Argon and matches Carbon for less; Opus second is agy's other quota pool.
+    "agy": {"light": (["flash"], "low"), "mid": (["hydrogen"], "high"),
+            "strong": (["neon", "opus", "carbon", "hydrogen"], "high")},
     "copilot": {"light": ([COPILOT_MODEL], "low"), "mid": ([COPILOT_MODEL], "medium"),
                 "strong": ([COPILOT_MODEL], "high")},
     # The free models with some evidence on coding first (2026-11-25 research), then `free`: any other free one,
@@ -3050,7 +3052,11 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
     notes: list[str] = []
     best: tuple[int, str] | None = None
     for family in chain:
-        model_id = resolve_agy_model(family, effort)
+        try:
+            model_id = resolve_agy_model(family, effort)
+        except MeshError:  # a family agy doesn't list (yet, or any more): the next one, never the whole chain
+            notes.append(f"agy lists no {family} at {effort} effort")
+            continue
         if model_id in skip:
             continue
         quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None

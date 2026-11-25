@@ -922,7 +922,10 @@ def test_first_message_introduces_the_agent(mesh, fake, run):
 
 # ── models ───────────────────────────────────────────────────────────────
 
-AGY_MODELS = """gemini-4-argon-medium\tGemini 4 Argon (Medium)
+AGY_MODELS = """gemini-4-neon-high\tGemini 4 Neon (High)
+gemini-4-neon-medium\tGemini 4 Neon (Medium)
+gemini-4-carbon-high\tGemini 4 Carbon (High)
+gemini-4-argon-medium\tGemini 4 Argon (Medium)
 gemini-4-argon-high\tGemini 4 Argon (High)
 gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)
 gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)
@@ -940,7 +943,7 @@ USAGE = """Gemini Models\tWeekly Limit Remaining\t74%\t2026-10-29T17:21:38Z
 Gemini Models\tFive Hour Limit Remaining\t52%\t2026-10-24T05:50:54Z
 Claude and GPT models\tWeekly Limit Remaining\t49%\t2026-10-30T19:57:12Z
 Claude and GPT models\tFive Hour Limit Remaining\t100%\t2026-10-24T10:11:57Z
-Gemini 4 Argon\tGemini 4 Argon Weekly Limit\t0%\t2026-10-29T17:26:00Z
+Gemini 4 Neon\tGemini 4 Neon Weekly Limit\t0%\t2026-10-29T17:26:00Z
 """
 
 
@@ -969,7 +972,7 @@ def test_pick_agy_model_resolves_claude_families(mesh):
 def test_usage_rows_give_each_model_its_tightest_limit(mesh):
     rows = mesh.parse_usage("Fetching...\n" + USAGE)
     assert len(rows) == 5 and rows[0]["left"] == 74
-    assert mesh.model_quota("gemini-4-argon-high", "Gemini 4 Argon (High)", rows) == (0, "2026-10-29T17:26:00Z")
+    assert mesh.model_quota("gemini-4-neon-high", "Gemini 4 Neon (High)", rows) == (0, "2026-10-29T17:26:00Z")
     assert mesh.model_quota("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)", rows)[0] == 52
     assert mesh.model_quota("claude-opus-5-5-high", "Claude Opus 5.5 (High)", rows)[0] == 49
     assert mesh.model_quota("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)", rows)[0] == 49
@@ -980,41 +983,43 @@ def test_auto_plans_on_the_first_model_with_quota(mesh, monkeypatch):
     with_quotas(mesh, monkeypatch)
     chain = mesh.tier_chain("agy", "strong")
     assert mesh.choose_agy_model(chain, "high")[0] == "claude-opus-5-5-high"
-    assert mesh.choose_agy_model(chain, "high", skip=("claude-opus-5-5-high",))[0] == "gemini-4-hydrogen-high"
+    assert mesh.choose_agy_model(chain, "high", skip=("claude-opus-5-5-high",))[0] == "gemini-4-carbon-high"
     with_quotas(mesh, monkeypatch, USAGE.replace("74%", "5%").replace("49%", "3%"))
     model, notes = mesh.choose_agy_model(chain, "high")
-    assert model == "gemini-4-hydrogen-high" and "every model is under 10%" in notes[-1]
+    assert model == "gemini-4-carbon-high" and "every model is under 10%" in notes[-1]  # Gemini's 5%, its first
     with pytest.raises(mesh.MeshError, match="resets 2026-10-29"):
         mesh.choose_agy_model(chain, "high", fallback=False)
     monkeypatch.setenv("MESH_MIN_QUOTA", "4")
-    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-hydrogen-high"
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-carbon-high"
     monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: never block
-    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-argon-high"
+    assert mesh.choose_agy_model(chain, "high")[0] == "gemini-4-neon-high"
+    model, notes = mesh.choose_agy_model(("xenon", "opus"), "high")  # a family agy doesn't list: the next one
+    assert model == "claude-opus-5-5-high" and notes == ["agy lists no xenon at high effort"]
 
 
-AGY_NEW_FAMILIES = AGY_MODELS + "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-carbon-low\tGemini 4 Carbon (Low)\n"
+AGY_NEW_FAMILIES = AGY_MODELS + "gemini-5-xenon-high\tGemini 5 Xenon (High)\n"
 
 
 def test_a_new_model_family_is_pointed_out_once_a_day_until_acknowledged(mesh, run, monkeypatch, capsys):
     clis(monkeypatch, "agy", "claude")
-    with_quotas(mesh, monkeypatch)
+    with_quotas(mesh, monkeypatch)  # agy lists argon and sonnet, which no built-in tier names
     mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
     check = mesh.model_check(force=True)  # `mesh init` checked already, before agy listed anything
-    assert check["new"] == {"agy": ["carbon", "neon", "sonnet"]} and check["retired"] == {}
-    assert "new agy models no tier names: carbon, neon, sonnet" in mesh.model_notice(check)
+    assert check["new"] == {"agy": ["argon", "sonnet", "xenon"]} and check["retired"] == {}
+    assert "new agy models no tier names: argon, sonnet, xenon" in mesh.model_notice(check)
     mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
     assert mesh.model_check()["new"] == check["new"]  # a day's result is reused: no listing
     mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_NEW_FAMILIES)
-    assert mesh.main(["models", "--ack", "agy:sonnet", "agy:carbon"]) == 0
+    assert mesh.main(["models", "--ack", "agy:sonnet", "agy:argon"]) == 0
     out = capsys.readouterr().out
-    assert "new agy models no tier names: neon." in out and "argon (a tier)" in out
-    with_config({"tiers": {"agy": {"strong": {"model": ["neon", "opus"]}}}})
-    retired = mesh.model_check(force=True)
-    assert retired["new"] == {"agy": ["argon"]} and retired["retired"] == {}  # neon placed; argon left no tier
+    assert "new agy models no tier names: xenon." in out and "neon (a tier)" in out
+    with_config({"tiers": {"agy": {"strong": {"model": ["xenon", "opus"]}}}})
+    placed = mesh.model_check(force=True)
+    assert placed["new"] == {"agy": ["carbon", "neon"]} and placed["retired"] == {}  # they left every tier
     mesh.write_atomic(mesh.mesh_home() / "agy-models.txt", AGY_MODELS)
-    assert mesh.model_check(force=True)["retired"] == {"agy": ["neon"]}
+    assert mesh.model_check(force=True)["retired"] == {"agy": ["xenon"]}
     monkeypatch.setattr(mesh, "status_rows", lambda run_id, data: [])
-    assert "agy no longer lists: neon (a tier names it)" in mesh.render_brief(mesh.brief(run, "repo-lead"))
+    assert "agy no longer lists: xenon (a tier names it)" in mesh.render_brief(mesh.brief(run, "repo-lead"))
 
 
 def test_usage_is_cached_and_force_reads_it_again(mesh, monkeypatch):
@@ -2431,8 +2436,8 @@ def test_spawn_defaults_to_auto_planning_then_hydrogen(mesh, fake, run, repo, mo
     with_quotas(mesh, monkeypatch)
     assert mesh.main(["spawn", "--tier", "strong", "--repo", str(repo), "--worktree", "fix-reactions"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["model"] == "claude-opus-5-5-high"  # Argon is at 0%
-    assert out["notes"] == ["gemini-4-argon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
+    assert out["model"] == "claude-opus-5-5-high"  # Neon is at 0%
+    assert out["notes"] == ["gemini-4-neon-high has 0% left (resets 2026-10-29T17:26:00Z)"]
     entry = mesh.load_run(run)["agents"]["proj-fix-reactions"]
     assert (entry["role"], entry["kind"], entry["effort"]) == ("worker", "agy", "high")
     assert (entry["phase"], entry["exec_model"], entry["exec_effort"]) == ("plan", None, None)  # named at approval
@@ -3850,12 +3855,12 @@ def test_a_resumed_worker_given_a_planned_task_plans_on_the_plan_chain_then_move
     assert mesh.main(["approve", "proj-fix"]) == 1  # the root names the execution tier, having read the plan
     assert "pass --tier light|mid|strong for proj-fix's execution" in capsys.readouterr().err
     assert mesh.main(["approve", "proj-fix", "--tier", "mid", "--why", "a clear plan"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-medium"
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
     entry = mesh.load_run(run)["agents"]["proj-fix"]
     assert (entry["exec_tier"], entry["models"][-1]["tier"], entry["models"][-1]["reason"]) == (
         "mid", "mid", "a clear plan")
     assert fake.called("agent", "start")[-1][-5:] == (
-        "--conversation", "c1", "--model", "gemini-4-hydrogen-medium", "--dangerously-skip-permissions")
+        "--conversation", "c1", "--model", "gemini-4-hydrogen-high", "--dangerously-skip-permissions")
 
     # a direct task, a question or a named effort has no plan phase
     for extra in (["--task", "Direct task (no plan)\n\nBump it."], ["--task", "Plan it.", "--effort", "high"]):
@@ -5010,7 +5015,7 @@ def test_watch_follows_a_log_that_restarts_shorter(mesh, fake, run, monkeypatch,
 
 
 def test_switch_never_returns_to_a_model_that_already_ran_out(mesh, fake, run, monkeypatch, capsys):
-    planning_worker(mesh, run, model="gemini-4-argon-high")
+    planning_worker(mesh, run, model="gemini-4-neon-high")
     with_quotas(mesh, monkeypatch)
     monkeypatch.setattr(mesh, "agy_usage", lambda force=False: None)  # quotas unreadable: everything looks free
     stub_new_pane(fake)
@@ -5018,8 +5023,8 @@ def test_switch_never_returns_to_a_model_that_already_ran_out(mesh, fake, run, m
     capsys.readouterr()
     assert mesh.main(["switch", "repo-fix-typo"]) == 0
     assert json.loads(capsys.readouterr().out)["model"] == "claude-opus-5-5-high"
-    assert mesh.main(["switch", "repo-fix-typo"]) == 0  # Opus ran out too: not back to Argon
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
+    assert mesh.main(["switch", "repo-fix-typo"]) == 0  # Opus ran out too: not back to Neon
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-carbon-high"
 
 
 def test_switch_goes_ahead_when_the_stalled_worker_never_goes_idle(mesh, fake, run, monkeypatch, capsys):
@@ -5081,12 +5086,12 @@ def test_approve_keep_model_executes_where_it_planned(mesh, fake, run, monkeypat
     assert (entry["phase"], entry["model"], entry["effort"]) == ("exec", "claude-opus-5-5-high", "high")
     assert entry["models"][-1]["why"] == "plan approved" and entry["models"][-1]["kept"] is True
 
-    # executing on its planning tier, so a quota hit moves it down that tier's chain (Argon is at 0%)
+    # executing on its planning tier, so a quota hit moves it down that tier's chain (Neon is at 0%)
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"]["session"] = "c1"
     stub_new_pane(fake)
     assert mesh.main(["switch", "repo-fix-typo"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-carbon-high"
 
 
 def small_asker(mesh, run, **extra):
@@ -5120,7 +5125,7 @@ def test_a_worker_with_no_plan_phase_enters_one_when_it_sends_a_plan(mesh, fake,
     stub_new_pane(fake)
     capsys.readouterr()
     assert mesh.main(["approve", "repo-fix-typo", "--tier", "mid"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-medium"
+    assert json.loads(capsys.readouterr().out)["model"] == "gemini-4-hydrogen-high"
     assert mesh.load_run(run)["agents"]["repo-fix-typo"]["phase"] == "exec"
 
 
@@ -5410,7 +5415,7 @@ def test_agy_work_is_refused_on_a_model_at_the_reserve_and_auto_plans_only_over_
     stub_split(fake)
     assert mesh.main(["spawn", "--tier", "mid", "--kind", "agy", "--size", "small", "--repo", str(repo), "--worktree", "a",
                       "--task", "Fix it."]) == 1
-    assert "gemini-4-hydrogen-medium has 5% left" in capsys.readouterr().err
+    assert "gemini-4-hydrogen-high has 5% left" in capsys.readouterr().err
     assert mesh.main(["spawn", "--tier", "strong", "--kind", "agy", "--repo", str(repo), "--worktree", "b", "--task", "Fix it."]) == 1
     assert "no model with quota left over the reserve" in capsys.readouterr().err  # 10% left is the reserve
     with pytest.raises(mesh.MeshError):
@@ -5467,7 +5472,7 @@ def test_usage_and_status_show_the_quotas_and_the_reserve(mesh, fake, run, monke
     mesh.write_atomic(mesh.mesh_home() / "agy-usage.txt", USAGE)
     line = mesh.quota_line(mesh.load_run(run))
     assert line.startswith("quota: Claude five-hour window 28%") and "[cached 5m ago]" in line
-    assert "agy at the reserve: Gemini 4 Argon gemini 4 argon weekly limit 0% left" in line
+    assert "agy at the reserve: Gemini 4 Neon gemini 4 neon weekly limit 0% left" in line
     assert line.endswith("reserve: mesh stops at 90% used")
 
 
@@ -6663,7 +6668,7 @@ def test_small_and_trivial_agy_tasks_run_their_tiers_model_in_a_pane(mesh, fake,
                         else f"gemini-4-{family}-{effort}")
     assert mesh.main(["spawn", "--tier", "mid", "--size", "small", "--repo", str(repo), "--worktree", "fix"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-4-hydrogen-medium", None)
+    assert (out["view"], out["model"], out["exec_model"]) == ("pane", "gemini-4-hydrogen-high", None)
     fake.on("pane", "layout", result={"layout": {"panes": [{"pane_id": "w9:p10", "rect": {"width": 200, "height": 50}}]}})
     fake.on("pane", "split", result={"pane": {"pane_id": "w9:p11"}})
     assert mesh.main(["spawn", "--tier", "light", "--size", "trivial", "--repo", str(repo), "--worktree", "bump"]) == 0
@@ -10741,7 +10746,7 @@ def test_a_nested_config_value_leaves_its_siblings_at_their_defaults(mesh):
     with_config({"tiers": {"agy": {"mid": {"effort": "high"}}}, "_comment": "ignored"})
     assert (mesh.tier_chain("agy", "mid"), mesh.tier_effort("agy", "mid")) == (("hydrogen",), "high")
     assert (mesh.tier_chain("agy", "light"), mesh.tier_effort("agy", "light")) == (("flash",), "low")
-    assert mesh.tier_chain("agy", "strong") == ("argon", "opus", "hydrogen") and mesh.size_view("agy", "large") is None
+    assert mesh.tier_chain("agy", "strong") == ("neon", "opus", "carbon", "hydrogen") and mesh.size_view("agy", "large") is None
 
 
 @pytest.mark.parametrize("data, error", [
@@ -10887,7 +10892,7 @@ def test_mesh_routing_shows_each_value_and_its_source(mesh, monkeypatch, capsys)
     assert mesh.main(["routing"]) == 0
     out = capsys.readouterr().out
     assert re.search(r"^tiers\.agy\.mid\.model +sonnet  \[config\]$", out, re.M)
-    assert re.search(r"^tiers\.agy\.strong\.model +argon, opus, hydrogen  \[built-in\]$", out, re.M)
+    assert re.search(r"^tiers\.agy\.strong\.model +neon, opus, carbon, hydrogen  \[built-in\]$", out, re.M)
     assert re.search(r"^review\.rounds\.small +2  \[config\]$", out, re.M)
     assert re.search(r"^quota_stop +95  \[env MESH_QUOTA_STOP\]$", out, re.M)
     assert re.search(r"^review\.reviewers\.large +claude or agy or copilot or opencode  \[built-in\]$", out, re.M)
