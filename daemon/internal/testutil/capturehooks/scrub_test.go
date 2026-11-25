@@ -71,3 +71,26 @@ func TestScrubRefusesWhatItCannotPlace(t *testing.T) {
 		t.Error("a non-JSON payload was kept")
 	}
 }
+
+// A user or host whose name is inside a stand-in ("work", "user") doesn't make every payload refused; the name
+// anywhere else still is.
+func TestScrubDoesNotTakeItsOwnStandInsForALeak(t *testing.T) {
+	s := newScrubber("/home/alice", "/tmp/cap-123", "/tmp/cap-123/repo")
+	s.secrets = []string{"work", "user"}
+	if out, err := s.scrub([]byte(`{"cwd":"/tmp/cap-123/repo","home":"/home/alice","scratchpad_dir":"/tmp/claude-1000/x"}`)); err != nil {
+		t.Fatalf("stand-ins refused: %v\n%s", err, out)
+	}
+	if _, err := s.scrub([]byte(`{"prompt":"ask work about it"}`)); err == nil {
+		t.Error("a user name in a prompt was not refused")
+	}
+}
+
+// A home that is a symlink shows up under either spelling.
+func TestScrubReplacesBothSpellingsOfAHomeThatIsASymlink(t *testing.T) {
+	s := newScrubber("/data/home/alice", "/tmp/cap-123", "/tmp/cap-123/repo")
+	s.alsoPath("/home/alice", "/home/user")
+	out, err := s.scrub([]byte(`{"a":"/home/alice/.claude/x","b":"/data/home/alice/.claude/y","c":"-home-alice-p"}`))
+	if err != nil || strings.Contains(string(out), "alice") {
+		t.Errorf("%s, %v", out, err)
+	}
+}

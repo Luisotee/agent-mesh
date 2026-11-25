@@ -15,7 +15,12 @@ set -euo pipefail
 daemon_dir=$(cd "$(dirname "$0")/.." && pwd)
 export PATH="$PATH:$HOME/.local/go/bin"
 claude=claude
-if [ "${1:-}" = "--claude" ]; then claude=$2; fi
+case "${1:-}" in
+  "") ;;
+  --claude) claude=${2:?--claude needs a path to the claude binary} ;;
+  *) echo "usage: $0 [--claude <path>]" >&2; exit 2 ;;
+esac
+[ $# -le 2 ] || { echo "usage: $0 [--claude <path>]" >&2; exit 2; }
 command -v "$claude" >/dev/null || { echo "no claude on PATH (or --claude <path>)" >&2; exit 1; }
 claude_path=$(command -v "$claude")
 

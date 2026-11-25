@@ -72,12 +72,18 @@ func (w *reopenWorld) attach(t *testing.T, a *v1.Agent, input bool) *termclient.
 // lastClientInput reports whether the host has counted a keystroke of an attached client on an agent's terminal.
 func (w *reopenWorld) lastClientInput(t *testing.T, a *v1.Agent) bool {
 	t.Helper()
+	return !w.lastClientInputAt(t, a).IsZero()
+}
+
+// lastClientInputAt is when the host counted the newest keystroke (zero when none).
+func (w *reopenWorld) lastClientInputAt(t *testing.T, a *v1.Agent) time.Time {
+	t.Helper()
 	for _, tm := range w.terminals(t) {
-		if tm.Id == w.agent(a.Id).TerminalId {
-			return tm.LastClientInput != nil
+		if tm.Id == w.agent(a.Id).TerminalId && tm.LastClientInput != nil {
+			return tm.LastClientInput.AsTime()
 		}
 	}
-	return false
+	return time.Time{}
 }
 
 // deliveredAt reads when a message's doorbell rang (zero while it hasn't).
@@ -112,10 +118,19 @@ func TestEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 	lead, asLead := w.root(t, run.Id)
 	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{})
 
-	// Every type a worker reports with. Each one is stored for the root and rung: the root is idle.
+	// A wait is not a report: stored for the root to read, it rings no doorbell (PROTOCOL.md).
+	wait := w.sendToParent(t, worker, v1.MessageType_MESSAGE_TYPE_WAIT)
+	if wait.ToId != lead.Id {
+		t.Fatalf("a wait went to %s, not the root", wait.ToId)
+	}
+	time.Sleep(time.Second) // many doorbell ticks (the test's spool and delivery delay are 100 and 20 ms)
+	if screen := w.screen(t, lead); contains(screen, "📬") {
+		t.Fatalf("the root's screen shows a doorbell for a wait:\n%s", screen)
+	}
+	// Every type a worker reports with (an info too: a note that can't wait). Each one is stored for the root and
+	// rung: the root is idle.
 	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_PLAN, v1.MessageType_MESSAGE_TYPE_QUESTION,
-		v1.MessageType_MESSAGE_TYPE_DONE, v1.MessageType_MESSAGE_TYPE_FAILED, v1.MessageType_MESSAGE_TYPE_INFO,
-		v1.MessageType_MESSAGE_TYPE_WAIT} {
+		v1.MessageType_MESSAGE_TYPE_DONE, v1.MessageType_MESSAGE_TYPE_FAILED, v1.MessageType_MESSAGE_TYPE_INFO} {
 		m := w.sendToParent(t, worker, typ)
 		if m.ToId != lead.Id {
 			t.Fatalf("a %s went to %s, not the root", typ, m.ToId)
@@ -237,11 +252,15 @@ func TestAFreshPanesPlaceholderNeverHoldsADoorbell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Held for nearly the whole quiet period after the keystroke (a regression holding it for half would pass a
-	// shorter wait), then rung once the user has stopped typing, though still attached.
-	time.Sleep(typingQuiet - time.Second)
-	if !w.deliveredAt(t, worker.Id, res.Msg.Message.Id).IsZero() {
-		t.Error("the doorbell rang into a user's typing")
+	// Held for the whole quiet period after the keystroke, then rung once the user has stopped typing, though
+	// still attached. Measured from the host's own mark of the keystroke, so a slow machine can't make it flaky.
+	typed := w.lastClientInputAt(t, worker)
+	var rang time.Time
+	waitFor(t, "the doorbell once the user stopped typing", func() bool {
+		rang = w.deliveredAt(t, worker.Id, res.Msg.Message.Id)
+		return !rang.IsZero()
+	})
+	if held := rang.Sub(typed); held < typingQuiet-200*time.Millisecond {
+		t.Errorf("the doorbell rang %s after a keystroke, inside the %s a typing user holds it", held, typingQuiet)
 	}
-	waitFor(t, "the doorbell once the user stopped typing", func() bool { return !w.deliveredAt(t, worker.Id, res.Msg.Message.Id).IsZero() })
 }

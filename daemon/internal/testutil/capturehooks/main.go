@@ -284,9 +284,11 @@ func (d *driver) waitState(want v1.AgentState, what string, stuck func()) error 
 			return nil
 		}
 		if stuck != nil && time.Now().After(tried) {
-			fmt.Printf("   %s: still %s after 20 s; screen:\n%s\n   pressing Enter\n", what, st, d.screen())
+			// Again every 20 s, not once: the dialog may only be drawn after a slow start. The callback looks at
+			// the screen first and sends nothing when there is no dialog.
+			fmt.Printf("   %s: still %s after 20 s; screen:\n%s\n   looking for a dialog\n", what, st, d.screen())
 			stuck()
-			stuck, tried = nil, deadline
+			tried = time.Now().Add(20 * time.Second)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%s: the agent is %s, wanted %s, after %s\n%s", what, st, want, d.timeout, d.screen())
@@ -376,6 +378,9 @@ func (d *driver) write(out, version, repo string, seq sequence) error {
 	scrubber := newScrubber(home, rootReal, repoReal)
 	scrubber.alsoPath(repo, "/work/repo")
 	scrubber.alsoPath(root, "/work")
+	if homeReal, err := filepath.EvalSymlinks(home); err == nil && homeReal != home {
+		scrubber.alsoPath(homeReal, "/home/user") // a home that is a symlink: payloads may carry either spelling
+	}
 	dir := filepath.Join(out, version)
 	// Everything is scrubbed in memory first: a payload the scrubber refuses must leave the committed fixtures as
 	// they were, not half of them.

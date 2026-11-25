@@ -278,6 +278,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: req.Msg.Body, CreatedAt: tsOf(t.Now())}
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_WAIT {
+			// Not a report: it asks nothing of its parent, who reads it in the inbox, and rings no doorbell
+			// (PROTOCOL.md, design "A declared wait"). Marked delivered so the doorbell loop never takes it.
+			msg.DeliveredAt = tsOf(t.Now())
+		}
 		if err := t.PutMessage(msg); err != nil {
 			return err
 		}
@@ -318,7 +323,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		return nil, err
 	}
-	if d.notify != nil && !replayed {
+	if d.notify != nil && !replayed && req.Msg.Type != v1.MessageType_MESSAGE_TYPE_WAIT {
 		d.notify(out.Message.ToId)
 	}
 	return connect.NewResponse(out), nil

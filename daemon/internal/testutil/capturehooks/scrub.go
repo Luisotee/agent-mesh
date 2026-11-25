@@ -91,8 +91,17 @@ func (s *scrubber) scrub(raw []byte) ([]byte, error) {
 		s.order = append(s.order, id)
 		return fake
 	})
+	// The stand-ins themselves are not leaks, whatever the user or the host is called ("work", "user"): checked
+	// without them.
+	bare := text
+	for _, p := range s.pairs {
+		bare = strings.ReplaceAll(bare, p[1], "")
+	}
+	for _, standIn := range []string{"/tmp/claude-user/", "00000000-0000-4000-8000-", "(a conversation summary"} {
+		bare = strings.ReplaceAll(bare, standIn, "")
+	}
 	for _, name := range s.secrets {
-		if len(name) >= 3 && strings.Contains(strings.ToLower(text), strings.ToLower(name)) {
+		if len(name) >= 3 && strings.Contains(strings.ToLower(bare), strings.ToLower(name)) {
 			return nil, fmt.Errorf("%q is still in the payload: add what it appears in to the scrubber, or edit the capture", name)
 		}
 	}

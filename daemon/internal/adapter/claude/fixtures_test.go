@@ -137,10 +137,13 @@ var expected2_1_332 = map[string][]string{
 }
 
 // What the agent shows after each scenario of the session, from the reducer (state, how many prompts wait).
-var after2_1_332 = map[string]struct {
+// endState is what the agent is after a scenario's payloads have been replayed.
+type endState struct {
 	state v1.AgentState
 	needs int32
-}{
+}
+
+var after2_1_332 = map[string]endState{
 	"startup":                              {v1.AgentState_AGENT_STATE_IDLE, 0},
 	"a turn with a tool call":              {v1.AgentState_AGENT_STATE_IDLE, 0},
 	"a permission prompt":                  {v1.AgentState_AGENT_STATE_NEEDS_INPUT, 1},
@@ -153,11 +156,13 @@ var after2_1_332 = map[string]struct {
 
 func TestEveryFixtureOfEveryVersionDecodesAndTheSessionReplaysThroughTheReducer(t *testing.T) {
 	tables := map[string]map[string][]string{"2.1.332": expected2_1_332}
+	afterTables := map[string]map[string]endState{"2.1.332": after2_1_332}
 	for _, version := range fixtureVersions(t) {
 		t.Run(version, func(t *testing.T) {
 			table, ok := tables[version]
-			if !ok {
-				t.Fatalf("fixtures for %s have no expectations: add a table to fixtures_test.go", version)
+			after, ok2 := afterTables[version]
+			if !ok || !ok2 {
+				t.Fatalf("fixtures for %s have no expectations: add its tables to fixtures_test.go", version)
 			}
 			seq := readSequence(t, version)
 			// sequence.json lists every payload once, in order.
@@ -199,7 +204,11 @@ func TestEveryFixtureOfEveryVersionDecodesAndTheSessionReplaysThroughTheReducer(
 						state = reducer.Reduce(state, ev)
 					}
 					session = state.SessionID
-					// The state mid-scenario, where it says something the end of the scenario doesn't.
+					// The state mid-scenario, where it says something the end of the scenario doesn't (the file
+					// names are 2.1.332's: a version with other payloads gets its own checks).
+					if version != "2.1.332" {
+						continue
+					}
 					switch f {
 					case "11-PreCompact.json", "12-SubagentStop.json":
 						if state.State != v1.AgentState_AGENT_STATE_WORKING || state.Detail != "compacting" {
@@ -215,7 +224,11 @@ func TestEveryFixtureOfEveryVersionDecodesAndTheSessionReplaysThroughTheReducer(
 						}
 					}
 				}
-				want := after2_1_332[st.Scenario]
+				want, ok := after[st.Scenario]
+				if !ok {
+					t.Errorf("scenario %q has no expected end state for %s", st.Scenario, version)
+					continue
+				}
 				if state.State != want.state || state.NeedsInput != want.needs {
 					t.Errorf("after %q the agent is %v with %d waiting, want %v with %d", st.Scenario, state.State, state.NeedsInput,
 						want.state, want.needs)
