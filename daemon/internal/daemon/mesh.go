@@ -401,11 +401,28 @@ func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInbo
 // SubscribeEvents streams the event log.
 func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.SubscribeEventsRequest],
 	stream *connect.ServerStream[v1.SubscribeEventsResponse]) error {
-	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	actor := auth.ActorFrom(ctx)
+	runID, err := scopedRun(actor, req.Msg.RunId)
 	if err != nil {
 		return err
 	}
 	msg := proto.Clone(req.Msg).(*v1.SubscribeEventsRequest)
 	msg.RunId = runID
-	return d.bus.Serve(ctx, msg, d.stopping, stream.Send)
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if actor != nil {
+		defer d.trackStream(actor.Id, cancel)()
+		// Re-check after trackStream so a RevokeDevice racing between auth and registration is not missed.
+		active, err := d.store.Read(ctx).HasActiveToken(actor.Id)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return connect.NewError(connect.CodeUnauthenticated, auth.ErrUnknownToken)
+		}
+	}
+	// Device pairing/revocation events go only to the host's own device, the one that may manage devices
+	// (requireHostDevice).
+	deviceEvents := actor != nil && actor.Id == localDeviceID
+	return d.bus.Serve(sctx, msg, deviceEvents, d.stopping, stream.Send)
 }

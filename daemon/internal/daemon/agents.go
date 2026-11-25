@@ -96,6 +96,7 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 type ticket struct {
 	agentID    string
 	terminalID string
+	actorID    string
 	input      bool
 	expires    time.Time
 }
@@ -386,7 +387,10 @@ const (
 func (d *Daemon) pruneMutations(ctx context.Context) {
 	now := d.now()
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
-		_, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention))
+		if _, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention)); err != nil {
+			return err
+		}
+		_, err := tx.PrunePairings(now)
 		return err
 	})
 	if err != nil && ctx.Err() == nil {
@@ -1178,7 +1182,7 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 			delete(d.rt.tickets, k)
 		}
 	}
-	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, input: input, expires: exp}
+	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, actorID: actor.Id, input: input, expires: exp}
 	d.rt.mu.Unlock()
 	return connect.NewResponse(&v1.OpenTerminalResponse{Path: "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk),
 		Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
@@ -1195,6 +1199,22 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad or expired ticket", http.StatusUnauthorized)
 		return
 	}
+	sctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	if t.actorID != "" {
+		defer d.trackStream(t.actorID, cancel)()
+		// Re-check after trackStream: if RevokeDevice ran between OpenTerminal/auth and trackStream,
+		// disconnectActor already completed and this catches the revocation cleanly.
+		active, err := d.store.Read(r.Context()).HasActiveToken(t.actorID)
+		if err != nil {
+			http.Error(w, "cannot verify actor", http.StatusServiceUnavailable)
+			return
+		}
+		if !active {
+			http.Error(w, "actor revoked", http.StatusUnauthorized)
+			return
+		}
+	}
 	in := "0"
 	if t.input {
 		in = "1"
@@ -1208,7 +1228,7 @@ func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: host.HTTP.Transport,
 	}
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r.WithContext(sctx))
 }
 
 // lookPath finds an executable by name in a PATH list.
