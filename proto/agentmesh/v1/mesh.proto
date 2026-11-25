@@ -173,7 +173,7 @@ service MeshService {
   }
 
   // Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
-  // it has a commit (or an upstream); a worktree with uncommitted changes stays.
+  // it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
   rpc StopRun(StopRunRequest) returns (StopRunResponse) {
     option (action) = {
       actors: [ACTOR_CLASS_DEVICE]
@@ -641,7 +641,7 @@ message WorktreeOutcome {
   string worktree = 2;
   string branch = 3;
   bool worktree_removed = 4;
-  // The branch has a commit (or an upstream), or its worktree stayed: it is kept.
+  // The branch moved past its start or was pushed (a remote branch of its name), or its worktree stayed: it is kept.
   bool branch_kept = 5;
   // Why a worktree or branch stayed.
   string reason = 6;

@@ -105,6 +105,9 @@ message Agent {
   bool deny_edits = 25;
   // A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
   Reopen pending_reopen = 26;
+  // The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+  // it. StopRun keeps a branch that has moved past it.
+  string base_commit = 27;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
