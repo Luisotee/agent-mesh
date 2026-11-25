@@ -470,3 +470,6 @@ func tsOf(t time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(t)
 }
+
+// RunFolders are the folders every run's dir holds.
+var RunFolders = statedir.RunFolders

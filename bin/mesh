@@ -14993,7 +14993,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def hand_over_to_daemon_cli() -> None:
+    """Run the daemon's Go `mesh` instead of this script, for an agent the daemon started.
+
+    Such an agent has AGENT_MESH_TOKEN (never set by this mesh) and no MESH_RUN, and the daemon names its CLI in
+    AGENT_MESH_CLI. This script can still be what a bare `mesh` finds first (a login shell puts ~/.local/bin
+    ahead of the PATH the daemon gave), and it would run the herdr mesh for an agent of the daemon's. Every other
+    caller, a herdr agent included, goes on to the code below unchanged (docs/apps.md, "Switchover")."""
+    if not os.environ.get("AGENT_MESH_TOKEN") or os.environ.get("MESH_RUN"):
+        return
+    cli = os.environ.get("AGENT_MESH_CLI", "")
+    if not cli or not os.access(cli, os.X_OK):
+        print("mesh: this agent was started by the agent-mesh daemon, but its `mesh` isn't there "
+              f"(AGENT_MESH_CLI={cli!r}); this old mesh would act on the herdr runs instead", file=sys.stderr)
+        sys.exit(1)
+    os.execv(cli, [cli, *sys.argv[1:]])
+
+
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        hand_over_to_daemon_cli()
     args = build_parser().parse_args(argv)
     try:
         check_worker(args)

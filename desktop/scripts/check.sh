@@ -6,7 +6,7 @@
 #   SKIP_E2E=1 desktop/scripts/check.sh   # without the end-to-end tests
 #
 # The e2e tests open a real Electron window, so they need a display (WSLg has one). They build meshd,
-# mesh-term, meshctl and the fake claude from daemon/ into a temp dir and give every run a state dir, HOME and
+# mesh-term, mesh and the fake claude from daemon/ into a temp dir and give every run a state dir, HOME and
 # user-data dir of its own under the temp dir: nothing of the user's is read or written.
 set -euo pipefail
 

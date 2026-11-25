@@ -1,4 +1,4 @@
-// Package cli is meshctl's command line, derived from the action registry at run time: one command per
+// Package cli is mesh's command line, derived from the action registry at run time: one command per
 // action (its `cli` name), one flag per request field, the response printed as JSON. Nothing here names an
 // action, so an action added to the schemas is a command with no code.
 package cli
@@ -54,13 +54,13 @@ const (
 // Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
 // dispatched before the registry is even loaded: a hook must work, and exit 0, whatever else fails.
 func Main(args []string, env Env, hand map[string]func([]string) int) int {
-	global := flag.NewFlagSet("meshctl", flag.ContinueOnError)
+	global := flag.NewFlagSet("mesh", flag.ContinueOnError)
 	global.SetOutput(env.Stderr)
 	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
 	// --json is also a command's own flag; given here, before the command, it is that command's.
 	whole := global.String("json", "", "the whole request as JSON, for the command that follows")
 	global.Usage = func() {
-		fmt.Fprintln(env.Stderr, "usage: meshctl [--state <dir>] [--json <request>] <command> [flags]; meshctl help")
+		fmt.Fprintln(env.Stderr, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]; mesh help")
 	}
 	if err := global.Parse(args); err != nil {
 		return ExitUsage
@@ -73,7 +73,7 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	}
 	reg, err := registry.Mesh()
 	if err != nil {
-		fmt.Fprintln(env.Stderr, "meshctl:", err)
+		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
 	}
 	if len(rest) == 0 || rest[0] == "help" {
@@ -83,10 +83,10 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 				return ExitOK
 			}
 			if _, ok := hand[rest[1]]; ok {
-				fmt.Fprintf(env.Stdout, "meshctl %s is hand-written; run it without arguments for its usage\n", rest[1])
+				fmt.Fprintf(env.Stdout, "mesh %s is hand-written; run it without arguments for its usage\n", rest[1])
 				return ExitOK
 			}
-			fmt.Fprintf(env.Stderr, "meshctl help: unknown command %q\n", rest[1])
+			fmt.Fprintf(env.Stderr, "mesh help: unknown command %q\n", rest[1])
 			return ExitUsage
 		}
 		usage(env.Stdout, reg, hand)
@@ -94,7 +94,7 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	}
 	a := find(reg, rest[0])
 	if a == nil {
-		fmt.Fprintf(env.Stderr, "meshctl: unknown command %q (meshctl help lists them)\n", rest[0])
+		fmt.Fprintf(env.Stderr, "mesh: unknown command %q (mesh help lists them)\n", rest[0])
 		return ExitUsage
 	}
 	cmd := newCommand(a, env, *state)
@@ -106,31 +106,36 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	}
 	if err != nil {
 		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
-		fmt.Fprintf(env.Stderr, "meshctl %s: %v (meshctl help %s lists the flags)\n", a.CLI, err, a.CLI)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", a.CLI, err, a.CLI)
 		return ExitUsage
 	}
 	if cmd.state == "" {
-		fmt.Fprintln(env.Stderr, "meshctl: give --state or $"+client.StateEnv)
+		fmt.Fprintln(env.Stderr, "mesh: give --state or $"+client.StateEnv)
 		return ExitUsage
 	}
-	// An agent acts as itself (its token in the environment); anyone else as the host's local device.
-	tok := env.Getenv(client.TokenEnv)
-	if tok == "" {
-		if tok, err = fsutil.ReadSecret(statedir.Paths{Dir: cmd.state}.DeviceToken()); err != nil {
-			fmt.Fprintf(env.Stderr, "meshctl: no %s and no device token: %v\n", client.TokenEnv, err)
-			return ExitError
-		}
-	}
-	conn, err := client.Dial(cmd.state, tok, client.Options{})
+	conn, err := dialAs(env, cmd.state)
 	if err != nil {
-		fmt.Fprintln(env.Stderr, "meshctl:", err)
+		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
 	}
 	if err := call(context.Background(), conn, a, req, env.Stdout); err != nil {
-		fmt.Fprintf(env.Stderr, "meshctl %s: %v\n", a.CLI, err)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
 		return ExitError
 	}
 	return ExitOK
+}
+
+// dialAs dials the daemon of a state dir. An agent acts as itself (its token in the environment); anyone else
+// as the host's local device.
+func dialAs(env Env, state string) (*client.Conn, error) {
+	tok := env.Getenv(client.TokenEnv)
+	if tok == "" {
+		var err error
+		if tok, err = fsutil.ReadSecret(statedir.Paths{Dir: state}.DeviceToken()); err != nil {
+			return nil, fmt.Errorf("no %s and no device token: %v", client.TokenEnv, err)
+		}
+	}
+	return client.Dial(state, tok, client.Options{})
 }
 
 func find(reg *registry.Registry, name string) *registry.Action {
@@ -143,7 +148,7 @@ func find(reg *registry.Registry, name string) *registry.Action {
 }
 
 func usage(w io.Writer, reg *registry.Registry, hand map[string]func([]string) int) {
-	fmt.Fprintln(w, "usage: meshctl [--state <dir>] [--json <request>] <command> [flags]   (meshctl help <command> for its flags)")
+	fmt.Fprintln(w, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]   (mesh help <command> for its flags)")
 	fmt.Fprintln(w, "\ncommands:")
 	for _, a := range reg.Actions() {
 		fmt.Fprintf(w, "  %-14s %s\n", a.CLI, a.Summary)
@@ -170,6 +175,7 @@ type command struct {
 	// field's first flag replaces the list --json gave; the next ones add to it.
 	pending   []func()
 	listSeen  map[protoreflect.FieldNumber]bool
+	given     map[protoreflect.FieldNumber]bool // the fields a flag named
 	stdinRead bool
 	// meta: the write's mutation id and expiry, filled in unless given.
 	mutationID string
@@ -197,13 +203,14 @@ func (v fieldFlag) Set(s string) error {
 	if err != nil {
 		return err
 	}
+	v.c.given[v.f.Number()] = true
 	v.c.pending = append(v.c.pending, func() { v.c.set(v.f, val) })
 	return nil
 }
 
 func newCommand(a *registry.Action, env Env, state string) *command {
 	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env, state: state, listSeen: map[protoreflect.FieldNumber]bool{},
-		flags: flag.NewFlagSet("meshctl "+a.CLI, flag.ContinueOnError)}
+		given: map[protoreflect.FieldNumber]bool{}, flags: flag.NewFlagSet("mesh "+a.CLI, flag.ContinueOnError)}
 	// The flag package would print its error and the usage itself; Main prints the error once instead.
 	c.flags.SetOutput(io.Discard)
 	c.flags.Usage = func() {}
@@ -224,7 +231,11 @@ func newCommand(a *registry.Action, env Env, state string) *command {
 
 // usage prints the command's summary and its flags.
 func (c *command) usage(w io.Writer) {
-	fmt.Fprintf(w, "usage: meshctl %s [flags]\n  %s\n", c.action.CLI, c.action.Summary)
+	arg := ""
+	if f := positionalField(c.action.Method.Input()); f != nil {
+		arg = " [<" + string(f.Name()) + ">]"
+	}
+	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", c.action.CLI, arg, c.action.Summary)
 	c.flags.SetOutput(w)
 	c.flags.PrintDefaults()
 	c.flags.SetOutput(io.Discard)
@@ -366,11 +377,27 @@ func (c *command) set(f protoreflect.FieldDescriptor, val protoreflect.Value) {
 // parse reads the flags into the request: --json first, then every field flag in the order given, so the
 // flags override the JSON wherever they stand.
 func (c *command) parse(args []string) (*dynamicpb.Message, error) {
-	if err := c.flags.Parse(args); err != nil {
-		return nil, err
+	// The one argument that isn't a flag is the agent the command acts on (see positionalField), wherever it
+	// stands among the flags: `mesh send parent --type done`, `mesh approve --tier mid <agent>`.
+	pos := positionalField(c.action.Method.Input())
+	var word string
+	for {
+		if err := c.flags.Parse(args); err != nil {
+			return nil, err
+		}
+		if c.flags.NArg() == 0 {
+			break
+		}
+		if pos == nil || word != "" {
+			return nil, fmt.Errorf("unexpected argument %q: every field is a flag (mesh help %s)", c.flags.Arg(0), c.action.CLI)
+		}
+		word, args = c.flags.Arg(0), c.flags.Args()[1:]
 	}
-	if c.flags.NArg() > 0 {
-		return nil, fmt.Errorf("unexpected argument %q: every field is a flag (meshctl help %s)", c.flags.Arg(0), c.action.CLI)
+	if word != "" {
+		if c.given[pos.Number()] {
+			return nil, fmt.Errorf("%s is given twice, as an argument and as --%s", pos.Name(), FlagName(pos))
+		}
+		c.pending = append(c.pending, func() { c.set(pos, protoreflect.ValueOfString(word)) })
 	}
 	if c.whole != "" {
 		if err := protojson.Unmarshal([]byte(c.whole), c.req); err != nil {
@@ -396,6 +423,19 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		}
 	}
 	return c.req, nil
+}
+
+// positionalField is the field a command's one bare argument fills: the request's string field `to` (who a
+// message goes to) or `agent` (which agent the action acts on), when it has one, so `mesh send parent …` and
+// `mesh approve <agent> …` read as the commands agents already use. A convention of the schema, not a table of
+// commands: an action added with such a field gets it, and any other field stays a flag.
+func positionalField(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
+	for _, name := range []protoreflect.Name{"to", "agent"} {
+		if f := md.Fields().ByName(name); f != nil && f.Kind() == protoreflect.StringKind && !f.IsList() {
+			return f
+		}
+	}
+	return nil
 }
 
 // initDynamic makes connect allocate dynamic messages of the method's types.

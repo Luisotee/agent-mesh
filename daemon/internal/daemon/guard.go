@@ -87,7 +87,7 @@ func (d *Daemon) capGuard(r store.Reader, what, except string) error {
 	}
 	if n >= limit {
 		return exhausted("not starting %s: %d agents run on this host, at the limit (caps.agents %d). Retire agents "+
-			"that have reported, or raise the cap (`meshctl set --key caps.agents --value <n>`; 0 is no cap)",
+			"that have reported, or raise the cap (`mesh set --key caps.agents --value <n>`; 0 is no cap)",
 			what, n, limit)
 	}
 	return nil

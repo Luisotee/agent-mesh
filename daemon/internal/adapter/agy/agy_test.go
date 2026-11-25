@@ -54,7 +54,7 @@ func TestPlanLaunchFreshResumeDenyAndEnv(t *testing.T) {
 	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		AgentId: "a1", Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: cwd, Repo: repo,
 		Binary: "/opt/agy", Model: "hydrogen", Effort: "high", SkipPermissions: true,
-		HookArgv: []string{"/bin/meshctl", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
+		HookArgv: []string{"/bin/mesh", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
 		Env:      map[string]string{"PATH": "/bin", "ANTIGRAVITY_AGENT": "1", "ANTIGRAVITY_CSRF_TOKEN": "sec"},
 	}))
 	if err != nil {
@@ -95,7 +95,7 @@ func TestPlanLaunchFreshResumeDenyAndEnv(t *testing.T) {
 	res2, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		AgentId: "a1", Role: agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER, Cwd: cwd, Repo: repo,
 		ResumeSessionId: "conv-123", Model: "gemini-4-neon-high", Effort: "low",
-		HookArgv: []string{"meshctl", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
+		HookArgv: []string{"mesh", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +316,7 @@ func TestLookupSessionFromSummariesAndHistory(t *testing.T) {
 func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args")
-	fake := filepath.Join(dir, "meshctl")
+	fake := filepath.Join(dir, "mesh")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$*\" >> "+argsLog+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

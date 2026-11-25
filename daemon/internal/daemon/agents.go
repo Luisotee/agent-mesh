@@ -47,8 +47,8 @@ type AgentConfig struct {
 	TermArgs   []string
 	// TermUnit is the systemd user unit, for the systemd launch.
 	TermUnit string
-	// Meshctl is the absolute path of the CLI whose `hook` command the agents' hooks run.
-	Meshctl string
+	// Mesh is the absolute path of the CLI whose `hook` command the agents' hooks run.
+	Mesh string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.
 	Binaries map[string]string
 	// Adapters are the CLI adapters; nil means the built-ins.
@@ -620,10 +620,32 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	env["TERM"], env["COLORTERM"] = "xterm-256color", "truecolor"
 	env[client.TokenEnv], env[client.StateEnv] = token, d.paths.Dir
 	env["AGENT_MESH_AGENT"], env["AGENT_MESH_RUN"] = a.Id, a.RunId
+	env[client.RunDirEnv] = d.paths.RunDir(a.RunId)
 	for k, v := range d.rt.cfg.Env {
 		env[k] = v
 	}
+	// The folder of the host's own `mesh` goes first on the agent's PATH, so a bare `mesh` is this daemon's CLI
+	// whatever else is installed (the live bin/mesh, ahead on a login shell's PATH, also hands over to it
+	// when it sees AGENT_MESH_TOKEN, and runs the CLI AGENT_MESH_CLI names).
+	if m := d.rt.cfg.Mesh; filepath.IsAbs(m) {
+		env[client.CLIEnv] = m
+		if env["PATH"] != "" {
+			env["PATH"] = filepath.Dir(m) + string(os.PathListSeparator) + env["PATH"]
+		} else {
+			env["PATH"] = filepath.Dir(m)
+		}
+	}
 	return env
+}
+
+// ensureRunDir makes a run's folders; it is safe to call again.
+func (d *Daemon) ensureRunDir(run string) error {
+	for _, f := range RunFolders {
+		if err := os.MkdirAll(filepath.Join(d.paths.RunDir(run), f), 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SpawnAgent starts an agent in a new worktree of a repo, in a terminal of the host.
@@ -729,6 +751,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	if strings.HasPrefix(base, "-") {
 		return nil, invalid("base %q looks like an option", base)
+	}
+	if err := d.ensureRunDir(runID); err != nil {
+		return nil, err
 	}
 	branch := "mesh/" + runID + "/" + m.Slug
 	worktree := filepath.Join(d.worktrees(), runID, name)
@@ -836,13 +861,13 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 // planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of
 // that one. The model, effort and deny list are the agent's.
 func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent, token, resume string) (*adapterv1.PlanLaunchResponse, error) {
-	meshctl := d.rt.cfg.Meshctl
-	if meshctl == "" {
-		return nil, errors.New("no meshctl configured for the hooks")
+	mesh := d.rt.cfg.Mesh
+	if mesh == "" {
+		return nil, errors.New("no mesh configured for the hooks")
 	}
 	plan, err := ad.PlanLaunch(ctx, connect.NewRequest(&adapterv1.PlanLaunchRequest{AgentId: a.Id, AgentName: a.Name,
 		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
-		HookArgv: []string{meshctl, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
+		HookArgv: []string{mesh, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
 		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions,
 		ResumeSessionId: resume, DenyEdits: a.DenyEdits}))
 	if err != nil {
@@ -1151,19 +1176,19 @@ func writeDidNotHappen(err error) bool {
 }
 
 // Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
-// read with `meshctl inbox`.
+// read with `mesh inbox`.
 func Doorbell(msgs []*v1.Message) string {
 	kind := func(m *v1.Message) string {
 		return strings.ToLower(strings.TrimPrefix(m.Type.String(), "MESSAGE_TYPE_")) + " from " + m.From.GetName()
 	}
 	if len(msgs) == 1 {
-		return "📬 [mesh] " + kind(msgs[0]) + ": run `meshctl inbox`"
+		return "📬 [mesh] " + kind(msgs[0]) + ": run `mesh inbox`"
 	}
 	parts := make([]string, len(msgs))
 	for i, m := range msgs {
 		parts[i] = kind(m)
 	}
-	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `meshctl inbox`", len(msgs), strings.Join(parts, ", "))
+	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `mesh inbox`", len(msgs), strings.Join(parts, ", "))
 }
 
 // ── terminal streams through the daemon ──

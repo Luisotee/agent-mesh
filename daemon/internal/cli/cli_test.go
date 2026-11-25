@@ -126,8 +126,43 @@ func TestFlagsBuildTheRequest(t *testing.T) {
 	if _, err := Request(action(t, "send"), []string{"--type", "nonsense"}); err == nil {
 		t.Error("a bad enum was accepted")
 	}
-	if _, err := Request(action(t, "agent"), []string{"a1"}); err == nil {
-		t.Error("a positional argument was accepted")
+	if _, err := Request(action(t, "settings"), []string{"tiers."}); err == nil {
+		t.Error("a positional argument was accepted by a command with no agent or to field")
+	}
+}
+
+// The one bare argument is the request's `to` or `agent`, wherever it stands among the flags.
+func TestAPositionalArgumentFillsToOrAgent(t *testing.T) {
+	for _, args := range [][]string{
+		{"parent", "--type", "done", "--body", "x"},
+		{"--type", "done", "parent", "--body", "x"},
+		{"--type", "done", "--body", "x", "parent"},
+	} {
+		m, err := Request(action(t, "send"), args)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if s := as(t, m, &v1.SendMessageRequest{}); s.To != "parent" || s.Body != "x" || s.Type != v1.MessageType_MESSAGE_TYPE_DONE {
+			t.Errorf("%v: %v", args, s)
+		}
+	}
+	m, err := Request(action(t, "approve"), []string{"--tier", "mid", "repo-fix", "--body", "x"})
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if a := as(t, m, &v1.ApproveAgentRequest{}); a.Agent != "repo-fix" || a.Tier != "mid" {
+		t.Errorf("approve %v", a)
+	}
+	for name, args := range map[string][]string{
+		"given twice, argument and flag": {"parent", "--to", "other", "--type", "done"},
+		"two arguments":                  {"parent", "other", "--type", "done"},
+	} {
+		if _, err := Request(action(t, "send"), args); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, err := Request(action(t, "agent"), []string{"a1"}); err != nil {
+		t.Errorf("agent a1: %v", err)
 	}
 }
 
@@ -297,7 +332,7 @@ func TestRepeatedFlagsAddUpAndTheFirstReplacesJSON(t *testing.T) {
 	}
 }
 
-// `meshctl --json <request> <command>`: the global flag is the command's own.
+// `mesh --json <request> <command>`: the global flag is the command's own.
 func TestGlobalJSONIsTheCommandsRequest(t *testing.T) {
 	var out, errb bytes.Buffer
 	env := Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}

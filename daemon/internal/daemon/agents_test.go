@@ -28,7 +28,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
 )
 
-// bins holds mesh-term, meshctl and the fake claude, built once for the package's tests.
+// bins holds mesh-term, mesh and the fake claude, built once for the package's tests.
 var bins string
 
 func TestMain(m *testing.M) {
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	for out, pkg := range map[string]string{"mesh-term": "./cmd/mesh-term", "meshctl": "./cmd/meshctl",
+	for out, pkg := range map[string]string{"mesh-term": "./cmd/mesh-term", "mesh": "./cmd/mesh",
 		"claude": "./internal/testutil/fakeclaude", "agy": "./internal/testutil/fakeagy"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = "../.."
@@ -60,7 +60,7 @@ type agentsHarness struct {
 func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 	return daemon.AgentConfig{
 		TermLaunch: termclient.LaunchDetached, TermBinary: filepath.Join(bins, "mesh-term"),
-		TermArgs: []string{"--max-lifetime", "3m"}, Meshctl: filepath.Join(bins, "meshctl"),
+		TermArgs: []string{"--max-lifetime", "3m"}, Mesh: filepath.Join(bins, "mesh"),
 		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude"), "agy": filepath.Join(bins, "agy")},
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
 		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,

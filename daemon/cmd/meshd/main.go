@@ -40,7 +40,8 @@ func main() {
 		"how to start the terminal host when none answers: detached, systemd, external, or none (no agents)")
 	termBinary := flag.String("term-binary", filepath.Join(here, "mesh-term"), "mesh-term, for --term-launch detached")
 	termUnit := flag.String("term-unit", "agent-mesh-term.service", "the user unit, for --term-launch systemd")
-	meshctl := flag.String("meshctl", filepath.Join(here, "meshctl"), "the CLI the agents' hooks run")
+	mesh := flag.String("mesh", filepath.Join(here, "mesh"), "the mesh CLI: the agents' hooks run it, and its folder goes first on their PATH")
+	flag.StringVar(mesh, "meshctl", filepath.Join(here, "mesh"), "the old name of --mesh")
 	worktrees := flag.String("worktrees", "", "where agents' worktrees go (default <state>/worktrees)")
 	skip := flag.Bool("skip-permissions", false, "start agents with their CLI's permission prompts off")
 	var bins, envs multi
@@ -54,7 +55,7 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	agents := daemon.AgentConfig{TermBinary: *termBinary, TermUnit: *termUnit, Meshctl: *meshctl,
+	agents := daemon.AgentConfig{TermBinary: *termBinary, TermUnit: *termUnit, Mesh: *mesh,
 		Worktrees: *worktrees, SkipPermissions: *skip, Binaries: map[string]string{}, Env: map[string]string{}}
 	if *termLaunch != "none" {
 		agents.TermLaunch = termclient.Launch(*termLaunch)
