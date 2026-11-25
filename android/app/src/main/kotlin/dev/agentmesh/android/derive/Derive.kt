@@ -60,7 +60,7 @@ fun buildTrees(runs: Map<String, Run>, agents: Map<String, Agent>): List<RunTree
         RunTree(
             run, nodes,
             needsInput = members.count { it.state == AgentState.AGENT_STATE_NEEDS_INPUT },
-            live = members.count { it.state != AgentState.AGENT_STATE_EXITED },
+            live = members.count { it.state != AgentState.AGENT_STATE_EXITED && it.state != AgentState.AGENT_STATE_RETIRED },
         )
     }
     // Runs needing the user first, then open before closed, then the newest.
@@ -95,6 +95,7 @@ fun statusSentence(a: Agent): String = when (a.state) {
         else -> "Exited with code ${a.exitCode}"
     }
     AgentState.AGENT_STATE_UNKNOWN -> "Quiet for a while: state unknown"
+    AgentState.AGENT_STATE_RETIRED -> "Retired: stopped on purpose, a message wakes it"
     else -> "Unknown"
 }
 
@@ -176,4 +177,20 @@ fun flatten(trees: List<RunTree>, expanded: (Run) -> Boolean): List<Row> {
         t.roots.forEachIndexed { i, r -> add(r, 0, emptyList(), i == t.roots.lastIndex) }
     }
     return rows
+}
+
+/** The messages an agent sent or was sent, oldest first. */
+fun messagesOf(messages: Map<String, Message>, agentId: String): List<Message> =
+    messages.values.filter { it.toId == agentId || it.from.id == agentId }.sortedWith(MessageOrder)
+
+fun messageLabel(type: MessageType): String = when (type) {
+    MessageType.MESSAGE_TYPE_TASK -> "Task"
+    MessageType.MESSAGE_TYPE_PLAN -> "Plan"
+    MessageType.MESSAGE_TYPE_QUESTION -> "Question"
+    MessageType.MESSAGE_TYPE_ANSWER -> "Answer"
+    MessageType.MESSAGE_TYPE_DONE -> "Report"
+    MessageType.MESSAGE_TYPE_FAILED -> "Failed"
+    MessageType.MESSAGE_TYPE_INFO -> "Info"
+    MessageType.MESSAGE_TYPE_WAIT -> "Waiting"
+    else -> "Message"
 }

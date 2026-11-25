@@ -6,7 +6,17 @@ The app is a client of the daemon (`daemon/`). Everything it does to a host is a
 
 ## What the first version does
 
-Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device). Plans, questions, reports, messages, notifications and the terminal come in the PRs stacked on this one (`TODO.md`).
+Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device). Plans, questions and reports (messages, paged from the host and live), and notifications come in the second part; the terminal in the third (`TODO.md`).
+
+## Plans, questions, reports and notifications
+
+An agent's screen has an Overview and a Messages tab: its conversation with the rest of its run, oldest first, in Markdown, with a composer (task, answer or info). A plan or question that waits on the user (derived as on the desktop: sent to the run's lead, nobody has answered its author since, the author is still there) shows its form in place: **Approve** (`ApproveAgent` for a planning worker, which moves it to its execution model in the same conversation, else an `answer` "approved"), **Request changes** (`answer` "changes: …") and **Send answer**. The host screen's "Waiting on you" opens the right tab. History is paged in with `ListMessages` after each sync, then kept by events.
+
+Notifications are local first: the event streams stay open while the app is in the background (a foreground service with a quiet notification of its own; a device setting turns it off), and live events become notifications by the desktop's rules (`notify/Notice.kt`: only live events, judged by the host's clock; one per agent; what reaches a run's lead; never what the user did), filtered by the host's own `app.notify.enabled` and `app.notify.events`. A plan notification has **Approve**, a question an inline **Reply**, a tap opens the agent; a failed action says why in the notification. `notify/PushChannel.kt` is the seam for UnifiedPush/ntfy, which would notify with the process stopped; nothing implements it yet.
+
+## Performance
+
+The message list is a lazy list keyed by message id with a content type per message type, so a transcript of any length composes only the rows on screen (`MessagesTest`: 2,000 messages compose at most 40 rows). Plain bodies are plain text and a long one is cut to a preview until "Show all", so a row has its final height at once and the list doesn't shift under the user's thumb; only an expanded long body is parsed off the main thread. The list follows new messages only while the user is at the bottom. What can't be measured on the JVM is the frame-time half of the bar in `docs/apps.md`: a 2,000-message transcript streaming for 10 minutes with no dropped frames and no memory growth. To check it on a phone: connect to a host, start a run whose lead and workers exchange messages (or replay a transcript with `meshctl send` in a loop), then watch `adb shell dumpsys gfxinfo dev.agentmesh.android.debug` (janky frames) and `adb shell dumpsys meminfo dev.agentmesh.android.debug` over the ten minutes.
 
 ## Connecting a host
 

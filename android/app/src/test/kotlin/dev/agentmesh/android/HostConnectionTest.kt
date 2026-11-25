@@ -48,6 +48,9 @@ private class FakeApi : MeshApi {
         return ch.receiveAsFlow()
     }
 
+    override suspend fun listMessages(runId: String, afterId: String): dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse = error("unused")
+    override suspend fun sendMessage(to: String, type: dev.agentmesh.gen.agentmesh.v1.MessageType, body: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
+    override suspend fun approveAgent(agent: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")

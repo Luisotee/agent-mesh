@@ -90,4 +90,48 @@ class StoreTest {
         assertEquals(2, merged.messages.size)
         assertFalse(merged.messages["m2"] == null)
     }
+
+    @Test fun `a retired agent keeps its place but is stopped, and a stopped run closes`() {
+        val r = run("r1")
+        val waiting = a1.toBuilder().setState(AgentState.AGENT_STATE_NEEDS_INPUT).setNeedsInput(2).setStateDetail("trust?").build()
+        var s = applyFrame(HostState(), snapshot(listOf(r), listOf(waiting)))
+        s = applyFrame(s, retired(1, "a1"))
+        val a = s.agents["a1"]!!
+        assertEquals(AgentState.AGENT_STATE_RETIRED, a.state)
+        assertEquals(0, a.needsInput)
+        assertEquals("", a.stateDetail)
+        // An unknown agent changes nothing but the cursor.
+        assertEquals(setOf("a1"), applyFrame(s, retired(2, "ghost")).agents.keys)
+        s = applyFrame(s, runStopped(3, "r1"))
+        assertEquals(dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_CLOSED, s.runs["r1"]!!.status)
+        assertEquals(3L, s.cursor!!.seq)
+        assertEquals("a run the app doesn't know changes nothing", s.runs.keys, applyFrame(s, runStopped(4, "r9")).runs.keys)
+    }
+
+    @Test fun `a delivery that arrives before its message is applied when the page brings the message`() {
+        val m = message("m1", from = "a1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO)
+        var s = applyFrame(HostState(), delivered(1, "m1", at = 6_000))
+        assertTrue(s.messages.isEmpty())
+        s = mergeMessages(s, listOf(m))
+        assertEquals(6, s.messages["m1"]!!.deliveredAt.seconds)
+        assertTrue("used up", s.earlyDeliveries.isEmpty())
+        // A snapshot forgets deliveries nobody asked for.
+        assertTrue(applyFrame(applyFrame(HostState(), delivered(1, "zz")), snapshot(emptyList(), emptyList())).earlyDeliveries.isEmpty())
+    }
+
+    @Test fun `a run that starts while connected has nothing to load, its messages are complete as events bring them`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        assertTrue(s.messagesLoaded.isEmpty())
+        s = applyFrame(s, runStarted(1, run("r2")))
+        assertEquals(setOf("r2"), s.messagesLoaded)
+        // A run the snapshot already had is not made "loaded" by its start event arriving again.
+        assertEquals(setOf("r2"), applyFrame(s, runStarted(2, run("r1"))).messagesLoaded)
+    }
+
+    @Test fun `too many early deliveries drop the oldest, not the newest`() {
+        var s = HostState()
+        for (i in 1..205) s = applyFrame(s, delivered(i.toLong(), "m$i", at = 6_000))
+        assertEquals(200, s.earlyDeliveries.size)
+        assertFalse("m1" in s.earlyDeliveries); assertTrue("m205" in s.earlyDeliveries)
+    }
 }

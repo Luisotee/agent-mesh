@@ -9,7 +9,13 @@ import com.connectrpc.simpleTimeouts
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
+import dev.agentmesh.gen.agentmesh.v1.ApproveAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.Cursor
+import dev.agentmesh.gen.agentmesh.v1.ListMessagesRequest
+import dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse
+import dev.agentmesh.gen.agentmesh.v1.Message
+import dev.agentmesh.gen.agentmesh.v1.MessageType
+import dev.agentmesh.gen.agentmesh.v1.SendMessageRequest
 import dev.agentmesh.gen.agentmesh.v1.HelloRequest
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
 import dev.agentmesh.gen.agentmesh.v1.ListSettingsRequest
@@ -41,7 +47,7 @@ class ApiException(val code: Code, message: String, cause: Throwable? = null) : 
  * action a device may call (proto/agentmesh/v1/mesh.proto): the app can do nothing an agent can't do through the
  * same registry.
  */
-val UI_ACTIONS = listOf("hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting")
+val UI_ACTIONS = listOf("hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent")
 
 /** The calls themselves, so a test can stand in for a host. [ConnectMeshApi] is the real one. */
 interface MeshApi {
@@ -49,6 +55,14 @@ interface MeshApi {
 
     /** The event log from [cursor] (a snapshot when null), then live; ends when the stream closes, or throws. */
     fun subscribe(cursor: Cursor?): Flow<SubscribeEventsResponse>
+
+    /** One page of a run's messages, oldest first, after the message with [afterId] (empty: from the start). */
+    suspend fun listMessages(runId: String, afterId: String): ListMessagesResponse
+
+    suspend fun sendMessage(to: String, type: MessageType, body: String): Message
+
+    /** Approves an agent's plan: it moves to its execution model in the same conversation. Returns the stored answer. */
+    suspend fun approveAgent(agent: String): Message
 
     suspend fun listSettings(prefix: String = ""): List<Setting>
     suspend fun setSetting(key: String, value: Value): Setting
@@ -63,6 +77,8 @@ fun newMeta(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 60_000): Req
         .setExpiresAt(Timestamp.newBuilder().setSeconds(at / 1000).setNanos(((at % 1000) * 1_000_000).toInt()))
         .build()
 }
+
+private const val PAGE = 500
 
 class ConnectMeshApi(connection: Connection, private val clientName: String = "agent-mesh-android") : MeshApi {
     private val service = MeshServiceClient(
@@ -100,6 +116,15 @@ class ConnectMeshApi(connection: Connection, private val clientName: String = "a
             stream.receiveClose()
         }
     }
+
+    override suspend fun listMessages(runId: String, afterId: String): ListMessagesResponse =
+        service.listMessages(ListMessagesRequest.newBuilder().setRunId(runId).setAfterId(afterId).setLimit(PAGE).build()).ok()
+
+    override suspend fun sendMessage(to: String, type: MessageType, body: String): Message =
+        service.sendMessage(SendMessageRequest.newBuilder().setMeta(newMeta()).setTo(to).setType(type).setBody(body).build()).ok().message
+
+    override suspend fun approveAgent(agent: String): Message =
+        service.approveAgent(ApproveAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok().message
 
     override suspend fun listSettings(prefix: String): List<Setting> =
         service.listSettings(ListSettingsRequest.newBuilder().setPrefix(prefix).build()).ok().settingsList

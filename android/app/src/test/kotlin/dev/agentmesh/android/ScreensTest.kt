@@ -37,15 +37,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-private object Plain : SecretBox {
-    override fun seal(plain: String) = plain
-    override fun open(sealed: String) = sealed
-}
-
 /** A host that never answers: the screens are driven by the state the test puts in. */
 private object Silent : MeshApi {
     override suspend fun hello(): HelloResponse = kotlinx.coroutines.CompletableDeferred<HelloResponse>().await()
     override fun subscribe(cursor: dev.agentmesh.gen.agentmesh.v1.Cursor?): Flow<dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse> = emptyFlow()
+    override suspend fun listMessages(runId: String, afterId: String): dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse = error("unused")
+    override suspend fun sendMessage(to: String, type: dev.agentmesh.gen.agentmesh.v1.MessageType, body: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
+    override suspend fun approveAgent(agent: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
     override suspend fun listSettings(prefix: String) = emptyList<dev.agentmesh.gen.agentmesh.v1.Setting>()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value) = error("unused")
     override suspend fun resetSetting(key: String) = error("unused")
@@ -76,7 +74,7 @@ class ScreensTest {
         val worker = agent("w1", parent = "lead", name = "shop-fix-typo", state = AgentState.AGENT_STATE_NEEDS_INPUT, needsInput = 1, detail = "Bash", at = 2_000)
         rt.feed(snapshot(listOf(run("r1", "Fix the typo")), listOf(lead, worker)))
         rt.onFrame(messageSent(1, message("m1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, at = 3_000)))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, {}, {}, {}) } }
+        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
         // The run's title heads its tree and sits under each waiting row.
         compose.onAllNodesWithText("Fix the typo").assertCountEquals(3)
         compose.onNodeWithText("shop-lead").assertIsDisplayed()
@@ -90,7 +88,7 @@ class ScreensTest {
     @Test fun `a closed run is collapsed until it is tapped`() {
         val rt = runtime()
         rt.feed(snapshot(listOf(run("r1", "Old work", status = dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_CLOSED)), listOf(agent("a1", name = "old-agent", state = AgentState.AGENT_STATE_EXITED))))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, {}, {}, {}) } }
+        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
         compose.onNodeWithText("Old work").assertIsDisplayed()
         compose.onNodeWithText("old-agent").assertDoesNotExistCompat()
         compose.onNodeWithText("Old work").performClick()
@@ -100,7 +98,7 @@ class ScreensTest {
     @Test fun `a host that is not connected says why and offers a retry`() {
         val rt = runtime()
         rt.onState(ConnState.Stopped(ConnState.Reason.Auth, "bad token"))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, {}, {}, {}) } }
+        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
         compose.onNodeWithText("The host refused this device's token").assertIsDisplayed()
         compose.onNodeWithText("Retry").assertIsDisplayed()
     }
@@ -108,7 +106,8 @@ class ScreensTest {
     @Test fun `the agent screen shows where it works`() {
         val rt = runtime()
         rt.feed(snapshot(listOf(run("r1")), listOf(agent("a1", name = "shop-fix", state = AgentState.AGENT_STATE_WORKING).toBuilder().setBranch("mesh/r1/fix").setModel("opus").build())))
-        compose.setContent { AgentMeshTheme(theme) { AgentScreen(rt, "a1") {} } }
+        val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> Silent })
+        compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AgentScreen(rt, "a1", {}) } } }
         compose.onNodeWithText("Working").assertIsDisplayed()
         compose.onNodeWithText("mesh/r1/fix").assertIsDisplayed()
         compose.onNodeWithText("shop-api").assertIsDisplayed()

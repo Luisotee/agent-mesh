@@ -1,0 +1,11 @@
+# Like approve-plan.yaml, for a question a worker asked: open it and answer.
+#   maestro test -e AGENT=shop-api-fix -e ANSWER=main android/maestro/answer-question.yaml
+appId: dev.agentmesh.android.debug
+---
+- launchApp
+- tapOn: "Test host"
+- tapOn: "${AGENT} asked a question"
+- tapOn: "Your answer"
+- inputText: "${ANSWER}"
+- tapOn: "Send answer"
+- assertNotVisible: "waiting for you"
