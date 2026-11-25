@@ -284,15 +284,19 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		out.Message = msg
 		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
-		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task to
-		// one still planning keeps it planning; any other task is direct, as `resume --task` would send it.
-		if stopped(to) && to.SessionId != "" && resumes(req.Msg.Type) {
-			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING}
+		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task is
+		// direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase.
+		if stopped(to) && resumes(req.Msg.Type) {
+			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK}
 			// The guards answer before anything is written: a refusal keeps the message and says why the agent
 			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 			switch rv, err := d.revive(t, to, spec); {
 			case connect.CodeOf(err) == connect.CodeResourceExhausted || connect.CodeOf(err) == connect.CodeFailedPrecondition:
-				out.ResumeError = connect.NewError(connect.CodeOf(err), err).Message()
+				out.ResumeError = err.Error()
+				var ce *connect.Error
+				if errors.As(err, &ce) {
+					out.ResumeError = ce.Message()
+				}
 			case err != nil:
 				return err
 			default:

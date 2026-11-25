@@ -33,6 +33,13 @@ import (
 // after its own grace).
 var StopWait = 15 * time.Second
 
+// Test seams (nil in production): called at the points a race needs to be forced at.
+var (
+	spawnPlannedHook   func()               // SpawnAgent: planned, before the agent is stored
+	spawnCommittedHook func(agentID string) // SpawnAgent: stored, before its terminal starts (its lock held)
+	stopRunLockedHook  func()               // StopRun: the run's agents locked, before the run is closed
+)
+
 // launchedHook is a test seam: called once a reopen's terminal is started and before it is recorded, with a
 // function that kills that process and reports whether its exit was seen.
 var launchedHook func(agentID string, die func() bool)
@@ -180,7 +187,7 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	}
 	if lift {
 		switch {
-		case a.PendingReopen != nil || a.State != v1.AgentState_AGENT_STATE_EXITED:
+		case a.PendingReopen != nil || !stopped(a):
 			if a.SessionId == "" {
 				return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened without its "+
 					"planning deny list: send the task again once it has started", a.Name)
@@ -515,6 +522,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return tx.PutAgent(a)
 	})
 	if err != nil {
+		if out.Reopen != nil {
+			d.rt.guard.release(out.Agent.GetId()) // the write failed after the guard passed: nothing was requested
+		}
 		return nil, err
 	}
 	d.deliverSoon(out.Agent.Id)
@@ -621,16 +631,21 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 // worktree and session.
 func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	r := a.PendingReopen
-	gone := a.TerminalId == "" || stopped(a)
-	if !gone && a.State != v1.AgentState_AGENT_STATE_IDLE {
+	// A retired agent is marked before its process is stopped, so one that still has a terminal may have a live
+	// process (its retire failed, or its caller gave up): it is stopped here, whatever it is doing.
+	leftover := a.State == v1.AgentState_AGENT_STATE_RETIRED && a.TerminalId != ""
+	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED || (stopped(a) && !leftover)
+	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE {
 		return nil // at its next IDLE: never cut a turn short
 	}
 	if d.rt.term == nil {
 		return nil
 	}
 	if !gone {
-		if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
-			return err
+		if !leftover {
+			if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
+				return err
+			}
 		}
 		if err := d.stopTerminal(ctx, a.TerminalId); err != nil {
 			return fmt.Errorf("stopping %s for its reopen: %w", a.Name, err)
@@ -652,6 +667,15 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		if cur.PendingReopen == nil || cur.PendingReopen.Id != r.Id {
 			// Replaced by a newer request meanwhile: that one runs next, from here.
 			err := tx.PutAgent(cur)
+			cur = nil
+			return err
+		}
+		if run, err := tx.GetRun(cur.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			// Nothing starts in a closed run (StopRun drops the requests it finds; this one slipped past).
+			err := cancelReopen(tx, cur, "its run is closed")
+			if err == nil {
+				err = tx.PutAgent(cur)
+			}
 			cur = nil
 			return err
 		}
@@ -791,6 +815,7 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 // with its token revoked; ResumeAgent tries again.
 func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, reason string) error {
 	d.log.Error("reopen failed", "agent", agentID, "reason", reason)
+	d.rt.guard.release(agentID)
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {

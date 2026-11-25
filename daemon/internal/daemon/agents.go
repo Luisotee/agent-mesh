@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -257,7 +258,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			reason = "killed"
 		}
 	}
-	claimed, replaced, owner := false, false, ""
+	claimed, replaced, realExit, owner := false, false, false, ""
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -300,6 +301,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return nil
 		}
 		// A reopen's own terminal that died: the reopen happened, and its agent exited.
+		realExit = true
 		a.PendingReopen = nil
 		a.TerminalId = terminalID
 		tx.Actor = &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId}
@@ -316,6 +318,9 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	})
 	if err != nil || !claimed {
 		return err
+	}
+	if realExit {
+		d.rt.guard.release(owner) // it launched, or failed to, and holds no more of the host's memory
 	}
 	if replaced {
 		// Its reopen goes on (a process that died mid-turn with one pending needn't wait for an IDLE).
@@ -342,6 +347,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
 		var pruned, retired time.Time
+		var retiring atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -349,9 +355,13 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		for {
 			d.drainSpool(ctx)
 			d.retryDoorbells(ctx)
-			if now := d.now(); now.Sub(retired) >= retireEvery {
+			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
-				d.retireIdle(ctx)
+				// Off this loop: stopping a process waits for it, and the spool and the doorbells must not.
+				go func() {
+					defer retiring.Store(false)
+					d.retireIdle(ctx)
+				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
@@ -716,6 +726,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if _, err := git(ctx, top, "worktree", "add", "-b", branch, worktree, base); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	// Where its branch started, so a branch that never moved can be told from one with work (StopRun).
+	baseCommit, _ := git(ctx, worktree, "rev-parse", "HEAD")
 
 	token := auth.NewToken()
 	parent := ""
@@ -724,7 +736,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	now := d.now()
 	agent := &v1.Agent{Id: ids.New("a", 10), RunId: runID, Name: name, Role: role, ParentId: parent, Kind: kind,
-		Repo: top, Worktree: worktree, Branch: branch, Model: model, Effort: effort, Tier: spawnTier(m),
+		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
 		DenyEdits: m.Plan || claude.ReadOnly(role),
@@ -749,8 +761,17 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		return nil, err
 	}
 	agent.SessionId = plan.SessionId
+	if spawnPlannedHook != nil {
+		spawnPlannedHook()
+	}
 	out := &v1.SpawnAgentResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSpawnAgentProcedure, out, func(tx *store.Tx) error {
+		// The run was open when this began: StopRun may have closed it since (the writer serializes the two).
+		if run, err := tx.GetRun(runID); err != nil {
+			return err
+		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			return failedPrecondition("run %s is closed", runID)
+		}
 		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
 			return err
 		}
@@ -783,6 +804,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		d.rt.guard.release(agent.Id)
 		cleanup()
 		return nil, err
+	}
+	if spawnCommittedHook != nil {
+		spawnCommittedHook(agent.Id)
 	}
 	launched, err := d.launch(ctx, agent, token, plan)
 	if err != nil {
