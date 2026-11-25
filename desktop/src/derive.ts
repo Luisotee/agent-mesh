@@ -89,7 +89,7 @@ export function statusSentence(a: Agent): string {
     }
     case AgentState.EXITED:
       if (a.stateDetail === 'lost') return 'Lost: its terminal is gone'
-      if (a.stateDetail === 'killed') return 'Stopped'
+      if (a.stateDetail === 'killed' || a.exitCode < 0) return 'Stopped'
       return a.exitCode === 0 ? 'Finished' : `Exited with code ${a.exitCode}`
     case AgentState.UNKNOWN:
       return 'Quiet for a while: state unknown'

@@ -53,6 +53,9 @@ describe('statusSentence', () => {
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: 0 }))).toBe('Finished')
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: 7 }))).toBe('Exited with code 7')
     expect(statusSentence(a('x', { state: AgentState.EXITED, stateDetail: 'lost' }))).toBe('Lost: its terminal is gone')
+    // Ended by a signal (exit code -1), whether or not the reason survived a reload from the host.
+    expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1 }))).toBe('Stopped')
+    expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'killed' }))).toBe('Stopped')
     expect(statusSentence(a('x', { state: AgentState.UNKNOWN }))).toMatch(/unknown/)
   })
 })

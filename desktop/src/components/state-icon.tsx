@@ -19,7 +19,8 @@ export function StateIcon({ agent, className }: { agent: Agent; className?: stri
     case AgentState.NEEDS_INPUT:
       return <CircleAlert aria-label="needs you" className={cn(c, 'text-state-needs')} />
     case AgentState.EXITED:
-      if (agent.stateDetail === 'killed') return <Square aria-label="stopped" className={cn(c, 'text-state-idle')} />
+      // A process ended by a signal has exit code -1 (Go's ExitCode), and the reason is gone once the host reloads it.
+      if (agent.stateDetail === 'killed' || agent.exitCode < 0) return <Square aria-label="stopped" className={cn(c, 'text-state-idle')} />
       return agent.exitCode === 0 && agent.stateDetail !== 'lost' ? (
         <CircleCheck aria-label="done" className={cn(c, 'text-state-done')} />
       ) : (
