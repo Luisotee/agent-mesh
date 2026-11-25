@@ -22,9 +22,9 @@ The e2e tests open a real Electron window, so they need a display (WSLg has one;
 
 ## Layout
 
-- `electron/`: the main process, kept thin: `main.ts` the window, `bridge.ts` and `socket.ts` the host bridge, `hosts.ts` the saved host list, `shell.ts` notifications and the tray (it knows nothing of agents), `preload.cts` the API the renderer gets.
+- `electron/`: the main process, kept thin: `main.ts` the window, `bridge.ts` and `socket.ts` the host bridge, `route.ts` and `pair.ts` how a paired host is reached (pinned TLS, direct or through the relay) and how a pairing link is redeemed, `hosts.ts` the saved host list, `shell.ts` notifications and the tray (it knows nothing of agents), `preload.cts` the API the renderer gets.
 - `shared/api.ts`: types only, the contract between main and the renderer.
-- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `derive.ts`, `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts`.
+- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts`.
 - `src/gen/`: the generated TypeScript (committed).
 - `e2e/`: the end-to-end tests and their harness.
 
@@ -34,6 +34,7 @@ The e2e tests open a real Electron window, so they need a display (WSLg has one;
 
 - **Styling:** Tailwind classes and shadcn/ui-style components on Base UI only. No CSS beyond Tailwind's one entry file, `src/index.css`. The primitives in `src/components/ui/` are copied into the repo so we own them: restyle them there rather than wrapping them. Colours are theme tokens (`theme.ts`), not literals.
 - **The renderer never reaches a host.** meshd refuses any request with an `Origin` header, and a token in the renderer would defeat that. The main process holds the tokens and forwards calls (`electron/bridge.ts`, `electron/socket.ts`). Keep the renderer sandboxed, with context isolation, its CSP, no navigation and no new windows.
+- **A paired host's certificate pin is the whole check.** `electron/route.ts` hands a connection on only after its leaf certificate matched the pin from the pairing link; never add a fallback to an unpinned or unverified connection, and keep the pairing link's parsing in main (the renderer sends text).
 - **Every call to a host** goes through `src/actions.ts` and must be a `MeshService` action a device may call. Only `src/transport.ts` reaches the network. `src/registry.test.ts` checks both, so a new call starts in `actions.ts`.
 - **The UI has no abilities of its own** (`docs/apps.md`, "Principles"): anything the UI does is an action an agent or the CLI can call too. A new capability is a registry action first (`proto/CLAUDE.md`).
 - **State** is built from the snapshot and events (`store.ts`). What the host derives, the app asks the host for rather than deriving it twice: what waits on the user is `ListWaiting` (`refresh.ts` lists it again after the events that change it), and an agent that went quiet shows as `unknown` only when the agents are listed again (every 30 s).

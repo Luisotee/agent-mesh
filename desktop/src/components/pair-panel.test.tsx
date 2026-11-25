@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { render, screen, waitFor, within } from '@testing-library/react'
+import jsQR from 'jsqr'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../shared/api'
@@ -116,5 +117,25 @@ describe('qrPath', () => {
     expect(size).toBeGreaterThan(21)
     expect(path.startsWith('M0 0h7v1h-7z')).toBe(true)
     for (const m of path.matchAll(/M(\d+) (\d+)h(\d+)v1/g)) expect(Number(m[1]) + Number(m[3])).toBeLessThanOrEqual(size)
+  })
+})
+
+describe('the QR code', () => {
+  it('scans back to the link it was made from', () => {
+    // Draw the path's rectangles into a bitmap, black on white with the quiet zone, and read it as a camera would.
+    const { size, path } = qrPath(URI)
+    const scale = 6
+    const side = (size + 8) * scale
+    const px = new Uint8ClampedArray(side * side * 4).fill(255)
+    for (const m of path.matchAll(/M(\d+) (\d+)h(\d+)v1/g)) {
+      const [x, y, w] = [Number(m[1]), Number(m[2]), Number(m[3])]
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < w * scale; dx++) {
+          const i = (((y + 4) * scale + dy) * side + (x + 4) * scale + dx) * 4
+          px[i] = px[i + 1] = px[i + 2] = 0
+        }
+      }
+    }
+    expect(jsQR(px, side, side)?.data).toBe(URI)
   })
 })

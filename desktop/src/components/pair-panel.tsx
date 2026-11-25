@@ -170,11 +170,13 @@ export function PairPanel({ host }: { host: HostRuntime }) {
         <h2 className="text-sm font-semibold">Paired devices</h2>
         {!loaded && !error && <p className="text-xs text-muted-foreground">Loading…</p>}
         {loaded && devices.length === 0 && <p className="text-xs text-muted-foreground">No device is paired yet.</p>}
-        <ul aria-label="Paired devices" className="divide-y rounded-lg border bg-card">
-          {devices.map((d) => (
-            <DeviceRow key={d.id} host={host} device={d} />
-          ))}
-        </ul>
+        {devices.length > 0 && (
+          <ul aria-label="Paired devices" className="divide-y rounded-lg border bg-card">
+            {devices.map((d) => (
+              <DeviceRow key={d.id} host={host} device={d} />
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   )
