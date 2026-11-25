@@ -54,6 +54,14 @@ const (
 	// MeshServiceSubscribeEventsProcedure is the fully-qualified name of the MeshService's
 	// SubscribeEvents RPC.
 	MeshServiceSubscribeEventsProcedure = "/agentmesh.v1.MeshService/SubscribeEvents"
+	// MeshServiceListSettingsProcedure is the fully-qualified name of the MeshService's ListSettings
+	// RPC.
+	MeshServiceListSettingsProcedure = "/agentmesh.v1.MeshService/ListSettings"
+	// MeshServiceSetSettingProcedure is the fully-qualified name of the MeshService's SetSetting RPC.
+	MeshServiceSetSettingProcedure = "/agentmesh.v1.MeshService/SetSetting"
+	// MeshServiceResetSettingProcedure is the fully-qualified name of the MeshService's ResetSetting
+	// RPC.
+	MeshServiceResetSettingProcedure = "/agentmesh.v1.MeshService/ResetSetting"
 	// MeshServiceReportHookProcedure is the fully-qualified name of the MeshService's ReportHook RPC.
 	MeshServiceReportHookProcedure = "/agentmesh.v1.MeshService/ReportHook"
 	// MeshServiceOpenTerminalProcedure is the fully-qualified name of the MeshService's OpenTerminal
@@ -81,6 +89,13 @@ type MeshServiceClient interface {
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest]) (*connect.ServerStreamForClient[v1.SubscribeEventsResponse], error)
+	// The host's settings (the policy: tiers, reviewers, caps, …) with their defaults and schemas, every one whose
+	// key starts with the prefix. Agents read the policy they run under.
+	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
+	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
+	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Put a setting back to its default.
+	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
@@ -158,6 +173,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("SubscribeEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		listSettings: connect.NewClient[v1.ListSettingsRequest, v1.ListSettingsResponse](
+			httpClient,
+			baseURL+MeshServiceListSettingsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		setSetting: connect.NewClient[v1.SetSettingRequest, v1.SetSettingResponse](
+			httpClient,
+			baseURL+MeshServiceSetSettingProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
+			connect.WithClientOptions(opts...),
+		),
+		resetSetting: connect.NewClient[v1.ResetSettingRequest, v1.ResetSettingResponse](
+			httpClient,
+			baseURL+MeshServiceResetSettingProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ResetSetting")),
+			connect.WithClientOptions(opts...),
+		),
 		reportHook: connect.NewClient[v1.ReportHookRequest, v1.ReportHookResponse](
 			httpClient,
 			baseURL+MeshServiceReportHookProcedure,
@@ -185,6 +218,9 @@ type meshServiceClient struct {
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
 	subscribeEvents *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
+	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
+	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	resetSetting    *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
 	reportHook      *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal    *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 }
@@ -239,6 +275,21 @@ func (c *meshServiceClient) SubscribeEvents(ctx context.Context, req *connect.Re
 	return c.subscribeEvents.CallServerStream(ctx, req)
 }
 
+// ListSettings calls agentmesh.v1.MeshService.ListSettings.
+func (c *meshServiceClient) ListSettings(ctx context.Context, req *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error) {
+	return c.listSettings.CallUnary(ctx, req)
+}
+
+// SetSetting calls agentmesh.v1.MeshService.SetSetting.
+func (c *meshServiceClient) SetSetting(ctx context.Context, req *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error) {
+	return c.setSetting.CallUnary(ctx, req)
+}
+
+// ResetSetting calls agentmesh.v1.MeshService.ResetSetting.
+func (c *meshServiceClient) ResetSetting(ctx context.Context, req *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
+	return c.resetSetting.CallUnary(ctx, req)
+}
+
 // ReportHook calls agentmesh.v1.MeshService.ReportHook.
 func (c *meshServiceClient) ReportHook(ctx context.Context, req *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error) {
 	return c.reportHook.CallUnary(ctx, req)
@@ -269,6 +320,13 @@ type MeshServiceHandler interface {
 	// The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
 	// ends the stream, so a client resumes from its cursor after any other close.
 	SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error
+	// The host's settings (the policy: tiers, reviewers, caps, …) with their defaults and schemas, every one whose
+	// key starts with the prefix. Agents read the policy they run under.
+	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
+	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
+	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Put a setting back to its default.
+	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
@@ -342,6 +400,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("SubscribeEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListSettingsHandler := connect.NewUnaryHandler(
+		MeshServiceListSettingsProcedure,
+		svc.ListSettings,
+		connect.WithSchema(meshServiceMethods.ByName("ListSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetSettingHandler := connect.NewUnaryHandler(
+		MeshServiceSetSettingProcedure,
+		svc.SetSetting,
+		connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceResetSettingHandler := connect.NewUnaryHandler(
+		MeshServiceResetSettingProcedure,
+		svc.ResetSetting,
+		connect.WithSchema(meshServiceMethods.ByName("ResetSetting")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceReportHookHandler := connect.NewUnaryHandler(
 		MeshServiceReportHookProcedure,
 		svc.ReportHook,
@@ -376,6 +452,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
 		case MeshServiceSubscribeEventsProcedure:
 			meshServiceSubscribeEventsHandler.ServeHTTP(w, r)
+		case MeshServiceListSettingsProcedure:
+			meshServiceListSettingsHandler.ServeHTTP(w, r)
+		case MeshServiceSetSettingProcedure:
+			meshServiceSetSettingHandler.ServeHTTP(w, r)
+		case MeshServiceResetSettingProcedure:
+			meshServiceResetSettingHandler.ServeHTTP(w, r)
 		case MeshServiceReportHookProcedure:
 			meshServiceReportHookHandler.ServeHTTP(w, r)
 		case MeshServiceOpenTerminalProcedure:
@@ -427,6 +509,18 @@ func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Reque
 
 func (UnimplementedMeshServiceHandler) SubscribeEvents(context.Context, *connect.Request[v1.SubscribeEventsRequest], *connect.ServerStream[v1.SubscribeEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SubscribeEvents is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListSettings is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetSetting is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetSetting is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error) {
