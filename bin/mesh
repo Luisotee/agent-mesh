@@ -3722,6 +3722,11 @@ def agent_added(entry: dict) -> set[str]:
     return set(entry.get("added") or [])
 
 
+def agent_loaded(entry: dict) -> set[str]:
+    """Everything `mesh tools add` or `--mcp` gave this agent: `added` (tools, skills, plugins) and `mcp` (servers)."""
+    return agent_added(entry) | set(agent_mcp(entry))
+
+
 def lean_tools(entry: dict) -> list[str]:
     """The tools a lean Claude agent starts without (`claude.deny_tools`, the root's `claude.root_deny_tools`), less
     what it added back. A worker whose plan the user reviews in its pane keeps AskUserQuestion."""
@@ -3862,14 +3867,18 @@ def dead_start(entry: dict) -> bool:
 
 
 def abandon_unlaunched(run_id: str, only: Callable[[str, dict], bool]) -> None:
-    """A spawn or resume that failed before its agent got a pane or session: its entry (the ones that hold servers
-    of `mcp`) is retired, so it doesn't hold a shared server nobody runs, and its MCP file goes."""
+    """A spawn or resume that failed before its agent ran: its entry (when it holds servers, `mcp` or `mcp_all`) is
+    retired and its pane, if one opened, closed, so it doesn't hold a shared server nobody runs; its MCP file goes."""
+    panes = []
     with editing_run(run_id) as run:
         for name, entry in run["agents"].items():
-            if (entry.get("mcp") and entry.get("status") == "starting" and not entry.get("pane")
-                    and not entry.get("bg_id") and only(name, entry)):
+            if ((entry.get("mcp") or entry.get("mcp_all")) and entry.get("status") == "starting"
+                    and only(name, entry)):
                 entry["status"] = "retired"
+                panes += [entry["pane"]] if entry.get("pane") else []
                 remove_private(run_id, name)
+    for pane in panes:
+        quietly(herdr, "pane", "close", pane)
 
 
 def mcp_holder(name: str, skip: tuple[str, str] | None = None) -> tuple[str, str] | None:
@@ -9689,6 +9698,12 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         mcp = [n for n in mcp if n not in mcp_dropped]
     else:
         check_mcp_lease(mcp, skip=(old_run["id"], old_name))
+    # claude.ai's connectors load every server: carried over, they would take a shared one another agent holds
+    all_held = [n for n in setting("claude.mcp_exclusive") if old.get("mcp_all")
+                and mcp_holder(n, skip=(old_run["id"], old_name))]
+    drop_all = bool(all_held) and named_mcp is None
+    if all_held and not drop_all:
+        check_mcp_lease(all_held, skip=(old_run["id"], old_name))
     # By the entry too: a resume that was given a `-2` name is still that peer.
     peer_name, peer = worker_peer(old_name, old, getattr(args, "peer", None))
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
@@ -9720,6 +9735,9 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     if mcp_dropped:
         notes.append(f"{', '.join(mcp_dropped)} is held by another agent now, so {old_name} starts without it "
                      "(`mesh tools servers` shows who holds it)")
+    if drop_all:
+        notes.append(f"{old_name} had claude.ai's connectors, which load every server, and {', '.join(all_held)} is "
+                     "held by another agent now, so it starts without them (`mesh tools add claude.ai` again later)")
     view = getattr(args, "view", None) or (old.get("view") if old.get("view") != HEADLESS else None) or "pane"
     if view == "bg" and "bg" not in cli(old["kind"]).views:
         raise MeshError(f"--view bg is for Claude workers; {cli(old['kind']).name} has no background sessions")
@@ -9807,7 +9825,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
                         **({"tier": tier} if tier else {}), **({"reason": reason} if reason else {})}],
             **({"peer": peer_name} if peer_name else {}),
             **({"collect": args.collect} if getattr(args, "collect", None) else {}),
-            **{k: old[k] for k in ADDED_KEYS if old.get(k) and k != "mcp"},  # the tools added back stay
+            **{k: old[k] for k in ADDED_KEYS
+               if old.get(k) and k != "mcp" and not (drop_all and k == "mcp_all")},  # the tools added back stay
             **({"mcp": mcp} if mcp else {}),
         }
     deny = launch_deny(run_id, name, agent_entry(load_run(run_id), name))
@@ -12927,7 +12946,7 @@ def lean_cut(entry: dict) -> dict:
             else CLAUDEAI_SKILLS,
             "mcp": mode, "mcp_loaded": loaded, "mcp_cut": sorted(set(known) - set(loaded)),
             "claudeai_connectors": None if mode == "inherit" else "claude.ai",
-            "added": sorted(agent_added(entry) | set(agent_mcp(entry)))}
+            "added": sorted(agent_loaded(entry))}
 
 
 def resolve_addition(entry: dict, name: str) -> str:
@@ -12983,28 +13002,41 @@ def start_tools_reopen(run_id: str, name: str, next_task: str | None) -> int:
     return proc.pid
 
 
+def restore_added(run_id: str, name: str, before: dict) -> None:
+    """Put an agent's `ADDED_KEYS` back as they were before a `mesh tools add` (None: the key wasn't there), so
+    what an add that didn't take doesn't hold a shared server or stay loaded."""
+    with editing_run(run_id) as run:
+        e = run["agents"][name]
+        e.pop("tools_before", None)
+        for key, value in before.items():
+            e.pop(key, None) if value is None else e.update({key: value})
+
+
 def tools_reopen(run_id: str, name: str, next_task: str | None) -> int:
     """The detached half of a worker's `mesh tools add`: once its turn has ended, reopen the same conversation on
     the same model with what it added (`swap_model`), then ring it to carry on (an `info` from its parent, so it
     still owes the report of its task). A reopen that fails tells it so, and it carries on as it was."""
     entry = agent_entry(load_run(run_id), name)
     parent = entry.get("parent") or me_parent(run_id, name)
-    added = ", ".join(sorted(agent_added(entry) | set(agent_mcp(entry))))
+    added = ", ".join(sorted(agent_loaded(entry)))
     body = (f"mesh reopened this conversation with {added} (`mesh tools add`). Carry on: "
             f"{next_task or 'where you stopped'}.")
     try:
         swap = swap_model(run_id, name, entry["model"], entry["effort"], "tools added",
                           wait_ms=int(TOOLS_WAIT.total_seconds() * 1000), message=(parent, "info", body))
     except MeshError as exc:
+        if isinstance(entry.get("tools_before"), dict):  # it carries on without them: so does what the entry says
+            restore_added(run_id, name, entry["tools_before"])
         log_event(run_id, "tools_failed", name=name, error=str(exc))
         if not getattr(exc, "stored", None):  # a background copy that didn't start has it stored already
             quietly(deliver, run_id, parent, name, "info",
                     f"mesh couldn't reopen you with {added} ({exc}). Carry on without it, or ask your parent.")
         print(f"mesh tools: failed: {exc}", flush=True)
         return 1
+    with editing_run(run_id) as run:
+        run["agents"][name].pop("tools_before", None)
     delivery = swap.pop("delivery", None) or deliver(run_id, parent, name, "info", body, first=True)
-    log_event(run_id, "tools_reopened", name=name, added=sorted(agent_added(entry) | set(agent_mcp(entry))),
-              rung=delivered(delivery))
+    log_event(run_id, "tools_reopened", name=name, added=sorted(agent_loaded(entry)), rung=delivered(delivery))
     print(f"mesh tools: reopened {name} with {added}", flush=True)
     return 0
 
@@ -13064,14 +13096,13 @@ def cmd_tools(args: argparse.Namespace) -> int:
             e["tools_added"] = True  # the snapshot would keep it out: every later launch turns it off
         if "connectors" in kinds.values():
             e["mcp_all"] = True
+        if not root:  # the detached reopen undoes the add if it fails (`tools_reopen`)
+            e["tools_before"] = before
     try:
         pid = (start_reset(run_id, me, args.next, None, via="tools", reopen=True) if root
                else start_tools_reopen(run_id, me, args.next))
     except BaseException:
-        with editing_run(run_id) as run:  # nothing will reopen it: as it was
-            e = run["agents"][me]
-            for key, value in before.items():
-                e.pop(key, None) if value is None else e.update({key: value})
+        restore_added(run_id, me, before)  # nothing will reopen it: as it was
         raise
     log_event(run_id, "tools_added", name=me, added=every, kinds=sorted(set(kinds.values())))
     if not root:  # its Stop hook and the watch let this turn end; the reopen waits for it to
@@ -13539,7 +13570,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
         if not candidates:
             return failed("reset_failed", "the /clear didn't show up as a new session; no prompt typed")
     token = ring_token()
-    added = (sorted(agent_added(e) | set(agent_mcp(e))) if (e := load_run(run_id)["agents"][root]) else []) if reopen else None
+    added = sorted(agent_loaded(load_run(run_id)["agents"][root])) if reopen else None
     result = ring([pane], bootstrap_text(run_id, root, next_task, compact is not None, token, via, added), token,
                   kind=kind)
     if not result["rung"]:
