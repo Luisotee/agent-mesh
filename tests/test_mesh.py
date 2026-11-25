@@ -6138,6 +6138,31 @@ def test_since_narrows_a_fresh_reviewer_to_the_fix_commits(mesh, cli, repo, tmp_
 
 
 
+def test_since_narrows_the_diff_a_fresh_reviewer_without_code_review_is_shown(mesh, cli, repo, tmp_path):
+    """A fresh reviewer of a CLI with no `/code-review` (opencode) was told to read, and given, the whole PR."""
+    origin, first = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", returncode=1)
+
+    def git_out(*cmd):
+        return subprocess.run(["git", *cmd], cwd=origin, check=True, capture_output=True, text=True).stdout.strip()
+    git_out("checkout", "-q", "fix")
+    (origin / "fix2.txt").write_text("the fix for the review\n")
+    git_out("add", "fix2.txt")
+    git_out("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "a fix")
+    head = git_out("rev-parse", "HEAD")
+    git_out("update-ref", "refs/pull/7/head", head)
+    git_out("checkout", "-q", "main")
+    cli.on("pr", "diff", stdout="+fixed\n+the fix for the review\n")  # the whole PR, as gh shows it
+    for given in (first, None):
+        args = mesh.argparse.Namespace(since=given, size="small", repo=str(origin))
+        task = mesh.asker_task(args, "mtest", origin, None, "opencode", "", pr, 7, head, None)[0]
+        assert ("+the fix for the review" in task) is True
+        assert ("+fixed" in task) == (not given)  # only the whole PR carries the first commit
+        assert (f"`git diff {first}..{head}` shows the change" in task) == bool(given)
+        assert (f"The change (`git diff {first}..{head}`)" in task) == bool(given)
+
+
 def test_a_prs_author_is_the_worker_whose_branch_it_came_from(mesh, run, monkeypatch):
     with mesh.editing_run(run) as data:
         data["agents"]["proj-feat"] = {"role": "worker", "kind": "claude", "branch": "mesh/mtest/feat"}

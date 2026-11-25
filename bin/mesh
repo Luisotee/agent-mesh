@@ -9620,8 +9620,18 @@ def head_diff(repo: Path, pr: str, head: str) -> tuple[str, str] | None:
     return (diff, f"{merge_base}..{head}") if diff.strip() else None
 
 
+def since_diff(repo: Path, last: str, head: str) -> tuple[str, str] | None:
+    """`git diff last head` and its range (`<last>..<head>`), for a reviewer given `--since`; None when git can't
+    build it (then the whole PR stays what the task shows) or it is empty."""
+    try:
+        diff = git("diff", "--no-color", "--no-ext-diff", last, head, cwd=repo)
+    except (MeshError, OSError):
+        return None
+    return (diff, f"{last}..{head}") if diff.strip() else None
+
+
 def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = None) -> str:
-    """The PR's diff for a review task, so the reviewer starts from the whole change; a note when it doesn't fit.
+    """The diff for a review task (the whole PR, or the fixes of `--since`), so the reviewer starts from it; a note when it doesn't fit.
 
     Of the head the task names, from git (`built`, by `head_diff`), since `gh pr diff` shows the PR as it is now,
     which an author's push since may have moved past `head`; from `gh pr diff` without it (`head` is then only
@@ -9652,18 +9662,21 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
     embedded diff, and the command the task names for it, are of `head`, built in `repo` (`pr_diff`). `size` is
     the review's, which sets `/code-review`'s level (`review.level.<size>`; large's when unknown)."""
     skill = ""
-    built = head_diff(repo, pr, head) if pr and repo and head else None
+    again = bool(pr and last and head and last != head)
+    # `--since` on a narrow range: the diff the task names and embeds is the fixes', for any CLI (not only the
+    # `/code-review` target), else a reviewer without that skill reviews the whole PR.
+    full = head_diff(repo, pr, head) if pr and repo and head else None
+    built = (since_diff(repo, last, head) if since and narrow and again and repo else None) or full
     if pr:
         own = REVIEW_OWN_AT if head else REVIEW_OWN
         show = f"git diff {built[1]}" if built else f"gh pr diff {pr}"
         where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
-        again = bool(last and head and last != head)
         if again:
             text = REVIEW_SINCE if since and narrow else REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE
             where += " " + text.format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if cli_has(kind, "code_review") and head:
-            whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
+            whole = full[1] if full else number if pr_remote_is_origin(repo, pr) else pr
             skill = CODE_REVIEW.format(level=setting(f"review.level.{size if size in SIZES else 'large'}"), target=f"{last}..{head}" if again and narrow else whole)
             skill += (CODE_REVIEW_AGAIN if again and narrow and not since else "")
             skill += "" if fresh else CODE_REVIEW_OWN.format(head=head)
