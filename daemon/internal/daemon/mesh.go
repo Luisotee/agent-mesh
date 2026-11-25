@@ -266,9 +266,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		// A task marked direct ends the plan phase of the agent it is for and lifts its planning deny list (by a
 		// reopen, since a running process can't change it), as bin/mesh's `cmd_send` does for a `Direct task`; a
-		// planned follow-up leaves a planner planning. From a device as from the agent's parent.
-		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
-			(!IsAgent(actor.Class) || to.ParentId == actor.Id) {
+		// planned follow-up leaves a planner planning. From a device as from the agent's parent. A stopped agent
+		// gets it from `revive` below instead, behind the same guards as any resume, so that a refusal leaves it
+		// as it was and nothing is requested twice.
+		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
+			(!IsAgent(actor.Class) || to.ParentId == actor.Id)
+		if direct && !stopped(to) {
 			if err := d.directTask(t, to); err != nil {
 				return err
 			}
@@ -288,7 +291,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// marked direct is direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase;
 		// any other comes back as it was (a planner still planning), as `send` leaves a live one.
 		if stopped(to) && resumes(req.Msg.Type) {
-			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body)}
+			spec := reviveSpec{task: direct}
 			// The guards answer before anything is written: a refusal keeps the message and says why the agent
 			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 			switch rv, err := d.revive(t, to, spec); {

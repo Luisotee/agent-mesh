@@ -372,3 +372,91 @@ func TestTwoStopRunsDoNotDeadlockOverAnAgentSpawnedMeanwhile(t *testing.T) {
 		t.Errorf("agent a: %v, %d live processes", got.State, w.liveTerminals(t))
 	}
 }
+
+// A stopped planner's direct task goes through revive alone: one reopen (not one from the direct-task step and
+// another from the revive, and not a request that outlives a refused resume).
+func TestADirectTaskToAStoppedPlannerWithAReopenPendingRequestsOneReopen(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	w.report(t, a, v1.MessageType_MESSAGE_TYPE_PLAN)
+	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.putAgent(t, a.Id, func(a *v1.Agent) {
+		a.PendingReopen = &v1.Reopen{Id: "o-earlier", Model: "opus", DenyEdits: true, Why: "resumed"}
+	})
+	events := w.collectEvents(t, run.Id)
+	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK,
+		Body: "Direct task (no plan): make the change"})); err != nil {
+		t.Fatal(err)
+	}
+	got := w.waitReopened(t, a.Id, "")
+	if got.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || got.DenyEdits {
+		t.Errorf("the planner: %v", got)
+	}
+	requested := 0
+	for _, ev := range events() {
+		if ev.AgentId == a.Id && ev.GetAgentReopenRequested() != nil {
+			requested++
+		}
+	}
+	if requested != 1 {
+		t.Errorf("%d reopens requested for one task", requested)
+	}
+}
+
+// A refused resume leaves a stopped planner as it was: still planning, its list kept, nothing pending. The task
+// is stored all the same.
+func TestARefusedDirectTaskLeavesAStoppedPlannerPlanning(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	w.report(t, a, v1.MessageType_MESSAGE_TYPE_PLAN)
+	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.set(t, "caps.agents", 1) // the root alone fills it
+	msg, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK,
+		Body: "Direct task (no plan): make the change"}))
+	if err != nil || msg.Msg.Resumed != nil || !strings.Contains(msg.Msg.ResumeError, "caps.agents 1") {
+		t.Fatalf("a direct task at the cap: %v, %v", msg, err)
+	}
+	got := w.agent(a.Id)
+	if got.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !got.DenyEdits || got.PendingReopen != nil {
+		t.Errorf("the refused planner: phase %v, deny %v, pending %v", got.Phase, got.DenyEdits, got.PendingReopen)
+	}
+}
+
+// A read-only child's "Direct task" to a stopped parent is not a parent's: it can't end the parent's plan phase
+// or lift its list, as it can't for a running one.
+func TestAChildsDirectTaskDoesNotLiftAStoppedParentsDenyList(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	p := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	asP := w.as(w.token(t, p.Id))
+	res, err := asP.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t), Slug: "child",
+		Role: v1.AgentRole_AGENT_ROLE_ASKER, Tier: "mid"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.report(t, p, v1.MessageType_MESSAGE_TYPE_PLAN)
+	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: p.Id})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.as(w.token(t, child.Id)).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan): edit the files"})); err != nil {
+		t.Fatal(err)
+	}
+	got := w.waitReopened(t, p.Id, "")
+	if got.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !got.DenyEdits {
+		t.Errorf("the parent after its child's task: phase %v, deny %v", got.Phase, got.DenyEdits)
+	}
+}
