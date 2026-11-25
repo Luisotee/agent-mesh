@@ -82,6 +82,9 @@ class HostRuntime(
 
     fun nudge() = connection.nudge()
 
+    /** Reconnect now, on the host's current routes and token (they were edited). */
+    fun reconnect() = connection.restart()
+
     /** The client for an action, or null while no attempt has built one. */
     fun api(): MeshApi? = current
 

@@ -20,6 +20,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -55,7 +56,8 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
     val direct = existing?.routes?.firstOrNull() as? Route.Direct
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
     var url by rememberSaveable { mutableStateOf(direct?.url ?: "https://") }
-    var token by rememberSaveable { mutableStateOf("") }
+    // Not saveable: the plain token must not go into the activity's saved state.
+    var token by remember { mutableStateOf("") }
     var pin by rememberSaveable { mutableStateOf(direct?.pinSha256.orEmpty()) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     Scaffold(topBar = {
@@ -87,7 +89,7 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
                 val routes = listOf(Route.Direct(url.trim().trimEnd('/'), pin.ifBlank { null }))
                 if (existing == null) container.hosts.add(name, routes, token) else {
                     container.hosts.update(existing.id, name, routes, token.ifBlank { null })
-                    container.runtimes.value[existing.id]?.nudge()
+                    container.runtimes.value[existing.id]?.reconnect()
                 }
                 onDone()
             }, modifier = Modifier.fillMaxWidth()) { Text(if (existing == null) "Add and connect" else "Save") }

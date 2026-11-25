@@ -56,6 +56,6 @@ class DefaultRouteConnector(private val base: OkHttpClient = OkHttpClient()) : R
 
     companion object {
         /** Plain HTTP only where nothing is on the wire: this device, and the Android emulator's view of its host. */
-        val CLEARTEXT_HOSTS = setOf("localhost", "127.0.0.1", "[::1]", "::1", "10.0.2.2")
+        val CLEARTEXT_HOSTS = setOf("localhost", "127.0.0.1", "10.0.2.2")
     }
 }

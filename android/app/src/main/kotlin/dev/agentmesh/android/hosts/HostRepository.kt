@@ -37,12 +37,29 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
 
     val hosts: StateFlow<List<Host>> get() = flow
 
-    private fun load(): Stash = runCatching { json.decodeFromString<Stash>(file.readText()) }.getOrDefault(Stash())
+    /** Set when the saved list couldn't be read and was set aside: the user is told, and nothing overwrites it. */
+    var recoveredFrom: File? = null
+        private set
+
+    private fun load(): Stash {
+        if (!file.exists()) return Stash()
+        return try {
+            json.decodeFromString<Stash>(file.readText())
+        } catch (e: Exception) {
+            // Never let the next save replace an unreadable list: keep it beside the new one.
+            val bad = File(file.parentFile, file.name + ".bad")
+            recoveredFrom = if (file.renameTo(bad)) bad else null
+            Stash()
+        }
+    }
 
     private fun save() {
         val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(json.encodeToString(stash))
-        if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(json.encodeToString(stash).toByteArray())
+            out.fd.sync()
+        }
+        java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         flow.value = stash.hosts.map { it.host }
     }
 

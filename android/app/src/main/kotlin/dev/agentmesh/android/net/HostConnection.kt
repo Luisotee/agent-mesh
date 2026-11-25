@@ -32,6 +32,8 @@ interface ConnectionSink {
     fun log(line: String)
 }
 
+private const val MIN_SESSION_MS = 1_000L
+
 private class StreamEnded(val reason: String) : Exception("the host ended the stream: ${reason.ifEmpty { "no reason given" }}")
 private class StreamClosed : Exception("the event stream closed")
 
@@ -74,6 +76,14 @@ class HostConnection(
         generation.incrementAndGet()
     }
 
+    /** Drop the connection and start over now: the route or the token changed. */
+    fun restart() {
+        stop()
+        attempt.set(0)
+        wake.tryReceive()
+        start()
+    }
+
     /** Try again now (skip a backoff wait, wake a stopped connection), or check a ready one at once. */
     fun nudge() {
         wake.trySend(Unit)
@@ -91,7 +101,9 @@ class HostConnection(
                 failed(gen, e)
             }
             if (generation.get() != gen + 1) continue
-            // `failed` bumped the generation and said why; wait out the backoff or the stop.
+            // `failed` bumped the generation and said why; wait out the backoff or the stop. A nudge that came
+            // while the attempt ran is stale: it must not skip this wait.
+            wake.tryReceive()
             val wait = waitMs
             if (wait < 0) wake.receive() else withTimeoutOrNull(wait) { wake.receive() }
             if (wait < 0) attempt.set(0)
@@ -99,6 +111,7 @@ class HostConnection(
     }
 
     private var waitMs = 0L
+    private var readyAt = 0L
 
     private suspend fun session(gen: Int) = coroutineScope {
         val client = try {
@@ -112,9 +125,11 @@ class HostConnection(
             throw Incompatible("the host speaks protocol ${hello.protocolVersion}, this app ${PROTOCOL_VERSION}: update the older side")
         }
         sink.onHello(hello)
+        val daemon = hello.daemonId
+        readyAt = now()
         sink.log("connected to ${hello.daemonId} (instance ${hello.instanceId}, ${hello.version})")
         sink.onState(ConnState.Ready(hello))
-        launch { heartbeat(gen, client) }
+        launch { heartbeat(gen, client, daemon) }
         client.subscribe(sink.cursor()).collect { msg ->
             if (gen != generation.get()) return@collect
             if (msg.frameCase == SubscribeEventsResponse.FrameCase.END) throw StreamEnded(msg.end.reason)
@@ -123,7 +138,7 @@ class HostConnection(
         throw StreamClosed()
     }
 
-    private suspend fun heartbeat(gen: Int, client: MeshApi) {
+    private suspend fun heartbeat(gen: Int, client: MeshApi, daemon: String) {
         var first = true
         while (true) {
             withTimeoutOrNull(heartbeatMs) { wake.receive() }
@@ -134,6 +149,8 @@ class HostConnection(
                 throw ApiException(Code.DEADLINE_EXCEEDED, "no answer to the heartbeat", e)
             }
             sink.onHello(hello)
+            // Another daemon behind the same address: what this stream carries is about the old one. Start over.
+            if (hello.daemonId != daemon) throw ApiException(Code.UNAVAILABLE, "the daemon at this address changed", null)
             if (first && gen == generation.get()) {
                 first = false
                 attempt.set(0)
@@ -155,7 +172,7 @@ class HostConnection(
             e is ApiException && e.code == Code.FAILED_PRECONDITION ->
                 // From Hello this is a protocol mismatch ("upgrade the client").
                 stopWith(if (Regex("protocol", RegexOption.IGNORE_CASE).containsMatchIn(message)) ConnState.Reason.Incompatible else ConnState.Reason.Config, message)
-            else -> retryLater(message, expected = e is StreamEnded)
+            else -> retryLater(message, expected = e is StreamEnded && now() - readyAt >= MIN_SESSION_MS)
         }
     }
 
@@ -166,7 +183,8 @@ class HostConnection(
     }
 
     private fun retryLater(message: String, expected: Boolean) {
-        // An End frame is the host shutting down on purpose: reconnect at once, with no growing wait.
+        // An End frame after a session that lasted is the host shutting down on purpose: reconnect at once, with no
+        // growing wait. One that comes at once, again and again, backs off like any other drop.
         val n = if (expected) 0 else attempt.get()
         val wait = if (expected) 0L else (min(maxMs.toDouble(), baseMs * Math.pow(2.0, n.toDouble())) * (0.5 + random() / 2)).toLong()
         if (!expected) attempt.incrementAndGet()

@@ -144,12 +144,33 @@ class HostConnectionTest {
         val sink = Sink(this)
         conn({ api }, sink).start()
         runCurrent()
+        advanceTimeBy(2_000)
         s1.trySend(SubscribeEventsResponse.newBuilder().setEnd(End.newBuilder().setReason("shutting down")).build())
         runCurrent()
         assertEquals(2, api.subscribes)
         assertTrue(sink.logs.any { "shutting down" in it })
         val retry = sink.states.filterIsInstance<ConnState.Reconnecting>().single()
         assertEquals(0, retry.attempt)
+    }
+
+    @Test fun `an End frame that comes at once, again and again, backs off like any drop`() = runTest {
+        val api = FakeApi()
+        repeat(3) { api.streams += Channel<SubscribeEventsResponse>(Channel.UNLIMITED).also { it.trySend(SubscribeEventsResponse.newBuilder().setEnd(End.newBuilder().setReason("cursor invalid")).build()) } }
+        val sink = Sink(this)
+        conn({ api }, sink).start()
+        advanceTimeBy(100); runCurrent()
+        assertEquals(1, api.subscribes)
+        assertEquals(listOf(1), sink.states.filterIsInstance<ConnState.Reconnecting>().map { it.attempt })
+    }
+
+    @Test fun `a different daemon behind the address drops the connection so a fresh snapshot is taken`() = runTest {
+        val api = FakeApi()
+        api.onHello = { n -> if (n >= 2) helloResponse(daemon = "other") else helloResponse() }
+        val sink = Sink(this)
+        conn({ api }, sink, heartbeat = 5_000).start()
+        runCurrent()
+        advanceTimeBy(5_100)
+        assertTrue(sink.states.filterIsInstance<ConnState.Reconnecting>().any { "changed" in it.error })
     }
 
     @Test fun `a heartbeat that gets no answer drops the connection and it reconnects`() = runTest {

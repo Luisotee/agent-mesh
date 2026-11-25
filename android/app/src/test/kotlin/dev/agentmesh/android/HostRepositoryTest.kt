@@ -55,8 +55,18 @@ class HostRepositoryTest {
         assertEquals("d1", repo().get(h.id)!!.daemonId)
     }
 
-    @Test fun `a corrupt file is an empty list, not a crash`() {
+    @Test fun `a corrupt file is set aside, not overwritten by the next save`() {
         tmp.root.resolve("hosts.json").writeText("{not json")
+        val r = repo()
+        assertEquals(emptyList<Any>(), r.hosts.value)
+        assertEquals("{not json", r.recoveredFrom!!.readText())
+        r.add("New", listOf(Route.Direct("https://a")), "t")
+        assertEquals("{not json", tmp.root.resolve("hosts.json.bad").readText())
+        assertEquals(1, repo().hosts.value.size)
+    }
+
+    @Test fun `no file is just an empty list`() {
         assertEquals(emptyList<Any>(), repo().hosts.value)
+        assertNull(repo().recoveredFrom)
     }
 }

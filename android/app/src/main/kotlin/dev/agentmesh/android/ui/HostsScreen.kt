@@ -50,7 +50,7 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onEdit: (String) ->
         floatingActionButton = { FloatingActionButton(onClick = onAdd) { Icon(Icons.Default.Add, "Add a host") } },
     ) { pad ->
         if (hosts.isEmpty()) {
-            EmptyHosts(Modifier.padding(pad), onAdd)
+            EmptyHosts(Modifier.padding(pad), container.hosts.recoveredFrom != null, onAdd)
         } else {
             LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(hosts, key = { it.id }) { h ->
@@ -72,13 +72,14 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onEdit: (String) ->
 }
 
 @Composable
-private fun EmptyHosts(modifier: Modifier, onAdd: () -> Unit) {
+private fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit) {
     Column(modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("No hosts yet", style = MaterialTheme.typography.titleMedium)
         Text(
             "A host is a machine running meshd. Add one with its address and the device token from its state dir (device.token).",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp),
         )
+        if (recovered) Text("The saved host list couldn't be read, so it was set aside (hosts.json.bad in the app's files). Add your hosts again.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 12.dp))
         androidx.compose.material3.Button(onClick = onAdd) { Text("Add a host") }
     }
 }
