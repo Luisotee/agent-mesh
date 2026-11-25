@@ -197,7 +197,7 @@ func TestAPlanFromAWorkerResumedIntoPlanningReachesTheRoot(t *testing.T) {
 // The fake claude draws Claude Code's placeholder after its prompt, and nobody types: the doorbell rings at once,
 // well inside the time a typing user would hold it (TypingQuiet), at the agent's first idle and later.
 func TestAFreshPanesPlaceholderNeverHoldsADoorbell(t *testing.T) {
-	typingQuiet := 4 * time.Second
+	typingQuiet := 3 * time.Second
 	w := startReopen(t, func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_PLACEHOLDER"] = "1"
 		c.TypingQuiet = typingQuiet
@@ -237,8 +237,11 @@ func TestAFreshPanesPlaceholderNeverHoldsADoorbell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
+	// Held for nearly the whole quiet period after the keystroke (a regression holding it for half would pass a
+	// shorter wait), then rung once the user has stopped typing, though still attached.
+	time.Sleep(typingQuiet - time.Second)
 	if !w.deliveredAt(t, worker.Id, res.Msg.Message.Id).IsZero() {
 		t.Error("the doorbell rang into a user's typing")
 	}
+	waitFor(t, "the doorbell once the user stopped typing", func() bool { return !w.deliveredAt(t, worker.Id, res.Msg.Message.Id).IsZero() })
 }

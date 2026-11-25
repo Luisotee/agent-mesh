@@ -187,3 +187,19 @@ func TestACaptureDirKeepsEachRawPayloadInOrder(t *testing.T) {
 		t.Errorf("the hook stopped reporting: %v", left)
 	}
 }
+
+// A capture that fails (an unwritable folder) is only a side channel: the hook still reports.
+func TestACaptureThatFailsStillReportsTheHook(t *testing.T) {
+	p, o := setup(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, []byte("x"), 0o600)
+	o.CaptureDir = filepath.Join(blocker, "cap") // under a file: can't be made
+	o.Event, o.Stdin = "Stop", strings.NewReader(`{"session_id":"s"}`)
+	err := Run(o)
+	if err == nil || !strings.Contains(err.Error(), "capturing the payload") {
+		t.Errorf("the capture's failure isn't reported: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
+		t.Errorf("the hook stopped reporting: %v", left)
+	}
+}

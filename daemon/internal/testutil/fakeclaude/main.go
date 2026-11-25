@@ -124,7 +124,8 @@ func prompt() {
 	fmt.Print("> ")
 	if os.Getenv("FAKECLAUDE_PLACEHOLDER") != "" {
 		// Dim text, then the cursor back to the start of it, as the TUI draws a placeholder.
-		fmt.Print("\x1b[2mTry \"fix lint errors\"\x1b[22m\x1b[20D")
+		const hint = `Try "fix lint errors"`
+		fmt.Printf("\x1b[2m%s\x1b[22m\x1b[%dD", hint, len(hint))
 	}
 }
 

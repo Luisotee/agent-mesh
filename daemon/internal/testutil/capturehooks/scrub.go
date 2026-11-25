@@ -23,7 +23,9 @@ type scrubber struct {
 }
 
 var (
-	uuidRE  = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	// Claude Code's scratch folder is named for the capturing user's uid.
+	uidRE   = regexp.MustCompile(`/tmp/claude-[0-9]+/`)
 	emailRE = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+`)
 )
 
@@ -78,6 +80,7 @@ func (s *scrubber) scrub(raw []byte) ([]byte, error) {
 	for _, p := range s.pairs {
 		text = strings.ReplaceAll(text, p[0], p[1])
 	}
+	text = uidRE.ReplaceAllString(text, "/tmp/claude-user/")
 	text = uuidRE.ReplaceAllStringFunc(text, func(id string) string {
 		id = strings.ToLower(id)
 		if fake, ok := s.uuids[id]; ok {

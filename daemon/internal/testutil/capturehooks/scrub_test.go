@@ -50,6 +50,14 @@ func TestScrubLeavesOutALongSummaryButKeepsAShortReply(t *testing.T) {
 	}
 }
 
+func TestScrubReplacesTheScratchFoldersUID(t *testing.T) {
+	s := newScrubber("/home/alice", "/work")
+	out, err := s.scrub([]byte(`{"scratchpad_dir":"/tmp/claude-1000/-work-x/s"}`))
+	if err != nil || strings.Contains(string(out), "1000") || !strings.Contains(string(out), "/tmp/claude-user/") {
+		t.Errorf("%s, %v", out, err)
+	}
+}
+
 func TestScrubRefusesWhatItCannotPlace(t *testing.T) {
 	s := newScrubber("/home/alice", "/work")
 	s.secrets = []string{"alice"}

@@ -107,6 +107,9 @@ func run(state, capture, repo, out, claude string, timeout time.Duration) error 
 	// Startup: the trust dialog of a folder claude hasn't seen blocks it (its default is "No, exit"): choose "Yes,
 	// I trust this folder" if it shows. A worktree of a run is always such a folder.
 	if err := d.waitState(v1.AgentState_AGENT_STATE_IDLE, "startup", func() {
+		if !strings.Contains(d.screen(), "I trust this folder") {
+			return // slow, not stuck at the dialog: no stray keys
+		}
 		d.type_("\x1b[B")
 		time.Sleep(300 * time.Millisecond)
 		d.type_("\r")
@@ -374,13 +377,10 @@ func (d *driver) write(out, version, repo string, seq sequence) error {
 	scrubber.alsoPath(repo, "/work/repo")
 	scrubber.alsoPath(root, "/work")
 	dir := filepath.Join(out, version)
-	if err := os.RemoveAll(dir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
+	// Everything is scrubbed in memory first: a payload the scrubber refuses must leave the committed fixtures as
+	// they were, not half of them.
 	renamed := map[string]string{}
+	cleaned := map[string][]byte{}
 	for i, f := range files {
 		event := strings.TrimSuffix(f[strings.Index(f, "-")+1:], ".json")
 		b, err := os.ReadFile(filepath.Join(d.capture, f))
@@ -389,10 +389,19 @@ func (d *driver) write(out, version, repo string, seq sequence) error {
 		}
 		clean, err := scrubber.scrub(b)
 		if err != nil {
-			return fmt.Errorf("%s: %w", f, err)
+			return fmt.Errorf("%s: %w (nothing was written)", f, err)
 		}
 		name := fmt.Sprintf("%02d-%s.json", i+1, event)
 		renamed[f] = name
+		cleaned[name] = clean
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for name, clean := range cleaned {
 		if err := os.WriteFile(filepath.Join(dir, name), clean, 0o644); err != nil {
 			return err
 		}

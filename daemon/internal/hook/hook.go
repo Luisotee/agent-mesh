@@ -57,17 +57,25 @@ func Run(o Options) error {
 		o.CallTimeout = 3 * time.Second
 	}
 	p := statedir.Paths{Dir: o.StateDir}
+	fired := o.Now() // before stdin is read: the order of near-simultaneous hooks is the order they were called in
 	payload, err := io.ReadAll(io.LimitReader(o.Stdin, MaxPayload))
 	if err != nil {
 		return err
 	}
+	// Capturing is a side channel: when it fails the hook still reports (its error is returned after).
+	var captureErr error
 	if o.CaptureDir != "" {
-		if err := capture(o.CaptureDir, o.Event, payload, o.Now()); err != nil {
-			return fmt.Errorf("capturing the payload: %w", err)
+		if captureErr = capture(o.CaptureDir, o.Event, payload, fired); captureErr != nil {
+			captureErr = fmt.Errorf("capturing the payload: %w", captureErr)
 		}
 	}
+	return errors.Join(captureErr, report(o, p, payload, fired))
+}
+
+// report sends one hook to the daemon, or spools it.
+func report(o Options, p statedir.Paths, payload []byte, fired time.Time) error {
 	req := &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "hook-" + uuid.NewString()}, Kind: o.Kind,
-		EventName: o.Event, Payload: payload, FiredAt: timestamppb.New(o.Now())}
+		EventName: o.Event, Payload: payload, FiredAt: timestamppb.New(fired)}
 	tok, err := fsutil.ReadSecret(p.AgentToken(o.AgentID))
 	if err != nil {
 		return fmt.Errorf("no token for agent %s: %w", o.AgentID, err)
