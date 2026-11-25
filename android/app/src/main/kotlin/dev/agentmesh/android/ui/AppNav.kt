@@ -2,9 +2,13 @@ package dev.agentmesh.android.ui
 
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.navArgument
+import dev.agentmesh.android.notify.Tab
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.agentmesh.android.ui.settings.DeviceSettingsScreen
@@ -17,14 +21,14 @@ object Routes {
     const val HOST = "host/{id}"
     const val LOG = "host/{id}/log"
     const val HOST_SETTINGS = "host/{id}/settings"
-    const val AGENT = "host/{id}/agent/{agent}"
+    const val AGENT = "host/{id}/agent/{agent}?tab={tab}"
     const val SETTINGS = "settings"
 
     fun host(id: String) = "host/$id"
     fun edit(id: String) = "host/$id/edit"
     fun log(id: String) = "host/$id/log"
     fun hostSettings(id: String) = "host/$id/settings"
-    fun agent(id: String, agent: String) = "host/$id/agent/$agent"
+    fun agent(id: String, agent: String, tab: Tab = Tab.Overview) = "host/$id/agent/$agent?tab=${tab.name}"
 }
 
 /** The app's screens. A deep link from a notification opens [Routes.agent]. */
@@ -32,6 +36,14 @@ object Routes {
 fun AppNav(nav: NavHostController = rememberNavController()) {
     val container = LocalContainer.current
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
+    // A tapped notification: the host, then the agent on top of it, so Back goes to the host.
+    val link by container.deepLink.collectAsStateWithLifecycleCompat()
+    LaunchedEffect(link) {
+        val l = link ?: return@LaunchedEffect
+        nav.navigate(Routes.host(l.hostId)) { popUpTo(Routes.HOSTS) }
+        nav.navigate(Routes.agent(l.hostId, l.agentId, l.tab))
+        container.deepLink.value = null
+    }
     NavHost(nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) {
             HostsScreen(
@@ -46,14 +58,20 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             val id = e.arguments!!.getString("id")!!
             val rt = runtimes[id]
             if (rt == null) Gone { nav.popBackStack() } else HostScreen(
-                rt, onBack = { nav.popBackStack() }, onAgent = { nav.navigate(Routes.agent(id, it)) },
+                rt, onBack = { nav.popBackStack() }, onAgent = { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) },
                 onLog = { nav.navigate(Routes.log(id)) }, onSettings = { nav.navigate(Routes.hostSettings(id)) },
             )
         }
         composable(Routes.LOG) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { LogScreen(it) { nav.popBackStack() } } }
         composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } }
-        composable(Routes.AGENT) { e ->
-            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!) { nav.popBackStack() } }
+        composable(
+            Routes.AGENT,
+            arguments = listOf(
+                navArgument("tab") { type = NavType.StringType; defaultValue = Tab.Overview.name },
+            ),
+        ) { e ->
+            val tab = runCatching { Tab.valueOf(e.arguments?.getString("tab").orEmpty()) }.getOrDefault(Tab.Overview)
+            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab) }
         }
     }
 }

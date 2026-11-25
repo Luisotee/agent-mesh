@@ -177,3 +177,19 @@ fun flatten(trees: List<RunTree>, expanded: (Run) -> Boolean): List<Row> {
     }
     return rows
 }
+
+/** The messages an agent sent or was sent, oldest first. */
+fun messagesOf(messages: Map<String, Message>, agentId: String): List<Message> =
+    messages.values.filter { it.toId == agentId || it.from.id == agentId }.sortedWith(MessageOrder)
+
+fun messageLabel(type: MessageType): String = when (type) {
+    MessageType.MESSAGE_TYPE_TASK -> "Task"
+    MessageType.MESSAGE_TYPE_PLAN -> "Plan"
+    MessageType.MESSAGE_TYPE_QUESTION -> "Question"
+    MessageType.MESSAGE_TYPE_ANSWER -> "Answer"
+    MessageType.MESSAGE_TYPE_DONE -> "Report"
+    MessageType.MESSAGE_TYPE_FAILED -> "Failed"
+    MessageType.MESSAGE_TYPE_INFO -> "Info"
+    MessageType.MESSAGE_TYPE_WAIT -> "Waiting"
+    else -> "Message"
+}

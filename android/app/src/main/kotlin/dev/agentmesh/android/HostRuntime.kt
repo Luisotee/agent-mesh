@@ -1,6 +1,16 @@
 package dev.agentmesh.android
 
 import com.google.protobuf.Value
+import dev.agentmesh.android.notify.Notice
+import dev.agentmesh.android.notify.noticeFor
+import dev.agentmesh.android.store.MessageLoader
+import dev.agentmesh.android.store.mergeMessages
+import dev.agentmesh.gen.agentmesh.v1.AgentPhase
+import dev.agentmesh.gen.agentmesh.v1.Message
+import dev.agentmesh.gen.agentmesh.v1.MessageType
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import dev.agentmesh.android.hosts.Host
 import dev.agentmesh.android.hosts.HostRepository
 import dev.agentmesh.android.net.ApiException
@@ -51,6 +61,13 @@ class HostRuntime(
     private val route = AtomicInteger(0)
     @Volatile private var current: MeshApi? = null
 
+    private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** What just happened that the user may want to know: live events only (see [noticeFor]). */
+    val notices: SharedFlow<Notice> get() = _notices
+
+    private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log)
+
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs)
     private var watcher: Job? = null
 
@@ -82,7 +99,10 @@ class HostRuntime(
         connection.start()
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
-            _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect { loadSettings() }
+            _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect {
+                loader.load(_state.value.runs.values)
+                loadSettings()
+            }
         }
     }
 
@@ -117,6 +137,31 @@ class HostRuntime(
         _state.update { it.copy(settings = it.settings + (s.key to s)) }
     }
 
+    // ── What the user does: each is an action of the registry, and its stored message joins the state at once ──
+
+    private fun live(): MeshApi = current ?: throw IllegalStateException("Not connected to the host")
+
+    private fun stored(m: Message): Message {
+        _state.update { mergeMessages(it, listOf(m)) }
+        return m
+    }
+
+    suspend fun send(to: String, type: MessageType, body: String): Message = stored(live().sendMessage(to, type, body))
+
+    /**
+     * Approves an agent's plan. A planning worker moves to its execution model in the same conversation
+     * (`ApproveAgent`); anything else just gets the answer "approved".
+     */
+    suspend fun approve(agentId: String): Message {
+        val planning = _state.value.agents[agentId]?.phase == AgentPhase.AGENT_PHASE_PLANNING
+        return stored(if (planning) live().approveAgent(agentId) else live().sendMessage(agentId, MessageType.MESSAGE_TYPE_ANSWER, "approved"))
+    }
+
+    suspend fun requestChanges(agentId: String, text: String): Message =
+        send(agentId, MessageType.MESSAGE_TYPE_ANSWER, "changes: ${text.trim()}")
+
+    suspend fun answer(agentId: String, text: String): Message = send(agentId, MessageType.MESSAGE_TYPE_ANSWER, text.trim())
+
     // ── ConnectionSink ──
 
     override fun onState(state: ConnState) {
@@ -142,7 +187,13 @@ class HostRuntime(
         if (skew != null) _state.update { it.copy(clockSkewMs = skew) }
     }
 
-    override fun onFrame(frame: Frame) = _state.update { applyFrame(it, frame) }
+    override fun onFrame(frame: Frame) {
+        if (frame.hasEvent()) {
+            val s = _state.value
+            noticeFor(frame.event, s.agents, now(), s.clockSkewMs)?.let { _notices.tryEmit(it) }
+        }
+        _state.update { applyFrame(it, frame) }
+    }
 
     override fun cursor(): Cursor? = _state.value.cursor
 

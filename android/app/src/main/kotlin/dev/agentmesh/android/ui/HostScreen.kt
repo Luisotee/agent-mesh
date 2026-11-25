@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.AgentRow
+import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.derive.RunRow
 import dev.agentmesh.android.derive.Waiting
 import dev.agentmesh.android.derive.WaitingKind
@@ -54,7 +55,7 @@ import dev.agentmesh.gen.agentmesh.v1.RunStatus
 /** A host's home: its connection, what waits on the user, and each run as a tree from its lead. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String) -> Unit, onLog: () -> Unit, onSettings: () -> Unit) {
+fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) -> Unit, onLog: () -> Unit, onSettings: () -> Unit) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val trees = remember(state.runs, state.agents) { buildTrees(state.runs, state.agents) }
     val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages) }
@@ -74,7 +75,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String) -> Un
                 if (waiting.isNotEmpty()) {
                     item(key = "waiting-header") { SectionHeader("Waiting on you (${waiting.size})") }
                     items(waiting, key = { "wait:${it.kind}:${it.message?.id ?: it.agent.id}" }, contentType = { "waiting" }) { w ->
-                        WaitingRow(w) { onAgent(w.agent.id) }
+                        WaitingRow(w) { onAgent(w.agent.id, if (w.kind == WaitingKind.Input) Tab.Overview else Tab.Messages) }
                     }
                     item(key = "waiting-divider") { HorizontalDivider(Modifier.padding(top = 8.dp)) }
                 }
@@ -89,7 +90,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String) -> Un
                             val id = row.run.id
                             flipped = if (id in flipped) flipped - id else flipped + id
                         }
-                        is AgentRow -> AgentLine(row) { onAgent(row.agent.id) }
+                        is AgentRow -> AgentLine(row) { onAgent(row.agent.id, Tab.Overview) }
                     }
                 }
             }

@@ -44,6 +44,8 @@ fun DeviceSettingsScreen(onBack: () -> Unit) {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            item { SectionHeader("Notifications") }
+            item { NotificationSettings() }
             item { SectionHeader("Theme") }
             item { ThemeRow(ThemeStore.SYSTEM, null, choice == ThemeStore.SYSTEM) { themes.choose(ThemeStore.SYSTEM) } }
             items(themes.available, key = { it.name }) { spec ->
@@ -65,6 +67,35 @@ private fun ThemeRow(name: String, spec: dev.agentmesh.android.theme.ThemeSpec?,
                     Box(Modifier.padding(start = 4.dp).size(16.dp).clip(CircleShape).background(it).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NotificationSettings() {
+    val container = LocalContainer.current
+    val background by container.prefs.background.collectAsStateWithLifecycleCompat()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val allowed = container.notifier.allowed()
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text("Stay connected in the background")
+            Text(
+                "Keeps your hosts connected so plans, questions and reports notify you with the app closed. Shows a quiet notification while it does.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.material3.Switch(background, { container.prefs.setBackground(it); if (it && container.hosts.hosts.value.isNotEmpty()) dev.agentmesh.android.notify.ConnectionService.start(context) })
+    }
+    if (!allowed) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Notifications are blocked for this app.", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+            androidx.compose.material3.TextButton(onClick = {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }) { Text("Open settings") }
         }
     }
 }
