@@ -62,9 +62,15 @@ func (d *Daemon) getAgent(r store.Reader, id string) (*v1.Agent, error) {
 	return a, err
 }
 
+// noRun is a scope no run has: an agent with no run of its own reads nothing, not everything.
+const noRun = "\x00no-run"
+
 // runScope is the only run an agent may read; empty (any run) for a device.
 func runScope(actor *v1.Actor) string {
 	if actor != nil && IsAgent(actor.Class) {
+		if actor.RunId == "" {
+			return noRun
+		}
 		return actor.RunId
 	}
 	return ""
@@ -142,10 +148,17 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 		if title == "" {
 			title = "untitled"
 		}
-		run := &v1.Run{Id: ids.New("r", 6), Title: title, Status: v1.RunStatus_RUN_STATUS_OPEN,
-			CreatedAt: tsOf(t.Now()), CreatedBy: t.Actor}
-		if err := t.PutRun(run); err != nil {
-			return err
+		var run *v1.Run
+		for try := 0; ; try++ {
+			run = &v1.Run{Id: ids.New("r", 6), Title: title, Status: v1.RunStatus_RUN_STATUS_OPEN,
+				CreatedAt: tsOf(t.Now()), CreatedBy: t.Actor}
+			err := t.PutRun(run)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, store.ErrExists) || try == 5 {
+				return err
+			}
 		}
 		if _, err := t.AppendEvent(&v1.Event{RunId: run.Id,
 			Payload: &v1.Event_RunStarted{RunStarted: &v1.RunStarted{Run: run}}}); err != nil {
@@ -162,6 +175,9 @@ func (d *Daemon) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsR
 	r := d.store.Read(ctx)
 	if own := runScope(auth.ActorFrom(ctx)); own != "" {
 		run, err := r.GetRun(own)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, notFound("no run %s", own)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +218,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		return nil, invalid("no message type given")
 	}
 	out := &v1.SendMessageResponse{}
-	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
 		var to *v1.Agent
 		var err error
@@ -249,7 +265,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if err != nil {
 		return nil, err
 	}
-	if d.notify != nil {
+	if d.notify != nil && !replayed {
 		d.notify(out.Message.ToId)
 	}
 	return connect.NewResponse(out), nil

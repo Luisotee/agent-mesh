@@ -454,3 +454,73 @@ func TestAnAgentReadsOnlyItsOwnRun(t *testing.T) {
 		t.Errorf("snapshot %v", snap)
 	}
 }
+
+func TestARevokedDeviceTokenGetsANewOneOnTheNextStart(t *testing.T) {
+	h := start(t, "")
+	state := h.state
+	old, _ := client.Token(state)
+	if err := h.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.RevokeTokens("device-local")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.stop()
+	h2 := start(t, state)
+	fresh, err := client.Token(state)
+	if err != nil || fresh == old {
+		t.Fatalf("token after the revoked one: %q, %v", fresh, err)
+	}
+	if _, err := h2.device.Mesh.Hello(context.Background(), connect.NewRequest(&v1.HelloRequest{})); err != nil {
+		t.Errorf("the new token: %v", err)
+	}
+	if _, err := h2.as(old).Hello(context.Background(), connect.NewRequest(&v1.HelloRequest{})); code(err) != connect.CodeUnauthenticated {
+		t.Errorf("the revoked token: %v", err)
+	}
+}
+
+func TestAnAgentTokenWithoutARunIsRefusedAndReadsNothing(t *testing.T) {
+	h := start(t, "")
+	err := h.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutToken("x", store.TokenRecord{Class: v1.ActorClass_ACTOR_CLASS_WORKER, SubjectID: "a1"})
+	})
+	if err == nil {
+		t.Error("a worker token with no run was stored")
+	}
+	// Were one stored anyway (an actor with no run), it reads no run rather than every run.
+	startRun(t, h.device.Mesh, "")
+	actor := &v1.Actor{Class: v1.ActorClass_ACTOR_CLASS_WORKER, Id: "a1"}
+	ctx := auth.WithActor(context.Background(), actor)
+	res, err := h.d.ListRuns(ctx, connect.NewRequest(&v1.ListRunsRequest{All: true}))
+	if code(err) != connect.CodeNotFound || res != nil {
+		t.Errorf("runs of an agent with no run: %v, %v", res, err)
+	}
+}
+
+func TestAReplayedMessageRingsNoSecondDoorbell(t *testing.T) {
+	h := start(t, "")
+	var rung []string
+	h.d.SetNotify(func(id string) { rung = append(rung, id) })
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, "a1", "repo-fix", "", v1.AgentRole_AGENT_ROLE_WORKER)
+	req := &v1.SendMessageRequest{Meta: meta("m-1"), To: "a1", Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "go"}
+	for i := 0; i < 2; i++ {
+		if _, err := h.device.Mesh.SendMessage(context.Background(), connect.NewRequest(proto.Clone(req).(*v1.SendMessageRequest))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(rung) != 1 {
+		t.Errorf("doorbells rung for one message sent twice: %v", rung)
+	}
+}
+
+func TestATooLongStateDirIsAClearError(t *testing.T) {
+	long := filepath.Join(t.TempDir(), strings.Repeat("d", 120))
+	d, err := daemon.New(daemon.Config{StateDir: long, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Serve(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "shorter --state") {
+		t.Errorf("serve in a long state dir: %v", err)
+	}
+}

@@ -29,14 +29,16 @@ cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitign
 
 ## Running a dev instance
 
-Always give it a state dir of its own: meshd has no default, so it can't land in a real one by accident.
+Always give it a state dir of its own: meshd has no default, so it can't land in a real one by accident. A unix socket path holds about 107 bytes, so keep the state dir path short: meshd refuses to start with a longer one.
 
 ```bash
 state=$(mktemp -d)
 daemon/bin/meshd --state "$state"            # socket at $state/meshd.sock, device token at $state/device.token
 ```
 
-Every call needs a token. The host's own CLI uses the device token meshd writes on first start (`device.token`, mode 0600); each agent gets its own at spawn, in `AGENT_MESH_TOKEN`. The actor of every action comes from the token, never from the request. Requests that carry a browser's `Origin` or `Sec-Fetch-Site` header are refused, and `--tcp` binds loopback only.
+Every call needs a token. The host's own CLI uses the device token meshd writes on first start (`device.token`, mode 0600); each agent gets its own at spawn, in `AGENT_MESH_TOKEN`. The actor of every action comes from the token, never from the request. Requests that carry a browser's `Origin` or `Sec-Fetch-Site` header are refused, and `--tcp` binds loopback only. A token of an agent names its run and reads only that run; a token without one is not stored.
+
+A run is one trust domain for events for now: every agent of a run receives its run's events, so a reviewer or asker sees the bodies of the `MessageSent` events between the run's other agents, though it can send only to its parent and children. `TODO.md` tracks revisiting it.
 
 ## Protocol notes
 

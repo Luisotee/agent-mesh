@@ -214,3 +214,36 @@ func TestAPathWithURICharactersOpensThatFileInWAL(t *testing.T) {
 		t.Errorf("file %v, journal_mode %q", err, mode)
 	}
 }
+
+func TestPutRunNeverOverwritesAndAWriterPanicLeavesNoOpenTransaction(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	now := timestamppb.New(fixed)
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.PutRun(&v1.Run{Id: "r1", Title: "first", CreatedAt: now})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.PutRun(&v1.Run{Id: "r1", Title: "second", CreatedAt: now})
+	})
+	if !errors.Is(err, ErrExists) {
+		t.Errorf("second create: %v", err)
+	}
+	if run, _ := s.Read(ctx).GetRun("r1"); run.Title != "first" {
+		t.Errorf("the run was overwritten: %v", run)
+	}
+	func() {
+		defer func() { recover() }()
+		s.Write(ctx, nil, "", func(tx *Tx) error {
+			tx.PutRun(&v1.Run{Id: "r2", CreatedAt: now})
+			panic("boom")
+		})
+	}()
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error { return tx.PutRun(&v1.Run{Id: "r3", CreatedAt: now}) }); err != nil {
+		t.Errorf("a write after a panicked one: %v", err)
+	}
+	if _, err := s.Read(ctx).GetRun("r2"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the panicked write's run: %v", err)
+	}
+}

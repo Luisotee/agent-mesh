@@ -57,7 +57,7 @@ func OpenAt(path string, now func() time.Time) (*Store, error) {
 	uriPath := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
 	dsn := func(lock string) string {
 		return "file:" + uriPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)" +
-			"&_pragma=synchronous(NORMAL)&_txlock=" + lock
+			"&_pragma=synchronous(FULL)&_txlock=" + lock
 	}
 	w, err := sql.Open("sqlite", dsn("immediate"))
 	if err != nil {
@@ -240,9 +240,10 @@ func (s *Store) Write(ctx context.Context, actor *v1.Actor, mutationID string, f
 	if err != nil {
 		return err
 	}
+	// A no-op once committed; a panic in fn leaves no open transaction on the one writer connection.
+	defer sqlTx.Rollback()
 	t := &Tx{Reader: Reader{q: sqlTx, ctx: ctx}, tx: sqlTx, s: s, now: s.now(), Actor: actor, MutationID: mutationID}
 	if err := fn(t); err != nil {
-		sqlTx.Rollback()
 		return err
 	}
 	if err := sqlTx.Commit(); err != nil {
@@ -343,15 +344,23 @@ func scanOne[T proto.Message](r Reader, query string, args []any, m T) (T, error
 
 // ── runs ──
 
-// PutRun inserts or replaces a run.
+// ErrExists is a create that found its row already there.
+var ErrExists = errors.New("already exists")
+
+// PutRun creates a run; a run with that id already there is ErrExists, never overwritten.
 func (t *Tx) PutRun(run *v1.Run) error {
 	b, err := proto.Marshal(run)
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO runs (id, status, created_at, data) VALUES (?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET status = excluded.status, data = excluded.data`,
-		run.Id, int32(run.Status), run.CreatedAt.AsTime().UnixNano(), b)
+	res, err := t.tx.ExecContext(t.ctx, `INSERT INTO runs (id, status, created_at, data) VALUES (?, ?, ?, ?)
+		ON CONFLICT (id) DO NOTHING`, run.Id, int32(run.Status), run.CreatedAt.AsTime().UnixNano(), b)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrExists
+	}
 	return err
 }
 
@@ -467,8 +476,15 @@ type TokenRecord struct {
 	RunID     string
 }
 
-// PutToken stores a token's hash.
+// PutToken stores a token's hash. A token of an agent class names its run: without one it would read every run.
 func (t *Tx) PutToken(hash string, rec TokenRecord) error {
+	switch rec.Class {
+	case v1.ActorClass_ACTOR_CLASS_ROOT, v1.ActorClass_ACTOR_CLASS_WORKER,
+		v1.ActorClass_ACTOR_CLASS_ASKER, v1.ActorClass_ACTOR_CLASS_REVIEWER:
+		if rec.RunID == "" {
+			return errors.New("a token for an agent needs a run id")
+		}
+	}
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO tokens (hash, class, subject_id, name, run_id, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`, hash, int32(rec.Class), rec.SubjectID, rec.Name, rec.RunID, nanos(t.now))
 	return err
@@ -479,6 +495,13 @@ func (t *Tx) RevokeTokens(subjectID string) error {
 	_, err := t.tx.ExecContext(t.ctx, `UPDATE tokens SET revoked_at = ? WHERE subject_id = ? AND revoked_at IS NULL`,
 		nanos(t.now), subjectID)
 	return err
+}
+
+// TokenKnown reports whether a hash is stored at all, revoked or not.
+func (r Reader) TokenKnown(hash string) (bool, error) {
+	var n int
+	err := r.q.QueryRowContext(r.ctx, `SELECT COUNT(*) FROM tokens WHERE hash = ?`, hash).Scan(&n)
+	return n > 0, err
 }
 
 // Token resolves a token hash; revoked tokens are ErrNotFound.

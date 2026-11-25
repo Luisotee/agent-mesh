@@ -173,6 +173,10 @@ func (d *Daemon) loadDaemonID() (string, error) {
 	return id, fsutil.WriteAtomic(d.paths.DaemonID(), []byte(id), 0o600)
 }
 
+// maxSocketPath is what sockaddr_un.sun_path holds on Linux (108 with its NUL); a longer one fails with
+// the same bare "invalid argument".
+const maxSocketPath = 107
+
 // The host's own device: the CLI the user runs on this machine.
 const localDeviceID, localDeviceName = "device-local", "local"
 
@@ -192,6 +196,15 @@ func (d *Daemon) ensureDeviceToken(ctx context.Context) error {
 		return nil
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
+	}
+	// A token that is stored but revoked stays revoked: the device gets a new one, not its old hash back.
+	if known, err := d.store.Read(ctx).TokenKnown(auth.Hash(tok)); err != nil {
+		return err
+	} else if known {
+		tok = auth.NewToken()
+		if err := fsutil.WriteAtomic(d.paths.DeviceToken(), []byte(tok+"\n"), 0o600); err != nil {
+			return err
+		}
 	}
 	return d.store.Write(ctx, nil, "", func(t *store.Tx) error {
 		return t.PutToken(auth.Hash(tok), store.TokenRecord{Class: v1.ActorClass_ACTOR_CLASS_DEVICE,
@@ -258,6 +271,10 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	defer d.close()
 	d.startedAt = d.now()
 	sock := d.paths.Socket()
+	if len(sock) > maxSocketPath {
+		return fmt.Errorf("the socket path %s is %d bytes, over the %d a unix socket takes: use a shorter --state directory",
+			sock, len(sock), maxSocketPath)
+	}
 	// We hold the lock, so a socket file left here belongs to a dead daemon.
 	if err := os.Remove(sock); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
