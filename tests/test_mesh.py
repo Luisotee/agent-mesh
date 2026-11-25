@@ -3642,7 +3642,7 @@ def test_status_says_a_done_changed_nothing(mesh, fake, run, repo, capsys):
 
 
 def test_log_prints_a_timeline(mesh, fake, run, capsys):
-    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan): research…\n\n# Fix the typo in README")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", f"{mesh.DIRECT_PREFIX}\n\n# Fix the typo in README")
     mesh.log_event(run, "nudge", name="repo-fix-typo", received=1)
     mesh.log_event(run, "swap", name="other", model="opus", effort="medium", why="approved", bg_id=None)
     capsys.readouterr()
@@ -7855,6 +7855,8 @@ def test_the_compaction_focus_skips_the_prefixes(mesh):
     assert mesh.task_gist(f"{mesh.ASK_PREFIX}\n\nHow is restockedAt computed?") == "How is restockedAt computed?"
     assert mesh.task_gist("Apply the review.\nDetails…") == "Apply the review."
     assert mesh.task_gist(None) == ""
+    assert mesh.task_gist("Direct task: push #114 with --force-with-lease\nthen report") == "push #114 with --force-with-lease"
+    assert mesh.task_gist("Direct task (no plan)\n\nFix it.") == "Fix it."
 
 
 def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):

@@ -9197,7 +9197,11 @@ def task_gist(task: str | None, limit: int = 160) -> str:
     """The line that says what a task is: the first one past the standard prefixes, without a heading's `#`."""
     for paragraph in re.split(r"\n\s*\n", task or ""):
         paragraph = paragraph.strip()
-        if not paragraph or standard_start(paragraph):
+        if paragraph.startswith(DIRECT_PREFIX) or (standard_start(paragraph) and not direct_task(paragraph)):
+            continue
+        if direct_task(paragraph):  # a root's own `Direct task: <the task>`: the task is what follows
+            paragraph = re.sub(r"^Direct task(?:\s*\(no plan\))?[\s:.\-]*", "", paragraph)
+        if not paragraph:
             continue
         line = first_line(paragraph.lstrip("#").strip())
         if line:
