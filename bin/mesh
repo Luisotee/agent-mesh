@@ -7439,7 +7439,8 @@ def sent_message(transcript: str | None, address: str, since: float) -> bool | N
             continue
         record = json_object(line)
         content = (record.get("message") or {}).get("content") if isinstance(record.get("message"), dict) else None
-        if epoch(record.get("timestamp")) < since:
+        stamp = epoch(record.get("timestamp"))
+        if stamp and stamp < since:  # one with no readable time counts: it may be the one
             continue
         for block in content if isinstance(content, list) else ():
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "SendMessage" \
@@ -7883,6 +7884,12 @@ class Watch:
             return None  # read
         if any(e.get("event") in ("rung", "collected") and str(e.get("file")) == file for e in events):
             return None  # rung, or an answer a fan-out collects (it is stored and never rung)
+        native = next((e for e in reversed(events) if e.get("event") == "native" and str(e.get("file")) == file), None)
+        if native and native.get("address"):  # passed on by the worker's own SendMessage: the root is just busy
+            entry = agent_entry(load_run(self.run_id), self.name)
+            transcript = claude_transcript(entry, entry["session"]) if entry.get("session") else None
+            if sent_message(str(transcript) if transcript else None, native["address"], epoch(native.get("time"))):
+                return None
         self.lost_noted.add(file)
         return 0, (f"{self.name}'s {last['type']} has sat unread for {ago(age_seconds(last.get('time')))} and its "
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
@@ -13420,6 +13427,8 @@ def protocol_sections() -> dict[str, str]:
             out[f"root.{m.group(1)}"] = f"## Root, step {m.group(1)}\n\n{step.rstrip()}"
     if files["root-card"].exists():
         out["root-card"] = files["root-card"].read_text().rstrip()
+    if files["protocol"].exists():
+        out["protocol"] = files["protocol"].read_text().rstrip()  # reserved: all of PROTOCOL.md
     return out
 
 

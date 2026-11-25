@@ -291,3 +291,22 @@ def test_the_net_stays_quiet_for_a_rung_a_read_or_a_fresh_report(mesh, fake, run
     ask = mesh.Watch(run, "repo-fix-typo", 5, finals_at_start=0)  # `mesh ask` reads its reply itself
     native_report(mesh, run, "done")
     assert ask.report_event(mesh.read_log(run), True) is None
+
+
+def test_the_net_stays_quiet_when_the_workers_transcript_shows_its_send_message(mesh, fake, run, monkeypatch,
+                                                                               tmp_path):
+    path, message = native_report(mesh, run, "done", address="uds:/x/1.sock")
+    log = transcript(tmp_path, ("SendMessage", {"to": "uds:/x/1.sock", "message": message}))
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(session="s1", cwd=str(tmp_path))
+    monkeypatch.setattr(mesh, "claude_transcript", lambda entry, session: Path(log))
+    assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True) is None  # the root is only busy
+    monkeypatch.setattr(mesh, "claude_transcript", lambda entry, session: Path(transcript(tmp_path)))
+    assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True)[0] == 0  # no SendMessage: lost
+
+
+def test_a_send_message_record_with_no_readable_time_still_counts(mesh, tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "SendMessage", "input": {"to": "uds:/a"}}]}}) + "\n")
+    assert mesh.sent_message(str(path), "uds:/a", 1.0) is True
