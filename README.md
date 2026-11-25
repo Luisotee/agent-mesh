@@ -124,7 +124,8 @@ No server or database to install: one stdlib Python script, a few skills and a p
 Every worker and reviewer is a full Claude Code or agy session drawing on your own subscription, so a large task with two reviewers is three or more sessions. agent-mesh keeps that down:
 
 - **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan, on a light model; every PR is reviewed by its author first, then a small one by one cheap reviewer in one round.
-- **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold).
+- **Lean sessions:** Claude agents start without the tools, skills, plugins and MCP servers a mesh agent rarely needs (about 39k tokens that every call would re-read), with session flags only, never your settings; an agent that needs one adds it back with `mesh tools add`.
+- **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota once it is 90% used.
 - **`mesh cost`** shows what each agent of a run spent, by phase.

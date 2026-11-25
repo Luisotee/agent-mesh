@@ -175,14 +175,27 @@ Every turn of a follow-up re-reads the whole conversation, and one whose prompt 
 - the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
 - `--compact yes|no` forces it either way, and the `compact.*` settings ([Configuration](#configuration)) move the thresholds.
 
+Two more points compact a live Claude worker, with no resume: `mesh approve` compacts a big planner before reopening it for execution (over `compact.approve`, or `compact.approve_switch` when the execution model differs: a prompt cache is per model, so the new model writes the whole context anyway), in its own pane while its cache is warm; and a task or answer to a big worker that already reported `done` compacts it first (`compact.followup`, `compact.followup_cold`). Each logs a `compacted` event with the sizes before and after.
+
 ### The root's own context
 
 The root lives longest, and every turn re-reads its whole context: a twentieth of the input price while the prompt cache is warm, the cache-write price (2× the input price on the 1 h cache, 1.25× on the 5-minute one) for all but the system prompt's ~25k (cached across sessions) once the cache has expired (an hour on a Claude subscription within its plan usage, five minutes on usage credits or an API key; mesh reads which from the root's session file). So mesh measures the root too, and the root resets itself, without asking anyone:
 
 - root commands print a `mesh: root context 452k, cache cold since 14:02 …` line when a reset pays: over `root_reset.at` tokens with a cold cache, or when the root is about to wait on workers; over twice that while warm. `mesh status` shows the size and cache state in its header;
-- the root writes what the files can't hold to `$(mesh dir)/notes.md` (the user's standing instructions, decisions and why, what's next), runs `mesh reset --next "<what next>"` and ends its turn. A detached process waits until the turn has ended and the input box is empty (never over a draft), types `/clear` (or `/compact <focus>` with `--compact`) into the root's own pane, then a prompt that sends the fresh session to `mesh brief`;
+- the root writes what the files can't hold to `$(mesh dir)/notes.md` (the user's standing instructions, decisions and why, what's next), runs `mesh reset --next "<what next>"` and ends its turn. A detached process waits until the turn has ended and the input box is empty (never over a draft), restarts the root's Claude in its own pane with the lean flags ([Lean sessions](#lean-sessions); your launch flags are kept, a `/model` switched inside the session isn't), or types `/clear` where it can't (or `/compact <focus>` with `--compact`), then a prompt that sends the fresh session to `mesh brief`. A restart that fails starts your old session again;
 - `mesh brief` is one bounded view of the run for a fresh root: request, notes, board, each worker's state, what waits on it, PRs, unread mail headers and the old transcript's path, each part capped with a command for the rest;
-- the root's own `mesh watch` resets an idle root over the threshold with no unread report, warm or cold, once it has been quiet 5 minutes after a turn mesh started or 30 minutes after one you started (it may be waiting on you; it writes such a question into notes.md, and asks again after the reset). `root_reset.auto: false` turns it off.
+- the run's root keeper (a detached process root commands start) resets an idle root over the threshold with no unread report, warm or cold, once it has been quiet 5 minutes after a turn mesh started or 30 minutes after one you started (it may be waiting on you; it writes such a question into notes.md, and asks again after the reset). `root_reset.auto: false` turns it off.
+
+### Lean sessions
+
+A Claude agent's first call carried 60–70k tokens, about 39k of them tools, skills, plugins and MCP servers a mesh agent doesn't use, and every call re-reads them. So mesh starts every Claude worker, and the root at each reset, without them, with flags for that session only; your settings and your launch alias stay as they are:
+
+- tools by name (`claude.deny_tools`, the root's `claude.root_deny_tools`): Artifact, Workflow, SendFeedback, ScheduleWakeup, ListAgents, and for workers AskUserQuestion and EnterWorktree;
+- bundled skills hidden from the model's listing (`claude.skills_hidden`; for workers also the delegate and peer skills): you can still type them;
+- the skills synced from claude.ai, and the plugins in `claude.plugins_off`;
+- MCP servers other than the repo's own (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) and `claude.mcp_keep`, including claude.ai's connectors (`claude.mcp`).
+
+An agent that needs one back runs `mesh tools` (what it runs without) and `mesh tools add <name>… --next "<what next>"`, then ends its turn: mesh reopens the same conversation with it, which costs one cold cache write of its context. `claude.lean: false` turns all of it off. To start your root lean from its first turn too, launch it with the same flags, for example `claude --disallowedTools Artifact Workflow SendFeedback ScheduleWakeup ListAgents --settings ~/.config/agent-mesh-root.json --strict-mcp-config --mcp-config <your repo's servers>`, with `skillOverrides`, `syncClaudeAiSkills` and `enabledPlugins` in that settings file (design §11, "Lean sessions").
 
 ## How it works
 
@@ -398,8 +411,23 @@ This file reproduces the built-in policy, plus a `repos_dir`:
   "hang_after": 2400,
   "held_wait": 300,
   "side_panes": 3,
-  "compact": {"claude": 300000, "claude_cold": 200000, "agy": 100000},
-  "root_reset": {"at": 200000, "auto": true, "wait": 1800}
+  "compact": {"claude": 300000, "claude_cold": 200000, "agy": 100000,
+              "approve": 250000, "approve_switch": 200000, "followup": 250000, "followup_cold": 200000},
+  "root_reset": {"at": 200000, "auto": true, "wait": 1800, "relaunch": true},
+  "claude": {
+    "lean": true,
+    "deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion",
+                   "EnterWorktree"],
+    "root_deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents"],
+    "skills_hidden": ["dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
+                      "schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring",
+                      "keybindings-help", "fewer-permission-prompts", "claude-approvals", "update-config"],
+    "worker_skills_hidden": ["delegate-agy", "delegate-claude", "delegate-review", "find-peers", "harvest-peers"],
+    "claudeai_skills": false,
+    "plugins_off": ["pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"],
+    "mcp": "repo",
+    "mcp_keep": []
+  }
 }
 ```
 
@@ -415,8 +443,9 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 - **`min_free_mb`:** the MB of free memory plus swap under which mesh starts no agent; `"auto"` derives it from RAM and swap, `0` turns the guard off. See [Many agents on one machine](#many-agents-on-one-machine).
 - **`idle_retire`, `hang_after`, `held_wait`:** seconds: how long a worker idle after its report stays open before it's retired (`0` = never), how long a working worker's transcript may stay unchanged before the watch's exit 8 (`0` = never; `--hang` overrides it per watch), and how long `ask --peers` waits for a peer held at a startup screen.
 - **`side_panes`:** how many workers open beside the root before the rest go to the run's tab (`0`: all to the tab).
-- **`compact`:** the context tokens over which a resume compacts first (`--compact auto`): `claude` for a Claude conversation, `claude_cold` for one whose cache has gone cold, `agy` for agy.
-- **`root_reset`:** `at` is the root context in tokens past which mesh suggests `mesh reset` and the root's watch resets an idle root, `auto: false` turns that idle reset off, and `wait` is how many seconds a reset waits for the root's turn to end.
+- **`compact`:** the context tokens over which a resume compacts first (`--compact auto`): `claude` for a Claude conversation, `claude_cold` for one whose cache has gone cold, `agy` for agy. `approve` and `approve_switch`: over which `mesh approve` compacts a Claude planner before reopening it, when its execution model is the planning one and when it changes (the new model writes the whole context anyway, so it pays sooner). `followup` and `followup_cold`: over which a task or answer to a live Claude worker that already reported `done` compacts it first (warm or cold cache). `0` turns any of these four off.
+- **`root_reset`:** `at` is the root context in tokens past which mesh suggests `mesh reset` and the run's root keeper resets an idle root, `auto: false` turns that idle reset off, `wait` is how many seconds a reset waits for the root's turn to end, and `relaunch: false` makes a reset type `/clear` instead of restarting the root's Claude with the lean flags.
+- **`claude`:** lean Claude sessions (see [Lean sessions](#lean-sessions)). `lean: false` starts every agent with your full set of tools, skills, plugins and MCP servers. `deny_tools` / `root_deny_tools`: the tools a worker / the root starts without. `skills_hidden` (everyone) and `worker_skills_hidden` (workers only): skills left out of the model's listing (you can still type them). `claudeai_skills`: the skills synced from claude.ai. `plugins_off`: plugins turned off, by name. `mcp`: `repo` loads only the repo's own MCP servers (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) plus `mcp_keep`, `none` only `mcp_keep`, `inherit` whatever your config loads.
 
 Useful commands while a run is going:
 
@@ -444,6 +473,7 @@ mesh conflicts             # which run branches conflict with the default branch
 mesh watch --any [--alerts]  # one watchdog for every worker of the run
 mesh brief                 # (root) one bounded view of the run: what a fresh session needs
 mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear your own pane and resume from mesh brief
+mesh tools [add <name>… --next …]  # what your Claude session runs without; add some back (reopens it once your turn ends)
 ```
 
 ## The protocol in one screen
@@ -453,6 +483,7 @@ mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear
 - **`send_message`:** when `mesh send` prints one (a report to a root in bypass mode, or a message to a background worker launched before workers accepted cross-session messages, until it's retired and resumed), pass it on with `SendMessage`, exactly as printed.
 - **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt. Any worker is refused every `mesh` command but its own (`send` to its parent, `inbox`, `whoami`, `dir`, the readings).
 - **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
+- **Need a tool that was cut?** `mesh tools add <name> --next "<what next>"`, then end your turn: mesh reopens the same conversation with it (one cold cache write).
 - **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.
 - **Long text** goes in `--file` reports under the run directory, never inside the repo.
 - **Repo rules still apply:** the repo's own `CLAUDE.md` / `AGENTS.md` always apply. The mesh never names a tracker or a repo-specific process.
