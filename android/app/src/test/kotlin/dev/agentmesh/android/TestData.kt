@@ -1,0 +1,52 @@
+package dev.agentmesh.android
+
+import com.google.protobuf.Timestamp
+import dev.agentmesh.gen.agentmesh.v1.Actor
+import dev.agentmesh.gen.agentmesh.v1.ActorClass
+import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentExited
+import dev.agentmesh.gen.agentmesh.v1.AgentRole
+import dev.agentmesh.gen.agentmesh.v1.AgentSpawned
+import dev.agentmesh.gen.agentmesh.v1.AgentState
+import dev.agentmesh.gen.agentmesh.v1.AgentStateChanged
+import dev.agentmesh.gen.agentmesh.v1.Cursor
+import dev.agentmesh.gen.agentmesh.v1.Event
+import dev.agentmesh.gen.agentmesh.v1.Message
+import dev.agentmesh.gen.agentmesh.v1.MessageSent
+import dev.agentmesh.gen.agentmesh.v1.MessageType
+import dev.agentmesh.gen.agentmesh.v1.Run
+import dev.agentmesh.gen.agentmesh.v1.RunStarted
+import dev.agentmesh.gen.agentmesh.v1.RunStatus
+import dev.agentmesh.gen.agentmesh.v1.Snapshot
+import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse
+
+fun ts(ms: Long): Timestamp = Timestamp.newBuilder().setSeconds(ms / 1000).setNanos(((ms % 1000) * 1_000_000).toInt()).build()
+
+fun run(id: String, title: String = id, status: RunStatus = RunStatus.RUN_STATUS_OPEN, at: Long = 1_000): Run =
+    Run.newBuilder().setId(id).setTitle(title).setStatus(status).setCreatedAt(ts(at)).build()
+
+fun agent(
+    id: String, runId: String = "r1", role: AgentRole = AgentRole.AGENT_ROLE_WORKER, parent: String = "",
+    state: AgentState = AgentState.AGENT_STATE_IDLE, name: String = id, at: Long = 1_000, needsInput: Int = 0, detail: String = "",
+): Agent = Agent.newBuilder().setId(id).setRunId(runId).setName(name).setRole(role).setParentId(parent).setState(state)
+    .setNeedsInput(needsInput).setStateDetail(detail).setCreatedAt(ts(at)).setKind("claude").setRepo("/home/u/shop-api").build()
+
+fun message(id: String, runId: String = "r1", from: String, to: String, type: MessageType, body: String = "", at: Long = 1_000): Message =
+    Message.newBuilder().setId(id).setRunId(runId).setFrom(Actor.newBuilder().setClass_(ActorClass.ACTOR_CLASS_ROOT).setId(from)).setToId(to)
+        .setType(type).setBody(body).setCreatedAt(ts(at)).build()
+
+private const val GEN = "g1"
+
+fun snapshot(runs: List<Run>, agents: List<Agent>, seq: Long = 0): SubscribeEventsResponse = SubscribeEventsResponse.newBuilder()
+    .setSnapshot(Snapshot.newBuilder().addAllRuns(runs).addAllAgents(agents).setCursor(Cursor.newBuilder().setGeneration(GEN).setSeq(seq))).build()
+
+private fun ev(seq: Long, at: Long = 5_000, agentId: String = "", runId: String = "", block: Event.Builder.() -> Unit): SubscribeEventsResponse =
+    SubscribeEventsResponse.newBuilder().setEvent(Event.newBuilder().setSeq(seq).setGeneration(GEN).setTime(ts(at)).setAgentId(agentId).setRunId(runId).apply(block)).build()
+
+fun runStarted(seq: Long, r: Run) = ev(seq, runId = r.id) { setRunStarted(RunStarted.newBuilder().setRun(r)) }
+fun agentSpawned(seq: Long, a: Agent) = ev(seq, agentId = a.id, runId = a.runId) { setAgentSpawned(AgentSpawned.newBuilder().setAgent(a)) }
+fun stateChanged(seq: Long, agentId: String, from: AgentState, to: AgentState, detail: String = "", needs: Int = 0, at: Long = 5_000) =
+    ev(seq, at, agentId) { setAgentStateChanged(AgentStateChanged.newBuilder().setFrom(from).setTo(to).setDetail(detail).setNeedsInput(needs)) }
+fun exited(seq: Long, agentId: String, code: Int, reason: String = "exited") =
+    ev(seq, agentId = agentId) { setAgentExited(AgentExited.newBuilder().setExitCode(code).setReason(reason)) }
+fun messageSent(seq: Long, m: Message, at: Long = 5_000) = ev(seq, at, runId = m.runId) { setMessageSent(MessageSent.newBuilder().setMessage(m)) }

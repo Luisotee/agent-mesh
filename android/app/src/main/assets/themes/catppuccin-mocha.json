@@ -1,0 +1,42 @@
+{
+  "name": "Catppuccin Mocha",
+  "dark": true,
+  "tokens": {
+    "background": "#1e1e2e",
+    "foreground": "#cdd6f4",
+    "surface": "#181825",
+    "card": "#242438",
+    "popover": "#313244",
+    "muted": "#313244",
+    "muted-foreground": "#a6adc8",
+    "border": "#45475a",
+    "input": "#45475a",
+    "ring": "#cba6f7",
+    "primary": "#cba6f7",
+    "primary-foreground": "#11111b",
+    "secondary": "#45475a",
+    "secondary-foreground": "#cdd6f4",
+    "accent": "#3a3b52",
+    "accent-foreground": "#cdd6f4",
+    "destructive": "#f38ba8",
+    "destructive-foreground": "#11111b",
+    "state-working": "#89dceb",
+    "state-needs": "#fab387",
+    "state-idle": "#6c7086",
+    "state-done": "#a6e3a1",
+    "state-failed": "#f38ba8",
+    "state-unknown": "#f9e2af"
+  },
+  "terminal": {
+    "background": "#181825",
+    "foreground": "#cdd6f4",
+    "cursor": "#f5e0dc",
+    "selection": "#45475a",
+    "red": "#f38ba8",
+    "green": "#a6e3a1",
+    "yellow": "#f9e2af",
+    "blue": "#89b4fa",
+    "magenta": "#f5c2e7",
+    "cyan": "#94e2d5"
+  }
+}

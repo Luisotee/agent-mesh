@@ -1,0 +1,111 @@
+package dev.agentmesh.android.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import dev.agentmesh.android.HostRuntime
+import dev.agentmesh.android.derive.waitingOnYou
+import dev.agentmesh.android.hosts.Host
+import dev.agentmesh.android.store.ConnState
+import dev.agentmesh.gen.agentmesh.v1.RunStatus
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit, onSettings: () -> Unit) {
+    val container = LocalContainer.current
+    val hosts by container.hosts.hosts.collectAsStateWithLifecycleCompat()
+    val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
+    var removing by remember { mutableStateOf<Host?>(null) }
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("agent-mesh") }, actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } }) },
+        floatingActionButton = { FloatingActionButton(onClick = onAdd) { Icon(Icons.Default.Add, "Add a host") } },
+    ) { pad ->
+        if (hosts.isEmpty()) {
+            EmptyHosts(Modifier.padding(pad), onAdd)
+        } else {
+            LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+                items(hosts, key = { it.id }) { h ->
+                    HostRow(h, runtimes[h.id], onOpen = { onOpen(h.id) }, onEdit = { onEdit(h.id) }, onRemove = { removing = h })
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+    removing?.let { h ->
+        ConfirmDialog(
+            title = "Remove ${h.name}?",
+            text = "The app forgets this host and its token. The host and its agents are untouched.",
+            confirm = "Remove",
+            onConfirm = { container.hosts.remove(h.id); removing = null },
+            onDismiss = { removing = null },
+        )
+    }
+}
+
+@Composable
+private fun EmptyHosts(modifier: Modifier, onAdd: () -> Unit) {
+    Column(modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("No hosts yet", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "A host is a machine running meshd. Add one with its address and the device token from its state dir (device.token).",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp),
+        )
+        androidx.compose.material3.Button(onClick = onAdd) { Text("Add a host") }
+    }
+}
+
+@Composable
+private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdit: () -> Unit, onRemove: () -> Unit) {
+    val state by (runtime?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.agentmesh.android.store.HostState()) }).collectAsStateWithLifecycleCompat()
+    val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages).size }
+    val open = state.runs.values.count { it.status == RunStatus.RUN_STATUS_OPEN }
+    var menu by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        ConnDot(state.conn)
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            Text(host.name, style = MaterialTheme.typography.titleMedium)
+            Text(host.routes.firstOrNull()?.let(::routeLabel).orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val sentence = when (val c = state.conn) {
+                is ConnState.Ready -> if (state.synced) "$open open runs" + if (waiting > 0) ", $waiting waiting on you" else "" else "Syncing…"
+                else -> connSentence(c)
+            }
+            Text(sentence, style = MaterialTheme.typography.bodySmall, color = if (waiting > 0) stateColors.needs else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Column {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Host menu") }
+            DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
+                DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; onRemove() })
+            }
+        }
+    }
+}

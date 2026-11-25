@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# buf's local plugin entry: runs protoc-gen-connect-kotlin on the classpath `gen.sh` wrote from Gradle.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec java -cp "$(cat "$here/build/codegen/classpath.txt")" com.connectrpc.protocgen.connect.Main "$@"
