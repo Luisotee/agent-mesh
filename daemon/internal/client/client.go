@@ -15,8 +15,8 @@ import (
 
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
-	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
 // BaseURL is the URL clients use over the unix socket; the host part is ignored.
@@ -50,7 +50,7 @@ func Token(stateDir string) (string, error) {
 	if tok := os.Getenv(TokenEnv); tok != "" {
 		return tok, nil
 	}
-	tok, err := fsutil.ReadSecret(daemon.Paths{Dir: stateDir}.DeviceToken())
+	tok, err := fsutil.ReadSecret(statedir.Paths{Dir: stateDir}.DeviceToken())
 	if errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("no %s and no device token in %s: has meshd run there?", TokenEnv, stateDir)
 	}
@@ -70,8 +70,8 @@ func Dial(stateDir, token string, opts Options) (*Conn, error) {
 	if opts.DialTimeout == 0 {
 		opts.DialTimeout = 2 * time.Second
 	}
-	socket := daemon.Paths{Dir: stateDir}.Socket()
-	if info, err := daemon.ReadInfo(stateDir); err == nil && info.Socket != "" {
+	socket := statedir.Paths{Dir: stateDir}.Socket()
+	if info, err := statedir.ReadInfo(stateDir); err == nil && info.Socket != "" {
 		socket = info.Socket
 	}
 	hc := UnixHTTP(socket, opts.DialTimeout)

@@ -422,6 +422,36 @@ func (r Reader) ListAgents(runID string) ([]*v1.Agent, error) {
 		func() *v1.Agent { return &v1.Agent{} })
 }
 
+// DeleteAgent removes an agent that never ran (its launch failed), so its name can be used again. Its
+// events stay.
+func (t *Tx) DeleteAgent(id string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM agents WHERE id = ?`, id)
+	return err
+}
+
+// AgentsWithUndelivered lists the agents that have messages whose doorbell hasn't rung.
+func (r Reader) AgentsWithUndelivered() ([]string, error) {
+	rows, err := r.q.QueryContext(r.ctx, `SELECT DISTINCT to_id FROM messages WHERE delivered_at IS NULL AND read_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// AgentByTerminal returns the agent running in a terminal.
+func (r Reader) AgentByTerminal(terminalID string) (*v1.Agent, error) {
+	return scanOne(r, `SELECT data FROM agents WHERE terminal_id = ?`, []any{terminalID}, &v1.Agent{})
+}
+
 // AgentsWithTerminals returns every agent that has a terminal id, in any run.
 func (r Reader) AgentsWithTerminals() ([]*v1.Agent, error) {
 	return scanAll(r, `SELECT data FROM agents WHERE terminal_id != '' ORDER BY created_at, id`, nil,
@@ -449,6 +479,23 @@ func (t *Tx) PutMessage(m *v1.Message) error {
 		data = excluded.data`,
 		m.Id, m.RunId, m.ToId, m.CreatedAt.AsTime().UnixNano(), delivered, read, b)
 	return err
+}
+
+// MarkDelivered records that a message's doorbell reached its agent, on the row as it is now: a read time set
+// since the caller looked is kept. A message that is gone, or already marked, is left as it is.
+func (t *Tx) MarkDelivered(id string) error {
+	m, err := scanOne(t.Reader, `SELECT data FROM messages WHERE id = ?`, []any{id}, &v1.Message{})
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if m.DeliveredAt != nil {
+		return nil
+	}
+	m.DeliveredAt = timestamppb.New(t.now)
+	return t.PutMessage(m)
 }
 
 // Inbox returns an agent's messages, oldest first: unread ones, or all.
@@ -534,6 +581,17 @@ func (t *Tx) PutMutation(actorID, id, procedure string, response []byte) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO mutations (actor_id, id, procedure, response, created_at)
 		VALUES (?, ?, ?, ?, ?)`, actorID, id, procedure, response, nanos(t.now))
 	return err
+}
+
+// PruneMutations forgets applied writes: hook reports (`hook-` ids, two per tool call, retried only within
+// minutes) older than hookBefore, any other older than before. It returns how many rows went.
+func (t *Tx) PruneMutations(hookBefore, before time.Time) (int64, error) {
+	res, err := t.tx.ExecContext(t.ctx, `DELETE FROM mutations WHERE created_at < ? OR (id LIKE 'hook-%' AND created_at < ?)`,
+		nanos(before), nanos(hookBefore))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // ── meta ──

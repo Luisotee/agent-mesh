@@ -247,3 +247,63 @@ func TestPutRunNeverOverwritesAndAWriterPanicLeavesNoOpenTransaction(t *testing.
 		t.Errorf("the panicked write's run: %v", err)
 	}
 }
+
+func TestPruneMutationsKeepsRecentOnesAndForgetsOldHookOnes(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	old := fixed.Add(-48 * time.Hour)
+	write := func(at time.Time, ids ...string) {
+		s.now = func() time.Time { return at }
+		s.Write(ctx, nil, "", func(tx *Tx) error {
+			for _, id := range ids {
+				if err := tx.PutMutation("d1", id, "p", nil); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	write(old, "hook-old", "mine-old")
+	write(fixed, "hook-new", "mine-new")
+	s.Write(ctx, nil, "", func(tx *Tx) error {
+		n, err := tx.PruneMutations(fixed.Add(-24*time.Hour), fixed.Add(-14*24*time.Hour))
+		if err != nil || n != 1 {
+			t.Errorf("pruned %d, %v", n, err)
+		}
+		return nil
+	})
+	for id, want := range map[string]bool{"hook-old": false, "mine-old": true, "hook-new": true, "mine-new": true} {
+		if _, _, err := s.Read(ctx).Mutation("d1", id); (err == nil) != want {
+			t.Errorf("%s kept=%v, want %v", id, err == nil, want)
+		}
+	}
+}
+
+func TestMarkDeliveredKeepsAReadTimeSetSinceTheSnapshot(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	now := timestamppb.New(fixed)
+	s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.PutMessage(&v1.Message{Id: "m1", RunId: "r1", ToId: "a1", CreatedAt: now})
+	})
+	snapshot, _ := s.Read(ctx).Undelivered("a1")
+	// The agent reads its inbox between the snapshot and the delivery's write.
+	s.Write(ctx, nil, "", func(tx *Tx) error {
+		m := snapshot[0]
+		m.ReadAt = now
+		return tx.PutMessage(m)
+	})
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error { return tx.MarkDelivered("m1") }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error { return tx.MarkDelivered("gone") }); err != nil {
+		t.Errorf("a vanished message: %v", err)
+	}
+	all, _ := s.Read(ctx).Inbox("a1", true)
+	if len(all) != 1 || all[0].ReadAt == nil || all[0].DeliveredAt == nil {
+		t.Errorf("message after delivery: %v", all)
+	}
+	if unread, _ := s.Read(ctx).Inbox("a1", false); len(unread) != 0 {
+		t.Errorf("a read message turned unread: %v", unread)
+	}
+}

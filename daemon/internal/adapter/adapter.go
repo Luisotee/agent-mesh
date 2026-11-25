@@ -1,0 +1,80 @@
+// Package adapter holds the agent CLI adapters. An adapter is a CliAdapterService (the plugin interface in
+// proto/agentmesh/adapter/v1): the built-ins implement it in process, and a process plugin will serve the
+// same service from its own binary. The daemon knows CLIs only through it.
+package adapter
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"connectrpc.com/connect"
+
+	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
+)
+
+// Adapter is one CLI's adapter.
+type Adapter = adapterv1connect.CliAdapterServiceHandler
+
+// Registry is the adapters by kind.
+type Registry struct {
+	byKind map[string]Adapter
+	about  map[string]*adapterv1.DescribeResponse
+}
+
+// NewRegistry registers adapters under the kind each describes.
+func NewRegistry(ctx context.Context, adapters ...Adapter) (*Registry, error) {
+	r := &Registry{byKind: map[string]Adapter{}, about: map[string]*adapterv1.DescribeResponse{}}
+	for _, a := range adapters {
+		res, err := a.Describe(ctx, connect.NewRequest(&adapterv1.DescribeRequest{}))
+		if err != nil {
+			return nil, err
+		}
+		kind := res.Msg.Kind
+		if kind == "" {
+			return nil, fmt.Errorf("an adapter describes no kind")
+		}
+		if _, dup := r.byKind[kind]; dup {
+			return nil, fmt.Errorf("two adapters for %q", kind)
+		}
+		r.byKind[kind], r.about[kind] = a, res.Msg
+	}
+	return r, nil
+}
+
+// Get returns the adapter of a kind.
+func (r *Registry) Get(kind string) (Adapter, error) {
+	a, ok := r.byKind[kind]
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("no adapter for %q (have %s)", kind, strings.Join(r.Kinds(), ", ")))
+	}
+	return a, nil
+}
+
+// Kinds lists the registered kinds.
+func (r *Registry) Kinds() []string {
+	out := make([]string, 0, len(r.byKind))
+	for k := range r.byKind {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ShellQuote quotes argv for a POSIX shell, the way hook commands are run.
+func ShellQuote(argv ...string) string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if a != "" && strings.IndexFunc(a, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./=:,+@%", r))
+		}) < 0 {
+			out[i] = a
+			continue
+		}
+		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+	}
+	return strings.Join(out, " ")
+}
