@@ -908,8 +908,14 @@ func (x *SendMessageRequest) GetBody() string {
 }
 
 type SendMessageResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       *Message               `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Message *Message               `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	// The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+	Resumed *Reopen `protobuf:"bytes,2,opt,name=resumed,proto3" json:"resumed,omitempty"`
+	// Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+	// closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+	// resume.
+	ResumeError   string `protobuf:"bytes,3,opt,name=resume_error,json=resumeError,proto3" json:"resume_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -949,6 +955,20 @@ func (x *SendMessageResponse) GetMessage() *Message {
 		return x.Message
 	}
 	return nil
+}
+
+func (x *SendMessageResponse) GetResumed() *Reopen {
+	if x != nil {
+		return x.Resumed
+	}
+	return nil
+}
+
+func (x *SendMessageResponse) GetResumeError() string {
+	if x != nil {
+		return x.ResumeError
+	}
+	return ""
 }
 
 type ReadInboxRequest struct {
@@ -2511,6 +2531,704 @@ func (x *ResumeAgentResponse) GetReopen() *Reopen {
 	return nil
 }
 
+type CreatePairingRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// Optional label for the device (the redeeming app may override it).
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Issue a read-only device token when redeemed.
+	ReadOnly bool `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	// Lifetime in seconds (default 600, max 86400).
+	TtlSeconds int64 `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	// Optional direct HTTPS URL (`https://host:port`) to include in the pairing payload.
+	DirectUrl string `protobuf:"bytes,5,opt,name=direct_url,json=directUrl,proto3" json:"direct_url,omitempty"`
+	// Optional relay URL override; defaults to the daemon's configured relay URL.
+	RelayUrl      string `protobuf:"bytes,6,opt,name=relay_url,json=relayUrl,proto3" json:"relay_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreatePairingRequest) Reset() {
+	*x = CreatePairingRequest{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatePairingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatePairingRequest) ProtoMessage() {}
+
+func (x *CreatePairingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatePairingRequest.ProtoReflect.Descriptor instead.
+func (*CreatePairingRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CreatePairingRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *CreatePairingRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreatePairingRequest) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
+}
+
+func (x *CreatePairingRequest) GetTtlSeconds() int64 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
+}
+
+func (x *CreatePairingRequest) GetDirectUrl() string {
+	if x != nil {
+		return x.DirectUrl
+	}
+	return ""
+}
+
+func (x *CreatePairingRequest) GetRelayUrl() string {
+	if x != nil {
+		return x.RelayUrl
+	}
+	return ""
+}
+
+type CreatePairingResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	PairingId string                 `protobuf:"bytes,1,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
+	// One-time pairing token (`amp_...`).
+	Token    string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	HostId   string `protobuf:"bytes,3,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
+	HostName string `protobuf:"bytes,4,opt,name=host_name,json=hostName,proto3" json:"host_name,omitempty"`
+	// Canonical TLS leaf certificate fingerprint (`sha256:<64-hex>`).
+	CertFingerprint string `protobuf:"bytes,5,opt,name=cert_fingerprint,json=certFingerprint,proto3" json:"cert_fingerprint,omitempty"`
+	RelayUrl        string `protobuf:"bytes,6,opt,name=relay_url,json=relayUrl,proto3" json:"relay_url,omitempty"`
+	// Raw TCP client endpoint (`host:port`) on the relay, when configured.
+	RelayTcp string `protobuf:"bytes,7,opt,name=relay_tcp,json=relayTcp,proto3" json:"relay_tcp,omitempty"`
+	// Client relay auth token (`amr_...`) for this host, when relay is configured.
+	RelayClientToken string `protobuf:"bytes,8,opt,name=relay_client_token,json=relayClientToken,proto3" json:"relay_client_token,omitempty"`
+	DirectUrl        string `protobuf:"bytes,9,opt,name=direct_url,json=directUrl,proto3" json:"direct_url,omitempty"`
+	// Canonical `agentmesh://pair?...` URI for QR codes and pairing links.
+	Uri           string                 `protobuf:"bytes,10,opt,name=uri,proto3" json:"uri,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreatePairingResponse) Reset() {
+	*x = CreatePairingResponse{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatePairingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatePairingResponse) ProtoMessage() {}
+
+func (x *CreatePairingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatePairingResponse.ProtoReflect.Descriptor instead.
+func (*CreatePairingResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *CreatePairingResponse) GetPairingId() string {
+	if x != nil {
+		return x.PairingId
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetHostId() string {
+	if x != nil {
+		return x.HostId
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetHostName() string {
+	if x != nil {
+		return x.HostName
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetCertFingerprint() string {
+	if x != nil {
+		return x.CertFingerprint
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetRelayUrl() string {
+	if x != nil {
+		return x.RelayUrl
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetRelayTcp() string {
+	if x != nil {
+		return x.RelayTcp
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetRelayClientToken() string {
+	if x != nil {
+		return x.RelayClientToken
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetDirectUrl() string {
+	if x != nil {
+		return x.DirectUrl
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetUri() string {
+	if x != nil {
+		return x.Uri
+	}
+	return ""
+}
+
+func (x *CreatePairingResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+type ListDevicesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IncludeRevoked bool                   `protobuf:"varint,1,opt,name=include_revoked,json=includeRevoked,proto3" json:"include_revoked,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListDevicesRequest) Reset() {
+	*x = ListDevicesRequest{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDevicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDevicesRequest) ProtoMessage() {}
+
+func (x *ListDevicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDevicesRequest.ProtoReflect.Descriptor instead.
+func (*ListDevicesRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ListDevicesRequest) GetIncludeRevoked() bool {
+	if x != nil {
+		return x.IncludeRevoked
+	}
+	return false
+}
+
+type ListDevicesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Devices       []*Device              `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDevicesResponse) Reset() {
+	*x = ListDevicesResponse{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDevicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDevicesResponse) ProtoMessage() {}
+
+func (x *ListDevicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDevicesResponse.ProtoReflect.Descriptor instead.
+func (*ListDevicesResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ListDevicesResponse) GetDevices() []*Device {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+type RevokeDeviceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Meta          *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceRequest) Reset() {
+	*x = RevokeDeviceRequest{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceRequest) ProtoMessage() {}
+
+func (x *RevokeDeviceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceRequest.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *RevokeDeviceRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *RevokeDeviceRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type RevokeDeviceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Device        *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceResponse) Reset() {
+	*x = RevokeDeviceResponse{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceResponse) ProtoMessage() {}
+
+func (x *RevokeDeviceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceResponse.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *RevokeDeviceResponse) GetDevice() *Device {
+	if x != nil {
+		return x.Device
+	}
+	return nil
+}
+
+type RetireAgentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Meta          *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	Agent         string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetireAgentRequest) Reset() {
+	*x = RetireAgentRequest{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetireAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetireAgentRequest) ProtoMessage() {}
+
+func (x *RetireAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetireAgentRequest.ProtoReflect.Descriptor instead.
+func (*RetireAgentRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RetireAgentRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *RetireAgentRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+type RetireAgentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Agent         *Agent                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetireAgentResponse) Reset() {
+	*x = RetireAgentResponse{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetireAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetireAgentResponse) ProtoMessage() {}
+
+func (x *RetireAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetireAgentResponse.ProtoReflect.Descriptor instead.
+func (*RetireAgentResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *RetireAgentResponse) GetAgent() *Agent {
+	if x != nil {
+		return x.Agent
+	}
+	return nil
+}
+
+type StopRunRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Meta          *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopRunRequest) Reset() {
+	*x = StopRunRequest{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopRunRequest) ProtoMessage() {}
+
+func (x *StopRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopRunRequest.ProtoReflect.Descriptor instead.
+func (*StopRunRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *StopRunRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *StopRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+type StopRunResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Run   *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	// The agents this call retired (those already stopped are not listed).
+	Retired []string `protobuf:"bytes,2,rep,name=retired,proto3" json:"retired,omitempty"`
+	// What became of each agent's worktree.
+	Worktrees     []*WorktreeOutcome `protobuf:"bytes,3,rep,name=worktrees,proto3" json:"worktrees,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopRunResponse) Reset() {
+	*x = StopRunResponse{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopRunResponse) ProtoMessage() {}
+
+func (x *StopRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopRunResponse.ProtoReflect.Descriptor instead.
+func (*StopRunResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *StopRunResponse) GetRun() *Run {
+	if x != nil {
+		return x.Run
+	}
+	return nil
+}
+
+func (x *StopRunResponse) GetRetired() []string {
+	if x != nil {
+		return x.Retired
+	}
+	return nil
+}
+
+func (x *StopRunResponse) GetWorktrees() []*WorktreeOutcome {
+	if x != nil {
+		return x.Worktrees
+	}
+	return nil
+}
+
+type WorktreeOutcome struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AgentId         string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Worktree        string                 `protobuf:"bytes,2,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	Branch          string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	WorktreeRemoved bool                   `protobuf:"varint,4,opt,name=worktree_removed,json=worktreeRemoved,proto3" json:"worktree_removed,omitempty"`
+	// The branch moved past its start or was pushed (a remote branch of its name), or its worktree stayed: it is kept.
+	BranchKept bool `protobuf:"varint,5,opt,name=branch_kept,json=branchKept,proto3" json:"branch_kept,omitempty"`
+	// Why a worktree or branch stayed.
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorktreeOutcome) Reset() {
+	*x = WorktreeOutcome{}
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorktreeOutcome) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorktreeOutcome) ProtoMessage() {}
+
+func (x *WorktreeOutcome) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_mesh_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorktreeOutcome.ProtoReflect.Descriptor instead.
+func (*WorktreeOutcome) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *WorktreeOutcome) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *WorktreeOutcome) GetWorktree() string {
+	if x != nil {
+		return x.Worktree
+	}
+	return ""
+}
+
+func (x *WorktreeOutcome) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *WorktreeOutcome) GetWorktreeRemoved() bool {
+	if x != nil {
+		return x.WorktreeRemoved
+	}
+	return false
+}
+
+func (x *WorktreeOutcome) GetBranchKept() bool {
+	if x != nil {
+		return x.BranchKept
+	}
+	return false
+}
+
+func (x *WorktreeOutcome) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_agentmesh_v1_mesh_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_mesh_proto_rawDesc = "" +
@@ -2574,9 +3292,11 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12-\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x19.agentmesh.v1.MessageTypeR\x04type\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\"F\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\"\x99\x01\n" +
 	"\x13SendMessageResponse\x12/\n" +
-	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\"g\n" +
+	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12.\n" +
+	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\x12!\n" +
+	"\fresume_error\x18\x03 \x01(\tR\vresumeError\"g\n" +
 	"\x10ReadInboxRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04peek\x18\x02 \x01(\bR\x04peek\x12\x10\n" +
@@ -2678,7 +3398,61 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x13ResumeAgentResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\x12/\n" +
 	"\amessage\x18\x02 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12,\n" +
-	"\x06reopen\x18\x03 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen2\x87\x14\n" +
+	"\x06reopen\x18\x03 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen\"\xd3\x01\n" +
+	"\x14CreatePairingRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x1f\n" +
+	"\vttl_seconds\x18\x04 \x01(\x03R\n" +
+	"ttlSeconds\x12\x1d\n" +
+	"\n" +
+	"direct_url\x18\x05 \x01(\tR\tdirectUrl\x12\x1b\n" +
+	"\trelay_url\x18\x06 \x01(\tR\brelayUrl\"\x81\x03\n" +
+	"\x15CreatePairingResponse\x12\x1d\n" +
+	"\n" +
+	"pairing_id\x18\x01 \x01(\tR\tpairingId\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x17\n" +
+	"\ahost_id\x18\x03 \x01(\tR\x06hostId\x12\x1b\n" +
+	"\thost_name\x18\x04 \x01(\tR\bhostName\x12)\n" +
+	"\x10cert_fingerprint\x18\x05 \x01(\tR\x0fcertFingerprint\x12\x1b\n" +
+	"\trelay_url\x18\x06 \x01(\tR\brelayUrl\x12\x1b\n" +
+	"\trelay_tcp\x18\a \x01(\tR\brelayTcp\x12,\n" +
+	"\x12relay_client_token\x18\b \x01(\tR\x10relayClientToken\x12\x1d\n" +
+	"\n" +
+	"direct_url\x18\t \x01(\tR\tdirectUrl\x12\x10\n" +
+	"\x03uri\x18\n" +
+	" \x01(\tR\x03uri\x129\n" +
+	"\n" +
+	"expires_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"=\n" +
+	"\x12ListDevicesRequest\x12'\n" +
+	"\x0finclude_revoked\x18\x01 \x01(\bR\x0eincludeRevoked\"E\n" +
+	"\x13ListDevicesResponse\x12.\n" +
+	"\adevices\x18\x01 \x03(\v2\x14.agentmesh.v1.DeviceR\adevices\"a\n" +
+	"\x13RevokeDeviceRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"D\n" +
+	"\x14RevokeDeviceResponse\x12,\n" +
+	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\"Y\n" +
+	"\x12RetireAgentRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\"@\n" +
+	"\x13RetireAgentResponse\x12)\n" +
+	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"V\n" +
+	"\x0eStopRunRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\x8d\x01\n" +
+	"\x0fStopRunResponse\x12#\n" +
+	"\x03run\x18\x01 \x01(\v2\x11.agentmesh.v1.RunR\x03run\x12\x18\n" +
+	"\aretired\x18\x02 \x03(\tR\aretired\x12;\n" +
+	"\tworktrees\x18\x03 \x03(\v2\x1d.agentmesh.v1.WorktreeOutcomeR\tworktrees\"\xc4\x01\n" +
+	"\x0fWorktreeOutcome\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1a\n" +
+	"\bworktree\x18\x02 \x01(\tR\bworktree\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12)\n" +
+	"\x10worktree_removed\x18\x04 \x01(\bR\x0fworktreeRemoved\x12\x1f\n" +
+	"\vbranch_kept\x18\x05 \x01(\bR\n" +
+	"branchKept\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason2\xe8\x19\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -2701,7 +3475,11 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\vSwitchAgent\x12 .agentmesh.v1.SwitchAgentRequest\x1a!.agentmesh.v1.SwitchAgentResponse\"M\x8a\xb5\x18I\n" +
 	"\x03\x01\x02\x05\x10\x01\x1a\x06switch\"8Move an agent to another model, keeping its conversation\x12\x8e\x01\n" +
 	"\vResumeAgent\x12 .agentmesh.v1.ResumeAgentRequest\x1a!.agentmesh.v1.ResumeAgentResponse\":\x8a\xb5\x186\n" +
-	"\x03\x01\x02\x05\x10\x01\x1a\x06resume\"%Resume a stopped agent's conversation\x12\x83\x01\n" +
+	"\x03\x01\x02\x05\x10\x01\x1a\x06resume\"%Resume a stopped agent's conversation\x12\xa1\x01\n" +
+	"\vRetireAgent\x12 .agentmesh.v1.RetireAgentRequest\x1a!.agentmesh.v1.RetireAgentResponse\"M\x8a\xb5\x18I\n" +
+	"\x03\x01\x02\x05\x10\x01\x1a\x06retire\"8Retire an agent: stop its process, keep its conversation\x12\x87\x01\n" +
+	"\aStopRun\x12\x1c.agentmesh.v1.StopRunRequest\x1a\x1d.agentmesh.v1.StopRunResponse\"?\x8a\xb5\x18;\n" +
+	"\x01\x05\x10\x01\x1a\bstop-run\"*Stop a run: retire its agents and close it\x12\x83\x01\n" +
 	"\vSendMessage\x12 .agentmesh.v1.SendMessageRequest\x1a!.agentmesh.v1.SendMessageResponse\"/\x8a\xb5\x18+\n" +
 	"\x05\x01\x02\x03\x04\x05\x10\x01\x1a\x04send\"\x1aSend a message to an agent\x12u\n" +
 	"\tReadInbox\x12\x1e.agentmesh.v1.ReadInboxRequest\x1a\x1f.agentmesh.v1.ReadInboxResponse\"'\x8a\xb5\x18#\n" +
@@ -2721,7 +3499,13 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"ReportHook\x12\x1f.agentmesh.v1.ReportHookRequest\x1a .agentmesh.v1.ReportHookResponse\":\x8a\xb5\x186\n" +
 	"\x04\x01\x02\x03\x04\x10\x01\",Report a CLI hook (used by the hook command)\x12\x8d\x01\n" +
 	"\fOpenTerminal\x12!.agentmesh.v1.OpenTerminalRequest\x1a\".agentmesh.v1.OpenTerminalResponse\"6\x8a\xb5\x182\n" +
-	"\x03\x01\x05\x06\"+Get a ticket for an agent's terminal stream\x1a\x17\x92\xb5\x18\x13\n" +
+	"\x03\x01\x05\x06\"+Get a ticket for an agent's terminal stream\x12\xab\x01\n" +
+	"\rCreatePairing\x12\".agentmesh.v1.CreatePairingRequest\x1a#.agentmesh.v1.CreatePairingResponse\"Q\x8a\xb5\x18M\n" +
+	"\x01\x05\x10\x01\x1a\x04pair\"@Create a one-time pairing token and QR/link payload for a device\x12y\n" +
+	"\vListDevices\x12 .agentmesh.v1.ListDevicesRequest\x1a!.agentmesh.v1.ListDevicesResponse\"%\x8a\xb5\x18!\n" +
+	"\x01\x05\x1a\adevices\"\x13List paired devices\x12\x87\x01\n" +
+	"\fRevokeDevice\x12!.agentmesh.v1.RevokeDeviceRequest\x1a\".agentmesh.v1.RevokeDeviceResponse\"0\x8a\xb5\x18,\n" +
+	"\x01\x05\x10\x01\x1a\rrevoke-device\"\x16Revoke a paired device\x1a\x17\x92\xb5\x18\x13\n" +
 	"\x0eterminal.input\x12\x01\x05B\xb2\x01\n" +
 	"\x10com.agentmesh.v1B\tMeshProtoP\x01ZBgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1;agentmeshv1\xa2\x02\x03AXX\xaa\x02\fAgentmesh.V1\xca\x02\fAgentmesh\\V1\xe2\x02\x18Agentmesh\\V1\\GPBMetadata\xea\x02\rAgentmesh::V1b\x06proto3"
 
@@ -2737,7 +3521,7 @@ func file_agentmesh_v1_mesh_proto_rawDescGZIP() []byte {
 	return file_agentmesh_v1_mesh_proto_rawDescData
 }
 
-var file_agentmesh_v1_mesh_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_agentmesh_v1_mesh_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_agentmesh_v1_mesh_proto_goTypes = []any{
 	(*HelloRequest)(nil),            // 0: agentmesh.v1.HelloRequest
 	(*HelloResponse)(nil),           // 1: agentmesh.v1.HelloResponse
@@ -2780,115 +3564,148 @@ var file_agentmesh_v1_mesh_proto_goTypes = []any{
 	(*SwitchAgentResponse)(nil),     // 38: agentmesh.v1.SwitchAgentResponse
 	(*ResumeAgentRequest)(nil),      // 39: agentmesh.v1.ResumeAgentRequest
 	(*ResumeAgentResponse)(nil),     // 40: agentmesh.v1.ResumeAgentResponse
-	(*timestamppb.Timestamp)(nil),   // 41: google.protobuf.Timestamp
-	(*Actor)(nil),                   // 42: agentmesh.v1.Actor
-	(*RequestMeta)(nil),             // 43: agentmesh.v1.RequestMeta
-	(*Run)(nil),                     // 44: agentmesh.v1.Run
-	(AgentRole)(0),                  // 45: agentmesh.v1.AgentRole
-	(*Agent)(nil),                   // 46: agentmesh.v1.Agent
-	(MessageType)(0),                // 47: agentmesh.v1.MessageType
-	(*Message)(nil),                 // 48: agentmesh.v1.Message
-	(*Cursor)(nil),                  // 49: agentmesh.v1.Cursor
-	(*Event)(nil),                   // 50: agentmesh.v1.Event
-	(AgentState)(0),                 // 51: agentmesh.v1.AgentState
-	(*Setting)(nil),                 // 52: agentmesh.v1.Setting
-	(*structpb.Value)(nil),          // 53: google.protobuf.Value
-	(*Reopen)(nil),                  // 54: agentmesh.v1.Reopen
+	(*CreatePairingRequest)(nil),    // 41: agentmesh.v1.CreatePairingRequest
+	(*CreatePairingResponse)(nil),   // 42: agentmesh.v1.CreatePairingResponse
+	(*ListDevicesRequest)(nil),      // 43: agentmesh.v1.ListDevicesRequest
+	(*ListDevicesResponse)(nil),     // 44: agentmesh.v1.ListDevicesResponse
+	(*RevokeDeviceRequest)(nil),     // 45: agentmesh.v1.RevokeDeviceRequest
+	(*RevokeDeviceResponse)(nil),    // 46: agentmesh.v1.RevokeDeviceResponse
+	(*RetireAgentRequest)(nil),      // 47: agentmesh.v1.RetireAgentRequest
+	(*RetireAgentResponse)(nil),     // 48: agentmesh.v1.RetireAgentResponse
+	(*StopRunRequest)(nil),          // 49: agentmesh.v1.StopRunRequest
+	(*StopRunResponse)(nil),         // 50: agentmesh.v1.StopRunResponse
+	(*WorktreeOutcome)(nil),         // 51: agentmesh.v1.WorktreeOutcome
+	(*timestamppb.Timestamp)(nil),   // 52: google.protobuf.Timestamp
+	(*Actor)(nil),                   // 53: agentmesh.v1.Actor
+	(*RequestMeta)(nil),             // 54: agentmesh.v1.RequestMeta
+	(*Run)(nil),                     // 55: agentmesh.v1.Run
+	(AgentRole)(0),                  // 56: agentmesh.v1.AgentRole
+	(*Agent)(nil),                   // 57: agentmesh.v1.Agent
+	(MessageType)(0),                // 58: agentmesh.v1.MessageType
+	(*Message)(nil),                 // 59: agentmesh.v1.Message
+	(*Reopen)(nil),                  // 60: agentmesh.v1.Reopen
+	(*Cursor)(nil),                  // 61: agentmesh.v1.Cursor
+	(*Event)(nil),                   // 62: agentmesh.v1.Event
+	(AgentState)(0),                 // 63: agentmesh.v1.AgentState
+	(*Setting)(nil),                 // 64: agentmesh.v1.Setting
+	(*structpb.Value)(nil),          // 65: google.protobuf.Value
+	(*Device)(nil),                  // 66: agentmesh.v1.Device
 }
 var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
-	41, // 0: agentmesh.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
-	42, // 1: agentmesh.v1.HelloResponse.actor:type_name -> agentmesh.v1.Actor
-	41, // 2: agentmesh.v1.HelloResponse.server_time:type_name -> google.protobuf.Timestamp
-	43, // 3: agentmesh.v1.StartRunRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	44, // 4: agentmesh.v1.StartRunResponse.run:type_name -> agentmesh.v1.Run
-	44, // 5: agentmesh.v1.ListRunsResponse.runs:type_name -> agentmesh.v1.Run
-	43, // 6: agentmesh.v1.SpawnAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	45, // 7: agentmesh.v1.SpawnAgentRequest.role:type_name -> agentmesh.v1.AgentRole
-	46, // 8: agentmesh.v1.SpawnAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	46, // 9: agentmesh.v1.ListAgentsResponse.agents:type_name -> agentmesh.v1.Agent
-	46, // 10: agentmesh.v1.GetAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	43, // 11: agentmesh.v1.StopAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	46, // 12: agentmesh.v1.StopAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	43, // 13: agentmesh.v1.SendMessageRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	47, // 14: agentmesh.v1.SendMessageRequest.type:type_name -> agentmesh.v1.MessageType
-	48, // 15: agentmesh.v1.SendMessageResponse.message:type_name -> agentmesh.v1.Message
-	43, // 16: agentmesh.v1.ReadInboxRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	48, // 17: agentmesh.v1.ReadInboxResponse.messages:type_name -> agentmesh.v1.Message
-	48, // 18: agentmesh.v1.ListMessagesResponse.messages:type_name -> agentmesh.v1.Message
-	49, // 19: agentmesh.v1.SubscribeEventsRequest.cursor:type_name -> agentmesh.v1.Cursor
-	22, // 20: agentmesh.v1.SubscribeEventsResponse.snapshot:type_name -> agentmesh.v1.Snapshot
-	23, // 21: agentmesh.v1.SubscribeEventsResponse.resumed:type_name -> agentmesh.v1.Resumed
-	50, // 22: agentmesh.v1.SubscribeEventsResponse.event:type_name -> agentmesh.v1.Event
-	24, // 23: agentmesh.v1.SubscribeEventsResponse.end:type_name -> agentmesh.v1.End
-	49, // 24: agentmesh.v1.Snapshot.cursor:type_name -> agentmesh.v1.Cursor
-	44, // 25: agentmesh.v1.Snapshot.runs:type_name -> agentmesh.v1.Run
-	46, // 26: agentmesh.v1.Snapshot.agents:type_name -> agentmesh.v1.Agent
-	49, // 27: agentmesh.v1.Resumed.from:type_name -> agentmesh.v1.Cursor
-	43, // 28: agentmesh.v1.ReportHookRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	41, // 29: agentmesh.v1.ReportHookRequest.fired_at:type_name -> google.protobuf.Timestamp
-	51, // 30: agentmesh.v1.ReportHookResponse.state:type_name -> agentmesh.v1.AgentState
-	41, // 31: agentmesh.v1.OpenTerminalResponse.expires_at:type_name -> google.protobuf.Timestamp
-	52, // 32: agentmesh.v1.ListSettingsResponse.settings:type_name -> agentmesh.v1.Setting
-	43, // 33: agentmesh.v1.SetSettingRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	53, // 34: agentmesh.v1.SetSettingRequest.value:type_name -> google.protobuf.Value
-	52, // 35: agentmesh.v1.SetSettingResponse.setting:type_name -> agentmesh.v1.Setting
-	43, // 36: agentmesh.v1.ResetSettingRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	52, // 37: agentmesh.v1.ResetSettingResponse.setting:type_name -> agentmesh.v1.Setting
-	43, // 38: agentmesh.v1.ApproveAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	46, // 39: agentmesh.v1.ApproveAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	48, // 40: agentmesh.v1.ApproveAgentResponse.message:type_name -> agentmesh.v1.Message
-	54, // 41: agentmesh.v1.ApproveAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
-	43, // 42: agentmesh.v1.SwitchAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	46, // 43: agentmesh.v1.SwitchAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	48, // 44: agentmesh.v1.SwitchAgentResponse.message:type_name -> agentmesh.v1.Message
-	54, // 45: agentmesh.v1.SwitchAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
-	43, // 46: agentmesh.v1.ResumeAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	46, // 47: agentmesh.v1.ResumeAgentResponse.agent:type_name -> agentmesh.v1.Agent
-	48, // 48: agentmesh.v1.ResumeAgentResponse.message:type_name -> agentmesh.v1.Message
-	54, // 49: agentmesh.v1.ResumeAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
-	0,  // 50: agentmesh.v1.MeshService.Hello:input_type -> agentmesh.v1.HelloRequest
-	2,  // 51: agentmesh.v1.MeshService.StartRun:input_type -> agentmesh.v1.StartRunRequest
-	4,  // 52: agentmesh.v1.MeshService.ListRuns:input_type -> agentmesh.v1.ListRunsRequest
-	6,  // 53: agentmesh.v1.MeshService.SpawnAgent:input_type -> agentmesh.v1.SpawnAgentRequest
-	8,  // 54: agentmesh.v1.MeshService.ListAgents:input_type -> agentmesh.v1.ListAgentsRequest
-	10, // 55: agentmesh.v1.MeshService.GetAgent:input_type -> agentmesh.v1.GetAgentRequest
-	12, // 56: agentmesh.v1.MeshService.StopAgent:input_type -> agentmesh.v1.StopAgentRequest
-	35, // 57: agentmesh.v1.MeshService.ApproveAgent:input_type -> agentmesh.v1.ApproveAgentRequest
-	37, // 58: agentmesh.v1.MeshService.SwitchAgent:input_type -> agentmesh.v1.SwitchAgentRequest
-	39, // 59: agentmesh.v1.MeshService.ResumeAgent:input_type -> agentmesh.v1.ResumeAgentRequest
-	14, // 60: agentmesh.v1.MeshService.SendMessage:input_type -> agentmesh.v1.SendMessageRequest
-	16, // 61: agentmesh.v1.MeshService.ReadInbox:input_type -> agentmesh.v1.ReadInboxRequest
-	18, // 62: agentmesh.v1.MeshService.ListMessages:input_type -> agentmesh.v1.ListMessagesRequest
-	20, // 63: agentmesh.v1.MeshService.SubscribeEvents:input_type -> agentmesh.v1.SubscribeEventsRequest
-	29, // 64: agentmesh.v1.MeshService.ListSettings:input_type -> agentmesh.v1.ListSettingsRequest
-	31, // 65: agentmesh.v1.MeshService.SetSetting:input_type -> agentmesh.v1.SetSettingRequest
-	33, // 66: agentmesh.v1.MeshService.ResetSetting:input_type -> agentmesh.v1.ResetSettingRequest
-	25, // 67: agentmesh.v1.MeshService.ReportHook:input_type -> agentmesh.v1.ReportHookRequest
-	27, // 68: agentmesh.v1.MeshService.OpenTerminal:input_type -> agentmesh.v1.OpenTerminalRequest
-	1,  // 69: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
-	3,  // 70: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
-	5,  // 71: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
-	7,  // 72: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
-	9,  // 73: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
-	11, // 74: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
-	13, // 75: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
-	36, // 76: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
-	38, // 77: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
-	40, // 78: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
-	15, // 79: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
-	17, // 80: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
-	19, // 81: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
-	21, // 82: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
-	30, // 83: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
-	32, // 84: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
-	34, // 85: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
-	26, // 86: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
-	28, // 87: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
-	69, // [69:88] is the sub-list for method output_type
-	50, // [50:69] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	52, // 0: agentmesh.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
+	53, // 1: agentmesh.v1.HelloResponse.actor:type_name -> agentmesh.v1.Actor
+	52, // 2: agentmesh.v1.HelloResponse.server_time:type_name -> google.protobuf.Timestamp
+	54, // 3: agentmesh.v1.StartRunRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	55, // 4: agentmesh.v1.StartRunResponse.run:type_name -> agentmesh.v1.Run
+	55, // 5: agentmesh.v1.ListRunsResponse.runs:type_name -> agentmesh.v1.Run
+	54, // 6: agentmesh.v1.SpawnAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	56, // 7: agentmesh.v1.SpawnAgentRequest.role:type_name -> agentmesh.v1.AgentRole
+	57, // 8: agentmesh.v1.SpawnAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	57, // 9: agentmesh.v1.ListAgentsResponse.agents:type_name -> agentmesh.v1.Agent
+	57, // 10: agentmesh.v1.GetAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	54, // 11: agentmesh.v1.StopAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	57, // 12: agentmesh.v1.StopAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	54, // 13: agentmesh.v1.SendMessageRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	58, // 14: agentmesh.v1.SendMessageRequest.type:type_name -> agentmesh.v1.MessageType
+	59, // 15: agentmesh.v1.SendMessageResponse.message:type_name -> agentmesh.v1.Message
+	60, // 16: agentmesh.v1.SendMessageResponse.resumed:type_name -> agentmesh.v1.Reopen
+	54, // 17: agentmesh.v1.ReadInboxRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	59, // 18: agentmesh.v1.ReadInboxResponse.messages:type_name -> agentmesh.v1.Message
+	59, // 19: agentmesh.v1.ListMessagesResponse.messages:type_name -> agentmesh.v1.Message
+	61, // 20: agentmesh.v1.SubscribeEventsRequest.cursor:type_name -> agentmesh.v1.Cursor
+	22, // 21: agentmesh.v1.SubscribeEventsResponse.snapshot:type_name -> agentmesh.v1.Snapshot
+	23, // 22: agentmesh.v1.SubscribeEventsResponse.resumed:type_name -> agentmesh.v1.Resumed
+	62, // 23: agentmesh.v1.SubscribeEventsResponse.event:type_name -> agentmesh.v1.Event
+	24, // 24: agentmesh.v1.SubscribeEventsResponse.end:type_name -> agentmesh.v1.End
+	61, // 25: agentmesh.v1.Snapshot.cursor:type_name -> agentmesh.v1.Cursor
+	55, // 26: agentmesh.v1.Snapshot.runs:type_name -> agentmesh.v1.Run
+	57, // 27: agentmesh.v1.Snapshot.agents:type_name -> agentmesh.v1.Agent
+	61, // 28: agentmesh.v1.Resumed.from:type_name -> agentmesh.v1.Cursor
+	54, // 29: agentmesh.v1.ReportHookRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	52, // 30: agentmesh.v1.ReportHookRequest.fired_at:type_name -> google.protobuf.Timestamp
+	63, // 31: agentmesh.v1.ReportHookResponse.state:type_name -> agentmesh.v1.AgentState
+	52, // 32: agentmesh.v1.OpenTerminalResponse.expires_at:type_name -> google.protobuf.Timestamp
+	64, // 33: agentmesh.v1.ListSettingsResponse.settings:type_name -> agentmesh.v1.Setting
+	54, // 34: agentmesh.v1.SetSettingRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	65, // 35: agentmesh.v1.SetSettingRequest.value:type_name -> google.protobuf.Value
+	64, // 36: agentmesh.v1.SetSettingResponse.setting:type_name -> agentmesh.v1.Setting
+	54, // 37: agentmesh.v1.ResetSettingRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	64, // 38: agentmesh.v1.ResetSettingResponse.setting:type_name -> agentmesh.v1.Setting
+	54, // 39: agentmesh.v1.ApproveAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	57, // 40: agentmesh.v1.ApproveAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	59, // 41: agentmesh.v1.ApproveAgentResponse.message:type_name -> agentmesh.v1.Message
+	60, // 42: agentmesh.v1.ApproveAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
+	54, // 43: agentmesh.v1.SwitchAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	57, // 44: agentmesh.v1.SwitchAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	59, // 45: agentmesh.v1.SwitchAgentResponse.message:type_name -> agentmesh.v1.Message
+	60, // 46: agentmesh.v1.SwitchAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
+	54, // 47: agentmesh.v1.ResumeAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	57, // 48: agentmesh.v1.ResumeAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	59, // 49: agentmesh.v1.ResumeAgentResponse.message:type_name -> agentmesh.v1.Message
+	60, // 50: agentmesh.v1.ResumeAgentResponse.reopen:type_name -> agentmesh.v1.Reopen
+	54, // 51: agentmesh.v1.CreatePairingRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	52, // 52: agentmesh.v1.CreatePairingResponse.expires_at:type_name -> google.protobuf.Timestamp
+	66, // 53: agentmesh.v1.ListDevicesResponse.devices:type_name -> agentmesh.v1.Device
+	54, // 54: agentmesh.v1.RevokeDeviceRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	66, // 55: agentmesh.v1.RevokeDeviceResponse.device:type_name -> agentmesh.v1.Device
+	54, // 56: agentmesh.v1.RetireAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	57, // 57: agentmesh.v1.RetireAgentResponse.agent:type_name -> agentmesh.v1.Agent
+	54, // 58: agentmesh.v1.StopRunRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	55, // 59: agentmesh.v1.StopRunResponse.run:type_name -> agentmesh.v1.Run
+	51, // 60: agentmesh.v1.StopRunResponse.worktrees:type_name -> agentmesh.v1.WorktreeOutcome
+	0,  // 61: agentmesh.v1.MeshService.Hello:input_type -> agentmesh.v1.HelloRequest
+	2,  // 62: agentmesh.v1.MeshService.StartRun:input_type -> agentmesh.v1.StartRunRequest
+	4,  // 63: agentmesh.v1.MeshService.ListRuns:input_type -> agentmesh.v1.ListRunsRequest
+	6,  // 64: agentmesh.v1.MeshService.SpawnAgent:input_type -> agentmesh.v1.SpawnAgentRequest
+	8,  // 65: agentmesh.v1.MeshService.ListAgents:input_type -> agentmesh.v1.ListAgentsRequest
+	10, // 66: agentmesh.v1.MeshService.GetAgent:input_type -> agentmesh.v1.GetAgentRequest
+	12, // 67: agentmesh.v1.MeshService.StopAgent:input_type -> agentmesh.v1.StopAgentRequest
+	35, // 68: agentmesh.v1.MeshService.ApproveAgent:input_type -> agentmesh.v1.ApproveAgentRequest
+	37, // 69: agentmesh.v1.MeshService.SwitchAgent:input_type -> agentmesh.v1.SwitchAgentRequest
+	39, // 70: agentmesh.v1.MeshService.ResumeAgent:input_type -> agentmesh.v1.ResumeAgentRequest
+	47, // 71: agentmesh.v1.MeshService.RetireAgent:input_type -> agentmesh.v1.RetireAgentRequest
+	49, // 72: agentmesh.v1.MeshService.StopRun:input_type -> agentmesh.v1.StopRunRequest
+	14, // 73: agentmesh.v1.MeshService.SendMessage:input_type -> agentmesh.v1.SendMessageRequest
+	16, // 74: agentmesh.v1.MeshService.ReadInbox:input_type -> agentmesh.v1.ReadInboxRequest
+	18, // 75: agentmesh.v1.MeshService.ListMessages:input_type -> agentmesh.v1.ListMessagesRequest
+	20, // 76: agentmesh.v1.MeshService.SubscribeEvents:input_type -> agentmesh.v1.SubscribeEventsRequest
+	29, // 77: agentmesh.v1.MeshService.ListSettings:input_type -> agentmesh.v1.ListSettingsRequest
+	31, // 78: agentmesh.v1.MeshService.SetSetting:input_type -> agentmesh.v1.SetSettingRequest
+	33, // 79: agentmesh.v1.MeshService.ResetSetting:input_type -> agentmesh.v1.ResetSettingRequest
+	25, // 80: agentmesh.v1.MeshService.ReportHook:input_type -> agentmesh.v1.ReportHookRequest
+	27, // 81: agentmesh.v1.MeshService.OpenTerminal:input_type -> agentmesh.v1.OpenTerminalRequest
+	41, // 82: agentmesh.v1.MeshService.CreatePairing:input_type -> agentmesh.v1.CreatePairingRequest
+	43, // 83: agentmesh.v1.MeshService.ListDevices:input_type -> agentmesh.v1.ListDevicesRequest
+	45, // 84: agentmesh.v1.MeshService.RevokeDevice:input_type -> agentmesh.v1.RevokeDeviceRequest
+	1,  // 85: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
+	3,  // 86: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
+	5,  // 87: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
+	7,  // 88: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
+	9,  // 89: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
+	11, // 90: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
+	13, // 91: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
+	36, // 92: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
+	38, // 93: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
+	40, // 94: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
+	48, // 95: agentmesh.v1.MeshService.RetireAgent:output_type -> agentmesh.v1.RetireAgentResponse
+	50, // 96: agentmesh.v1.MeshService.StopRun:output_type -> agentmesh.v1.StopRunResponse
+	15, // 97: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
+	17, // 98: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
+	19, // 99: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
+	21, // 100: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
+	30, // 101: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
+	32, // 102: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
+	34, // 103: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
+	26, // 104: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
+	28, // 105: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
+	42, // 106: agentmesh.v1.MeshService.CreatePairing:output_type -> agentmesh.v1.CreatePairingResponse
+	44, // 107: agentmesh.v1.MeshService.ListDevices:output_type -> agentmesh.v1.ListDevicesResponse
+	46, // 108: agentmesh.v1.MeshService.RevokeDevice:output_type -> agentmesh.v1.RevokeDeviceResponse
+	85, // [85:109] is the sub-list for method output_type
+	61, // [61:85] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_mesh_proto_init() }
@@ -2911,7 +3728,7 @@ func file_agentmesh_v1_mesh_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_mesh_proto_rawDesc), len(file_agentmesh_v1_mesh_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

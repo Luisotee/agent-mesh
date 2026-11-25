@@ -30,6 +30,7 @@ public  final class Agent extends
     stateDetail_ = "";
     tier_ = "";
     execTier_ = "";
+    baseCommit_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1433,6 +1434,78 @@ public  final class Agent extends
   private void clearPendingReopen() {
     pendingReopen_ = null;
     bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int BASE_COMMIT_FIELD_NUMBER = 27;
+  private java.lang.String baseCommit_;
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @return The baseCommit.
+   */
+  @java.lang.Override
+  public java.lang.String getBaseCommit() {
+    return baseCommit_;
+  }
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @return The bytes for baseCommit.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getBaseCommitBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(baseCommit_);
+  }
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @param value The baseCommit to set.
+   */
+  private void setBaseCommit(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    baseCommit_ = value;
+  }
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   */
+  private void clearBaseCommit() {
+
+    baseCommit_ = getDefaultInstance().getBaseCommit();
+  }
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @param value The bytes for baseCommit to set.
+   */
+  private void setBaseCommitBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    baseCommit_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -2993,6 +3066,80 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+     * it. StopRun keeps a branch that has moved past it.
+     * </pre>
+     *
+     * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+     * @return The baseCommit.
+     */
+    @java.lang.Override
+    public java.lang.String getBaseCommit() {
+      return instance.getBaseCommit();
+    }
+    /**
+     * <pre>
+     * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+     * it. StopRun keeps a branch that has moved past it.
+     * </pre>
+     *
+     * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+     * @return The bytes for baseCommit.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getBaseCommitBytes() {
+      return instance.getBaseCommitBytes();
+    }
+    /**
+     * <pre>
+     * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+     * it. StopRun keeps a branch that has moved past it.
+     * </pre>
+     *
+     * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+     * @param value The baseCommit to set.
+     * @return This builder for chaining.
+     */
+    public Builder setBaseCommit(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setBaseCommit(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+     * it. StopRun keeps a branch that has moved past it.
+     * </pre>
+     *
+     * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearBaseCommit() {
+      copyOnWrite();
+      instance.clearBaseCommit();
+      return this;
+    }
+    /**
+     * <pre>
+     * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+     * it. StopRun keeps a branch that has moved past it.
+     * </pre>
+     *
+     * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+     * @param value The bytes for baseCommit to set.
+     * @return This builder for chaining.
+     */
+    public Builder setBaseCommitBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setBaseCommitBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3036,13 +3183,14 @@ public  final class Agent extends
             "pinned_",
             "denyEdits_",
             "pendingReopen_",
+            "baseCommit_",
           };
           java.lang.String info =
-              "\u0000\u001a\u0000\u0001\u0001\u001a\u001a\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001b\u0000\u0001\u0001\u001b\u001b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
               "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002";
+              "\u0007\u001a\u1009\u0002\u001b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

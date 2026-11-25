@@ -245,5 +245,49 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped getAgentReopenDropped();
 
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   * @return Whether the devicePaired field is set.
+   */
+  boolean hasDevicePaired();
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   * @return The devicePaired.
+   */
+  dev.agentmesh.gen.agentmesh.v1.DevicePaired getDevicePaired();
+
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   * @return Whether the deviceRevoked field is set.
+   */
+  boolean hasDeviceRevoked();
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   * @return The deviceRevoked.
+   */
+  dev.agentmesh.gen.agentmesh.v1.DeviceRevoked getDeviceRevoked();
+
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   * @return Whether the agentRetired field is set.
+   */
+  boolean hasAgentRetired();
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   * @return The agentRetired.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentRetired getAgentRetired();
+
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   * @return Whether the runStopped field is set.
+   */
+  boolean hasRunStopped();
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   * @return The runStopped.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunStopped getRunStopped();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

@@ -56,6 +56,18 @@ public interface MeshServiceClientInterface {
   public suspend fun resumeAgent(request: ResumeAgentRequest, headers: Headers = emptyMap()): ResponseMessage<ResumeAgentResponse>
 
   /**
+   *  Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+   *  branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+   */
+  public suspend fun retireAgent(request: RetireAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RetireAgentResponse>
+
+  /**
+   *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+   *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+   */
+  public suspend fun stopRun(request: StopRunRequest, headers: Headers = emptyMap()): ResponseMessage<StopRunResponse>
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   public suspend fun sendMessage(request: SendMessageRequest, headers: Headers = emptyMap()): ResponseMessage<SendMessageResponse>
@@ -103,4 +115,20 @@ public interface MeshServiceClientInterface {
    *  A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
    */
   public suspend fun openTerminal(request: OpenTerminalRequest, headers: Headers = emptyMap()): ResponseMessage<OpenTerminalResponse>
+
+  /**
+   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+   *  may call this.
+   */
+  public suspend fun createPairing(request: CreatePairingRequest, headers: Headers = emptyMap()): ResponseMessage<CreatePairingResponse>
+
+  /**
+   *  List paired devices. Only the host's own device may call this.
+   */
+  public suspend fun listDevices(request: ListDevicesRequest, headers: Headers = emptyMap()): ResponseMessage<ListDevicesResponse>
+
+  /**
+   *  Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+   */
+  public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
 }

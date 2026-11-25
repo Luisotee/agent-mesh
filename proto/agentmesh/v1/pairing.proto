@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/actor.proto";
+
+// PairingService exchanges a one-time pairing token from a QR code or link for a per-device bearer token.
+// Unlike MeshService, callers have no device token yet; the request carries the one-time pairing token.
+service PairingService {
+  rpc RedeemPairing(RedeemPairingRequest) returns (RedeemPairingResponse);
+}
+
+message RedeemPairingRequest {
+  // The one-time pairing token (`amp_...`) from the QR code or pairing URI.
+  string token = 1;
+  // Optional device name chosen by the app (for example "Pixel 9").
+  string device_name = 2;
+}
+
+message RedeemPairingResponse {
+  string device_id = 1;
+  string device_name = 2;
+  ActorClass class = 3;
+  // The per-device bearer token (`amt_...`) for MeshService.
+  string device_token = 4;
+  string host_id = 5;
+  string host_name = 6;
+  // Canonical leaf certificate fingerprint (`sha256:<64-hex>`).
+  string cert_fingerprint = 7;
+}

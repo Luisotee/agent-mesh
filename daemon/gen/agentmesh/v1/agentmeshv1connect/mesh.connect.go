@@ -54,6 +54,10 @@ const (
 	MeshServiceSwitchAgentProcedure = "/agentmesh.v1.MeshService/SwitchAgent"
 	// MeshServiceResumeAgentProcedure is the fully-qualified name of the MeshService's ResumeAgent RPC.
 	MeshServiceResumeAgentProcedure = "/agentmesh.v1.MeshService/ResumeAgent"
+	// MeshServiceRetireAgentProcedure is the fully-qualified name of the MeshService's RetireAgent RPC.
+	MeshServiceRetireAgentProcedure = "/agentmesh.v1.MeshService/RetireAgent"
+	// MeshServiceStopRunProcedure is the fully-qualified name of the MeshService's StopRun RPC.
+	MeshServiceStopRunProcedure = "/agentmesh.v1.MeshService/StopRun"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
@@ -77,6 +81,14 @@ const (
 	// MeshServiceOpenTerminalProcedure is the fully-qualified name of the MeshService's OpenTerminal
 	// RPC.
 	MeshServiceOpenTerminalProcedure = "/agentmesh.v1.MeshService/OpenTerminal"
+	// MeshServiceCreatePairingProcedure is the fully-qualified name of the MeshService's CreatePairing
+	// RPC.
+	MeshServiceCreatePairingProcedure = "/agentmesh.v1.MeshService/CreatePairing"
+	// MeshServiceListDevicesProcedure is the fully-qualified name of the MeshService's ListDevices RPC.
+	MeshServiceListDevicesProcedure = "/agentmesh.v1.MeshService/ListDevices"
+	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
+	// RPC.
+	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -101,6 +113,12 @@ type MeshServiceClient interface {
 	SwitchAgent(context.Context, *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error)
 	// Reopen a stopped agent's conversation, with a new task or as it was.
 	ResumeAgent(context.Context, *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error)
+	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
@@ -123,6 +141,13 @@ type MeshServiceClient interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+	// may call this.
+	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
+	// List paired devices. Only the host's own device may call this.
+	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
+	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -196,6 +221,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ResumeAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		retireAgent: connect.NewClient[v1.RetireAgentRequest, v1.RetireAgentResponse](
+			httpClient,
+			baseURL+MeshServiceRetireAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		stopRun: connect.NewClient[v1.StopRunRequest, v1.StopRunResponse](
+			httpClient,
+			baseURL+MeshServiceStopRunProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("StopRun")),
+			connect.WithClientOptions(opts...),
+		),
 		sendMessage: connect.NewClient[v1.SendMessageRequest, v1.SendMessageResponse](
 			httpClient,
 			baseURL+MeshServiceSendMessageProcedure,
@@ -250,6 +287,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
 			connect.WithClientOptions(opts...),
 		),
+		createPairing: connect.NewClient[v1.CreatePairingRequest, v1.CreatePairingResponse](
+			httpClient,
+			baseURL+MeshServiceCreatePairingProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CreatePairing")),
+			connect.WithClientOptions(opts...),
+		),
+		listDevices: connect.NewClient[v1.ListDevicesRequest, v1.ListDevicesResponse](
+			httpClient,
+			baseURL+MeshServiceListDevicesProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListDevices")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeDevice: connect.NewClient[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse](
+			httpClient,
+			baseURL+MeshServiceRevokeDeviceProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -265,6 +320,8 @@ type meshServiceClient struct {
 	approveAgent    *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
 	switchAgent     *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
 	resumeAgent     *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
+	retireAgent     *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	stopRun         *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
 	listMessages    *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
@@ -274,6 +331,9 @@ type meshServiceClient struct {
 	resetSetting    *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
 	reportHook      *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal    *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	createPairing   *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
+	listDevices     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
+	revokeDevice    *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -326,6 +386,16 @@ func (c *meshServiceClient) ResumeAgent(ctx context.Context, req *connect.Reques
 	return c.resumeAgent.CallUnary(ctx, req)
 }
 
+// RetireAgent calls agentmesh.v1.MeshService.RetireAgent.
+func (c *meshServiceClient) RetireAgent(ctx context.Context, req *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
+	return c.retireAgent.CallUnary(ctx, req)
+}
+
+// StopRun calls agentmesh.v1.MeshService.StopRun.
+func (c *meshServiceClient) StopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
+	return c.stopRun.CallUnary(ctx, req)
+}
+
 // SendMessage calls agentmesh.v1.MeshService.SendMessage.
 func (c *meshServiceClient) SendMessage(ctx context.Context, req *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return c.sendMessage.CallUnary(ctx, req)
@@ -371,6 +441,21 @@ func (c *meshServiceClient) OpenTerminal(ctx context.Context, req *connect.Reque
 	return c.openTerminal.CallUnary(ctx, req)
 }
 
+// CreatePairing calls agentmesh.v1.MeshService.CreatePairing.
+func (c *meshServiceClient) CreatePairing(ctx context.Context, req *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
+	return c.createPairing.CallUnary(ctx, req)
+}
+
+// ListDevices calls agentmesh.v1.MeshService.ListDevices.
+func (c *meshServiceClient) ListDevices(ctx context.Context, req *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error) {
+	return c.listDevices.CallUnary(ctx, req)
+}
+
+// RevokeDevice calls agentmesh.v1.MeshService.RevokeDevice.
+func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
+	return c.revokeDevice.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -393,6 +478,12 @@ type MeshServiceHandler interface {
 	SwitchAgent(context.Context, *connect.Request[v1.SwitchAgentRequest]) (*connect.Response[v1.SwitchAgentResponse], error)
 	// Reopen a stopped agent's conversation, with a new task or as it was.
 	ResumeAgent(context.Context, *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error)
+	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
@@ -415,6 +506,13 @@ type MeshServiceHandler interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+	// may call this.
+	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
+	// List paired devices. Only the host's own device may call this.
+	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
+	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -484,6 +582,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ResumeAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRetireAgentHandler := connect.NewUnaryHandler(
+		MeshServiceRetireAgentProcedure,
+		svc.RetireAgent,
+		connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceStopRunHandler := connect.NewUnaryHandler(
+		MeshServiceStopRunProcedure,
+		svc.StopRun,
+		connect.WithSchema(meshServiceMethods.ByName("StopRun")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceSendMessageHandler := connect.NewUnaryHandler(
 		MeshServiceSendMessageProcedure,
 		svc.SendMessage,
@@ -538,6 +648,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceCreatePairingHandler := connect.NewUnaryHandler(
+		MeshServiceCreatePairingProcedure,
+		svc.CreatePairing,
+		connect.WithSchema(meshServiceMethods.ByName("CreatePairing")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListDevicesHandler := connect.NewUnaryHandler(
+		MeshServiceListDevicesProcedure,
+		svc.ListDevices,
+		connect.WithSchema(meshServiceMethods.ByName("ListDevices")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRevokeDeviceHandler := connect.NewUnaryHandler(
+		MeshServiceRevokeDeviceProcedure,
+		svc.RevokeDevice,
+		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -560,6 +688,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSwitchAgentHandler.ServeHTTP(w, r)
 		case MeshServiceResumeAgentProcedure:
 			meshServiceResumeAgentHandler.ServeHTTP(w, r)
+		case MeshServiceRetireAgentProcedure:
+			meshServiceRetireAgentHandler.ServeHTTP(w, r)
+		case MeshServiceStopRunProcedure:
+			meshServiceStopRunHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
@@ -578,6 +710,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReportHookHandler.ServeHTTP(w, r)
 		case MeshServiceOpenTerminalProcedure:
 			meshServiceOpenTerminalHandler.ServeHTTP(w, r)
+		case MeshServiceCreatePairingProcedure:
+			meshServiceCreatePairingHandler.ServeHTTP(w, r)
+		case MeshServiceListDevicesProcedure:
+			meshServiceListDevicesHandler.ServeHTTP(w, r)
+		case MeshServiceRevokeDeviceProcedure:
+			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -627,6 +765,14 @@ func (UnimplementedMeshServiceHandler) ResumeAgent(context.Context, *connect.Req
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResumeAgent is not implemented"))
 }
 
+func (UnimplementedMeshServiceHandler) RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RetireAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StopRun is not implemented"))
+}
+
 func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SendMessage is not implemented"))
 }
@@ -661,4 +807,16 @@ func (UnimplementedMeshServiceHandler) ReportHook(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenTerminal is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CreatePairing is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListDevices is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
 }

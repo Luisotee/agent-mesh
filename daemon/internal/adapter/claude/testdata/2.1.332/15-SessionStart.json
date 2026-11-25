@@ -1,0 +1,9 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000006",
+  "transcript_path": "/home/user/.claude/projects/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000006.jsonl",
+  "cwd": "/work/state/worktrees/ri4lh27/repo-capture",
+  "scratchpad_dir": "/tmp/claude-user/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000006/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "clear"
+}
+

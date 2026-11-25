@@ -1,0 +1,22 @@
+# Systemd service for mesh-relay on a Linux VPS.
+# Prepare:
+#   sudo install -d -m 0750 /etc/agent-mesh-relay
+#   mesh-relay --gen-token | sudo tee /etc/agent-mesh-relay/token >/dev/null
+#   sudo chmod 0600 /etc/agent-mesh-relay/token
+[Unit]
+Description=agent-mesh relay (mesh-relay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/mesh-relay --listen 127.0.0.1:8080 --client-listen :8443 --token-file /etc/agent-mesh-relay/token
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

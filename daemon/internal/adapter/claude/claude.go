@@ -20,9 +20,11 @@ import (
 // Kind is the adapter's kind.
 const Kind = "claude"
 
-// VerifiedVersions are the Claude Code versions whose hook payloads this adapter was checked against. The
-// decoding is tolerant (unknown fields ignored, missing ones defaulted), but a version outside this list
-// gets a warning in the apps.
+// VerifiedVersions are the Claude Code versions whose hook payloads this adapter was checked against: each has the
+// scrubbed payloads of a real session in testdata/<version>/ (daemon/scripts/capture-claude-hooks.sh), decoded and
+// replayed through the reducer by fixtures_test.go, which also fails when this list and testdata disagree. The
+// decoding is tolerant (unknown fields ignored, missing ones defaulted), but a version outside the list gets a
+// warning in the apps.
 var VerifiedVersions = []string{"2.1.332"}
 
 // HookTimeout is the seconds Claude Code gives each hook. The hook command never waits on a down daemon: it

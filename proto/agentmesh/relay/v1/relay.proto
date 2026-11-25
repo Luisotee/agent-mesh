@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package agentmesh.relay.v1;
+
+// ControlFrame is one binary WebSocket message on the daemon-to-relay control connection
+// (`/v1/daemon/control`). After the WebSocket upgrade (authenticated by the relay bearer token), the daemon
+// sends Register and waits for Registered.
+message ControlFrame {
+  oneof frame {
+    // Daemon to relay.
+    Register register = 1;
+    DialBack dial_back = 2;
+    Ping ping = 3;
+    // Relay to daemon.
+    Registered registered = 10;
+    Pong pong = 11;
+  }
+}
+
+message Register {
+  string host_id = 1;
+  string host_name = 2;
+  string daemon_version = 3;
+}
+
+message Registered {
+  string host_id = 1;
+}
+
+// DialBack asks the daemon to open a WebSocket to `/v1/daemon/stream?ticket=<ticket>` for a waiting app
+// connection; the relay then splices the raw byte streams without inspecting them.
+message DialBack {
+  string ticket = 1;
+  string stream_id = 2;
+}
+
+message Ping {
+  int64 seq = 1;
+}
+
+message Pong {
+  int64 seq = 1;
+}
