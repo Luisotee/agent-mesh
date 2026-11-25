@@ -2223,7 +2223,7 @@ def test_stop_removes_clean_worktrees_and_keeps_dirty(mesh, fake, run, repo, cap
 
 ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo-lead"], ["watch", "--any"],
              ["approve", "repo-fix-typo"], ["switch", "repo-fix-typo"], ["retire", "repo-fix-typo"],
-             ["retirer", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
+             ["retirer", "--run", "mtest"], ["keeper", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
              ["ask", "--repo", ".", "--body", "x"], ["peers", "add", "/nowhere"], ["peers", "remove", "p"],
              ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"],
             ["verdict", "pr", "--reviewer", "r", "--agree", "1"], ["models"])
@@ -8796,15 +8796,19 @@ def test_autoreset_leaves_a_root_alone(mesh, fake, run, monkeypatch, change):
     assert not mesh.maybe_autoreset(run, mesh.load_run(run), mesh.read_log(run)) and not started
 
 
-def test_only_the_roots_own_watch_autoresets(mesh, fake, run, monkeypatch, capsys):
-    seen = []
-    monkeypatch.setattr(mesh, "watch_agents", lambda *a, **k: seen.append(k["autoreset"]) or (0, "ok"))
-    assert mesh.main(["watch", "repo-fix-typo"]) == 0  # on by default
+def test_only_the_roots_own_watch_starts_the_keeper(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "watch_agents", lambda *a, **k: (0, "ok"))
+    monkeypatch.setattr(mesh, "root_hint", lambda *a, **k: None)
     monkeypatch.setenv("MESH_ROOT_AUTORESET", "0")
     assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert mesh.keepers == []  # the idle reset is off
     monkeypatch.delenv("MESH_ROOT_AUTORESET")
     assert mesh.main(["watch", "repo-fix-typo", "--as", "repo-fix-typo"]) == 0
-    assert seen == [True, False, False]
+    assert mesh.keepers == []  # a worker's watch
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0  # on by default
+    assert mesh.keepers == [run]
+    assert mesh.main(["watch", "repo-fix-typo"]) == 0
+    assert mesh.keepers == [run, run]  # the fake starter holds no lock: a real one runs once per run
 
 
 def test_brief_is_bounded_and_says_where_the_rest_is(mesh, fake, run, monkeypatch, capsys):
@@ -10502,7 +10506,7 @@ def test_the_retirer_continues_an_unwatched_worker_even_with_idle_retire_off(mes
 
 @pytest.mark.parametrize("extra, ttl", [
     ({"size": "small"}, "5m"), ({"size": "trivial"}, "5m"), ({"size": "large", "read_only": True}, "5m"),
-    ({"size": "large", "peer": "rove"}, "5m"), ({"size": "large"}, None), ({"size": "large", "planning": True}, None)])
+    ({"size": "large", "peer": "rove"}, "5m"), ({"size": "large"}, None), ({"size": "large", "planning": True}, "5m")])  # a planner: design §12
 def test_cheap_workers_launch_on_a_five_minute_cache(mesh, run, extra, ttl):
     with mesh.editing_run(run) as data:
         data["agents"]["repo-fix-typo"].update(kind="claude", **extra)
