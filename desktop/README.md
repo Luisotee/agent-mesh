@@ -6,19 +6,20 @@ The app is a client of the daemon (`daemon/`). Everything it does to a host is a
 
 ## What the first version does
 
-Hosts (a daemon on this machine by its state dir, or a loopback TCP address with its device token: plain HTTP, so never a remote address until the connection is encrypted), a connection per host with a banner and a log, and the lead-agent view: each run as a tree from its lead, workers and their read-only agents under it, each row with its role, a plain status sentence, repo and model, and a state icon whose shape differs by state. It starts runs, spawns agents, messages and stops them. Terminals, plans, questions, reports, settings, notifications and the tray come in the PRs stacked on this one (`TODO.md`).
+Hosts (a daemon on this machine by its state dir, or a loopback TCP address with its device token: plain HTTP, so never a remote address until the connection is encrypted), a connection per host with a banner and a log, and the lead-agent view: each run as a tree from its lead, workers and their read-only agents under it, each row with its role, a plain status sentence, repo and model, and a state icon whose shape differs by state. It starts runs, spawns agents, messages and stops them. Each agent has a terminal (xterm.js on the daemon's terminal stream: it takes typing, keeps its screen across a daemon restart, searches, opens links in the browser). Plans, questions, reports, settings, notifications and the tray come in the PRs stacked on this one (`TODO.md`).
 
 ## Layout
 
 - `electron/`: the main process, kept thin. `bridge.ts` is the host bridge (below), `hosts.ts` the saved host list, `main.ts` the window, `preload.cts` the API the renderer gets (`window.desktop`, from `shared/api.ts`).
 - `shared/api.ts`: types only, the contract between main and renderer.
+- `src/terminal/session.ts`: one terminal's stream protocol (attach modes, replay, `Ready`, resume by offset, backoff), with no xterm or Electron in it; `components/terminal-view.tsx` wires it to xterm.js.
 - `src/`: the renderer. `transport.ts` (a `fetch` over the bridge for the generated clients), `connection.ts` (one host's connection: handshake, heartbeat, backoff, resume), `store.ts` (the host's state, built only from the snapshot and events), `derive.ts` (trees and status sentences), `actions.ts` (every call the UI makes, with idempotency metadata), `model.ts` (the hosts and the selection), `components/` (our own, with shadcn-style primitives in `components/ui/`, copied into the repo so we own them), `theme.ts` (a theme is a set of tokens written as CSS variables; Dracula first).
 - `src/gen/`: generated TypeScript (`pnpm gen`; committed; reviewers can skip it).
 - `e2e/`: the end-to-end tests and their harness (a real meshd, a fake Claude CLI, a throwaway git repo).
 
 ## The host bridge
 
-meshd refuses any request a browser made (an `Origin` header), and a token in the renderer would defeat that. So the main process holds the tokens and forwards the registry's calls: the renderer's `fetch` becomes an IPC request, main sends it over the host's unix socket or TCP address with the token added (read at call time, so a restarted daemon or a new token works), and streams the answer back in chunks. It forwards only `POST /agentmesh.v1.MeshService/<Method>` and a few headers, and refuses the rest (`electron/bridge.test.ts`). The renderer runs sandboxed, with context isolation, a CSP, no navigation and no new windows.
+meshd refuses any request a browser made (an `Origin` header), and a token in the renderer would defeat that. So the main process holds the tokens and forwards the registry's calls: the renderer's `fetch` becomes an IPC request, main sends it over the host's unix socket or TCP address with the token added (read at call time, so a restarted daemon or a new token works), and streams the answer back in chunks. It forwards only `POST /agentmesh.v1.MeshService/<Method>` and a few headers, and refuses the rest (`electron/bridge.test.ts`). A terminal's WebSocket goes the same way (`electron/socket.ts`): main opens `/v1/term/<agent>?ticket=…` without an Origin and passes the binary frames through unread; the ticket from `OpenTerminal` is its credential. The renderer runs sandboxed, with context isolation, a CSP, no navigation and no new windows.
 
 ## Commands
 

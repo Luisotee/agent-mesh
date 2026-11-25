@@ -6,6 +6,8 @@
 export interface Theme {
   name: string
   tokens: Record<string, string>
+  /** The terminal's colours: the screen, and the 16 ANSI colours. */
+  terminal: Record<string, string>
 }
 
 export const dracula: Theme = {
@@ -36,9 +38,35 @@ export const dracula: Theme = {
     'state-failed': '#ff5555',
     'state-unknown': '#f1fa8c',
   },
+  terminal: {
+    background: '#21222c',
+    foreground: '#f8f8f2',
+    cursor: '#f8f8f2',
+    selectionBackground: '#44475a',
+    black: '#21222c',
+    red: '#ff5555',
+    green: '#50fa7b',
+    yellow: '#f1fa8c',
+    blue: '#bd93f9',
+    magenta: '#ff79c6',
+    cyan: '#8be9fd',
+    white: '#f8f8f2',
+    brightBlack: '#6272a4',
+    brightRed: '#ff6e6e',
+    brightGreen: '#69ff94',
+    brightYellow: '#ffffa5',
+    brightBlue: '#d6acff',
+    brightMagenta: '#ff92df',
+    brightCyan: '#a4ffff',
+    brightWhite: '#ffffff',
+  },
 }
+
+/** The theme in use, for what can't read CSS variables (the terminal's canvas colours). */
+export let activeTheme: Theme = dracula
 
 export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
   for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(`--${k}`, v)
   root.dataset.theme = theme.name
+  activeTheme = theme
 }

@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -36,3 +36,6 @@ export const stopAgent = (c: MeshClient, agent: string) => c.stopAgent({ meta: m
 
 export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: string) =>
   c.sendMessage({ meta: meta(), to, type, body })
+
+/** A one-time ticket for an agent's terminal stream; `input` asks for the right to type (the host decides). */
+export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.openTerminal({ agent, input })

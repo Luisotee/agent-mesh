@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { DesktopApi, HostInfo, NewHost } from '../shared/api'
+import type { DesktopApi, HostInfo, NewHost, SocketEvent, SocketHandle } from '../shared/api'
 import { createMeshClient, type MeshClient } from './actions'
 import { HostConnection } from './connection'
 import { createHostStore, storeSink, type HostStore } from './store'
@@ -11,15 +11,17 @@ export interface HostRuntime {
   store: HostStore
   client: MeshClient
   connection: HostConnection
+  /** A terminal's stream, by the path `OpenTerminal` gave. */
+  openSocket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
 }
 
-export function connectHost(api: Pick<DesktopApi, 'request'>, info: HostInfo): HostRuntime {
+export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket'>, info: HostInfo): HostRuntime {
   const store = createHostStore()
   const client = createMeshClient(hostTransport(api, info.id))
   const sink = storeSink(store)
   const connection = new HostConnection({ client, ...sink })
   connection.start()
-  return { info, store, client, connection }
+  return { info, store, client, connection, openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent) }
 }
 
 export interface AppState {

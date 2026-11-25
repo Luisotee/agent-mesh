@@ -32,6 +32,18 @@ export type BridgeEvent =
   | { type: 'end' }
   | { type: 'error'; code: BridgeErrorCode; message: string }
 
+/** What a terminal stream's socket reports; frames are binary (agentmesh.term.v1.TermFrame). */
+export type SocketEvent =
+  | { type: 'open' }
+  | { type: 'message'; data: Uint8Array }
+  | { type: 'close'; code: number; reason: string }
+  | { type: 'error'; code: BridgeErrorCode; message: string }
+
+export interface SocketHandle {
+  send(data: Uint8Array): void
+  close(): void
+}
+
 export interface DesktopApi {
   hosts: {
     list(): Promise<HostInfo[]>
@@ -42,6 +54,10 @@ export interface DesktopApi {
   }
   /** Send one request to a host; events arrive in order, ending with `end` or `error`. Returns an abort. */
   request(hostId: string, req: BridgeRequest, onEvent: (e: BridgeEvent) => void): () => void
+  /** Open a terminal's WebSocket (a path from OpenTerminal, ticket included). Events end with `close` or `error`. */
+  openSocket(hostId: string, path: string, onEvent: (e: SocketEvent) => void): SocketHandle
+  /** Open an http(s) link in the user's browser. */
+  openExternal(url: string): void
 }
 
 declare global {
