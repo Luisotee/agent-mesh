@@ -45,7 +45,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for out, pkg := range map[string]string{"meshd": "./cmd/meshd", "mesh-term": "./cmd/mesh-term",
-		"meshctl": "./cmd/meshctl", "mesh-relay": "./cmd/mesh-relay", "claude": "./internal/testutil/fakeclaude"} {
+		"meshctl": "./cmd/meshctl", "mesh-relay": "./cmd/mesh-relay", "claude": "./internal/testutil/fakeclaude",
+		"agy": "./internal/testutil/fakeagy"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = ".."
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -101,6 +102,7 @@ func (w *world) startMeshd() {
 	w.log = &lockedBuffer{}
 	cmd := exec.Command(filepath.Join(bins, "meshd"), "--state", w.state, "--term-launch", "detached",
 		"--max-lifetime", "3m", "--cli", "claude="+filepath.Join(bins, "claude"),
+		"--cli", "agy="+filepath.Join(bins, "agy"),
 		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+os.Getenv("PATH"))
 	cmd.Env = w.env()
 	cmd.Stdout, cmd.Stderr = w.log, w.log
@@ -473,6 +475,59 @@ func TestEndToEnd(t *testing.T) {
 		a := w.ctl("agent", "--agent", agent)
 		return str(a, "agent", "state") == "AGENT_STATE_IDLE" && str(a, "agent", "sessionId") == session
 	})
+	stopped := w.ctl("stop-run", "--run-id", run)
+	if str(stopped, "run", "status") != "RUN_STATUS_CLOSED" || w.agentState(agent) != "AGENT_STATE_RETIRED" {
+		t.Fatalf("stop-run %v", stopped)
+	}
+}
+
+func TestAgyEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	os.MkdirAll(w.home, 0o700)
+	t.Cleanup(w.stopAll)
+	repo := filepath.Join(root, "shop-api")
+	os.MkdirAll(repo, 0o755)
+	for _, args := range [][]string{{"init", "-q", "-b", "main"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = repo, w.env()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+
+	w.startMeshd()
+	run := str(w.ctl("start-run", "--title", "agy-e2e"), "run", "id")
+	events := w.follow("--run-id", run)
+	w.waitFor("snapshot", func() bool { return len(events.snapshot()) > 0 })
+
+	spawned := w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "fix", "--kind", "agy", "--role", "worker", "--tier", "mid")
+	agent := str(spawned, "agent", "id")
+	worktree := str(spawned, "agent", "worktree")
+	w.waitFor("agy idle from settled output", func() bool { return w.agentState(agent) == "AGENT_STATE_IDLE" })
+
+	if out, err := exec.Command("git", "-C", worktree, "status", "--porcelain").Output(); err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("agy hooks.json dirtied worktree: %q (%v)", out, err)
+	}
+
+	w.ctl("send", "--to", agent, "--type", "task", "--body", "check README")
+	w.waitFor("agy working then idle", func() bool { return hasSeq(events.states(agent), "IDLE", "WORKING", "IDLE") })
+	before := w.ctl("agent", "--agent", agent)
+	terminal := str(before, "agent", "terminalId")
+	session := str(before, "agent", "sessionId")
+	if session == "" {
+		t.Fatal("expected conversationId recorded after first agy turn")
+	}
+
+	// Switch to light tier reopens the same conversation on flash.
+	w.ctl("switch", "--agent", agent, "--tier", "light", "--why", "e2e")
+	w.waitFor("agy switch reopen", func() bool {
+		a := w.ctl("agent", "--agent", agent)
+		return str(a, "agent", "model") == "flash" && str(a, "agent", "terminalId") != terminal &&
+			str(a, "agent", "state") == "AGENT_STATE_IDLE" && str(a, "agent", "sessionId") == session
+	})
+
 	stopped := w.ctl("stop-run", "--run-id", run)
 	if str(stopped, "run", "status") != "RUN_STATUS_CLOSED" || w.agentState(agent) != "AGENT_STATE_RETIRED" {
 		t.Fatalf("stop-run %v", stopped)

@@ -22,7 +22,7 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
-	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/reducer"
@@ -86,25 +86,27 @@ func (d *Daemon) tierChain(r store.Reader, kind, tier string) ([]string, string,
 }
 
 // pick resolves what an agent runs on: a tier's first model at its effort, or a named model (at the effort
-// named, else high). There is no default: neither is InvalidArgument.
+// named, else the one its name fixes, as an exact agy id does, else the tier's, else high). There is no default:
+// neither is InvalidArgument.
 func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (string, string, error) {
 	if effort != "" && !validEffort(effort) {
 		return "", "", invalid("effort %q: one of %s", effort, strings.Join(settings.Efforts, ", "))
 	}
 	if model != "" {
 		if effort == "" {
-			effort = namedEffort
-			if tier != "" {
-				_, e, err := d.tierChain(r, kind, tier)
-				if err != nil {
-					return "", "", err
-				}
-				effort = e
-			}
-		} else if tier != "" {
-			if _, _, err := d.tierChain(r, kind, tier); err != nil {
+			effort = d.rt.adapters.ModelEffort(context.Background(), kind, model)
+		}
+		if tier != "" {
+			_, e, err := d.tierChain(r, kind, tier)
+			if err != nil {
 				return "", "", err
 			}
+			if effort == "" {
+				effort = e
+			}
+		}
+		if effort == "" {
+			effort = namedEffort
 		}
 		return model, effort, nil
 	}
@@ -181,7 +183,7 @@ func isDirectTask(body string) bool { return directStartRe.MatchString(strings.T
 // is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
 func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	model, effort, deny := target(a)
-	lift := deny && !claude.ReadOnly(a.Role)
+	lift := deny && !adapter.ReadOnly(a.Role)
 	if a.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED && !lift {
 		return nil
 	}
@@ -277,6 +279,8 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ApproveAgentResponse{}
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "approve") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceApproveAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -330,7 +334,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 				execTier = "" // a named model has no chain to walk
 			}
 		}
-		deny := claude.ReadOnly(a.Role) // the planning reason goes; a read-only role keeps its list
+		deny := adapter.ReadOnly(a.Role) // the planning reason goes; a read-only role keeps its list
 		cm, ce, cd := target(a)
 		reopen := model != cm || effort != ce || deny != cd
 		if reopen && a.SessionId == "" {
@@ -386,6 +390,8 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.SwitchAgentResponse{}
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "switch") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSwitchAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -421,6 +427,8 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			model = m.Model
 			if m.Effort != "" {
 				effort = m.Effort
+			} else if own := d.rt.adapters.ModelEffort(ctx, a.Kind, model); own != "" {
+				effort = own // an exact id names its effort: the old one would move it to another model
 			}
 			// A named model has no chain: `next` from it would go back to the tier's first model.
 			if executing {
@@ -501,6 +509,8 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ResumeAgentResponse{}
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "resume") == nil && stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -533,6 +543,21 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	d.deliverSoon(out.Agent.Id)
 	out.Agent = d.view(out.Agent)
 	return connect.NewResponse(out), nil
+}
+
+// atPrompt reports whether an agent's CLI is at its input box between turns: idle, or stopped by a usage limit or
+// an API error (agy's Stop with terminationReason ERROR). All three take a reopen and an idle retire; only a turn
+// in progress (or a prompt it waits on) holds them.
+func atPrompt(s v1.AgentState) bool {
+	return s == v1.AgentState_AGENT_STATE_IDLE || s == v1.AgentState_AGENT_STATE_LIMITED ||
+		s == v1.AgentState_AGENT_STATE_ERROR
+}
+
+// takesDoorbell reports whether a doorbell may be typed into an agent: at its prompt, but not at a usage limit,
+// where the turn it starts would fail on the same quota and use the doorbell up. Its messages wait for the switch
+// (or the `continue` at the reset) that moves it off the limit.
+func takesDoorbell(s v1.AgentState) bool {
+	return atPrompt(s) && s != v1.AgentState_AGENT_STATE_LIMITED
 }
 
 // stopped reports whether an agent has no process and may be resumed: it exited, or was retired.
@@ -603,7 +628,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		} else if spec.effort != "" {
 			effort = spec.effort
 		}
-		a.Pinned, deny = spec.model != "" || spec.effort != "", claude.ReadOnly(a.Role)
+		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
 			return nil, err
 		}
@@ -638,8 +663,8 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	// process (its retire failed, or its caller gave up): it is stopped here, whatever it is doing.
 	leftover := a.State == v1.AgentState_AGENT_STATE_RETIRED && a.TerminalId != ""
 	gone := a.TerminalId == "" || a.State == v1.AgentState_AGENT_STATE_EXITED || (stopped(a) && !leftover)
-	if !gone && !leftover && a.State != v1.AgentState_AGENT_STATE_IDLE {
-		return nil // at its next IDLE: never cut a turn short
+	if !gone && !leftover && !atPrompt(a.State) {
+		return nil // at its next IDLE (or once stopped on a limit or an error): never cut a turn short
 	}
 	if d.rt.term == nil {
 		return nil

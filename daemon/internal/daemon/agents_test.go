@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for out, pkg := range map[string]string{"mesh-term": "./cmd/mesh-term", "meshctl": "./cmd/meshctl",
-		"claude": "./internal/testutil/fakeclaude"} {
+		"claude": "./internal/testutil/fakeclaude", "agy": "./internal/testutil/fakeagy"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = "../.."
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -61,9 +61,10 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 	return daemon.AgentConfig{
 		TermLaunch: termclient.LaunchDetached, TermBinary: filepath.Join(bins, "mesh-term"),
 		TermArgs: []string{"--max-lifetime", "3m"}, Meshctl: filepath.Join(bins, "meshctl"),
-		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude")},
+		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude"), "agy": filepath.Join(bins, "agy")},
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
 		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,
+		ReadySettle: 150 * time.Millisecond,
 	}
 }
 

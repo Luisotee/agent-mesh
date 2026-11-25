@@ -12,6 +12,9 @@ service CliAdapterService {
   rpc Describe(DescribeRequest) returns (DescribeResponse);
   rpc PlanLaunch(PlanLaunchRequest) returns (PlanLaunchResponse);
   rpc DecodeHook(DecodeHookRequest) returns (DecodeHookResponse);
+  rpc LookupSession(LookupSessionRequest) returns (LookupSessionResponse);
+  // DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
+  rpc DescribeModel(DescribeModelRequest) returns (DescribeModelResponse);
 }
 
 message DescribeRequest {}
@@ -50,11 +53,56 @@ message PlanLaunchRequest {
   bool deny_edits = 14;
 }
 
+message WorktreeFile {
+  // Relative path inside the worktree (must not escape it).
+  string path = 1;
+  bytes content = 2;
+  // File mode (0600 by default when 0).
+  uint32 mode = 3;
+  // Keep the file out of git status: an untracked one is ignored (a self-ignoring .gitignore beside it, so other
+  // checkouts of the repo are untouched; <git-common-dir>/info/exclude only at the worktree's top), and a tracked
+  // one is marked skip-worktree.
+  bool git_exclude = 4;
+  // The content is a JSON object. When the repo tracks the path and its committed version is a JSON object too,
+  // the file written is that version with the content's top-level keys added (replacing any of the same name),
+  // so the repo's own entries stay in force. Unset, the committed version unreadable, or not the version one of
+  // the repo's own refs has (a local non-mesh branch or an origin branch), the content replaces it.
+  bool merge_tracked = 5;
+}
+
 message PlanLaunchResponse {
   repeated string argv = 1;
   map<string, string> env = 2;
   // The conversation id, when the adapter chose it up front.
   string session_id = 3;
+  // Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).
+  repeated WorktreeFile worktree_files = 4;
+}
+
+// LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first
+// prompt (a doorbell) names neither the agent nor the run, so nothing else ties a conversation to it.
+message LookupSessionRequest {
+  reserved 2, 3;
+  reserved "agent_name", "run_id";
+  string agent_id = 1;
+  string cwd = 4;
+  string repo = 5;
+  map<string, string> env = 6;
+  // When the agent was created: a conversation started before it (or untouched since) is someone else's.
+  google.protobuf.Timestamp not_before = 7;
+}
+
+message LookupSessionResponse {
+  string session_id = 1;
+}
+
+message DescribeModelRequest {
+  string model = 1;
+}
+
+message DescribeModelResponse {
+  // The effort the model's name fixes (an agy id such as `gemini-4-neon-low`), or empty.
+  string effort = 1;
 }
 
 message DecodeHookRequest {
@@ -84,6 +132,8 @@ message AgentEvent {
     SessionEnded session_ended = 16;
     ProcessExited process_exited = 17;
     DecodeError decode_error = 18;
+    RateLimited rate_limited = 19;
+    TurnFailed turn_failed = 20;
   }
 }
 
@@ -120,5 +170,16 @@ message ProcessExited {
 }
 
 message DecodeError {
+  string error = 1;
+}
+
+// The CLI hit a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit); ready for SwitchAgent.
+message RateLimited {
+  string message = 1;
+  string reset_in = 2;
+}
+
+// The turn ended in a non-limit error.
+message TurnFailed {
   string error = 1;
 }

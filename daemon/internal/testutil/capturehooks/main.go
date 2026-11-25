@@ -36,7 +36,8 @@ type step struct {
 }
 
 type sequence struct {
-	ClaudeVersion string `json:"claude_version"`
+	ClaudeVersion string `json:"claude_version,omitempty"`
+	AgyVersion    string `json:"agy_version,omitempty"`
 	Steps         []step `json:"steps"`
 }
 
@@ -44,15 +45,23 @@ func main() {
 	state := flag.String("state", os.Getenv(client.StateEnv), "the running meshd's state dir")
 	capture := flag.String("capture", "", "the dir meshd's agents capture raw payloads in (AGENT_MESH_HOOK_CAPTURE)")
 	repo := flag.String("repo", "", "a git repository to run the agent in")
-	out := flag.String("out", "", "the testdata dir: fixtures go to <out>/<claude version>/")
+	out := flag.String("out", "", "the testdata dir: fixtures go to <out>/<cli version>/")
+	kind := flag.String("kind", "claude", "CLI kind to capture: claude or agy")
 	claude := flag.String("claude", "claude", "the claude binary, for its version")
+	agyBin := flag.String("agy", "agy", "the agy binary, for its version")
 	timeout := flag.Duration("step-timeout", 3*time.Minute, "how long one scenario may take")
 	flag.Parse()
 	if *state == "" || *capture == "" || *repo == "" || *out == "" {
 		fmt.Fprintln(os.Stderr, "capturehooks: need --state, --capture, --repo and --out")
 		os.Exit(2)
 	}
-	if err := run(*state, *capture, *repo, *out, *claude, *timeout); err != nil {
+	var err error
+	if *kind == "agy" {
+		err = runAgy(*state, *capture, *repo, *out, *agyBin, *timeout)
+	} else {
+		err = run(*state, *capture, *repo, *out, *claude, *timeout)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "capturehooks:", err)
 		os.Exit(1)
 	}
@@ -186,6 +195,100 @@ func run(state, capture, repo, out, claude string, timeout time.Duration) error 
 		return err
 	}
 	next("/exit")
+	return d.write(out, version, repo, seq)
+}
+
+func runAgy(state, capture, repo, out, agyBin string, timeout time.Duration) error {
+	vout, err := exec.Command(agyBin, "--version").Output()
+	if err != nil {
+		return fmt.Errorf("agy --version: %w", err)
+	}
+	version := strings.Fields(string(vout))[0]
+	tok, err := client.Token(state)
+	if err != nil {
+		return err
+	}
+	conn, err := client.Dial(state, tok, client.Options{})
+	if err != nil {
+		return err
+	}
+	d := &driver{ctx: context.Background(), conn: conn, capture: capture, timeout: timeout}
+	runRes, err := conn.Mesh.StartRun(d.ctx, connect.NewRequest(&v1.StartRunRequest{Meta: &v1.RequestMeta{MutationId: "capture-agy-run"}, Title: "capture agy hooks"}))
+	if err != nil {
+		return err
+	}
+	sp, err := conn.Mesh.SpawnAgent(d.ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		Meta:  &v1.RequestMeta{MutationId: "capture-agy-agent"},
+		RunId: runRes.Msg.Run.Id, Repo: repo, Slug: "capture", Kind: "agy", Tier: "light", Plan: true,
+	}))
+	if err != nil {
+		return err
+	}
+	d.agent = sp.Msg.Agent.Id
+	seq := sequence{AgyVersion: version}
+	mark := 0
+	next := func(scenario string) {
+		files := d.captured()
+		seq.Steps = append(seq.Steps, step{Scenario: scenario, Files: files[mark:]})
+		mark = len(files)
+		fmt.Printf("== %s: %d hooks so far\n", scenario, mark)
+	}
+
+	// Startup: agy fires 0 hooks at startup and settles to IDLE via terminal output.
+	if err := d.waitState(v1.AgentState_AGENT_STATE_IDLE, "startup", nil); err != nil {
+		return err
+	}
+	next("startup")
+
+	// Turn 1: a read tool call (fires SessionStart, PreInvocation, PreToolUse, PostToolUse, PostInvocation, Stop).
+	stops := d.hooks("Stop")
+	if err := d.prompt("Read README.md and reply with only the word ok."); err != nil {
+		return err
+	}
+	if err := d.waitHooks("Stop", stops+1, "read turn"); err != nil {
+		return err
+	}
+	if err := d.waitState(v1.AgentState_AGENT_STATE_IDLE, "read turn idle", nil); err != nil {
+		return err
+	}
+	next("a turn with a tool call")
+
+	// Turn 2: planning PreToolUse deny blocks write_file inside worktree.
+	stops = d.hooks("Stop")
+	if err := d.prompt("Try to create hello.txt containing hi using write_file, then reply with only the word ok."); err != nil {
+		return err
+	}
+	if err := d.waitHooks("Stop", stops+1, "denied write turn"); err != nil {
+		return err
+	}
+	if err := d.waitState(v1.AgentState_AGENT_STATE_IDLE, "denied write idle", nil); err != nil {
+		return err
+	}
+	next("a denied write while planning")
+
+	// Turn 3: reopen the same conversation via SwitchAgent (--conversation); the info doorbell runs a turn.
+	stops = d.hooks("Stop")
+	if _, err := conn.Mesh.SwitchAgent(d.ctx, connect.NewRequest(&v1.SwitchAgentRequest{
+		Meta: &v1.RequestMeta{MutationId: "capture-agy-switch"}, Agent: d.agent, Effort: "medium", Why: "capture reopen",
+	})); err != nil {
+		return err
+	}
+	if err := d.waitHooks("Stop", stops+1, "reopened session turn"); err != nil {
+		return err
+	}
+	if err := d.waitState(v1.AgentState_AGENT_STATE_IDLE, "reopened idle", nil); err != nil {
+		return err
+	}
+	next("a reopen (agy --conversation)")
+
+	if _, err := conn.Mesh.StopAgent(d.ctx, connect.NewRequest(&v1.StopAgentRequest{
+		Meta: &v1.RequestMeta{MutationId: "capture-agy-stop"}, Agent: d.agent,
+	})); err != nil {
+		return err
+	}
+	if err := d.waitState(v1.AgentState_AGENT_STATE_EXITED, "stop", nil); err != nil {
+		return err
+	}
 	return d.write(out, version, repo, seq)
 }
 

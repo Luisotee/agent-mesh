@@ -13,7 +13,13 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
+	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
+
+// ReadOnly reports whether a role may not change code: an asker or a reviewer.
+func ReadOnly(role agentmeshv1.AgentRole) bool {
+	return role == agentmeshv1.AgentRole_AGENT_ROLE_ASKER || role == agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER
+}
 
 // Adapter is one CLI's adapter.
 type Adapter = adapterv1connect.CliAdapterServiceHandler
@@ -62,6 +68,34 @@ func (r *Registry) Kinds() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// HasCapability reports whether an adapter kind advertised a capability in Describe.
+func (r *Registry) HasCapability(kind, capability string) bool {
+	d := r.about[kind]
+	if d == nil {
+		return false
+	}
+	for _, c := range d.Capabilities {
+		if c == capability {
+			return true
+		}
+	}
+	return false
+}
+
+// ModelEffort is the effort a model's name fixes by itself (an agy id such as `gemini-4-neon-low`), or "": the
+// adapter has no DescribeModel, or the name fixes none.
+func (r *Registry) ModelEffort(ctx context.Context, kind, model string) string {
+	a, ok := r.byKind[kind]
+	if !ok || model == "" {
+		return ""
+	}
+	res, err := a.DescribeModel(ctx, connect.NewRequest(&adapterv1.DescribeModelRequest{Model: model}))
+	if err != nil {
+		return ""
+	}
+	return res.Msg.Effort
 }
 
 // ShellQuote quotes argv for a POSIX shell, the way hook commands are run.
