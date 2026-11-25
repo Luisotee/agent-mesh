@@ -107,7 +107,7 @@ ROOT_RESET_AT = 200_000  # root context tokens past which mesh suggests `mesh re
 # still type them); plugins nothing in mesh uses. An agent adds one back with `mesh tools add`.
 LEAN_DENY = ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion",
              "EnterWorktree"]
-ROOT_LEAN_DENY = ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents"]
+ROOT_LEAN_DENY = ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "Agent", "ReportFindings"]
 LEAN_SKILLS = ["dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
                "schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring",
                "keybindings-help", "fewer-permission-prompts", "claude-approvals", "update-config"]
@@ -5843,7 +5843,11 @@ def compact_live_pane(run_id: str, name: str, entry: dict, session: str, focus: 
     deadline = time.monotonic() + COMPACT_QUIET_WAIT
     while pane and not typed:
         with ring_lock(pane) as locked:
-            ok, why_not = quiet_box(pane, entry) if locked else (False, "another ring holds its pane")
+            try:
+                ok, why_not = quiet_box(pane, entry) if locked else (False, "another ring holds its pane")
+            except LostRoot:  # herdr lost it and its process can't tell: skip, as reset_root.quiet_now does
+                why_not = "herdr has lost track of its pane"
+                break
             if ok:
                 try:
                     herdr("agent", "prompt", pane, f"/compact {focus}", "--wait", "--until", "working",
@@ -12357,10 +12361,13 @@ TOOLS_WAIT = timedelta(minutes=30)  # the wait a worker's `tools add` declares, 
 def lean_cut(entry: dict) -> dict:
     """What a lean Claude agent runs without now: tools, skills, plugins, claude.ai's skills, and its MCP servers
     (loaded and left out), with what it added back."""
+    if not lean_on():
+        return {"lean": False, "tools": [], "skills": [], "plugins": [], "claudeai_skills": None, "mcp": "inherit",
+                "mcp_loaded": [], "mcp_cut": [], "claudeai_connectors": None, "added": []}
     known = known_mcp_servers(entry.get("repo") or entry.get("cwd"))
     mode = mcp_mode(entry)
     loaded = sorted(known) if mode == "inherit" else sorted(lean_mcp_servers(entry))
-    return {"lean": lean_on(), "tools": lean_tools(entry), "skills": lean_skills(entry),
+    return {"lean": True, "tools": lean_tools(entry), "skills": lean_skills(entry),
             "plugins": sorted({k.split("@")[0] for k in lean_plugins(entry)}),
             "claudeai_skills": None if setting("claude.claudeai_skills") or CLAUDEAI_SKILLS in agent_added(entry)
             else CLAUDEAI_SKILLS,
@@ -12450,6 +12457,12 @@ def tools_reopen(run_id: str, name: str, next_task: str | None) -> int:
 def cmd_tools(args: argparse.Namespace) -> int:
     """`mesh tools`: what your Claude session runs without; `mesh tools add <name>…`: get them back, by a reopen
     of the same conversation once your turn ends (one cold cache write of your context)."""
+    if caller := worker_caller(argparse.Namespace()):  # from the environment and the pane: flags can't change it
+        run, name = caller
+        if args.apply or (getattr(args, "as_", None) or name) != name or (getattr(args, "run", None) or run) != run:
+            log_event(run, "refused", name=name, command="tools")
+            raise MeshError(f"{name} is a worker of run {run}, and `mesh tools` is for its own session only: it "
+                            f"takes no --run or --as naming anyone else, and no --apply")
     run_id, me = identity(args)
     if args.apply:
         return tools_reopen(run_id, me, args.next)
@@ -12534,12 +12547,12 @@ RELAUNCH_START = 60  # seconds a relaunched Claude gets to lead the pane with a 
 def parse_claude_argv(argv: list[str]) -> dict:
     """A Claude command line taken apart (`argv[0]`, or a script under node, is the binary): `plain`, its flags
     without the ones that pick a conversation (CLAUDE_SESSION_FLAGS) or a prompt; `kept`, those without its
-    `--settings`, `--disallowedTools`, `--strict-mcp-config` and `--system-prompt-snapshot` too, which a lean
-    relaunch merges into its own; and `settings` and `deny`, their values."""
+    `--settings`, `--disallowedTools`, `--mcp-config`, `--strict-mcp-config` and `--system-prompt-snapshot` too,
+    which a lean relaunch merges into its own or builds again; and `settings`, `deny` and `mcp`, their values."""
     args = list(argv[1:])
     if argv and Path(argv[0]).name in INTERPRETERS and len(argv) > 1:
         args = list(argv[2:])
-    plain, kept, settings, deny = [], [], [], []
+    plain, kept, settings, deny, mcp = [], [], [], [], []
     i = 0
     while i < len(args):
         token = args[i]
@@ -12567,9 +12580,11 @@ def parse_claude_argv(argv: list[str]) -> dict:
             settings += values
         elif name in ("--disallowedTools", "--disallowed-tools"):
             deny += [t for v in values for t in re.split(r"[,\s]+", v) if t]
+        elif name == "--mcp-config":
+            mcp += values
         elif name not in ("--strict-mcp-config", "--system-prompt-snapshot"):
             kept += written
-    return {"plain": plain, "kept": kept, "settings": settings, "deny": deny}
+    return {"plain": plain, "kept": kept, "settings": settings, "deny": deny, "mcp": mcp}
 
 
 def proc_snapshot(pid: int) -> dict | None:
@@ -12647,12 +12662,14 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
         origin = read_json_object(last.parent / "origin.json")
         if origin:
             user, env, user_deny = (origin.get("settings") or {}), (origin.get("env") or {}), (origin.get("deny") or [])
+            user_mcp = origin.get("mcp") or []
         else:
             user, env = read_json_object(last), {}
+            user_mcp = [v for v in parsed["mcp"] if Path(v) != folder / "mcp.json"]
             mesh_tools = {*setting("claude.root_deny_tools"), *LEAN_DENY, *ROOT_LEAN_DENY}
             user_deny = [t for t in parsed["deny"] if t not in mesh_tools]
     else:
-        user, user_deny = {}, parsed["deny"]
+        user, user_deny, user_mcp = {}, parsed["deny"], parsed["mcp"]
         for value in parsed["settings"][-1:]:  # Claude Code keeps only the last one
             user = settings_arg(value, claude["cwd"])
             if user is None:
@@ -12667,14 +12684,17 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
     previous = path.read_text() if path.exists() else None
     argv = [*parsed["kept"], *(["--disallowedTools", *tools] if tools else []), "--settings", str(path)]
     mcp = folder / "mcp.json"
-    if mcp_mode(entry) != "inherit":
+    if mcp_mode(entry) != "inherit":  # only ours: a user's own --mcp-config would load what the cut drops
         argv += ["--strict-mcp-config", "--mcp-config", str(mcp)]
+    elif user_mcp:
+        argv += ["--mcp-config", *user_mcp]
     if resume is None and parsed["settings"][-1:] == [str(path)] and previous == text \
             and set(parsed["deny"]) == set(tools) and ("--strict-mcp-config" in claude["argv"]) == (mcp_mode(entry) != "inherit"):
         return None, "already lean"
     write_private(path, text)
     if not relaunched_before or not (folder / "origin.json").exists():
-        write_private(folder / "origin.json", json.dumps({"settings": user, "env": env, "deny": user_deny}))
+        write_private(folder / "origin.json",
+                      json.dumps({"settings": user, "env": env, "deny": user_deny, "mcp": user_mcp}))
     if mcp_mode(entry) != "inherit":
         write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
     if resume:
@@ -12730,6 +12750,10 @@ def relaunch_root(run_id: str, root: str, entry: dict, plan: dict) -> tuple[dict
     if not record:
         leader = (pane_process_info(pane) or {})
         if leader.get("foreground_process_group_id") not in (None, leader.get("shell_pid")):
+            late = leader_record(pane)  # a Claude that took longer than RELAUNCH_START to record its session
+            if late and late.get("pid") != plan["pid"]:
+                rebind_root(run_id, root, late)
+                return late, ""
             return None, f"the lean relaunch didn't confirm ({why}), and something else leads its pane now"
         back, why_back = start_root_claude(root, pane, plan["fallback"], plan["pid"])
         if back:
@@ -12862,7 +12886,7 @@ def reset_root(run_id: str, root: str, next_task: str | None, compact: str | Non
             return failed("reset_failed", f"the compaction didn't finish: {exc.code}")
         candidates = {before} if before else set()  # a compaction keeps the conversation
     elif relaunched:
-        candidates = {relaunched["sessionId"]}
+        candidates = {relaunched["sessionId"]} if relaunched.get("sessionId") else set()  # a late one may lack it
     else:
         candidates = cleared_session(entry, file_before, agy_before, reported_before)
         if not candidates:

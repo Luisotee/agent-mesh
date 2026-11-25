@@ -190,7 +190,7 @@ The root lives longest, and every turn re-reads its whole context: a twentieth o
 
 A Claude agent's first call carried 60–70k tokens, about 39k of them tools, skills, plugins and MCP servers a mesh agent doesn't use, and every call re-reads them. So mesh starts every Claude worker, and the root at each reset, without them, with flags for that session only; your settings and your launch alias stay as they are:
 
-- tools by name (`claude.deny_tools`, the root's `claude.root_deny_tools`): Artifact, Workflow, SendFeedback, ScheduleWakeup, ListAgents, and for workers AskUserQuestion and EnterWorktree;
+- tools by name (`claude.deny_tools`, the root's `claude.root_deny_tools`): Artifact, Workflow, SendFeedback, ScheduleWakeup, ListAgents, and for workers AskUserQuestion and EnterWorktree; the root's also Agent and ReportFindings (`mesh tools add Agent` brings the Agent tool back);
 - bundled skills hidden from the model's listing (`claude.skills_hidden`; for workers also the delegate and peer skills): you can still type them;
 - the skills synced from claude.ai, and the plugins in `claude.plugins_off`;
 - MCP servers other than the repo's own (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) and `claude.mcp_keep`, including claude.ai's connectors (`claude.mcp`).
@@ -418,7 +418,7 @@ This file reproduces the built-in policy, plus a `repos_dir`:
     "lean": true,
     "deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion",
                    "EnterWorktree"],
-    "root_deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents"],
+    "root_deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "Agent", "ReportFindings"],
     "skills_hidden": ["dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
                       "schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring",
                       "keybindings-help", "fewer-permission-prompts", "claude-approvals", "update-config"],

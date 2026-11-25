@@ -190,6 +190,48 @@ def test_tools_add_refuses_what_isnt_cut(mesh, run, lean, capsys):
     assert "added" not in mesh.load_run(run)["agents"]["repo-fix-typo"]
 
 
+def test_a_worker_runs_mesh_tools_only_for_itself(mesh, run, lean, monkeypatch, capsys):
+    claude_worker(mesh, run, repo=str(lean), cwd=str(lean))
+    reopens = []
+    monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: reopens.append(a) or 77)
+    monkeypatch.setattr(mesh, "start_reset", lambda *a, **k: reopens.append(a) or 78)
+    monkeypatch.setenv("MESH_RUN", run)
+    monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
+    for argv in (["tools", "add", "Artifact", "--as", "repo-lead"],  # the root's entry
+                 ["tools", "add", "Artifact", "--run", "other", "--as", "repo-fix-typo"],  # another run's
+                 ["tools", "--apply", "--as", "repo-fix-typo"],  # the reopen itself, which the detached child runs
+                 ["tools", "--apply"]):
+        assert mesh.main(argv) == 1
+        assert "only" in capsys.readouterr().err
+    assert not reopens and "added" not in mesh.load_run(run)["agents"]["repo-lead"]
+    assert [e for e in mesh.read_log(run) if e["event"] == "refused" and e["command"] == "tools"]
+    # its own session is still its own: by flag and by environment
+    assert mesh.main(["tools", "add", "Artifact", "--as", "repo-fix-typo"]) == 0
+    assert mesh.main(["tools", "add", "flow"]) == 0
+    assert len(reopens) == 2
+    # the detached child runs without MESH_*, so --apply works for it
+    for var in ("MESH_RUN", "MESH_SELF"):
+        monkeypatch.delenv(var)
+    monkeypatch.setattr(mesh, "tools_reopen", lambda *a: 0)
+    assert mesh.main(["tools", "--apply", "--run", run, "--as", "repo-fix-typo"]) == 0
+
+
+def test_tools_lists_nothing_cut_when_lean_is_off(mesh, run, lean, monkeypatch, capsys):
+    claude_worker(mesh, run, repo=str(lean), cwd=str(lean))
+    monkeypatch.setenv("MESH_CLAUDE_LEAN", "0")
+    assert mesh.main(["tools", "--as", "repo-fix-typo"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["lean"] is False and not (out["tools"] or out["skills"] or out["plugins"] or out["mcp_cut"])
+    assert out["claudeai_skills"] is None and out["claudeai_connectors"] is None
+
+
+def test_the_root_loses_the_agent_tool_until_it_adds_it_back(mesh, run, lean):
+    assert {"Agent", "ReportFindings"} <= set(mesh.setting("claude.root_deny_tools"))
+    root = {"role": "root", "kind": "claude", "repo": str(lean), "cwd": str(lean)}
+    assert {"Agent", "ReportFindings"} <= set(mesh.lean_tools(root))
+    assert "Agent" not in mesh.lean_tools({**root, "added": ["Agent"]})
+
+
 def test_claude_ai_connectors_bring_the_users_whole_mcp_config(mesh, run, lean, monkeypatch):
     claude_worker(mesh, run, repo=str(lean), cwd=str(lean))
     monkeypatch.setattr(mesh, "start_tools_reopen", lambda *a: 77)
@@ -237,6 +279,13 @@ def test_parse_claude_argv_drops_what_picks_a_conversation_and_a_prompt(mesh):
     assert parsed["kept"] == ["--model", "opus", "--add-dir", "x", "y", "--effort=high"]
     assert parsed["settings"] == ["s.json"] and parsed["deny"] == ["A", "B", "C"]
     assert mesh.parse_claude_argv(["claude", "-r", "--verbose"])["plain"] == ["--verbose"]
+
+
+def test_parse_claude_argv_takes_the_users_mcp_config_out_of_the_kept_flags(mesh):
+    parsed = mesh.parse_claude_argv(["claude", "--mcp-config", "a.json", "b.json", "--model", "opus",
+                                     "--mcp-config=c.json"])
+    assert parsed["mcp"] == ["a.json", "b.json", "c.json"] and parsed["kept"] == ["--model", "opus"]
+    assert parsed["plain"][:3] == ["--mcp-config", "a.json", "b.json"]  # the fallback keeps the old line whole
 
 
 def lean_root(mesh, run, monkeypatch, tmp_path, argv=None, env=None):
@@ -288,6 +337,29 @@ def test_a_root_relaunched_before_gets_back_what_it_added(mesh, run, lean, monke
     plan, why = mesh.relaunch_plan("mother", "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], "new2")
     assert plan and "Bash(rm:*)" in deny_rules(plan["argv"]) and "Artifact" not in deny_rules(plan["argv"])
     assert json.loads((mesh.root_files("w1:p1") / "settings.json").read_text())["env"]["ALIAS_SET"] == "yes"
+
+
+@pytest.mark.parametrize("mode, user_kept", [("repo", False), ("inherit", True)])
+def test_each_lean_flag_appears_once_however_many_reopens_follow(mesh, run, lean, monkeypatch, tmp_path, mode,
+                                                                 user_kept):
+    with_config({"claude": {"mcp": mode}})
+    claude = lean_root(mesh, run, monkeypatch, tmp_path, argv=[
+        "claude", "--resume", "old", "--settings", "user.json", "--mcp-config", "u.json",
+        "--disallowedTools", "Bash(rm:*)"])
+    for n in range(1, 4):
+        if n > 1:
+            with mesh.editing_run(run) as data:
+                data["agents"]["repo-lead"].update(added=["Artifact"], tools_added=True)
+        plan, why = mesh.relaunch_plan(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], f"s{n}")
+        argv = plan["argv"]
+        assert plan, why
+        for flag in ("--settings", "--disallowedTools", "--resume", "--system-prompt-snapshot"):
+            assert argv.count(flag) <= 1, (n, flag)
+        assert argv.count("--mcp-config") == 1 and argv.count("--strict-mcp-config") == (0 if user_kept else 1)
+        mcp_path = argv[argv.index("--mcp-config") + 1]
+        assert (mcp_path == "u.json") is user_kept and (user_kept or "u.json" not in argv)
+        claude["argv"] = ["claude", *argv]  # the next reopen sees the process this one started
+    assert argv[-4:] == ["--resume", "s3", "--system-prompt-snapshot", "off"]
 
 
 def test_a_root_already_running_lean_is_cleared_not_relaunched(mesh, run, lean, monkeypatch, tmp_path):
@@ -354,6 +426,31 @@ def test_a_failed_lean_relaunch_brings_the_old_root_back(mesh, fake, run, lean, 
     assert "--resume" not in first and second[-2:] == ("--resume", "old")
     assert "old command line was started again" in mesh.read_log(run)[-1]["reason"]
     assert mesh.load_run(run)["agents"]["repo-lead"]["session"] == "new1"  # the old conversation, back
+
+
+def test_a_claude_that_leads_the_pane_late_is_rebound_and_bootstrapped(mesh, fake, run, lean, monkeypatch, tmp_path):
+    lean_root(mesh, run, monkeypatch, tmp_path)
+    scripted_root(mesh, fake, monkeypatch)
+    relaunching(mesh, fake, monkeypatch)
+    started_ = {"n": 0}
+    real = mesh.herdr
+
+    def herdr(*args, **kw):
+        if args[:2] == ("agent", "start"):
+            started_["n"] += 1
+        return real(*args, **kw)
+    monkeypatch.setattr(mesh, "herdr", herdr)
+    monkeypatch.setattr(mesh, "RELAUNCH_START", 0)  # the first look finds no new record in time
+    monkeypatch.setattr(mesh, "pane_process_info", lambda pane: {"foreground_process_group_id": 201,
+                                                                 "shell_pid": 50})
+    late = {"pid": 201, "procStart": "7", "messagingSocketPath": "/s/201.sock"}  # up, but no session recorded yet
+    monkeypatch.setattr(mesh, "leader_record", lambda pane: late)
+    assert mesh.reset_root(run, "repo-lead", "carry on", None) == 0
+    assert started_["n"] == 1  # no second start of the old command line
+    root = mesh.load_run(run)["agents"]["repo-lead"]
+    assert (root["pid"], root["address"]) == (201, "uds:/s/201.sock")
+    assert prompts(fake)[-1].endswith("Then: carry on")
+    assert mesh.read_log(run)[-1]["relaunched"] is True
 
 
 def test_a_root_that_doesnt_exit_gets_nothing_more_typed(mesh, fake, run, lean, monkeypatch, tmp_path):
@@ -494,6 +591,29 @@ def test_a_live_compaction_never_types_into_a_draft(mesh, fake, run, monkeypatch
     entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
     result = mesh.compact_live_pane(run, "repo-fix-typo", entry, "s-1", "keep X", "followup")
     assert result["compacted"] is False and not fake.called("agent", "prompt")
+
+
+def test_a_live_compaction_skips_when_herdr_lost_the_pane_and_the_follow_up_still_goes(mesh, fake, run,
+                                                                                       monkeypatch):
+    claude_worker(mesh, run, cwd="/wt/fix", session="s-1", view="pane", model="opus", effort="high")
+    path = transcript(mesh, "/wt/fix", "s-1", 300_000)
+    os.utime(path, (time.time() - 60, time.time() - 60))
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="t.md")
+    mesh.log_event(run, "send", sender="repo-fix-typo", to="repo-lead", type="done", file="r.md")
+    tries = []
+
+    def lost(pane, entry=None, lost_ok=True):
+        tries.append(pane)
+        raise mesh.LostRoot("herdr has lost track of this root's pane")
+    monkeypatch.setattr(mesh, "quiet_box", lost)
+    monkeypatch.setattr(mesh, "COMPACT_QUIET_WAIT", 0)
+    delivered = []
+    monkeypatch.setattr(mesh, "deliver", lambda *a, **k: delivered.append(a) or {"stored": "x", "rung": True,
+                                                                                 "error": None})
+    assert mesh.main(["send", "repo-fix-typo", "--type", "answer", "--body", "Fix it."]) == 0
+    assert len(tries) == 1 and not fake.called("agent", "prompt") and delivered
+    event = [e for e in mesh.read_log(run) if e["event"] == "compacted"][-1]
+    assert not event["ok"] and "lost track" in event["note"]
 
 
 def test_a_follow_up_whose_background_copy_fails_is_stored_for_a_resume(mesh, fake, run, monkeypatch, capsys):
