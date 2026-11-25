@@ -2195,7 +2195,8 @@ ROOT_ONLY = (["init", "--mode", "agy"], ["spawn", "--repo", "."], ["ring", "repo
              ["approve", "repo-fix-typo"], ["switch", "repo-fix-typo"], ["retire", "repo-fix-typo"],
              ["retirer", "--run", "mtest"], ["resume", "repo-fix-typo"], ["open", "repo-fix-typo"],
              ["ask", "--repo", ".", "--body", "x"], ["peers", "add", "/nowhere"], ["peers", "remove", "p"],
-             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"])
+             ["peers", "edit", "p", "--about", "x"], ["peers", "refresh"], ["worktree", "--slug", "x"], ["reset"], ["reserve", "off"],
+            ["verdict", "pr", "--reviewer", "r", "--agree", "1"])
 WORKER_RUNS = (["whoami"], ["whoami", "--reminder", "clear"], ["inbox"], ["dir"], ["peers", "list"], ["status"],
                ["log"], ["agents"], ["send", "parent", "--type", "info", "--body", "FYI."])
 
@@ -4081,6 +4082,27 @@ def test_switch_moves_a_worker_to_another_effort_or_tier_in_the_same_conversatio
     capsys.readouterr()
     assert mesh.main(["switch", "repo-fix-typo", "--tier", "strong"]) == 1
     assert "already runs on opus at high" in capsys.readouterr().err
+
+
+
+def test_the_root_records_its_verdict_on_a_reviewers_findings(mesh, run, monkeypatch, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-review-7-opencode"] = {"role": "worker", "kind": "opencode", "model": "opencode/big-pickle",
+                                                    "tier": "mid", "parent": "repo-lead", "status": "retired"}
+    pr = "https://github.com/Acme/proj/pull/7"
+    monkeypatch.setenv("MESH_SELF", "repo-fix-typo")
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode", "--agree", "2"]) == 1
+    assert "only the run's root" in capsys.readouterr().err
+    monkeypatch.delenv("MESH_SELF")
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode"]) == 1
+    assert "count the reviewer's findings" in capsys.readouterr().err
+    assert mesh.main(["verdict", pr, "--reviewer", "proj-review-7-opencode", "--agree", "2", "--other", "1",
+                      "--disagree", "3", "--blocking", "1"]) == 0
+    capsys.readouterr()
+    [event] = [e for e in mesh.read_log(run) if e["event"] == "verdict"]
+    assert (event["pr"], event["kind"], event["model"], event["tier"]) == (
+        "https://github.com/acme/proj/pull/7", "opencode", "opencode/big-pickle", "mid")
+    assert (event["agree"], event["other"], event["disagree"], event["blocking"]) == (2, 1, 3, 1)
 
 
 DIRECT_FIX = "Direct task (no plan)\n\nFix it."
@@ -6069,6 +6091,30 @@ def test_code_review_runs_at_the_reviews_size(mesh, cli, repo, tmp_path):
     for size, level in (("trivial", "medium"), ("small", "medium"), ("large", "high"), (None, "high")):
         task = mesh.ask_task("", pr, 7, fresh=True, head=head, kind="claude", repo=repo, size=size)
         assert f"`/code-review {level} 7`" in task, size
+
+
+
+def test_since_narrows_a_fresh_reviewer_to_the_fix_commits(mesh, cli, repo, tmp_path):
+    base, head = pr_on_a_branch(tmp_path, repo)
+    pr = "https://github.com/acme/proj/pull/7"
+    cli.on("pr", "view", returncode=1)
+    cli.on("pr", "diff", stdout="+fixed\n")
+    origin = tmp_path / "origin"
+    since = subprocess.run(["git", "rev-parse", f"{head}~1"], cwd=origin, capture_output=True, text=True).stdout.strip()
+    args = mesh.argparse.Namespace(since=since, size="small", repo=str(origin))
+    task = mesh.asker_task(args, "mtest", origin, None, "claude", "", pr, 7, head, None)[0]
+    assert f"An earlier review covered this PR up to {since}" in task and "You last reviewed" not in task
+    assert f"`/code-review medium {since}..{head}`" in task
+
+
+
+def test_a_prs_author_is_the_worker_whose_branch_it_came_from(mesh, run, monkeypatch):
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-feat"] = {"role": "worker", "kind": "claude", "branch": "mesh/mtest/feat"}
+    monkeypatch.setattr(mesh, "pr_head_branch", lambda pr: "mesh/mtest/feat")
+    assert mesh.pr_author_kind("https://github.com/acme/proj/pull/7") == "claude"
+    monkeypatch.setattr(mesh, "pr_head_branch", lambda pr: "someones-branch")
+    assert mesh.pr_author_kind("https://github.com/acme/proj/pull/8") is None  # a PR no mesh worker made
 
 
 AGY_LOW = USAGE.replace("Gemini Models\tFive Hour Limit Remaining\t52%", "Gemini Models\tFive Hour Limit Remaining\t3%")

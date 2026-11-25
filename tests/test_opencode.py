@@ -348,6 +348,17 @@ def test_opencodes_input_box_is_read_with_its_placeholder_and_status_left_out(me
     assert mesh.doorbells_shown(["  📬 [mesh] info (ref k9)", *plain[1:]], "refk9)", "opencode") == 1
 
 
+def test_opencodes_placeholder_reads_empty_in_any_colour(mesh):
+    """Run mebd0: a placeholder in a colour no ghost style covered read as a human's draft, so the task was never
+    delivered. The text says it's the placeholder, whatever its colour."""
+    for colour in ("38;2;90;150;200", "38;5;244", "1"):
+        placeholder = f'\x1b[{colour}mAsk anything… "Fix a TODO in the codebase"\x1b[0m'
+        assert mesh.typed_text(oc_box(placeholder), "opencode") == ""
+        assert not mesh.human_draft(oc_box(placeholder), "opencode")
+    draft = "\x1b[38;2;238;238;238mAsk anything about the deploy\x1b[0m"  # a real draft that starts the same
+    assert mesh.human_draft(oc_box(draft), "opencode")
+
+
 def test_copilots_empty_box_reads_empty(mesh):
     rows = ["\x1b[0m\x1b[38;2;129;139;152m╻\x1b[0m\x1b[38;2;20;27;34m▄▄▄▄\x1b[0m",
             "\x1b[0m\x1b[38;2;129;139;152m┃\x1b[0m\x1b[48;2;20;27;34m          \x1b[0m",

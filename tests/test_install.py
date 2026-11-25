@@ -31,7 +31,7 @@ def plugin_installed(home: Path, scope: str = "user") -> None:
 
 def test_plain_install_links_the_skills(tmp_path):
     assert install(tmp_path).returncode == 0
-    assert len(claude_skills(tmp_path)) == 7
+    assert len(claude_skills(tmp_path)) == 8
     assert (tmp_path / ".local" / "bin" / "mesh").is_symlink()
 
 
@@ -41,13 +41,13 @@ def test_installed_plugin_keeps_the_skills_out_on_a_plain_rerun(tmp_path):
     done = install(tmp_path)
     assert done.returncode == 0 and "plugin is installed" in done.stdout
     assert claude_skills(tmp_path) == []
-    assert len(list((tmp_path / ".gemini" / "config" / "skills").iterdir())) == 7  # agy still gets them
+    assert len(list((tmp_path / ".gemini" / "config" / "skills").iterdir())) == 8  # agy still gets them
 
 
 def test_a_project_scoped_plugin_doesnt_count(tmp_path):
     plugin_installed(tmp_path, scope="local")
     install(tmp_path)
-    assert len(claude_skills(tmp_path)) == 7
+    assert len(claude_skills(tmp_path)) == 8
 
 
 def test_plugin_flag_skips_the_skills_before_the_plugin_is_installed(tmp_path):
@@ -79,13 +79,13 @@ def test_an_agy_only_machine_gets_only_agys_skills_and_rules(tmp_path):
     assert done.returncode == 0 and "claude is not on PATH" in done.stdout
     assert claude_skills(tmp_path) == [] and not (tmp_path / ".claude" / "CLAUDE.md").exists()
     assert "delegate-claude" not in gemini_skills(tmp_path) and "delegate-agy" in gemini_skills(tmp_path)
-    assert len(gemini_skills(tmp_path)) == 6
+    assert len(gemini_skills(tmp_path)) == 7
     assert "agent-mesh:begin" in (tmp_path / ".gemini" / "AGENTS.md").read_text()
 
 
 def test_a_claude_only_machine_gets_no_delegate_agy(tmp_path):
     assert install(tmp_path, clis=("claude",)).returncode == 0
-    assert "delegate-agy" not in claude_skills(tmp_path) and len(claude_skills(tmp_path)) == 6
+    assert "delegate-agy" not in claude_skills(tmp_path) and len(claude_skills(tmp_path)) == 7
     assert gemini_skills(tmp_path) == [] and not (tmp_path / ".gemini" / "AGENTS.md").exists()
 
 

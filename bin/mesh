@@ -208,6 +208,9 @@ REVIEW_PREFIX = ("Review (read-only) of {pr}{at}: review this pull request. Chan
                  "Report only what you confirmed in the code and mark the rest unverified. Or reply `failed`.")
 REVIEW_AGAIN = ("You last reviewed it at {last}: say which of your earlier findings are fixed, and review what "
                 "changed since (`git diff {last} {head}`).")
+# A fresh reviewer given `--since` (a fix round by a cheap reviewer, not the one who found what it fixes).
+REVIEW_SINCE = ("An earlier review covered this PR up to {last}: review only what changed since "
+                "(`git diff {last} {head}`), the fixes for that review.")
 # When the branch was rebased or had its base merged in since, `git diff <last> <head>` holds more than the fix.
 REVIEW_AGAIN_WHOLE = ("You last reviewed it at {last}, but the branch was rebased or merged its base since, so "
                       "`git diff {last} {head}` holds more than the fixes: review the whole PR again and say which of "
@@ -395,6 +398,9 @@ class Cli:
     # How its TUI draws ghost text (a placeholder) in an empty input box, which isn't a human's draft (typed_text):
     # "dim" (SGR 2) and/or "grey" (foreground colour 8: `38;5;8`, or SGR 90).
     ghost_styles: tuple[str, ...] = ("dim",)
+    # An empty box's placeholder, matched on the plain text: read as empty whatever colour it is drawn in (one in a
+    # colour no ghost style covers once read as a human's draft, and held a task back).
+    placeholder: re.Pattern | None = None
     # Its input box: "rules" (a `─` rule above and below a prompt at column 0: Claude, agy) or "gutter" (`┃` rows
     # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text.
     input_box, box_status_rows = "rules", 0
@@ -796,6 +802,7 @@ class OpenCodeCli(Cli):
     # Its empty box shows a placeholder in grey (`38;2;128;128;128`); typed text is near-white. The box is a `┃`
     # gutter down to `╹▀▀…`, whose last row is the agent and model (the status, not typed).
     ghost_styles = ("dim", "grey", "rgb-grey")
+    placeholder = re.compile(r'^Ask anything(…|\.\.\.)\s*("[^"]*")?$')  # `Ask anything… "Fix a TODO in the codebase"`
     input_box, box_status_rows = "gutter", 1
     counts_cost, cost_tally, cost_prefix = True, "agy", "opencode "
 
@@ -2262,7 +2269,9 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     if kind in CLIS and not CLIS[kind].reads_drafts:
         return None
     if kind in CLIS and CLIS[kind].input_box == "gutter":
-        return gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
+        typed = gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
+        hint = CLIS[kind].placeholder
+        return "" if typed and hint and hint.match(typed) else typed
     plain = [strip_sgr(line) for line in lines]
     at = input_box_at(plain)
     if at is None:
@@ -9118,7 +9127,8 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
         again = bool(last and head and last != head)
         if again:
-            where += " " + (REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE).format(last=last, head=head)
+            text = REVIEW_SINCE if fresh and narrow else REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE
+            where += " " + text.format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if cli_has(kind, "code_review") and head:
             whole = built[1] if built else number if pr_remote_is_origin(repo, pr) else pr
@@ -11095,16 +11105,17 @@ def worker_phase(entry: dict, events: list[dict], name: str, task: str | None) -
         return "a read-only task: change nothing, and report one `done` with the answer"
     if (task or "").startswith(DIRECT_STARTS[1]):  # before the direct task: it plans first
         return ("a plan the user reviews: if the user hasn't approved your plan in your pane yet, plan in plan "
-                "mode and change nothing; once it's approved, make the change, verify it, open the PR and report "
-                "`done`")
+                "mode and change nothing; once it's approved, make the change, verify it, open the PR, run the "
+                "`self-review` skill on it and report `done`")
     if (task or "").startswith(DIRECT_STARTS):
-        return "a direct task (no plan review by your parent): make the change, verify it, open the PR, report `done`"
+        return ("a direct task (no plan review by your parent): make the change, verify it, open the PR, run the "
+                "`self-review` skill on it, report `done`")
     if entry.get("phase") == "plan" or entry.get("planning"):
         return "planning: research, write the plan, run the `check-plan` skill on it, then send it as a `plan`, and change nothing until it is approved" + (
             " (until then mesh denies edits to your worktree and `git push`: a denial is expected, not something to "
             "work around)" if deny_argv(entry) else "")
     if entry.get("phase") == "exec":
-        return "executing your approved plan: finish, verify, open the PR, then report `done`"
+        return "executing your approved plan: finish, verify, open the PR, run the `self-review` skill on it, then report `done`"
     return "working on it: report `done` or `failed` with `mesh send parent` when it's finished (stuck: send a `question`)"
 
 
@@ -11253,6 +11264,38 @@ def cmd_reserve(args: argparse.Namespace) -> int:
             run["over_reserve"] = args.state == "off"
         log_event(run_id, "reserve_" + args.state, name=me)
     print(quota_line(load_run(run_id)))
+    return 0
+
+
+def find_agent(run_id: str, name: str) -> dict | None:
+    """An agent by name: this run's, else the newest run's that has one (a reviewer an earlier round started)."""
+    entry = load_run(run_id)["agents"].get(name)
+    if entry:
+        return entry
+    return next((run["agents"][name] for run, _ in all_runs() if name in run["agents"]), None)
+
+
+def cmd_verdict(args: argparse.Namespace) -> int:
+    """Record the root's verdict on one reviewer's findings, once it has checked each against the code: how many it
+    agreed with, agreed with another fix for, or disagreed with. `mesh cost` sums them per reviewer CLI, model and
+    tier, as that reviewer's precision (design §10)."""
+    run_id, me = identity(args)
+    if (load_run(run_id)["agents"].get(me) or {}).get("role") != "root":
+        raise MeshError("only the run's root records a verdict on a review")
+    counts = {"agree": args.agree, "other": args.other, "disagree": args.disagree}
+    if not sum(counts.values()):
+        raise MeshError("count the reviewer's findings: --agree / --other / --disagree (a review with none needs no "
+                        "verdict)")
+    if args.blocking > args.agree + args.other:
+        raise MeshError("--blocking counts the findings you agreed with (either fix) that were blocking")
+    entry = find_agent(run_id, args.reviewer)
+    if not entry:
+        raise MeshError(f"no agent {args.reviewer} in any run (`mesh agents` lists them)")
+    tier = entry.get("exec_tier") if entry.get("phase") == "exec" else entry.get("tier")
+    record = {"pr": pr_key(args.pr), "reviewer": args.reviewer, "kind": entry.get("kind"), "model": entry.get("model"),
+              "tier": tier, **counts, "blocking": args.blocking}
+    log_event(run_id, "verdict", **record)
+    emit(record)
     return 0
 
 
@@ -12959,6 +13002,17 @@ def build_parser() -> argparse.ArgumentParser:
                                              "it to the reserve again (on); no argument shows the quotas"))
     p.add_argument("state", nargs="?", choices=("off", "on"))
     p.set_defaults(func=cmd_reserve)
+
+    p = ident(sub.add_parser("verdict", help="root only: record how many of a reviewer's findings you agreed with, "
+                                             "once checked (for `mesh cost`)"))
+    p.add_argument("pr", help="the PR the review was of")
+    p.add_argument("--reviewer", required=True, help="the reviewer's name")
+    for flag, text in (("--agree", "findings you agreed with, fix and all"),
+                       ("--other", "findings you agreed with, with another fix"),
+                       ("--disagree", "findings you disagreed with"),
+                       ("--blocking", "of those you agreed with, how many were blocking")):
+        p.add_argument(flag, type=int, default=0, metavar="N", help=text)
+    p.set_defaults(func=cmd_verdict)
     return parser
 
 
