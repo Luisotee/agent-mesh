@@ -6,6 +6,7 @@ import dev.agentmesh.android.net.ConnectionSink
 import dev.agentmesh.android.net.HostConnection
 import dev.agentmesh.android.net.MeshApi
 import dev.agentmesh.android.net.PROTOCOL_VERSION
+import dev.agentmesh.android.net.RelayRefused
 import dev.agentmesh.android.net.RouteException
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.Frame
@@ -73,8 +74,8 @@ private class Sink(private val scope: TestScope) : ConnectionSink {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HostConnectionTest {
-    private fun TestScope.conn(api: () -> MeshApi, sink: Sink, heartbeat: Long = 15_000) =
-        HostConnection(backgroundScope, api, sink, now = { currentTime }, random = { 1.0 }, heartbeatMs = heartbeat, helloTimeoutMs = 10_000, baseMs = 500, maxMs = 15_000)
+    private fun TestScope.conn(api: () -> MeshApi, sink: Sink, heartbeat: Long = 15_000, routes: Int = 1) =
+        HostConnection(backgroundScope, api, sink, now = { currentTime }, random = { 1.0 }, heartbeatMs = heartbeat, helloTimeoutMs = 10_000, baseMs = 500, maxMs = 15_000, routeCount = { routes })
 
     private fun frameEvent(seq: Long) = SubscribeEventsResponse.newBuilder().setEvent(dev.agentmesh.gen.agentmesh.v1.Event.newBuilder().setSeq(seq).setGeneration("g1")).build()
 
@@ -125,6 +126,61 @@ class HostConnectionTest {
         survivor.close(ApiException(Code.UNAVAILABLE, "dropped later"))
         runCurrent()
         assertEquals(1, sink.states.filterIsInstance<ConnState.Reconnecting>().last().attempt)
+    }
+
+    @Test fun `a relay auth refusal stops a host with one route at once`() = runTest {
+        val api = FakeApi()
+        api.onHello = { throw ApiException(Code.UNAVAILABLE, "x", RelayRefused("auth", "the relay refused this device's client token")) }
+        val sink = Sink(this)
+        conn({ api }, sink).start(); runCurrent()
+        val stop = sink.last as ConnState.Stopped
+        assertEquals(ConnState.Reason.Auth, stop.reason)
+        assertTrue(stop.message, "Pair with the host again" in stop.message)
+    }
+
+    @Test fun `a relay auth refusal keeps trying the other routes and stops only when every route was refused in a row`() = runTest {
+        val api = FakeApi()
+        api.onHello = { throw ApiException(Code.UNAVAILABLE, "x", RelayRefused("auth", "the relay refused this device's client token")) }
+        val sink = Sink(this)
+        conn({ api }, sink, routes = 2).start(); runCurrent()
+        // The first refusal: another route is next, after the backoff.
+        val retry = sink.last as ConnState.Reconnecting
+        assertTrue(retry.error, "relay refused" in retry.error && "pair with the host again" in retry.error)
+        advanceTimeBy(600); runCurrent()
+        assertEquals(2, api.hellos)
+        assertEquals(ConnState.Reason.Auth, (sink.last as ConnState.Stopped).reason)
+    }
+
+    @Test fun `a refusal, then a connection that works, then a refusal does not stop a two-route host`() = runTest {
+        val api = FakeApi()
+        val refuse = ApiException(Code.UNAVAILABLE, "x", RelayRefused("auth", "refused"))
+        val first = Channel<SubscribeEventsResponse>(Channel.UNLIMITED)
+        api.streams += first
+        api.onHello = { n -> if (n == 1 || n == 3) throw refuse else helloResponse() }
+        val sink = Sink(this)
+        conn({ api }, sink, routes = 2).start(); runCurrent()
+        advanceTimeBy(600); runCurrent()
+        assertTrue(sink.last is ConnState.Ready) // the second route works
+        first.close(ApiException(Code.UNAVAILABLE, "dropped")); runCurrent()
+        advanceTimeBy(1_000); runCurrent()
+        assertTrue("the refusal after a Ready is the first of a new streak", sink.last is ConnState.Reconnecting)
+    }
+
+    @Test fun `a runtime whose relay route is refused ends up on its direct route instead of stopping`() = runTest {
+        val dir = java.nio.file.Files.createTempDirectory("hosts").toFile()
+        val repo = dev.agentmesh.android.hosts.HostRepository(dir.resolve("hosts.json"), Plain)
+        val fp = "ab".repeat(32)
+        val host = repo.add(
+            "Home", listOf(dev.agentmesh.android.net.Route.Relay("relay:8443", "h1", "amr_stale", fp), dev.agentmesh.android.net.Route.Direct("https://lan:1", fp)), "amt_t",
+        )
+        val refusing = object : MeshApi by FakeApi() {
+            override suspend fun hello(): HelloResponse = throw ApiException(Code.UNAVAILABLE, "x", RelayRefused("auth", "the relay refused this device's client token"))
+        }
+        val working = FakeApi()
+        val rt = dev.agentmesh.android.HostRuntime(host.id, repo, { route, _ -> if (route is dev.agentmesh.android.net.Route.Relay) refusing else working }, backgroundScope, now = { currentTime }, random = { 1.0 })
+        rt.start(); runCurrent()
+        advanceTimeBy(2_000); runCurrent()
+        assertTrue(rt.state.value.conn.toString(), rt.state.value.conn is ConnState.Ready)
     }
 
     @Test fun `a refused token stops the retries, and a nudge tries again`() = runTest {

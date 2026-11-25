@@ -78,7 +78,7 @@ class RecordingApi : MeshApi {
     /** Terminal streams the next attaches get, in order; each attach also asks for a ticket first. */
     val sockets = ArrayDeque<FakeSocket>()
     val tickets = mutableListOf<String>()
-    var terminalError: ApiException? = null
+    var terminalError: Throwable? = null
 
     override suspend fun openTerminal(agent: String): String {
         terminalError?.let { throw it }

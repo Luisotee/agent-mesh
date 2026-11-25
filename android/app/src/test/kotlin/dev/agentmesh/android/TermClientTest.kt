@@ -2,6 +2,7 @@ package dev.agentmesh.android
 
 import com.connectrpc.Code
 import dev.agentmesh.android.net.ApiException
+import dev.agentmesh.android.net.RelayRefused
 import dev.agentmesh.android.term.CloseCode
 import dev.agentmesh.android.term.TermClient
 import dev.agentmesh.android.term.TermScreen
@@ -189,6 +190,33 @@ class TermClientTest {
         assertEquals(TermState.Failed("no terminal for agent a1"), r2.client.state.value)
         advanceTimeBy(60_000); runCurrent()
         assertEquals(0, r2.api.tickets.size)
+    }
+
+    @Test fun `a relay that refuses the client token, or a certificate that isn't the pinned one, is final and says so, and an offline relay is retried`() = runTest {
+        val refused = RelayRefused("auth", "the relay refused this device's client token")
+        val pinned = javax.net.ssl.SSLHandshakeException("handshake failed").also { it.initCause(java.security.cert.CertificateException("the host's certificate ab is not the pinned one")) }
+        fun failed(r: Rig) = (r.client.state.value as TermState.Failed).message
+        // From the ticket request (ConnectRPC wraps what the socket threw)...
+        val a = Rig(this); a.api.terminalError = ApiException(Code.UNAVAILABLE, "x", refused)
+        a.client.start(); runCurrent()
+        assertTrue(failed(a), "relay refused" in failed(a) && "Pair with the host again" in failed(a))
+        val b = Rig(this); b.api.terminalError = ApiException(Code.UNAVAILABLE, "x", pinned)
+        b.client.start(); runCurrent()
+        assertTrue(failed(b), "is not the pinned one" in failed(b))
+        // ...and from the WebSocket's own failure.
+        val c = Rig(this); val sc = c.socket(); c.client.start(); runCurrent()
+        sc.fail(java.io.IOException("x", refused)); runCurrent()
+        assertTrue(failed(c), "relay refused" in failed(c))
+        val d = Rig(this); val sd = d.socket(); d.client.start(); runCurrent()
+        sd.fail(pinned); runCurrent()
+        assertTrue(failed(d), "is not the pinned one" in failed(d))
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals("no retry after a final failure", listOf(0, 1, 1, 1), listOf(a, b, c, d).map { it.api.tickets.size }.let { listOf(it[0], it[1] + 1, it[2], it[3]) })
+        // A host that is offline at the relay may come back: retried, in the relay's words.
+        val e = Rig(this); e.api.terminalError = ApiException(Code.UNAVAILABLE, "x", RelayRefused("offline", "the host is offline at the relay"))
+        e.client.start(); runCurrent()
+        val st = e.client.state.value as TermState.Reconnecting
+        assertEquals("the host is offline at the relay", st.why)
     }
 
     @Test fun `letting go closes the stream`() = runTest {

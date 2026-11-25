@@ -85,9 +85,19 @@ class RoutesTest {
         assertTrue(runCatching { c.connect(Route.Direct("not a url")) { "" } }.exceptionOrNull() is RouteException)
     }
 
-    @Test fun `a relay route is a clear refusal until pairing lands`() {
-        val e = runCatching { DefaultRouteConnector().connect(Route.Relay("relay.example:8443", "h1", "amr_x", "ab".repeat(32))) { "" } }.exceptionOrNull()
-        assertTrue(e is RouteException && "pairing" in e.message.orEmpty())
+    @Test fun `a relay route is built from its address, host, token and pin, and anything missing is a refusal that says what`() {
+        val c = DefaultRouteConnector()
+        val ok = c.connect(Route.Relay("relay.example:8443", "h1", "amr_x", "ab".repeat(32))) { "" }
+        assertEquals("https://mesh-relay.invalid", ok.baseUrl)
+        for ((route, word) in listOf(
+            Route.Relay("relay.example", "h1", "amr_x", "ab".repeat(32)) to "host:port",
+            Route.Relay("relay.example:8443", "", "amr_x", "ab".repeat(32)) to "host id",
+            Route.Relay("relay.example:8443", "h1", "", "ab".repeat(32)) to "pair with the host again",
+            Route.Relay("relay.example:8443", "h1", "amr_x", "abcd") to "SHA-256",
+        )) {
+            val e = runCatching { c.connect(route) { "" } }.exceptionOrNull()
+            assertTrue("$word: $e", e is RouteException && word in e.message.orEmpty())
+        }
     }
 
     @Test fun `fingerprints compare however they are written`() {

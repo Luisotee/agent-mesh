@@ -2,6 +2,7 @@ package dev.agentmesh.android
 
 import dev.agentmesh.android.net.UI_ACTIONS
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -40,5 +41,16 @@ class RegistryPinTest {
             Regex("""okhttp3\.|java\.net\.(Socket|URL|HttpURLConnection)|MeshServiceClient|ConnectOkHttpClient|WebSocket""").containsMatchIn(f.readText())
         }
         assertEquals(emptyList<File>(), offenders)
+    }
+
+    /** Pairing is the one other service a device calls, and it needs no token: only `RedeemPairing`, which must exist in its proto. */
+    @Test fun `the one PairingService call is RedeemPairing`() {
+        val pairingProto = File(repo, "proto/agentmesh/v1/pairing.proto").readText()
+        assertTrue("rpc RedeemPairing(" in pairingProto)
+        val used = mutableSetOf<String>()
+        for (f in sources()) for (m in Regex("""\bpairingService\.(\w+)\(""").findAll(f.readText())) used += m.groupValues[1]
+        assertEquals(setOf("redeemPairing"), used)
+        // The host-side pairing actions stay the host's own: nothing here calls them.
+        for (f in sources()) assertFalse(f.path, Regex("""createPairing|listDevices|revokeDevice""", RegexOption.IGNORE_CASE).containsMatchIn(f.readText().replace(Regex("""//.*|/\*[\s\S]*?\*/"""), "")))
     }
 }

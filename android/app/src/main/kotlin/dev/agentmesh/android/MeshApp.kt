@@ -39,15 +39,21 @@ class AppContainer(
     /** The client for a route; tests put a fake host here. */
     private val newApi: (dev.agentmesh.android.net.Route, () -> String) -> dev.agentmesh.android.net.MeshApi =
         { route, token -> ConnectMeshApi(connector.connect(route, token)) },
+    /** How a pairing call reaches a route; tests put a fake host here. */
+    pairingClients: dev.agentmesh.android.hosts.PairingClients = dev.agentmesh.android.hosts.PairingClients.Default,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val hosts = HostRepository(File(context.filesDir, "hosts.json"), secrets)
+    val pairing = dev.agentmesh.android.hosts.PairingFlow(hosts, pairingClients)
     val themes = ThemeStore(context)
     val prefs = DevicePrefs(context)
     val notifier = Notifier(context)
 
     /** Where to go once the UI is up: a tapped notification's agent. */
     val deepLink = MutableStateFlow<DeepLink?>(null)
+
+    /** A pairing link opened from outside (an `agentmesh://pair` link): the pairing screen takes it, and asks before using it. */
+    val pairLink = MutableStateFlow<String?>(null)
 
     /** The (host, agent) whose screen is on top while the app is resumed: its notifications aren't posted, the user is looking. */
     val viewing = MutableStateFlow<Pair<String, String>?>(null)

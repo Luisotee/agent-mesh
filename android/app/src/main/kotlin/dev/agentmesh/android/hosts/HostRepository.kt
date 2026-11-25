@@ -19,8 +19,12 @@ data class Host(
     val daemonId: String? = null,
 )
 
+/** [host] has its relay client tokens sealed (see [HostRepository.sealRoutes]); [token] is the sealed device token. */
 @Serializable
 private data class Stored(val host: Host, val token: String)
+
+/** Marks a relay client token that is sealed; one without it was written in the clear by the first version and is sealed on the next save. */
+private const val SEALED = "sealed:"
 
 @Serializable
 private data class Stash(val hosts: List<Stored> = emptyList())
@@ -35,6 +39,13 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
     private var stash: Stash = load()
     private val flow = MutableStateFlow(stash.hosts.map { it.host })
 
+    init {
+        // A first-version file holds relay tokens in the clear: seal them now rather than on some later save.
+        if (stash.hosts.any { h -> h.host.routes.any { it is Route.Relay && !it.relayClientToken.startsWith(SEALED) && it.relayClientToken.isNotEmpty() } }) {
+            runCatching { commit(stash) }
+        }
+    }
+
     val hosts: StateFlow<List<Host>> get() = flow
 
     /** Set when the saved list couldn't be read and was set aside: the user is told, and nothing overwrites it. */
@@ -44,7 +55,9 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
     private fun load(): Stash {
         if (!file.exists()) return Stash()
         return try {
-            json.decodeFromString<Stash>(file.readText())
+            val raw = json.decodeFromString<Stash>(file.readText())
+            // In memory a route's relay token is plain, like the device token once opened for a request.
+            Stash(raw.hosts.map { it.copy(host = it.host.copy(routes = it.host.routes.map(::openRoute))) })
         } catch (e: Exception) {
             // Never let the next save replace an unreadable list: keep it beside the new one.
             val bad = File(file.parentFile, file.name + ".bad")
@@ -60,10 +73,17 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
         flow.value = next.hosts.map { it.host }
     }
 
+    private fun sealRoute(r: Route): Route =
+        if (r is Route.Relay && r.relayClientToken.isNotEmpty() && !r.relayClientToken.startsWith(SEALED)) r.copy(relayClientToken = SEALED + secrets.seal(r.relayClientToken)) else r
+
+    /** A token the Keystore can no longer open (a restored backup) comes back empty: the route then says to pair again. */
+    private fun openRoute(r: Route): Route =
+        if (r is Route.Relay && r.relayClientToken.startsWith(SEALED)) r.copy(relayClientToken = runCatching { secrets.open(r.relayClientToken.removePrefix(SEALED)) }.getOrDefault("")) else r
+
     private fun save(next: Stash) {
         val tmp = File(file.parentFile, file.name + ".tmp")
         java.io.FileOutputStream(tmp).use { out ->
-            out.write(json.encodeToString(next).toByteArray())
+            out.write(json.encodeToString(Stash(next.hosts.map { it.copy(host = it.host.copy(routes = it.host.routes.map(::sealRoute))) })).toByteArray())
             out.fd.sync()
         }
         java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
@@ -76,8 +96,8 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
         stash.hosts.firstOrNull { it.host.id == id }?.let { runCatching { secrets.open(it.token) }.getOrNull() }
     }
 
-    fun add(name: String, routes: List<Route>, token: String): Host = synchronized(lock) {
-        val host = Host(UUID.randomUUID().toString(), name.trim(), routes)
+    fun add(name: String, routes: List<Route>, token: String, daemonId: String? = null): Host = synchronized(lock) {
+        val host = Host(UUID.randomUUID().toString(), name.trim(), routes, daemonId)
         commit(Stash(stash.hosts + Stored(host, secrets.seal(token.trim()))))
         host
     }

@@ -33,9 +33,10 @@ import dev.agentmesh.android.net.Route
 import dev.agentmesh.android.net.RouteException
 
 /** What a form field set says is wrong with a host being added; null when it can be saved. */
-fun validateHost(name: String, url: String, token: String, pin: String, tokenRequired: Boolean): String? {
+fun validateHost(name: String, url: String, token: String, pin: String, tokenRequired: Boolean, addressOptional: Boolean = false): String? {
     if (name.isBlank()) return "Give the host a name"
     val trimmed = url.trim()
+    if (addressOptional && isNoAddress(trimmed)) return if (tokenRequired && token.isBlank()) "Paste the device token" else null
     if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return "The address starts with https:// (or http:// for this device)"
     if (tokenRequired && token.isBlank()) return "Paste the device token"
     if (pin.isNotBlank() && !Fingerprint.isValid(pin)) return "The pinned fingerprint is 64 hex digits (SHA-256)"
@@ -47,6 +48,23 @@ fun validateHost(name: String, url: String, token: String, pin: String, tokenReq
     }
 }
 
+/** An address field left empty, or holding only the scheme the form starts with. */
+private fun isNoAddress(url: String) = url.isBlank() || url == "https://" || url == "http://"
+
+/**
+ * The routes a save gives a host: the address replaces its first direct route (or goes first when it has none), and every other route (a
+ * relay) is kept. An empty address on a host that has a relay route keeps its routes as they are, so a relay-only host can be renamed.
+ */
+fun editedRoutes(existing: List<Route>?, url: String, pin: String): List<Route> {
+    val trimmed = url.trim()
+    val others = existing.orEmpty().toMutableList()
+    if (isNoAddress(trimmed) && others.any { it is Route.Relay }) return others
+    val edited = Route.Direct(trimmed.trimEnd('/'), pin.ifBlank { null })
+    val at = others.indexOfFirst { it is Route.Direct }
+    if (at >= 0) others[at] = edited else others.add(0, edited)
+    return others
+}
+
 /** Adds a host, or edits one (when [hostId] is given). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,7 +73,9 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
     val existing = hostId?.let { container.hosts.get(it) }
     val direct = existing?.routes?.firstOrNull { it is Route.Direct } as? Route.Direct
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
-    var url by rememberSaveable { mutableStateOf(direct?.url ?: "https://") }
+    // A host reached through a relay needs no address: empty keeps its routes.
+    val relayed = existing?.routes.orEmpty().any { it is Route.Relay }
+    var url by rememberSaveable { mutableStateOf(direct?.url ?: if (relayed) "" else "https://") }
     // Not saveable: the plain token must not go into the activity's saved state.
     var token by remember { mutableStateOf("") }
     var pin by rememberSaveable { mutableStateOf(direct?.pinSha256.orEmpty()) }
@@ -69,7 +89,7 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
-                url, { url = it }, label = { Text("Address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                url, { url = it }, label = { Text(if (relayed) "Address (optional: it has a relay route)" else "Address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 supportingText = { Text("https://… for a host over Tailscale (tailscale serve) or behind your own proxy. http:// works only for localhost and the emulator's 10.0.2.2.") },
             )
@@ -84,14 +104,9 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
-                val problem = validateHost(name, url, token, pin, tokenRequired = existing == null)
+                val problem = validateHost(name, url, token, pin, tokenRequired = existing == null, addressOptional = relayed)
                 if (problem != null) { error = problem; return@Button }
-                val edited = Route.Direct(url.trim().trimEnd('/'), pin.ifBlank { null })
-                // Only the first direct route is what this form shows: any other route (a relay) is kept.
-                val others = existing?.routes.orEmpty().toMutableList()
-                val at = others.indexOfFirst { it is Route.Direct }
-                if (at >= 0) others[at] = edited else others.add(0, edited)
-                val routes: List<Route> = others.ifEmpty { listOf(edited) }
+                val routes = editedRoutes(existing?.routes, url, pin)
                 if (existing == null) container.hosts.add(name, routes, token) else {
                     container.hosts.update(existing.id, name, routes, token.ifBlank { null })
                     container.runtimes.value[existing.id]?.reconnect()

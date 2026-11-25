@@ -18,6 +18,7 @@ import dev.agentmesh.android.ui.settings.HostSettingsScreen
 object Routes {
     const val HOSTS = "hosts"
     const val ADD = "host/new"
+    const val PAIR = "pair"
     const val EDIT = "host/{id}/edit"
     const val HOST = "host/{id}"
     const val LOG = "host/{id}/log"
@@ -50,11 +51,23 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         nav.navigate(Routes.host(l.hostId)) { popUpTo(Routes.HOSTS) }
         nav.navigate(Routes.agent(l.hostId, l.agentId, l.tab))
     }
+    // An agentmesh://pair link opened from outside: the pairing screen, with the link in its field (nothing is sent until Pair).
+    val pairLink by container.pairLink.collectAsStateWithLifecycleCompat()
+    LaunchedEffect(pairLink) {
+        if (pairLink != null && nav.currentDestination?.route != Routes.PAIR) nav.navigate(Routes.PAIR) { launchSingleTop = true }
+    }
     NavHost(nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) {
             HostsScreen(
-                onOpen = { nav.navigate(Routes.host(it)) }, onAdd = { nav.navigate(Routes.ADD) },
+                onOpen = { nav.navigate(Routes.host(it)) }, onAdd = { nav.navigate(Routes.ADD) }, onPair = { nav.navigate(Routes.PAIR) },
                 onEdit = { nav.navigate(Routes.edit(it)) }, onSettings = { nav.navigate(Routes.SETTINGS) },
+            )
+        }
+        composable(Routes.PAIR) {
+            // The screen takes a waiting link (and any that arrives while it is up) itself, once.
+            PairScreen(
+                null, onBack = { nav.popBackStack() },
+                onPaired = { id -> nav.navigate(Routes.host(id)) { popUpTo(Routes.HOSTS) } },
             )
         }
         composable(Routes.ADD) { HostFormScreen(null) { nav.popBackStack() } }

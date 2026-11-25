@@ -57,7 +57,11 @@ class HostConnection(
     private val helloTimeoutMs: Long = 10_000,
     private val baseMs: Long = 500,
     private val maxMs: Long = 15_000,
+    /** How many routes the host has: the relay's client token belongs to one of them, so its refusal stops the host only once all were refused. */
+    private val routeCount: () -> Int = { 1 },
 ) {
+    /** Relay `auth` refusals in a row, one per route tried: the host stops when they cover every route. */
+    private val relayRefusals = AtomicInteger()
     private val generation = AtomicInteger()
     private val attempt = AtomicInteger()
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -78,6 +82,7 @@ class HostConnection(
     fun restart() {
         stop()
         attempt.set(0)
+        relayRefusals.set(0)
         wake.tryReceive()
         start()
     }
@@ -127,6 +132,7 @@ class HostConnection(
         val daemon = hello.daemonId
         acked = false
         sink.log("connected to ${hello.daemonId} (instance ${hello.instanceId}, ${hello.version})")
+        relayRefusals.set(0)
         sink.onState(ConnState.Ready(hello))
         launch { heartbeat(gen, client, daemon) }
         client.subscribe(sink.cursor()).collect { msg ->
@@ -164,11 +170,17 @@ class HostConnection(
     private fun failed(gen: Int, e: Throwable) {
         if (gen != generation.get()) return
         generation.incrementAndGet()
-        val message = e.message ?: e.javaClass.simpleName
+        val message = describeFailure(e)
+        if (relayRefusal(e)?.code != "auth") relayRefusals.set(0)
         when {
             e is ConfigError -> stopWith(ConnState.Reason.Config, message)
             e is Incompatible -> stopWith(ConnState.Reason.Incompatible, message)
             e is ApiException && e.refusedToken -> stopWith(ConnState.Reason.Auth, message)
+            // The relay no longer accepts this device's client token (the relay's secret changed, or the pairing was undone). That token
+            // belongs to the relay route alone: another route may still work, so stop only once every route was refused.
+            relayRefusal(e)?.code == "auth" ->
+                if (relayRefusals.incrementAndGet() >= routeCount().coerceAtLeast(1)) stopWith(ConnState.Reason.Auth, "$message. Pair with the host again.")
+                else retryLater("$message (pair with the host again to use this route)", expected = false)
             e is ApiException && e.code == Code.FAILED_PRECONDITION ->
                 // From Hello this is a protocol mismatch ("upgrade the client").
                 stopWith(if (Regex("protocol", RegexOption.IGNORE_CASE).containsMatchIn(message)) ConnState.Reason.Incompatible else ConnState.Reason.Config, message)
