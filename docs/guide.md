@@ -193,7 +193,9 @@ A Claude agent's first call carried 60–70k tokens, about 39k of them tools, sk
 - tools by name (`claude.deny_tools`, the root's `claude.root_deny_tools`): Artifact, Workflow, SendFeedback, ScheduleWakeup, ListAgents, and for workers AskUserQuestion and EnterWorktree; the root's also Agent and ReportFindings (`mesh tools add Agent` brings the Agent tool back);
 - bundled skills hidden from the model's listing (`claude.skills_hidden`; for workers also the delegate and peer skills): you can still type them;
 - the skills synced from claude.ai, and the plugins in `claude.plugins_off`;
-- MCP servers other than the repo's own (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) and `claude.mcp_keep`, including claude.ai's connectors (`claude.mcp`).
+- MCP servers other than the repo's own (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) and `claude.mcp_keep` (Context7 by default; web search is a built-in tool, never cut), including claude.ai's connectors (`claude.mcp`).
+
+The root picks more per task: `mesh tools servers` lists your own MCP servers (name, one line, whether it is always loaded or exclusive, who holds it), and `--mcp a,b` on `mesh spawn`, `mesh ask --repo` and `mesh resume` starts that Claude worker with them from its first turn, kept through resumes (`resume --mcp` replaces them, `--mcp none` clears them). The one line is `claude.mcp_about[name]`, else the server's type and host or command (never its arguments, headers or environment). The ones in `claude.mcp_exclusive` (Playwright by default: your server is one browser) have one holder at a time across all runs: a second `--mcp playwright`, or `mesh tools add playwright`, is refused naming the holder until it is retired or its run stopped. The protocol tells the root to pass none by default, the browser to a frontend task, and your personal servers only to a task about them.
 
 An agent that needs one back runs `mesh tools` (what it runs without) and `mesh tools add <name>… --next "<what next>"`, then ends its turn: mesh reopens the same conversation with it, which costs one cold cache write of its context. `claude.lean: false` turns all of it off. To start your root lean from its first turn too, launch it with the same flags, for example `claude --disallowedTools Artifact Workflow SendFeedback ScheduleWakeup ListAgents --settings ~/.config/agent-mesh-root.json --strict-mcp-config --mcp-config <your repo's servers>`, with `skillOverrides`, `syncClaudeAiSkills` and `enabledPlugins` in that settings file (design §11, "Lean sessions").
 
@@ -427,7 +429,9 @@ This file reproduces the built-in policy, plus a `repos_dir`:
     "claudeai_skills": false,
     "plugins_off": ["pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"],
     "mcp": "repo",
-    "mcp_keep": []
+    "mcp_keep": ["context7"],
+    "mcp_about": {},
+    "mcp_exclusive": ["playwright"]
   }
 }
 ```
@@ -447,7 +451,7 @@ This file reproduces the built-in policy, plus a `repos_dir`:
 - **`compact`:** the context tokens over which a resume compacts first (`--compact auto`): `claude` for a Claude conversation, `claude_cold` for one whose cache has gone cold, `agy` for agy. `approve` and `approve_switch`: over which `mesh approve` compacts a Claude planner before reopening it, when its execution model is the planning one and when it changes (the new model writes the whole context anyway, so it pays sooner). `followup` and `followup_cold`: over which a task or answer to a live Claude worker that already reported `done` compacts it first (warm or cold cache). `0` turns any of these four off.
 - **`watch`:** `timeout` is the seconds a root's `mesh watch --any` runs when it gets no `--timeout` (7200; `0` = none).
 - **`root_reset`:** `at` is the root context in tokens past which mesh suggests `mesh reset` and the run's root keeper resets an idle root, `auto: false` turns that idle reset off, `wait` is how many seconds a reset waits for the root's turn to end, and `relaunch: false` makes a reset type `/clear` instead of restarting the root's Claude with the lean flags.
-- **`claude`:** lean Claude sessions (see [Lean sessions](#lean-sessions)). `lean: false` starts every agent with your full set of tools, skills, plugins and MCP servers. `deny_tools` / `root_deny_tools`: the tools a worker / the root starts without. `skills_hidden` (everyone) and `worker_skills_hidden` (workers only): skills left out of the model's listing (you can still type them). `claudeai_skills`: the skills synced from claude.ai. `plugins_off`: plugins turned off, by name. `mcp`: `repo` loads only the repo's own MCP servers (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) plus `mcp_keep`, `none` only `mcp_keep`, `inherit` whatever your config loads.
+- **`claude`:** lean Claude sessions (see [Lean sessions](#lean-sessions)). `lean: false` starts every agent with your full set of tools, skills, plugins and MCP servers. `deny_tools` / `root_deny_tools`: the tools a worker / the root starts without. `skills_hidden` (everyone) and `worker_skills_hidden` (workers only): skills left out of the model's listing (you can still type them). `claudeai_skills`: the skills synced from claude.ai. `plugins_off`: plugins turned off, by name. `mcp`: `repo` loads only the repo's own MCP servers (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) plus `mcp_keep`, `none` only `mcp_keep`, `inherit` whatever your config loads. `mcp_keep`: servers every agent loads (Context7, with the built-in web search). `mcp_about`: a one-line description per server name, shown by `mesh tools servers`. `mcp_exclusive`: servers one agent at a time may hold (`--mcp`, `mesh tools add`).
 
 Useful commands while a run is going:
 
@@ -477,6 +481,7 @@ mesh protocol [name]       # print one part of the protocol (root.6, your-own-co
 mesh brief                 # (root) one bounded view of the run: what a fresh session needs
 mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear your own pane and resume from mesh brief
 mesh tools [add <name>… --next …]  # what your Claude session runs without; add some back (reopens it once your turn ends)
+mesh tools servers [--json]  # your MCP servers a worker can start with: spawn/ask --repo/resume --mcp a,b
 ```
 
 ## The protocol in one screen

@@ -3,7 +3,10 @@ approve and before a follow-up (design §11, §12, §15)."""
 
 import json
 import os
+import shutil
 import stat
+import subprocess
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from conftest import with_config
-from test_mesh import (IDLE_BOX, claude_planner, claude_worker, deny_rules, prompts, scripted_root, sent_plan,  # noqa: F401
-                       started, stub_new_pane, usage)
+from test_mesh import (IDLE_BOX, archived_worker, bg_cli, claude_planner, claude_root, claude_worker,  # noqa: F401
+                       deny_rules, prompts, scripted_root, sent_plan, started, stub_new_pane, stub_panes, usage)
 
 
 @pytest.fixture
@@ -130,7 +133,7 @@ def test_approve_reopens_a_planner_lean_without_its_edit_rules(mesh, fake, run, 
 
 
 def test_a_resumed_worker_keeps_what_it_added(mesh):
-    assert set(mesh.ADDED_KEYS) == {"added", "tools_added", "mcp_all"}
+    assert set(mesh.ADDED_KEYS) == {"added", "tools_added", "mcp_all", "mcp"}
 
 
 def test_retire_and_stop_remove_the_private_files(mesh, fake, run, lean):
@@ -772,3 +775,275 @@ def test_a_follow_up_to_a_big_live_worker_compacts_it_first(mesh, fake, run, mon
     assert bool(seen) is compacts
     if compacts:
         assert "Fix the review findings" in seen[0][4]
+
+
+# ── the user's MCP servers, picked per task (`--mcp`, `mesh tools servers`; design §11) ──
+
+USER_SERVERS = {
+    "todoist": {"command": "t", "args": ["--token", "secret-arg"], "env": {"TOKEN": "secret"}},
+    "playwright": {"type": "http", "url": "http://localhost:8931/mcp"},
+    "context7": {"type": "http", "url": "https://mcp.context7.com/mcp", "headers": {"KEY": "secret-header"}},
+    "flow": {"command": "/usr/bin/flow", "args": ["serve"]},
+}
+
+
+@pytest.fixture
+def gitrepo(tmp_path):
+    path = tmp_path / "proj"
+    path.mkdir()
+    for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                ["commit", "-q", "--allow-empty", "-m", "init"]):
+        subprocess.run(["git", *cmd], cwd=path, check=True)
+    return path
+
+
+@pytest.fixture
+def users(mesh, monkeypatch):
+    """A user config with the personal servers, Playwright's one shared browser and Context7."""
+    monkeypatch.setenv("MESH_CLAUDE_LEAN", "1")
+    home = Path(os.environ["CLAUDE_CONFIG_DIR"])
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": USER_SERVERS}))
+    return USER_SERVERS
+
+
+def spawn_claude(mesh, repo, slug, *flags, task="Add the feature."):
+    return mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(repo), "--worktree", slug,
+                      "--task", task, *flags])
+
+
+def launched_servers(mesh, run, name):
+    return mcp_servers(mesh.mcp_file(run, name))
+
+
+def test_context7_comes_with_no_config_of_the_users(mesh):
+    assert mesh.setting("claude.mcp_keep") == ["context7"]
+
+
+def test_mcp_names_the_users_servers_a_spawned_worker_starts_with(mesh, fake, cli, run, gitrepo, users, capsys):
+    stub_panes(fake)
+    assert spawn_claude(mesh, gitrepo, "plain") == 0
+    assert launched_servers(mesh, run, "proj-plain") == {"context7"}  # none by default
+    assert "mcp" not in mesh.load_run(run)["agents"]["proj-plain"]
+    assert spawn_claude(mesh, gitrepo, "shot", "--mcp", "playwright") == 0
+    assert launched_servers(mesh, run, "proj-shot") == {"context7", "playwright"}  # not todoist, not flow
+    assert mesh.load_run(run)["agents"]["proj-shot"]["mcp"] == ["playwright"]
+    path = mesh.mcp_file(run, "proj-shot")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_an_unknown_server_or_a_cli_without_lean_sessions_refuses_before_anything_starts(mesh, fake, run, gitrepo,
+                                                                                         users, monkeypatch, capsys):
+    stub_panes(fake)
+    capsys.readouterr()
+    assert spawn_claude(mesh, gitrepo, "x", "--mcp", "nope") == 1
+    err = capsys.readouterr().err
+    assert "nope" in err and "playwright" in err  # names what it can pass
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "agy", "--repo", str(gitrepo), "--worktree", "y",
+                      "--task", "Add it.", "--mcp", "playwright"]) == 1
+    assert "Claude" in capsys.readouterr().err
+    monkeypatch.setenv("MESH_CLAUDE_LEAN", "0")
+    assert spawn_claude(mesh, gitrepo, "z", "--mcp", "playwright") == 1
+    assert "claude.lean" in capsys.readouterr().err
+    monkeypatch.setenv("MESH_CLAUDE_LEAN", "1")
+    with_config({"claude": {"mcp": "inherit"}})
+    assert spawn_claude(mesh, gitrepo, "w", "--mcp", "playwright") == 1
+    assert "inherit" in capsys.readouterr().err
+    assert not [a for a in mesh.load_run(run)["agents"] if a.startswith("proj-")]
+    assert not list(mesh.worktree_root().glob("*/proj-*"))  # no worktree was left behind
+
+
+def test_a_server_the_root_passed_doesnt_unhide_a_plugin_or_skill_of_that_name(mesh, run, lean):
+    home = Path(os.environ["CLAUDE_CONFIG_DIR"])
+    state = json.loads((home / ".claude.json").read_text())
+    state["mcpServers"].update({"pr-review-toolkit": {"command": "p"}, "dataviz": {"command": "d"}})
+    (home / ".claude.json").write_text(json.dumps(state))
+    entry = entry_for(lean, mcp=["pr-review-toolkit", "dataviz"])
+    argv = mesh.claude_launch_argv(run, "repo-fix-typo", entry)
+    assert {"pr-review-toolkit", "dataviz"} <= mcp_servers(argv[argv.index("--mcp-config") + 1])
+    settings = mesh.lean_settings(entry)
+    assert settings["enabledPlugins"] == {"pr-review-toolkit@official": False}
+    assert settings["skillOverrides"]["dataviz"] == "user-invocable-only"
+    assert "--system-prompt-snapshot" not in argv  # present from the first prompt: nothing to un-snapshot
+
+
+def test_a_resume_keeps_replaces_or_clears_the_servers_it_had(mesh, fake, run, gitrepo, users, capsys):
+    stub_new_pane(fake)
+    cases = (([], {"context7", "playwright"}, ["playwright"]), (["--mcp", "flow"], {"context7", "flow"}, ["flow"]),
+             (["--mcp", "none"], {"context7"}, None))
+    for n, (flags, servers, recorded) in enumerate(cases):
+        run_id = f"mold{n}"
+        archived_worker(mesh, gitrepo, kind="claude", session="c1", run_id=run_id)
+        archive = mesh.mesh_home() / "archive" / run_id / "run.json"
+        data = json.loads(archive.read_text())
+        data["agents"]["proj-fix"].update(mcp=["playwright"], status="retired")
+        archive.write_text(json.dumps(data))
+        capsys.readouterr()
+        assert mesh.main(["resume", "--tier", "strong", "--from-run", run_id, "proj-fix", "--task", "Go on.",
+                          *flags]) == 0, flags
+        name = json.loads(capsys.readouterr().out)["name"]
+        assert launched_servers(mesh, run, name) == servers, flags
+        assert mesh.load_run(run)["agents"][name].get("mcp") == recorded, flags
+        with mesh.editing_run(run) as data:  # free the name and the browser for the next case
+            data["agents"][name]["status"] = "retired"
+
+
+def test_an_approved_plan_reopens_with_the_servers_it_started_with(mesh, fake, run, users, gitrepo):
+    claude_planner(mesh, run, mcp=["playwright"], repo=str(gitrepo), cwd=str(gitrepo))
+    stub_new_pane(fake)
+    sent_plan(mesh, run)
+    assert mesh.main(["approve", "repo-fix-typo"]) == 0
+    assert launched_servers(mesh, run, "repo-fix-typo") == {"context7", "playwright"}
+
+
+def test_a_background_worker_gets_them_too(mesh, cli, run, gitrepo, users, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--tier", "strong", "--kind", "claude", "--repo", str(gitrepo), "--worktree", "bgw",
+                      "--size", "small", "--task", "Fix the typo.", "--mcp", "flow"]) == 0
+    assert launched_servers(mesh, run, json.loads(capsys.readouterr().out)["name"]) == {"context7", "flow"}
+    assert "--bg" in cli.calls[-1]["argv"] or cli.called("--bg")
+
+
+def lease_entry(**extra):
+    return {"role": "worker", "kind": "claude", "status": "running", "pane": "w1:p9", **extra}
+
+
+def other_run(mesh, run_id, agents, archived=False):
+    folder = mesh.mesh_home() / ("archive" if archived else "") / run_id
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text(json.dumps({"id": run_id, "root": "x-lead", "agents": agents}))
+
+
+def test_one_agent_at_a_time_holds_a_shared_browser(mesh, run, users):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", mcp=["playwright"])
+    assert mesh.setting("claude.mcp_exclusive") == ["playwright"]
+    assert mesh.mcp_holder("playwright") == (run, "repo-fix-typo")
+    assert mesh.mcp_holder("flow") is None and mesh.mcp_holder("playwright", skip=(run, "repo-fix-typo")) is None
+    with pytest.raises(mesh.MeshError, match=r"repo-fix-typo.*retire"):
+        mesh.check_mcp_lease(["playwright"])
+    mesh.check_mcp_lease(["flow"])  # not shared: any number may hold it
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["status"] = "retired"
+    assert mesh.mcp_holder("playwright") is None
+    mesh.check_mcp_lease(["playwright"])
+
+
+def test_the_browser_is_held_across_runs_until_that_run_stops(mesh, run, users):
+    other_run(mesh, "m2", {"w-shot": lease_entry(mcp=["playwright"])})
+    assert mesh.mcp_holder("playwright") == ("m2", "w-shot")
+    with pytest.raises(mesh.MeshError, match=r"w-shot.*run m2"):
+        mesh.check_mcp_lease(["playwright"])
+    other_run(mesh, "m3", {"w-old": lease_entry(mcp=["playwright"])}, archived=True)  # a stopped run holds nothing
+    shutil.rmtree(mesh.mesh_home() / "m2")
+    assert mesh.mcp_holder("playwright") is None
+    with_config({"claude": {"mcp_exclusive": []}})
+    other_run(mesh, "m4", {"w-shot": lease_entry(mcp=["playwright"])})
+    mesh.check_mcp_lease(["playwright"])  # the user's config says it isn't shared
+
+
+def test_a_worker_that_added_the_browser_back_holds_it_too(mesh, run, users, monkeypatch, capsys):
+    claude_worker(mesh, run, added=["playwright"])
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "claude"
+    assert mesh.mcp_holder("playwright") == (run, "repo-fix-typo")
+    monkeypatch.setattr(mesh, "start_reset", lambda *a, **k: 5)
+    monkeypatch.setenv("MESH_ROOT_RELAUNCH", "1")
+    assert mesh.main(["tools", "add", "playwright"]) == 1  # the root can't take it from the worker
+    assert "repo-fix-typo" in capsys.readouterr().err
+    assert "playwright" not in (mesh.load_run(run)["agents"]["repo-lead"].get("added") or [])
+
+
+def test_a_second_spawn_on_the_browser_is_refused_naming_the_holder(mesh, fake, run, gitrepo, users, capsys):
+    stub_panes(fake)
+    assert spawn_claude(mesh, gitrepo, "one", "--mcp", "playwright") == 0
+    capsys.readouterr()
+    assert spawn_claude(mesh, gitrepo, "two", "--mcp", "playwright") == 1
+    assert "proj-one" in capsys.readouterr().err
+    assert "proj-two" not in mesh.load_run(run)["agents"] and not (mesh.worktree_root() / run / "proj-two").exists()
+    assert spawn_claude(mesh, gitrepo, "three", "--mcp", "flow") == 0  # a server nobody shares
+    mesh.retire_worker(run, "proj-one", mesh.load_run(run)["agents"]["proj-one"])
+    assert spawn_claude(mesh, gitrepo, "four", "--mcp", "playwright") == 0  # the holder is retired
+
+
+def test_two_spawns_at_once_cant_both_take_the_browser(mesh, run, users):
+    barrier = threading.Barrier(2)
+    results = []
+
+    def claim(name):
+        barrier.wait()
+        try:
+            with mesh.mcp_lease(["playwright"]):
+                time.sleep(0.05)  # long enough for the other to be at the lock
+                with mesh.editing_run(run) as data:
+                    data["agents"][name] = lease_entry(mcp=["playwright"])
+            results.append("won")
+        except mesh.MeshError:
+            results.append("refused")
+
+    threads = [threading.Thread(target=claim, args=(n,)) for n in ("a", "b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == ["refused", "won"]
+
+
+def test_a_resume_of_a_worker_holding_the_browser_doesnt_count_it_against_itself(mesh, run, users):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"].update(kind="claude", mcp=["playwright"])
+    with mesh.mcp_lease(["playwright"], skip=(run, "repo-fix-typo")):
+        pass
+
+
+def test_tools_servers_tells_the_root_what_it_can_pass(mesh, run, users, capsys):
+    other_run(mesh, "m2", {"w-shot": lease_entry(mcp=["playwright"])})
+    with_config({"claude": {"mcp_about": {"flow": "the user's flow notes"}}})
+    assert mesh.main(["tools", "servers", "--json"]) == 0
+    rows = {r["name"]: r for r in json.loads(capsys.readouterr().out)}
+    assert set(rows) == {"todoist", "playwright", "context7", "flow"}
+    assert rows["flow"]["about"] == "the user's flow notes"
+    assert rows["playwright"]["about"] == "http localhost:8931" and rows["playwright"]["exclusive"] is True
+    assert rows["playwright"]["held_by"] == "w-shot (run m2)" and rows["todoist"]["held_by"] is None
+    assert rows["context7"]["always"] is True and rows["flow"]["always"] is False
+    assert rows["todoist"]["about"] == "stdio t" and rows["context7"]["about"] == "http mcp.context7.com"
+    assert mesh.main(["tools", "servers"]) == 0
+    text = capsys.readouterr().out
+    assert "playwright" in text and "exclusive" in text and "held by w-shot" in text
+    for secret in ("secret", "secret-arg", "secret-header", "--token"):  # config and arguments stay out of it
+        assert secret not in text
+        assert secret not in json.dumps(rows)
+
+
+def test_tools_servers_works_for_a_root_that_isnt_claude(mesh, run, users, capsys):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"]["kind"] = "agy"
+    assert mesh.main(["tools", "servers", "--json"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 4
+
+
+def test_the_policy_leaves_check_their_types(mesh, tmp_path, monkeypatch):
+    assert mesh.setting("claude.mcp_about") == {} and mesh.setting("claude.mcp_exclusive") == ["playwright"]
+    with_config({"claude": {"mcp_about": {"flow": 3}}})
+    with pytest.raises(mesh.MeshError, match="mcp_about"):
+        mesh.setting("claude.mcp_about")
+    with_config({"claude": {"mcp_about": {"flow": "notes"}}})
+    assert mesh.setting("claude.mcp_about") == {"flow": "notes"}
+    assert "mcp_about" in mesh.render_routing(mesh.routing())
+
+
+GUARDED = (("a planner", {"planning": True}), ("an executor", {}), ("a read-only asker", {"read_only": True}),
+           ("an agent with a task list", {"mcp": ["playwright"]}), ("a reviewer", {"read_only": True,
+                                                                                    "mcp": ["flow"]}))
+
+
+@pytest.mark.parametrize("who,extra", GUARDED, ids=[g[0] for g in GUARDED])
+def test_every_lean_agent_keeps_context7_and_web_search(mesh, run, users, who, extra):
+    entry = entry_for(Path("/nonexistent"), **extra)
+    argv = mesh.claude_launch_argv(run, "repo-fix-typo", entry)
+    assert "context7" in mcp_servers(argv[argv.index("--mcp-config") + 1])
+    assert not {"WebSearch", "WebFetch"} & set(deny_rules(argv))
+    assert not {"WebSearch", "WebFetch"} & set(mesh.lean_tools(entry))
+    root = {**entry, "role": "root"}
+    assert not {"WebSearch", "WebFetch"} & set(mesh.lean_tools(root))

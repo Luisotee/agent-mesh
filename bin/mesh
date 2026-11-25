@@ -1085,7 +1085,11 @@ POLICY = {  # leaf: (built-in default, check)
     # MCP servers: `repo` = the repo's own (its project entry in ~/.claude.json and its approved .mcp.json) plus
     # `claude.mcp_keep`; `none` = only `mcp_keep`; `inherit` = whatever the user's config loads.
     "claude.mcp": ("repo", "mcp_mode"),
-    "claude.mcp_keep": ([], "strs"),
+    "claude.mcp_keep": (["context7"], "strs"),  # in every agent, with web search (never denied): docs for any library
+    # The root names more per task (`--mcp`, `mesh tools servers`). `mcp_about` is a server's one line for it;
+    # `mcp_exclusive` those one agent at a time may hold (Playwright's user server is one shared browser).
+    "claude.mcp_about": ({}, "strmap"),
+    "claude.mcp_exclusive": (["playwright"], "strs"),
 }
 POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MODEL",
               "peers_dir": "MESH_PEERS_DIR", "repos_dir": "MESH_REPOS_DIR", "worker_cpus": "MESH_WORKER_CPUS",
@@ -1099,6 +1103,8 @@ POLICY_ENV = {"quota_stop": "MESH_QUOTA_STOP", "copilot_model": "MESH_COPILOT_MO
 POLICY_CHECKS = {
     "str": (lambda v: isinstance(v, str) and bool(v), "a non-empty string"),
     "strs": (lambda v: isinstance(v, list) and all(isinstance(s, str) and s for s in v), "a list of strings"),
+    "strmap": (lambda v: isinstance(v, dict) and all(isinstance(k, str) and isinstance(s, str) for k, s in v.items()),
+               "an object of strings"),
     "chain": (lambda v: isinstance(v, list) and bool(v) and all(isinstance(s, str) and s for s in v),
               "a non-empty list of model names"),
     "effort": (lambda v: v in EFFORTS, "one of " + ", ".join(EFFORTS)),
@@ -3799,18 +3805,132 @@ def known_mcp_servers(repo: str | Path | None) -> dict[str, dict]:
     return found
 
 
+def agent_mcp(entry: dict) -> list[str]:
+    """The user's MCP servers the root passed this agent when it started it (`--mcp`). Not `added`: that one
+    namespace also un-hides a plugin or skill of the same name (`lean_plugins`, `lean_skills`)."""
+    return [n for n in entry.get("mcp") or [] if isinstance(n, str)]
+
+
 def lean_mcp_servers(entry: dict) -> dict[str, dict]:
     """The MCP servers a lean agent loads under `--strict-mcp-config`: with `claude.mcp` `repo`, the repo's own
-    (`local` and approved `project` ones); then, either way, `claude.mcp_keep` and what it added back."""
+    (`local` and approved `project` ones); then, either way, `claude.mcp_keep`, what the root passed it (`--mcp`)
+    and what it added back."""
     known = known_mcp_servers(entry.get("repo") or entry.get("cwd"))
     want = {n: s["config"] for n, s in known.items() if mcp_mode(entry) == "repo" and s["scope"] != "user"}
-    for name in [*setting("claude.mcp_keep"), *sorted(agent_added(entry))]:
+    for name in [*setting("claude.mcp_keep"), *agent_mcp(entry), *sorted(agent_added(entry))]:
         if name in known:
             want[name] = known[name]["config"]
     return want
 
 
-ADDED_KEYS = ("added", "tools_added", "mcp_all")  # an entry's record of what `mesh tools add` gave back
+# an entry's record of what `mesh tools add` gave back, and the servers the root passed it (`mcp`)
+ADDED_KEYS = ("added", "tools_added", "mcp_all", "mcp")
+
+
+def mcp_flag(value: str) -> list[str]:
+    """`--mcp a,b`: the server names. `none` is the empty list (a resume then clears what the worker had)."""
+    names = list(dict.fromkeys(n.strip() for n in value.split(",") if n.strip()))
+    return [] if names == ["none"] else names
+
+
+def resolve_mcp(names: list[str] | None, kind: str, repo: str | Path | None) -> list[str] | None:
+    """The servers `--mcp` names for an agent of `kind` (None: not given), refused with the reason when it can't
+    have them: not a Claude agent, a launch that isn't lean (every server is loaded already), or a name the
+    user's config doesn't define."""
+    if names is None:
+        return None
+    if kind != "claude":
+        raise MeshError(f"--mcp is for Claude workers: {cli(kind).name} has no lean session to pass servers into")
+    if not names:
+        return []
+    if not lean_on() or setting("claude.mcp") == "inherit":
+        raise MeshError("--mcp has nothing to add: "
+                        + ("claude.lean is off" if not lean_on() else "claude.mcp is `inherit`")
+                        + ", so every agent loads all of the user's servers already")
+    known = known_mcp_servers(repo)
+    if missing := [n for n in names if n not in known]:
+        raise MeshError(f"no MCP server named {', '.join(missing)} in the user's config "
+                        f"(`mesh tools servers` lists them: {', '.join(sorted(known)) or 'none'})")
+    return names
+
+
+def mcp_holder(name: str, skip: tuple[str, str] | None = None) -> tuple[str, str] | None:
+    """(run, agent) of an agent of an unarchived run that holds the server `name` (the root passed it, or it
+    added it back) and hasn't retired, but the (run, agent) `skip`: what mesh itself recorded."""
+    for path in sorted(mesh_home().glob("*/run.json")):
+        try:
+            agents = json.loads(path.read_text()).get("agents") or {}
+            for agent, entry in agents.items():
+                if (isinstance(entry, dict) and entry.get("status") != "retired" and (path.parent.name, agent) != skip
+                        and name in {*agent_mcp(entry), *agent_added(entry)}):
+                    return path.parent.name, agent
+        except (OSError, ValueError, AttributeError):
+            continue  # unreadable, or not a run
+    return None
+
+
+def check_mcp_lease(names: list[str], skip: tuple[str, str] | None = None) -> None:
+    """MeshError when another agent holds one of the `claude.mcp_exclusive` servers in `names`: they are one
+    shared resource (Playwright's user server is one browser), and two agents on it drive the same page."""
+    for name in names:
+        held = mcp_holder(name, skip) if name in setting("claude.mcp_exclusive") else None
+        if held:
+            raise MeshError(f"{name} is one shared server, so one agent at a time holds it: {held[1]} (run {held[0]}) "
+                            f"does. `mesh retire {held[1]}` once it is done, or give this one a task that needs "
+                            f"no {name}")
+
+
+@contextmanager
+def mcp_lease(names: list[str], skip: tuple[str, str] | None = None):
+    """Checks `check_mcp_lease` and holds the machine-wide lock while the caller writes the agent's entry, so two
+    spawns at once can't both take a shared server. Nothing to lock for servers that aren't exclusive."""
+    if not any(n in setting("claude.mcp_exclusive") for n in names):
+        yield
+        return
+    with file_lock(mesh_home() / "locks" / "mcp.lock"):
+        check_mcp_lease(names, skip)
+        yield
+
+
+def mcp_about(name: str, config: dict) -> str:
+    """One line on a server for the root: `claude.mcp_about`, else its type and where it is (the host of its URL,
+    the command it runs). Never its arguments, headers or environment: they may hold secrets."""
+    if text := setting("claude.mcp_about").get(name):
+        return text
+    url = config.get("url")
+    if isinstance(url, str) and url:
+        try:
+            parts = urllib.parse.urlsplit(url)
+            host = (parts.hostname or "?") + (f":{parts.port}" if parts.port else "")
+        except ValueError:
+            host = "?"
+        return f"{config.get('type') or 'http'} {host}"
+    return f"{config.get('type') or 'stdio'} {Path(str(config.get('command') or '?')).name}"
+
+
+def mcp_server_rows() -> list[dict]:
+    """The user's own servers the root may pass a worker: name, scope, about, `always` (in every agent), `exclusive`
+    and who holds it now."""
+    keep, shared = set(setting("claude.mcp_keep")), set(setting("claude.mcp_exclusive"))
+    rows = []
+    for name, server in sorted(known_mcp_servers(None).items()):
+        held = mcp_holder(name) if name in shared else None
+        rows.append({"name": name, "scope": server["scope"], "about": mcp_about(name, server["config"]),
+                     "always": name in keep, "exclusive": name in shared,
+                     "held_by": f"{held[1]} (run {held[0]})" if held else None})
+    return rows
+
+
+def render_servers(rows: list[dict]) -> str:
+    if not rows:
+        return "no MCP servers in the user's config"
+    width = max(len(r["name"]) for r in rows)
+    out = []
+    for r in rows:
+        marks = [m for m, on in (("always loaded", r["always"]), ("exclusive", r["exclusive"])) if on]
+        out.append(f"{r['name'].ljust(width)}  {r['about']}" + (f"  [{', '.join(marks)}]" if marks else "")
+                   + (f"  held by {r['held_by']}" if r["held_by"] else ""))
+    return "\n".join(out)
 
 
 def mcp_file(run_id: str, name: str) -> Path:
@@ -5828,6 +5948,8 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         require_cli("claude", "--plan-review user (Claude Code's plan mode)")
     args.kind = args.kind or default_kind()
     require_cli(args.kind, f"a{'n' if args.kind[0] in 'aeiou' else ''} {args.kind} worker")
+    mcp = resolve_mcp(getattr(args, "mcp", None), args.kind, repo_top)
+    check_mcp_lease(mcp or [])  # now, before any side effect; again under the lock where the entry is written
     sized_view = size_view(args.kind, size)
     sized = sized_view is not None
     exec_tier = getattr(args, "exec_tier", None)
@@ -5899,7 +6021,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
         # A large task plans first, under the deny list until `mesh approve` lifts it; with no task yet, it will.
         planning = enforced and not (sized or user_review or read_only) and (not task or planned_task(task))
         env = mesh_env(run_id, name, parent, args.role)
-        with editing_run(run_id) as run:
+        with mcp_lease(mcp or []), editing_run(run_id) as run:
             run["agents"][name] = {
                 "role": args.role, "kind": args.kind, "model": model, "effort": effort, "size": size, "view": view,
                 "plan_review": "user" if user_review else None, "pinned": pinned, "read_only": read_only,
@@ -5912,6 +6034,7 @@ def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str 
                             **({"tier": tier} if tier else {}), **({"reason": reason} if reason else {})}],
                 **({"peer": peer} if peer else {}),
                 **({"collect": args.collect} if getattr(args, "collect", None) else {}),
+                **({"mcp": mcp} if mcp else {}),
             }
         deny = launch_deny(run_id, name, agent_entry(load_run(run_id), name))  # from the entry just written
         result = {"name": name, "cwd": str(cwd), "branch": branch, "model": model, "effort": effort, "size": size,
@@ -9531,6 +9654,14 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
         return holder
 
     old_run, old_name, old, session = resumable(args.ref, args.from_run, live_hint)
+    # The servers its root passed it stay, unless this resume names others (`--mcp none`: none).
+    named_mcp = resolve_mcp(getattr(args, "mcp", None), old["kind"], old.get("repo"))
+    mcp = agent_mcp(old) if named_mcp is None else named_mcp
+    lease = [*mcp, *agent_added(old)]  # what it added back holds a shared server too
+    try:
+        check_mcp_lease(lease, skip=(old_run["id"], old_name))
+    except MeshError as exc:
+        raise MeshError(f"{exc}" + ("; or resume it without: `--mcp none`" if named_mcp is None else "")) from None
     # By the entry too: a resume that was given a `-2` name is still that peer.
     peer_name, peer = worker_peer(old_name, old, getattr(args, "peer", None))
     if peer_name and task and not read_only_task(task):  # a removed peer's conversation too
@@ -9630,7 +9761,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     exec_model = old.get("exec_model") if keeps_phase else None
     exec_effort = old.get("exec_effort") if keeps_phase else None
     reason = getattr(args, "why", None)
-    with editing_run(run_id) as run:
+    with mcp_lease(lease, skip=(old_run["id"], old_name)), editing_run(run_id) as run:
         run["agents"][name] = {
             "role": "worker", "kind": old["kind"], "model": model, "effort": effort, "base": base_sha,
             "size": old.get("size"), "view": view, "reviews": list(old.get("reviews") or []),
@@ -9646,7 +9777,8 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
                         **({"tier": tier} if tier else {}), **({"reason": reason} if reason else {})}],
             **({"peer": peer_name} if peer_name else {}),
             **({"collect": args.collect} if getattr(args, "collect", None) else {}),
-            **{k: old[k] for k in ADDED_KEYS if old.get(k)},  # the conversation's tools added back stay
+            **{k: old[k] for k in ADDED_KEYS if old.get(k) and k != "mcp"},  # the tools added back stay
+            **({"mcp": mcp} if mcp else {}),
         }
     deny = launch_deny(run_id, name, agent_entry(load_run(run_id), name))
     result = {"name": name, "view": view, "cwd": cwd, "branch": branch, "model": model,
@@ -10196,7 +10328,7 @@ def reach_worker(args: argparse.Namespace, run_id: str, me: str, target: tuple, 
     # A peer compacts with PEER_FOCUS (maybe_compact) unless the root named a focus; a removed one too.
     focus = args.focus or (None if peer or entry.get("peer") else COMPACT_FOCUS.format(task=gist))
     resume = argparse.Namespace(ref=name, from_run=old_run["id"], model=args.model, effort=args.effort,
-                                tier=getattr(args, "tier", None), why=getattr(args, "why", None), task=task, task_file=None, view=args.view, compact=args.compact,
+                                mcp=getattr(args, "mcp", None), tier=getattr(args, "tier", None), why=getattr(args, "why", None), task=task, task_file=None, view=args.view, compact=args.compact,
                                 focus=focus, read_only=True, peer=peer, collect=collect,
                                 stored=(stored, "task") if stored else None)
     result = resume_worker(resume, run_id, me)
@@ -10211,7 +10343,8 @@ def spawn_peer(args: argparse.Namespace, run_id: str, me: str, name: str, peer: 
         tier=getattr(args, "tier", None), why=getattr(args, "why", None), effort=args.effort, exec_effort=None,
         name=None, agent=name, worktree=None, cwd=peer["cwd"], base=None,
         parent=None, task=task, task_file=None, size=args.size, view=args.view, plan_review=None,
-        pinned=bool((args.model and args.model != "auto") or args.effort), peer=name, collect=collect)
+        pinned=bool((args.model and args.model != "auto") or args.effort), peer=name, collect=collect,
+        mcp=getattr(args, "mcp", None))
     return spawn_worker(spawn, run_id, me)
 
 
@@ -10248,12 +10381,15 @@ def fresh_asker(args: argparse.Namespace, run_id: str, me: str, repo: Path, kind
         name=args.name and slug, worktree=slug,  # a taken --name gets the same -2 as its branch
         cwd=None, base=base, parent=None, task=task, task_file=None, size=args.size,
         view=args.view or ("pane" if pr else None), plan_review=None,  # the user watches a review
-        pinned=bool((args.model and args.model != "auto") or args.effort), collect=collect)
+        pinned=bool((args.model and args.model != "auto") or args.effort), collect=collect,
+        mcp=getattr(args, "mcp", None))
     return spawn_worker(spawn, run_id, me)
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
     """Ask a worker, or a fresh agent in a repo, a question or for a PR review, and wait for the answer."""
+    if getattr(args, "mcp", None) is not None and (getattr(args, "peers", None) or getattr(args, "reviewers", None)):
+        raise MeshError("--mcp is for one asker: a round of several would share the servers (a browser, say)")
     if getattr(args, "peers", None):
         return ask_peers(args)
     if getattr(args, "reviewers", None):
@@ -12851,6 +12987,12 @@ def cmd_tools(args: argparse.Namespace) -> int:
     run_id, me = identity(args)
     if args.apply:
         return tools_reopen(run_id, me, args.next)
+    if args.action == "servers":  # for a root of any CLI: it passes them to its Claude workers
+        if args.names:
+            raise MeshError("`mesh tools servers` takes no names")
+        rows = mcp_server_rows()
+        emit(rows) if args.json else print(render_servers(rows))
+        return 0
     entry = agent_entry(load_run(run_id), me)
     if entry.get("kind") != "claude":
         raise MeshError(f"{me} is a {entry.get('kind')} agent: only Claude sessions start lean")
@@ -12872,7 +13014,8 @@ def cmd_tools(args: argparse.Namespace) -> int:
         raise MeshError("a reset is already pending for this run: add them after it")
     added = sorted({n.split("@")[0] if k == "plugin" else n for n, k in kinds.items()})
     before = {k: entry.get(k) for k in ADDED_KEYS}
-    with editing_run(run_id) as run:  # first: the reopen it starts launches from the entry
+    servers = [n for n, k in kinds.items() if k == "mcp"]
+    with mcp_lease(servers, skip=(run_id, me)), editing_run(run_id) as run:  # first: the reopen launches from the entry
         e = run["agents"][me]
         e["added"] = sorted(set(e.get("added") or []) | set(added))
         if "tool" in kinds.values():
@@ -13667,7 +13810,8 @@ def render_routing(r: dict) -> str:
     for leaf, item in r["policy"].items():
         value = item["value"]
         text = (" | ".join(" or ".join(slot) for slot in value) if leaf.startswith("review.reviewers.")
-                else ", ".join(value) if isinstance(value, list) else json.dumps(value) if isinstance(value, bool)
+                else ", ".join(value) if isinstance(value, list)
+                else json.dumps(value) if isinstance(value, (bool, dict))
                 else str(value))
         out.append(f"{leaf.ljust(width)}  {text or '(none)'}  [{item['source']}]")
     out.append("")
@@ -14497,6 +14641,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--size", choices=SIZES, help="trivial / small: one model, no plan phase (claude: in the "
                                                   "background); large (default): plan, review, execute")
     p.add_argument("--view", choices=VIEWS, help="pane (herdr) or bg (`claude --bg`, Claude only; default by size)")
+    p.add_argument("--mcp", type=mcp_flag, metavar="A,B",
+                   help="the user's MCP servers this Claude worker starts with, beyond the repo's own and "
+                        "claude.mcp_keep (`mesh tools servers` lists them); a shared one (Playwright) has one "
+                        "holder at a time")
     p.add_argument("--plan-review", choices=("user",),
                    help="user: the user approves the plan in the worker's pane (claude, in plan mode)")
     p.set_defaults(func=cmd_spawn)
@@ -14600,6 +14748,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-file", help="the follow-up task from a file (- for stdin)")
     compact_args(p)
     p.add_argument("--view", choices=VIEWS, help="reopen in a pane or in the background (default: as before)")
+    p.add_argument("--mcp", type=mcp_flag, metavar="A,B",
+                   help="the user's MCP servers it starts with, instead of the ones it had (`none`: only the "
+                        "repo's and claude.mcp_keep); default: the same")
     p.set_defaults(func=cmd_resume)
 
     p = sub.add_parser("open", help="reopen a past worker's conversation in this terminal, outside the mesh")
@@ -14623,6 +14774,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", choices=EFFORTS,
                    help="default: the size's, or review.effort for a fresh reviewer (`mesh routing`)")
     p.add_argument("--name", help="what goes after the repo in a fresh agent's name (default: ask-<question>)")
+    p.add_argument("--mcp", type=mcp_flag, metavar="A,B",
+                   help="the user's MCP servers a Claude asker starts with (`mesh tools servers`); one asker only")
     p.add_argument("--size", choices=SIZES, help="a fresh agent's size (see `mesh spawn --size`)")
     tier_args(p, "a fresh agent's tier, a review round's reviewers' too (required for those)")
     p.add_argument("--since", metavar="COMMIT", help="with --review: review only the commits after this one (a "
@@ -14702,9 +14855,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = ident(sub.add_parser("tools", help="what your Claude session runs without (tools, skills, plugins, MCP "
                                           "servers); `add <name>…` gets them back by reopening the same "
-                                          "conversation once your turn ends"))
-    p.add_argument("action", nargs="?", choices=("list", "add"), default="list")
+                                          "conversation once your turn ends; `servers` lists the user's MCP "
+                                          "servers a worker can start with (`--mcp`)"))
+    p.add_argument("action", nargs="?", choices=("list", "add", "servers"), default="list")
     p.add_argument("names", nargs="*", metavar="NAME")
+    p.add_argument("--json", action="store_true", help="`servers`: as JSON")
     p.add_argument("--next", help="what you carry on with once reopened")
     p.add_argument("--apply", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_tools)
