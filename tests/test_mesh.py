@@ -3287,7 +3287,7 @@ def started(fake):
 # ── status and log ───────────────────────────────────────────────────────
 
 
-def test_a_torn_log_line_is_skipped_with_one_warning(mesh, fake, run, capsys):
+def test_a_torn_log_line_is_set_aside_once(mesh, fake, run, capsys):
     path = mesh.run_dir(run) / "log.jsonl"
     with open(path, "a") as fh:
         fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "se')  # a write cut short
@@ -3296,11 +3296,54 @@ def test_a_torn_log_line_is_skipped_with_one_warning(mesh, fake, run, capsys):
     events = mesh.read_log(run)
     assert events[-1]["event"] == "send"  # sealed: the event after the fragment survives
     assert all(isinstance(e, dict) for e in events)
-    assert mesh.read_log(run) == events
     err = capsys.readouterr().err
-    assert err.count("skipped 1 unreadable line") == 1 and str(path) in err
+    assert err.count("set aside 1 unreadable line") == 1 and "log.torn" in err
+    assert (path.parent / "log.torn").read_bytes().endswith(b'"event": "se\n')
+    assert mesh.read_log(run) == events and capsys.readouterr().err == ""  # the warning came once, for every command
     fake.on("agent", "get", result={"agent": {"agent_status": "working"}})
     assert mesh.main(["status", run, "--json"]) == 0  # every reader keeps working
+
+
+def test_a_nul_filled_line_is_blanked_in_place_so_no_offset_moves(mesh, fake, run, capsys):
+    """Run m46c2's log after a power cut: a line of NULs. Set aside once; the bytes after it keep their offsets."""
+    path = mesh.run_dir(run) / "log.jsonl"
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="a.md")
+    with open(path, "ab") as fh:
+        fh.write(b"\x00" * 40 + b"\n")
+    mesh.log_event(run, "send", sender="repo-lead", to="repo-fix-typo", type="task", file="b.md")
+    before = path.read_bytes()
+    capsys.readouterr()
+    events = mesh.read_log(run)
+    assert [e.get("file") for e in events if e["event"] == "send"][-2:] == ["a.md", "b.md"]
+    after = path.read_bytes()
+    assert len(after) == len(before) and after.count(b"\x00") == 0
+    assert after[:before.index(b"\x00")] == before[:before.index(b"\x00")]
+    assert after.split(b"\n")[-2] == before.split(b"\n")[-2]  # the line after it is untouched
+    assert b"\x00" * 40 in (path.parent / "log.torn").read_bytes()
+    assert capsys.readouterr().err.count("set aside 1 unreadable line") == 1
+    assert mesh.read_log(run) == events and capsys.readouterr().err == ""
+
+
+def test_an_unterminated_last_line_is_left_for_its_writer_and_warned_about_once(mesh, fake, run, capsys):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "a") as fh:
+        fh.write('{"time": "2026-10-25T10:00:00+00:00", "event": "se')
+    size = path.stat().st_size
+    capsys.readouterr()
+    mesh.read_log(run)
+    mesh.read_log(run)
+    assert path.stat().st_size == size and not (path.parent / "log.torn").exists()
+    assert capsys.readouterr().err.count("skipped 1 unreadable line") == 1
+
+
+def test_a_log_that_cant_be_written_still_reads_with_the_old_warning(mesh, fake, run, capsys, monkeypatch):
+    path = mesh.run_dir(run) / "log.jsonl"
+    with open(path, "a") as fh:
+        fh.write("garbage\n")
+    monkeypatch.setattr(mesh.os, "pwrite", lambda *a: (_ for _ in ()).throw(PermissionError("read-only")))
+    capsys.readouterr()
+    assert all(isinstance(e, dict) for e in mesh.read_log(run))
+    assert "skipped 1 unreadable line" in capsys.readouterr().err
 
 
 def status_rows(mesh, run, capsys):

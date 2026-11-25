@@ -1623,9 +1623,44 @@ def log_event(run_id: str, event: str, **fields) -> None:
 TORN_WARNED: set[str] = set()  # log files whose unreadable lines were reported, once per process
 
 
-def parse_log_lines(lines: list[str], path: Path, first: int = 1) -> list[dict]:
+def quarantine_torn(path: Path) -> int:
+    """Set aside the complete lines of a run's log that don't parse (a power cut leaves NULs or half an event; a
+    kill, a fragment `log_event` then seals): each is copied, with where it was, to `log.torn` beside the log, and
+    blanked in place with spaces of the same length, so no other line moves (`mesh log --follow` keeps its byte
+    offset) and no reader sees it again. The last piece with no newline after it may still be being written:
+    left alone. Returns how many were set aside; 0 when it can't (a read-only folder, a lock error)."""
+    try:
+        with file_lock(path.with_name(".torn.lock"), create=False):
+            moved, offset = [], 0
+            for number, raw in enumerate(path.read_bytes().split(b"\n")[:-1], 1):
+                try:
+                    event = json.loads(raw.decode()) if raw.strip() else {}
+                except ValueError:
+                    event = None
+                if not isinstance(event, dict):
+                    moved.append((number, offset, raw))
+                offset += len(raw) + 1
+            if not moved:
+                return 0
+            fd = os.open(path, os.O_WRONLY)  # not O_APPEND: a pwrite there would append instead. First: a log
+            try:  # that can't be written to isn't copied from at every read
+                with open(path.with_name("log.torn"), "ab") as torn:
+                    for number, _, raw in moved:
+                        torn.write(f"# {now_iso()} {path.name} line {number}\n".encode() + raw + b"\n")
+                for _, at, raw in moved:
+                    os.pwrite(fd, b" " * len(raw), at)
+            finally:
+                os.close(fd)
+            return len(moved)
+    except OSError:
+        return 0
+
+
+def parse_log_lines(lines: list[str], path: Path, first: int = 1, quarantine: bool = False) -> list[dict]:
     """The events in `lines` (line `first` onwards of `path`), skipping any that don't parse: one torn line
-    must not break every reader. The first time a file has some, a warning says so on stderr."""
+    must not break every reader. With `quarantine` (a whole read of a run's log) complete ones are set aside once
+    (quarantine_torn), so no later read meets them; any left (a last line still without its newline), or any when
+    that can't be done, are warned about the first time a process meets them, on stderr."""
     events, bad = [], []
     for number, line in enumerate(lines, first):
         if not line.strip():
@@ -1638,6 +1673,10 @@ def parse_log_lines(lines: list[str], path: Path, first: int = 1) -> list[dict]:
             events.append(event)
         else:
             bad.append(number)
+    if bad and quarantine and (moved := quarantine_torn(path)):
+        print(f"mesh: set aside {moved} unreadable line(s) of {path} into {path.with_name('log.torn')} "
+              "(a write cut short?)", file=sys.stderr)
+        bad = bad[moved:]  # what is left is the last line, if it has no newline yet
     if bad and str(path) not in TORN_WARNED:
         TORN_WARNED.add(str(path))
         print(f"mesh: skipped {len(bad)} unreadable line(s) in {path} (line {bad[0]}: a write cut short?)",
@@ -1649,7 +1688,7 @@ def read_log(run_id: str, folder: Path | None = None) -> list[dict]:
     path = (folder or run_dir(run_id)) / "log.jsonl"
     if not path.exists():
         return []
-    return parse_log_lines(path.read_text().splitlines(), path)
+    return parse_log_lines(path.read_text(errors="replace").splitlines(), path, quarantine=True)
 
 
 # ── identity ─────────────────────────────────────────────────────────────
