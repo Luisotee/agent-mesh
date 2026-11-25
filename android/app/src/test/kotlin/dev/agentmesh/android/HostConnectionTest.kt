@@ -144,7 +144,7 @@ class HostConnectionTest {
         val sink = Sink(this)
         conn({ api }, sink).start()
         runCurrent()
-        advanceTimeBy(2_000)
+        advanceTimeBy(16_000)
         s1.trySend(SubscribeEventsResponse.newBuilder().setEnd(End.newBuilder().setReason("shutting down")).build())
         runCurrent()
         assertEquals(2, api.subscribes)

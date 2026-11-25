@@ -53,7 +53,7 @@ fun validateHost(name: String, url: String, token: String, pin: String, tokenReq
 fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
     val container = LocalContainer.current
     val existing = hostId?.let { container.hosts.get(it) }
-    val direct = existing?.routes?.firstOrNull() as? Route.Direct
+    val direct = existing?.routes?.firstOrNull { it is Route.Direct } as? Route.Direct
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
     var url by rememberSaveable { mutableStateOf(direct?.url ?: "https://") }
     // Not saveable: the plain token must not go into the activity's saved state.
@@ -86,7 +86,12 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
             Button(onClick = {
                 val problem = validateHost(name, url, token, pin, tokenRequired = existing == null)
                 if (problem != null) { error = problem; return@Button }
-                val routes = listOf(Route.Direct(url.trim().trimEnd('/'), pin.ifBlank { null }))
+                val edited = Route.Direct(url.trim().trimEnd('/'), pin.ifBlank { null })
+                // Only the first direct route is what this form shows: any other route (a relay) is kept.
+                val others = existing?.routes.orEmpty().toMutableList()
+                val at = others.indexOfFirst { it is Route.Direct }
+                if (at >= 0) others[at] = edited else others.add(0, edited)
+                val routes: List<Route> = others.ifEmpty { listOf(edited) }
                 if (existing == null) container.hosts.add(name, routes, token) else {
                     container.hosts.update(existing.id, name, routes, token.ifBlank { null })
                     container.runtimes.value[existing.id]?.reconnect()

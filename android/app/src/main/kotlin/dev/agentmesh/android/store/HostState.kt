@@ -37,7 +37,11 @@ data class HostState(
     val synced: Boolean = false,
     val runs: Map<String, Run> = emptyMap(),
     val agents: Map<String, Agent> = emptyMap(),
-    /** Every message seen: loaded with ListMessages, then added by events. */
+    /**
+     * Every message seen. In this part only the events add them; the next part pages `ListMessages` into it, so
+     * until then a plan or question sent while the app was away is not seen (and [dev.agentmesh.android.derive.waitingOnYou]
+     * shows only agents stopped at a prompt for it).
+     */
     val messages: Map<String, Message> = emptyMap(),
     /** The host's settings with their schemas, by key. */
     val settings: Map<String, Setting> = emptyMap(),

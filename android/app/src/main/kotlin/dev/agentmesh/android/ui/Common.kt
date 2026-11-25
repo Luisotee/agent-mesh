@@ -63,11 +63,12 @@ fun ConnDot(c: ConnState, modifier: Modifier = Modifier) {
 @Composable
 fun ConnectionBanner(state: HostState, onRetry: () -> Unit, onLog: () -> Unit) {
     val c = state.conn
+    val now = rememberNowMs(c is ConnState.Reconnecting)
     if (c is ConnState.Ready && state.synced) return
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ConnDot(c)
-            Text(connSentence(c), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(connSentence(c, now), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = onLog) { Text("Log") }
             if (c !is ConnState.Connecting) Button(onClick = onRetry) { Text("Retry") }
         }
@@ -88,4 +89,14 @@ fun KeyValue(key: String, value: String, mono: Boolean = false) {
         Text(key, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value.ifEmpty { "—" }, style = if (mono) MonoSmall else MaterialTheme.typography.bodyMedium)
     }
+}
+
+/** The time now in ms, ticking every second while [active]: a "retrying in N s" that counts down. */
+@Composable
+fun rememberNowMs(active: Boolean): Long {
+    val now = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(active) {
+        while (active) { now.longValue = System.currentTimeMillis(); kotlinx.coroutines.delay(1_000) }
+    }
+    return now.longValue
 }

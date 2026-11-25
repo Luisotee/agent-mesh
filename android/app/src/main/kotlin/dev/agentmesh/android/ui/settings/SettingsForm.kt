@@ -46,7 +46,8 @@ fun toText(c: Control, v: JsonElement): String = when (c) {
     Control.RawJson -> pretty.encodeToString(JsonElement.serializer(), v)
     is Control.Number -> (v as? JsonPrimitive)?.doubleOrNull?.let { d -> if (d == Math.rint(d) && Math.abs(d) < 1e15) d.toLong().toString() else d.toString() }.orEmpty()
     Control.Text, is Control.Select -> (v as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content.orEmpty()
-    else -> ""
+    Control.Bool -> if (v.asBool()) "on" else "off"
+    is Control.Multi -> v.asStrings().joinToString(", ").ifEmpty { "none" }
 }
 
 sealed interface Parsed {

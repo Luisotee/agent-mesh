@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +59,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String) -> Un
     val trees = remember(state.runs, state.agents) { buildTrees(state.runs, state.agents) }
     val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages) }
     // Closed runs start collapsed and open ones expanded; the ids the user flipped are kept across rotation.
-    var flipped by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+    var flipped by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
     val rows = remember(trees, flipped) { flatten(trees) { r -> (r.status == RunStatus.RUN_STATUS_OPEN) != (r.id in flipped) } }
     Scaffold(topBar = {
         TopAppBar(
@@ -86,7 +87,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String) -> Un
                     when (row) {
                         is RunRow -> RunHeader(row) {
                             val id = row.run.id
-                            flipped = ArrayList(if (id in flipped) flipped - id else flipped + id)
+                            flipped = if (id in flipped) flipped - id else flipped + id
                         }
                         is AgentRow -> AgentLine(row) { onAgent(row.agent.id) }
                     }

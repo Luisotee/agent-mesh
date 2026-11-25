@@ -53,14 +53,20 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
         }
     }
 
-    private fun save() {
+    /** Writes [next] and only then makes it the current list: a failed write leaves memory and file as they were. */
+    private fun commit(next: Stash) {
+        save(next)
+        stash = next
+        flow.value = next.hosts.map { it.host }
+    }
+
+    private fun save(next: Stash) {
         val tmp = File(file.parentFile, file.name + ".tmp")
         java.io.FileOutputStream(tmp).use { out ->
-            out.write(json.encodeToString(stash).toByteArray())
+            out.write(json.encodeToString(next).toByteArray())
             out.fd.sync()
         }
         java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        flow.value = stash.hosts.map { it.host }
     }
 
     fun get(id: String): Host? = flow.value.firstOrNull { it.id == id }
@@ -72,27 +78,24 @@ class HostRepository(private val file: File, private val secrets: SecretBox) {
 
     fun add(name: String, routes: List<Route>, token: String): Host = synchronized(lock) {
         val host = Host(UUID.randomUUID().toString(), name.trim(), routes)
-        stash = Stash(stash.hosts + Stored(host, secrets.seal(token.trim())))
-        save()
+        commit(Stash(stash.hosts + Stored(host, secrets.seal(token.trim()))))
         host
     }
 
     /** Changes a host's name, routes or token (null keeps the token). */
     fun update(id: String, name: String, routes: List<Route>, token: String? = null) = synchronized(lock) {
-        stash = Stash(stash.hosts.map {
+        commit(Stash(stash.hosts.map {
             if (it.host.id != id) it else Stored(it.host.copy(name = name.trim(), routes = routes), if (token == null) it.token else secrets.seal(token.trim()))
-        })
-        save()
+        }))
     }
 
     fun setDaemonId(id: String, daemonId: String) = synchronized(lock) {
-        if (stash.hosts.firstOrNull { it.host.id == id }?.host?.daemonId == daemonId) return@synchronized
-        stash = Stash(stash.hosts.map { if (it.host.id == id) it.copy(host = it.host.copy(daemonId = daemonId)) else it })
-        save()
+        val cur = stash.hosts.firstOrNull { it.host.id == id } ?: return@synchronized
+        if (cur.host.daemonId == daemonId) return@synchronized
+        commit(Stash(stash.hosts.map { if (it.host.id == id) it.copy(host = it.host.copy(daemonId = daemonId)) else it }))
     }
 
     fun remove(id: String) = synchronized(lock) {
-        stash = Stash(stash.hosts.filterNot { it.host.id == id })
-        save()
+        commit(Stash(stash.hosts.filterNot { it.host.id == id }))
     }
 }

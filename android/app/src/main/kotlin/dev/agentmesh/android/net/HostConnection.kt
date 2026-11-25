@@ -32,8 +32,6 @@ interface ConnectionSink {
     fun log(line: String)
 }
 
-private const val MIN_SESSION_MS = 1_000L
-
 private class StreamEnded(val reason: String) : Exception("the host ended the stream: ${reason.ifEmpty { "no reason given" }}")
 private class StreamClosed : Exception("the event stream closed")
 
@@ -111,7 +109,8 @@ class HostConnection(
     }
 
     private var waitMs = 0L
-    private var readyAt = 0L
+    /** Whether this session lasted: a heartbeat was acknowledged on it. */
+    @Volatile private var acked = false
 
     private suspend fun session(gen: Int) = coroutineScope {
         val client = try {
@@ -126,7 +125,7 @@ class HostConnection(
         }
         sink.onHello(hello)
         val daemon = hello.daemonId
-        readyAt = now()
+        acked = false
         sink.log("connected to ${hello.daemonId} (instance ${hello.instanceId}, ${hello.version})")
         sink.onState(ConnState.Ready(hello))
         launch { heartbeat(gen, client, daemon) }
@@ -153,6 +152,7 @@ class HostConnection(
             if (hello.daemonId != daemon) throw ApiException(Code.UNAVAILABLE, "the daemon at this address changed", null)
             if (first && gen == generation.get()) {
                 first = false
+                acked = true
                 attempt.set(0)
             }
         }
@@ -172,7 +172,7 @@ class HostConnection(
             e is ApiException && e.code == Code.FAILED_PRECONDITION ->
                 // From Hello this is a protocol mismatch ("upgrade the client").
                 stopWith(if (Regex("protocol", RegexOption.IGNORE_CASE).containsMatchIn(message)) ConnState.Reason.Incompatible else ConnState.Reason.Config, message)
-            else -> retryLater(message, expected = e is StreamEnded && now() - readyAt >= MIN_SESSION_MS)
+            else -> retryLater(message, expected = e is StreamEnded && acked)
         }
     }
 
@@ -183,7 +183,7 @@ class HostConnection(
     }
 
     private fun retryLater(message: String, expected: Boolean) {
-        // An End frame after a session that lasted is the host shutting down on purpose: reconnect at once, with no
+        // An End frame after a session that lasted (a heartbeat was acknowledged) is the host shutting down on purpose: reconnect at once, with no
         // growing wait. One that comes at once, again and again, backs off like any other drop.
         val n = if (expected) 0 else attempt.get()
         val wait = if (expected) 0L else (min(maxMs.toDouble(), baseMs * Math.pow(2.0, n.toDouble())) * (0.5 + random() / 2)).toLong()

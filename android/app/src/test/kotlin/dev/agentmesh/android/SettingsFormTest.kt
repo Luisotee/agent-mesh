@@ -36,6 +36,13 @@ class SettingsFormTest {
         assertEquals(JsonPrimitive("auto"), (fromText("mb_or_auto", Control.Text, " auto ") as Parsed.Ok).value)
     }
 
+    @Test fun `switches and sets read as words in a list row`() {
+        assertEquals("on", toText(Control.Bool, JsonPrimitive(true)))
+        assertEquals("off", toText(Control.Bool, JsonPrimitive(false)))
+        assertEquals("input, plan", toText(Control.Multi(listOf("input", "plan", "exited")), JsonArray(listOf(JsonPrimitive("input"), JsonPrimitive("plan")))))
+        assertEquals("none", toText(Control.Multi(listOf("input")), JsonArray(emptyList())))
+    }
+
     @Test fun `only what cannot be sent is refused here`() {
         assertTrue(fromText("int", Control.Number(true, 0.0), "") is Parsed.Bad)
         assertTrue(fromText("int", Control.Number(true, 0.0), "x") is Parsed.Bad)

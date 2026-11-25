@@ -61,10 +61,21 @@ class HostRuntime(
         if (h.routes.isEmpty()) throw RouteException("this host has no route")
         // A token the Keystore can no longer open (a restored backup, a new lock screen) is the user's to re-enter.
         if (repo.token(hostId) == null) throw RouteException("this device can't read the saved token: edit the host and enter it again")
-        val r = h.routes[route.get() % h.routes.size]
-        val api = newApi(r) { repo.token(hostId) ?: "" }
-        current = api
-        return api
+        // The route that last worked, then the others in order: one that can't be used at all (a bad address) is
+        // skipped here, so it doesn't stop the host while another route would do.
+        var firstError: RouteException? = null
+        for (i in h.routes.indices) {
+            val r = h.routes[(route.get() + i) % h.routes.size]
+            try {
+                val api = newApi(r) { repo.token(hostId) ?: "" }
+                route.set((route.get() + i) % h.routes.size)
+                current = api
+                return api
+            } catch (e: RouteException) {
+                if (firstError == null) firstError = e
+            }
+        }
+        throw firstError!!
     }
 
     fun start() {
@@ -109,7 +120,8 @@ class HostRuntime(
     // ── ConnectionSink ──
 
     override fun onState(state: ConnState) {
-        if (state is ConnState.Reconnecting) route.incrementAndGet()
+        // Another route only after a real failure to connect: an End frame (attempt 0) is the host restarting.
+        if (state is ConnState.Reconnecting && state.attempt > 0) route.incrementAndGet()
         _state.update {
             when (state) {
                 is ConnState.Ready -> it.copy(conn = state, daemon = state.hello)

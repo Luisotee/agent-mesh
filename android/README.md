@@ -37,7 +37,7 @@ android/scripts/gen.sh        # after a .proto change: regenerate app/src/gen
 cd android && source scripts/env.sh && ./gradlew testDebugUnitTest      # one task
 ```
 
-`check.sh` builds `app/build/outputs/apk/debug/app-debug.apk`. The end-to-end tests build meshd, mesh-term, meshctl and the fake `claude` with Go into `app/build/e2e-bin`, then give each test a state dir, HOME and loopback port of its own under a temp dir: they read and write nothing of yours, and are skipped when Go isn't found. Dependencies are pinned by `gradle/verification-metadata.xml`; after adding one, run `./gradlew --write-verification-metadata sha256 testDebugUnitTest lintDebug assembleDebug writeCodegenTools` and review the diff.
+`check.sh` builds `app/build/outputs/apk/debug/app-debug.apk`. The end-to-end tests build meshd, mesh-term, meshctl and the fake `claude` with Go into `app/build/e2e-bin`, then give each test a state dir, HOME and loopback port of its own under a temp dir: they read and write nothing of yours, and are skipped when Go isn't found or `SKIP_E2E=1` is set. Dependencies are pinned by `gradle/verification-metadata.xml`; after adding one, run `./gradlew --write-verification-metadata sha256 testDebugUnitTest lintDebug assembleDebug writeCodegenTools` and review the diff.
 
 ## Emulator
 

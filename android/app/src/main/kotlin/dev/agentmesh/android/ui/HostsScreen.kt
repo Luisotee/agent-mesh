@@ -90,6 +90,7 @@ private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdi
     val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages).size }
     val open = state.runs.values.count { it.status == RunStatus.RUN_STATUS_OPEN }
     var menu by remember { mutableStateOf(false) }
+    val now = rememberNowMs(state.conn is ConnState.Reconnecting)
     Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         ConnDot(state.conn)
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
@@ -97,7 +98,7 @@ private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdi
             Text(host.routes.firstOrNull()?.let(::routeLabel).orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val sentence = when (val c = state.conn) {
                 is ConnState.Ready -> if (state.synced) "$open open runs" + if (waiting > 0) ", $waiting waiting on you" else "" else "Syncing…"
-                else -> connSentence(c)
+                else -> connSentence(c, now)
             }
             Text(sentence, style = MaterialTheme.typography.bodySmall, color = if (waiting > 0) stateColors.needs else MaterialTheme.colorScheme.onSurfaceVariant)
         }

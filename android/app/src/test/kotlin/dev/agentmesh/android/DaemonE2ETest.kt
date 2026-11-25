@@ -26,7 +26,7 @@ class DaemonE2ETest {
     private var daemon: DaemonHarness? = null
 
     @Before fun setUp() {
-        assumeTrue("Go isn't installed: the daemon can't be built", DaemonHarness.available)
+        assumeTrue("no Go to build the daemon with, or SKIP_E2E is set", DaemonHarness.available)
         daemon = DaemonHarness.create().also { it.start() }
     }
 

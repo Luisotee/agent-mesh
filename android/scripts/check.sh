@@ -24,11 +24,9 @@ if ! git -C "$repo" diff --quiet -- android/app/src/gen || [ -n "$(git -C "$repo
   exit 1
 fi
 
-tests=(testDebugUnitTest)
-[ -n "${SKIP_E2E:-}" ] && tests=(testDebugUnitTest --tests '*Test' --tests '!*DaemonE2ETest')
-
+# SKIP_E2E reaches the test JVM, where DaemonHarness skips the meshd tests (and is part of the test task's inputs).
 step "unit tests, lint, debug APK"
-./gradlew --no-daemon "${tests[@]}" lintDebug assembleDebug
+./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 ls -l app/build/outputs/apk/debug/app-debug.apk
 
 echo

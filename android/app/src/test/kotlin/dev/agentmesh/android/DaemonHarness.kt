@@ -100,8 +100,8 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
             out
         }
 
-        /** True when the daemon can be built here (Go found); the end-to-end tests are skipped otherwise. */
-        val available: Boolean get() = goBin != null
+        /** True when the daemon can be built here (Go found) and SKIP_E2E isn't set; the end-to-end tests are skipped otherwise. */
+        val available: Boolean get() = goBin != null && System.getenv("SKIP_E2E").isNullOrEmpty()
 
         fun bin(name: String) = File(bins, name)
 

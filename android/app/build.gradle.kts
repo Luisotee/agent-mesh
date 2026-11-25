@@ -36,6 +36,9 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
+            // SKIP_E2E=1 skips the tests that build and run a real meshd; it must change the task's inputs, or a
+            // cached run of the other kind would be reused.
+            all { test -> test.inputs.property("skipE2e", providers.environmentVariable("SKIP_E2E").orElse("")) }
         }
     }
     lint { abortOnError = true; warningsAsErrors = false }
