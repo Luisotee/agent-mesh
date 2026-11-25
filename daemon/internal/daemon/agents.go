@@ -175,19 +175,25 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	for _, t := range res.Msg.Terminals {
 		byID[t.Id] = t
 	}
+	claimed := map[string]bool{}
+	if err := d.adoptReopens(ctx, res.Msg.Terminals, claimed); err != nil {
+		return err
+	}
 	agents, err := d.store.Read(ctx).AgentsWithTerminals()
 	if err != nil {
 		return err
 	}
-	claimed := map[string]bool{}
 	for _, a := range agents {
+		if claimed[a.TerminalId] {
+			continue
+		}
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
 		if a.State == v1.AgentState_AGENT_STATE_EXITED {
 			// A crash between recording the exit and acknowledging it leaves the terminal (its ring and
 			// emulator) in the host: acknowledge it now. The exit is already recorded, so this only acks.
 			if ok && t.Exited {
-				if err := d.recordExit(ctx, t.Id, a.Id, t.ExitCode, t.Signal, ""); err != nil {
+				if err := d.recordExit(ctx, t.Id, a.Id, t.Labels["reopen"], t.ExitCode, t.Signal, ""); err != nil {
 					return err
 				}
 			}
@@ -195,11 +201,11 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		}
 		switch {
 		case !ok:
-			if err := d.recordExit(ctx, a.TerminalId, "", -1, 0, "lost"); err != nil {
+			if err := d.recordExit(ctx, a.TerminalId, "", "", -1, 0, "lost"); err != nil {
 				return err
 			}
 		case t.Exited:
-			if err := d.recordExit(ctx, t.Id, t.Labels["agent"], t.ExitCode, t.Signal, ""); err != nil {
+			if err := d.recordExit(ctx, t.Id, t.Labels["agent"], t.Labels["reopen"], t.ExitCode, t.Signal, ""); err != nil {
 				return err
 			}
 		default:
@@ -225,14 +231,18 @@ func (d *Daemon) adopt(ctx context.Context) error {
 // recordExit marks a terminal's agent exited (unless it already is), then lets the host forget the terminal.
 // The agent is found by the terminal, or by the agent label the terminal was created with: a CLI that exits
 // at once can do so before its spawn recorded the terminal. A terminal no agent claims is not acknowledged.
-func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID string, code, signal int32, reason string) error {
+//
+// While a reopen is pending, the exit of the agent's terminal is the reopen stopping it on purpose: not
+// recorded, nor its token revoked; the reopen relaunches the conversation (reopenID, the terminal's reopen
+// label, tells a reopen's own new terminal, whose exit is a real one).
+func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID string, code, signal int32, reason string) error {
 	if reason == "" {
 		reason = "exited"
 		if signal != 0 {
 			reason = "killed"
 		}
 	}
-	claimed := false
+	claimed, replaced, owner := false, false, ""
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -247,10 +257,20 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID string, cod
 		if err != nil {
 			return err
 		}
-		claimed = true
+		claimed, owner = true, a.Id
+		if p := a.PendingReopen; p != nil && p.Id != reopenID {
+			replaced = true
+			if a.TerminalId != terminalID {
+				return nil
+			}
+			a.TerminalId = "" // its process is gone: the reopen needn't wait for it to be idle
+			return tx.PutAgent(a)
+		}
 		if a.State == v1.AgentState_AGENT_STATE_EXITED {
 			return nil
 		}
+		// A reopen's own terminal that died: the reopen happened, and its agent exited.
+		a.PendingReopen = nil
 		a.TerminalId = terminalID
 		tx.Actor = &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId}
 		ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
@@ -264,16 +284,23 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID string, cod
 		}
 		return tx.RevokeTokens(a.Id)
 	})
-	if err != nil || reason == "lost" || !claimed {
+	if err != nil || !claimed {
 		return err
+	}
+	if replaced {
+		// Its reopen goes on (a process that died mid-turn with one pending needn't wait for an IDLE).
+		d.deliverSoon(owner)
+	}
+	if reason == "lost" {
+		return nil
 	}
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
-	if agentID != "" {
-		delete(d.rt.delivering, agentID)
-	}
 	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		err = nil // the reopen acknowledged it first
+	}
 	return err
 }
 
@@ -329,7 +356,7 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 				backoff = 100 * time.Millisecond
 				switch f := stream.Msg().Frame.(type) {
 				case *termv1.WatchTerminalsResponse_Exited:
-					if err := d.recordExit(ctx, f.Exited.Id, f.Exited.Labels["agent"], f.Exited.ExitCode, f.Exited.Signal, ""); err != nil && ctx.Err() == nil {
+					if err := d.recordExit(ctx, f.Exited.Id, f.Exited.Labels["agent"], f.Exited.Labels["reopen"], f.Exited.ExitCode, f.Exited.Signal, ""); err != nil && ctx.Err() == nil {
 						d.log.Error("recording an exit", "terminal", f.Exited.Id, "err", err)
 					}
 				case *termv1.WatchTerminalsResponse_Output:
@@ -560,6 +587,19 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !slugRE.MatchString(m.Slug) {
 		return nil, invalid("slug %q: lowercase letters, digits and dashes", m.Slug)
 	}
+	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier).
+	model, effort, err := d.pick(d.store.Read(ctx), kind, m.Tier, m.Model, m.Effort, "the agent")
+	if err != nil {
+		return nil, err
+	}
+	if m.ExecTier != "" {
+		if !m.Plan {
+			return nil, invalid("exec_tier is for a task with a plan phase (plan)")
+		}
+		if _, _, err := d.tierChain(d.store.Read(ctx), kind, m.ExecTier); err != nil {
+			return nil, err
+		}
+	}
 	runID := m.RunId
 	if IsAgent(actor.Class) {
 		if runID == "" {
@@ -629,14 +669,21 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	now := d.now()
 	agent := &v1.Agent{Id: ids.New("a", 10), RunId: runID, Name: name, Role: role, ParentId: parent, Kind: kind,
-		Repo: top, Worktree: worktree, Branch: branch, Model: m.Model, Effort: m.Effort,
-		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now)}
+		Repo: top, Worktree: worktree, Branch: branch, Model: model, Effort: effort, Tier: m.Tier,
+		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
+		// A planner plans under the deny list until approved; a read-only role keeps it.
+		DenyEdits: m.Plan || claude.ReadOnly(role),
+		// A named model or effort covers the whole task: no plan phase, now or later.
+		Pinned: !m.Plan && (m.Model != "" || m.Effort != "")}
+	if m.Plan {
+		agent.Phase, agent.ExecTier = v1.AgentPhase_AGENT_PHASE_PLANNING, m.ExecTier
+	}
 	cleanup := func() {
 		git(context.Background(), top, "worktree", "remove", "--force", worktree)
 		git(context.Background(), top, "branch", "-D", branch)
 	}
 	// The launch is planned before the agent is stored, so its conversation id is known before its first hook.
-	plan, err := d.planLaunch(ctx, ad, agent, token)
+	plan, err := d.planLaunch(ctx, ad, agent, token, "")
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -685,7 +732,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched)}), nil
 }
 
-func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent, token string) (*adapterv1.PlanLaunchResponse, error) {
+// planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of
+// that one. The model, effort and deny list are the agent's.
+func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent, token, resume string) (*adapterv1.PlanLaunchResponse, error) {
 	meshctl := d.rt.cfg.Meshctl
 	if meshctl == "" {
 		return nil, errors.New("no meshctl configured for the hooks")
@@ -693,7 +742,8 @@ func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent
 	plan, err := ad.PlanLaunch(ctx, connect.NewRequest(&adapterv1.PlanLaunchRequest{AgentId: a.Id, AgentName: a.Name,
 		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
 		HookArgv: []string{meshctl, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
-		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions}))
+		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions,
+		ResumeSessionId: resume, DenyEdits: a.DenyEdits}))
 	if err != nil {
 		return nil, err
 	}
@@ -707,21 +757,34 @@ func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent
 	return plan.Msg, nil
 }
 
-// launch writes the token the hooks read, starts the planned command in a terminal, and records the terminal.
-func (d *Daemon) launch(ctx context.Context, a *v1.Agent, token string, plan *adapterv1.PlanLaunchResponse) (*v1.Agent, error) {
+// startTerminal writes the token the hooks read and starts the planned command in a terminal labelled with the
+// agent (and with the reopen it carries out, if any).
+func (d *Daemon) startTerminal(ctx context.Context, a *v1.Agent, token string, plan *adapterv1.PlanLaunchResponse,
+	reopenID string) (string, error) {
 	if err := os.MkdirAll(d.paths.Agent(a.Id), 0o700); err != nil {
-		return nil, err
+		return "", err
 	}
 	if err := fsutil.WriteAtomic(d.paths.AgentToken(a.Id), []byte(token+"\n"), 0o600); err != nil {
-		return nil, err
+		return "", err
+	}
+	labels := map[string]string{"agent": a.Id, "run": a.RunId, "name": a.Name}
+	if reopenID != "" {
+		labels["reopen"] = reopenID
 	}
 	term, err := d.rt.term.API.CreateTerminal(ctx, connect.NewRequest(&termv1.CreateTerminalRequest{
-		Argv: plan.Argv, Env: plan.Env, Cwd: a.Worktree, Cols: 120, Rows: 40,
-		Labels: map[string]string{"agent": a.Id, "run": a.RunId, "name": a.Name}}))
+		Argv: plan.Argv, Env: plan.Env, Cwd: a.Worktree, Cols: 120, Rows: 40, Labels: labels}))
+	if err != nil {
+		return "", err
+	}
+	return term.Msg.Terminal.Id, nil
+}
+
+// launch starts an agent's first terminal and records it.
+func (d *Daemon) launch(ctx context.Context, a *v1.Agent, token string, plan *adapterv1.PlanLaunchResponse) (*v1.Agent, error) {
+	tid, err := d.startTerminal(ctx, a, token, plan, "")
 	if err != nil {
 		return nil, err
 	}
-	tid := term.Msg.Terminal.Id
 	var out *v1.Agent
 	err = d.store.Write(ctx, auth.ActorFrom(ctx), "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
@@ -777,8 +840,25 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {
 		return nil, denied("an agent stops only its own children")
 	}
-	out := &v1.StopAgentResponse{Agent: d.view(a)}
-	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(*store.Tx) error {
+	// Held against a reopen in progress: a stop must not be undone by the relaunch.
+	mu := d.agentLock(a.Id)
+	mu.Lock()
+	defer mu.Unlock()
+	out := &v1.StopAgentResponse{}
+	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(a.Id)
+		if err != nil {
+			return err
+		}
+		if cur.PendingReopen != nil {
+			if err := cancelReopen(tx, cur, "stopped"); err != nil {
+				return err
+			}
+			if err := tx.PutAgent(cur); err != nil {
+				return err
+			}
+		}
+		a, out.Agent = cur, d.view(cur)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -806,21 +886,35 @@ func (d *Daemon) deliverSoon(agentID string) {
 	}()
 }
 
-func (d *Daemon) deliver(ctx context.Context, agentID string) error {
+// agentLock is held by whatever types into an agent's terminal or replaces it: a doorbell, a reopen, a stop.
+func (d *Daemon) agentLock(agentID string) *sync.Mutex {
 	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
 	mu := d.rt.delivering[agentID]
 	if mu == nil {
 		mu = &sync.Mutex{}
 		d.rt.delivering[agentID] = mu
 	}
-	d.rt.mu.Unlock()
+	return mu
+}
+
+// deliver brings an agent up to date: a pending reopen first (the messages it was asked with are for the new
+// process), else a doorbell for its undelivered messages once it is idle.
+func (d *Daemon) deliver(ctx context.Context, agentID string) error {
+	mu := d.agentLock(agentID)
 	mu.Lock()
 	defer mu.Unlock()
 
 	r := d.store.Read(ctx)
 	a, err := r.GetAgent(agentID)
-	if err != nil || a.State != v1.AgentState_AGENT_STATE_IDLE || a.TerminalId == "" {
+	if err != nil {
 		return err
+	}
+	if a.PendingReopen != nil {
+		return d.reopen(ctx, a)
+	}
+	if a.State != v1.AgentState_AGENT_STATE_IDLE || a.TerminalId == "" {
+		return nil
 	}
 	msgs, err := r.Undelivered(agentID)
 	if err != nil || len(msgs) == 0 {
@@ -866,7 +960,7 @@ func (d *Daemon) userTyping(ctx context.Context, terminalID string) (bool, error
 }
 
 // retryDoorbells rings again for messages whose doorbell couldn't ring (the agent was busy, a user was
-// typing, a trigger was missed).
+// typing, a trigger was missed), and tries the reopens still pending.
 func (d *Daemon) retryDoorbells(ctx context.Context) {
 	if d.rt.term == nil {
 		return
@@ -875,8 +969,19 @@ func (d *Daemon) retryDoorbells(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	pending, err := d.store.Read(ctx).AgentsWithPendingReopen()
+	if err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, a := range pending {
+		seen[a.Id] = true
+		d.deliverSoon(a.Id)
+	}
 	for _, id := range ids {
-		d.deliverSoon(id)
+		if !seen[id] {
+			d.deliverSoon(id)
+		}
 	}
 }
 

@@ -101,6 +101,28 @@ func TestPlanLaunch(t *testing.T) {
 	}
 }
 
+// A reopen resumes the same conversation (no new id), and a planner gets the deny list whatever its role.
+func TestPlanLaunchResumesAndDeniesAPlanner(t *testing.T) {
+	a := New()
+	a.NewSessionID = func() string { t.Error("a resume picked a new session id"); return "new" }
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		Binary: "claude", Model: "sonnet", Effort: "medium", ResumeSessionId: "sid-7", DenyEdits: true,
+		Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: t.TempDir()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := strings.Join(res.Msg.Argv, " ")
+	if !strings.HasPrefix(argv, "claude --resume sid-7 --model sonnet --effort medium --disallowedTools Edit(/") ||
+		strings.Contains(argv, "--session-id") || res.Msg.SessionId != "sid-7" {
+		t.Errorf("argv %s, session %q", argv, res.Msg.SessionId)
+	}
+	res, _ = a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		ResumeSessionId: "sid-7", Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER}))
+	if strings.Contains(strings.Join(res.Msg.Argv, " "), "--disallowedTools") {
+		t.Errorf("an approved worker kept the deny list: %v", res.Msg.Argv)
+	}
+}
+
 func decode(t *testing.T, session, event, payload string) []*adapterv1.AgentEvent {
 	t.Helper()
 	res, err := New().DecodeHook(context.Background(), connect.NewRequest(&adapterv1.DecodeHookRequest{

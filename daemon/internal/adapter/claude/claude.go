@@ -121,8 +121,8 @@ func DenyArgs(paths ...string) []string {
 	return args
 }
 
-// PlanLaunch builds the command line: a conversation id chosen now (so a resume finds it), the model and
-// effort, and the hooks.
+// PlanLaunch builds the command line: a conversation id chosen now (so a resume finds it) or the one to resume,
+// the model and effort, the deny list (a read-only role, or a planner), and the hooks.
 func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.PlanLaunchRequest]) (*connect.Response[adapterv1.PlanLaunchResponse], error) {
 	m := req.Msg
 	bin := m.Binary
@@ -133,15 +133,20 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if err != nil {
 		return nil, err
 	}
-	sid := a.NewSessionID()
-	argv := []string{bin, "--session-id", sid}
+	// A reopen resumes the agent's own conversation (same id, its context kept); a first launch picks the id now.
+	sid := m.ResumeSessionId
+	argv := []string{bin, "--resume", sid}
+	if sid == "" {
+		sid = a.NewSessionID()
+		argv = []string{bin, "--session-id", sid}
+	}
 	if m.Model != "" {
 		argv = append(argv, "--model", m.Model)
 	}
 	if m.Effort != "" {
 		argv = append(argv, "--effort", m.Effort)
 	}
-	if ReadOnly(m.Role) {
+	if ReadOnly(m.Role) || m.DenyEdits {
 		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
 	}
 	argv = append(argv, "--settings", settings)

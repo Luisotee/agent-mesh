@@ -158,7 +158,7 @@ func (h *agentsHarness) waitState(id string, want v1.AgentState) *v1.Agent {
 func (h *agentsHarness) spawn(run, repo, slug, task string) *v1.Agent {
 	h.t.Helper()
 	res, err := h.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
-		Meta: meta("spawn-" + slug), RunId: run, Repo: repo, Slug: slug, Task: task}))
+		Meta: meta("spawn-" + slug), RunId: run, Repo: repo, Slug: slug, Task: task, Tier: "mid"}))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		t.Errorf("worker starting a worker: %v", err)
 	}
 	rev, err := worker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: repo, Slug: "review",
-		Role: v1.AgentRole_AGENT_ROLE_REVIEWER}))
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Tier: "mid"}))
 	if err != nil || rev.Msg.Agent.ParentId != a.Id || rev.Msg.Agent.RunId != run.Id {
 		t.Fatalf("worker starting a reviewer: %v, %v", rev, err)
 	}
@@ -498,7 +498,7 @@ func TestAFailedLaunchFreesItsSlug(t *testing.T) {
 	repo := gitRepo(t)
 	for i := 0; i < 2; i++ {
 		_, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-			Meta: meta("same"), RunId: run.Id, Repo: repo, Slug: "fix"}))
+			Meta: meta("same"), RunId: run.Id, Repo: repo, Slug: "fix", Tier: "mid"}))
 		if code(err) != connect.CodeFailedPrecondition {
 			t.Fatalf("attempt %d: %v", i, err)
 		}

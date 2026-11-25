@@ -249,6 +249,19 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if to.Id != self.ParentId && to.ParentId != self.Id {
 				return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
 			}
+			// A plan from an agent with no plan phase (a direct task that turned out to need one) enters one, so
+			// approving it moves it to an execution tier. It plans on the model it is on: nothing reopens it to
+			// add the deny list (design §9). A named model covers the whole task: it never gets the phase.
+			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_PLAN && to.Id == self.ParentId && !self.Pinned &&
+				self.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED {
+				self.ExecTier = ""
+				if err := setPhase(t, self, v1.AgentPhase_AGENT_PHASE_PLANNING, "plan sent"); err != nil {
+					return err
+				}
+				if err := t.PutAgent(self); err != nil {
+					return err
+				}
+			}
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: req.Msg.Body, CreatedAt: tsOf(t.Now())}
