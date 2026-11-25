@@ -252,6 +252,20 @@ def test_relaunch_plan_merges_the_users_flags_into_one_settings_file(mesh, run, 
     assert reopen["argv"][-2:] == ["--resume", "old"]
 
 
+def test_a_root_relaunched_before_gets_back_what_it_added(mesh, run, lean, monkeypatch, tmp_path):
+    claude = lean_root(mesh, run, monkeypatch, tmp_path)
+    plan, _ = mesh.relaunch_plan(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], None)
+    claude.update(argv=["claude", *plan["argv"]], env={"PATH": "/bin"})  # now runs mesh's flags, not the alias
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-lead"].update(added=["Artifact", "dataviz"], tools_added=True)
+    plan, _ = mesh.relaunch_plan(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], "new1")
+    rules = deny_rules(plan["argv"])
+    assert "Artifact" not in rules and "Bash(rm:*)" in rules and "Workflow" in rules
+    settings = json.loads(mesh.root_settings_file(run).read_text())
+    assert "dataviz" not in settings["skillOverrides"] and settings["model"] == "opus"
+    assert settings["env"]["ALIAS_SET"] == "yes"  # what the alias set, kept from the first relaunch
+
+
 def test_a_root_already_running_lean_is_cleared_not_relaunched(mesh, run, lean, monkeypatch, tmp_path):
     claude = lean_root(mesh, run, monkeypatch, tmp_path)
     plan, _ = mesh.relaunch_plan(run, "repo-lead", mesh.load_run(run)["agents"]["repo-lead"], None)

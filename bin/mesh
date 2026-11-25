@@ -3671,7 +3671,8 @@ def write_private(path: Path, text: str) -> None:
 def remove_private(run_id: str, name: str | None = None) -> None:
     """Remove an agent's MCP config (`name`), or every one of the run and the root's settings file: they copy
     servers' environment secrets, so none outlives its agent (retire) or its run (stop)."""
-    paths = [mcp_file(run_id, name)] if name else [*(run_dir(run_id) / "mcp").glob("*.json"), root_settings_file(run_id)]
+    paths = [mcp_file(run_id, name)] if name else [*(run_dir(run_id) / "mcp").glob("*.json"), root_settings_file(run_id),
+                                                   root_origin_file(run_id)]
     for path in paths:
         try:
             path.unlink()
@@ -3681,6 +3682,12 @@ def remove_private(run_id: str, name: str | None = None) -> None:
 
 def root_settings_file(run_id: str) -> Path:
     return run_dir(run_id) / "root-settings.json"
+
+
+def root_origin_file(run_id: str) -> Path:
+    """What the root's own command line gave before mesh first relaunched it: its settings, the environment its
+    alias set and its deny list (private: they may hold secrets)."""
+    return run_dir(run_id) / "root-origin.json"
 
 
 def claude_launch_argv(run_id: str, name: str, entry: dict) -> list[str]:
@@ -12610,18 +12617,25 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
     if not claude:
         return None, why
     parsed = parse_claude_argv(claude["argv"])
-    user: dict = {}
-    for value in parsed["settings"][-1:]:  # Claude Code keeps only the last one
-        user = settings_arg(value, claude["cwd"])
-        if user is None:
-            return None, f"its --settings {value} can't be read"
-    env = {k: v for k, v in claude["env"].items()
-           if claude["shell_env"].get(k) != v and k not in RELAUNCH_ENV_SKIP and not k.startswith("CLAUDE_CODE_")}
+    path = root_settings_file(run_id)
+    # A root mesh relaunched before runs on mesh's merged file and deny list: what the user's own command line
+    # gave is kept from that first relaunch (`root_origin_file`), so what it added since isn't denied again.
+    relaunched_before = parsed["settings"][-1:] == [str(path)]
+    if relaunched_before:
+        origin = read_json_object(root_origin_file(run_id))
+        user, env, user_deny = (origin.get("settings") or {}), (origin.get("env") or {}), (origin.get("deny") or [])
+    else:
+        user, user_deny = {}, parsed["deny"]
+        for value in parsed["settings"][-1:]:  # Claude Code keeps only the last one
+            user = settings_arg(value, claude["cwd"])
+            if user is None:
+                return None, f"its --settings {value} can't be read"
+        env = {k: v for k, v in claude["env"].items()
+               if claude["shell_env"].get(k) != v and k not in RELAUNCH_ENV_SKIP and not k.startswith("CLAUDE_CODE_")}
     settings = merged_settings(user, lean_settings(entry))
     if env:
         settings["env"] = {**env, **(settings.get("env") or {})}
-    tools = list(dict.fromkeys([*parsed["deny"], *lean_tools(entry)]))
-    path = root_settings_file(run_id)
+    tools = list(dict.fromkeys([*(t for t in user_deny if t not in agent_added(entry)), *lean_tools(entry)]))
     text = json.dumps(settings, indent=1)
     previous = path.read_text() if path.exists() else None
     argv = [*parsed["kept"], *(["--disallowedTools", *tools] if tools else []), "--settings", str(path)]
@@ -12632,6 +12646,8 @@ def relaunch_plan(run_id: str, root: str, entry: dict, resume: str | None) -> tu
             and set(parsed["deny"]) == set(tools) and ("--strict-mcp-config" in claude["argv"]) == (mcp_mode(entry) != "inherit"):
         return None, "already lean"
     write_private(path, text)
+    if not relaunched_before:
+        write_private(root_origin_file(run_id), json.dumps({"settings": user, "env": env, "deny": user_deny}))
     if mcp_mode(entry) != "inherit":
         write_private(mcp, json.dumps({"mcpServers": lean_mcp_servers(entry)}, indent=1))
     if resume:
