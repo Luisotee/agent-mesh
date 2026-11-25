@@ -7,6 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
+
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
@@ -90,5 +95,30 @@ func TestKebab(t *testing.T) {
 		if got := Kebab(in); got != want {
 			t.Errorf("Kebab(%q) = %q", in, got)
 		}
+	}
+}
+
+// A write whose request has no `meta` field is refused when the registry loads, not at the first call.
+func TestAWriteWithoutMetaIsRefusedAtLoad(t *testing.T) {
+	mopts := &descriptorpb.MethodOptions{}
+	proto.SetExtension(mopts, v1.E_Action, &v1.ActionOptions{Actors: []v1.ActorClass{v1.ActorClass_ACTOR_CLASS_DEVICE}, Write: true})
+	str := descriptorpb.FieldDescriptorProto_TYPE_STRING
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name: proto.String("test/nometa.proto"), Package: proto.String("test"), Syntax: proto.String("proto3"),
+		Dependency: []string{"agentmesh/v1/options.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Req"), Field: []*descriptorpb.FieldDescriptorProto{{Name: proto.String("x"), Number: proto.Int32(1), Type: &str}}},
+			{Name: proto.String("Res")},
+		},
+		Service: []*descriptorpb.ServiceDescriptorProto{{Name: proto.String("S"), Method: []*descriptorpb.MethodDescriptorProto{
+			{Name: proto.String("Do"), InputType: proto.String(".test.Req"), OutputType: proto.String(".test.Res"), Options: mopts}}}},
+	}
+	fd, err := protodesc.NewFile(fdp, protoregistry.GlobalFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(fd.Services().ByName("S"))
+	if err == nil || !strings.Contains(err.Error(), "needs a `meta` field") {
+		t.Errorf("err = %v", err)
 	}
 }

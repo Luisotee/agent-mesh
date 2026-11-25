@@ -898,19 +898,19 @@ func (d *Daemon) typeLine(ctx context.Context, terminalID, line string) error {
 }
 
 // Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
-// read from the agent's inbox.
+// read with `meshctl inbox`.
 func Doorbell(msgs []*v1.Message) string {
 	kind := func(m *v1.Message) string {
 		return strings.ToLower(strings.TrimPrefix(m.Type.String(), "MESSAGE_TYPE_")) + " from " + m.From.GetName()
 	}
 	if len(msgs) == 1 {
-		return "📬 [mesh] " + kind(msgs[0]) + ": read your inbox"
+		return "📬 [mesh] " + kind(msgs[0]) + ": run `meshctl inbox`"
 	}
 	parts := make([]string, len(msgs))
 	for i, m := range msgs {
 		parts[i] = kind(m)
 	}
-	return fmt.Sprintf("📬 [mesh] %d messages (%s): read your inbox", len(msgs), strings.Join(parts, ", "))
+	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `meshctl inbox`", len(msgs), strings.Join(parts, ", "))
 }
 
 // ── terminal streams through the daemon ──

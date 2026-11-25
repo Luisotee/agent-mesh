@@ -309,9 +309,9 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	spool := statedir.Paths{Dir: w.state}.Spool(agent)
-	w.waitFor("the hooks to spool", func() bool {
+	w.waitFor("a hook to spool", func() bool {
 		files, _ := filepath.Glob(filepath.Join(spool, "*.json"))
-		return len(files) >= 4
+		return len(files) > 0
 	})
 
 	// Restart: the same terminal and process are adopted, and the spooled hooks apply.

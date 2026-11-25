@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +48,7 @@ func TestEveryActionIsACommandWithItsFieldsAsFlags(t *testing.T) {
 		if !strings.Contains(help.String(), "  "+a.CLI+" ") {
 			t.Errorf("%s missing from help", a.CLI)
 		}
-		cmd := newCommand(a, Env{Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }}, "", io.Discard)
+		cmd := newCommand(a, Env{Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }}, "")
 		fields := a.Method.Input().Fields()
 		for i := 0; i < fields.Len(); i++ {
 			f := fields.Get(i)
@@ -159,5 +158,73 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 	if code := Main([]string{"help"}, env, map[string]func([]string) int{"hook": nil}); code != ExitOK ||
 		!strings.Contains(out.String(), "spawn") || !strings.Contains(out.String(), "hook") {
 		t.Errorf("help: %d %q", code, out.String())
+	}
+}
+
+// A request field named like one of the CLI's own flags would make the command unbuildable: say which.
+func TestNoRequestFieldCollidesWithTheCLIsOwnFlags(t *testing.T) {
+	reg, _ := registry.Mesh()
+	own := map[string]bool{"state": true, "json": true, "mutation-id": true, "expires-in": true}
+	for _, a := range reg.Actions() {
+		fields := a.Method.Input().Fields()
+		for i := 0; i < fields.Len(); i++ {
+			f := fields.Get(i)
+			if a.Write && f.Name() == "meta" {
+				continue
+			}
+			if own[FlagName(f)] {
+				t.Errorf("%s: request field %q is also the CLI's --%s", a.CLI, f.Name(), FlagName(f))
+			}
+		}
+	}
+}
+
+func TestAtSignRules(t *testing.T) {
+	read := func(stdin string, args ...string) (*v1.SendMessageRequest, error) {
+		c := newCommand(action(t, "send"), Env{Stdin: strings.NewReader(stdin), Getenv: func(string) string { return "" }}, "")
+		m, err := c.parse(append([]string{"--type", "info", "--to", "a1"}, args...))
+		if err != nil {
+			return nil, err
+		}
+		return as(t, m, &v1.SendMessageRequest{}), nil
+	}
+	// `@-` reads stdin once and the field gets it (it was empty when stdin was read twice).
+	if got, err := read("fix the typo\n", "--body", "@-"); err != nil || got.Body != "fix the typo\n" {
+		t.Errorf("@-: %q, %v", got.GetBody(), err)
+	}
+	if _, err := read("x", "--body", "@-", "--to", "@-"); err == nil || !strings.Contains(err.Error(), "read once") {
+		t.Errorf("stdin for two fields: %v", err)
+	}
+	// A bare @ is itself, @@ escapes, and a path that doesn't open says how to write a literal @.
+	if got, err := read("", "--body", "@"); err != nil || got.Body != "@" {
+		t.Errorf("bare @: %q, %v", got.GetBody(), err)
+	}
+	if _, err := read("", "--body", "@lead done"); err == nil || !strings.Contains(err.Error(), "start it with @@") {
+		t.Errorf("an @mention: %v", err)
+	}
+	// A file is read once, at parse.
+	file := filepath.Join(t.TempDir(), "b.md")
+	os.WriteFile(file, []byte("from a file"), 0o600)
+	if got, err := read("", "--body", "@"+file); err != nil || got.Body != "from a file" {
+		t.Errorf("@file: %q, %v", got.GetBody(), err)
+	}
+}
+
+func TestAParseErrorIsPrintedOnce(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"--state", "/x", "send", "--type", "nonsense"}, env, nil); code != ExitUsage {
+		t.Errorf("exit %d", code)
+	}
+	if n := strings.Count(strings.TrimSpace(errb.String()), "\n") + 1; n != 1 || strings.Contains(errb.String(), "-mutation-id") {
+		t.Errorf("a bad value is one line, without the whole flag list (%d lines):\n%s", n, errb.String())
+	}
+	errb.Reset()
+	if code := Main([]string{"--state", "/x", "send", "--nope"}, env, nil); code != ExitUsage || strings.Count(errb.String(), "flag provided but not defined") != 1 {
+		t.Errorf("an unknown flag: %d %q", code, errb.String())
+	}
+	out.Reset()
+	if code := Main([]string{"--state", "/x", "send", "-h"}, env, nil); code != ExitOK || !strings.Contains(out.String(), "-mutation-id") {
+		t.Errorf("-h: %d %q", code, out.String())
 	}
 }

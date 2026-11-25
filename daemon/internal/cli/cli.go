@@ -74,7 +74,7 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	if len(rest) == 0 || rest[0] == "help" {
 		if len(rest) > 1 {
 			if a := find(reg, rest[1]); a != nil {
-				newCommand(a, env, *state, env.Stdout).flags.Usage()
+				newCommand(a, env, *state).usage(env.Stdout)
 				return ExitOK
 			}
 			if _, ok := hand[rest[1]]; ok {
@@ -92,13 +92,15 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 		fmt.Fprintf(env.Stderr, "meshctl: unknown command %q (meshctl help lists them)\n", rest[0])
 		return ExitUsage
 	}
-	cmd := newCommand(a, env, *state, env.Stderr)
+	cmd := newCommand(a, env, *state)
 	req, err := cmd.parse(rest[1:])
 	if errors.Is(err, flag.ErrHelp) {
+		cmd.usage(env.Stdout)
 		return ExitOK
 	}
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "meshctl %s: %v\n", a.CLI, err)
+		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
+		fmt.Fprintf(env.Stderr, "meshctl %s: %v (meshctl help %s lists the flags)\n", a.CLI, err, a.CLI)
 		return ExitUsage
 	}
 	if cmd.state == "" {
@@ -159,7 +161,8 @@ type command struct {
 	state  string
 	whole  string
 	// The field flags, in the order given: applied after --json, so they override it wherever they stand.
-	pending []func() error
+	pending   []func()
+	stdinRead bool
 	// meta: the write's mutation id and expiry, filled in unless given.
 	mutationID string
 	expiresIn  time.Duration
@@ -181,18 +184,21 @@ func (v fieldFlag) IsBoolFlag() bool {
 	return v.f != nil && v.f.Kind() == protoreflect.BoolKind && !v.f.IsList()
 }
 func (v fieldFlag) Set(s string) error {
-	// Checked now, applied after --json.
-	if _, err := v.c.value(v.f, s); err != nil {
+	// Parsed once, now (so a bad value is reported at its flag, and `@-` reads stdin once), applied after --json.
+	val, err := v.c.value(v.f, s)
+	if err != nil {
 		return err
 	}
-	v.c.pending = append(v.c.pending, func() error { return v.c.set(v.f, s) })
+	v.c.pending = append(v.c.pending, func() { v.c.set(v.f, val) })
 	return nil
 }
 
-func newCommand(a *registry.Action, env Env, state string, help io.Writer) *command {
+func newCommand(a *registry.Action, env Env, state string) *command {
 	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env, state: state,
 		flags: flag.NewFlagSet("meshctl "+a.CLI, flag.ContinueOnError)}
-	c.flags.SetOutput(env.Stderr)
+	// The flag package would print its error and the usage itself; Main prints the error once instead.
+	c.flags.SetOutput(io.Discard)
+	c.flags.Usage = func() {}
 	c.flags.StringVar(&c.state, "state", state, "the daemon's state dir (or $"+client.StateEnv+")")
 	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON; the other flags override its fields")
 	fields := a.Method.Input().Fields()
@@ -205,13 +211,15 @@ func newCommand(a *registry.Action, env Env, state string, help io.Writer) *comm
 		}
 		c.flags.Var(fieldFlag{c: c, f: f}, FlagName(f), describe(f))
 	}
-	c.flags.Usage = func() {
-		fmt.Fprintf(help, "usage: meshctl %s [flags]\n  %s\n", a.CLI, a.Summary)
-		c.flags.SetOutput(help)
-		c.flags.PrintDefaults()
-		c.flags.SetOutput(env.Stderr)
-	}
 	return c
+}
+
+// usage prints the command's summary and its flags.
+func (c *command) usage(w io.Writer) {
+	fmt.Fprintf(w, "usage: meshctl %s [flags]\n  %s\n", c.action.CLI, c.action.Summary)
+	c.flags.SetOutput(w)
+	c.flags.PrintDefaults()
+	c.flags.SetOutput(io.Discard)
 }
 
 func describe(f protoreflect.FieldDescriptor) string {
@@ -245,21 +253,31 @@ func enumShort(e protoreflect.EnumDescriptor, v protoreflect.EnumValueDescriptor
 	return strings.ToLower(strings.TrimPrefix(string(v.Name()), prefix))
 }
 
+// atHint is appended to a failed `@` read: the rule and its escape.
+const atHint = "an argument starting with @ reads a file (@- reads stdin); start it with @@ for a literal @"
+
+// text is a text flag's value: `@-` is stdin (once), `@<path>` a file, `@@…` a literal `@…`; a bare `@` and
+// anything not starting with `@` is itself.
 func (c *command) text(v string) (string, error) {
-	if !strings.HasPrefix(v, "@") {
+	if len(v) < 2 || v[0] != '@' {
 		return v, nil
 	}
 	if rest, ok := strings.CutPrefix(v, "@@"); ok {
 		return "@" + rest, nil
 	}
-	var b []byte
-	var err error
 	if v == "@-" {
-		b, err = io.ReadAll(c.env.Stdin)
-	} else {
-		b, err = os.ReadFile(v[1:])
+		if c.stdinRead {
+			return "", errors.New("stdin (@-) is given for two fields: it can be read once")
+		}
+		c.stdinRead = true
+		b, err := io.ReadAll(c.env.Stdin)
+		return string(b), err
 	}
-	return string(b), err
+	b, err := os.ReadFile(v[1:])
+	if err != nil {
+		return "", fmt.Errorf("%w (%s)", err, atHint)
+	}
+	return string(b), nil
 }
 
 func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.Value, error) {
@@ -293,7 +311,7 @@ func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.
 				return protoreflect.ValueOfEnum(ev.Number()), nil
 			}
 		}
-		return protoreflect.Value{}, fmt.Errorf("%q is not one of: %s", v, describe(f))
+		return protoreflect.Value{}, fmt.Errorf("%q is not %s", v, describe(f))
 	case protoreflect.MessageKind:
 		m := dynamicpb.NewMessage(f.Message())
 		if err := protojson.Unmarshal([]byte(v), m); err != nil {
@@ -304,17 +322,12 @@ func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.
 	return protoreflect.Value{}, fmt.Errorf("fields of kind %s can only be set with --json", f.Kind())
 }
 
-func (c *command) set(f protoreflect.FieldDescriptor, v string) error {
-	val, err := c.value(f, v)
-	if err != nil {
-		return err
-	}
+func (c *command) set(f protoreflect.FieldDescriptor, val protoreflect.Value) {
 	if f.IsList() {
 		c.req.Mutable(f).List().Append(val)
 	} else {
 		c.req.Set(f, val)
 	}
-	return nil
 }
 
 // parse reads the flags into the request: --json first, then every field flag in the order given, so the
@@ -332,9 +345,7 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		}
 	}
 	for _, apply := range c.pending {
-		if err := apply(); err != nil {
-			return nil, err
-		}
+		apply()
 	}
 	if c.action.Write {
 		f := c.action.Method.Input().Fields().ByName("meta")
@@ -412,6 +423,10 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 
 // Request builds an action's request from flags, for tests.
 func Request(a *registry.Action, args []string) (proto.Message, error) {
-	return newCommand(a, Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
-		Getenv: func(string) string { return "" }}, "", io.Discard).parse(args)
+	m, err := newCommand(a, Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
+		Getenv: func(string) string { return "" }}, "").parse(args)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }
