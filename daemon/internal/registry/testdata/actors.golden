@@ -55,9 +55,11 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/SubscribeEvents
 ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/CreatePairing
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListDevices
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
@@ -65,6 +67,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
+  /agentmesh.v1.MeshService/RevokeDevice
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent

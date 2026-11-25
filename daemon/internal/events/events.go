@@ -32,9 +32,10 @@ type Bus struct {
 }
 
 type sub struct {
-	ch      chan *v1.Event
-	runID   string // only this run's events, when set
-	dropped bool
+	ch           chan *v1.Event
+	runID        string // only this run's events, when set
+	deviceEvents bool   // whether host device-management events are delivered
+	dropped      bool
 }
 
 // New returns a bus over a store. Wire Publish to store.OnCommit.
@@ -48,7 +49,7 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	defer b.mu.Unlock()
 	for s := range b.subs {
 		for _, ev := range evs {
-			if !inScope(s.runID, ev) {
+			if !inScope(s.runID, s.deviceEvents, ev) {
 				continue
 			}
 			select {
@@ -65,8 +66,8 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	}
 }
 
-func (b *Bus) subscribe(runID string) *sub {
-	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID}
+func (b *Bus) subscribe(runID string, deviceEvents bool) *sub {
+	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID, deviceEvents: deviceEvents}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
 	b.mu.Unlock()
@@ -90,11 +91,12 @@ func (b *Bus) Subscribers() int {
 }
 
 // Serve runs one subscription until ctx ends, the subscriber falls behind (ErrSlow, as ResourceExhausted), or
-// stopping closes (then it sends End first).
-func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stopping <-chan struct{},
+// stopping closes (then it sends End first). When deviceEvents is false, host device-management events
+// (DevicePaired, DeviceRevoked) are filtered out of both resumed backlogs and live streams.
+func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents bool, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
-	live := b.subscribe(req.RunId)
+	live := b.subscribe(req.RunId, deviceEvents)
 	defer b.unsubscribe(live)
 
 	gen := b.store.Generation()
@@ -115,10 +117,13 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stoppin
 				return err
 			}
 			for _, ev := range evs {
+				sent = ev.Seq
+				if !inScope(req.RunId, deviceEvents, ev) {
+					continue
+				}
 				if err := send(eventFrame(ev)); err != nil {
 					return err
 				}
-				sent = ev.Seq
 			}
 			if len(evs) < backlogPage {
 				break
@@ -150,7 +155,7 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stoppin
 			if !ok {
 				return connect.NewError(connect.CodeResourceExhausted, ErrSlow)
 			}
-			if ev.Seq <= sent || !inScope(req.RunId, ev) {
+			if ev.Seq <= sent || !inScope(req.RunId, deviceEvents, ev) {
 				continue
 			}
 			if err := send(eventFrame(ev)); err != nil {
@@ -161,9 +166,24 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, stoppin
 	}
 }
 
-// inScope reports whether a subscriber of runID (empty: every run) gets ev. An event with no run is global (a
-// setting changed): every subscriber gets it.
-func inScope(runID string, ev *v1.Event) bool {
+// IsDeviceEvent reports whether ev is a host device-management event (DevicePaired or DeviceRevoked).
+func IsDeviceEvent(ev *v1.Event) bool {
+	if ev == nil {
+		return false
+	}
+	switch ev.Payload.(type) {
+	case *v1.Event_DevicePaired, *v1.Event_DeviceRevoked:
+		return true
+	}
+	return false
+}
+
+// inScope reports whether a subscriber of runID (empty: every run) gets ev. Device-management events are
+// delivered only when deviceEvents is true; other run-less events (a setting changed) reach every subscriber.
+func inScope(runID string, deviceEvents bool, ev *v1.Event) bool {
+	if IsDeviceEvent(ev) && !deviceEvents {
+		return false
+	}
 	return runID == "" || ev.RunId == "" || ev.RunId == runID
 }
 

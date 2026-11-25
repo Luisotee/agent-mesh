@@ -11656,3 +11656,185 @@ def test_a_colon_direct_task_lifts_a_live_planners_deny_list(mesh, fake, run, ca
 def test_the_phase_line_of_a_colon_direct_task_says_it_is_direct(mesh):
     line = mesh.worker_phase({"phase": "plan", "planning": True}, [], "w", "Direct task: push it")
     assert line.startswith("a direct task")
+
+
+# ── names another run's agent holds ──────────────────────────────────────
+
+
+def other_run(mesh, run_id, name, pane, role="root", status="running"):
+    """A live run of its own, with one agent recorded on `pane`."""
+    mesh.make_run_folders(run_id)
+    mesh.save_run(run_id, {"id": run_id, "root": name, "agents": {name: {"role": role, "kind": "claude", "pane": pane,
+                                                                          "status": status}}})
+
+
+def panes_open(fake, *panes):
+    fake.on("pane", "list", result={"panes": [{"pane_id": p} for p in panes]})
+
+
+def second_root(mesh, fake, monkeypatch, listed):
+    """`mesh init` from pane w1:p1 of a repo named `repo`, while herdr lists `listed` as the live agents."""
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    me = {"pane_id": "w1:p1", "agent": "claude", "tab_id": "w1:t1", "workspace_id": "w1", "cwd": "/repo"}
+    fake.on("agent", "list", result={"agents": [me, *listed]})
+    return mesh.init_run("claude", None, "msecond")["name"]
+
+
+def test_a_second_root_doesnt_take_a_live_roots_name_herdr_lost(mesh, fake, monkeypatch):
+    other_run(mesh, "mfirst", "repo-lead", "w3:p3")
+    panes_open(fake, "w1:p1", "w3:p3")  # herdr's list has no name for that root, but its pane is open
+    assert second_root(mesh, fake, monkeypatch, []) == "repo-lead-2"
+    assert fake.called("agent", "rename", "w1:p1", "repo-lead-2")
+
+
+def test_a_recorded_name_is_free_when_its_agent_is_gone(mesh, fake, monkeypatch):
+    other_run(mesh, "mfirst", "repo-lead", "w3:p3", status="running")
+    other_run(mesh, "mold", "repo-fix", "w4:p4", role="worker", status="retired")
+    panes_open(fake, "w1:p1")  # the pane is closed
+    assert second_root(mesh, fake, monkeypatch, []) == "repo-lead"
+
+
+def test_a_recorded_name_stays_taken_when_herdr_cant_list_panes(mesh, fake, monkeypatch):
+    other_run(mesh, "mfirst", "repo-lead", "w3:p3")
+    fake.on("pane", "list", error="cli_error")
+    assert second_root(mesh, fake, monkeypatch, []) == "repo-lead-2"
+
+
+def test_a_worker_isnt_named_for_another_runs_live_worker(mesh, fake, run):
+    other_run(mesh, "mfirst", "repo-fix-typo", "w3:p3", role="worker")
+    panes_open(fake, "w3:p3")
+    assert "repo-fix-typo" in mesh.claimed_names()
+    assert mesh.agent_name("repo", "fix-typo", mesh.claimed_names()) == "repo-fix-typo-2"
+
+
+def test_a_doorbell_never_goes_to_the_pane_that_took_the_name(mesh, fake, run, monkeypatch):
+    fixed_token(mesh, monkeypatch)
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")  # the new holder of the name
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9", "name": "repo-fix-typo"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5"}})  # the worker's own pane is live
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it.")
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert [c[2] for c in fake.called("agent", "prompt")] == ["w2:p5"]
+    taken = [e for e in mesh.read_log(run) if e["event"] == "name_taken"]
+    assert [(e["name"], e["rung"]) for e in taken] == [("repo-fix-typo", "w2:p5")]
+
+
+def test_a_doorbell_follows_the_name_after_a_herdr_restore(mesh, fake, run, monkeypatch):
+    fixed_token(mesh, monkeypatch)
+    # herdr gave the worker's pane a new id: the name points at a pane no run records, and the old pane is gone
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w2:p77"}})
+    fake.on("agent", "get", "w2:p5", error="agent_not_found")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it.")
+    assert mesh.main(["ring", "repo-fix-typo"]) == 0
+    assert fake.called("agent", "prompt")[-1][2] == "repo-fix-typo"
+    assert not [e for e in mesh.read_log(run) if e["event"] == "name_taken"]
+
+
+def test_a_doorbell_isnt_rung_when_nothing_but_anothers_name_reaches_it(mesh, fake, run, capsys):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", error="agent_not_found")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Fix it.")
+    assert mesh.main(["ring", "repo-fix-typo"]) == 2  # not rung
+    assert json.loads(capsys.readouterr().out)["error"] == "name_taken"
+    assert not fake.called("agent", "prompt")
+    assert len(mesh.unread(run, "repo-fix-typo")) == 1  # the message is still stored
+
+
+def test_status_and_waits_read_the_agents_own_pane_not_the_name_holders(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9", "agent_status": "working"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5", "agent_status": "idle"}})
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert mesh.agent_status("repo-fix-typo", entry) == "idle"
+    assert mesh.wait_target("repo-fix-typo", entry) == "w2:p5"
+    fake.on("agent", "get", "w2:p5", errors=["agent_not_found"] * 3)  # (a fake's error is raised once)
+    fake.on("pane", "process-info", error="pane_not_found")
+    assert mesh.agent_status("repo-fix-typo", entry) == "gone"  # not the holder's "working"
+    assert mesh.wait_target("repo-fix-typo", entry) == "w2:p5"
+
+
+def test_a_renumbered_pane_is_told_from_a_thiefs_by_its_session(mesh, fake, run):
+    with mesh.editing_run(run) as data:
+        data["agents"]["repo-fix-typo"]["session"] = "sess-mine"
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "w2:p5", errors=["agent_not_found"] * 2)  # the old pane is gone
+    fake.on("agent", "get", "repo-fix-typo",
+            result={"agent": {"pane_id": "w2:p77", "agent_session": {"value": "sess-mine"}}})
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["repo-fix-typo", "w2:p5"]  # its own session: a restore
+    fake.on("agent", "get", "repo-fix-typo",
+            result={"agent": {"pane_id": "w2:p77", "agent_session": {"value": "sess-theirs"}}})
+    assert mesh.herdr_targets("repo-fix-typo", entry) == []  # someone else's, recorded in no run
+
+
+def test_resuming_a_crashed_worker_in_its_own_run_keeps_its_name(mesh, fake, run, repo, capsys):
+    archived_worker(mesh, repo, kind="claude", session="s-1")
+    old = json.loads((mesh.mesh_home() / "archive" / "mold" / "run.json").read_text())["agents"]["proj-fix"]
+    with mesh.editing_run(run) as data:  # its pane is open (a shell where the agent crashed): status still running
+        data["agents"]["proj-fix"] = {**old, "parent": "repo-lead", "pane": "w7:p1"}
+    shutil.rmtree(mesh.mesh_home() / "archive" / "mold")
+    panes_open(fake, "w7:p1")
+    stub_new_pane(fake)
+    capsys.readouterr()
+    assert mesh.main(["resume", "proj-fix"]) == 0
+    assert json.loads(capsys.readouterr().out)["name"] == "proj-fix"  # not proj-fix-2
+
+
+def test_a_reopened_worker_still_yields_to_another_runs_live_agent_of_its_name(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9", role="worker")
+    panes_open(fake, "w9:p9", "w2:p5")
+    assert "repo-fix-typo" in mesh.claimed_names(skip=(run, "repo-fix-typo"))
+    other_run(mesh, "mthird", "repo-lead", "w8:p8")
+    assert "repo-lead" not in mesh.claimed_names(skip=("mthird", "repo-lead"))
+
+
+def test_herdr_targets_keeps_the_recorded_pane_when_it_cant_be_told_gone(mesh, fake, run):
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", error="timeout")  # herdr didn't answer: not "agent_not_found"
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["w2:p5"]
+
+
+def test_the_watchs_screen_reads_follow_the_agent_not_a_stolen_name(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5"}})  # its own pane is live
+    fake.screen("repo-fix-typo", "THEIRS: a human's draft")
+    fake.screen("w2:p5", "OURS: Do you want to proceed?")
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    assert "OURS" in watch.with_tail("alert", False, entry)
+    assert "THEIRS" not in watch.with_tail("alert", False, entry)
+    assert len(fake.called("agent", "get", "repo-fix-typo")) == 1  # asked once for the polls' reads
+    assert [c[2] for c in fake.called("agent", "read")] == ["w2:p5", "w2:p5"]
+
+
+def test_claudes_auto_continue_is_read_from_its_own_pane(mesh, fake, run):
+    other_run(mesh, "mother", "repo-fix-typo", "w9:p9")
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", result={"agent": {"pane_id": "w2:p5"}})
+    fake.screen("repo-fix-typo", "Continuing shortly")
+    fake.screen("w2:p5", "")
+    entry = {**mesh.load_run(run)["agents"]["repo-fix-typo"], "kind": "claude"}
+    assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is False
+    fake.screen("w2:p5", "Continuing shortly")  # its own pane says it
+    assert mesh.cli("claude").auto_continues(entry, "repo-fix-typo") is True
+
+
+def test_a_hung_or_garbled_herdr_doesnt_block_a_screen_read(mesh, fake, run):
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    fake.on("agent", "get", "repo-fix-typo", errors=["timeout"])
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["repo-fix-typo", "w2:p5"]
+    assert fake.called("agent", "get")[-1][2] == "repo-fix-typo"
+    fake.on("agent", "get", "repo-fix-typo", result={"agent": {"pane_id": "w9:p9"}})
+    fake.on("agent", "get", "w2:p5", errors=["cli_error"])
+    assert mesh.herdr_targets("repo-fix-typo", entry) == ["w2:p5"]
+
+
+def test_a_watchs_screen_target_follows_the_worker_to_a_new_pane(mesh, fake, run):
+    watch = mesh.Watch(run, "repo-fix-typo", 10.0)
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert watch.screen_target(entry) == "repo-fix-typo"
+    assert watch.screen_target({**entry, "pane": "w2:p8"}) == "repo-fix-typo"
+    assert len(fake.called("agent", "get", "repo-fix-typo")) == 2  # asked again: a swap gave it a new pane
