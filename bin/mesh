@@ -9171,10 +9171,10 @@ def first_line(text: str | None, limit: int = 160) -> str:
 
 
 USER_REVIEW_START = "Plan review by the user"
-# A direct task starts `Direct task`, then no letter or digit: `Direct task (no plan)` is the form the protocol
-# gives, and `Direct task:` the one a root writes by habit (as the daemon's `directStart` reads it); "Direct
-# tasks are…" is an ordinary task.
-DIRECT_RE = re.compile(r"Direct task(?![A-Za-z0-9])")
+# A direct task starts `Direct task` and then `(no plan)`, `:`, `.` or the end of its line: `(no plan)` is the
+# form the protocol gives, `Direct task:` the one a root writes by habit (as the daemon's `directStart` reads it);
+# "Direct tasks are…" and "Direct task list…" are ordinary tasks.
+DIRECT_RE = re.compile(r"Direct task(?=[:.]|\s*\(no plan\)|[ \t]*(?:\n|$))")
 
 
 def direct_task(task: str | None) -> bool:

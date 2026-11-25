@@ -11623,6 +11623,7 @@ def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypat
     ("Direct task (no plan): fix it", False), ("Direct task: fix it", False), ("Direct task. Fix it.", False),
     ("  Direct task\n\nFix it.", False), ("Direct task", False),
     ("Direct tasks are what we send often: plan the doc", True), ("Plan the Direct task feature", True),
+    ("Direct task list: plan the doc", True), ("Direct task force, plan it", True),
 ])
 def test_a_task_starting_direct_task_is_not_planned(mesh, task, planned):
     assert mesh.planned_task(task) is planned
