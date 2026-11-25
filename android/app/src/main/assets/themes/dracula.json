@@ -1,0 +1,42 @@
+{
+  "name": "Dracula",
+  "dark": true,
+  "tokens": {
+    "background": "#282a36",
+    "foreground": "#f8f8f2",
+    "surface": "#21222c",
+    "card": "#2d2f3d",
+    "popover": "#343746",
+    "muted": "#343746",
+    "muted-foreground": "#9aa5ce",
+    "border": "#44475a",
+    "input": "#44475a",
+    "ring": "#bd93f9",
+    "primary": "#bd93f9",
+    "primary-foreground": "#21222c",
+    "secondary": "#44475a",
+    "secondary-foreground": "#f8f8f2",
+    "accent": "#3b3e52",
+    "accent-foreground": "#f8f8f2",
+    "destructive": "#ff5555",
+    "destructive-foreground": "#21222c",
+    "state-working": "#8be9fd",
+    "state-needs": "#ffb86c",
+    "state-idle": "#6272a4",
+    "state-done": "#50fa7b",
+    "state-failed": "#ff5555",
+    "state-unknown": "#f1fa8c"
+  },
+  "terminal": {
+    "background": "#21222c",
+    "foreground": "#f8f8f2",
+    "cursor": "#f8f8f2",
+    "selection": "#44475a",
+    "red": "#ff5555",
+    "green": "#50fa7b",
+    "yellow": "#f1fa8c",
+    "blue": "#bd93f9",
+    "magenta": "#ff79c6",
+    "cyan": "#8be9fd"
+  }
+}

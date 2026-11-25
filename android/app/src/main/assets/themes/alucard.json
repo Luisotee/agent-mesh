@@ -1,0 +1,42 @@
+{
+  "name": "Alucard",
+  "dark": false,
+  "tokens": {
+    "background": "#fffbeb",
+    "foreground": "#1f1f1f",
+    "surface": "#f5f0dc",
+    "card": "#fffdf5",
+    "popover": "#ffffff",
+    "muted": "#ece9d4",
+    "muted-foreground": "#6c664b",
+    "border": "#cfcfde",
+    "input": "#cfcfde",
+    "ring": "#644ac9",
+    "primary": "#644ac9",
+    "primary-foreground": "#ffffff",
+    "secondary": "#e8e4cf",
+    "secondary-foreground": "#1f1f1f",
+    "accent": "#e9e3f8",
+    "accent-foreground": "#1f1f1f",
+    "destructive": "#cb3a2a",
+    "destructive-foreground": "#ffffff",
+    "state-working": "#036a96",
+    "state-needs": "#a34d14",
+    "state-idle": "#6c664b",
+    "state-done": "#14710a",
+    "state-failed": "#cb3a2a",
+    "state-unknown": "#846e15"
+  },
+  "terminal": {
+    "background": "#fffbeb",
+    "foreground": "#1f1f1f",
+    "cursor": "#1f1f1f",
+    "selection": "#cfcfde",
+    "red": "#cb3a2a",
+    "green": "#14710a",
+    "yellow": "#846e15",
+    "blue": "#644ac9",
+    "magenta": "#a3144d",
+    "cyan": "#036a96"
+  }
+}
