@@ -911,7 +911,11 @@ type SendMessageResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Message *Message               `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	// The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
-	Resumed       *Reopen `protobuf:"bytes,2,opt,name=resumed,proto3" json:"resumed,omitempty"`
+	Resumed *Reopen `protobuf:"bytes,2,opt,name=resumed,proto3" json:"resumed,omitempty"`
+	// Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+	// closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+	// resume.
+	ResumeError   string `protobuf:"bytes,3,opt,name=resume_error,json=resumeError,proto3" json:"resume_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -958,6 +962,13 @@ func (x *SendMessageResponse) GetResumed() *Reopen {
 		return x.Resumed
 	}
 	return nil
+}
+
+func (x *SendMessageResponse) GetResumeError() string {
+	if x != nil {
+		return x.ResumeError
+	}
+	return ""
 }
 
 type ReadInboxRequest struct {
@@ -2879,10 +2890,11 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12-\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x19.agentmesh.v1.MessageTypeR\x04type\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\"v\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\"\x99\x01\n" +
 	"\x13SendMessageResponse\x12/\n" +
 	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12.\n" +
-	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\"g\n" +
+	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\x12!\n" +
+	"\fresume_error\x18\x03 \x01(\tR\vresumeError\"g\n" +
 	"\x10ReadInboxRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04peek\x18\x02 \x01(\bR\x04peek\x12\x10\n" +

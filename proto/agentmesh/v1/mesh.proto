@@ -428,6 +428,10 @@ message SendMessageResponse {
   Message message = 1;
   // The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
   Reopen resumed = 2;
+  // Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+  // closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+  // resume.
+  string resume_error = 3;
 }
 
 message ReadInboxRequest {
