@@ -17,6 +17,8 @@ import kotlin.math.min
 
 /** What a viewer's terminal is doing, for its status line. */
 sealed interface TermState {
+    /** The host's connection isn't ready yet, so there is nothing to attach to. */
+    data object WaitingForHost : TermState
     data object Attaching : TermState
     data object Live : TermState
     data class Reconnecting(val attempt: Int, val why: String) : TermState
@@ -57,6 +59,8 @@ class TermClient(
     private val screen: TermScreen,
     private val baseMs: Long = 500,
     private val maxMs: Long = 10_000,
+    /** False while the host's connection isn't ready, which [api] waits for: the status line says so. */
+    private val hostReady: () -> Boolean = { true },
 ) {
     private val _state = MutableStateFlow<TermState>(TermState.Attaching)
     val state: StateFlow<TermState> get() = _state
@@ -75,6 +79,14 @@ class TermClient(
         job = scope.launch { loop() }
     }
 
+    /** Try again after a [TermState.Failed] (an agent whose terminal appears a moment later, an edited host). */
+    fun retry() {
+        if (_state.value !is TermState.Failed) return
+        job = null
+        _state.value = TermState.Attaching
+        start()
+    }
+
     fun stop() {
         job?.cancel()
         job = null
@@ -90,6 +102,9 @@ class TermClient(
                 session { attempt = 0; streak = 0 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: javax.net.ssl.SSLPeerUnverifiedException) {
+                // The host's certificate isn't the pinned one: waiting won't change that.
+                _state.value = TermState.Failed("The host's certificate is not the one pinned for it"); return
             } catch (e: ApiException) {
                 if (e.refusedToken || e.code == com.connectrpc.Code.NOT_FOUND || e.code == com.connectrpc.Code.PERMISSION_DENIED || e.code == com.connectrpc.Code.FAILED_PRECONDITION) {
                     _state.value = TermState.Failed(e.message ?: e.code.name.lowercase()); return
@@ -105,6 +120,8 @@ class TermClient(
                 // replay ever finishing gets the growing wait, so it is never a tight loop.
                 Outcome.Now -> if (++streak > 1) delay(min(maxMs.toDouble(), baseMs * Math.pow(2.0, (streak - 2).toDouble())).toLong())
                 is Outcome.Retry -> {
+                    // A drop, not a request to reattach: what came before it isn't "consecutive immediate reattaches".
+                    streak = 0
                     val wait = min(maxMs.toDouble(), baseMs * Math.pow(2.0, attempt.toDouble())).toLong()
                     attempt++
                     _state.value = TermState.Reconnecting(attempt, outcome.why)
@@ -122,7 +139,9 @@ class TermClient(
     }
 
     private suspend fun session(onLive: () -> Unit): Outcome {
+        if (!hostReady()) _state.value = TermState.WaitingForHost
         val client = api()
+        if (_state.value == TermState.WaitingForHost) _state.value = TermState.Attaching
         val path = client.openTerminal(agentId)
         val sock = client.connectTerminal(path)
         socket = sock
@@ -140,8 +159,9 @@ class TermClient(
                         CloseCode.BAD_REQUEST -> Outcome.Failed(ev.reason.ifEmpty { "the host refused the stream" })
                         else -> Outcome.Retry(ev.reason.ifEmpty { "the host closed the stream" })
                     }
-                    // A refused upgrade can be a ticket that expired on a slow link: that is a retry with a fresh one, not the end.
-                    is TermEvent.Failed -> throw if (ev.cause is ApiException) java.io.IOException(ev.cause.message ?: "the host refused the ticket") else ev.cause
+                    // A 401 on the upgrade can be a ticket that expired on a slow link: a retry with a fresh one, not the end.
+                    // Any other refusal (403, 404) is the host's answer to this request, and the loop ends on it.
+                    is TermEvent.Failed -> throw if (ev.cause is ApiException && ev.cause.code == com.connectrpc.Code.UNAUTHENTICATED) java.io.IOException(ev.cause.message ?: "the host refused the ticket") else ev.cause
                 }
             }
             return Outcome.Retry("the stream ended")

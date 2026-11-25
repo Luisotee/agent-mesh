@@ -2,7 +2,9 @@ package dev.agentmesh.android
 
 import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -20,6 +22,7 @@ import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
 import dev.agentmesh.android.ui.LocalContainer
+import dev.agentmesh.android.ui.clampPan
 import dev.agentmesh.android.ui.fitWidthSp
 import dev.agentmesh.android.ui.terminalColor
 import dev.agentmesh.android.ui.termSentence
@@ -73,6 +76,8 @@ class TerminalTabTest {
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live")).fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
         compose.onNodeWithText("Read only").assertIsDisplayed()
+        // The description follows the screen a few times a second, not on every frame.
+        compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("fake claude s1", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         val descs = compose.onAllNodes(hasContentDescription("Terminal", substring = true)).fetchSemanticsNodes().map { it.config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription] }
         assertEquals(listOf(listOf("Terminal: fake claude s1. >")), descs)
         val node = compose.onNode(hasContentDescription("Terminal: fake claude s1. >", substring = true)).fetchSemanticsNode()
@@ -87,6 +92,43 @@ class TerminalTabTest {
         show(rt)
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("no terminal for agent a1")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("terminal-state").assertIsDisplayed()
+    }
+
+    @Test fun `a failed attach offers Try again, which attaches again`() {
+        api.terminalError = dev.agentmesh.android.net.ApiException(com.connectrpc.Code.FAILED_PRECONDITION, "agent a1 has no terminal")
+        val rt = runtime()
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("agent a1 has no terminal")).fetchSemanticsNodes().isNotEmpty() }
+        // The terminal shows up a moment later.
+        api.terminalError = null
+        val s = FakeSocket().also { api.sockets += it }
+        compose.onNodeWithTag("terminal-retry").performClick()
+        compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
+        s.host(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, offset = 3, cols = 40, rows = 10)); s.host(Frames.screen("up", offset = 3)); s.host(Frames.replayDone(3))
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(hasText("Try again")).assertCountEquals(0)
+    }
+
+    @Test fun `until the host answers, the status says it is waiting for the host`() {
+        val repo = HostRepository(tmp.newFile("hosts2.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        // No Ready state: the connection never answers.
+        val rt = HostRuntime(host.id, repo, { _, _ -> api }, CoroutineScope(Dispatchers.Unconfined)).also {
+            it.connection.start()
+            it.onFrame(snapshot(listOf(run("r1")), listOf(agent("a1", name = "shop-fix", state = AgentState.AGENT_STATE_WORKING))))
+        }
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Waiting for the host…")).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals("Waiting for the host…", termSentence(TermState.WaitingForHost))
+    }
+
+    @Test fun `a sideways pan stays within the screen, so a drag past the edge doesn't need dragging back`() {
+        // 80 columns of 10 px on a 600 px canvas: 200 px wider.
+        assertEquals(0f, clampPan(300f, 80, 10f, 600f))
+        assertEquals(-200f, clampPan(-900f, 80, 10f, 600f))
+        assertEquals(-50f, clampPan(-50f, 80, 10f, 600f))
+        // It all fits: no pan at all, however far it was dragged.
+        assertEquals(0f, clampPan(-400f, 40, 10f, 600f))
     }
 
     @Test fun `a terminal taller than the canvas keeps its bottom in view`() {

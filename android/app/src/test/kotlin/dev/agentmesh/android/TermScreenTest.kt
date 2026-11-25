@@ -90,4 +90,15 @@ class TermScreenTest {
         s.reset(30, 8)
         assertEquals(30, s.cols); assertEquals(8, s.rows); assertEquals("", s.visibleText())
     }
+
+    @Test fun `a scroll inside horizontal margins pushes nothing into the history, so a reader isn't moved by it`() {
+        val s = screen(cols = 20, rows = 4)
+        s.feed((1..12).joinToString("\r\n") { "line $it" })
+        s.scrollBack = 3
+        val before = s.visibleText().lines().first()
+        // DECLRMM on, margins at columns 5..10, then lines scrolled inside them.
+        s.feed("\u001b[?69h\u001b[5;10s\u001b[4;5H" + (1..6).joinToString("") { "\r\n" })
+        assertEquals(3, s.scrollBack)
+        assertEquals(before, s.visibleText().lines().first())
+    }
 }

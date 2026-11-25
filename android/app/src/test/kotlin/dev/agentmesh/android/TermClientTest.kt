@@ -197,4 +197,56 @@ class TermClientTest {
         r.client.stop(); runCurrent()
         assertTrue(s.closed)
     }
+
+    @Test fun `a drop before any replay resets the immediate-reattach streak`() = runTest {
+        val r = Rig(this)
+        val socks = (1..6).map { r.socket() }
+        r.client.start(); runCurrent()
+        socks[0].close(CloseCode.SLOW, "slow"); runCurrent()   // at once: streak 1
+        socks[1].fail(java.io.IOException("reset")); runCurrent() // a drop before any replay: its own backoff, and the streak is over
+        advanceTimeBy(501); runCurrent()
+        assertEquals(3, r.api.tickets.size)
+        socks[2].close(CloseCode.SLOW, "slow"); runCurrent()
+        assertEquals("a slow close right after is the first of a new streak: reattached at once", 4, r.api.tickets.size)
+    }
+
+    @Test fun `a refusal of the upgrade other than a stale ticket is final, with the reason`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent()
+        s.fail(ApiException(Code.NOT_FOUND, "the host has no such terminal")); runCurrent()
+        assertEquals(TermState.Failed("the host has no such terminal"), r.client.state.value)
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals(1, r.api.tickets.size)
+
+        val r2 = Rig(this); val s2 = r2.socket()
+        r2.client.start(); runCurrent()
+        s2.fail(javax.net.ssl.SSLPeerUnverifiedException("pin")); runCurrent()
+        assertTrue(r2.client.state.value is TermState.Failed)
+    }
+
+    @Test fun `retry after a failure attaches again, and does nothing otherwise`() = runTest {
+        val r = Rig(this)
+        r.api.terminalError = ApiException(Code.FAILED_PRECONDITION, "agent a1 has no terminal")
+        r.client.start(); runCurrent()
+        assertEquals(TermState.Failed("agent a1 has no terminal"), r.client.state.value)
+        r.api.terminalError = null
+        val s = r.socket()
+        r.client.retry(); runCurrent()
+        first(s); runCurrent()
+        assertEquals(TermState.Live, r.client.state.value)
+        r.client.retry(); runCurrent()
+        assertEquals("a live one is left alone", 1, r.api.tickets.size)
+    }
+
+    @Test fun `it says it is waiting while the host isn't ready, then attaches`() = runTest {
+        var ready = false
+        val api = RecordingApi()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val client = TermClient(backgroundScope, "a1", { gate.await(); api }, TermScreen(), hostReady = { ready })
+        client.start(); runCurrent()
+        assertEquals(TermState.WaitingForHost, client.state.value)
+        ready = true; gate.complete(Unit); runCurrent()
+        assertEquals(TermState.Attaching, client.state.value)
+        assertEquals(1, api.tickets.size)
+    }
 }

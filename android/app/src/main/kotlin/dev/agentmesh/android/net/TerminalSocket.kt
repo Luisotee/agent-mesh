@@ -33,13 +33,14 @@ class OkHttpTerminalSocket(connection: Connection, path: String) : TerminalSocke
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                webSocket.close(code, reason)
+                // Tell the reader first: answering the close must never turn it into a failure.
                 channel.trySend(TermEvent.Closed(code, reason))
                 channel.close()
+                try { webSocket.close(echoCloseCode(code), reason.takeIf { echoCloseCode(code) == code }) } catch (e: IllegalArgumentException) { webSocket.cancel() }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                channel.trySend(TermEvent.Failed(if (response != null && response.code == 401) ApiException(com.connectrpc.Code.UNAUTHENTICATED, "the host refused the terminal ticket", t) else t))
+                channel.trySend(TermEvent.Failed(refusal(response, t)))
                 channel.close()
             }
         },
@@ -51,4 +52,15 @@ class OkHttpTerminalSocket(connection: Connection, path: String) : TerminalSocke
         socket.close(1000, "done")
         channel.close()
     }
+}
+
+/** The code to answer a close with: the peer's own when a close frame may carry it (OkHttp refuses 1005, 1006 and the reserved ranges), else a normal close. */
+fun echoCloseCode(code: Int): Int = if (code in 1000..4999 && code !in 1004..1006 && code !in 1012..2999) code else 1000
+
+/** What a refused upgrade means: a ticket that expired (401, retried with a fresh one), or the host's answer to this request (403, 404). */
+fun refusal(response: Response?, cause: Throwable): Throwable = when (response?.code) {
+    401 -> ApiException(com.connectrpc.Code.UNAUTHENTICATED, "the host refused the terminal ticket", cause)
+    403 -> ApiException(com.connectrpc.Code.PERMISSION_DENIED, "the host doesn't let this device open that terminal", cause)
+    404 -> ApiException(com.connectrpc.Code.NOT_FOUND, "the host has no such terminal", cause)
+    else -> cause
 }

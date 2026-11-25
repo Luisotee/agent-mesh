@@ -21,11 +21,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
+import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.term.TermClient
 import dev.agentmesh.android.term.TermScreen
 import dev.agentmesh.android.term.TermState
 
 fun termSentence(s: TermState): String = when (s) {
+    TermState.WaitingForHost -> "Waiting for the host…"
     TermState.Attaching -> "Attaching…"
     TermState.Live -> "Live"
     is TermState.Reconnecting -> "Reconnecting (${s.attempt}): ${s.why}"
@@ -43,7 +45,7 @@ fun termSentence(s: TermState): String = when (s) {
 fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val screen = remember(agentId) { TermScreen() }
-    val client = remember(agentId) { TermClient(scope, agentId, { runtime.awaitApi() }, screen) }
+    val client = remember(agentId) { TermClient(scope, agentId, { runtime.awaitApi() }, screen, hostReady = { runtime.state.value.conn is ConnState.Ready }) }
     DisposableEffect(client) {
         client.start()
         onDispose { client.stop() }
@@ -59,6 +61,9 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             TerminalCanvas(screen, LocalMeshTheme.current.terminal)
+            if (state is TermState.Failed) {
+                Button(onClick = client::retry, modifier = Modifier.align(Alignment.Center).testTag("terminal-retry")) { Text("Try again") }
+            }
             if (screen.scrollBack > 0) {
                 Button(onClick = { screen.scrollBack = 0 }, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)) { Text("Latest") }
             }

@@ -381,7 +381,15 @@ public final class TerminalBuffer {
      * @param bottomMargin One line after the last line that is scrolled.
      * @param style        the style for the newly exposed line.
      */
+    /** agent-mesh: lines pushed into the history by scrolling, for good (also once it is full and drops its oldest). A free-running count: take differences. */
+    private int mHistoryScrolls = 0;
+
+    public int getHistoryScrolls() {
+        return mHistoryScrolls;
+    }
+
     public void scrollDownOneLine(int topMargin, int bottomMargin, long style) {
+        mHistoryScrolls++;
         if (topMargin > bottomMargin - 1 || topMargin < 0 || bottomMargin > mScreenRows)
             throw new IllegalArgumentException("topMargin=" + topMargin + ", bottomMargin=" + bottomMargin + ", mScreenRows=" + mScreenRows);
 

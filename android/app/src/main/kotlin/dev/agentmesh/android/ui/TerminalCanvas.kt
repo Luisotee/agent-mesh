@@ -7,6 +7,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,24 +87,31 @@ private const val READABLE_SP = 8f
  */
 @Composable
 fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier) {
+    // The state is the screen's: a new screen (another agent) starts from the fitted size and no pan.
     // 0 fits the host's width to the screen; a pinch sets a size of the user's own.
-    var userSp by remember { mutableFloatStateOf(0f) }
-    var panX by remember { mutableFloatStateOf(0f) }
-    var dragPx by remember { mutableFloatStateOf(0f) }
-    // The size last drawn (what a pinch scales) and its pixels per sp: kept outside the state, written while drawing.
-    val drawn = remember { floatArrayOf(READABLE_SP, 1f) }
+    var userSp by remember(screen) { mutableFloatStateOf(0f) }
+    var panX by remember(screen) { mutableFloatStateOf(0f) }
+    var dragPx by remember(screen) { mutableFloatStateOf(0f) }
+    // What the gestures need of the last drawing: the size (sp), its pixels per sp, the columns and the width. Kept
+    // outside the state and written while drawing, and by a pinch at once, so events between two draws compound.
+    val drawn = remember(screen) { floatArrayOf(READABLE_SP, 1f, 1f, 1f) }
     val paints = remember { arrayOfNulls<TermPaints>(1) }
-    // Reading the version makes the drawing depend on it: the view redraws when the screen changed.
-    val version = screen.version
-    // For TalkBack: the last lines on screen. Computed here, from the version, so the semantics change with the screen.
-    val description = remember(version) { "Terminal: " + screen.visibleText().lines().filter { it.isNotBlank() }.takeLast(20).joinToString(". ") }
+    // For TalkBack: the last lines on screen, refreshed at most a few times a second. Not read from the version in
+    // composition: that would recompose the canvas on every output frame; drawing reads it instead.
+    var description by remember(screen) { mutableStateOf("Terminal") }
+    LaunchedEffect(screen) {
+        snapshotFlow { screen.version }.conflate().collect {
+            description = "Terminal: " + screen.visibleText().lines().filter { l -> l.isNotBlank() }.takeLast(20).joinToString(". ")
+            delay(DESCRIPTION_EVERY_MS)
+        }
+    }
     Canvas(
         modifier.fillMaxSize()
             .semantics { contentDescription = description }
-            .pointerInput(Unit) {
+            .pointerInput(screen) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    if (zoom != 1f) userSp = (drawn[0] * zoom).coerceIn(MIN_SP, MAX_SP)
-                    panX += pan.x
+                    if (zoom != 1f) { userSp = (drawn[0] * zoom).coerceIn(MIN_SP, MAX_SP); drawn[0] = userSp }
+                    panX = clampPan(panX + pan.x, drawn[2].toInt(), cellAt(drawn[0] * drawn[1]).w, drawn[3])
                     dragPx += pan.y
                     val cellH = cellAt(drawn[0] * drawn[1]).h
                     val whole = (dragPx / cellH).toInt()
@@ -110,17 +121,25 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                     }
                 }
             }
-            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }) },
+            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }) },
     ) {
         val emu = screen.emulator ?: return@Canvas
-        version // dependency
+        screen.version // the dependency: a changed screen redraws (and only redraws)
         val pxPerSp = density * fontScale
         val sp = if (userSp > 0f) userSp else fitWidthSp(size.width, emu.mColumns, pxPerSp)
-        drawn[0] = sp; drawn[1] = pxPerSp
+        drawn[0] = sp; drawn[1] = pxPerSp; drawn[2] = emu.mColumns.toFloat(); drawn[3] = size.width
         val px = sp * pxPerSp
         val p = paints[0]?.takeIf { it.px == px } ?: TermPaints(px).also { paints[0] = it }
-        drawTerminal(emu, screen, theme, p, panX, emu.mColumns, emu.mRows)
+        drawTerminal(emu, screen, theme, p, clampPan(panX, emu.mColumns, p.cell.w, size.width), emu.mColumns, emu.mRows)
     }
+}
+
+private const val DESCRIPTION_EVERY_MS = 250L
+
+/** The sideways pan kept within the screen: 0 (the left edge) down to the width the screen is wider than the canvas. 0 when it fits. */
+fun clampPan(panX: Float, cols: Int, cellW: Float, widthPx: Float): Float {
+    val room = max(0f, cols * cellW - widthPx)
+    return if (room == 0f) 0f else panX.coerceIn(-room, 0f)
 }
 
 /** The text size (sp) at which [cols] columns fill [widthPx], not below a size that can be read (then it pans). */
@@ -137,8 +156,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
     val buf = emu.screen
     val top = -screen.scrollBack
     val canvas = drawContext.canvas.nativeCanvas
-    val maxPan = max(0f, cols * cell.w - size.width)
-    val x0 = panX.coerceIn(-maxPan, 0f)
+    val x0 = panX
     drawRect(theme.background)
     for (r in 0 until rows) {
         val y = r * cell.h + shift
