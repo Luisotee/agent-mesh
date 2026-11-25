@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -167,11 +168,13 @@ func endPlanPhase(tx *store.Tx, a *v1.Agent, why string) error {
 	return setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, why)
 }
 
-// directStart is how a direct task begins (bin/mesh's DIRECT_PREFIX): the marker the daemon reads, as bin/mesh
-// does, to tell a task with no plan phase from one the agent plans.
-const directStart = "Direct task"
+// directStartRe is how a direct task begins (bin/mesh's DIRECT_RE, DIRECT_PREFIX): "Direct task" and then
+// "(no plan)", a colon, a period before whitespace or the end, or the end of its line. The daemon reads it as
+// bin/mesh does, to tell a task with no plan phase from one the agent plans: "Direct tasks are…" and "Direct
+// task.md…" are planned.
+var directStartRe = regexp.MustCompile(`^Direct task(?:\s*\(no plan\)|:|\.(?:\s|$)|[ \t\r]*(?:\n|$))`)
 
-func isDirectTask(body string) bool { return strings.HasPrefix(strings.TrimSpace(body), directStart) }
+func isDirectTask(body string) bool { return directStartRe.MatchString(strings.TrimSpace(body)) }
 
 // directTask applies a direct task sent to an agent outside resume: the plan phase it was in ends, and the
 // planning deny list goes unless the role is read-only. A running process can't change its deny list, so that

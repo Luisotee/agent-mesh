@@ -3642,7 +3642,7 @@ def test_status_says_a_done_changed_nothing(mesh, fake, run, repo, capsys):
 
 
 def test_log_prints_a_timeline(mesh, fake, run, capsys):
-    mesh.record(run, "repo-lead", "repo-fix-typo", "task", "Direct task (no plan): research…\n\n# Fix the typo in README")
+    mesh.record(run, "repo-lead", "repo-fix-typo", "task", f"{mesh.DIRECT_PREFIX}\n\n# Fix the typo in README")
     mesh.log_event(run, "nudge", name="repo-fix-typo", received=1)
     mesh.log_event(run, "swap", name="other", model="opus", effort="medium", why="approved", bg_id=None)
     capsys.readouterr()
@@ -7855,6 +7855,10 @@ def test_the_compaction_focus_skips_the_prefixes(mesh):
     assert mesh.task_gist(f"{mesh.ASK_PREFIX}\n\nHow is restockedAt computed?") == "How is restockedAt computed?"
     assert mesh.task_gist("Apply the review.\nDetails…") == "Apply the review."
     assert mesh.task_gist(None) == ""
+    assert mesh.task_gist("Direct task: push #114 with --force-with-lease\nthen report") == "push #114 with --force-with-lease"
+    assert mesh.task_gist("Direct task (no plan)\n\nFix it.") == "Fix it."
+    assert mesh.task_gist("Direct task: --force push of #114") == "--force push of #114"  # only the prefix goes
+    assert mesh.task_gist("Direct task: .gitignore fix") == ".gitignore fix"
 
 
 def test_the_compaction_turn_has_no_identity_at_all(mesh, fake, cli, run, repo, monkeypatch, tmp_path, capsys):
@@ -11614,6 +11618,49 @@ def test_the_retirer_leaves_the_scope_before_it_starts_work(mesh, run, monkeypat
     assert seen == [("leave", run), ("run", run)]
 
 
+# ── "Direct task:" is a direct task, as "Direct task (no plan)" is ───────
+
+
+@pytest.mark.parametrize("task, planned", [
+    ("Direct task (no plan): fix it", False), ("Direct task: fix it", False), ("Direct task. Fix it.", False),
+    ("  Direct task\n\nFix it.", False), ("Direct task", False), ("Direct task\r\n\r\nFix it.", False),
+    ("Direct task:fix it", False), ("Direct task.md should be restructured: plan it", True),
+    ("Direct tasks are what we send often: plan the doc", True), ("Plan the Direct task feature", True),
+    ("Direct task list: plan the doc", True), ("Direct task force, plan it", True),
+])
+def test_a_task_starting_direct_task_is_not_planned(mesh, task, planned):
+    assert mesh.planned_task(task) is planned
+
+
+def test_a_retired_planner_given_a_colon_direct_task_resumes_without_a_plan_phase(mesh, fake, run, repo):
+    archived_worker(mesh, repo, kind="claude", session="c1")
+    with mesh.editing_run(run) as data:
+        data["agents"]["proj-fix"] = {**json.loads((mesh.mesh_home() / "archive" / "mold" / "run.json").read_text())
+                                      ["agents"]["proj-fix"], "parent": "repo-lead", "status": "retired",
+                                      "phase": "plan", "planning": True, "pane": "w7:p1", "tier": "mid"}
+    shutil.rmtree(mesh.mesh_home() / "archive" / "mold")
+    stub_new_pane(fake)
+    fake.on("agent", "get", error="agent_not_found")
+    assert mesh.main(["send", "proj-fix", "--type", "task", "--body", "Direct task: push #114 with --force-with-lease"]) == 0
+    entry = mesh.load_run(run)["agents"]["proj-fix"]
+    assert (entry["planning"], entry["read_only"], entry["phase"]) == (False, False, None)
+    assert not deny_rules(fake.called("agent", "start")[-1])
+
+
+def test_a_colon_direct_task_lifts_a_live_planners_deny_list(mesh, fake, run, capsys):
+    read_only_asker(mesh, run, read_only=False, planning=True, phase="plan")
+    stub_new_pane(fake)
+    assert mesh.main(["send", "repo-fix-typo", "--type", "task", "--body", "Direct task: push it"]) == 0
+    assert not deny_rules(started(fake))
+    entry = mesh.load_run(run)["agents"]["repo-fix-typo"]
+    assert entry["planning"] is False and entry["models"][-1]["why"] == "deny lifted"
+
+
+def test_the_phase_line_of_a_colon_direct_task_says_it_is_direct(mesh):
+    line = mesh.worker_phase({"phase": "plan", "planning": True}, [], "w", "Direct task: push it")
+    assert line.startswith("a direct task")
+
+
 # ── names another run's agent holds ──────────────────────────────────────
 
 
@@ -11794,3 +11841,17 @@ def test_a_watchs_screen_target_follows_the_worker_to_a_new_pane(mesh, fake, run
     assert watch.screen_target(entry) == "repo-fix-typo"
     assert watch.screen_target({**entry, "pane": "w2:p8"}) == "repo-fix-typo"
     assert len(fake.called("agent", "get", "repo-fix-typo")) == 2  # asked again: a swap gave it a new pane
+
+
+def test_the_phase_line_ignores_leading_whitespace_like_planned_task(mesh):
+    assert mesh.worker_phase({"phase": "plan", "planning": True}, [], "w", "  Question (read-only)\nx").startswith(
+        "a read-only task")
+    assert mesh.worker_phase({}, [], "w", "\n Direct task: x").startswith("a direct task")
+
+
+def test_a_sized_spawn_adds_no_second_direct_header(mesh, fake, cli, run, repo, capsys):
+    claude_root(mesh, run)
+    bg_cli(cli)
+    assert mesh.main(["spawn", "--tier", "mid", "--kind", "claude", "--size", "small", "--repo", str(repo),
+                      "--worktree", "copy", "--task", "Direct task: fix the footer."]) == 0
+    assert mesh.parse_message(mesh.unread(run, "proj-copy")[0])[1].startswith("Direct task: fix the footer.")
