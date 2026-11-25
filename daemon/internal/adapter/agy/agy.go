@@ -291,7 +291,9 @@ type hooksSpec struct {
 // HooksJSON builds the per-worktree `.agents/hooks.json` content. Every command checks `$AGENT_MESH_AGENT`, so a
 // session that isn't the agent's (a person running agy in the same directory) never reports as it. The deny
 // rules fail closed instead: that session's PreToolUse still checks them (`--check-only`, reporting nothing), so
-// an agent whose environment lost the variable stays read-only.
+// an agent whose environment lost the variable stays read-only. Every other event of such a session exits 0
+// silently, Stop included: an agent that lost its `$AGENT_MESH_AGENT` reports no turn at all (its state comes
+// back with its next reopen), which is the price of never reporting a person's session as the agent's.
 func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string) ([]byte, error) {
 	guarded := func(event string, extra ...string) string {
 		argv := append(append([]string{}, hookArgv...), extra...)
@@ -561,8 +563,9 @@ func matchPublishDepth(cmdline string, depth int) string {
 	if depth > maxShellDepth {
 		return ""
 	}
-	// Also inspect subshells $(...) and `...` by turning them into segment boundaries.
-	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";", "(", ";", "{", ";", "}", ";").Replace(cmdline)
+	// Also inspect subshells $(...) and `...` (which run inside double quotes too) by turning them into segment
+	// boundaries, and the (…) and { …; } groups outside quotes, so that `grep "(git push)"` stays a read.
+	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";").Replace(splitGroups(cmdline))
 	for _, seg := range segmentSplitRE.Split(expanded, -1) {
 		fields := shellWords(seg)
 		if len(fields) == 0 {
@@ -573,6 +576,30 @@ func matchPublishDepth(cmdline string, depth int) string {
 		}
 	}
 	return ""
+}
+
+// splitGroups turns the (, { and } that stand outside quotes into `;`.
+func splitGroups(s string) string {
+	b := []byte(s)
+	var quote byte
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if quote == '"' && c == '\\' {
+				i++
+			}
+		case c == '\\':
+			i++
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '(' || c == '{' || c == '}':
+			b[i] = ';'
+		}
+	}
+	return string(b)
 }
 
 var assignmentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
@@ -703,12 +730,16 @@ func matchGh(args []string) string {
 			pos = append(pos, t)
 			continue
 		}
-		flag, value, inline := strings.Cut(t, "=")
-		if !inline && ghValueFlags[flag] && i+1 < len(args) {
-			i++
-			value = args[i]
-		} else if !inline && len(flag) > 2 && !strings.HasPrefix(flag, "--") && ghValueFlags[flag[:2]] {
-			flag, value = flag[:2], flag[2:] // -XPOST, -fbody=x
+		var flag, value string
+		if len(t) > 2 && !strings.HasPrefix(t, "--") && ghValueFlags[t[:2]] {
+			flag, value = t[:2], t[2:] // an attached short flag: -XPOST, -fbody=x, -Fevent=APPROVE
+		} else {
+			var inline bool
+			flag, value, inline = strings.Cut(t, "=")
+			if !inline && ghValueFlags[flag] && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
 		}
 		switch flag {
 		case "-X", "--method":
@@ -899,7 +930,9 @@ func firstLine(s string) string {
 // LookupSession finds an agy conversation ID from conversation_summaries.db and history.jsonl when no hook
 // recorded one yet (e.g. a crash before the first turn): the newest top-level conversation in the agent's
 // worktree, which is the agent's own. A shared main checkout (`cwd == repo`) is never matched, so it cannot pick
-// up a person's own session there; the daemon's first prompt is a doorbell that names neither agent nor run.
+// up a person's own session there; the daemon's first prompt is a doorbell that names neither agent nor run. A
+// conversation older than the agent (`not_before`) is someone else's: one with a history entry from before it, or
+// a summary last modified before it (agy's index keeps no creation time).
 func (a *Adapter) LookupSession(_ context.Context, req *connect.Request[adapterv1.LookupSessionRequest]) (*connect.Response[adapterv1.LookupSessionResponse], error) {
 	m := req.Msg
 	summariesPath, historyPath := sessionSources(m.Env)
@@ -907,13 +940,15 @@ func (a *Adapter) LookupSession(_ context.Context, req *connect.Request[adapterv
 	if cwd == "" || m.Repo != "" && resolvePathIncludingMissing(cwd) == resolvePathIncludingMissing(m.Repo) {
 		return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
 	}
-	if id := lookupInSummaries(summariesPath, cwd); id != "" {
+	var notBefore time.Time
+	if m.NotBefore != nil {
+		notBefore = m.NotBefore.AsTime()
+	}
+	fromHistory, older := lookupInHistory(historyPath, cwd, notBefore)
+	if id := lookupInSummaries(summariesPath, cwd, notBefore, older); id != "" {
 		return connect.NewResponse(&adapterv1.LookupSessionResponse{SessionId: id}), nil
 	}
-	if id := lookupInHistory(historyPath, cwd); id != "" {
-		return connect.NewResponse(&adapterv1.LookupSessionResponse{SessionId: id}), nil
-	}
-	return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
+	return connect.NewResponse(&adapterv1.LookupSessionResponse{SessionId: fromHistory}), nil
 }
 
 func sessionSources(env map[string]string) (summaries, history string) {
@@ -939,7 +974,7 @@ func sessionSources(env map[string]string) (summaries, history string) {
 	return summaries, history
 }
 
-func lookupInSummaries(dbPath, cwd string) string {
+func lookupInSummaries(dbPath, cwd string, notBefore time.Time, older map[string]bool) string {
 	if dbPath == "" {
 		return ""
 	}
@@ -952,7 +987,7 @@ func lookupInSummaries(dbPath, cwd string) string {
 		return ""
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT conversation_id, workspace_uris FROM conversation_summaries
+	rows, err := db.Query(`SELECT conversation_id, workspace_uris, CAST(last_modified_time AS TEXT) FROM conversation_summaries
 		WHERE nesting_depth = 0 AND step_count > 0 ORDER BY last_modified_time`)
 	if err != nil {
 		return ""
@@ -961,7 +996,11 @@ func lookupInSummaries(dbPath, cwd string) string {
 	var byCwd string
 	for rows.Next() {
 		var conv, urisJSON string
-		if err := rows.Scan(&conv, &urisJSON); err != nil || conv == "" {
+		var modified sql.NullString
+		if err := rows.Scan(&conv, &urisJSON, &modified); err != nil || conv == "" || older[conv] {
+			continue
+		}
+		if t, ok := parseAgyTime(modified.String); ok && !notBefore.IsZero() && t.Before(notBefore) {
 			continue
 		}
 		if workspaceMatches(cwd, parseURIList(urisJSON)) {
@@ -971,36 +1010,58 @@ func lookupInSummaries(dbPath, cwd string) string {
 	return byCwd
 }
 
-func lookupInHistory(histPath, cwd string) string {
+// parseAgyTime reads a time as agy's index stores it (`2026-11-25 19:29:11.349387162+00:00`).
+func parseAgyTime(s string) (time.Time, bool) {
+	for _, layout := range []string{"2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999Z07:00", time.RFC3339Nano} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// lookupInHistory returns the newest conversation in cwd that history.jsonl shows, and every conversation it
+// shows a prompt of from before notBefore (millisecond timestamps), which is older than the agent.
+func lookupInHistory(histPath, cwd string, notBefore time.Time) (string, map[string]bool) {
+	older := map[string]bool{}
 	if histPath == "" {
-		return ""
+		return "", older
 	}
 	b, err := os.ReadFile(histPath)
 	if err != nil {
-		return ""
+		return "", older
 	}
-	var byCwd string
+	var inCwd []string
 	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var entry struct {
 			ConversationID string   `json:"conversationId"`
+			Timestamp      int64    `json:"timestamp"`
 			Workspace      string   `json:"workspace"`
 			Workspaces     []string `json:"workspaces"`
 		}
 		if json.Unmarshal(line, &entry) != nil || entry.ConversationID == "" {
 			continue
 		}
+		if !notBefore.IsZero() && entry.Timestamp > 0 && time.UnixMilli(entry.Timestamp).Before(notBefore) {
+			older[entry.ConversationID] = true
+		}
 		ws := entry.Workspaces
 		if len(ws) == 0 && entry.Workspace != "" {
 			ws = []string{entry.Workspace}
 		}
 		if workspaceMatches(cwd, ws) {
-			byCwd = entry.ConversationID
+			inCwd = append(inCwd, entry.ConversationID)
 		}
 	}
-	return byCwd
+	for i := len(inCwd) - 1; i >= 0; i-- {
+		if !older[inCwd[i]] {
+			return inCwd[i], older
+		}
+	}
+	return "", older
 }
 
 func parseURIList(raw string) []string {

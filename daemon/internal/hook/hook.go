@@ -177,8 +177,8 @@ func reportQuick(o Options, p statedir.Paths, payload []byte, fired time.Time) e
 	if spooled(p, o.AgentID) {
 		return spool(p, o.AgentID, req, o.Now())
 	}
-	timeout := min(o.CallTimeout, QuickTimeout)
-	conn, err := client.Dial(o.StateDir, tok, client.Options{DialTimeout: min(o.DialTimeout, timeout)})
+	timeout, dial := quickTimeouts(o)
+	conn, err := client.Dial(o.StateDir, tok, client.Options{DialTimeout: dial})
 	if err != nil {
 		return spool(p, o.AgentID, req, o.Now())
 	}
@@ -191,6 +191,20 @@ func reportQuick(o Options, p statedir.Paths, payload []byte, fired time.Time) e
 		return fmt.Errorf("the daemon refused the hook: %w", err)
 	}
 	return nil
+}
+
+// quickTimeouts are the call and dial timeouts of a quick report: o's, capped at QuickTimeout, which an unset
+// (zero) one gets too, so it never falls back to a longer default.
+func quickTimeouts(o Options) (call, dial time.Duration) {
+	call = QuickTimeout
+	if o.CallTimeout > 0 {
+		call = min(o.CallTimeout, QuickTimeout)
+	}
+	dial = call
+	if o.DialTimeout > 0 {
+		dial = min(o.DialTimeout, call)
+	}
+	return call, dial
 }
 
 // spooled reports whether an agent has hooks waiting in its spool.

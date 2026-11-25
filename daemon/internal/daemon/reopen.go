@@ -279,7 +279,8 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ApproveAgentResponse{}
-	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "approve") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceApproveAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -389,7 +390,8 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.SwitchAgentResponse{}
-	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "switch") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSwitchAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -507,7 +509,8 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ResumeAgentResponse{}
-	d.learnSession(ctx, auth.ActorFrom(ctx), m.Agent)
+	actor := auth.ActorFrom(ctx)
+	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "resume") == nil && stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
 		if err != nil {
@@ -543,11 +546,18 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 }
 
 // atPrompt reports whether an agent's CLI is at its input box between turns: idle, or stopped by a usage limit or
-// an API error (agy's Stop with terminationReason ERROR). All three take a doorbell, a reopen and an idle retire;
-// only a turn in progress (or a prompt it waits on) holds them.
+// an API error (agy's Stop with terminationReason ERROR). All three take a reopen and an idle retire; only a turn
+// in progress (or a prompt it waits on) holds them.
 func atPrompt(s v1.AgentState) bool {
 	return s == v1.AgentState_AGENT_STATE_IDLE || s == v1.AgentState_AGENT_STATE_LIMITED ||
 		s == v1.AgentState_AGENT_STATE_ERROR
+}
+
+// takesDoorbell reports whether a doorbell may be typed into an agent: at its prompt, but not at a usage limit,
+// where the turn it starts would fail on the same quota and use the doorbell up. Its messages wait for the switch
+// (or the `continue` at the reset) that moves it off the limit.
+func takesDoorbell(s v1.AgentState) bool {
+	return atPrompt(s) && s != v1.AgentState_AGENT_STATE_LIMITED
 }
 
 // stopped reports whether an agent has no process and may be resumed: it exited, or was retired.

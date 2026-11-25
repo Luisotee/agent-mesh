@@ -298,3 +298,20 @@ func TestAgyPreToolUseQueuesBehindSpooledHooks(t *testing.T) {
 		t.Errorf("drained %v", got)
 	}
 }
+
+// A quick report is bounded by QuickTimeout even when the caller set no timeouts: zero is not "no limit".
+func TestQuickTimeoutsDefaultWhenUnset(t *testing.T) {
+	for _, c := range []struct {
+		o          Options
+		call, dial time.Duration
+	}{
+		{Options{}, QuickTimeout, QuickTimeout},
+		{Options{CallTimeout: 3 * time.Second, DialTimeout: 2 * time.Second}, QuickTimeout, QuickTimeout},
+		{Options{CallTimeout: 200 * time.Millisecond}, 200 * time.Millisecond, 200 * time.Millisecond},
+		{Options{DialTimeout: 100 * time.Millisecond}, QuickTimeout, 100 * time.Millisecond},
+	} {
+		if call, dial := quickTimeouts(c.o); call != c.call || dial != c.dial {
+			t.Errorf("quickTimeouts(%+v) = %v, %v; want %v, %v", c.o, call, dial, c.call, c.dial)
+		}
+	}
+}

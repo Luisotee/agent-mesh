@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -246,14 +247,21 @@ func TestAgy429LimitSetsLimitedStateAndSwitchNextReopensSameConversation(t *test
 }
 
 // A repo's tracked .agents/hooks.json: a reviewer (maybe of an untrusted PR head) never runs it, a worker on the
-// repo keeps it in force beside the mesh's hooks. Neither dirties git status, and nothing the daemon writes hides
-// a file in the user's own checkout.
+// repo keeps it in force beside the mesh's hooks, unless its base brings a version none of the repo's own refs has
+// (a fork's PR head, by sha). None dirties git status, and nothing the daemon writes hides a file in the user's
+// own checkout.
 func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testing.T) {
 	for _, c := range []struct {
-		role    v1.AgentRole
-		repoRan bool
-	}{{v1.AgentRole_AGENT_ROLE_REVIEWER, false}, {v1.AgentRole_AGENT_ROLE_WORKER, true}} {
-		t.Run(c.role.String(), func(t *testing.T) {
+		name     string
+		role     v1.AgentRole
+		forkBase bool
+		repoRan  bool
+	}{
+		{"reviewer", v1.AgentRole_AGENT_ROLE_REVIEWER, false, false},
+		{"worker", v1.AgentRole_AGENT_ROLE_WORKER, false, true},
+		{"worker on a fork's head", v1.AgentRole_AGENT_ROLE_WORKER, true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
 			w := startReopen(t)
 			ctx := context.Background()
 			run := startRun(t, w.device.Mesh, "")
@@ -278,8 +286,28 @@ func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testin
 				}
 			}
 
+			base := ""
+			if c.forkBase { // a commit on no branch of the repo's own, changing the hooks
+				forked := `{"repo":{"PreInvocation":[{"type":"command","command":"touch ` + sentinel + `; echo fork"}]}}`
+				git := func(args ...string) string {
+					cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+					cmd.Dir = repo
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						t.Fatalf("git %v: %v %s", args, err, out)
+					}
+					return strings.TrimSpace(string(out))
+				}
+				git("checkout", "-q", "--detach")
+				if err := os.WriteFile(filepath.Join(repo, ".agents", "hooks.json"), []byte(forked), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				git("commit", "-q", "-am", "a fork's PR")
+				base = git("rev-parse", "HEAD")
+				git("checkout", "-q", "main")
+			}
 			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-				RunId: run.Id, Repo: repo, Slug: "hooks", Kind: "agy", Tier: "light", Role: c.role,
+				RunId: run.Id, Repo: repo, Slug: "hooks", Kind: "agy", Tier: "light", Role: c.role, Base: base,
 			}))
 			if err != nil {
 				t.Fatal(err)
@@ -395,6 +423,35 @@ func TestAgyPlanningAndReadOnlyEnforcePreToolUseDenyAndLiftOnApprove(t *testing.
 	}
 }
 
+// seedAgySummaries writes agy's conversation index with the given rows (id, worktree, last modified).
+func seedAgySummaries(t *testing.T, home string, rows ...[3]string) {
+	t.Helper()
+	agyDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(agyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(agyDir, "conversation_summaries.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, preview TEXT,
+		workspace_uris TEXT, nesting_depth INTEGER, step_count INTEGER, last_modified_time datetime)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(`INSERT INTO conversation_summaries VALUES (?, 'hi', ?, 0, 1, ?)`,
+			r[0], `["file://`+r[1]+`"]`, r[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func agyTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05.999999999-07:00") }
+
+// With no hook-reported id, a reopen finds the agent's conversation in agy's index: the newest one in its
+// worktree that isn't older than the agent. A person's conversation there that began before the agent (its first
+// prompt in history.jsonl predates it) is not taken, though it was modified last.
 func TestAgyLookupSessionFallbackWhenNoHookReportedYet(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
@@ -406,26 +463,15 @@ func TestAgyLookupSessionFallbackWhenNoHookReportedYet(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
-	// No turn ran, so SessionId is still empty. Seed agy's conversation_summaries.db for its worktree.
-	agyDir := filepath.Join(w.home, ".gemini", "antigravity-cli")
-	if err := os.MkdirAll(agyDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", filepath.Join(agyDir, "conversation_summaries.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE conversation_summaries (
-		conversation_id TEXT PRIMARY KEY,
-		preview TEXT,
-		workspace_uris TEXT,
-		nesting_depth INTEGER,
-		step_count INTEGER,
-		last_modified_time INTEGER
-	);
-	INSERT INTO conversation_summaries VALUES ('conv-from-db', 'hi', '["file://` + a.Worktree + `"]', 0, 1, 100);`)
-	db.Close()
-	if err != nil {
+	// No turn ran, so SessionId is still empty.
+	created := a.CreatedAt.AsTime()
+	seedAgySummaries(t, w.home,
+		[3]string{"conv-from-db", a.Worktree, agyTime(created.Add(time.Second))},
+		[3]string{"conv-person", a.Worktree, agyTime(created.Add(time.Minute))},
+		[3]string{"conv-stale", a.Worktree, agyTime(created.Add(-time.Hour))})
+	hist := fmt.Sprintf(`{"conversationId":"conv-person","display":"hello","timestamp":%d,"workspace":%q}`+"\n",
+		created.Add(-time.Minute).UnixMilli(), a.Worktree)
+	if err := os.WriteFile(filepath.Join(w.home, ".gemini", "antigravity-cli", "history.jsonl"), []byte(hist), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,35 +487,88 @@ func TestAgyLookupSessionFallbackWhenNoHookReportedYet(t *testing.T) {
 	}
 }
 
-// An agent stopped by an API error or a usage limit is at its input box: a message to it still rings, or a
-// transient error would leave it undeliverable for good.
-func TestAgyAgentAtErrorOrLimitStillGetsItsDoorbell(t *testing.T) {
-	for _, c := range []struct {
-		line string
-		want v1.AgentState
-	}{{"/error", v1.AgentState_AGENT_STATE_ERROR}, {"/limit", v1.AgentState_AGENT_STATE_LIMITED}} {
-		t.Run(c.want.String(), func(t *testing.T) {
-			w := startReopen(t)
-			ctx := context.Background()
-			run := startRun(t, w.device.Mesh, "")
-			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-				RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "agy", Tier: "light",
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
-			w.typeInto(a, c.line+"\r")
-			w.waitState(a.Id, c.want)
-			res, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: a.Id,
-				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "continue"}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			waitFor(t, "the doorbell of an agent at "+c.want.String(), func() bool { return w.delivered(t, a.Id, res.Msg.Message.Id) })
-			w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE) // the doorbell's turn ran and ended
-		})
+// The lookup runs only for an action that uses the id: a task to a live agent (no reopen) records nothing.
+func TestAgyLookupSessionOnlyWhenTheActionNeedsIt(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "noneed", Kind: "agy", Tier: "light",
+	}))
+	if err != nil {
+		t.Fatal(err)
 	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	seedAgySummaries(t, w.home, [3]string{"conv-from-db", a.Worktree, agyTime(time.Now().Add(time.Minute))})
+	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "look around"})); err != nil {
+		t.Fatal(err)
+	}
+	got, err := w.device.Mesh.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: a.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Msg.Agent.SessionId == "conv-from-db" {
+		t.Fatal("a task that reopens nothing recorded the worktree's newest conversation")
+	}
+}
+
+// An agent stopped by an API error is at its input box: a message to it still rings, or a transient error would
+// leave it undeliverable for good.
+func TestAgyAgentAtErrorStillGetsItsDoorbell(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "agy", Tier: "light",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(a, "/error\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_ERROR)
+	res, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "continue"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the doorbell of an agent at ERROR", func() bool { return w.delivered(t, a.Id, res.Msg.Message.Id) })
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE) // the doorbell's turn ran and ended
+}
+
+// An agent at a usage limit gets no doorbell, which would only start a turn failing on the same quota: the
+// message waits, and the switch that moves it off the limit (a reopen, which LIMITED still takes) delivers it.
+func TestAgyAgentAtLimitHoldsItsDoorbellUntilTheSwitch(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "lim", Kind: "agy", Tier: "strong",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	oldTerm := a.TerminalId
+	a = w.agyTurn(t, a, "hi")
+	w.typeInto(a, "/limit\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	res, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "continue"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(1500 * time.Millisecond); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		if w.delivered(t, a.Id, res.Msg.Message.Id) {
+			t.Fatal("a doorbell was rung into an agent at its usage limit")
+		}
+	}
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Next: true, Why: "429"})); err != nil {
+		t.Fatalf("switch --next from LIMITED: %v", err)
+	}
+	w.waitReopened(t, a.Id, oldTerm)
+	waitFor(t, "the held doorbell, after the switch", func() bool { return w.delivered(t, a.Id, res.Msg.Message.Id) })
 }
 
 // An exact agy id named without an effort runs as named: its name fixes the effort.

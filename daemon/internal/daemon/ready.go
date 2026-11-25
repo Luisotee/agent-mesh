@@ -89,17 +89,23 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 // (LookupSession reads the CLI's own stores, which may be slow), and records it. It runs before the write
 // transaction of the action that needs the id, never inside one: the daemon's write lock is not held while a CLI's
 // SQLite db or history is read, and the caller's deadline holds. ref names the agent as the action does ("parent"
-// for the actor's parent).
-func (d *Daemon) learnSession(ctx context.Context, actor *v1.Actor, ref string) {
+// for the actor's parent). It looks only for an agent the actor may act on (an agent: its parent or a child of
+// its own) and only when need says the action will use the id (a reopen or a resume): the newest conversation in
+// a worktree is the agent's only by assumption, so it is not taken when nothing needs it.
+func (d *Daemon) learnSession(ctx context.Context, actor *v1.Actor, ref string, need func(*v1.Agent) bool) {
+	if actor == nil {
+		return
+	}
 	r := d.store.Read(ctx)
-	var a *v1.Agent
+	var self, a *v1.Agent
 	var err error
-	if ref == "parent" {
-		if actor == nil || !IsAgent(actor.Class) {
+	if IsAgent(actor.Class) {
+		if self, err = d.getAgent(r, actor.Id); err != nil {
 			return
 		}
-		self, serr := d.getAgent(r, actor.Id)
-		if serr != nil || self.ParentId == "" {
+	}
+	if ref == "parent" {
+		if self == nil || self.ParentId == "" {
 			return
 		}
 		a, err = d.getAgent(r, self.ParentId)
@@ -109,15 +115,19 @@ func (d *Daemon) learnSession(ctx context.Context, actor *v1.Actor, ref string) 
 	if err != nil || a.SessionId != "" || !d.rt.adapters.HasCapability(a.Kind, "session-lookup") {
 		return
 	}
+	if self != nil && a.Id != self.ParentId && a.ParentId != self.Id || !need(a) {
+		return
+	}
 	ad, err := d.rt.adapters.Get(a.Kind)
 	if err != nil {
 		return
 	}
 	res, err := ad.LookupSession(ctx, connect.NewRequest(&adapterv1.LookupSessionRequest{
-		AgentId: a.Id,
-		Cwd:     a.Worktree,
-		Repo:    a.Repo,
-		Env:     d.agentEnv(a, ""),
+		AgentId:   a.Id,
+		Cwd:       a.Worktree,
+		Repo:      a.Repo,
+		Env:       d.agentEnv(a, ""),
+		NotBefore: a.CreatedAt,
 	}))
 	if err != nil || res.Msg.SessionId == "" {
 		return

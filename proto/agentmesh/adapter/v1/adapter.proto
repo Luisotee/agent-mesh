@@ -65,7 +65,8 @@ message WorktreeFile {
   bool git_exclude = 4;
   // The content is a JSON object. When the repo tracks the path and its committed version is a JSON object too,
   // the file written is that version with the content's top-level keys added (replacing any of the same name),
-  // so the repo's own entries stay in force. Unset, or the committed version unreadable, the content replaces it.
+  // so the repo's own entries stay in force. Unset, the committed version unreadable, or not the version one of
+  // the repo's own refs has (a local non-mesh branch or an origin branch), the content replaces it.
   bool merge_tracked = 5;
 }
 
@@ -87,6 +88,8 @@ message LookupSessionRequest {
   string cwd = 4;
   string repo = 5;
   map<string, string> env = 6;
+  // When the agent was created: a conversation started before it (or untouched since) is someone else's.
+  google.protobuf.Timestamp not_before = 7;
 }
 
 message LookupSessionResponse {

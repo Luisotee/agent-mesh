@@ -298,7 +298,8 @@ type WorktreeFile struct {
 	GitExclude bool `protobuf:"varint,4,opt,name=git_exclude,json=gitExclude,proto3" json:"git_exclude,omitempty"`
 	// The content is a JSON object. When the repo tracks the path and its committed version is a JSON object too,
 	// the file written is that version with the content's top-level keys added (replacing any of the same name),
-	// so the repo's own entries stay in force. Unset, or the committed version unreadable, the content replaces it.
+	// so the repo's own entries stay in force. Unset, the committed version unreadable, or not the version one of
+	// the repo's own refs has (a local non-mesh branch or an origin branch), the content replaces it.
 	MergeTracked  bool `protobuf:"varint,5,opt,name=merge_tracked,json=mergeTracked,proto3" json:"merge_tracked,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -442,11 +443,13 @@ func (x *PlanLaunchResponse) GetWorktreeFiles() []*WorktreeFile {
 // LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first
 // prompt (a doorbell) names neither the agent nor the run, so nothing else ties a conversation to it.
 type LookupSessionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Cwd           string                 `protobuf:"bytes,4,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	Repo          string                 `protobuf:"bytes,5,opt,name=repo,proto3" json:"repo,omitempty"`
-	Env           map[string]string      `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	AgentId string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Cwd     string                 `protobuf:"bytes,4,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	Repo    string                 `protobuf:"bytes,5,opt,name=repo,proto3" json:"repo,omitempty"`
+	Env     map[string]string      `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// When the agent was created: a conversation started before it (or untouched since) is someone else's.
+	NotBefore     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=not_before,json=notBefore,proto3" json:"not_before,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -505,6 +508,13 @@ func (x *LookupSessionRequest) GetRepo() string {
 func (x *LookupSessionRequest) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
+	}
+	return nil
+}
+
+func (x *LookupSessionRequest) GetNotBefore() *timestamppb.Timestamp {
+	if x != nil {
+		return x.NotBefore
 	}
 	return nil
 }
@@ -1536,12 +1546,14 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x0eworktree_files\x18\x04 \x03(\v2\".agentmesh.adapter.v1.WorktreeFileR\rworktreeFiles\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf6\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb1\x02\n" +
 	"\x14LookupSessionRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x10\n" +
 	"\x03cwd\x18\x04 \x01(\tR\x03cwd\x12\x12\n" +
 	"\x04repo\x18\x05 \x01(\tR\x04repo\x12E\n" +
-	"\x03env\x18\x06 \x03(\v23.agentmesh.adapter.v1.LookupSessionRequest.EnvEntryR\x03env\x1a6\n" +
+	"\x03env\x18\x06 \x03(\v23.agentmesh.adapter.v1.LookupSessionRequest.EnvEntryR\x03env\x129\n" +
+	"\n" +
+	"not_before\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tnotBefore\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\n" +
@@ -1669,35 +1681,36 @@ var file_agentmesh_adapter_v1_adapter_proto_depIdxs = []int32{
 	24, // 2: agentmesh.adapter.v1.PlanLaunchResponse.env:type_name -> agentmesh.adapter.v1.PlanLaunchResponse.EnvEntry
 	3,  // 3: agentmesh.adapter.v1.PlanLaunchResponse.worktree_files:type_name -> agentmesh.adapter.v1.WorktreeFile
 	25, // 4: agentmesh.adapter.v1.LookupSessionRequest.env:type_name -> agentmesh.adapter.v1.LookupSessionRequest.EnvEntry
-	27, // 5: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
-	11, // 6: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
-	27, // 7: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
-	12, // 8: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
-	13, // 9: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
-	14, // 10: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
-	15, // 11: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
-	16, // 12: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
-	17, // 13: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
-	18, // 14: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
-	19, // 15: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
-	20, // 16: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
-	21, // 17: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
-	22, // 18: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
-	0,  // 19: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
-	2,  // 20: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
-	9,  // 21: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
-	5,  // 22: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
-	7,  // 23: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
-	1,  // 24: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
-	4,  // 25: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
-	10, // 26: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
-	6,  // 27: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
-	8,  // 28: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
-	24, // [24:29] is the sub-list for method output_type
-	19, // [19:24] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	27, // 5: agentmesh.adapter.v1.LookupSessionRequest.not_before:type_name -> google.protobuf.Timestamp
+	27, // 6: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
+	11, // 7: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
+	27, // 8: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
+	12, // 9: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
+	13, // 10: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
+	14, // 11: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
+	15, // 12: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
+	16, // 13: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
+	17, // 14: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
+	18, // 15: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
+	19, // 16: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
+	20, // 17: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
+	21, // 18: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
+	22, // 19: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
+	0,  // 20: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
+	2,  // 21: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
+	9,  // 22: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
+	5,  // 23: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
+	7,  // 24: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
+	1,  // 25: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
+	4,  // 26: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
+	10, // 27: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
+	6,  // 28: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
+	8,  // 29: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
+	25, // [25:30] is the sub-list for method output_type
+	20, // [20:25] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_adapter_v1_adapter_proto_init() }

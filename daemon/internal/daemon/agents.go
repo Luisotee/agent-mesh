@@ -568,7 +568,7 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 	if err != nil {
 		return nil, err
 	}
-	if atPrompt(out.State) {
+	if takesDoorbell(out.State) {
 		d.deliverSoon(actor.Id)
 	}
 	return out, nil
@@ -1042,7 +1042,7 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)
 	}
-	if !atPrompt(a.State) || a.TerminalId == "" {
+	if !takesDoorbell(a.State) || a.TerminalId == "" {
 		return nil
 	}
 	msgs, err := r.Undelivered(agentID)

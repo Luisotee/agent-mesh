@@ -19,7 +19,7 @@ var excludeMu sync.Mutex
 
 // writeWorktreeFiles writes adapter-requested files inside worktree before the CLI starts, keeping git-excluded
 // files out of git status (excludeWorktreeFile) and merging a tracked file into the committed version when asked
-// (mergeTracked).
+// (mergeTracked) and that version is the repo's own (ownVersion).
 func (d *Daemon) writeWorktreeFiles(ctx context.Context, worktree string, files []*adapterv1.WorktreeFile) error {
 	if len(files) == 0 {
 		return nil
@@ -51,7 +51,7 @@ func (d *Daemon) writeWorktreeFiles(ctx context.Context, worktree string, files 
 		slashRel := filepath.ToSlash(rel)
 		tracked := exec.CommandContext(ctx, "git", "-C", worktree, "ls-files", "--error-unmatch", "--", slashRel).Run() == nil
 		content := f.Content
-		if f.MergeTracked && tracked {
+		if f.MergeTracked && tracked && ownVersion(ctx, worktree, slashRel) {
 			content = mergeTracked(ctx, worktree, slashRel, content)
 		}
 		if f.GitExclude {
@@ -111,6 +111,44 @@ func mergeTracked(ctx context.Context, worktree, slashRel string, content []byte
 		return content
 	}
 	return append(b, '\n')
+}
+
+// ownVersion reports whether the version of a file the worktree's index has is the one on one of the repo's own
+// refs: a local branch other than the mesh's (refs/heads/mesh/…, which agents write) or a branch of origin. A base
+// from anywhere else (a fork's PR head fetched by sha or into refs/pull/…, another remote) brings a file nobody
+// here chose to run.
+func ownVersion(ctx context.Context, worktree, slashRel string) bool {
+	ours, err := exec.CommandContext(ctx, "git", "-C", worktree, "rev-parse", "-q", "--verify", ":"+slashRel).Output()
+	if err != nil {
+		return false
+	}
+	refs, err := exec.CommandContext(ctx, "git", "-C", worktree, "for-each-ref", "--format=%(refname)",
+		"refs/heads", "refs/remotes/origin").Output()
+	if err != nil {
+		return false
+	}
+	var in strings.Builder
+	for _, ref := range strings.Fields(string(refs)) {
+		if !strings.HasPrefix(ref, "refs/heads/mesh/") && ref != "refs/remotes/origin/HEAD" {
+			in.WriteString(ref + ":" + slashRel + "\n")
+		}
+	}
+	if in.Len() == 0 {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", worktree, "cat-file", "--batch-check=%(objectname)")
+	cmd.Stdin = strings.NewReader(in.String())
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	want := strings.TrimSpace(string(ours))
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ignoreMarker heads a .gitignore the daemon wrote, so a later launch knows it may rewrite it.
