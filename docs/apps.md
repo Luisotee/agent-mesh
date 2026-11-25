@@ -2,6 +2,8 @@
 
 Status: planning (2026-11-25). Nothing is built yet. The technology picks below are recommendations, chosen for quality over simplicity, to be revisited before each part is built.
 
+Mockups of the desktop and Android screens (all themes, the run tree, the live dock, autonomy, plugins, first run and connection states) are on a private design canvas: https://claude.ai/artifact/JhMyJsQPEQjepy4HHg1ua6.
+
 This is a refactor of agent-mesh, not an add-on: where this plan and `docs/design.md` or `CLAUDE.md` disagree, this plan wins. design.md stays as the record of what today's `bin/mesh` learned, and its lessons apply unless this plan overrules them.
 
 agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, Linux and Android are required; macOS, iOS (once someone pays for the Apple developer account) and a browser client would be nice to have. herdr and the terminal workflow are replaced, not kept alongside: there is one user so far, so nothing legacy has to survive.
@@ -11,6 +13,7 @@ agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, L
 - **Self-hosted and free.** Everything runs on the user's own machines and VPS, or on free tiers. Nothing depends on a service run by us: the relay and the push server are ones the user hosts.
 - **Agents can do everything the UI can.** Every UI action is an API action, settings included, and so is opening views in the user's app. The UI has no abilities of its own.
 - **Every action records its actor.** Each action is logged with who did it, a device or an agent by name, so it's always clear who approved or changed what.
+- **Modular, and extensible without a PR.** The built-in features use the same extension points as user plugins, and anyone installs a plugin from a git URL or a folder: nothing has to be merged into agent-mesh ("Plugins").
 - **Our own product.** Paseo and stablyai/orca (both registered peers) are sources of ideas, not templates. We don't build a smaller copy of them, and we don't cap the scope at theirs.
 
 ## Architecture
@@ -37,7 +40,7 @@ agent-mesh moves from herdr panes and a terminal CLI to its own apps. Windows, L
 - **Live events** are a server stream on the same API, resumable ("Protocols and lifecycle"). The event log is the run's log, as `log.jsonl` is today.
 - **Terminals get their own binary stream** per terminal (a WebSocket, message types defined in the protobuf schemas), not ConnectRPC calls: Connect has no client or bidirectional streaming in the browser or Electron's renderer, and terminals sharing one HTTP/2 connection stall behind a busy one (emdash #3426: 9 s typing echo with 8 busy agents). Every peer that streams terminals does this.
 - **One store: SQLite.** Runs, agents, mail, the event log and full-text session search live in one database file per host. Plans and reports stay Markdown files that agents write, referenced by path. design.md's lesson is against *two* stores that drift, not against a database.
-- **Agents spawn agents.** Any agent may start and supervise its own children, not only the root (this overturns design §7's 1:N rule). Nesting is capped by limits a child can't raise: depth, children per agent and agents per run, from host settings, plus message-rate windows against storms (omnara's caps, AionUi's storm windows). Status, usage and cost roll up the tree, and the lead-agent view shows it.
+- **Agents spawn agents, within roles.** Only the run's root starts change workers. A worker may start read-only agents of its own: its PR's reviewers, and askers on other repos or the peers, whose answers come back to it. Change work in another repo is never requested by a worker: it goes to the root, which assigns it (this overturns design §7's rule that workers start no agents, only for read-only ones). Nesting is capped by limits a child can't raise: depth, children per agent and agents per run, from host settings, plus message-rate windows against storms (omnara's caps, AionUi's storm windows). Status, usage and cost roll up the tree, and the lead-agent view shows it.
 - **Settings are data on the host,** the same from every device. Today's `POLICY` leaves become the host settings schema, and the settings screen is generated from it. App preferences (theme, layout) are stored on the host too, so an agent can change them.
 
 ## Protocols and lifecycle
@@ -58,6 +61,27 @@ From the peers' research round (2026-11-25, run m93a9: `reports/peers-20261125T1
 - **Agents' CLI versions.** Each adapter has a table of verified CLI versions and shows a banner outside it; decoding is tolerant; captured session fixtures per CLI version, and one live test suite per CLI.
 - **Finding CLIs under a service manager.** PATH comes from the login shell (bounded, about 3 s) plus fallback dirs; `git`, `gh` and `ps` by absolute path; an env allowlist for agents, no secrets in argv, and Claude's session variables stripped as `bin/mesh` does (`CLAUDE_SESSION_VARS`).
 - **Platform scope.** The first daemon runs on Linux, which on Windows means WSL. A native Windows daemon later needs ConPTY, Job Objects, named pipes and windowless spawns in one helper.
+
+## Plugins
+
+A plugin is a folder or git repo with a manifest, installed per host. The built-ins (each CLI adapter, ntfy, the GitHub integration) are written against the same extension points, so the core stays small and a plugin can do anything a built-in does.
+
+- **Extension points:**
+  - agent CLI adapters: a new CLI, or a variant of one;
+  - actions: a plugin's actions join the registry, so the apps, the `mesh` CLI and agents get them with no extra code;
+  - event subscribers and lifecycle hooks (before an agent starts, on a permission request, after a turn, at a run's end), which may block or change what their capabilities allow;
+  - notification channels (ntfy, Telegram, email), connection routes, git hosts and trackers (GitHub, GitLab, Linear, Jira);
+  - skills, prompts and protocol files, agent profiles, settings presets, themes, keybindings;
+  - UI contributions (below).
+- **Three kinds, by what runs:**
+  - *Declarative:* data only (skills, profiles, themes, keybindings, prompt overrides, a hook that runs a shell command). No plugin code runs.
+  - *Process plugins:* a program in any language that the daemon starts and that talks to it over the same ConnectRPC API, with its own token. Out of process, so a crash or a leak can't take down the daemon or its terminals, and no language or build is imposed (Go's own `plugin` package needs the daemon's exact build). The daemon restarts a crashed one with backoff and disables it after repeated failures.
+  - *Web panels* (desktop and browser): a page in a sandboxed iframe that reaches the daemon only through a bridge holding the plugin's token.
+- **UI that works on both apps.** The Android app can't load a plugin's code, so plugin UI is mostly declarative: forms from a schema, lists, status items, badges, buttons that call actions, Markdown. Both apps render it natively, the way the settings screen is generated from the settings schema. A web panel shows on desktop, and on Android in a web view.
+- **Capabilities and consent.** The manifest declares what the plugin needs: events it reads, actions it calls or registers, network, paths, secrets. The user grants them at install, and again when an update asks for more. The plugin's token carries only those, and its actions are logged with the plugin as the actor.
+- **Install without a PR.** `mesh plugin install <git URL | path>`, or the same from the apps or by an agent (the user approves the capabilities), pinned to a commit, with update, rollback, disable and remove; old versions are cleaned up (Orca's plugin staging folders grew by gigabytes, #7725). A community index is only a git repo that lists plugins. A project's own `.agent-mesh/` folder (setup scripts, profiles, the plugins it wants) is picked up on the user's yes.
+- **Overrides without forking.** User and per-repo layers over the built-in skills, protocol files and prompts, so the orchestration itself changes by configuration.
+- **Compatibility.** A plugin states the API versions it supports; the schema rules (`buf breaking`, capabilities the host advertises) cover plugins as they cover the apps. Generated SDKs, Go and TypeScript first, are the supported way to write one.
 
 ## Stack (recommended)
 
@@ -111,7 +135,8 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Ours (neither peer has these)
 
 - ★ A lead-agent view: the run's root and its workers across repos as a tree, each with its state, what it owes and what it waits on (today's `mesh status`). Paseo has no cross-workspace tree; Orca's orchestration has no graphical view.
-- ★ Plan approval: read the plan, approve it or send changes, and the worker continues in the same conversation on the execution model.
+- ★ Autonomy per project, autonomous by default as agent-mesh is today: **Autonomous** (the root approves plans, agent reviewers review each PR, and it merges once checks pass and findings are fixed), **I merge** (PRs wait for the user's merge) or **I approve plans and merge**. A run can use another level without changing the project's. Reviewing is never a required step: the user can open any plan or PR and comment at any level, before or after the merge, and the comments go to the agent that wrote it; "Hold merge" pauses one PR. An "always ask me before" list (migrations, deploys, pushes to the default branch, deletes outside the worktree, a cost limit per run) applies at every level.
+- ★ Plan approval: by the root, or by the user at the "I approve plans" level; either way the worker continues in the same conversation on the execution model.
 - ★ Review rounds: reviewers picked by PR size, one merged findings file, findings checked and sent to the PR's author.
 - ★ The quota reserve and model switching on a limit, per vendor, across accounts. Orca has no account failover (#20512).
 - ★ Cost per run, agent, kind and phase (`mesh cost`).
@@ -134,13 +159,14 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 - ★ New workspace: project, host, isolation (project folder, new worktree or existing one), start from a branch or a PR (P, O).
 - ★ Worktree lifecycle: setup and teardown scripts with a live log, `.worktreeinclude`, archive with a warning about unpushed work, undo, restore (P, O).
-- ★ Status buckets per workspace: needs input, failed, ready to review, working, done; the sidebar groups and filters by them (P).
+- ★ Status buckets per workspace: needs input, failed, ready to review, working, done; the sidebar groups by run (the default: each run as a tree from its lead, workers and their read-only children (reviewers, askers) joined by lines, every row giving its role (lead, worker, asker, reviewer), a plain status sentence, its project and host, and its CLI and model), by project or by state. Runs get a descriptive name from the lead (renamable), with the id secondary. Agent states are animated icons, distinct in shape and not only colour (working, needs you, answering, waiting, done, failed), still under reduced motion. The side panel shows, for the lead, the whole run: total cost and cost per agent, what waits on you, PRs and quota used; for any other agent, a one-line location (project, host, branch) with terminal and editor buttons, its progress through its plan, files changed, model history, context and cost (P).
+- ★ Tabs per project, one pane by default and split side by side or stacked only when the user asks (drag a tab to an edge, or the split button): any mix of agent chats (any CLI, several per project), terminals, browsers, diffs and files, from one "new tab" menu that plugins can add tab types to. The phone shows a project's tabs as a chip row. Tabs and splits are restored after a restart (O).
+- ★ A live dock, which replaces herdr's panes popping up: each agent of the open runs is a small tile streaming its latest activity, and a newly spawned worker pops in marked new, without taking focus or the screen. Click a tile to open its chat as a tab, pin it as a split, or dismiss it; "Watch all" shows every agent as a grid, as herdr does today. Whether new workers pop into the dock, only badge, open as a tab or do nothing is a setting.
 - Create a workspace from an issue, PR, Linear or Jira item (O).
 - Sidebar: pin, labels, sort, choose the fields shown (P, O).
 - Auto-archive once the PR merges (P).
 - Scripts and services, with ports, health checks and URLs (P).
 - Disk, CPU and memory per workspace (O).
-- Restore the layout after a restart (O).
 
 ### Agents
 
@@ -190,7 +216,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Orchestration
 
 - ★ Every action is available to agents through the `mesh` CLI (P over MCP, O over its CLI).
-- ★ Agents spawn agents, linked as parent and child, with status rolled up the tree and caps a child can't raise (P, O; "Architecture").
+- ★ Agents spawn agents within roles: the root starts change workers, and a worker starts its own PR's reviewers and askers on other repos, never change workers. Linked as parent and child, with status rolled up the tree and caps a child can't raise (P, O; "Architecture").
 - ★ When an agent's process dies, its parent gets a message with the reason and its last message (AionUi).
 - Wake an agent on a terminal's output matching a pattern, or on its process exiting, for shells and builds, never agent TUIs (omnara).
 - ★ The root answers its workers' permission prompts, or escalates them to the user (O, P).
@@ -221,17 +247,17 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ A command palette across hosts and workspaces, with actions (P, O).
 - ★ Host settings generated from the schema, the same on every device (P).
 - ★ Rebindable shortcuts (P, O).
-- Themes and fonts (P, O).
+- ★ Several themes from the start: Dracula (the default), Alucard, Catppuccin Mocha and Latte, Tokyo Night and Nord, with fonts and density. A theme is one JSON file of semantic tokens: surfaces, text, accent, the five agent states and 16 terminal colours. One build step turns it into the desktop's Tailwind CSS variables and the Compose colour scheme, and a missing token is derived from the others. A theme is added by dropping a file into `~/.config/agent-mesh/themes/`, installing a declarative plugin, importing a VS Code, base16 or terminal scheme, or asking an agent to write one. The theme is a host setting with a per-device override, and it can follow the system's dark or light mode. Scrollbars follow the theme: thin and rounded on desktop, in the border colour; none on Android, which keeps its own fading scroll indicator (P, O).
 
 ### Usage and cost
 
-- ★ Quota windows per account with reset times and a warning before the reserve (P, O).
+- ★ Quota per account with both windows a vendor has (Claude's 5-hour and weekly ones), each with its reset time and the reserve line, and a warning before the reserve (P, O).
 - ★ Cost per session and per run (P, ours).
 - Daily charts per provider (O).
 
 ### Extensibility
 
-- Plugins: panels, commands, providers, hooks, actions (P, O).
+- ★ The extension points ("Plugins"), with the built-ins written on them. Third-party install, consent and web panels can follow (P, O).
 - A client SDK generated from the registry (P).
 
 ### Other
@@ -268,11 +294,11 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ## Order of work
 
-1. **Daemon core (Go, Linux):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI. At the end of this step, agents run without herdr.
+1. **Daemon core (Go, Linux):** the protobuf action registry and ConnectRPC API with event streams, PTY agents with state from hooks (Claude first, then agy), SQLite run state, and the generated `mesh` CLI, with the built-in adapters and channels written on the plugin interfaces. At the end of this step, agents run without herdr.
 2. **Desktop app, first version:** hosts, workspaces and the lead-agent view, terminals, plan approval, questions, reports, settings, native notifications, tray icon.
 3. **Connections:** the relay and pairing by QR, then built-in Tailscale.
 4. **Android app:** status, notifications with actions through UnifiedPush, plans, questions, reports, the terminal.
-5. **Then:** the git, PR and CI features, the structured chat view, schedules, usage, plugins, the browser client, and the rest of the list.
+5. **Then:** the git, PR and CI features, the structured chat view, schedules, usage, third-party plugins (install, consent, the index), the browser client, and the rest of the list.
 
 ## Open decisions
 
