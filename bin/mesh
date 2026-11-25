@@ -145,6 +145,12 @@ SWAP_GRACE = 300  # seconds `mesh watch` waits for a worker that is being reopen
 # What agy logs when a turn stops on a quota: "... Individual quota reached. ... Resets in 138h17m29s."
 QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED[^\n]*quota reached[^\n]*", re.IGNORECASE)  # not plain rate limits
 RESET_RE = re.compile(r"Resets in ([\dhms]+)")
+# What agy logs when its backend refuses every attempt with no quota named (Run: attempt 1..8 failed, retrying in
+# ...s; then the final line): "agent executor error: generating and executing: RESOURCE_EXHAUSTED (code 429):
+# Resource has been exhausted (e.g. check quota)." That line only, not each retry. A rate limit or a gateway's
+# refusal, which /usage doesn't show: the model is held for AGY_RATE_HOLD (as OpenCode's 429s are).
+RATE_RE = re.compile(r"agent executor error:[^\n]*RESOURCE_EXHAUSTED \(code 429\)[^\n]*", re.IGNORECASE)
+AGY_RATE_HOLD = 30 * 60  # seconds an agy model counts as spent after a 429 with no quota named
 # Claude Code's usage-limit screens (Gas Town's patterns, from real panes), matched on the pane's last LIMIT_LINES
 # lines only, so a limit that has scrolled up doesn't count: "  ⎿  You've hit your limit · resets 7pm (America/…)",
 # or its options menu ("❯ 1. Stop and wait for limit to reset"). Each must start its line, after glyphs, numbers and
@@ -431,8 +437,9 @@ class Cli:
     # colour no ghost style covers once read as a human's draft, and held a task back).
     placeholder: re.Pattern | None = None
     # Its input box: "rules" (a `─` rule above and below a prompt at column 0: Claude, agy) or "gutter" (`┃` rows
-    # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text.
-    input_box, box_status_rows = "rules", 0
+    # down to a `╹▀▀…` bottom: Copilot, OpenCode), with `box_status_rows` rows at its foot that aren't typed text,
+    # or `box_status_block`: a status of however many rows, after a blank one, at its foot.
+    input_box, box_status_rows, box_status_block = "rules", 0, False
     reads_drafts = True  # its box was checked live with a draft in it: typed_text reads it (else None: unclear)
     worker_log = False  # each worker writes its own log file, where the watch sees a quota hit (quota_hit)
     records_session_on_send = False  # its conversation is found, not chosen: recorded on its first `mesh send`
@@ -704,7 +711,9 @@ class AgyCli(Cli):
             return choose_agy_model(entry_chain(entry), effort, skip=models_tried(entry), force=True, fallback=False)
         except MeshError as exc:  # nowhere to move it: it waits on its own model
             spent = agy_at_reserve(entry["model"]) if entry.get("model") else None
-            raise NoModelLeft(str(exc), epoch(spent[1]) or None if spent else None) from exc
+            held = model_limit("agy", entry["model"]) if entry.get("model") else None
+            resets = [epoch(spent[1]) or None if spent else None, float(held["until"]) if held else None]
+            raise NoModelLeft(str(exc), max((r for r in resets if r), default=None)) from exc
 
     def resumed_model(self, entry: dict, model: str | None, effort: str) -> tuple[str, str]:
         if not model:
@@ -845,10 +854,11 @@ class OpenCodeCli(Cli):
     kind, name, short, processes = "opencode", "OpenCode", "OpenCode", ("opencode", "opencode.exe")
     enforces_read_only = records_session_on_send = True
     # Its empty box shows a placeholder in grey (`38;2;128;128;128`); typed text is near-white. The box is a `┃`
-    # gutter down to `╹▀▀…`, whose last row is the agent and model (the status, not typed).
+    # gutter down to `╹▀▀…`, whose foot is the agent and model (the status, not typed): one row, or several in a
+    # narrow pane, with blank ones around it.
     ghost_styles = ("dim", "grey", "rgb-grey")
     placeholder = re.compile(r'^Ask anything(…|\.\.\.)\s*("[^"]*")?$')  # `Ask anything… "Fix a TODO in the codebase"`
-    input_box, box_status_rows = "gutter", 1
+    input_box, box_status_block = "gutter", True
     counts_cost, cost_tally, cost_prefix = True, "agy", "opencode "
 
     def resolve(self, model: str, effort: str) -> str:
@@ -1613,9 +1623,46 @@ def log_event(run_id: str, event: str, **fields) -> None:
 TORN_WARNED: set[str] = set()  # log files whose unreadable lines were reported, once per process
 
 
-def parse_log_lines(lines: list[str], path: Path, first: int = 1) -> list[dict]:
+def quarantine_torn(path: Path) -> list[int]:
+    """Set aside the complete lines of a run's log that don't parse (a power cut leaves NULs or half an event; a
+    kill, a fragment `log_event` then seals): each is copied, with where it was, to `log.torn` beside the log, and
+    blanked in place with spaces of the same length, so no other line moves (`mesh log --follow` keeps its byte
+    offset) and no reader sees it again. The last piece with no newline after it may still be being written:
+    left alone. Returns their line numbers (counted by "\n", as `read_log` does); none when it can't (a
+    read-only folder, a lock error)."""
+    try:
+        with file_lock(path.with_name(".torn.lock"), create=False):
+            moved, offset = [], 0
+            for number, raw in enumerate(path.read_bytes().split(b"\n")[:-1], 1):
+                try:
+                    text = raw.decode()
+                    event = json.loads(text) if text.strip() else {}  # blank as parse_log_lines judges it
+                except ValueError:
+                    event = None
+                if not isinstance(event, dict):
+                    moved.append((number, offset, raw))
+                offset += len(raw) + 1
+            if not moved:
+                return []
+            fd = os.open(path, os.O_WRONLY)  # not O_APPEND: a pwrite there would append instead. First: a log
+            try:  # that can't be written to isn't copied from at every read
+                with open(path.with_name("log.torn"), "ab") as torn:
+                    for number, _, raw in moved:
+                        torn.write(f"# {now_iso()} {path.name} line {number}\n".encode() + raw + b"\n")
+                for _, at, raw in moved:
+                    os.pwrite(fd, b" " * len(raw), at)
+            finally:
+                os.close(fd)
+            return [number for number, _, _ in moved]
+    except OSError:
+        return []
+
+
+def parse_log_lines(lines: list[str], path: Path, first: int = 1, quarantine: bool = False) -> list[dict]:
     """The events in `lines` (line `first` onwards of `path`), skipping any that don't parse: one torn line
-    must not break every reader. The first time a file has some, a warning says so on stderr."""
+    must not break every reader. With `quarantine` (a whole read of a run's log) complete ones are set aside once
+    (quarantine_torn), so no later read meets them; any left (a last line still without its newline), or any when
+    that can't be done, are warned about the first time a process meets them, on stderr."""
     events, bad = [], []
     for number, line in enumerate(lines, first):
         if not line.strip():
@@ -1628,6 +1675,10 @@ def parse_log_lines(lines: list[str], path: Path, first: int = 1) -> list[dict]:
             events.append(event)
         else:
             bad.append(number)
+    if bad and quarantine and (moved := quarantine_torn(path)):
+        print(f"mesh: set aside {len(moved)} unreadable line(s) of {path} into {path.with_name('log.torn')} "
+              "(a write cut short?)", file=sys.stderr)
+        bad = [number for number in bad if number not in moved]  # left: a last line with no newline yet
     if bad and str(path) not in TORN_WARNED:
         TORN_WARNED.add(str(path))
         print(f"mesh: skipped {len(bad)} unreadable line(s) in {path} (line {bad[0]}: a write cut short?)",
@@ -1639,7 +1690,12 @@ def read_log(run_id: str, folder: Path | None = None) -> list[dict]:
     path = (folder or run_dir(run_id)) / "log.jsonl"
     if not path.exists():
         return []
-    return parse_log_lines(path.read_text().splitlines(), path)
+    # Split on "\n" alone, as quarantine_torn does: `splitlines` also breaks on \x0c, \x85 and the like, which a
+    # torn fragment may hold, and read_text turns a lone \r into one.
+    lines = path.read_bytes().decode(errors="replace").split("\n")
+    if lines and not lines[-1]:
+        lines.pop()
+    return parse_log_lines(lines, path, quarantine=True)
 
 
 # ── identity ─────────────────────────────────────────────────────────────
@@ -2340,7 +2396,7 @@ def typed_text(lines: list[str], kind: str | None = None) -> str | None:
     if kind in CLIS and not CLIS[kind].reads_drafts:
         return None
     if kind in CLIS and CLIS[kind].input_box == "gutter":
-        typed = gutter_typed(lines, ghost, CLIS[kind].box_status_rows)
+        typed = gutter_typed(lines, ghost, CLIS[kind].box_status_rows, CLIS[kind].box_status_block)
         hint = CLIS[kind].placeholder
         return "" if typed and hint and hint.match(typed) else typed
     plain = [strip_sgr(line) for line in lines]
@@ -2373,14 +2429,29 @@ def gutter_box(plain: list[str]) -> tuple[int, int] | None:
     return None
 
 
-def gutter_typed(lines: list[str], ghost: tuple[str, ...], status_rows: int) -> str | None:
-    """typed_text for a `┃`-gutter box: what follows each row's gutter, ghost text left out, without the box's last
-    `status_rows` rows (OpenCode's agent and model line); None when no such box is on the screen."""
+def gutter_typed(lines: list[str], ghost: tuple[str, ...], status_rows: int, block: bool = False) -> str | None:
+    """typed_text for a `┃`-gutter box: what follows each row's gutter, ghost text left out, without the box's
+    status: its last `status_rows` rows, or with `block` (OpenCode's agent and model line) the last run of
+    non-blank rows, after any blank ones at the foot. A narrow pane wraps that line onto several rows or pads
+    blank ones after it, so a count of rows misreads it as typed text. A block with no blank row above it can't be
+    told from text: None (unclear). None when no such box is on the screen."""
     box = gutter_box([strip_sgr(line) for line in lines])
     if box is None:
         return None
     rows = lines[box[0]:box[1] + 1]
-    rows = rows[:len(rows) - status_rows] if status_rows else rows
+    if block:
+        blank = [not strip_sgr(OSC_RE.sub("", row)).partition("┃")[2].strip() for row in rows]
+        end = len(rows)
+        while end and blank[end - 1]:
+            end -= 1
+        start = end
+        while start and not blank[start - 1]:
+            start -= 1
+        if start == 0 or start == end:
+            return None  # no status below a blank row to leave out
+        rows = rows[:start]
+    elif status_rows:
+        rows = rows[:len(rows) - status_rows]
     typed = []
     for row in rows:
         row = OSC_RE.sub("", row)
@@ -3139,6 +3210,9 @@ def choose_agy_model(chain: tuple[str, ...], effort: str, skip: tuple[str, ...] 
             continue
         if model_id in skip:
             continue
+        if held := model_limit("agy", model_id):  # refused with a 429 meanwhile: /usage doesn't show it
+            notes.append(f"{model_id} was refused with a 429 (held until {hold_end(held)})")
+            continue
         quota = model_quota(model_id, names.get(model_id, ""), rows) if rows else None
         if quota is None or quota[0] > min_quota():  # at the reserve (MESH_QUOTA_STOP used) it counts as spent
             return model_id, notes
@@ -3303,6 +3377,8 @@ def agy_has_quota(tier: str, model: str | None = None) -> tuple[bool, str]:
     if not installed("agy"):
         return False, "agy isn't installed"
     if model:
+        if held := model_limit("agy", model):
+            return False, f"{model} was refused with a 429 (held until {hold_end(held)})"
         rows = agy_usage()
         names = listing_names(agy_model_listing()) if rows else {}
         quota = model_quota(model, names.get(model, ""), rows) if rows else None
@@ -4377,6 +4453,11 @@ def model_limit_record(kind: str, model: str) -> dict | None:
         return limit if isinstance(limit, dict) else None
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def hold_end(limit: dict) -> str:
+    """When a model hold (`model_limit`) ends, for a person."""
+    return datetime.fromtimestamp(float(limit["until"]), timezone.utc).strftime("%H:%M UTC")
 
 
 def model_limit(kind: str, model: str) -> dict | None:
@@ -6325,22 +6406,33 @@ def cmd_switch(args: argparse.Namespace) -> int:
     return held or (0 if delivered(delivery) else 2)
 
 
-def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
-    """(reset time or None, new offset): the reset time ("" if unknown) of a quota error agy logged after `offset`.
+def agy_log_hit(log: str | None, offset: int) -> tuple[str | None, str | None, int]:
+    """(kind, reset time or None, new offset) of what agy logged after `offset`: "quota" with the reset time ("" if
+    unknown) of a quota error (it wins when the chunk holds both), "rate" for a 429 that names no quota
+    (RATE_RE), else None.
 
     Reads only the new bytes. A log that is shorter than `offset` was truncated by a restarted agy: read it afresh.
     """
     if not log or not Path(log).exists():
-        return None, offset
+        return None, None, offset
     with open(log, "rb") as fh:
         size = fh.seek(0, os.SEEK_END)
         offset = 0 if size < offset else offset
         fh.seek(offset)
-        hit = QUOTA_RE.search(fh.read().decode(errors="replace"))
-    if not hit:
-        return None, size
-    reset = RESET_RE.search(hit.group(0))
-    return (reset.group(1) if reset else ""), size
+        text = fh.read().decode(errors="replace")
+    if hit := QUOTA_RE.search(text):
+        reset = RESET_RE.search(hit.group(0))
+        return "quota", (reset.group(1) if reset else ""), size
+    if RATE_RE.search(text):
+        return "rate", "", size
+    return None, None, size
+
+
+def quota_hit(log: str | None, offset: int) -> tuple[str | None, int]:
+    """(reset time or None, new offset): the reset time ("" if unknown) of a quota error agy logged after `offset`
+    (agy_log_hit: a 429 with no quota named isn't one here)."""
+    kind, reset, offset = agy_log_hit(log, offset)
+    return (reset if kind == "quota" else None), offset
 
 
 def read_body(body: str | None, file: str | None) -> str | None:
@@ -7917,10 +8009,12 @@ class Watch:
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
 
     def quota_event(self) -> tuple[int, str] | None:
-        """A quota error agy logged since the last poll, or one the worker's CLI shows (Cli.quota_hit: OpenCode's
-        limits), once per task."""
-        reset, self.log_offset = quota_hit(self.log, self.log_offset)
+        """A quota error agy logged since the last poll (or its final 429 with no quota named: `rate_event`), or one
+        the worker's CLI shows (Cli.quota_hit: OpenCode's limits), once per task."""
+        kind, reset, self.log_offset = agy_log_hit(self.log, self.log_offset)
         entry = agent_entry(load_run(self.run_id), self.name)
+        if kind == "rate":
+            return self.rate_event(entry)
         if reset is None and entry.get("kind") in CLIS:
             reset = cli(entry["kind"]).quota_hit(self, entry)
             if reset is not None:
@@ -7934,6 +8028,22 @@ class Watch:
         model = entry.get("model")
         return 7, (f"ALERT {self.name} hit its quota on {model}" + (f" (resets in {reset})" if reset else "")
                    + f"; move it to the next model with `mesh switch {self.name}`")
+
+    def rate_event(self, entry: dict) -> tuple[int, str] | None:
+        """Exit 7 for a 429 agy answered with no quota named, once per task: the model is held for AGY_RATE_HOLD
+        (machine-wide: `mesh switch`, a spawn and `--reviewers auto` skip it meanwhile) and the root moves the
+        worker on."""
+        model = entry.get("model") or ""
+        events = read_log(self.run_id)
+        received = since_last_task(events, self.name)[0]
+        if model:
+            note_model_limit("agy", model, "RESOURCE_EXHAUSTED (code 429), no quota named", time.time() + AGY_RATE_HOLD)
+        if alerted(events, self.name, received, "quota"):
+            return None  # the root knows: `mesh switch` moves it, and its task re-arms this
+        record_alert(self.run_id, self.name, received, "quota")
+        return 7, (f"ALERT {self.name} was refused with a 429 on {model} (agy's RESOURCE_EXHAUSTED with no quota "
+                   f"named: a rate limit, which /usage doesn't show); mesh skips that model for "
+                   f"{AGY_RATE_HOLD // 60} min; move it to the next model with `mesh switch {self.name}`")
 
     def conversation(self, entry: dict) -> str | None:
         """Its session or conversation id: recorded, or looked up (at most once every SESSION_RETRY seconds)."""
