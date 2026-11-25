@@ -9112,7 +9112,7 @@ def pr_diff(pr: str, head: str | None = None, built: tuple[str, str] | None = No
 
 def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: str | None = None,
              last: str | None = None, kind: str | None = None, narrow: bool = True, repo: Path | None = None,
-             size: str | None = None) -> str:
+             size: str | None = None, since: bool = False) -> str:
     """The read-only task; a review names the head it is of, and `last`, the head this reviewer read before
     (`narrow`: the commits since are only fixes, see `fix_commits`). A Claude reviewer with the head is also asked
     to run `/code-review`, on the range from the merge base to `head`, which git resolves the same in a fork (a bare
@@ -9127,7 +9127,7 @@ def ask_task(body: str, pr: str | None, number: int | None, fresh: bool, head: s
         where = (REVIEW_FRESH if fresh else own).format(pr=pr, n=number, head=head, show=show)
         again = bool(last and head and last != head)
         if again:
-            text = REVIEW_SINCE if fresh and narrow else REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE
+            text = REVIEW_SINCE if since and narrow else REVIEW_AGAIN if narrow else REVIEW_AGAIN_WHOLE
             where += " " + text.format(last=last, head=head)
         task = REVIEW_PREFIX.format(pr=pr, at=f" at {head}" if head else "", where=where)
         if cli_has(kind, "code_review") and head:
@@ -9428,7 +9428,8 @@ def asker_task(args: argparse.Namespace, run_id: str, repo: Path, target: tuple 
     """The read-only task for one asker, the move of its review checkout to `head` (plan_move; None when it
     stays or has none) and the body with a note on why it stays, for `mesh ask` and a review round alike.
     `--since` narrows any reviewer, a fresh one included, to the commits after it (a fix round, design §10)."""
-    last = getattr(args, "since", None) or last
+    since = getattr(args, "since", None)
+    last = since or last
     narrow = not (last and head and last != head) or fix_commits(repo, last, head)
     move, stays = plan_move(run_id, target, pr, head) if pr and target else (None, "")
     if stays:
@@ -9437,7 +9438,7 @@ def asker_task(args: argparse.Namespace, run_id: str, repo: Path, target: tuple 
         body = "\n\n".join(part for part in (body, REVIEW_STAYS.format(at=at, head=head, why=stays)) if part)
     size = args.size or (target[3].get("size") if target else None)
     task = ask_task(body, pr, number, fresh=bool(args.repo) or bool(move), head=head, last=last, kind=kind,
-                    narrow=narrow, repo=repo, size=size)
+                    narrow=narrow, repo=repo, size=size, since=bool(since))
     return task, move, body
 
 
