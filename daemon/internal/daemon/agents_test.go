@@ -260,6 +260,10 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 		return l.Msg.Terminals[0].InputClients == 1
 	})
 	user.Input(ictx, []byte("x\x7f")) // a keystroke, taken back: the user is typing
+	waitFor(t, "the keystroke counted", func() bool {
+		l, _ := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		return l.Msg.Terminals[0].LastClientInput != nil
+	})
 	if _, err := h.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id,
 		Type: v1.MessageType_MESSAGE_TYPE_INFO, Body: "fyi"})); err != nil {
 		t.Fatal(err)

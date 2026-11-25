@@ -361,8 +361,13 @@ func TestEndToEnd(t *testing.T) {
 		files, _ := filepath.Glob(filepath.Join(spool, "*.json"))
 		return len(files) == 0
 	})
-	after := w.ctl("agent", "--agent", agent)
-	if str(after, "agent", "terminalId") != terminal || str(after, "agent", "state") != "AGENT_STATE_IDLE" {
+	// The spool can be empty between two hooks of the turn: wait for its end.
+	var after map[string]any
+	w.waitFor("idle after the restart", func() bool {
+		after = w.ctl("agent", "--agent", agent)
+		return str(after, "agent", "state") == "AGENT_STATE_IDLE"
+	})
+	if str(after, "agent", "terminalId") != terminal {
 		t.Fatalf("after restart %v", after)
 	}
 	list, _ = tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
