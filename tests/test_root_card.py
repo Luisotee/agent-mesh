@@ -223,7 +223,8 @@ def test_a_workers_stop_hook_blocks_once_for_a_send_message_it_owes(mesh, fake, 
     path, message = native_report(mesh, run)
     silent = transcript(tmp_path, ("Bash", {"command": "mesh send parent"}))
     reason = stop_hook(mesh, monkeypatch, capsys, run, transcript_path=silent)
-    assert f"to='uds:/x/1.sock'" in reason and repr(message) in reason and "SendMessage" in reason
+    given = json.dumps({"to": "uds:/x/1.sock", "message": message}, ensure_ascii=False)
+    assert given in reason and "SendMessage" in reason and "'" not in reason.split("(JSON): ")[1]
     assert [e["file"] for e in mesh.read_log(run) if e["event"] == "hook_send"] == [path.name]
     assert stop_hook(mesh, monkeypatch, capsys, run, transcript_path=silent) is None  # once per report
 
@@ -256,8 +257,10 @@ def test_mesh_send_ends_with_the_send_message_to_make(mesh, fake, run, monkeypat
     as_worker(monkeypatch, run)
     assert mesh.main(["send", "parent", "--type", "done", "--body", "PR: https://github.com/a/b/pull/1"]) == 0
     captured = capsys.readouterr()
-    last = captured.err.strip().splitlines()[-1]
-    assert "SendMessage" in last and repr(address) in last and "done from repo-fix-typo" in last
+    *_, hint, last = captured.err.strip().splitlines()
+    assert "SendMessage" in hint
+    given = json.loads(last)  # one JSON line: no Python quoting for the model to copy
+    assert given["to"] == address and "done from repo-fix-typo" in given["message"]
     event = [e for e in mesh.read_log(run) if e["event"] == "native"][-1]
     assert event["type"] == "done" and "done from repo-fix-typo" in event["message"]
 
@@ -310,3 +313,53 @@ def test_a_send_message_record_with_no_readable_time_still_counts(mesh, tmp_path
     path.write_text(json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "SendMessage", "input": {"to": "uds:/a"}}]}}) + "\n")
     assert mesh.sent_message(str(path), "uds:/a", 1.0) is True
+
+
+def test_a_message_with_both_kinds_of_quote_is_given_as_json_to_copy(mesh, fake, run, monkeypatch, capsys, tmp_path):
+    tricky = "📬 [mesh] done from repo-fix-typo: it's \"fixed\" (run `mesh inbox`)"
+    path = mesh.store_message(run, "repo-fix-typo", "repo-lead", "done", "x")
+    mesh.log_event(run, "native", sender="repo-fix-typo", to="repo-lead", address="uds:/x/1.sock", file=path.name,
+                   type="done", message=tricky)
+    reason = stop_hook(mesh, monkeypatch, capsys, run, transcript_path=transcript(tmp_path))
+    assert json.loads(reason.split("(JSON): ")[1]) == {"to": "uds:/x/1.sock", "message": tricky}
+
+
+def test_the_lost_report_note_is_logged_so_a_restarted_watch_doesnt_repeat_it(mesh, fake, run, monkeypatch):
+    path, _ = native_report(mesh, run, "plan")
+    assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True)[0] == 0
+    assert [e["file"] for e in mesh.read_log(run) if e["event"] == "lost_noted"] == [path.name]
+    assert lost(mesh, run, monkeypatch).report_event(mesh.read_log(run), True) is None  # a new `mesh watch --any`
+
+
+def test_a_tail_without_the_send_message_is_unknown_not_never_sent(mesh, tmp_path, monkeypatch):
+    sent = transcript(tmp_path, ("SendMessage", {"to": "uds:/x/1.sock"}), *[("Bash", {"command": "x" * 200})] * 50)
+    assert mesh.sent_message(sent, "uds:/x/1.sock", 1.0) is True
+    monkeypatch.setattr(mesh, "SENT_TAIL", 2000)  # the SendMessage is before what is read
+    assert mesh.sent_message(sent, "uds:/x/1.sock", 1.0) is None
+    assert mesh.sent_message(transcript(tmp_path, ("Bash", {"command": "x"})), "uds:/x/1.sock", 1.0) is False  # all read
+
+
+def test_the_stop_hook_doesnt_block_when_the_send_message_may_be_before_the_tail(mesh, fake, run, monkeypatch, capsys,
+                                                                                tmp_path):
+    native_report(mesh, run)
+    sent = transcript(tmp_path, ("SendMessage", {"to": "uds:/x/1.sock"}), *[("Bash", {"command": "x" * 200})] * 50)
+    monkeypatch.setattr(mesh, "SENT_TAIL", 2000)
+    assert stop_hook(mesh, monkeypatch, capsys, run, transcript_path=sent) is None
+
+
+def test_an_info_after_a_native_plan_doesnt_hide_the_plan_from_the_stop_hook(mesh, fake, run, monkeypatch, capsys,
+                                                                            tmp_path):
+    path, message = native_report(mesh, run, "plan")
+    native_report(mesh, run, "info")
+    reason = stop_hook(mesh, monkeypatch, capsys, run, transcript_path=transcript(tmp_path))
+    assert "your plan to repo-lead" in reason and [e["file"] for e in mesh.read_log(run)
+                                                    if e["event"] == "hook_send"] == [path.name]
+
+
+def test_a_roots_reminder_is_silent_while_a_reset_is_about_to_type_its_own(mesh, fake, run, monkeypatch, capsys):
+    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: True)  # the bootstrap says `mesh brief` itself
+    assert mesh.main(["whoami", "--reminder", "clear"]) == 0
+    assert capsys.readouterr().out == "" and not [e for e in mesh.read_log(run) if e["event"] == "reminder"]
+    monkeypatch.setattr(mesh, "reset_pending", lambda run_id: False)
+    assert mesh.main(["whoami", "--reminder", "clear"]) == 0
+    assert "mesh brief" in capsys.readouterr().out

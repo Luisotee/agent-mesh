@@ -6447,8 +6447,9 @@ def cmd_send(args: argparse.Namespace) -> int:
         return 2
     if "send_message" in result:
         note = result["send_message"]
-        print(f"mesh: stored, but {to} hears of it only from your SendMessage: call it now with to={note['to']!r} "
-              f"and message={note['message']!r}, exactly", file=sys.stderr)
+        print(f"mesh: stored, but {to} hears of it only from your SendMessage: call it now, with these exactly "
+              f"(JSON):\n{json.dumps({'to': note['to'], 'message': note['message']}, ensure_ascii=False)}",
+              file=sys.stderr)
         return 0
     if not delivered(result):
         print(f"warning: stored, but the doorbell did not ring ({result['error']}); "
@@ -7421,19 +7422,23 @@ def task_line(run_id: str, name: str, events: list[dict]) -> str:
     return f" Your current task: “{line}”." if line else ""
 
 
+SENT_TAIL = 4_000_000  # bytes of a session file `sent_message` reads, from its end
+
+
 def sent_message(transcript: str | None, address: str, since: float) -> bool | None:
     """Whether a Claude session file shows a `SendMessage` to `address` after `since` (epoch seconds); None when
-    the file can't be read."""
+    the file can't be read, or its tail (the part read) doesn't show one and the file has more before it."""
     if not transcript:
         return None
     try:
         with open(transcript, "rb") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
-            handle.seek(max(0, size - 4_000_000))
+            handle.seek(max(0, size - SENT_TAIL))
             lines = handle.read().decode(errors="replace").splitlines()
     except OSError:
         return None
+    cut = size > SENT_TAIL
     for line in lines:
         if "SendMessage" not in line:
             continue
@@ -7446,15 +7451,16 @@ def sent_message(transcript: str | None, address: str, since: float) -> bool | N
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "SendMessage" \
                     and (block.get("input") or {}).get("to") == address:
                 return True
-    return False
+    return None if cut else False  # a tail without it says nothing of what came before
 
 
 def owed_send_message(run_id: str, name: str, events: list[dict], payload: dict, entry: dict) -> str | None:
     """The Stop hook's reason when `name`'s newest report went by a `native` delivery (a `send_message` mesh
     handed back for the worker to pass on, as its parent runs in bypass mode) and its own session file shows no
     `SendMessage` to that address since: nobody else rings that doorbell. Once per report (`hook_send`)."""
-    last = next((e for e in reversed(events) if e.get("event") == "native" and e.get("sender") == name), None)
-    if not last or last.get("type") not in REPORT_TYPES or not last.get("message") or not last.get("address"):
+    last = next((e for e in reversed(events) if e.get("event") == "native" and e.get("sender") == name
+                 and e.get("type") in REPORT_TYPES), None)  # an `info` after it doesn't hide a report
+    if not last or not last.get("message") or not last.get("address"):
         return None
     file = str(last.get("file"))
     if not (inbox_dir(run_id, last.get("to")) / file).exists() or any(
@@ -7469,8 +7475,8 @@ def owed_send_message(run_id: str, name: str, events: list[dict], payload: dict,
             return None
         log_event(run_id, "hook_send", name=name, file=file)
     return (f"agent-mesh: your {last.get('type')} to {last.get('to')} is stored, but {last.get('to')} hears of it "
-            f"only from your SendMessage, which you haven't called: call it now with to={last['address']!r} and "
-            f"message={last['message']!r}, exactly.")
+            f"only from your SendMessage, which you haven't called: call it now, with these exactly (JSON): "
+            f"{json.dumps({'to': last['address'], 'message': last['message']}, ensure_ascii=False)}")
 
 
 def stop_hook(run_id: str, name: str, payload: dict) -> str | None:
@@ -7878,8 +7884,9 @@ class Watch:
                  and e.get("type") in REPORT_TYPES]
         last = sends[-1] if sends else None
         file = str(last.get("file")) if last else ""
-        if not last or file in self.lost_noted or age_seconds(last.get("time")) < REPORT_LOST_AFTER:
-            return None
+        if not last or file in self.lost_noted or age_seconds(last.get("time")) < REPORT_LOST_AFTER \
+                or any(e.get("event") == "lost_noted" and str(e.get("file")) == file for e in events):
+            return None  # (the log, so a watch the root starts again doesn't repeat it)
         if not (inbox_dir(self.run_id, last.get("to")) / file).exists():
             return None  # read
         if any(e.get("event") in ("rung", "collected") and str(e.get("file")) == file for e in events):
@@ -7889,8 +7896,9 @@ class Watch:
             entry = agent_entry(load_run(self.run_id), self.name)
             transcript = claude_transcript(entry, entry["session"]) if entry.get("session") else None
             if sent_message(str(transcript) if transcript else None, native["address"], epoch(native.get("time"))):
-                return None
+                return None  # (True only: when it can't be told, the root is asked to look, which costs one `mesh inbox`)
         self.lost_noted.add(file)
+        log_event(self.run_id, "lost_noted", name=self.name, file=file)
         return 0, (f"{self.name}'s {last['type']} has sat unread for {ago(age_seconds(last.get('time')))} and its "
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
 
@@ -11674,6 +11682,8 @@ def reminder(run_id: str, me: str, source: str) -> str:
     run = load_run(run_id)
     entry = agent_entry(run, me)
     if entry["role"] == "root":
+        if reset_pending(run_id):  # `mesh reset` is running: its prompt, typed next, says to run `mesh brief`
+            return ""
         return (f"agent-mesh reminder ({source}): you are {me}, the root of run {run_id} (no parent to report to). "
                 f"Your earlier context may be gone: run `mesh brief` now and act by the root card it prints, "
                 f"not from memory. Run dir: {run_dir(run_id)}.")
@@ -11703,12 +11713,14 @@ def cmd_whoami(args: argparse.Namespace) -> int:
         try:
             run_id, me = identity(args)
             text = reminder(run_id, me, args.reminder)
-            log_event(run_id, "reminder", name=me, source=args.reminder)
+            if text:
+                log_event(run_id, "reminder", name=me, source=args.reminder)
         except Exception as exc:  # noqa: BLE001
             if not (isinstance(exc, MeshError) and not (args.run or args.as_)):  # a root's hook names no run, and
                 print(f"mesh whoami --reminder: {exc}", file=sys.stderr)  # its run may be over: then say nothing
             return 0
-        print(hook_text(text))
+        if text:
+            print(hook_text(text))
         return 0
     run_id, me = identity(args)
     entry = agent_entry(load_run(run_id), me)
@@ -12871,28 +12883,49 @@ def wait_gone(plan: dict, seconds: float) -> bool:
     return not pid_alive(plan["pid"], plan["start"])
 
 
+EXIT_FAREWELL = "Resume this session with"  # what Claude Code prints as it exits
+
+
+def exiting(pane: str, lines: list[str] | None) -> bool:
+    """Positive evidence that a Claude still alive after /exit is on its way out: its screen shows its own exit
+    farewell, or the pane's foreground is its shell again (it no longer holds the terminal). Not an unreadable
+    screen, a dialog or any other screen: those say nothing about it."""
+    if lines and any(EXIT_FAREWELL in strip_sgr(line) for line in lines):
+        return True
+    info = pane_process_info(pane)
+    return bool(info and info.get("shell_pid") is not None
+                and info.get("foreground_process_group_id") == info.get("shell_pid"))
+
+
 def end_root_claude(pane: str, plan: dict) -> str:
     """After a typed /exit: wait until the old Claude is gone, and say why not (else ""). It may take minutes
-    (run mfb6a, 2026-11-25: one outlived its /exit by far longer than 20 s, its screen already closed, and a
-    reset that gave up then left the user a pane with no root). A Claude still alive after `RELAUNCH_EXIT` is
-    judged by its screen: one that still shows its input box (idle, working or with a draft) didn't take the
-    /exit, so it is left running, as it was; one whose screen has no box is exiting, so it gets
-    `RELAUNCH_EXIT_LATE` more, then SIGTERM and SIGKILL (its conversation is on disk already): a reset must end
-    with a root or the old one. herdr's agent status isn't consulted: it can stay `working` after the screen is gone."""
+    (run mfb6a, 2026-11-25: one outlived its /exit by far longer than 20 s, and a reset that gave up then left the
+    user a pane with no root). A Claude still alive after `RELAUNCH_EXIT` whose screen shows its input box didn't
+    take the /exit: it is left running, as it was. Otherwise it gets `RELAUNCH_EXIT_LATE` more, and is signalled
+    (SIGTERM, then SIGKILL; its conversation is on disk already) only on positive evidence that it is exiting
+    (`exiting`). An unreadable screen, a dialog or any screen nobody recognises is not that: the reset fails and
+    the root keeps running. herdr's agent status isn't consulted: it can stay `working` after the screen is gone."""
 
-    def screen_up() -> bool:
-        lines = pane_lines(pane, RESET_READ_LINES, ansi=True)
+    def read() -> list[str] | None:
+        return pane_lines(pane, RESET_READ_LINES, ansi=True)
+
+    def box(lines: list[str] | None) -> bool:
         return lines is not None and typed_text(lines, "claude") is not None
 
     still = "it was sent /exit, but its Claude still runs and shows its input box; nothing else was typed"
     if wait_gone(plan, RELAUNCH_EXIT):
         return ""
-    if screen_up():
+    if box(read()):
         return still
     if wait_gone(plan, RELAUNCH_EXIT_LATE):
         return ""
-    if screen_up():
+    lines = read()
+    if box(lines):
         return still
+    if not exiting(pane, lines):
+        return ("it was sent /exit, but its Claude still runs and nothing on its screen or in its pane shows it "
+                f"exiting ({'its screen could not be read' if lines is None else 'a screen with no input box'}); "
+                "it was not signalled and nothing else was typed")
     for sig in (signal.SIGTERM, signal.SIGKILL):
         if pid_alive(plan["pid"], plan["start"]):
             print(f"mesh reset: the old root's Claude ({plan['pid']}) outlived its /exit: {sig.name}", flush=True)
