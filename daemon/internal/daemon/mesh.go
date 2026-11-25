@@ -288,11 +288,18 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// one still planning keeps it planning; any other task is direct, as `resume --task` would send it.
 		if stopped(to) && to.SessionId != "" && resumes(req.Msg.Type) {
 			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING}
-			if out.Resumed, err = d.revive(t, to, spec); err != nil {
+			// The guards answer before anything is written: a refusal keeps the message and says why the agent
+			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
+			switch rv, err := d.revive(t, to, spec); {
+			case connect.CodeOf(err) == connect.CodeResourceExhausted || connect.CodeOf(err) == connect.CodeFailedPrecondition:
+				out.ResumeError = connect.NewError(connect.CodeOf(err), err).Message()
+			case err != nil:
 				return err
-			}
-			if err := t.PutAgent(to); err != nil {
-				return err
+			default:
+				out.Resumed = rv
+				if err := t.PutAgent(to); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

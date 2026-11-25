@@ -42,7 +42,10 @@ func (w *reopenWorld) report(t *testing.T, a *v1.Agent, typ v1.MessageType) {
 // spawnUnder starts a worker under the root.
 func (w *reopenWorld) spawnUnder(t *testing.T, asRoot agentmeshv1connect.MeshServiceClient, slug string, req *v1.SpawnAgentRequest) *v1.Agent {
 	t.Helper()
-	req.Repo, req.Slug = gitRepo(t), slug
+	if req.Repo == "" {
+		req.Repo = gitRepo(t)
+	}
+	req.Slug = slug
 	if req.Tier == "" && req.Model == "" {
 		req.Tier = "mid"
 	}
@@ -296,6 +299,17 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	gitIn(t, pushed.Repo, "init", "-q", "--bare", remote)
 	gitIn(t, pushed.Repo, "remote", "add", "origin", remote)
 	gitIn(t, pushed.Worktree, "push", "-q", "origin", pushed.Branch)
+	// Started from a remote base, a worktree's branch has an upstream for free: that is not work.
+	based := gitRepo(t)
+	baseRemote := filepath.Join(t.TempDir(), "base.git")
+	gitIn(t, based, "init", "-q", "--bare", baseRemote)
+	gitIn(t, based, "remote", "add", "origin", baseRemote)
+	gitIn(t, based, "push", "-q", "origin", "HEAD:refs/heads/main")
+	gitIn(t, based, "fetch", "-q", "origin")
+	fromRemote := w.spawnUnder(t, asLead, "fromremote", &v1.SpawnAgentRequest{Repo: based, Base: "origin/main"})
+	if up := gitIn(t, fromRemote.Worktree, "rev-parse", "--abbrev-ref", fromRemote.Branch+"@{upstream}"); up != "origin/main" {
+		t.Fatalf("the test needs an upstream on the branch: %q", up)
+	}
 	gone := w.spawnUnder(t, asLead, "gone", &v1.SpawnAgentRequest{})
 	os.WriteFile(filepath.Join(committed.Worktree, "done.txt"), []byte("work"), 0o644)
 	gitIn(t, committed.Worktree, "add", "done.txt")
@@ -315,10 +329,10 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Msg.Run.Status != v1.RunStatus_RUN_STATUS_CLOSED || len(res.Msg.Retired) != 5 {
+	if res.Msg.Run.Status != v1.RunStatus_RUN_STATUS_CLOSED || len(res.Msg.Retired) != 6 {
 		t.Fatalf("stopped %v", res.Msg)
 	}
-	for _, a := range []*v1.Agent{lead, untouched, committed, dirty, pushed} {
+	for _, a := range []*v1.Agent{lead, untouched, committed, dirty, pushed, fromRemote} {
 		if got := w.agent(a.Id); got.State != v1.AgentState_AGENT_STATE_RETIRED || got.TerminalId != "" {
 			t.Errorf("%s: %v", a.Name, got.State)
 		}
@@ -350,6 +364,9 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	if o := out[pushed.Id]; !o.WorktreeRemoved || !o.BranchKept || !strings.Contains(o.Reason, "pushed") {
 		t.Errorf("pushed %v", o)
 	}
+	if o := out[fromRemote.Id]; !o.WorktreeRemoved || o.BranchKept {
+		t.Errorf("an untouched branch with an upstream from its base: %v", o)
+	}
 	if o := out[gone.Id]; !o.WorktreeRemoved || o.BranchKept {
 		t.Errorf("the exited agent's %v", o)
 	}
@@ -360,6 +377,10 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: dirty.Id})); code(err) != connect.CodeFailedPrecondition ||
 		!strings.Contains(err.Error(), "closed") {
 		t.Errorf("a resume in a stopped run: %v", err)
+	}
+	if msg, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: dirty.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "late"})); err != nil ||
+		msg.Msg.Resumed != nil || !strings.Contains(msg.Msg.ResumeError, "closed") {
+		t.Errorf("a message to a stopped run's agent: %v, %v", msg, err)
 	}
 	evs, _ := w.d.Store().Read(ctx).EventsAfter(0, run.Id, 1000)
 	stopped := 0
@@ -372,7 +393,7 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 		t.Errorf("%d RunStopped events", stopped)
 	}
 	// A retry of the same call is its stored answer, and stopping again with a new id changes nothing more.
-	if again, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-1"), RunId: run.Id})); err != nil || len(again.Msg.Retired) != 5 {
+	if again, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-1"), RunId: run.Id})); err != nil || len(again.Msg.Retired) != 6 {
 		t.Errorf("the retry: %v, %v", again, err)
 	}
 	if again, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-2"), RunId: run.Id})); err != nil || len(again.Msg.Retired) != 0 {
@@ -425,12 +446,17 @@ func TestTheAgentCapRefusesWhatWouldPassIt(t *testing.T) {
 	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: a.Id})); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("a resume at the cap: %v", err)
 	}
-	before, _ := w.d.Store().Read(ctx).Inbox(a.Id, true)
-	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "wake up"})); code(err) != connect.CodeResourceExhausted {
-		t.Errorf("a message at the cap: %v", err)
+	// A message that can't resume it at the cap is stored all the same (a report to a retired parent must not be
+	// lost to the cap), with the reason, and the agent stays stopped.
+	msg, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "wake up"}))
+	if err != nil || msg.Msg.Resumed != nil || !strings.Contains(msg.Msg.ResumeError, "caps.agents 2") {
+		t.Fatalf("a message at the cap: %v, %v", msg, err)
 	}
-	if after, _ := w.d.Store().Read(ctx).Inbox(a.Id, true); len(after) != len(before) {
-		t.Errorf("a refused message was stored")
+	if stored, _ := w.d.Store().Read(ctx).Inbox(a.Id, true); len(stored) != 1 || stored[0].Id != msg.Msg.Message.Id {
+		t.Errorf("the message was not stored: %v", stored)
+	}
+	if w.agent(a.Id).State != v1.AgentState_AGENT_STATE_RETIRED {
+		t.Errorf("the agent was resumed past the cap")
 	}
 	// A pending resume counts: with one cap slot left it takes it, and the next is refused.
 	w.waitState(c.Id, v1.AgentState_AGENT_STATE_IDLE)
@@ -588,5 +614,37 @@ func TestTheMemoryGuardRefusesALaunchUnderTheFloorOrUnderPressure(t *testing.T) 
 		if got := w.agent(a.Id); got.State != v1.AgentState_AGENT_STATE_RETIRED {
 			w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 		}
+	}
+}
+
+// A resume that fails after the guard passed must not keep its 400 MB reservation, or a few bad requests would
+// make real launches read the machine as full.
+func TestAFailedResumeGivesItsMemoryReservationBack(t *testing.T) {
+	dir := t.TempDir()
+	mem := writeProc(t, dir, "meminfo", meminfoText(2000, 0, 16000, 4000))
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.MeminfoPath = mem })
+	ctx := context.Background()
+	w.set(t, "min_free_mb", 0) // the guard is off while these start, so they hold no reservation
+	run := startRun(t, w.device.Mesh, "")
+	var retired []*v1.Agent
+	for _, slug := range []string{"a", "b", "c"} {
+		a := w.spawn(run.Id, gitRepo(t), slug, "")
+		w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+		if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+			t.Fatal(err)
+		}
+		retired = append(retired, a)
+	}
+	w.set(t, "min_free_mb", 1000)
+	for _, a := range retired { // each passes the guard and then fails on its tier
+		if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: a.Id,
+			Task: "x", Plan: true, Tier: "huge"})); code(err) != connect.CodeInvalidArgument {
+			t.Fatalf("%s: %v", a.Name, err)
+		}
+	}
+	// 2000 free over a 1000 floor: three leaked reservations would read 800.
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id, Repo: gitRepo(t),
+		Slug: "next", Tier: "mid"})); err != nil {
+		t.Errorf("a spawn after three failed resumes: %v", err)
 	}
 }

@@ -681,7 +681,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		}
 	}
 	// The cap, early, before a worktree is made for nothing; the launch checks it again where it is stored.
-	if err := d.capGuard(r, "an agent in "+m.Repo); err != nil {
+	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(m.Repo) == "" {
@@ -751,7 +751,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	agent.SessionId = plan.SessionId
 	out := &v1.SpawnAgentResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSpawnAgentProcedure, out, func(tx *store.Tx) error {
-		if err := d.mayLaunch(tx.Reader, "agent "+name); err != nil {
+		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
 			return err
 		}
 		if err := tx.PutAgent(agent); err != nil {
@@ -780,6 +780,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		return nil
 	})
 	if err != nil {
+		d.rt.guard.release(agent.Id)
 		cleanup()
 		return nil, err
 	}
@@ -787,6 +788,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err != nil {
 		d.log.Error("launch failed", "agent", name, "err", err)
 		d.failLaunch(ctx, actor, m.Meta.GetMutationId(), agent, err)
+		d.rt.guard.release(agent.Id)
 		cleanup()
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("launching %s: %w", name, err))
 	}

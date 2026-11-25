@@ -31,8 +31,17 @@ const (
 
 // guard is the memory reservations and the lock that keeps a check and its reservation together.
 type guard struct {
-	mu       sync.Mutex
-	reserved []time.Time
+	mu sync.Mutex
+	// reserved is when each agent being launched was reserved for, by agent id: one agent holds one reservation
+	// however often its launch is tried, and a launch that fails releases it.
+	reserved map[string]time.Time
+}
+
+// release gives back an agent's reservation (its launch failed after the guard passed).
+func (g *guard) release(agentID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.reserved, agentID)
 }
 
 func exhausted(format string, args ...any) error {
@@ -45,15 +54,16 @@ func hasProcess(a *v1.Agent) bool {
 	return !stopped(a) || a.PendingReopen != nil
 }
 
-// liveAgents counts the agent processes of every run.
-func liveAgents(r store.Reader) (int, error) {
+// liveAgents counts the agent processes of every run, except the agent named (the one being resumed: it adds one
+// process, however many reopens it has pending).
+func liveAgents(r store.Reader, except string) (int, error) {
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, a := range agents {
-		if hasProcess(a) {
+		if a.Id != except && hasProcess(a) {
 			n++
 		}
 	}
@@ -62,7 +72,7 @@ func liveAgents(r store.Reader) (int, error) {
 
 // capGuard refuses a launch that would add an agent process past the cap (`caps.agents`; agents still starting
 // count, so a burst of spawns can't all pass).
-func (d *Daemon) capGuard(r store.Reader, what string) error {
+func (d *Daemon) capGuard(r store.Reader, what, except string) error {
 	capV, err := d.Setting(r, "caps.agents")
 	if err != nil {
 		return err
@@ -71,7 +81,7 @@ func (d *Daemon) capGuard(r store.Reader, what string) error {
 	if limit <= 0 {
 		return nil
 	}
-	n, err := liveAgents(r)
+	n, err := liveAgents(r, except)
 	if err != nil {
 		return err
 	}
@@ -86,11 +96,11 @@ func (d *Daemon) capGuard(r store.Reader, what string) error {
 // mayLaunch is capGuard and the memory guard, for a launch that adds a process: a spawn, a resume. Called inside
 // the write that stores the new agent or its reopen, where the store's one writer makes the count and the
 // record one step: two launches can't both read the cap with room left.
-func (d *Daemon) mayLaunch(r store.Reader, what string) error {
-	if err := d.capGuard(r, what); err != nil {
+func (d *Daemon) mayLaunch(r store.Reader, what, agentID string) error {
+	if err := d.capGuard(r, what, agentID); err != nil {
 		return err
 	}
-	return d.memoryGuard(r, what)
+	return d.memoryGuard(r, what, agentID)
 }
 
 // memInfo reads /proc/meminfo (or the configured file) in kB by field; nil where it can't be read.
@@ -147,8 +157,8 @@ func (d *Daemon) memoryPressure() (float64, bool) {
 // memoryGuard refuses a launch while memory plus swap is under the floor (`min_free_mb`: MB, "auto", or 0 for
 // off) or while the memory pressure is over `memory_pressure_max`: with a large swap, memory plus swap stays
 // over the floor long after the machine has started thrashing. A launch that passes reserves AgentMB for
-// ReserveFor.
-func (d *Daemon) memoryGuard(r store.Reader, what string) error {
+// ReserveFor, under its agent's id.
+func (d *Daemon) memoryGuard(r store.Reader, what, agentID string) error {
 	pmax, err := d.Setting(r, "memory_pressure_max")
 	if err != nil {
 		return err
@@ -183,23 +193,28 @@ func (d *Daemon) memoryGuard(r store.Reader, what string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	now := d.now()
-	held := g.reserved[:0]
-	for _, t := range g.reserved {
-		if now.Sub(t) < ReserveFor {
-			held = append(held, t)
+	if g.reserved == nil {
+		g.reserved = map[string]time.Time{}
+	}
+	held := 0
+	for id, t := range g.reserved {
+		switch {
+		case now.Sub(t) >= ReserveFor:
+			delete(g.reserved, id)
+		case id != agentID:
+			held++
 		}
 	}
-	g.reserved = held
-	free := (info["MemAvailable"]+info["SwapFree"])/1024 - int64(len(held))*AgentMB
+	free := (info["MemAvailable"]+info["SwapFree"])/1024 - int64(held)*AgentMB
 	if free < floor {
 		starting := ""
-		if len(held) > 0 {
-			starting = fmt.Sprintf(", %d agent(s) still starting", len(held))
+		if held > 0 {
+			starting = fmt.Sprintf(", %d agent(s) still starting", held)
 		}
 		return exhausted("not starting %s: %d MB of memory and swap left%s, under the %d MB floor (min_free_mb). Retire "+
 			"agents that have reported and stop leftover dev servers, then try again, or lower `min_free_mb` (0 turns the "+
 			"guard off)", what, max(free, 0), starting, floor)
 	}
-	g.reserved = append(g.reserved, now)
+	g.reserved[agentID] = now
 	return nil
 }

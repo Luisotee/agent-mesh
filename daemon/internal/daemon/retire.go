@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -118,6 +119,9 @@ const retireQuiet = 10 * time.Second
 // newest report since its last task or answer isn't done or failed (a plan or question waits on its parent); or
 // one a client with input rights is attached to (the viewer rule: someone is looking).
 func (d *Daemon) retireIdle(ctx context.Context) {
+	if d.rt.term == nil {
+		return
+	}
 	r := d.store.Read(ctx)
 	v, err := d.Setting(r, "idle_retire")
 	if err != nil {
@@ -216,8 +220,20 @@ func (d *Daemon) autoRetire(ctx context.Context, agentID, reportID string) error
 // the branch has a commit of its own or an upstream; a worktree with uncommitted changes stays, with its branch.
 func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
 	out := &v1.StopRunResponse{}
+	// Every agent of the run is locked first, in id order, so a reopen or a doorbell in flight finishes before the
+	// run is closed, and none starts after (the reopen finds its request dropped).
+	before, err := d.store.Read(ctx).ListAgents(req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(before, func(i, j int) bool { return before[i].Id < before[j].Id })
+	for _, a := range before {
+		mu := d.agentLock(a.Id)
+		mu.Lock()
+		defer mu.Unlock()
+	}
 	var agents []*v1.Agent
-	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopRunProcedure, out, func(tx *store.Tx) error {
+	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopRunProcedure, out, func(tx *store.Tx) error {
 		run, err := tx.GetRun(req.Msg.RunId)
 		if errors.Is(err, store.ErrNotFound) {
 			return notFound("no run %q", req.Msg.RunId)
@@ -254,19 +270,22 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	if err != nil {
 		return nil, err
 	}
-	// Outside the transaction: stopping a process waits for it. Each under its agent's lock, so a reopen or a
-	// doorbell in flight finishes first.
+	// Outside the transaction: stopping a process waits for it.
+	notStopped := map[string]string{}
 	for _, a := range agents {
-		mu := d.agentLock(a.Id)
-		mu.Lock()
-		err := d.finishRetire(ctx, a.Id)
-		mu.Unlock()
-		if err != nil {
+		if err := d.finishRetire(ctx, a.Id); err != nil {
 			d.log.Warn("stopping an agent of a stopped run", "agent", a.Name, "err", err)
+			notStopped[a.Id] = err.Error()
 		}
 	}
-	// A replayed call has no agents: its stored response already says what happened.
+	// A replayed call has no agents: its stored response already says what happened (without the worktrees, which
+	// are only reported by the call that removed them).
 	for _, a := range agents {
+		if why, bad := notStopped[a.Id]; bad {
+			out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch,
+				BranchKept: true, Reason: "its process could not be stopped, so its worktree stays: " + firstLine(why)})
+			continue
+		}
 		out.Worktrees = append(out.Worktrees, d.removeWorktree(ctx, a))
 	}
 	return connect.NewResponse(out), nil
@@ -313,12 +332,11 @@ func (d *Daemon) removeWorktree(ctx context.Context, a *v1.Agent) *v1.WorktreeOu
 	return o
 }
 
-// branchHasWork reports whether a branch is worth keeping: a commit no other ref has (its own work), or an
-// upstream or a remote branch of its name (it was pushed, so it may back a PR).
+// branchHasWork reports whether a branch is worth keeping: a commit no other ref has (its own work), or a remote
+// branch of its name (it was pushed, so it may back a PR).
 func branchHasWork(ctx context.Context, repo, branch string) (bool, string) {
-	if _, err := git(ctx, repo, "rev-parse", "--abbrev-ref", branch+"@{upstream}"); err == nil {
-		return true, "its branch has an upstream: kept"
-	}
+	// A remote branch of its name means it was pushed. (Not "has an upstream": a worktree started from origin/main
+	// has that one for free.)
 	if refs, err := git(ctx, repo, "for-each-ref", "--format=%(refname)", "refs/remotes/*/"+branch); err == nil && refs != "" {
 		return true, "its branch was pushed: kept"
 	}

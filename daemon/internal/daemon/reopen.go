@@ -546,9 +546,18 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	if run, err := tx.GetRun(a.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", a.RunId)
 	}
-	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name); err != nil {
+	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
 		return nil, err
 	}
+	rv, err := d.reviveAs(tx, a, spec)
+	if err != nil {
+		d.rt.guard.release(a.Id) // the guard passed but nothing was requested
+	}
+	return rv, err
+}
+
+// reviveAs is revive past its guards.
+func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
 	model, effort, deny := target(a)
 	var err error
 	switch {
