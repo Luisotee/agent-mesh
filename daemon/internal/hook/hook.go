@@ -37,6 +37,9 @@ type Options struct {
 	Event    string
 	Stdin    io.Reader
 	Now      func() time.Time
+	// CaptureDir, when set, also saves each hook's raw payload there, numbered in order, for the fixtures
+	// (daemon/scripts/capture-claude-hooks.sh). Never set by the daemon: only a person capturing sets it.
+	CaptureDir string
 	// DialTimeout and CallTimeout bound how long a down daemon holds the CLI up.
 	DialTimeout time.Duration
 	CallTimeout time.Duration
@@ -57,6 +60,11 @@ func Run(o Options) error {
 	payload, err := io.ReadAll(io.LimitReader(o.Stdin, MaxPayload))
 	if err != nil {
 		return err
+	}
+	if o.CaptureDir != "" {
+		if err := capture(o.CaptureDir, o.Event, payload, o.Now()); err != nil {
+			return fmt.Errorf("capturing the payload: %w", err)
+		}
 	}
 	req := &v1.ReportHookRequest{Meta: &v1.RequestMeta{MutationId: "hook-" + uuid.NewString()}, Kind: o.Kind,
 		EventName: o.Event, Payload: payload, FiredAt: timestamppb.New(o.Now())}
@@ -90,6 +98,15 @@ func Run(o Options) error {
 		return fmt.Errorf("the daemon refused the hook: %w", err)
 	}
 	return nil
+}
+
+// capture saves a raw payload as `<unix nanos>-<event>.json`: named by time, so the order of firing is the order
+// of the names.
+func capture(dir, event string, payload []byte, now time.Time) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, fmt.Sprintf("%020d-%s.json", now.UnixNano(), event)), payload, 0o600)
 }
 
 // Retryable reports whether a failed report should wait in the spool: the daemon was unreachable or didn't

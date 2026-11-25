@@ -11,6 +11,9 @@
 //	              Stop
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
+//
+// With $FAKECLAUDE_PLACEHOLDER set it draws Claude Code's empty-box placeholder after its prompt, as the real one
+// does at a fresh pane: text that looks like a draft to anything reading the screen.
 package main
 
 import (
@@ -117,7 +120,13 @@ func main() {
 	}
 }
 
-func prompt() { fmt.Print("> ") }
+func prompt() {
+	fmt.Print("> ")
+	if os.Getenv("FAKECLAUDE_PLACEHOLDER") != "" {
+		// Dim text, then the cursor back to the start of it, as the TUI draws a placeholder.
+		fmt.Print("\x1b[2mTry \"fix lint errors\"\x1b[22m\x1b[20D")
+	}
+}
 
 // hook runs every command registered for an event, with its JSON on stdin, as Claude Code does.
 func hook(event string, fields map[string]any) {
