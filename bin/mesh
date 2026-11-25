@@ -2108,6 +2108,68 @@ def live_agent_names() -> set[str]:
     return {a["name"] for a in herdr("agent", "list").get("agents", []) if a.get("name")}
 
 
+def recorded_agents(skip_pane: str | None = None) -> list[tuple[str, str, dict]]:
+    """(run, name, entry) of every agent with a pane that a live run's run.json records and hasn't retired, but
+    the one in `skip_pane`. What mesh itself knows, whatever herdr's list says (it can lose a live agent's
+    registration, and a rename takes a held name from its holder)."""
+    found = []
+    for path in sorted(mesh_home().glob("*/run.json")):
+        try:
+            agents = json.loads(path.read_text()).get("agents") or {}
+            found += [(path.parent.name, name, entry) for name, entry in agents.items()
+                      if isinstance(entry, dict) and entry.get("pane") and entry["pane"] != skip_pane
+                      and entry.get("status") != "retired"]
+        except (OSError, ValueError, AttributeError):
+            continue  # unreadable, or not a run
+    return found
+
+
+def claimed_names(skip_pane: str | None = None, listed: list[dict] | None = None) -> set[str]:
+    """The names a new agent can't take: herdr's live ones, and those recorded for an agent of any live run whose
+    pane still exists (all of them when herdr can't list its panes: a name is never freed on a guess).
+    `skip_pane` is the agent being named, `listed` herdr's agent list when the caller has read it."""
+    if listed is None:
+        listed = herdr("agent", "list").get("agents", [])
+    names = {a["name"] for a in listed if a.get("name")}
+    recorded = recorded_agents(skip_pane)
+    if recorded:
+        try:
+            open_panes = {p.get("pane_id") for p in herdr("pane", "list").get("panes", [])}
+        except (HerdrError, MeshError):
+            open_panes = None
+        names |= {name for _, name, entry in recorded if open_panes is None or entry["pane"] in open_panes}
+    return names
+
+
+def herdr_targets(name: str, entry: dict) -> list[str]:
+    """What to address an agent by in herdr, best first: its name, then its pane id. A name herdr has moved to
+    another pane (a rename takes a held name from its holder) isn't the agent's: its own pane id stands in while
+    that is a live agent, and with it gone the name still stands unless it is recorded as another agent's pane
+    (a herdr restore changes pane ids and keeps names). Empty: nothing reaches the agent."""
+    pane = entry.get("pane")
+    targets = [name] + ([pane] if pane else [])
+    if not pane:
+        return targets
+    try:
+        holder = (herdr("agent", "get", name).get("agent") or {}).get("pane_id")
+    except HerdrError:
+        return targets
+    if not holder or holder == pane:
+        return targets
+    try:
+        herdr("agent", "get", pane)
+        return [pane]
+    except HerdrError:
+        pass
+    return [] if any(e["pane"] == holder for _, _, e in recorded_agents(pane)) else targets
+
+
+def wait_target(name: str, entry: dict) -> str:
+    """The herdr target to wait on for this agent: `herdr_targets`' first, else its pane (which herdr then
+    doesn't find) rather than a name that is another agent's."""
+    return next(iter(herdr_targets(name, entry)), entry.get("pane") or name)
+
+
 def repo_name(path: str | None) -> str:
     if not path:
         return "agent"
@@ -4703,7 +4765,16 @@ def ring_stored(run_id: str, sender: str, to: str, targets: list[str], text: str
 
     The event has no `type` field: a ring is never counted as a send.
     """
-    kind = (((maybe_run(run_id) or {}).get("agents") or {}).get(to) or {}).get("kind")
+    entry = ((maybe_run(run_id) or {}).get("agents") or {}).get(to) or {}
+    kind = entry.get("kind")
+    if entry.get("pane") and targets[:1] == [to]:  # the name may have moved to another run's pane
+        found = herdr_targets(to, entry)
+        if found != targets:
+            log_event(run_id, "name_taken", name=to, pane=entry["pane"], rung=found[0] if found else None)
+            targets = found
+        if not targets:
+            log_event(run_id, "doorbell_failed", sender=sender, to=to, file=path.name, error="name_taken", tries=0)
+            return {"rung": False, "error": "name_taken", "via": None, "tries": 0}
     result = ring(targets, text, token, read=read or (path,), delays=delays, kind=kind)
     if result["rung"]:
         log_event(run_id, "rung", sender=sender, to=to, file=path.name, via=result["via"], tries=result["tries"])
@@ -5637,7 +5708,7 @@ def init_run(mode: str | None, request: str | None, run_id: str | None = None) -
     require_cli(mode, f"mode {mode}")
     inbox = claude_process() if me.get("agent") == "claude" else {"address": None}
     # A root you already named keeps its name; otherwise it becomes `<repo>-lead`.
-    name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", {a["name"] for a in agents if a.get("name")})
+    name = me.get("name") or agent_name(repo_name(me.get("cwd")), "lead", claimed_names(pane, agents))
     if name != me.get("name"):
         herdr("agent", "rename", pane, name)
     run = {
@@ -5737,7 +5808,7 @@ def spawn_worker(args: argparse.Namespace, run_id: str, me: str) -> dict:
 def start_worker(args: argparse.Namespace, run_id: str, me: str, held: list[str | None]) -> dict:
     repo_top = resolve_repo(args.repo)
     run = load_run(run_id)
-    taken = set(run["agents"]) | live_agent_names()
+    taken = set(run["agents"]) | claimed_names()
     name = getattr(args, "agent", None) or agent_name(repo_top.name, spawn_suffix(args, run), taken)
     if getattr(args, "agent", None) and name in taken:
         raise MeshError(f"{name} is taken in this run or by a live agent")
@@ -6140,8 +6211,8 @@ def swap_model(run_id: str, name: str, model: str, effort: str, why: str, wait_m
             moved = record(run_id, message[0], name, message[1], message[2])
     else:
         try:  # never cut a turn short: the conversation is only safe to reopen between turns
-            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(wait_ms),
-                  timeout=wait_ms / 1000 + 10)
+            herdr("agent", "wait", wait_target(name, entry), "--until", "idle", "--until", "done", "--timeout",
+                  str(wait_ms), timeout=wait_ms / 1000 + 10)
         except HerdrError as exc:
             if exc.code == "agent_not_found" and not lost_ok:
                 raise SwapNotStarted(f"herdr doesn't know {name}, so its turn can't be waited for") from exc
@@ -6912,7 +6983,11 @@ def agent_status(name: str, entry: dict | None = None, bg_rows: list[dict] | Non
     if entry and entry.get("view") == HEADLESS:  # a Copilot asker from before design §22: closed
         return "gone"
     try:
-        return herdr("agent", "get", name)["agent"].get("agent_status", "unknown")
+        agent = herdr("agent", "get", name)["agent"]
+        if entry and entry.get("pane") and agent.get("pane_id") not in (None, entry["pane"]):  # another's name
+            target = wait_target(name, entry)
+            agent = herdr("agent", "get", target)["agent"] if target != name else agent
+        return agent.get("agent_status", "unknown")
     except HerdrError as exc:
         if exc.code == "agent_not_found":
             return "unknown" if entry and pane_probe(entry.get("pane"), entry.get("kind")) == "alive" else "gone"
@@ -8553,8 +8628,8 @@ def retire_worker(run_id: str, name: str, entry: dict, still=None) -> bool:
                 raise MeshError(f"couldn't stop {name}'s background session {entry['bg_id']}")
         elif entry.get("pane"):  # none if its pane never opened
             try:  # let it end the turn it reported in, so its conversation is saved whole (as in swap_model)
-                herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", str(RETIRE_WAIT_MS),
-                      timeout=RETIRE_WAIT_MS / 1000 + 10)
+                herdr("agent", "wait", wait_target(name, entry), "--until", "idle", "--until", "done", "--timeout",
+                      str(RETIRE_WAIT_MS), timeout=RETIRE_WAIT_MS / 1000 + 10)
             except HerdrError:
                 pass  # gone already, or still busy: close it anyway
             try:
@@ -9452,7 +9527,7 @@ def reopen_worker(args: argparse.Namespace, run_id: str, me: str, started: list[
     view = background_view(view, named_bg, root, notes, "reopening in")  # before any side effect
     # A peer's worktree is detached: an adopted one's old run branch (still in that run's list) is long gone.
     branch = None if peer_name else entry_branch(old_run, old)
-    taken = live_agent_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
+    taken = claimed_names() | (set(current["agents"]) - ({old_name} if old_run["id"] == run_id else set()))
     name, n = old_name, 2
     while name in taken:
         name, n = f"{old_name[:29]}-{n}", n + 1
