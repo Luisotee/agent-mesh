@@ -249,16 +249,25 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if to.Id != self.ParentId && to.ParentId != self.Id {
 				return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
 			}
-			// A plan from an agent with no plan phase (a direct task that turned out to need one) enters one, so
-			// approving it moves it to an execution tier. It plans on the model it is on: nothing reopens it to
-			// add the deny list (design §9). A named model covers the whole task: it never gets the phase.
+			// A plan from an agent with no plan phase (a direct task that turned out to need one, or an approved one
+			// given a follow-up) enters one, so approving it moves it to an execution tier. It plans on the model
+			// it is on: nothing reopens it to add the deny list (design §9). A named model covers the whole task:
+			// it never gets the phase.
 			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_PLAN && to.Id == self.ParentId && !self.Pinned &&
-				self.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED {
-				self.ExecTier = ""
+				(self.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || self.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING) {
+				endExecution(self)
 				if err := setPhase(t, self, v1.AgentPhase_AGENT_PHASE_PLANNING, "plan sent"); err != nil {
 					return err
 				}
 				if err := t.PutAgent(self); err != nil {
+					return err
+				}
+			}
+			// A task from the parent is a direct one: a plan phase it was in ends, and the planning deny list goes
+			// (by a reopen, since it can't change in a running process) unless the role is read-only. A later plan
+			// enters a phase again. A task with a plan phase starts with resume --plan.
+			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.ParentId == self.Id {
+				if err := d.directTask(t, to); err != nil {
 					return err
 				}
 			}

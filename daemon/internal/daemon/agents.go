@@ -31,6 +31,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/reducer"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
@@ -102,7 +103,8 @@ type runtime struct {
 	mu         sync.Mutex
 	lastOutput map[string]time.Time // terminal id → newest output mark
 	tickets    map[string]ticket
-	delivering map[string]*sync.Mutex
+	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -126,7 +128,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		return nil, err
 	}
 	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, tickets: map[string]ticket{},
-		delivering: map[string]*sync.Mutex{}}, nil
+		delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.
@@ -261,6 +263,13 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		if p := a.PendingReopen; p != nil && p.Id != reopenID {
 			replaced = true
 			if a.TerminalId != terminalID {
+				// A reopen's new process that died before its terminal was recorded, its reopen replaced:
+				// finishReopen must not record it.
+				d.rt.mu.Lock()
+				if _, ok := d.rt.launching[reopenID]; ok && a.TerminalId == "" {
+					d.rt.launching[reopenID] = true
+				}
+				d.rt.mu.Unlock()
 				return nil
 			}
 			a.TerminalId = "" // its process is gone: the reopen needn't wait for it to be idle
@@ -587,10 +596,19 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !slugRE.MatchString(m.Slug) {
 		return nil, invalid("slug %q: lowercase letters, digits and dashes", m.Slug)
 	}
-	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier).
-	model, effort, err := d.pick(d.store.Read(ctx), kind, m.Tier, m.Model, m.Effort, "the agent")
-	if err != nil {
-		return nil, err
+	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
+	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
+	var model, effort string
+	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
+		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
+			// An effort alone: the CLI's default model at that effort.
+			if !validEffort(m.Effort) {
+				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
+			}
+			effort = m.Effort
+		} else if model, effort, err = d.pick(d.store.Read(ctx), kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
+			return nil, err
+		}
 	}
 	if m.ExecTier != "" {
 		if !m.Plan {
@@ -669,7 +687,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	now := d.now()
 	agent := &v1.Agent{Id: ids.New("a", 10), RunId: runID, Name: name, Role: role, ParentId: parent, Kind: kind,
-		Repo: top, Worktree: worktree, Branch: branch, Model: model, Effort: effort, Tier: m.Tier,
+		Repo: top, Worktree: worktree, Branch: branch, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
 		DenyEdits: m.Plan || claude.ReadOnly(role),
@@ -1134,4 +1152,12 @@ func lookPath(name, pathList string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// spawnTier is the tier an agent is recorded on: none when a model is named, which has no chain to walk.
+func spawnTier(m *v1.SpawnAgentRequest) string {
+	if m.Model != "" {
+		return ""
+	}
+	return m.Tier
 }

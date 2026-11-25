@@ -33,6 +33,10 @@ import (
 // after its own grace).
 var StopWait = 15 * time.Second
 
+// launchedHook is a test seam: called once a reopen's terminal is started and before it is recorded, with a
+// function that kills that process and returns once its exit was seen.
+var launchedHook func(agentID string, die func())
+
 // namedEffort is the effort of a model named without one (bin/mesh's NAMED_EFFORT).
 const namedEffort = "high"
 
@@ -83,9 +87,15 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		if effort == "" {
 			effort = namedEffort
 			if tier != "" {
-				if _, e, err := d.tierChain(r, kind, tier); err == nil {
-					effort = e
+				_, e, err := d.tierChain(r, kind, tier)
+				if err != nil {
+					return "", "", err
 				}
+				effort = e
+			}
+		} else if tier != "" {
+			if _, _, err := d.tierChain(r, kind, tier); err != nil {
+				return "", "", err
 			}
 		}
 		return model, effort, nil
@@ -133,6 +143,50 @@ func setPhase(tx *store.Tx, a *v1.Agent, to v1.AgentPhase, why string) error {
 	_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentPhaseChanged{
 		AgentPhaseChanged: &v1.AgentPhaseChanged{From: from, To: to, Why: why}}})
 	return err
+}
+
+// endExecution settles an agent's tier when its execution phase ends (a new task, or a plan): the model it
+// runs on is its execution tier's, so that tier is the chain `switch --next` walks, never the planning tier's.
+func endExecution(a *v1.Agent) {
+	if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
+		a.Tier = a.ExecTier
+	}
+	a.ExecTier = ""
+}
+
+// endPlanPhase is a direct task: the plan phase, if any, is over (setPhase to UNSPECIFIED, with its tier settled).
+func endPlanPhase(tx *store.Tx, a *v1.Agent, why string) error {
+	endExecution(a)
+	return setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, why)
+}
+
+// directTask applies a task its parent sent to a child outside resume: the plan phase it was in ends, and the
+// planning deny list goes unless the role is read-only. A running process can't change its deny list, so that
+// is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
+func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
+	model, effort, deny := target(a)
+	lift := deny && !claude.ReadOnly(a.Role)
+	if a.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED && !lift {
+		return nil
+	}
+	if err := endPlanPhase(tx, a, "direct task"); err != nil {
+		return err
+	}
+	if lift {
+		switch {
+		case a.PendingReopen != nil || a.State != v1.AgentState_AGENT_STATE_EXITED:
+			if a.SessionId == "" {
+				return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened without its "+
+					"planning deny list: send the task again once it has started", a.Name)
+			}
+			if _, err := requestReopen(tx, a, model, effort, false, "direct task", ""); err != nil {
+				return err
+			}
+		default:
+			a.DenyEdits = false
+		}
+	}
+	return tx.PutAgent(a)
 }
 
 // requestReopen stores a reopen on the agent (replacing one not done yet), with its event. The caller stores the
@@ -235,8 +289,8 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		execTier := a.ExecTier
 		switch {
 		case !executes && (m.Tier != "" || m.Model != "" || m.Effort != "" || m.KeepModel):
-			return failedPrecondition("%s has no plan phase (a direct task, or a named model): approve it without a "+
-				"tier, model or effort, or switch it", a.Name)
+			return failedPrecondition("%s has no plan phase (it started on a named model or effort, which covers the "+
+				"whole task): approve it without a tier, model or effort, or switch it", a.Name)
 		case !executes:
 		case m.KeepModel:
 			// Executes on what it planned on; only the deny list goes, which still takes a reopen.
@@ -256,6 +310,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 				return err
 			}
 			execTier = tier
+			if m.Model != "" {
+				execTier = "" // a named model has no chain to walk
+			}
 		}
 		deny := claude.ReadOnly(a.Role) // the planning reason goes; a read-only role keeps its list
 		cm, ce, cd := target(a)
@@ -453,20 +510,29 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			if model, effort, err = d.pick(tx.Reader, a.Kind, tier, m.Model, m.Effort, a.Name+"'s planning"); err != nil {
 				return err
 			}
+			if m.Model != "" {
+				tier = "" // a named model has no chain to walk
+			}
 			a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
 			if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "planned task"); err != nil {
 				return err
 			}
 		case task != "":
+			// The phase ends: the chain `next` walks is the one of the tier it runs on (the execution tier, if it
+			// was executing), or none when the model is named.
+			endExecution(a)
 			if m.Tier != "" || m.Model != "" {
 				if model, effort, err = d.pick(tx.Reader, a.Kind, m.Tier, m.Model, m.Effort, a.Name); err != nil {
 					return err
 				}
 				a.Tier = m.Tier
+				if m.Model != "" {
+					a.Tier = ""
+				}
 			} else if m.Effort != "" {
 				effort = m.Effort
 			}
-			a.ExecTier, a.Pinned, deny = "", m.Model != "" || m.Effort != "", claude.ReadOnly(a.Role)
+			a.Pinned, deny = m.Model != "" || m.Effort != "", claude.ReadOnly(a.Role)
 			if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
 				return err
 			}
@@ -474,10 +540,14 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			if model, effort, err = d.pick(tx.Reader, a.Kind, m.Tier, m.Model, m.Effort, a.Name); err != nil {
 				return err
 			}
+			tier := m.Tier
+			if m.Model != "" {
+				tier = "" // a named model has no chain to walk
+			}
 			if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
-				a.ExecTier = m.Tier
+				a.ExecTier = tier
 			} else {
-				a.Tier = m.Tier
+				a.Tier = tier
 			}
 		case m.Effort != "":
 			effort = m.Effort
@@ -582,9 +652,32 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	if err != nil {
 		return d.dropReopen(ctx, a.Id, r, "planning the launch: "+err.Error())
 	}
+	// Registered before the process exists: if it dies at once while a newer request has replaced this one,
+	// recordExit marks it so finishReopen doesn't record a terminal that is already gone.
+	d.rt.mu.Lock()
+	d.rt.launching[r.Id] = false
+	d.rt.mu.Unlock()
+	defer func() {
+		d.rt.mu.Lock()
+		delete(d.rt.launching, r.Id)
+		d.rt.mu.Unlock()
+	}()
 	tid, err := d.startTerminal(ctx, next, token, plan, r.Id)
 	if err != nil {
 		return d.dropReopen(ctx, a.Id, r, "starting its terminal: "+err.Error())
+	}
+	if launchedHook != nil {
+		launchedHook(a.Id, func() {
+			d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: tid}))
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				d.rt.mu.Lock()
+				died := d.rt.launching[r.Id]
+				d.rt.mu.Unlock()
+				if died {
+					return
+				}
+			}
+		})
 	}
 	return d.finishReopen(ctx, a.Id, r, tid, plan)
 }
@@ -592,7 +685,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 // finishReopen records a reopen's new terminal: the agent starts again on the reopen's model, effort and deny
 // list. Also run at boot for a terminal a reopen started just before the daemon died.
 func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen, tid string, plan *adapterv1.PlanLaunchResponse) error {
-	stale := false
+	stale, died := false, false
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -604,6 +697,15 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 			}
 			stale = a.PendingReopen == nil // stopped meanwhile: the new process goes too
 			if stale {
+				return nil
+			}
+			// Replaced by a newer request, and the new process died at once: recordExit found no terminal to
+			// match and left a mark. Recording it would leave the agent starting on a process that is gone,
+			// and the newer reopen never run.
+			d.rt.mu.Lock()
+			died = d.rt.launching[r.Id]
+			d.rt.mu.Unlock()
+			if died {
 				return nil
 			}
 		} else {
@@ -621,9 +723,17 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 			AgentReopened: &v1.AgentReopened{Reopen: r, TerminalId: tid, SessionId: a.SessionId}}})
 		return err
 	})
+	if err != nil {
+		// Without its terminal recorded the agent would sit starting for good: give the reopen up (its event
+		// says why) before the process goes, so its exit isn't taken for the agent's own.
+		d.dropReopen(ctx, agentID, r, "recording its terminal: "+err.Error())
+	}
 	if err != nil || stale {
 		// A terminal no agent records would run on unseen.
 		d.rt.term.API.KillTerminal(context.Background(), connect.NewRequest(&termv1.KillTerminalRequest{Id: tid}))
+	}
+	if died {
+		d.deliverSoon(agentID) // the newer reopen runs now
 	}
 	return err
 }
