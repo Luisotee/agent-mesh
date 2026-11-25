@@ -16,6 +16,8 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `internal/adapter`: the CLI-adapter registry; `internal/adapter/claude`: Claude Code's adapter. `internal/reducer`: the pure state reducer. `internal/hook` and `cmd/meshctl`: the hook command and its spool. `internal/proc`: pids checked by start time.
 - `internal/testutil/fakeclaude`: the fake `claude` the tests run (it acts out turns and fires the hooks from its `--settings`).
 - `packaging/systemd/`: the two user units for production (shipped, not installed).
+- `cmd/meshctl`, `internal/cli`: the CLI, generated from the registry at run time.
+- `e2e/`: the end-to-end test of the real binaries (`TestEndToEnd`).
 
 ## Toolchain
 
@@ -43,6 +45,21 @@ daemon/bin/meshd --state "$state"            # socket at $state/meshd.sock, devi
 Every call needs a token. The host's own CLI uses the device token meshd writes on first start (`device.token`, mode 0600); each agent gets its own at spawn, in `AGENT_MESH_TOKEN`. The actor of every action comes from the token, never from the request. Requests that carry a browser's `Origin` or `Sec-Fetch-Site` header are refused, and `--tcp` binds loopback only. A token of an agent names its run and reads only that run; a token without one is not stored.
 
 A run is one trust domain for events for now: every agent of a run receives its run's events, so a reviewer or asker sees the bodies of the `MessageSent` events between the run's other agents, though it can send only to its parent and children. `TODO.md` tracks revisiting it.
+
+## meshctl
+
+Every action of the registry is a `meshctl` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text), `--json` gives the whole request, and the response prints as JSON (a stream as one object per line). Writes get a fresh mutation id unless `--mutation-id` is given. `meshctl help` lists the commands, `meshctl help <command>` its flags. Only `hook` and `version` are written by hand.
+
+```bash
+export AGENT_MESH_STATE=$state
+daemon/bin/meshctl start-run --title demo
+daemon/bin/meshctl spawn --run-id <run> --repo ~/projects/shop-api --slug fix-typo --task @task.md
+daemon/bin/meshctl agents --run-id <run>
+daemon/bin/meshctl send --to shop-api-fix-typo --type task --body "…"
+daemon/bin/meshctl events --run-id <run>                 # follow; resume with --cursor '{"generation":…,"seq":…}'
+```
+
+An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`meshctl inbox`, `meshctl send --to parent …`).
 
 ## Terminals
 

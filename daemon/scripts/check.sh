@@ -41,7 +41,7 @@ if [ -n "$(git -C "$repo" status --porcelain -- daemon/gen)" ]; then
 fi
 
 step "gofmt"
-unformatted=$(cd "$daemon_dir" && gofmt -l cmd internal)
+unformatted=$(cd "$daemon_dir" && gofmt -l cmd internal e2e)
 if [ -n "$unformatted" ]; then
   echo "$unformatted"
   echo "not gofmt'd: run 'gofmt -w' on these" >&2

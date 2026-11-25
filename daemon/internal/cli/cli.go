@@ -1,0 +1,379 @@
+// Package cli is meshctl's command line, derived from the action registry at run time: one command per
+// action (its `cli` name), one flag per request field, the response printed as JSON. Nothing here names an
+// action, so an action added to the schemas is a command with no code.
+package cli
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/client"
+	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+)
+
+// Env is what the CLI reads from its environment and files; tests replace it.
+type Env struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	Getenv func(string) string
+}
+
+// OSEnv is the process's own environment.
+func OSEnv() Env {
+	return Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv}
+}
+
+// Exit codes.
+const (
+	ExitOK    = 0
+	ExitError = 1 // the daemon refused or failed the call
+	ExitUsage = 2
+)
+
+// Main runs one command and returns its exit code. hand handles the hand-written commands (hook, version)
+// before the generated ones are looked at.
+func Main(args []string, env Env, hand map[string]func([]string) int) int {
+	reg, err := registry.Mesh()
+	if err != nil {
+		fmt.Fprintln(env.Stderr, "meshctl:", err)
+		return ExitError
+	}
+	global := flag.NewFlagSet("meshctl", flag.ContinueOnError)
+	global.SetOutput(env.Stderr)
+	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
+	global.Usage = func() { usage(env.Stderr, reg, hand) }
+	if err := global.Parse(args); err != nil {
+		return ExitUsage
+	}
+	rest := global.Args()
+	if len(rest) == 0 || rest[0] == "help" {
+		if len(rest) > 1 {
+			if a := find(reg, rest[1]); a != nil {
+				cmd := newCommand(a, env)
+				cmd.flags.Usage()
+				return ExitOK
+			}
+		}
+		usage(env.Stdout, reg, hand)
+		return ExitOK
+	}
+	if h, ok := hand[rest[0]]; ok {
+		return h(rest[1:])
+	}
+	a := find(reg, rest[0])
+	if a == nil {
+		fmt.Fprintf(env.Stderr, "meshctl: unknown command %q (meshctl help lists them)\n", rest[0])
+		return ExitUsage
+	}
+	cmd := newCommand(a, env)
+	req, err := cmd.parse(rest[1:])
+	if errors.Is(err, flag.ErrHelp) {
+		return ExitOK
+	}
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "meshctl %s: %v\n", a.CLI, err)
+		return ExitUsage
+	}
+	if *state == "" {
+		fmt.Fprintln(env.Stderr, "meshctl: give --state or $"+client.StateEnv)
+		return ExitUsage
+	}
+	tok := env.Getenv(client.TokenEnv)
+	if tok == "" {
+		if tok, err = client.Token(*state); err != nil {
+			fmt.Fprintln(env.Stderr, "meshctl:", err)
+			return ExitError
+		}
+	}
+	conn, err := client.Dial(*state, tok, client.Options{})
+	if err != nil {
+		fmt.Fprintln(env.Stderr, "meshctl:", err)
+		return ExitError
+	}
+	if err := call(context.Background(), conn, a, req, env.Stdout); err != nil {
+		fmt.Fprintf(env.Stderr, "meshctl %s: %v\n", a.CLI, err)
+		return ExitError
+	}
+	return ExitOK
+}
+
+func find(reg *registry.Registry, name string) *registry.Action {
+	for _, a := range reg.Actions() {
+		if a.CLI == name {
+			return a
+		}
+	}
+	return nil
+}
+
+func usage(w io.Writer, reg *registry.Registry, hand map[string]func([]string) int) {
+	fmt.Fprintln(w, "usage: meshctl [--state <dir>] <command> [flags]   (meshctl help <command> for its flags)")
+	fmt.Fprintln(w, "\ncommands:")
+	for _, a := range reg.Actions() {
+		fmt.Fprintf(w, "  %-14s %s\n", a.CLI, a.Summary)
+	}
+	names := make([]string, 0, len(hand))
+	for n := range hand {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(w, "  %-14s\n", n)
+	}
+}
+
+// command is one action's flag set over a dynamic request message.
+type command struct {
+	action *registry.Action
+	flags  *flag.FlagSet
+	req    *dynamicpb.Message
+	env    Env
+	// meta: the write's mutation id and expiry, filled in unless given.
+	mutationID string
+	expiresIn  time.Duration
+	whole      string
+}
+
+// FlagName is a field's flag: its proto name in kebab case.
+func FlagName(f protoreflect.FieldDescriptor) string {
+	return strings.ReplaceAll(string(f.Name()), "_", "-")
+}
+
+func newCommand(a *registry.Action, env Env) *command {
+	c := &command{action: a, req: dynamicpb.NewMessage(a.Method.Input()), env: env,
+		flags: flag.NewFlagSet("meshctl "+a.CLI, flag.ContinueOnError)}
+	c.flags.SetOutput(env.Stderr)
+	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON (flags given after it override its fields)")
+	fields := a.Method.Input().Fields()
+	for i := 0; i < fields.Len(); i++ {
+		f := fields.Get(i)
+		if a.Write && f.Name() == "meta" && f.Kind() == protoreflect.MessageKind {
+			c.flags.StringVar(&c.mutationID, "mutation-id", "", "the write's id: a retry with the same id runs once (default: a new one)")
+			c.flags.DurationVar(&c.expiresIn, "expires-in", 0, "refuse the write if it reaches the daemon later than this")
+			continue
+		}
+		c.flags.Func(FlagName(f), describe(f), func(v string) error { return c.set(f, v) })
+	}
+	c.flags.Usage = func() {
+		fmt.Fprintf(env.Stderr, "usage: meshctl %s [flags]\n  %s\n", a.CLI, a.Summary)
+		c.flags.PrintDefaults()
+	}
+	return c
+}
+
+func describe(f protoreflect.FieldDescriptor) string {
+	var kind string
+	switch {
+	case f.Enum() != nil:
+		vals := f.Enum().Values()
+		names := make([]string, 0, vals.Len())
+		for i := 1; i < vals.Len(); i++ {
+			names = append(names, enumShort(f.Enum(), vals.Get(i)))
+		}
+		kind = "one of " + strings.Join(names, ", ")
+	case f.Kind() == protoreflect.MessageKind:
+		kind = "JSON " + string(f.Message().Name())
+	case f.Kind() == protoreflect.BoolKind:
+		kind = "true or false"
+	case f.Kind() == protoreflect.StringKind || f.Kind() == protoreflect.BytesKind:
+		kind = "text; @file reads a file, @- stdin"
+	default:
+		kind = f.Kind().String()
+	}
+	if f.IsList() {
+		kind += " (repeatable)"
+	}
+	return kind
+}
+
+// enumShort is an enum value's name without its type prefix, lowercased: AGENT_ROLE_WORKER → worker.
+func enumShort(e protoreflect.EnumDescriptor, v protoreflect.EnumValueDescriptor) string {
+	prefix := strings.ToUpper(strings.ReplaceAll(registry.Kebab(string(e.Name())), "-", "_")) + "_"
+	return strings.ToLower(strings.TrimPrefix(string(v.Name()), prefix))
+}
+
+func (c *command) text(v string) (string, error) {
+	if !strings.HasPrefix(v, "@") {
+		return v, nil
+	}
+	var b []byte
+	var err error
+	if v == "@-" {
+		b, err = io.ReadAll(c.env.Stdin)
+	} else {
+		b, err = os.ReadFile(v[1:])
+	}
+	return string(b), err
+}
+
+func (c *command) value(f protoreflect.FieldDescriptor, v string) (protoreflect.Value, error) {
+	switch f.Kind() {
+	case protoreflect.StringKind:
+		s, err := c.text(v)
+		return protoreflect.ValueOfString(s), err
+	case protoreflect.BytesKind:
+		s, err := c.text(v)
+		return protoreflect.ValueOfBytes([]byte(s)), err
+	case protoreflect.BoolKind:
+		b, err := strconv.ParseBool(v)
+		return protoreflect.ValueOfBool(b), err
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		n, err := strconv.ParseInt(v, 10, 32)
+		return protoreflect.ValueOfInt32(int32(n)), err
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		n, err := strconv.ParseInt(v, 10, 64)
+		return protoreflect.ValueOfInt64(n), err
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		n, err := strconv.ParseUint(v, 10, 32)
+		return protoreflect.ValueOfUint32(uint32(n)), err
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		n, err := strconv.ParseUint(v, 10, 64)
+		return protoreflect.ValueOfUint64(n), err
+	case protoreflect.EnumKind:
+		vals := f.Enum().Values()
+		for i := 0; i < vals.Len(); i++ {
+			ev := vals.Get(i)
+			if strings.EqualFold(v, string(ev.Name())) || strings.EqualFold(v, enumShort(f.Enum(), ev)) {
+				return protoreflect.ValueOfEnum(ev.Number()), nil
+			}
+		}
+		return protoreflect.Value{}, fmt.Errorf("%q is not one of: %s", v, describe(f))
+	case protoreflect.MessageKind:
+		m := dynamicpb.NewMessage(f.Message())
+		if err := protojson.Unmarshal([]byte(v), m); err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfMessage(m), nil
+	}
+	return protoreflect.Value{}, fmt.Errorf("fields of kind %s can only be set with --json", f.Kind())
+}
+
+func (c *command) set(f protoreflect.FieldDescriptor, v string) error {
+	val, err := c.value(f, v)
+	if err != nil {
+		return err
+	}
+	if f.IsList() {
+		c.req.Mutable(f).List().Append(val)
+	} else {
+		c.req.Set(f, val)
+	}
+	return nil
+}
+
+// parse reads the flags into the request. --json comes first whatever its position, so flags refine it.
+func (c *command) parse(args []string) (*dynamicpb.Message, error) {
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, "--json="); ok {
+			c.whole = v
+		} else if (a == "--json" || a == "-json") && i+1 < len(args) {
+			c.whole = args[i+1]
+		}
+	}
+	if c.whole != "" {
+		if err := protojson.Unmarshal([]byte(c.whole), c.req); err != nil {
+			return nil, fmt.Errorf("--json: %w", err)
+		}
+	}
+	if err := c.flags.Parse(args); err != nil {
+		return nil, err
+	}
+	if c.flags.NArg() > 0 {
+		return nil, fmt.Errorf("unexpected argument %q: every field is a flag (meshctl help %s)", c.flags.Arg(0), c.action.CLI)
+	}
+	if c.action.Write {
+		f := c.action.Method.Input().Fields().ByName("meta")
+		meta := c.req.Mutable(f).Message()
+		mfs := meta.Descriptor().Fields()
+		if c.mutationID == "" {
+			c.mutationID = uuid.NewString()
+		}
+		if !meta.Has(mfs.ByName("mutation_id")) {
+			meta.Set(mfs.ByName("mutation_id"), protoreflect.ValueOfString(c.mutationID))
+		}
+		if c.expiresIn > 0 {
+			ts := timestamppb.New(time.Now().Add(c.expiresIn))
+			meta.Set(mfs.ByName("expires_at"), protoreflect.ValueOfMessage(ts.ProtoReflect()))
+		}
+	}
+	return c.req, nil
+}
+
+// initDynamic makes connect allocate dynamic messages of the method's types.
+func initDynamic(spec connect.Spec, msg any) error {
+	m, ok := msg.(*dynamicpb.Message)
+	if !ok {
+		return nil
+	}
+	md, ok := spec.Schema.(protoreflect.MethodDescriptor)
+	if !ok {
+		return fmt.Errorf("no method schema for %s", spec.Procedure)
+	}
+	if spec.IsClient {
+		*m = *dynamicpb.NewMessage(md.Output())
+	} else {
+		*m = *dynamicpb.NewMessage(md.Input())
+	}
+	return nil
+}
+
+var (
+	pretty  = protojson.MarshalOptions{Multiline: true, Indent: "  "}
+	compact = protojson.MarshalOptions{}
+)
+
+// call runs the action. A unary response is printed as indented JSON; a stream prints one JSON object per
+// line as it arrives, until the daemon ends it.
+func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out io.Writer) error {
+	c := connect.NewClient[dynamicpb.Message, dynamicpb.Message](conn.HTTP, client.BaseURL+a.Procedure,
+		connect.WithSchema(a.Method), connect.WithResponseInitializer(initDynamic),
+		connect.WithInterceptors(auth.ClientToken(conn.Token)))
+	if a.Streaming() {
+		stream, err := c.CallServerStream(ctx, connect.NewRequest(req))
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+		for stream.Receive() {
+			b, err := compact.Marshal(stream.Msg())
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "%s\n", b)
+		}
+		return stream.Err()
+	}
+	res, err := c.CallUnary(ctx, connect.NewRequest(req))
+	if err != nil {
+		return err
+	}
+	b, err := pretty.Marshal(res.Msg)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s\n", b)
+	return nil
+}
+
+// Request builds an action's request from flags, for tests.
+func Request(a *registry.Action, args []string) (proto.Message, error) {
+	return newCommand(a, Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard, Getenv: func(string) string { return "" }}).parse(args)
+}
