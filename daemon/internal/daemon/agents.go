@@ -934,6 +934,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	mu.Lock()
 	defer mu.Unlock()
 	out := &v1.StopAgentResponse{}
+	dropped := false
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -943,6 +944,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			if err := cancelReopen(tx, cur, "stopped"); err != nil {
 				return err
 			}
+			dropped = true
 			if cur.TerminalId == "" && !stopped(cur) {
 				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
 				if err := d.recordStopped(tx, cur); err != nil {
@@ -957,6 +959,9 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+	if dropped {
+		d.rt.guard.release(a.Id) // the resume it ends would have launched, and no longer will
 	}
 	if !stopped(a) && a.TerminalId != "" && d.rt.term != nil {
 		if _, err := d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: a.TerminalId})); err != nil &&

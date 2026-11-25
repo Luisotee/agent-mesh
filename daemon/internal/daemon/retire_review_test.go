@@ -460,3 +460,34 @@ func TestAChildsDirectTaskDoesNotLiftAStoppedParentsDenyList(t *testing.T) {
 		t.Errorf("the parent after its child's task: phase %v, deny %v", got.Phase, got.DenyEdits)
 	}
 }
+
+// Stopping an agent whose resume was stored and not launched ends that resume, and with it the reservation the
+// resume took: nothing will launch to give it back.
+func TestStopAgentGivesBackTheReservationOfAResumeItEnds(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	for name, dead := range map[string]bool{"retired": false, "dead": true} {
+		a := w.spawn(run.Id, gitRepo(t), name, "")
+		w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+		if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+			t.Fatal(err)
+		}
+		w.putAgent(t, a.Id, func(a *v1.Agent) {
+			a.PendingReopen = &v1.Reopen{Id: "o-" + name, Model: "opus", Why: "resumed"}
+			if dead { // its process died while the resume was waiting: the exit was left to the reopen
+				a.State, a.TerminalId = v1.AgentState_AGENT_STATE_IDLE, ""
+			}
+		})
+		w.d.Reserve(a.Id)
+		if _, err := w.device.Mesh.StopAgent(ctx, connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if w.d.Reserved(a.Id) {
+			t.Errorf("%s: the reservation of the resume it ended is still held", name)
+		}
+		if got := w.agent(a.Id); got.PendingReopen != nil {
+			t.Errorf("%s: its resume is still pending: %v", name, got.PendingReopen)
+		}
+	}
+}

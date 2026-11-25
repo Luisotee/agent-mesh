@@ -313,6 +313,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		return nil
 	})
 	if err != nil {
+		if out.Resumed != nil {
+			d.rt.guard.release(out.Message.GetToId()) // the write failed after the guard passed: nothing was requested
+		}
 		return nil, err
 	}
 	if d.notify != nil && !replayed {
