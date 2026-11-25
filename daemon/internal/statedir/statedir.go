@@ -18,6 +18,8 @@ func (p Paths) Info() string        { return filepath.Join(p.Dir, "meshd.json") 
 func (p Paths) DB() string          { return filepath.Join(p.Dir, "meshd.db") }
 func (p Paths) DeviceToken() string { return filepath.Join(p.Dir, "device.token") }
 func (p Paths) DaemonID() string    { return filepath.Join(p.Dir, "daemon.id") }
+func (p Paths) TLSCert() string     { return filepath.Join(p.Dir, "tls.crt") }
+func (p Paths) TLSKey() string      { return filepath.Join(p.Dir, "tls.key") }
 func (p Paths) HookLog() string     { return filepath.Join(p.Dir, "hook.log") }
 
 // Term is the terminal host's dir.
@@ -36,13 +38,15 @@ func (p Paths) SpoolRoot() string      { return filepath.Join(p.Dir, "spool") }
 
 // Info is meshd.json: how clients and hooks find the daemon, read at call time.
 type Info struct {
-	Socket     string    `json:"socket"`
-	TCP        string    `json:"tcp,omitempty"`
-	PID        int       `json:"pid"`
-	DaemonID   string    `json:"daemon_id"`
-	InstanceID string    `json:"instance_id"`
-	StartedAt  time.Time `json:"started_at"`
-	Version    string    `json:"version"`
+	Socket          string    `json:"socket"`
+	TCP             string    `json:"tcp,omitempty"`
+	Listen          string    `json:"listen,omitempty"`
+	CertFingerprint string    `json:"cert_fingerprint,omitempty"`
+	PID             int       `json:"pid"`
+	DaemonID        string    `json:"daemon_id"`
+	InstanceID      string    `json:"instance_id"`
+	StartedAt       time.Time `json:"started_at"`
+	Version         string    `json:"version"`
 }
 
 // ReadInfo reads a state dir's meshd.json.

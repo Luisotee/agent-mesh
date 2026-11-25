@@ -15,6 +15,7 @@ import (
 
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
@@ -27,7 +28,12 @@ func main() {
 	self, _ := os.Executable()
 	here := filepath.Dir(self)
 	state := flag.String("state", os.Getenv(client.StateEnv), "state dir (or $"+client.StateEnv+"); required")
-	tcp := flag.String("tcp", "", "also listen on this loopback address, e.g. 127.0.0.1:0")
+	tcp := flag.String("tcp", "", "also listen (plain HTTP) on this loopback address, e.g. 127.0.0.1:0")
+	listen := flag.String("listen", os.Getenv("AGENT_MESH_LISTEN"), "opt-in TLS listen address for direct remote clients, e.g. :9443 (off by default)")
+	relayURL := flag.String("relay-url", os.Getenv("AGENT_MESH_RELAY_URL"), "self-hosted relay URL (for example https://relay.example.com)")
+	relayTCP := flag.String("relay-tcp", os.Getenv("AGENT_MESH_RELAY_TCP"), "relay raw TCP client address (for example relay.example.com:8443) for pairing payloads")
+	relayTokenFile := flag.String("relay-token-file", os.Getenv("AGENT_MESH_RELAY_TOKEN_FILE"), "file holding the relay shared secret (mode 0600, or $AGENT_MESH_RELAY_TOKEN)")
+	hostName := flag.String("host-name", os.Getenv("AGENT_MESH_HOST_NAME"), "readable host name advertised over relay and pairing (default hostname)")
 	maxLife := flag.Duration("max-lifetime", 0, "exit after this long, and start mesh-term with the same "+
 		"(tests: no orphan survives a killed test)")
 	termLaunch := flag.String("term-launch", string(termclient.LaunchDetached),
@@ -75,7 +81,37 @@ func main() {
 		}
 		agents.Env[k] = v
 	}
-	d, err := daemon.New(daemon.Config{StateDir: *state, TCP: *tcp, Logger: log, Now: time.Now, Agents: agents})
+	var relaySecret string
+	if *relayURL != "" {
+		if *relayTokenFile != "" {
+			var err error
+			relaySecret, err = fsutil.ReadSecret(*relayTokenFile)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "meshd: --relay-token-file:", err)
+				os.Exit(2)
+			}
+		} else {
+			relaySecret = strings.TrimSpace(os.Getenv("AGENT_MESH_RELAY_TOKEN"))
+		}
+		if relaySecret == "" {
+			fmt.Fprintln(os.Stderr, "meshd: --relay-url needs --relay-token-file, $AGENT_MESH_RELAY_TOKEN_FILE, or $AGENT_MESH_RELAY_TOKEN")
+			os.Exit(2)
+		}
+	}
+	d, err := daemon.New(daemon.Config{
+		StateDir: *state,
+		TCP:      *tcp,
+		Listen:   *listen,
+		Relay: daemon.RelayConfig{
+			URL:      *relayURL,
+			TCP:      *relayTCP,
+			Token:    relaySecret,
+			HostName: *hostName,
+		},
+		Logger: log,
+		Now:    time.Now,
+		Agents: agents,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)

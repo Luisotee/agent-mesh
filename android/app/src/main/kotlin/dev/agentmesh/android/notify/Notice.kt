@@ -27,10 +27,16 @@ const val LIVE_WITHIN_MS = 60_000L
 
 private const val MAX_BODY = 200
 
-/** A notification is plain text: drop the Markdown's own marks (headings, bullets, emphasis, code ticks). */
+private val LINE_MARK = Regex("""^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)""")
+private val FENCE = Regex("""^\s*```\w*\s*$""")
+// Emphasis and code in pairs only: a lone `*` or backtick ("does 2*3 equal 6?") is the author's own character.
+private val BOLD_ITALIC = Regex("""(?<![\w*])(\*{1,3})(?=\S)(.+?)(?<=\S)\1(?![\w*])""")
+private val CODE = Regex("""`([^`\n]+)`""")
+
+/** A notification is plain text: drop the Markdown's own marks (headings, bullets, paired emphasis and code ticks). */
 fun brief(text: String): String {
-    val flat = text.lines().joinToString(" ") { it.replace(Regex("""^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)"""), "") }
-        .replace(Regex("[*`]+"), "").replace(Regex("\\s+"), " ").trim()
+    val flat = text.lines().filterNot { FENCE.matches(it) }.joinToString(" ") { it.replace(LINE_MARK, "") }
+        .replace(CODE, "$1").replace(BOLD_ITALIC, "$2").replace(Regex("\\s+"), " ").trim()
     return if (flat.length > MAX_BODY) flat.take(MAX_BODY - 1) + "…" else flat
 }
 

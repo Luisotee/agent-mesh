@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.agentmesh.android.MeshApp
-import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.AlreadyAnswered
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
@@ -29,7 +28,8 @@ class NoticeActionReceiver : BroadcastReceiver() {
                     val rt = container.runtimes.first { it.containsKey(host) }[host]!!
                     val name = rt.state.value.agents[agent]?.name ?: "the agent"
                     try {
-                        rt.state.first { it.conn is ConnState.Ready }
+                        // Not just connected: the snapshot and the run's messages too, or a guard would see an empty conversation.
+                        rt.awaitFresh(agent)
                         if (reply == null) rt.approve(agent) else rt.answer(agent, reply)
                         container.notifier.cancel(host, agent)
                     } catch (e: AlreadyAnswered) {

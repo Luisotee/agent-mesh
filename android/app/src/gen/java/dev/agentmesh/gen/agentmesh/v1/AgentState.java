@@ -67,6 +67,15 @@ public enum AgentState
    * <code>AGENT_STATE_UNKNOWN = 6;</code>
    */
   AGENT_STATE_UNKNOWN(6),
+  /**
+   * <pre>
+   * Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
+   * revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
+   * </pre>
+   *
+   * <code>AGENT_STATE_RETIRED = 7;</code>
+   */
+  AGENT_STATE_RETIRED(7),
   UNRECOGNIZED(-1),
   ;
 
@@ -122,6 +131,15 @@ public enum AgentState
    * <code>AGENT_STATE_UNKNOWN = 6;</code>
    */
   public static final int AGENT_STATE_UNKNOWN_VALUE = 6;
+  /**
+   * <pre>
+   * Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
+   * revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
+   * </pre>
+   *
+   * <code>AGENT_STATE_RETIRED = 7;</code>
+   */
+  public static final int AGENT_STATE_RETIRED_VALUE = 7;
 
 
   @java.lang.Override
@@ -151,6 +169,7 @@ public enum AgentState
       case 4: return AGENT_STATE_NEEDS_INPUT;
       case 5: return AGENT_STATE_EXITED;
       case 6: return AGENT_STATE_UNKNOWN;
+      case 7: return AGENT_STATE_RETIRED;
       default: return null;
     }
   }

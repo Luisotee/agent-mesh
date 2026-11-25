@@ -365,6 +365,22 @@ func (t *Tx) PutRun(run *v1.Run) error {
 	return err
 }
 
+// UpdateRun replaces a run's record (its status, say).
+func (t *Tx) UpdateRun(run *v1.Run) error {
+	b, err := proto.Marshal(run)
+	if err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE runs SET status = ?, data = ? WHERE id = ?`, int32(run.Status), b, run.Id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
 // GetRun returns one run.
 func (r Reader) GetRun(id string) (*v1.Run, error) {
 	return scanOne(r, `SELECT data FROM runs WHERE id = ?`, []any{id}, &v1.Run{})
@@ -592,6 +608,13 @@ func (r Reader) Token(hash string) (TokenRecord, error) {
 	return rec, err
 }
 
+// HasActiveToken reports whether subjectID currently has at least one unrevoked token.
+func (r Reader) HasActiveToken(subjectID string) (bool, error) {
+	var n int
+	err := r.q.QueryRowContext(r.ctx, `SELECT COUNT(*) FROM tokens WHERE subject_id = ? AND revoked_at IS NULL`, subjectID).Scan(&n)
+	return n > 0, err
+}
+
 // ── mutations ──
 
 // Mutation returns the stored response of a write this actor already applied under this id.
@@ -620,6 +643,196 @@ func (t *Tx) PruneMutations(hookBefore, before time.Time) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// ScrubPairingMutation keeps a CreatePairing mutation record (so retries with the same mutation_id replay
+// instead of minting a fresh token) while clearing its secret fields (token, uri, relay_client_token).
+func (t *Tx) ScrubPairingMutation(actorID, id string) error {
+	if actorID == "" || id == "" {
+		return nil
+	}
+	_, raw, err := t.Mutation(actorID, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	resp := &v1.CreatePairingResponse{}
+	if err := proto.Unmarshal(raw, resp); err != nil {
+		return err
+	}
+	resp.Token = ""
+	resp.Uri = ""
+	resp.RelayClientToken = ""
+	scrubbed, err := proto.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `UPDATE mutations SET response = ? WHERE actor_id = ? AND id = ?`,
+		scrubbed, actorID, id)
+	return err
+}
+
+// ── pairings & devices ──
+
+// PairingRecord is one stored one-time pairing token (only its SHA-256 hash is kept).
+type PairingRecord struct {
+	Hash       string
+	ID         string
+	Name       string
+	Class      v1.ActorClass
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UsedAt     time.Time
+	DeviceID   string
+	MutationID string
+	CreatedBy  *v1.Actor
+}
+
+// PutPairing stores a one-time pairing token hash.
+func (t *Tx) PutPairing(rec PairingRecord) error {
+	by, err := proto.Marshal(rec.CreatedBy)
+	if err != nil {
+		return err
+	}
+	if by == nil {
+		by = []byte{}
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO pairings (hash, id, name, class, created_at, expires_at, mutation_id, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Hash, rec.ID, rec.Name, int32(rec.Class), nanos(rec.CreatedAt), nanos(rec.ExpiresAt), rec.MutationID, by)
+	return err
+}
+
+// Pairing looks up a pairing record by token hash.
+func (r Reader) Pairing(hash string) (PairingRecord, error) {
+	var rec PairingRecord
+	var class int32
+	var created, expires int64
+	var used sql.NullInt64
+	var by []byte
+	err := r.q.QueryRowContext(r.ctx, `SELECT hash, id, name, class, created_at, expires_at, used_at, device_id, mutation_id, created_by
+		FROM pairings WHERE hash = ?`, hash).
+		Scan(&rec.Hash, &rec.ID, &rec.Name, &class, &created, &expires, &used, &rec.DeviceID, &rec.MutationID, &by)
+	if errors.Is(err, sql.ErrNoRows) {
+		return rec, ErrNotFound
+	}
+	if err != nil {
+		return rec, err
+	}
+	rec.Class = v1.ActorClass(class)
+	rec.CreatedAt = time.Unix(0, created)
+	rec.ExpiresAt = time.Unix(0, expires)
+	if used.Valid {
+		rec.UsedAt = time.Unix(0, used.Int64)
+	}
+	rec.CreatedBy = &v1.Actor{}
+	if err := proto.Unmarshal(by, rec.CreatedBy); err != nil {
+		return rec, err
+	}
+	return rec, nil
+}
+
+// MarkPairingUsed marks a pairing token as redeemed by deviceID.
+func (t *Tx) MarkPairingUsed(hash, deviceID string) error {
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE pairings SET used_at = ?, device_id = ? WHERE hash = ? AND used_at IS NULL`,
+		nanos(t.now), deviceID, hash)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// PrunePairings removes expired unused pairings (and scrubs their CreatePairing mutation responses).
+func (t *Tx) PrunePairings(before time.Time) (int64, error) {
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT mutation_id, created_by FROM pairings WHERE expires_at < ? AND mutation_id != ''`,
+		nanos(before))
+	if err != nil {
+		return 0, err
+	}
+	type mut struct{ id, actorID string }
+	var muts []mut
+	for rows.Next() {
+		var id string
+		var by []byte
+		if err := rows.Scan(&id, &by); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		a := &v1.Actor{}
+		if proto.Unmarshal(by, a) == nil && a.Id != "" {
+			muts = append(muts, mut{id: id, actorID: a.Id})
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, m := range muts {
+		if err := t.ScrubPairingMutation(m.actorID, m.id); err != nil {
+			return 0, err
+		}
+	}
+	res, err := t.tx.ExecContext(t.ctx, `DELETE FROM pairings WHERE expires_at < ?`, nanos(before))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// ListDevices lists device tokens (excluding excludeSubjectID, such as the host's own local device).
+func (r Reader) ListDevices(includeRevoked bool, excludeSubjectID string) ([]*v1.Device, error) {
+	query := `SELECT subject_id, name, class, created_at, revoked_at FROM tokens
+		WHERE class IN (?, ?) AND subject_id != ?`
+	if !includeRevoked {
+		query += ` AND revoked_at IS NULL`
+	}
+	query += ` ORDER BY created_at, subject_id`
+	rows, err := r.q.QueryContext(r.ctx, query,
+		int32(v1.ActorClass_ACTOR_CLASS_DEVICE), int32(v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE), excludeSubjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*v1.Device
+	for rows.Next() {
+		d, err := scanDevice(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// GetDevice returns one device by subject_id.
+func (r Reader) GetDevice(id string) (*v1.Device, error) {
+	d, err := scanDevice(r.q.QueryRowContext(r.ctx, `SELECT subject_id, name, class, created_at, revoked_at
+		FROM tokens WHERE subject_id = ? AND class IN (?, ?) ORDER BY created_at DESC LIMIT 1`,
+		id, int32(v1.ActorClass_ACTOR_CLASS_DEVICE), int32(v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return d, err
+}
+
+func scanDevice(sc interface{ Scan(...any) error }) (*v1.Device, error) {
+	var d v1.Device
+	var class int32
+	var created int64
+	var revoked sql.NullInt64
+	if err := sc.Scan(&d.Id, &d.Name, &class, &created, &revoked); err != nil {
+		return nil, err
+	}
+	d.Class = v1.ActorClass(class)
+	d.CreatedAt = timestamppb.New(time.Unix(0, created))
+	if revoked.Valid {
+		d.RevokedAt = timestamppb.New(time.Unix(0, revoked.Int64))
+	}
+	return &d, nil
 }
 
 // ── meta ──

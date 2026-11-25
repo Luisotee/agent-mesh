@@ -58,14 +58,20 @@ class MessagesTest {
     private val worker = agent("w1", parent = "lead", name = "shop-fix", state = AgentState.AGENT_STATE_IDLE, at = 2_000)
         .toBuilder().setPhase(AgentPhase.AGENT_PHASE_PLANNING).build()
 
-    private fun runtime(): HostRuntime {
+    private fun runtime(retryMs: Long = 1_000): HostRuntime {
         val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)
         val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
-        return HostRuntime(host.id, repo, { _, _ -> api }, CoroutineScope(Dispatchers.Unconfined)).also {
+        return HostRuntime(host.id, repo, { _, _ -> api }, CoroutineScope(Dispatchers.Unconfined), messageRetryMs = retryMs).also {
             it.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
             // Make the runtime's api() available without a connection: build it through the connection's factory.
             it.connection.start()
         }
+    }
+
+    /** A snapshot, and the run's stored messages loaded (the empty history of the fake host). */
+    private fun sync(rt: HostRuntime, agents: List<dev.agentmesh.gen.agentmesh.v1.Agent>) {
+        rt.onFrame(snapshot(listOf(run("r1")), agents))
+        rt.reloadMessages()
     }
 
     private fun show(rt: HostRuntime, agentId: String = "w1", tab: dev.agentmesh.android.notify.Tab = dev.agentmesh.android.notify.Tab.Messages) {
@@ -79,7 +85,7 @@ class MessagesTest {
 
     @Test fun `a plan that waits on the user is approved in place, and a planning worker gets ApproveAgent`() {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         rt.onFrame(messageSent(1, plan, at = 10_000))
         show(rt)
         compose.onNodeWithText("waiting for you").assertIsDisplayed()
@@ -94,31 +100,48 @@ class MessagesTest {
 
     @Test fun `approve calls ApproveAgent for a planning worker and a plain answer otherwise`() = runBlocking {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker, agent("w2", parent = "lead", name = "other"))))
+        sync(rt, listOf(lead, worker, agent("w2", parent = "lead", name = "other")))
+        rt.onFrame(messageSent(1, plan, at = 10_000))
+        rt.onFrame(messageSent(2, message("m2", from = "w2", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "plan", at = 10_001), at = 10_001))
         rt.approve("w1")
         rt.approve("w2")
         assertEquals(listOf("w1"), api.approved)
         assertEquals(listOf(Triple("w2", MessageType.MESSAGE_TYPE_ANSWER, "approved")), api.sent)
         // The stored answer joined the state at once, so the plan stops waiting before the event arrives.
-        assertEquals(setOf("approved-1", "sent-1"), rt.state.value.messages.keys)
+        assertEquals(setOf("m1", "m2", "approved-1", "sent-1"), rt.state.value.messages.keys)
     }
 
     @Test fun `a stale Approve sends nothing once the plan was answered elsewhere`() = runBlocking {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         rt.onFrame(messageSent(1, plan, at = 10_000))
         rt.onFrame(messageSent(2, message("a1", from = "lead", to = "w1", type = MessageType.MESSAGE_TYPE_ANSWER, body = "approved", at = 11_000), at = 11_000))
         val e = runCatching { rt.approve("w1") }.exceptionOrNull()
         assertTrue("got $e", e is AlreadyAnswered)
         assertEquals(emptyList<String>(), api.approved)
-        // A plan this process never saw (a cold start) is not "answered": the approval goes through.
-        rt.approve("lead")
-        assertEquals(1, api.sent.size)
+        // Nothing to approve (no plan or question from that agent) is refused too, not sent as a bare "approved".
+        assertTrue(runCatching { rt.approve("lead") }.exceptionOrNull() is AlreadyAnswered)
+        assertTrue(runCatching { rt.answer("w1", "x") }.exceptionOrNull() is AlreadyAnswered)
+        assertTrue(runCatching { rt.requestChanges("w1", "x") }.exceptionOrNull() is AlreadyAnswered)
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
+    }
+
+    @Test fun `no action is taken on a conversation that isn't loaded, and a failed load says so`() = runBlocking {
+        val rt = runtime()
+        // The snapshot is in but the run's messages are not: an empty history is not "nothing to answer".
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        rt.onFrame(messageSent(1, plan, at = 10_000))
+        assertTrue(runCatching { rt.approve("w1") }.exceptionOrNull() is NotLoaded)
+        assertEquals(emptyList<String>(), api.approved)
+        // Loaded: it goes through.
+        rt.reloadMessages()
+        rt.approve("w1")
+        assertEquals(listOf("w1"), api.approved)
     }
 
     @Test fun `a question is answered with the text typed`() {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         rt.onFrame(messageSent(1, message("q1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_QUESTION, body = "Which branch?", at = 10_000)))
         show(rt)
         compose.onNodeWithText("Send answer").assertIsNotEnabled()
@@ -130,7 +153,7 @@ class MessagesTest {
 
     @Test fun `once the lead answered, nothing waits and no form shows`() {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         rt.onFrame(messageSent(1, plan, at = 10_000))
         rt.onFrame(messageSent(2, message("a1", from = "lead", to = "w1", type = MessageType.MESSAGE_TYPE_ANSWER, body = "approved", at = 11_000), at = 11_000))
         show(rt)
@@ -141,7 +164,7 @@ class MessagesTest {
     @Test fun `a failed send shows the host's reason and keeps the text`() {
         api.failSend = IllegalStateException("The host refused: agent cap")
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         show(rt)
         compose.onNodeWithText("Message the agent").performTextInput("do it")
         compose.onNodeWithContentDescriptionCompat("Send").performClick()
@@ -154,7 +177,7 @@ class MessagesTest {
         assertTrue(isLong(long)); assertEquals(false, isLong("short"))
         assertEquals(PREVIEW_LINES + 1, preview(long).lines().size)
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         rt.onFrame(messageSent(1, message("d1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_DONE, body = long, at = 10_000)))
         show(rt)
         compose.onNodeWithText("Show all").assertIsDisplayed()
@@ -167,9 +190,9 @@ class MessagesTest {
      */
     @Test fun `two thousand messages compose a bounded number of rows and follow new ones at the bottom`() {
         val rt = runtime()
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         val many = (1..2000).map { message("big-%04d".format(it), from = if (it % 2 == 0) "w1" else "lead", to = if (it % 2 == 0) "lead" else "w1", type = MessageType.MESSAGE_TYPE_INFO, body = "message number $it", at = 1_000L + it) }
-        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        sync(rt, listOf(lead, worker))
         runBlocking { many.forEach { rt.onFrame(messageSent(it.createdAt.seconds * 1000L + it.createdAt.nanos / 1_000_000L, it)) } }
         show(rt)
         compose.waitForIdle()
@@ -186,6 +209,44 @@ class MessagesTest {
         rt.onFrame(messageSent(5_001, message("big-2002", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number 2002", at = 9_001)))
         compose.waitForIdle()
         assertEquals(0, compose.onAllNodesWithText("message number 2002").fetchSemanticsNodes().size)
+    }
+
+    /** The list that loads after the tab first composed (the usual case) must still let the user read old messages. */
+    @Test fun `messages that load after the tab opened don't drag a reader scrolled up to the bottom`() {
+        val rt = runtime()
+        sync(rt, listOf(lead, worker))
+        show(rt)
+        compose.waitForIdle()
+        compose.onNodeWithText("No messages yet.").assertIsDisplayed()
+        val many = (1..300).map { message("late-%04d".format(it), from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number $it", at = 1_000L + it) }
+        many.forEachIndexed { i, m -> rt.onFrame(messageSent(1L + i, m)) }
+        compose.waitForIdle()
+        compose.onNodeWithText("message number 300").assertIsDisplayed()
+        compose.onNodeWithTag("messages").performScrollToIndex(100)
+        compose.waitForIdle()
+        rt.onFrame(messageSent(900, message("late-0301", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number 301", at = 5_000)))
+        compose.waitForIdle()
+        assertEquals("the reader stayed where they were", 0, compose.onAllNodesWithText("message number 301").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("message number 300").fetchSemanticsNodes().size)
+    }
+
+    @Test fun `an empty tab says Loading until the run's history is in, and offers a retry when the load gave up`() {
+        val rt = runtime(retryMs = 5)
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        show(rt)
+        compose.waitForIdle()
+        compose.onNodeWithText("Loading…").assertIsDisplayed()
+        // The loads gave up.
+        api.failListings = 100
+        rt.reloadMessages()
+        compose.waitUntil(10_000) { rt.state.value.messagesFailed.isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Couldn't load the messages.").assertIsDisplayed()
+        api.failListings = 0
+        compose.onNodeWithTag("reload-messages").performClick()
+        compose.waitUntil(5_000) { rt.state.value.messagesLoaded.isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText("No messages yet.").assertIsDisplayed()
     }
 }
 

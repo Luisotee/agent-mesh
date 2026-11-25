@@ -399,4 +399,26 @@ public interface AgentOrBuilder extends
    * @return The pendingReopen.
    */
   dev.agentmesh.gen.agentmesh.v1.Reopen getPendingReopen();
+
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @return The baseCommit.
+   */
+  java.lang.String getBaseCommit();
+  /**
+   * <pre>
+   * The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+   * it. StopRun keeps a branch that has moved past it.
+   * </pre>
+   *
+   * <code>string base_commit = 27 [json_name = "baseCommit"];</code>
+   * @return The bytes for baseCommit.
+   */
+  com.google.protobuf.ByteString
+      getBaseCommitBytes();
 }

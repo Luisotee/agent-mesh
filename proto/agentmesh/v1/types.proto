@@ -55,6 +55,9 @@ enum AgentState {
   AGENT_STATE_EXITED = 5;
   // Working, but nothing heard from it for a while. Derived when read, never stored.
   AGENT_STATE_UNKNOWN = 6;
+  // Stopped on purpose (RetireAgent, idle after its report, StopRun): its process is gone and its token
+  // revoked, its conversation and worktree kept. A message to it, or ResumeAgent, brings it back.
+  AGENT_STATE_RETIRED = 7;
 }
 
 message Agent {
@@ -102,6 +105,9 @@ message Agent {
   bool deny_edits = 25;
   // A reopen asked for and not done yet: it runs at the agent's next IDLE, before any doorbell.
   Reopen pending_reopen = 26;
+  // The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
+  // it. StopRun keeps a branch that has moved past it.
+  string base_commit = 27;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -190,6 +196,10 @@ message Event {
     AgentReopened agent_reopened = 20;
     AgentPhaseChanged agent_phase_changed = 21;
     AgentReopenDropped agent_reopen_dropped = 22;
+    DevicePaired device_paired = 25;
+    DeviceRevoked device_revoked = 26;
+    AgentRetired agent_retired = 23;
+    RunStopped run_stopped = 24;
   }
 }
 
@@ -246,6 +256,15 @@ message AgentReopenDropped {
   Reopen reopen = 1;
   string reason = 2;
 }
+
+// An agent was retired: its process stopped on purpose.
+message AgentRetired {
+  // "requested", "idle after its report", "run stopped".
+  string reason = 1;
+}
+
+// A run was stopped: its agents retired and the run closed.
+message RunStopped {}
 
 message AgentPhaseChanged {
   AgentPhase from = 1;
@@ -307,4 +326,23 @@ message Setting {
   // When the override was set and by whom; unset while is_set is false.
   google.protobuf.Timestamp updated_at = 6;
   Actor updated_by = 7;
+}
+
+// A paired client device.
+message Device {
+  string id = 1;
+  string name = 2;
+  ActorClass class = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Set once revoked.
+  google.protobuf.Timestamp revoked_at = 5;
+}
+
+message DevicePaired {
+  Device device = 1;
+}
+
+message DeviceRevoked {
+  string device_id = 1;
+  string name = 2;
 }

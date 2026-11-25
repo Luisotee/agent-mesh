@@ -1,0 +1,19 @@
+{
+  "agent_id": "a6ff1f8a9b50d111a",
+  "agent_transcript_path": "/home/user/.claude/projects/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000001/subagents/agent-a6ff1f8a9b50d111a.jsonl",
+  "agent_type": "",
+  "background_tasks": [],
+  "cwd": "/work/state/worktrees/ri4lh27/repo-capture",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "SubagentStop",
+  "last_assistant_message": "(a conversation summary: left out, it paraphrases the account's own instructions)",
+  "permission_mode": "default",
+  "prompt_id": "00000000-0000-4000-8000-000000000004",
+  "scratchpad_dir": "/tmp/claude-user/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000001/scratchpad",
+  "session_crons": [],
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "stop_hook_active": false,
+  "transcript_path": "/home/user/.claude/projects/-work-state-worktrees-ri4lh27-repo-capture/00000000-0000-4000-8000-000000000001.jsonl"
+}

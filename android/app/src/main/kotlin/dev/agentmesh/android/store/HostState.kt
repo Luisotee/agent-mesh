@@ -7,6 +7,7 @@ import dev.agentmesh.gen.agentmesh.v1.Event
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
 import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.Run
+import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import dev.agentmesh.gen.agentmesh.v1.Setting
 import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse
 
@@ -37,12 +38,14 @@ data class HostState(
     val synced: Boolean = false,
     val runs: Map<String, Run> = emptyMap(),
     val agents: Map<String, Agent> = emptyMap(),
-    /**
-     * Every message seen. In this part only the events add them; the next part pages `ListMessages` into it, so
-     * until then a plan or question sent while the app was away is not seen (and [dev.agentmesh.android.derive.waitingOnYou]
-     * shows only agents stopped at a prompt for it).
-     */
+    /** Every message seen: the events add them as they happen, and [dev.agentmesh.android.store.MessageLoader] pages in the history. */
     val messages: Map<String, Message> = emptyMap(),
+    /** The open runs whose stored messages loaded completely on this connection; until then a run's history may be missing. */
+    val messagesLoaded: Set<String> = emptySet(),
+    /** The runs whose load gave up (the host answered with an error): the history is unknown, not empty. */
+    val messagesFailed: Set<String> = emptySet(),
+    /** When messages we hadn't loaded yet were delivered: applied when the page that holds them arrives. */
+    val earlyDeliveries: Map<String, com.google.protobuf.Timestamp> = emptyMap(),
     /** The host's settings with their schemas, by key. */
     val settings: Map<String, Setting> = emptyMap(),
     val cursor: Cursor? = null,
@@ -63,7 +66,11 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
         val runs = snap.runsList.associateBy { it.id }
         val agents = snap.agentsList.associateBy { it.id }
         // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
-        s.copy(synced = true, runs = runs, agents = agents, messages = s.messages.filterValues { it.runId in runs }, cursor = snap.cursor)
+        s.copy(
+            synced = true, runs = runs, agents = agents, messages = s.messages.filterValues { it.runId in runs },
+            messagesLoaded = s.messagesLoaded.filterTo(HashSet()) { it in runs }, messagesFailed = s.messagesFailed.filterTo(HashSet()) { it in runs },
+            earlyDeliveries = emptyMap(), cursor = snap.cursor,
+        )
     }
     SubscribeEventsResponse.FrameCase.RESUMED -> s.copy(synced = true)
     SubscribeEventsResponse.FrameCase.EVENT -> applyEvent(s, frame.event)
@@ -77,7 +84,12 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.MESSAGE_SENT -> if (e.messageSent.hasMessage()) next.copy(messages = s.messages + (e.messageSent.message.id to e.messageSent.message)) else next
         Event.PayloadCase.MESSAGE_DELIVERED -> {
             val m = s.messages[e.messageDelivered.messageId]
-            if (m == null) next else next.copy(messages = s.messages + (m.id to m.toBuilder().apply { if (e.hasTime()) setDeliveredAt(e.time) }.build()))
+            when {
+                m != null -> next.copy(messages = s.messages + (m.id to m.toBuilder().apply { if (e.hasTime()) setDeliveredAt(e.time) }.build()))
+                // Not loaded yet: remember it for the page that brings the message (a bounded few).
+                e.hasTime() && s.earlyDeliveries.size < MAX_EARLY -> next.copy(earlyDeliveries = s.earlyDeliveries + (e.messageDelivered.messageId to e.time))
+                else -> next
+            }
         }
         Event.PayloadCase.SETTING_CHANGED -> {
             val ch = e.settingChanged
@@ -117,6 +129,14 @@ private fun applyEvent(s: HostState, e: Event): HostState {
             it.clearPendingReopen().setTerminalId(e.agentReopened.terminalId).setSessionId(e.agentReopened.sessionId)
                 .setModel(r.model).setEffort(r.effort).setDenyEdits(r.denyEdits)
         }
+        // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
+        Event.PayloadCase.AGENT_RETIRED -> next.withAgent(e.agentId) {
+            it.setState(AgentState.AGENT_STATE_RETIRED).setNeedsInput(0).setStateDetail("").clearPendingReopen()
+            if (e.hasTime()) it.setLastActivity(e.time)
+        }
+        Event.PayloadCase.RUN_STOPPED -> s.runs[e.runId]?.let { r ->
+            next.copy(runs = s.runs + (r.id to r.toBuilder().setStatus(RunStatus.RUN_STATUS_CLOSED).build()))
+        } ?: next
         Event.PayloadCase.AGENT_PHASE_CHANGED -> next.withAgent(e.agentId) { it.setPhase(e.agentPhaseChanged.to) }
         else -> next
     }
@@ -130,9 +150,17 @@ private fun HostState.withAgent(id: String, change: (Agent.Builder) -> Unit): Ho
 /** Adds messages (a loaded page) to the ones we have; one we already have, which events may have updated, is kept. */
 fun mergeMessages(s: HostState, page: List<Message>): HostState {
     val merged = s.messages.toMutableMap()
-    for (m in page) merged.putIfAbsent(m.id, m)
-    return s.copy(messages = merged)
+    var early = s.earlyDeliveries
+    for (m in page) {
+        if (m.id in merged) continue
+        val at = early[m.id]
+        merged[m.id] = if (at != null && !m.hasDeliveredAt()) m.toBuilder().setDeliveredAt(at).build() else m
+        if (at != null) early = early - m.id
+    }
+    return s.copy(messages = merged, earlyDeliveries = early)
 }
+
+private const val MAX_EARLY = 200
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */
 fun withSettings(s: HostState, list: List<Setting>): HostState = s.copy(settings = list.associateBy { it.key })

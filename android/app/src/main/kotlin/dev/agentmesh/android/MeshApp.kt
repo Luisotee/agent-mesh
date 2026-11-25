@@ -49,6 +49,9 @@ class AppContainer(
     /** Where to go once the UI is up: a tapped notification's agent. */
     val deepLink = MutableStateFlow<DeepLink?>(null)
 
+    /** The (host, agent) whose screen is on top while the app is resumed: its notifications aren't posted, the user is looking. */
+    val viewing = MutableStateFlow<Pair<String, String>?>(null)
+
     /** Push, when a channel is plugged in (UnifiedPush later); the live streams are the only channel today. */
     val push: PushChannel = NoPush
 
@@ -74,6 +77,7 @@ class AppContainer(
         noticeJobs[rt.hostId] = scope.launch {
             rt.notices.collect { n ->
                 if (!notifies(rt.state.value, n.kind)) return@collect
+                if (viewing.value == (rt.hostId to n.agentId)) return@collect
                 val many = hosts.hosts.value.size > 1
                 notifier.post(rt.hostId, if (many) rt.host?.name else null, n)
             }

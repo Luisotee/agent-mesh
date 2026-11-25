@@ -43,6 +43,10 @@ public  final class Event extends
     AGENT_REOPENED(20),
     AGENT_PHASE_CHANGED(21),
     AGENT_REOPEN_DROPPED(22),
+    DEVICE_PAIRED(25),
+    DEVICE_REVOKED(26),
+    AGENT_RETIRED(23),
+    RUN_STOPPED(24),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -71,6 +75,10 @@ public  final class Event extends
         case 20: return AGENT_REOPENED;
         case 21: return AGENT_PHASE_CHANGED;
         case 22: return AGENT_REOPEN_DROPPED;
+        case 25: return DEVICE_PAIRED;
+        case 26: return DEVICE_REVOKED;
+        case 23: return AGENT_RETIRED;
+        case 24: return RUN_STOPPED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1085,6 +1093,206 @@ public  final class Event extends
    */
   private void clearAgentReopenDropped() {
     if (payloadCase_ == 22) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DEVICE_PAIRED_FIELD_NUMBER = 25;
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDevicePaired() {
+    return payloadCase_ == 25;
+  }
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.DevicePaired getDevicePaired() {
+    if (payloadCase_ == 25) {
+       return (dev.agentmesh.gen.agentmesh.v1.DevicePaired) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.DevicePaired.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   */
+  private void setDevicePaired(dev.agentmesh.gen.agentmesh.v1.DevicePaired value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 25;
+  }
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   */
+  private void mergeDevicePaired(dev.agentmesh.gen.agentmesh.v1.DevicePaired value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 25 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.DevicePaired.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.DevicePaired.newBuilder((dev.agentmesh.gen.agentmesh.v1.DevicePaired) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 25;
+  }
+  /**
+   * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+   */
+  private void clearDevicePaired() {
+    if (payloadCase_ == 25) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DEVICE_REVOKED_FIELD_NUMBER = 26;
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDeviceRevoked() {
+    return payloadCase_ == 26;
+  }
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.DeviceRevoked getDeviceRevoked() {
+    if (payloadCase_ == 26) {
+       return (dev.agentmesh.gen.agentmesh.v1.DeviceRevoked) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   */
+  private void setDeviceRevoked(dev.agentmesh.gen.agentmesh.v1.DeviceRevoked value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 26;
+  }
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   */
+  private void mergeDeviceRevoked(dev.agentmesh.gen.agentmesh.v1.DeviceRevoked value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 26 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.newBuilder((dev.agentmesh.gen.agentmesh.v1.DeviceRevoked) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 26;
+  }
+  /**
+   * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+   */
+  private void clearDeviceRevoked() {
+    if (payloadCase_ == 26) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_RETIRED_FIELD_NUMBER = 23;
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentRetired() {
+    return payloadCase_ == 23;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentRetired getAgentRetired() {
+    if (payloadCase_ == 23) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentRetired) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentRetired.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   */
+  private void setAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 23;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   */
+  private void mergeAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 23 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentRetired.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentRetired.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentRetired) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 23;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+   */
+  private void clearAgentRetired() {
+    if (payloadCase_ == 23) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int RUN_STOPPED_FIELD_NUMBER = 24;
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRunStopped() {
+    return payloadCase_ == 24;
+  }
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunStopped getRunStopped() {
+    if (payloadCase_ == 24) {
+       return (dev.agentmesh.gen.agentmesh.v1.RunStopped) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.RunStopped.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   */
+  private void setRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 24;
+  }
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   */
+  private void mergeRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 24 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.RunStopped.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.RunStopped.newBuilder((dev.agentmesh.gen.agentmesh.v1.RunStopped) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 24;
+  }
+  /**
+   * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+   */
+  private void clearRunStopped() {
+    if (payloadCase_ == 24) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -2190,6 +2398,198 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDevicePaired() {
+      return instance.hasDevicePaired();
+    }
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.DevicePaired getDevicePaired() {
+      return instance.getDevicePaired();
+    }
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    public Builder setDevicePaired(dev.agentmesh.gen.agentmesh.v1.DevicePaired value) {
+      copyOnWrite();
+      instance.setDevicePaired(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    public Builder setDevicePaired(
+        dev.agentmesh.gen.agentmesh.v1.DevicePaired.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDevicePaired(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    public Builder mergeDevicePaired(dev.agentmesh.gen.agentmesh.v1.DevicePaired value) {
+      copyOnWrite();
+      instance.mergeDevicePaired(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DevicePaired device_paired = 25 [json_name = "devicePaired"];</code>
+     */
+    public Builder clearDevicePaired() {
+      copyOnWrite();
+      instance.clearDevicePaired();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDeviceRevoked() {
+      return instance.hasDeviceRevoked();
+    }
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.DeviceRevoked getDeviceRevoked() {
+      return instance.getDeviceRevoked();
+    }
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    public Builder setDeviceRevoked(dev.agentmesh.gen.agentmesh.v1.DeviceRevoked value) {
+      copyOnWrite();
+      instance.setDeviceRevoked(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    public Builder setDeviceRevoked(
+        dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDeviceRevoked(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    public Builder mergeDeviceRevoked(dev.agentmesh.gen.agentmesh.v1.DeviceRevoked value) {
+      copyOnWrite();
+      instance.mergeDeviceRevoked(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DeviceRevoked device_revoked = 26 [json_name = "deviceRevoked"];</code>
+     */
+    public Builder clearDeviceRevoked() {
+      copyOnWrite();
+      instance.clearDeviceRevoked();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentRetired() {
+      return instance.hasAgentRetired();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentRetired getAgentRetired() {
+      return instance.getAgentRetired();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    public Builder setAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired value) {
+      copyOnWrite();
+      instance.setAgentRetired(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    public Builder setAgentRetired(
+        dev.agentmesh.gen.agentmesh.v1.AgentRetired.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentRetired(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    public Builder mergeAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired value) {
+      copyOnWrite();
+      instance.mergeAgentRetired(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRetired agent_retired = 23 [json_name = "agentRetired"];</code>
+     */
+    public Builder clearAgentRetired() {
+      copyOnWrite();
+      instance.clearAgentRetired();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRunStopped() {
+      return instance.hasRunStopped();
+    }
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunStopped getRunStopped() {
+      return instance.getRunStopped();
+    }
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    public Builder setRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped value) {
+      copyOnWrite();
+      instance.setRunStopped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    public Builder setRunStopped(
+        dev.agentmesh.gen.agentmesh.v1.RunStopped.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRunStopped(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    public Builder mergeRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped value) {
+      copyOnWrite();
+      instance.mergeRunStopped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunStopped run_stopped = 24 [json_name = "runStopped"];</code>
+     */
+    public Builder clearRunStopped() {
+      copyOnWrite();
+      instance.clearRunStopped();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -2229,12 +2629,17 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.AgentReopened.class,
             dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.class,
             dev.agentmesh.gen.agentmesh.v1.AgentReopenDropped.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentRetired.class,
+            dev.agentmesh.gen.agentmesh.v1.RunStopped.class,
+            dev.agentmesh.gen.agentmesh.v1.DevicePaired.class,
+            dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.class,
           };
           java.lang.String info =
-              "\u0000\u0014\u0001\u0001\u0001\u0016\u0014\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
+              "\u0000\u0018\u0001\u0001\u0001\u001a\u0018\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
               "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000" +
               "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000" +
-              "\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000";
+              "\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018" +
+              "<\u0000\u0019<\u0000\u001a<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
