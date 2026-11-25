@@ -678,6 +678,11 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if m.Plan {
 		agent.Phase, agent.ExecTier = v1.AgentPhase_AGENT_PHASE_PLANNING, m.ExecTier
 	}
+	// Held until its terminal is recorded: a reopen asked for meanwhile would see no terminal, take the agent
+	// for stopped, and start a second process on its conversation.
+	mu := d.agentLock(agent.Id)
+	mu.Lock()
+	defer mu.Unlock()
 	cleanup := func() {
 		git(context.Background(), top, "worktree", "remove", "--force", worktree)
 		git(context.Background(), top, "branch", "-D", branch)
@@ -854,6 +859,12 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			if err := cancelReopen(tx, cur, "stopped"); err != nil {
 				return err
 			}
+			if cur.TerminalId == "" && cur.State != v1.AgentState_AGENT_STATE_EXITED {
+				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
+				if err := d.recordStopped(tx, cur); err != nil {
+					return err
+				}
+			}
 			if err := tx.PutAgent(cur); err != nil {
 				return err
 			}
@@ -870,6 +881,20 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 		}
 	}
 	return connect.NewResponse(out), nil
+}
+
+// recordStopped records the exit of an agent whose process is already gone (applied to cur; the caller stores it).
+func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) error {
+	ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
+		Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: -1}}}
+	if err := d.applyEvents(tx, a, []*adapterv1.AgentEvent{ev}); err != nil {
+		return err
+	}
+	if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
+		AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "stopped"}}}); err != nil {
+		return err
+	}
+	return tx.RevokeTokens(a.Id)
 }
 
 // ── doorbells ──

@@ -215,6 +215,10 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		if err := mayMove(tx.Actor, a, "approve"); err != nil {
 			return err
 		}
+		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+			// Approving must not undo a stop: resume brings it back planning, then approve it.
+			return failedPrecondition("%s has stopped: resume it, then approve its plan", a.Name)
+		}
 		report, err := lastReport(tx.Reader, a)
 		if err != nil {
 			return err
@@ -345,6 +349,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			if m.Effort != "" {
 				effort = m.Effort
 			}
+			// A named model has no chain: `next` from it would go back to the tier's first model.
+			if executing {
+				a.ExecTier = ""
+			} else {
+				a.Tier = ""
+			}
 		case m.Next:
 			if phaseTier == "" {
 				return failedPrecondition("%s runs on a named model, with no chain to walk: switch it to a tier or a model", a.Name)
@@ -378,7 +388,9 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			why, body = "quota", fmt.Sprintf("Your previous model (%s) hit its quota; you are now on %s, in the same "+
 				"conversation. Continue exactly where you stopped.", was, model)
 		}
-		if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, body); err != nil {
+		// An info, not a task: it doesn't end a plan phase's wait for approval (a planner switched before it is
+		// approved is still approved on its plan).
+		if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_INFO, body); err != nil {
 			return err
 		}
 		if out.Reopen, err = requestReopen(tx, a, model, effort, deny, why, m.Why); err != nil {
@@ -411,6 +423,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	task := strings.TrimSpace(m.Task)
 	if m.Plan && task == "" {
 		return nil, invalid("plan is for a task: give the task it plans")
+	}
+	if m.Effort != "" && !validEffort(m.Effort) {
+		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
 	out := &v1.ResumeAgentResponse{}
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
@@ -465,9 +480,6 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				a.Tier = m.Tier
 			}
 		case m.Effort != "":
-			if !validEffort(m.Effort) {
-				return invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
-			}
 			effort = m.Effort
 		}
 		if task != "" {

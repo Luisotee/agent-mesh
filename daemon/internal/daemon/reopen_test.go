@@ -378,8 +378,10 @@ func TestAPlanFromAnAgentWithNoPhaseEntersOneButNotForANamedModel(t *testing.T) 
 	}
 	ap, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: pinned.Id}))
 	if err != nil || ap.Msg.Reopen != nil {
-		t.Errorf("approving a pinned agent: %v, %v", ap, err)
+		t.Fatalf("approving a pinned agent: %v, %v", ap, err)
 	}
+	// Its turn on the answer ends before the test does (its hooks would spool into a removed state dir).
+	waitFor(t, "the pinned agent's answer", func() bool { return w.delivered(t, pinned.Id, ap.Msg.Message.Id) })
 	// The other moves to its execution tier; it never had the deny list, and the reopen doesn't add one.
 	ap, err = asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: direct.Id, Tier: "light"}))
 	if err != nil {
@@ -389,6 +391,9 @@ func TestAPlanFromAnAgentWithNoPhaseEntersOneButNotForANamedModel(t *testing.T) 
 	if after.Model != "haiku" || after.Effort != "medium" || after.DenyEdits || after.Phase != v1.AgentPhase_AGENT_PHASE_EXECUTING {
 		t.Errorf("after %v", after)
 	}
+	waitFor(t, "the approval delivered", func() bool { return w.delivered(t, direct.Id, ap.Msg.Message.Id) })
+	w.waitState(pinned.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.waitState(direct.Id, v1.AgentState_AGENT_STATE_IDLE)
 }
 
 func TestStoppingAnAgentDropsItsPendingReopen(t *testing.T) {
@@ -507,5 +512,81 @@ func TestASpawnNeedsATierOrANamedModel(t *testing.T) {
 			!strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want %q", c.req, err, c.want)
 		}
+	}
+}
+
+// A planner switched before it is approved is still approved on its plan; a stopped one is resumed first.
+func TestAPlannerSwitchedBeforeApprovalIsStillApprovedAndAStoppedOneIsNot(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "plan",
+		Tier: "strong", Plan: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := w.as(w.token(t, a.Id)).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "the plan"})); err != nil {
+		t.Fatal(err)
+	}
+	sw, err := asLead.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Effort: "max"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sw.Msg.Message.Type != v1.MessageType_MESSAGE_TYPE_INFO {
+		t.Errorf("the switch's notice is a %v", sw.Msg.Message.Type)
+	}
+	switched := w.waitReopened(t, a.Id, a.TerminalId)
+	if !switched.DenyEdits || switched.Effort != "max" {
+		t.Fatalf("a switch lifted the deny list or kept the effort: %v", switched)
+	}
+	// Typed only once the notice's doorbell is in, or the two would share a line.
+	waitFor(t, "the notice delivered", func() bool { return w.delivered(t, a.Id, sw.Msg.Message.Id) })
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(switched, "/exit\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED)
+	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: a.Id, Tier: "mid"})); code(err) != connect.CodeFailedPrecondition ||
+		!strings.Contains(err.Error(), "resume it") {
+		t.Fatalf("approving a stopped planner: %v", err)
+	}
+	if _, err := asLead.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	back := w.waitReopened(t, a.Id, switched.TerminalId)
+	if !back.DenyEdits || back.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING {
+		t.Fatalf("resumed as it was: %v", back)
+	}
+	ap, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: a.Id, Tier: "mid"}))
+	if err != nil || ap.Msg.Reopen == nil || ap.Msg.Reopen.DenyEdits {
+		t.Fatalf("approve after the switch and the resume: %v, %v", ap, err)
+	}
+}
+
+func TestASwitchToANamedModelLeavesNoChainForNext(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	a := w.spawn(run.Id, gitRepo(t), "named", "")
+	before := w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	sw, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Model: "opus"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReopened(t, a.Id, before.TerminalId)
+	waitFor(t, "the notice delivered", func() bool { return w.delivered(t, a.Id, sw.Msg.Message.Id) })
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if after.Tier != "" || after.Model != "opus" {
+		t.Fatalf("after %v", after)
+	}
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Next: true})); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("next from a named model: %v", err)
+	}
+	w.typeInto(after, "/exit\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED)
+	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Agent: a.Id, Task: "fix it",
+		Effort: "hihg"})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a bad effort with a task: %v", err)
 	}
 }
