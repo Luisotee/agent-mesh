@@ -8002,8 +8002,8 @@ class Watch:
                    "doorbell never rang, so it may have been lost: read it with `mesh inbox`")
 
     def quota_event(self) -> tuple[int, str] | None:
-        """A quota error agy logged since the last poll, or one the worker's CLI shows (Cli.quota_hit: OpenCode's
-        limits), once per task."""
+        """A quota error agy logged since the last poll (or its final 429 with no quota named: `rate_event`), or one
+        the worker's CLI shows (Cli.quota_hit: OpenCode's limits), once per task."""
         kind, reset, self.log_offset = agy_log_hit(self.log, self.log_offset)
         entry = agent_entry(load_run(self.run_id), self.name)
         if kind == "rate":
