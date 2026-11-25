@@ -67,6 +67,11 @@ type AgentConfig struct {
 	TypingQuiet time.Duration
 	// SpoolEvery is how often the hook spool is drained (default 2 s).
 	SpoolEvery time.Duration
+	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
+	// /proc/pressure/memory); tests point them at files.
+	MeminfoPath, PressurePath string
+	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
+	RetireEvery time.Duration
 	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
@@ -105,6 +110,7 @@ type runtime struct {
 	tickets    map[string]ticket
 	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
 	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	guard      guard
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -191,7 +197,14 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		}
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
-		if a.State == v1.AgentState_AGENT_STATE_EXITED {
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED && ok && !t.Exited {
+			// A crash between marking it retired and stopping its process: finish the stop.
+			if err := d.finishRetire(ctx, a.Id); err != nil {
+				return err
+			}
+			continue
+		}
+		if a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED {
 			// A crash between recording the exit and acknowledging it leaves the terminal (its ring and
 			// emulator) in the host: acknowledge it now. The exit is already recorded, so this only acks.
 			if ok && t.Exited {
@@ -260,6 +273,14 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return err
 		}
 		claimed, owner = true, a.Id
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
+			// Stopped on purpose: nothing to record, only the terminal to forget.
+			if a.TerminalId == terminalID {
+				a.TerminalId = ""
+				return tx.PutAgent(a)
+			}
+			return nil
+		}
 		if p := a.PendingReopen; p != nil && p.Id != reopenID {
 			replaced = true
 			if a.TerminalId != terminalID {
@@ -320,10 +341,18 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned time.Time
+		var pruned, retired time.Time
+		retireEvery := d.rt.cfg.RetireEvery
+		if retireEvery == 0 {
+			retireEvery = retireQuiet
+		}
 		for {
 			d.drainSpool(ctx)
 			d.retryDoorbells(ctx)
+			if now := d.now(); now.Sub(retired) >= retireEvery {
+				retired = now
+				d.retireIdle(ctx)
+			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
 				d.pruneMutations(ctx)
@@ -504,6 +533,10 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 		if err != nil {
 			return err
 		}
+		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
+			out.State = a.State // a hook of the process it stopped, spooled before: nothing to apply
+			return nil
+		}
 		if err := d.applyEvents(tx, a, dec.Msg.Events); err != nil {
 			return err
 		}
@@ -647,6 +680,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
+	// The cap, early, before a worktree is made for nothing; the launch checks it again where it is stored.
+	if err := d.capGuard(r, "an agent in "+m.Repo); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(m.Repo) == "" {
 		return nil, invalid("no repo given")
 	}
@@ -714,6 +751,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	agent.SessionId = plan.SessionId
 	out := &v1.SpawnAgentResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSpawnAgentProcedure, out, func(tx *store.Tx) error {
+		if err := d.mayLaunch(tx.Reader, "agent "+name); err != nil {
+			return err
+		}
 		if err := tx.PutAgent(agent); err != nil {
 			return err
 		}
@@ -877,7 +917,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			if err := cancelReopen(tx, cur, "stopped"); err != nil {
 				return err
 			}
-			if cur.TerminalId == "" && cur.State != v1.AgentState_AGENT_STATE_EXITED {
+			if cur.TerminalId == "" && !stopped(cur) {
 				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
 				if err := d.recordStopped(tx, cur); err != nil {
 					return err
@@ -892,7 +932,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	}); err != nil {
 		return nil, err
 	}
-	if a.State != v1.AgentState_AGENT_STATE_EXITED && a.TerminalId != "" && d.rt.term != nil {
+	if !stopped(a) && a.TerminalId != "" && d.rt.term != nil {
 		if _, err := d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: a.TerminalId})); err != nil &&
 			connect.CodeOf(err) != connect.CodeNotFound {
 			return nil, err

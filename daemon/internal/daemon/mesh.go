@@ -283,6 +283,18 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
+		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
+		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task to
+		// one still planning keeps it planning; any other task is direct, as `resume --task` would send it.
+		if stopped(to) && to.SessionId != "" && resumes(req.Msg.Type) {
+			spec := reviveSpec{task: req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING}
+			if out.Resumed, err = d.revive(t, to, spec); err != nil {
+				return err
+			}
+			if err := t.PutAgent(to); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -333,6 +345,12 @@ func (d *Daemon) ListMessages(ctx context.Context, req *connect.Request[v1.ListM
 		msgs = msgs[:limit]
 	}
 	return connect.NewResponse(&v1.ListMessagesResponse{Messages: msgs, More: more}), nil
+}
+
+// resumes reports whether a message of this type reopens a stopped agent.
+func resumes(t v1.MessageType) bool {
+	return t == v1.MessageType_MESSAGE_TYPE_TASK || t == v1.MessageType_MESSAGE_TYPE_ANSWER ||
+		t == v1.MessageType_MESSAGE_TYPE_QUESTION
 }
 
 // ReadInbox returns the calling agent's messages.
