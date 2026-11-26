@@ -649,4 +649,11 @@ func TestAWorkerReviewsNoPRByURLOfAnotherGitHubRepo(t *testing.T) {
 	if _, err := a.ask(t, &v1.AskRequest{Review: "https://github.com/O/Shop-API/pull/7", Size: "small", Reviewers: "auto"}); err != nil {
 		t.Errorf("its own repo's PR URL: %v", err)
 	}
+	// A fork's origin, the PR on its upstream remote: the PR is still its own.
+	if out, err := exec.Command("git", "-C", a.pr.repo, "remote", "add", "upstream", "https://github.com/org/shop-api.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v %s", err, out)
+	}
+	if _, err := a.ask(t, &v1.AskRequest{Review: "https://github.com/org/shop-api/pull/7", Size: "small", Reviewers: "auto"}); code(err) == connect.CodePermissionDenied {
+		t.Errorf("a PR on its upstream remote: %v", err)
+	}
 }

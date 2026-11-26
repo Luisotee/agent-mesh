@@ -334,7 +334,9 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		return tx.PutAsk(ask)
 	}); err != nil {
 		// Its reviewer is already running and has no ask to answer: stop it.
-		d.StopAgent(ctx, connect.NewRequest(&v1.StopAgentRequest{Agent: res.Msg.Agent.Id}))
+		if _, serr := d.StopAgent(context.WithoutCancel(ctx), connect.NewRequest(&v1.StopAgentRequest{Agent: res.Msg.Agent.Id})); serr != nil {
+			d.log.Error("stopping a reviewer whose ask was refused", "agent", res.Msg.Agent.Name, "err", serr)
+		}
 		return nil, err
 	}
 	return connect.NewResponse(out), nil

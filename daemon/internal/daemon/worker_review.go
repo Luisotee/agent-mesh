@@ -92,12 +92,23 @@ func (d *Daemon) workerRepoGuard(ctx context.Context, r store.Reader, actor *v1.
 	if self.Repo != "" && !sameDir(top, self.Repo) {
 		return denied("a worker reviews only its own PR, in its own repo (%s); %s is another: the root reviews the rest", self.Repo, top)
 	}
-	// A PR given by its URL names its repo, which `gh` reads whatever folder it runs in: it must be the repo's origin.
+	// A PR given by its URL names its repo, which `gh` reads whatever folder it runs in: it must be one of the
+	// repo's remotes (a fork's origin, with the PR on its upstream).
 	if want := githubRepoOf(review); want != "" {
-		if origin, err := git(ctx, top, "config", "--get", "remote.origin.url"); err == nil {
-			if have := githubRepoOf(origin); have != "" && have != want {
-				return denied("a worker reviews only its own PR, in its own repo (%s); %s is of %s: the root reviews the rest", have, review, want)
+		out, err := git(ctx, top, "config", "--get-regexp", `^remote\..*\.url$`)
+		if err != nil {
+			return nil
+		}
+		var have []string
+		for _, line := range strings.Split(out, "\n") {
+			if f := strings.Fields(line); len(f) == 2 {
+				if g := githubRepoOf(f[1]); g != "" {
+					have = append(have, g)
+				}
 			}
+		}
+		if len(have) > 0 && !slices.Contains(have, want) {
+			return denied("a worker reviews only its own PR, in its own repo (%s); %s is of %s: the root reviews the rest", strings.Join(have, ", "), review, want)
 		}
 	}
 	return nil
