@@ -343,7 +343,6 @@ Can follow the first run on the daemon, but come before PR 6 if the user wants t
 - Compaction on resume and approve, root reset, `brief` and `protocol <part>`, lean sessions and `tools add`, `--mcp`, plan review by the user.
 - (Done: Claude inbox-socket delivery, doorbells that never land on a human's draft or at a dialog, and a doorbell counting as delivered only once the agent took it: `daemon/README.md`, "Doorbell delivery". `reopen_relaunched` has no counterpart: a Claude can't be relaunched in a daemon terminal without the daemon, and `send_message` with its Stop-hook backing and `Watch.lost_report` are not needed, as the daemon writes every frame itself and confirms it.) The OpenCode adapter (done) and the Copilot adapter; the sweep of leftover processes and the CPU and memory scopes (in progress elsewhere).
 - (Done: the policy file `~/.config/agent-mesh.json` is imported once into the settings, and `mesh model` shows what a spawn would run: `daemon/README.md`, "Settings".)
-- A terminal in the CLI (`mesh open`): the desktop app covers it.
 - `PATH` from the login shell under systemd ("Protocols and lifecycle"): `install.sh --daemon` writes the current `PATH` into the unit meanwhile.
 
 ## Decided

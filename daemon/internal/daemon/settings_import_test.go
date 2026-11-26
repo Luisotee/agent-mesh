@@ -1,13 +1,11 @@
 package daemon_test
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -92,24 +90,6 @@ func TestMeshdWithNoPolicyFileOrABrokenOneStartsAnyway(t *testing.T) {
 	if setting(t, h, "compact.claude").IsSet {
 		t.Error("set from a broken file")
 	}
-}
-
-// syncBuffer is a log sink the daemon's goroutines write while the test reads.
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
 }
 
 func TestMeshdLogsAChangedPolicyFile(t *testing.T) {

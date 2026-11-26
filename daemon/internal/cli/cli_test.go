@@ -796,3 +796,46 @@ func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderLogAndRing(t *testing.T) {
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.Local)
+	t2 := time.Date(2026, 5, 1, 10, 5, 0, 0, time.Local)
+	t3 := time.Date(2026, 5, 2, 9, 0, 0, 0, time.Local)
+
+	var out bytes.Buffer
+	var st streamState
+	for _, entry := range []*v1.LogEntry{
+		{Time: timestamppb.New(t1), Kind: "run_start"},
+		{Time: timestamppb.New(t2), Kind: "message/plan", Who: "w1 → lead", Detail: "ready"},
+		{Time: timestamppb.New(t3), Kind: "run_stop"},
+	} {
+		renderLog(&v1.StreamLogResponse{Entry: entry}, &out, &st)
+	}
+	gotLog := out.String()
+	for _, want := range []string{
+		"── 2026-05-01 ──\n",
+		"10:00:00  run_start\n",
+		"10:05:00  message/plan     w1 → lead  ready\n",
+		"── 2026-05-02 ──\n",
+		"09:00:00  run_stop\n",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Errorf("renderLog missing %q in:\n%s", want, gotLog)
+		}
+	}
+
+	out.Reset()
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 0}, &out)
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 2, Rung: true, Via: "socket"}, &out)
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 1, Error: "human_draft"}, &out)
+	gotRing := out.String()
+	for _, want := range []string{
+		"w1 has no unread messages.\n",
+		"rung w1 (2 unread via socket)\n",
+		"not rung w1 (1 unread): human_draft\n",
+	} {
+		if !strings.Contains(gotRing, want) {
+			t.Errorf("renderRing missing %q in:\n%s", want, gotRing)
+		}
+	}
+}

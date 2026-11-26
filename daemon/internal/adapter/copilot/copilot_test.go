@@ -249,3 +249,27 @@ func TestInspectDatesTheAnsweredPromptAndScreenLimitsKnowTheirModel(t *testing.T
 		}
 	}
 }
+
+func TestPlanLaunchStandalone(t *testing.T) {
+	a := &Adapter{NewSessionID: func() string { return "new-session" }}
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
+		DenyEdits:       true,
+		Binary:          "/opt/copilot",
+		Model:           "gpt-5",
+		Effort:          "high",
+		ResumeSessionId: "old-sess",
+		SkipPermissions: true,
+		Standalone:      true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/opt/copilot", "--session-id", "old-sess", "--model", "gpt-5", "--reasoning-effort", "high"}
+	if !slices.Equal(res.Msg.Argv, want) {
+		t.Errorf("argv = %v, want %v", res.Msg.Argv, want)
+	}
+	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
+		t.Error("expected error when resume_session_id is empty")
+	}
+}

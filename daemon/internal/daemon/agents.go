@@ -1260,9 +1260,14 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 	if a.TerminalId == "" || d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s has no terminal", a.Name))
 	}
-	input := req.Msg.Input && d.reg.Has("terminal.input", actor.Class)
-	tk := ids.Secret("tkt_")
-	exp := d.now().Add(TicketTTL)
+	path, tk, input, exp := d.issueTerminalTicket(actor, a, req.Msg.Input)
+	return connect.NewResponse(&v1.OpenTerminalResponse{Path: path, Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
+}
+
+func (d *Daemon) issueTerminalTicket(actor *v1.Actor, a *v1.Agent, askInput bool) (path, tk string, input bool, exp time.Time) {
+	input = askInput && d.reg.Has("terminal.input", actor.Class)
+	tk = ids.Secret("tkt_")
+	exp = d.now().Add(TicketTTL)
 	d.rt.mu.Lock()
 	for k, t := range d.rt.tickets {
 		if d.now().After(t.expires) {
@@ -1271,8 +1276,7 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 	}
 	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, actorID: actor.Id, input: input, expires: exp}
 	d.rt.mu.Unlock()
-	return connect.NewResponse(&v1.OpenTerminalResponse{Path: "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk),
-		Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
+	return "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk), tk, input, exp
 }
 
 // serveTerminal checks a ticket and splices the client's WebSocket to the host's stream for that terminal.

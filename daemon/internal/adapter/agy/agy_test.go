@@ -369,3 +369,42 @@ func TestUsageParsingAndModelQuotaMatching(t *testing.T) {
 		t.Errorf("claude quota = %+v, %v", q, ok)
 	}
 }
+
+func TestPlanLaunchStandalone(t *testing.T) {
+	a := New()
+	a.ListModels = func(context.Context, string, map[string]string) (string, error) { return sampleListing, nil }
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		AgentId:         "a1",
+		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
+		DenyEdits:       true,
+		Cwd:             t.TempDir(),
+		Repo:            t.TempDir(),
+		Binary:          "/opt/agy",
+		Model:           "hydrogen",
+		Effort:          "high",
+		ResumeSessionId: "conv-9",
+		SkipPermissions: true,
+		HookArgv:        []string{"/bin/mesh", "hook", "agy"},
+		Env:             map[string]string{"PATH": "/bin", "ANTIGRAVITY_AGENT": "1", "ANTIGRAVITY_CSRF_TOKEN": "sec"},
+		Standalone:      true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/opt/agy\x00--conversation\x00conv-9\x00--model\x00gemini-4-hydrogen-high"
+	if got := strings.Join(res.Msg.Argv, "\x00"); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	if len(res.Msg.WorktreeFiles) != 0 {
+		t.Errorf("standalone launch emitted worktree files: %+v", res.Msg.WorktreeFiles)
+	}
+	if _, ok := res.Msg.Env["ANTIGRAVITY_AGENT"]; ok {
+		t.Errorf("ANTIGRAVITY_AGENT kept in standalone env: %v", res.Msg.Env)
+	}
+	if _, ok := res.Msg.Env["ANTIGRAVITY_CSRF_TOKEN"]; ok {
+		t.Errorf("ANTIGRAVITY_CSRF_TOKEN kept in standalone env: %v", res.Msg.Env)
+	}
+	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
+		t.Error("expected error when resume_session_id is empty")
+	}
+}

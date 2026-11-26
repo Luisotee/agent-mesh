@@ -275,3 +275,62 @@ func addGitExclude(commonDir, pattern string) error {
 	b.WriteByte('\n')
 	return fsutil.WriteAtomic(excludePath, []byte(b.String()), 0o644)
 }
+
+// clearAgyMeshHooks removes the daemon's `"agent-mesh"` hook entry from worktree/.agents/hooks.json before
+// opening a stopped agy agent outside any run (`mesh open`), so the user's session isn't held by read-only
+// `--check-only` rules or mesh hooks. Repo hooks in other keys (or tracked repo hooks) stay intact.
+func clearAgyMeshHooks(ctx context.Context, worktree string) error {
+	if worktree == "" {
+		return nil
+	}
+	slashRel := ".agents/hooks.json"
+	hooksPath := filepath.Join(worktree, filepath.FromSlash(slashRel))
+	raw, err := os.ReadFile(hooksPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	obj, ok := decodeJSONObject(raw)
+	if !ok {
+		return nil
+	}
+	if _, hasMesh := obj["agent-mesh"]; !hasMesh {
+		return nil
+	}
+	delete(obj, "agent-mesh")
+	mode := os.FileMode(0o600)
+	if st, serr := os.Stat(hooksPath); serr == nil && st.Mode().Perm() != 0 {
+		mode = st.Mode().Perm()
+	}
+	tracked := exec.CommandContext(ctx, "git", "-C", worktree, "ls-files", "--error-unmatch", "--", slashRel).Run() == nil
+	if tracked {
+		_, _ = git(ctx, worktree, "update-index", "--no-skip-worktree", "--", slashRel)
+		if len(obj) == 0 {
+			_, err = git(ctx, worktree, "checkout", "--", slashRel)
+			return err
+		}
+		b, err := json.MarshalIndent(obj, "", "  ")
+		if err != nil {
+			return err
+		}
+		return fsutil.WriteAtomic(hooksPath, append(b, '\n'), mode)
+	}
+	if len(obj) == 0 {
+		if err := os.Remove(hooksPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		ignorePath := filepath.Join(worktree, ".agents", ".gitignore")
+		if ig, err := os.ReadFile(ignorePath); err == nil && strings.HasPrefix(string(ig), ignoreMarker+"\n") {
+			_ = os.Remove(ignorePath)
+			_ = os.Remove(filepath.Join(worktree, ".agents"))
+		}
+		return nil
+	}
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteAtomic(hooksPath, append(b, '\n'), mode)
+}
