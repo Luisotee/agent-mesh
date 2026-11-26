@@ -17,6 +17,9 @@ import (
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 
+// flat drops escapes and spaces: the screen wraps long lines and moves the cursor between the pieces.
+func flat(s string) string { return strings.Join(strings.Fields(ansi.ReplaceAllString(s, "")), "") }
+
 // fakeShare is a share folder with a protocol and a Claude plugin manifest, under a short path of its own.
 func fakeShare(t *testing.T, plugin bool) string {
 	t.Helper()
@@ -57,8 +60,6 @@ func TestAgentsGetTheShareFolderTheSkillsAndTheProtocolInTheirFirstDoorbell(t *t
 	if err != nil || !strings.Contains(string(raw), "AGENT_MESH_SHARE="+share) {
 		t.Fatalf("the agent's environment lacks AGENT_MESH_SHARE: %v %.200s", err, raw)
 	}
-	// The screen wraps long lines and moves the cursor between the pieces: compare without escapes or spaces.
-	flat := func(s string) string { return strings.Join(strings.Fields(ansi.ReplaceAllString(s, "")), "") }
 	pointer := "firstonehere:read" + flat(filepath.Join(share, "protocol", "PROTOCOL.md"))
 	waitFor(t, "the first doorbell naming the protocol", func() bool { return strings.Contains(flat(w.screen(t, worker)), pointer) })
 	// A second doorbell of the same process doesn't repeat it.
@@ -98,7 +99,7 @@ func TestWithoutAShareFolderOrItsManifestNothingIsAdded(t *testing.T) {
 		if len(argv) != 1 || strings.Contains(strings.Join(argv[0], " "), "--plugin-dir") {
 			t.Errorf("%s: the launch: %v", name, argv)
 		}
-		if share == "" && strings.Contains(w.screen(t, worker), "firstonehere") {
+		if share == "" && strings.Contains(flat(w.screen(t, worker)), "firstonehere") {
 			t.Errorf("%s: a pointer without a share folder", name)
 		}
 	}

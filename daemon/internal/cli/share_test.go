@@ -45,6 +45,7 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 	}
 	span := regexp.MustCompile("`([^`\n]+)`")
 	cmdRE := regexp.MustCompile(`\bmesh ([a-z][a-z-]*)\b`)
+	subRE := regexp.MustCompile(`\$\(([^()]*)\)`)
 	flagRE := regexp.MustCompile(`(?:^|\s)--([a-z][a-z-]*)`)
 	checked := 0
 	for _, file := range files {
@@ -74,24 +75,38 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 				segments = append(segments, struct{ text, line string }{m[1], line})
 			}
 		}
+		// A `$(mesh …)` inside a command is checked as a segment of its own and cut from the outer one.
 		for _, seg := range segments {
-			loc := cmdRE.FindStringSubmatchIndex(seg.text)
-			if loc == nil || strings.HasPrefix(seg.text, "[mesh ") { // `[mesh alert …]` is a message's tag
+			for _, m := range subRE.FindAllStringSubmatch(seg.text, -1) {
+				segments = append(segments, struct{ text, line string }{m[1], seg.line})
+			}
+		}
+		for _, seg := range segments {
+			seg.text = subRE.ReplaceAllString(seg.text, "")
+			if strings.HasPrefix(seg.text, "[mesh ") { // `[mesh alert …]` is a message's tag
 				continue
 			}
-			name := seg.text[loc[2]:loc[3]]
-			fs, ok := flags[name]
-			if !ok {
-				if strings.Contains(seg.line, " yet") || strings.Contains(seg.line, "not on the daemon") {
+			// Every `mesh <cmd>` of the segment is checked; a command's flags run to the next one.
+			locs := cmdRE.FindAllStringSubmatchIndex(seg.text, -1)
+			for i, loc := range locs {
+				name := seg.text[loc[2]:loc[3]]
+				fs, ok := flags[name]
+				if !ok {
+					if strings.Contains(seg.line, " yet") || strings.Contains(seg.line, "not on the daemon") {
+						continue
+					}
+					t.Errorf("%s: `%s` is not a command of this CLI", file, seg.text)
 					continue
 				}
-				t.Errorf("%s: `%s` is not a command of this CLI", file, seg.text)
-				continue
-			}
-			checked++
-			for _, m := range flagRE.FindAllStringSubmatch(seg.text[loc[1]:], -1) {
-				if fs.Lookup(m[1]) == nil && m[1] != "help" {
-					t.Errorf("%s: `%s` has no --%s", file, seg.text, m[1])
+				checked++
+				end := len(seg.text)
+				if i+1 < len(locs) {
+					end = locs[i+1][0]
+				}
+				for _, m := range flagRE.FindAllStringSubmatch(seg.text[loc[1]:end], -1) {
+					if fs.Lookup(m[1]) == nil && m[1] != "help" {
+						t.Errorf("%s: `%s` has no --%s", file, seg.text, m[1])
+					}
 				}
 			}
 		}
