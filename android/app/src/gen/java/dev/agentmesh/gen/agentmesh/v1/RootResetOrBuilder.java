@@ -272,4 +272,25 @@ public interface RootResetOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFocusBytes();
+
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   * @return Whether the bootstrapWaitedSince field is set.
+   */
+  boolean hasBootstrapWaitedSince();
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   * @return The bootstrapWaitedSince.
+   */
+  com.google.protobuf.Timestamp getBootstrapWaitedSince();
 }

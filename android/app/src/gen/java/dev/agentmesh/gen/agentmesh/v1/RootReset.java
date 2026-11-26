@@ -956,6 +956,78 @@ public  final class RootReset extends
 
   }
 
+  public static final int BOOTSTRAP_WAITED_SINCE_FIELD_NUMBER = 17;
+  private com.google.protobuf.Timestamp bootstrapWaitedSince_;
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   */
+  @java.lang.Override
+  public boolean hasBootstrapWaitedSince() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getBootstrapWaitedSince() {
+    return bootstrapWaitedSince_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : bootstrapWaitedSince_;
+  }
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   */
+  private void setBootstrapWaitedSince(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    bootstrapWaitedSince_ = value;
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeBootstrapWaitedSince(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (bootstrapWaitedSince_ != null &&
+        bootstrapWaitedSince_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      bootstrapWaitedSince_ =
+        com.google.protobuf.Timestamp.newBuilder(bootstrapWaitedSince_).mergeFrom(value).buildPartial();
+    } else {
+      bootstrapWaitedSince_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+   * `root_reset.wait`, so the root is never held for good.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+   */
+  private void clearBootstrapWaitedSince() {
+    bootstrapWaitedSince_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.RootReset parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2012,6 +2084,83 @@ public  final class RootReset extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    @java.lang.Override
+    public boolean hasBootstrapWaitedSince() {
+      return instance.hasBootstrapWaitedSince();
+    }
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getBootstrapWaitedSince() {
+      return instance.getBootstrapWaitedSince();
+    }
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    public Builder setBootstrapWaitedSince(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setBootstrapWaitedSince(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    public Builder setBootstrapWaitedSince(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setBootstrapWaitedSince(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    public Builder mergeBootstrapWaitedSince(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeBootstrapWaitedSince(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+     * `root_reset.wait`, so the root is never held for good.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp bootstrap_waited_since = 17 [json_name = "bootstrapWaitedSince"];</code>
+     */
+    public Builder clearBootstrapWaitedSince() {  copyOnWrite();
+      instance.clearBootstrapWaitedSince();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RootReset)
   }
   @java.lang.Override
@@ -2045,12 +2194,13 @@ public  final class RootReset extends
             "noted_",
             "mode_",
             "focus_",
+            "bootstrapWaitedSince_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0007\u0005\u1009\u0000\u0006\u1009\u0001\u0007\u1009\u0002\b" +
               "\u0208\t\u0208\n\u0208\u000b\u0208\f\u0002\r\u0208\u000e\u0007\u000f\u0208\u0010" +
-              "\u0208";
+              "\u0208\u0011\u1009\u0003";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

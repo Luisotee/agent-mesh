@@ -98,7 +98,7 @@ public  final class PendingCompaction extends
   private java.lang.String why_;
   /**
    * <pre>
-   * "resume", "approve" or "follow-up".
+   * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
    * </pre>
    *
    * <code>string why = 2 [json_name = "why"];</code>
@@ -110,7 +110,7 @@ public  final class PendingCompaction extends
   }
   /**
    * <pre>
-   * "resume", "approve" or "follow-up".
+   * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
    * </pre>
    *
    * <code>string why = 2 [json_name = "why"];</code>
@@ -123,7 +123,7 @@ public  final class PendingCompaction extends
   }
   /**
    * <pre>
-   * "resume", "approve" or "follow-up".
+   * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
    * </pre>
    *
    * <code>string why = 2 [json_name = "why"];</code>
@@ -137,7 +137,7 @@ public  final class PendingCompaction extends
   }
   /**
    * <pre>
-   * "resume", "approve" or "follow-up".
+   * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
    * </pre>
    *
    * <code>string why = 2 [json_name = "why"];</code>
@@ -148,7 +148,7 @@ public  final class PendingCompaction extends
   }
   /**
    * <pre>
-   * "resume", "approve" or "follow-up".
+   * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
    * </pre>
    *
    * <code>string why = 2 [json_name = "why"];</code>
@@ -888,7 +888,7 @@ public  final class PendingCompaction extends
 
     /**
      * <pre>
-     * "resume", "approve" or "follow-up".
+     * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
      * </pre>
      *
      * <code>string why = 2 [json_name = "why"];</code>
@@ -900,7 +900,7 @@ public  final class PendingCompaction extends
     }
     /**
      * <pre>
-     * "resume", "approve" or "follow-up".
+     * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
      * </pre>
      *
      * <code>string why = 2 [json_name = "why"];</code>
@@ -913,7 +913,7 @@ public  final class PendingCompaction extends
     }
     /**
      * <pre>
-     * "resume", "approve" or "follow-up".
+     * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
      * </pre>
      *
      * <code>string why = 2 [json_name = "why"];</code>
@@ -928,7 +928,7 @@ public  final class PendingCompaction extends
     }
     /**
      * <pre>
-     * "resume", "approve" or "follow-up".
+     * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
      * </pre>
      *
      * <code>string why = 2 [json_name = "why"];</code>
@@ -941,7 +941,7 @@ public  final class PendingCompaction extends
     }
     /**
      * <pre>
-     * "resume", "approve" or "follow-up".
+     * "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
      * </pre>
      *
      * <code>string why = 2 [json_name = "why"];</code>
