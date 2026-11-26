@@ -16,7 +16,7 @@ import (
 // HoldPullRequest holds a pull request's merge, or releases it (docs/apps.md, "Autonomy per project": "Hold merge"
 // pauses one PR at any level). The hold is the user's: kept by the PR's URL (`pr_holds`), so it outlives every record
 // of the PR, and set on each record `mesh prs` and the brief read, where the root sees it and never merges a held PR
-// (ORCHESTRATE). A root may hold a PR of its own run, never release one: only the user (a device) releases. Holding a
+// (ORCHESTRATE). A root may hold a PR its own run has, never release one: only the user (a device) releases. Holding a
 // PR the daemon doesn't list is refused: nothing would carry the flag to the root.
 func (d *Daemon) HoldPullRequest(ctx context.Context, req *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error) {
 	url := strings.TrimSpace(req.Msg.Url)
@@ -33,15 +33,17 @@ func (d *Daemon) HoldPullRequest(ctx context.Context, req *connect.Request[v1.Ho
 		if err != nil {
 			return err
 		}
-		var rows []*v1.PullRequest
+		// A root names a PR of its own run (some agent of it owns the PR); the hold is then the PR's, on every record of it.
+		rows, mine := all, own == ""
 		for _, p := range all {
 			a, err := t.GetAgent(p.AgentId)
 			if err != nil {
 				return err
 			}
-			if own == "" || a.RunId == own {
-				rows = append(rows, p)
-			}
+			mine = mine || a.RunId == own
+		}
+		if !mine {
+			rows = nil
 		}
 		hold := !req.Msg.Release
 		was, err := t.PRHeld(url)
