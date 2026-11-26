@@ -81,8 +81,7 @@ func TestAgentsGetTheShareFolderTheSkillsAndTheProtocolInTheirFirstDoorbell(t *t
 	m := w.sendToParent(t, worker, v1.MessageType_MESSAGE_TYPE_DONE)
 	waitFor(t, "the root's first doorbell", func() bool { return !w.deliveredAt(t, lead.Id, m.Id).IsZero() })
 	rootScreen := flat(w.screen(t, lead))
-	if !strings.Contains(rootScreen, "firstonehere:read"+flat(filepath.Join(share, "protocol", "ROOT_CARD.md"))) ||
-		!strings.Contains(rootScreen, flat(filepath.Join(share, "protocol", "PROTOCOL.md"))) {
+	if !strings.Contains(rootScreen, "firstonehere:read"+flat(filepath.Join(share, "protocol", "ROOT_CARD.md"))+"andfollowit") {
 		t.Errorf("the root's screen:\n%s", w.screen(t, lead))
 	}
 }

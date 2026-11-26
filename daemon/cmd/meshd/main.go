@@ -53,12 +53,19 @@ func main() {
 	if abs, err := filepath.Abs(*mesh); err == nil {
 		*mesh = abs
 	}
+	shareGiven := false
+	flag.Visit(func(f *flag.Flag) { shareGiven = shareGiven || f.Name == "share" })
 	if abs, err := filepath.Abs(*share); err == nil {
 		if st, err := os.Stat(filepath.Join(abs, "protocol")); err == nil && st.IsDir() {
 			*share = abs
 		} else {
 			*share = ""
 		}
+	} else {
+		*share = ""
+	}
+	if shareGiven && *share == "" {
+		fmt.Fprintln(os.Stderr, "meshd: --share has no protocol/ folder: agents get no protocol pointer and no skills")
 	}
 	if *state == "" {
 		fmt.Fprintln(os.Stderr, "meshd: give --state or $"+client.StateEnv)

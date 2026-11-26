@@ -1188,7 +1188,7 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 }
 
 // protocolPointer is what the first doorbell of a process adds: where the protocol is, as an absolute path (the
-// agent's CLI doesn't expand variables in what is typed to it). A root reads the orchestration card too. Nothing
+// agent's CLI doesn't expand variables in what is typed to it). A root's names its card, which names the rest. Nothing
 // when the daemon has no share folder.
 func (d *Daemon) protocolPointer(a *v1.Agent) string {
 	share := d.rt.cfg.Share
@@ -1197,7 +1197,7 @@ func (d *Daemon) protocolPointer(a *v1.Agent) string {
 	}
 	protocol := filepath.Join(share, "protocol")
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
-		return " (first one here: read " + filepath.Join(protocol, "ROOT_CARD.md") + " and " + filepath.Join(protocol, "PROTOCOL.md") + ", and follow them)"
+		return " (first one here: read " + filepath.Join(protocol, "ROOT_CARD.md") + " and follow it)"
 	}
 	return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, and follow it)"
 }
