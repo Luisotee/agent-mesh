@@ -274,6 +274,73 @@ public  final class Device extends
     bitField0_ = (bitField0_ & ~0x00000002);
   }
 
+  public static final int PUSH_FIELD_NUMBER = 6;
+  private dev.agentmesh.gen.agentmesh.v1.PushRegistration push_;
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPush() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PushRegistration getPush() {
+    return push_ == null ? dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance() : push_;
+  }
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   */
+  private void setPush(dev.agentmesh.gen.agentmesh.v1.PushRegistration value) {
+    java.util.Objects.requireNonNull(value);
+    push_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePush(dev.agentmesh.gen.agentmesh.v1.PushRegistration value) {
+    java.util.Objects.requireNonNull(value);
+    if (push_ != null &&
+        push_ != dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()) {
+      push_ =
+        dev.agentmesh.gen.agentmesh.v1.PushRegistration.newBuilder(push_).mergeFrom(value).buildPartial();
+    } else {
+      push_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   */
+  private void clearPush() {
+    push_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Device parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -638,6 +705,77 @@ public  final class Device extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPush() {
+      return instance.hasPush();
+    }
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PushRegistration getPush() {
+      return instance.getPush();
+    }
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    public Builder setPush(dev.agentmesh.gen.agentmesh.v1.PushRegistration value) {
+      copyOnWrite();
+      instance.setPush(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    public Builder setPush(
+        dev.agentmesh.gen.agentmesh.v1.PushRegistration.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPush(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    public Builder mergePush(dev.agentmesh.gen.agentmesh.v1.PushRegistration value) {
+      copyOnWrite();
+      instance.mergePush(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The device's push endpoint, when it registered one.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+     */
+    public Builder clearPush() {  copyOnWrite();
+      instance.clearPush();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Device)
   }
   @java.lang.Override
@@ -660,10 +798,11 @@ public  final class Device extends
             "class__",
             "createdAt_",
             "revokedAt_",
+            "push_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

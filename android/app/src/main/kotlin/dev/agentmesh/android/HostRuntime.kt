@@ -80,6 +80,11 @@ class HostRuntime(
     /** What just happened that the user may want to know: live events only (see [noticeFor]). */
     val notices: SharedFlow<Notice> get() = _notices
 
+    private val _connected = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Once per connection that became ready (a state flow would fold a quick reconnect into "still ready"). */
+    val connected: SharedFlow<Unit> get() = _connected
+
     private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs, routeCount = { host?.routes?.size ?: 1 })
@@ -257,6 +262,7 @@ class HostRuntime(
                 else -> it.copy(conn = state, synced = false, messagesLoaded = emptySet(), messagesFailed = emptySet())
             }
         }
+        if (state is ConnState.Ready) _connected.tryEmit(Unit)
     }
 
     override fun onHello(hello: HelloResponse) {
