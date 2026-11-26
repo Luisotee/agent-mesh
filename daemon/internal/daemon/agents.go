@@ -111,13 +111,14 @@ type runtime struct {
 	term     *termclient.Client
 	hello    *termv1.HelloResponse
 
-	mu         sync.Mutex
-	lastOutput map[string]time.Time // terminal id → newest output mark
-	tickets    map[string]ticket
-	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
-	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
-	guard      guard
-	holds      holds // models at a usage limit (limits.go)
+	mu          sync.Mutex
+	lastOutput  map[string]time.Time // terminal id → newest output mark
+	firstOutput map[string]time.Time // terminal id → first output time (for adapters without startup-hook)
+	tickets     map[string]ticket
+	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	guard       guard
+	holds       holds // models at a usage limit (limits.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -143,7 +144,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{},
+	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
@@ -340,6 +341,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
+	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
@@ -429,8 +431,12 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 						d.log.Error("recording an exit", "terminal", f.Exited.Id, "err", err)
 					}
 				case *termv1.WatchTerminalsResponse_Output:
+					t := f.Output.Time.AsTime()
 					d.rt.mu.Lock()
-					d.rt.lastOutput[f.Output.Id] = f.Output.Time.AsTime()
+					d.rt.lastOutput[f.Output.Id] = t
+					if _, seen := d.rt.firstOutput[f.Output.Id]; !seen {
+						d.rt.firstOutput[f.Output.Id] = t
+					}
 					d.rt.mu.Unlock()
 				}
 			}

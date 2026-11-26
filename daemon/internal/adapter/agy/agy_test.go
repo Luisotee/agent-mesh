@@ -385,3 +385,50 @@ func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 		t.Errorf("another session's Stop reported: %q", got)
 	}
 }
+
+func TestHooksJSONPreToolUseFailOpenForWritersAndFailClosedForDeny(t *testing.T) {
+	// Without deny rules: PreToolUse matches "*", runs without GNU timeout, and exits 0 silently even when
+	// meshctl is missing, exits non-zero, or prints non-JSON.
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad-meshctl")
+	if err := os.WriteFile(bad, []byte("#!/bin/sh\necho 'not json!'\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, bin := range []string{bad, filepath.Join(dir, "missing-meshctl")} {
+		b, err := HooksJSON("a1", []string{bin, "hook", "agy"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec map[string]hooksSpec
+		if err := json.Unmarshal(b, &spec); err != nil {
+			t.Fatal(err)
+		}
+		pre := spec["agent-mesh"].PreToolUse
+		if len(pre) != 1 || pre[0].Matcher != "*" || pre[0].Hooks[0].Timeout != HookTimeout {
+			t.Fatalf("unexpected writer PreToolUse: %+v", pre)
+		}
+		if strings.Contains(pre[0].Hooks[0].Command, "timeout ") {
+			t.Errorf("writer PreToolUse should not depend on GNU timeout: %q", pre[0].Hooks[0].Command)
+		}
+		c := exec.Command("sh", "-c", pre[0].Hooks[0].Command)
+		c.Env = []string{"PATH=/usr/bin:/bin", "AGENT_MESH_AGENT=a1"}
+		out, err := c.CombinedOutput()
+		if err != nil || len(out) != 0 {
+			t.Errorf("%s: err=%v out=%q, want exit 0 with empty output", bin, err, out)
+		}
+	}
+
+	// With deny rules: PreToolUse keeps Matcher "*" so every tool fails closed on hook failure.
+	b, err := HooksJSON("a1", []string{bad, "hook", "agy"}, true, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]hooksSpec
+	if err := json.Unmarshal(b, &spec); err != nil {
+		t.Fatal(err)
+	}
+	pre := spec["agent-mesh"].PreToolUse
+	if len(pre) != 1 || pre[0].Matcher != "*" || pre[0].Hooks[0].Timeout != HookTimeout {
+		t.Fatalf("unexpected deny PreToolUse: %+v", pre)
+	}
+}
