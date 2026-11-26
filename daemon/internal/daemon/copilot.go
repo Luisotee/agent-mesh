@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,12 +166,17 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 
 	limited := st.Limit
 	var screenLimit *copilot.Limit
+	screenGone := false
 	if limited == nil && st.State != "idle" && a.State != v1.AgentState_AGENT_STATE_LIMITED {
-		// A rate limit shows on the screen only; one from before the newest prompt was answered is old.
+		// A rate limit shows on the screen only. A line already reported (a `continue` resumed the agent and the
+		// line is still among the last ones, however many polls its turn takes) is old: it must not limit the
+		// turns that follow. It counts as new again once it has left the screen.
 		if raw, serr := d.readScreen(ctx, a.TerminalId); serr == nil {
-			// A limit line already reported for this prompt (a `continue` resumed the agent, the line is still on
-			// screen) is old: it must not hold back the turns that follow.
-			if l, ok := copilot.ScreenLimit(copilot.ScreenLines(raw)); ok && "screen:"+l.Message+"@"+st.Key != prevLimit {
+			l, ok := copilot.ScreenLimit(copilot.ScreenLines(raw))
+			switch {
+			case !ok:
+				screenGone = true
+			case "screen:"+l.Message != prevLimit:
 				screenLimit = &l
 				limited = &l
 			}
@@ -180,7 +186,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 	case limited != nil:
 		key := st.Key
 		if screenLimit != nil {
-			key = "screen:" + screenLimit.Message + "@" + st.Key
+			key = "screen:" + screenLimit.Message
 		}
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED && key != prevLimit {
 			at := limited.At
@@ -189,7 +195,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 			}
 			ev(&adapterv1.AgentEvent{Time: timestamppb.New(now), Kind: &adapterv1.AgentEvent_RateLimited{
 				RateLimited: &adapterv1.RateLimited{Message: limited.Message, ResetAt: timestamppb.New(at.Add(limited.Hold)),
-					AllModels: true}}})
+					AllModels: !limited.PerModel}}})
 		}
 		nextLimit = key
 	case st.State != "" && (st.Key != prevKey || (st.State == "working" && a.State != v1.AgentState_AGENT_STATE_WORKING)):
@@ -209,14 +215,18 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 		nextKey, nextState = st.Key, st.State
 	}
 
+	if screenGone && strings.HasPrefix(nextLimit, "screen:") {
+		nextLimit = ""
+	}
 	if len(evs) > 0 {
 		if err := d.applyCopilotEvents(ctx, a.Id, a.TerminalId, evs); err != nil {
 			return
 		}
 	}
-	// It answered after a hold was set: the quota is back (topped up, or the policy changed), so lift the hold.
-	if st.Limit == nil && !st.AnsweredAt.IsZero() {
-		d.liftCopilotHolds(ctx, st.AnsweredAt)
+	// It answered a prompt typed after a hold was set: the quota is back (topped up, or the policy changed), so
+	// lift the hold. An answer to an earlier prompt (a turn that was running when the quota ran out) says nothing.
+	if st.Limit == nil && !st.PromptAt.IsZero() {
+		d.liftCopilotHolds(ctx, st.PromptAt)
 	}
 	d.rt.copilot.mu.Lock()
 	if cur := d.rt.copilot.polled[a.Id]; cur != nil && cur.terminalID == a.TerminalId {
@@ -225,15 +235,15 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 	d.rt.copilot.mu.Unlock()
 }
 
-// liftCopilotHolds deletes the Copilot holds recorded before answeredAt.
-func (d *Daemon) liftCopilotHolds(ctx context.Context, answeredAt time.Time) {
+// liftCopilotHolds deletes the Copilot holds recorded before promptAt, the time of a prompt that was answered.
+func (d *Daemon) liftCopilotHolds(ctx context.Context, promptAt time.Time) {
 	holds, err := d.store.Read(ctx).ModelLimits(copilot.Kind)
 	if err != nil {
 		return
 	}
 	var stale []store.ModelLimit
 	for _, h := range holds {
-		if h.UpdatedAt.Before(answeredAt) && h.Until.After(d.now()) {
+		if h.UpdatedAt.Before(promptAt) && h.Until.After(d.now()) {
 			stale = append(stale, h)
 		}
 	}

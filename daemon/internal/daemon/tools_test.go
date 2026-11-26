@@ -288,3 +288,126 @@ func TestExclusiveMCPLeaseConcurrentClaimantsExactlyOneWins(t *testing.T) {
 		t.Fatalf("exactly one claimant should win playwright: won=%d refused=%d", won, refused)
 	}
 }
+
+// A server a worker's launch loads without being named (its repo's own, under `claude.mcp` `repo`) is held too:
+// another agent may not take the shared one.
+func TestAnExclusiveServerALaunchLoadsUnnamedIsHeld(t *testing.T) {
+	w := startReopen(t)
+	w.userMCPServers(t, "context7", "playwright")
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+
+	// This repo's own `.mcp.json` approves playwright: every agent in it loads it, named or not.
+	repo := gitRepo(t)
+	os.MkdirAll(filepath.Join(repo, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(`{"mcpServers":{"playwright":{"type":"stdio","command":"playwright-cmd"}}}`), 0o600)
+	os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"enableAllProjectMcpServers":true}`), 0o600)
+	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "work"})
+	if got := mcpFileServers(t, filepath.Join(w.state, "agents", holder.Id, "mcp.json")); !slices.Contains(got, "playwright") {
+		t.Fatalf("the repo's server was not loaded: %v", got)
+	}
+
+	if _, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		Repo: gitRepo(t), Slug: "other", Tier: "mid", Mcp: []string{"playwright"}, Task: "also browser",
+	})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), holder.Name) {
+		t.Fatalf("want FailedPrecondition naming %s, got %v", holder.Name, err)
+	}
+	srv, err := asLead.ListMCPServers(ctx, connect.NewRequest(&v1.ListMCPServersRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range srv.Msg.Servers {
+		if s.Name == "playwright" && !strings.Contains(s.HeldBy, holder.Name) {
+			t.Errorf("playwright HeldBy = %q, want %s", s.HeldBy, holder.Name)
+		}
+	}
+}
+
+// A worker adding its own tools tells its parent it is waiting (PROTOCOL.md rule 10): a `wait`, not a report.
+func TestAWorkersToolsAddTellsItsParentItIsWaiting(t *testing.T) {
+	w := startReopen(t)
+	w.userMCPServers(t, "context7", "sentry")
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "inspect"})
+	asWorker := w.as(w.token(t, worker.Id))
+	waits := func() (n int) {
+		msgs, err := w.d.Store().Read(ctx).Inbox(lead.Id, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range msgs {
+			if m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && m.From.GetId() == worker.Id && strings.Contains(m.Body, "sentry") {
+				n++
+			}
+		}
+		return n
+	}
+	if _, err := asWorker.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Names: []string{"sentry"}})); err != nil {
+		t.Fatal(err)
+	}
+	if n := waits(); n != 1 {
+		t.Fatalf("waits to the parent after its own add: %d, want 1", n)
+	}
+	w.waitReopened(t, worker.Id, worker.TerminalId)
+
+	// A root adding a child's tools is its own doing: the child tells nobody.
+	child := w.spawnUnder(t, asLead, "api", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "work"})
+	if _, err := asLead.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Agent: child.Id, Names: []string{"sentry"}})); err != nil {
+		t.Fatal(err)
+	}
+	if n := waits(); n != 1 {
+		t.Fatalf("waits after the root's add: %d, want still 1", n)
+	}
+}
+
+// The holder of an exclusive server is named only within the asker's run; another run's agent is "another run".
+func TestTheHolderOfAnExclusiveServerIsNamedOnlyWithinTheCallersRun(t *testing.T) {
+	w := startReopen(t)
+	w.userMCPServers(t, "context7", "playwright")
+	ctx := context.Background()
+	run1 := startRun(t, w.device.Mesh, "")
+	_, lead1 := w.root(t, run1.Id)
+	holder := w.spawnUnder(t, lead1, "browser", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Mcp: []string{"playwright"}, Task: "drive"})
+
+	run2 := startRun(t, w.device.Mesh, "")
+	_, lead2 := w.root(t, run2.Id)
+	stranger := w.spawnUnder(t, lead2, "plain", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "code"})
+	asStranger := w.as(w.token(t, stranger.Id))
+
+	_, err := asStranger.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Names: []string{"playwright"}}))
+	if code(err) != connect.CodeFailedPrecondition || strings.Contains(err.Error(), holder.Name) || strings.Contains(err.Error(), run1.Id) ||
+		!strings.Contains(err.Error(), "another run") {
+		t.Errorf("a stranger's refusal names the holder or not another run: %v", err)
+	}
+	srv, err := asStranger.ListMCPServers(ctx, connect.NewRequest(&v1.ListMCPServersRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range srv.Msg.Servers {
+		if s.Name == "playwright" && (strings.Contains(s.HeldBy, holder.Name) || !strings.Contains(s.HeldBy, "another run")) {
+			t.Errorf("a stranger sees HeldBy = %q", s.HeldBy)
+		}
+	}
+	// Within its own run, and for the user's device, the holder is named.
+	srv, err = lead1.ListMCPServers(ctx, connect.NewRequest(&v1.ListMCPServersRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range srv.Msg.Servers {
+		if s.Name == "playwright" && !strings.Contains(s.HeldBy, holder.Name) {
+			t.Errorf("the holder's own run sees HeldBy = %q", s.HeldBy)
+		}
+	}
+	srv, err = w.device.Mesh.ListMCPServers(ctx, connect.NewRequest(&v1.ListMCPServersRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range srv.Msg.Servers {
+		if s.Name == "playwright" && !strings.Contains(s.HeldBy, holder.Name) {
+			t.Errorf("the device sees HeldBy = %q", s.HeldBy)
+		}
+	}
+}

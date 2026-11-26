@@ -95,7 +95,9 @@ const (
 // the store and the clock, so the pass and the write that acts on it agree. It returns the time the agent's
 // task or answer came, which dedupes an alert to its parent.
 func reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax time.Duration) (owed, time.Time, error) {
-	if a.PendingReopen != nil {
+	// An agent that asked for its own tools is idle on purpose until the daemon reopens it, for as long as a wait
+	// may last; any other pending reopen (a switch, an approval, a limit) is no reason to leave it unwatched.
+	if p := a.PendingReopen; p != nil && p.Why == toolsAddedWhy && now.Sub(p.RequestedAt.AsTime()) < waitMax {
 		return owesNothing, time.Time{}, nil
 	}
 	msgs, err := r.RunMessages(a.RunId, "", -1)

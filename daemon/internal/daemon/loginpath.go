@@ -125,7 +125,6 @@ func mergePaths(home, loginPath, currentPath string) string {
 	if home != "" {
 		add(filepath.Join(home, ".local", "bin"), true)
 		add(filepath.Join(home, "bin"), true)
-		add(filepath.Join(home, ".local", "go", "bin"), true)
 	}
 	for _, sysDir := range []string{"/usr/local/bin", "/usr/bin", "/bin"} {
 		add(sysDir, true)

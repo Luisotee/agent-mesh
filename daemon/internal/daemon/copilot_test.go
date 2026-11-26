@@ -429,3 +429,111 @@ func TestCopilotTurnsFollowAScreenLimitWhoseLineStaysOnScreen(t *testing.T) {
 		return w.agent(worker.Id).State == v1.AgentState_AGENT_STATE_IDLE
 	})
 }
+
+// The turn after a limit stays working for several polls with the old limit line still on screen: it must not
+// limit the agent again, and a turn that ends is still followed to its end.
+func TestCopilotAScreenLimitLineOnScreenDoesNotLimitALongTurnAgain(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "slow", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(worker, "/limit\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	w.typeInto(worker, "/hold\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_WORKING)
+	// Many polls with the turn open and the limit line among the last screen lines.
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if got := w.agent(worker.Id).State; got != v1.AgentState_AGENT_STATE_WORKING {
+			t.Fatalf("the agent left working to %v while its turn was open", got)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	w.typeInto(worker, "finish\r\n")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// A per-model rate limit holds the agent's own model, not every Copilot model; the session limit holds all.
+func TestCopilotAPerModelScreenLimitHoldsOnlyItsModel(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "onemodel", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(worker, "/modellimit\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	holds, err := w.d.Store().Read(context.Background()).ModelLimits("copilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(holds) != 1 || holds[0].Model == "*" || holds[0].Model != w.agent(worker.Id).Model {
+		t.Fatalf("a per-model limit holds %+v, want the agent's model %q only", holds, w.agent(worker.Id).Model)
+	}
+}
+
+// A turn over 256 KiB of events still ends: its prompt is out of the tail the poll reads.
+func TestCopilotATurnBiggerThanTheTailStillEnds(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "big", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(worker, "/bighold\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_WORKING)
+	time.Sleep(200 * time.Millisecond)
+	w.typeInto(worker, "go\r")
+	waitFor(t, "the big turn's answer", func() bool { return strings.Contains(w.screen(t, worker), "done: big") })
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// A hold is lifted by the answer to a prompt typed after it, not by the answer of a turn that was already running
+// when the quota ran out.
+func TestCopilotARunningTurnsAnswerDoesNotLiftAFreshHold(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	running := w.spawnUnder(t, asLead, "running", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	limited := w.spawnUnder(t, asLead, "limited", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	w.waitState(running.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.waitState(limited.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(running, "/hold\r")
+	w.waitState(running.Id, v1.AgentState_AGENT_STATE_WORKING)
+	time.Sleep(100 * time.Millisecond)
+	w.typeInto(limited, "/402\r")
+	w.waitState(limited.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	// The 402's day-long hold (the limited agent's own model may hold shorter, for its own reset).
+	if held := time.Until(w.modelHold(t, "copilot")); held < 23*time.Hour {
+		t.Fatalf("a 402 holds copilot for %s", held)
+	}
+	w.typeInto(running, "finish\r")
+	w.waitState(running.Id, v1.AgentState_AGENT_STATE_IDLE)
+	time.Sleep(500 * time.Millisecond) // several polls
+	if held := time.Until(w.modelHold(t, "copilot")); held < 23*time.Hour {
+		t.Fatalf("the answer of a turn begun before the hold left %s of it", held)
+	}
+	// A prompt typed after the hold, and answered, does.
+	w.typeInto(running, "after the hold\r")
+	waitFor(t, "the hold lifted by an answer to a newer prompt", func() bool { return w.modelHold(t, "copilot").IsZero() })
+}
+
+// Copilot has no `top` tier: an auto round at that tier passes it over, as bin/mesh's pick_slots does, and says so.
+func TestCopilotWithoutTheAskedTierIsLeftOutOfAutoReviewers(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReviews(t, tweak)
+	w.set(t, "review.reviewers.large", []any{[]any{"copilot", "claude"}})
+	w.pr.push(t, "the feature")
+	res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "top", Reviewers: "auto"})
+	for _, a := range res.Agents {
+		if a.Kind == "copilot" {
+			t.Fatalf("copilot was asked at a tier it has none of: %v", res.Notes)
+		}
+	}
+	if len(res.Agents) != 1 || res.Agents[0].Kind != "claude" || !strings.Contains(strings.Join(res.Notes, "\n"), "copilot has no top tier") {
+		t.Errorf("agents %v notes %v", res.Agents, res.Notes)
+	}
+}
