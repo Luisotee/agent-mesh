@@ -179,6 +179,13 @@ public interface MeshServiceClientInterface {
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
 
   /**
+   *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
+   *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
+   *  tailnet opens it.
+   */
+  public suspend fun tailnetStatus(request: TailnetStatusRequest, headers: Headers = emptyMap()): ResponseMessage<TailnetStatusResponse>
+
+  /**
    *  Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
    */
   public suspend fun getUsage(request: GetUsageRequest, headers: Headers = emptyMap()): ResponseMessage<GetUsageResponse>

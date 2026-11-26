@@ -493,6 +493,23 @@ public class MeshServiceClient(
 
 
   /**
+   *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
+   *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
+   *  tailnet opens it.
+   */
+  override suspend fun tailnetStatus(request: TailnetStatusRequest, headers: Headers): ResponseMessage<TailnetStatusResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/TailnetStatus",
+      dev.agentmesh.gen.agentmesh.v1.TailnetStatusRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.TailnetStatusResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
    */
   override suspend fun getUsage(request: GetUsageRequest, headers: Headers): ResponseMessage<GetUsageResponse> = client.unary(

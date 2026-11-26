@@ -21,8 +21,8 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	if got := s.Keys("tiers.claude.mid."); len(got) != 3 {
 		t.Errorf("a tier has model, effort and note: %v", got)
 	}
-	if l, _ := s.Lookup("caps.agents"); l.Default != 8.0 {
-		t.Errorf("the agent cap defaults to %v, want 8", l.Default)
+	if l, _ := s.Lookup("caps.agents"); l.Default != 16.0 {
+		t.Errorf("the agent cap defaults to %v, want 16", l.Default)
 	}
 	if l, _ := s.Lookup("worker_cpus"); l.Type != Percent || l.Default != 25.0 {
 		t.Errorf("worker_cpus = %+v", l)

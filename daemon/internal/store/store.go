@@ -737,10 +737,37 @@ func (t *Tx) PutPairing(rec PairingRecord) error {
 	if by == nil {
 		by = []byte{}
 	}
-	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO pairings (hash, id, name, class, created_at, expires_at, mutation_id, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.Hash, rec.ID, rec.Name, int32(rec.Class), nanos(rec.CreatedAt), nanos(rec.ExpiresAt), rec.MutationID, by)
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO pairings (hash, id, name, class, created_at, expires_at, device_id, mutation_id, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.Hash, rec.ID, rec.Name, int32(rec.Class), nanos(rec.CreatedAt), nanos(rec.ExpiresAt), rec.DeviceID, rec.MutationID, by)
 	return err
+}
+
+// OpenPairing is a pairing not yet redeemed nor expired, by the device id it will give (minted when it was made).
+type OpenPairing struct {
+	DeviceID  string
+	ExpiresAt time.Time
+}
+
+// OpenPairings lists the pairings neither redeemed nor expired at now that already name their device.
+func (r Reader) OpenPairings(now time.Time) ([]OpenPairing, error) {
+	rows, err := r.q.QueryContext(r.ctx, `SELECT device_id, expires_at FROM pairings
+		WHERE used_at IS NULL AND expires_at >= ? AND device_id != '' ORDER BY expires_at`, nanos(now))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OpenPairing
+	for rows.Next() {
+		var p OpenPairing
+		var exp int64
+		if err := rows.Scan(&p.DeviceID, &exp); err != nil {
+			return nil, err
+		}
+		p.ExpiresAt = time.Unix(0, exp)
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // Pairing looks up a pairing record by token hash.

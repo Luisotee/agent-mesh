@@ -29,6 +29,7 @@ public  final class ControlFrame extends
     REGISTER(1),
     DIAL_BACK(2),
     PING(3),
+    CLIENT_TOKENS(4),
     REGISTERED(10),
     PONG(11),
     FRAME_NOT_SET(0);
@@ -49,6 +50,7 @@ public  final class ControlFrame extends
         case 1: return REGISTER;
         case 2: return DIAL_BACK;
         case 3: return PING;
+        case 4: return CLIENT_TOKENS;
         case 10: return REGISTERED;
         case 11: return PONG;
         case 0: return FRAME_NOT_SET;
@@ -237,6 +239,56 @@ public  final class ControlFrame extends
    */
   private void clearPing() {
     if (frameCase_ == 3) {
+      frameCase_ = 0;
+      frame_ = null;
+    }
+  }
+
+  public static final int CLIENT_TOKENS_FIELD_NUMBER = 4;
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   */
+  @java.lang.Override
+  public boolean hasClientTokens() {
+    return frameCase_ == 4;
+  }
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens getClientTokens() {
+    if (frameCase_ == 4) {
+       return (dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens) frame_;
+    }
+    return dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   */
+  private void setClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens value) {
+    java.util.Objects.requireNonNull(value);
+    frame_ = value;
+    frameCase_ = 4;
+  }
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   */
+  private void mergeClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens value) {
+    java.util.Objects.requireNonNull(value);
+    if (frameCase_ == 4 &&
+        frame_ != dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens.getDefaultInstance()) {
+      frame_ = dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens.newBuilder((dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens) frame_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      frame_ = value;
+    }
+    frameCase_ = 4;
+  }
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   */
+  private void clearClientTokens() {
+    if (frameCase_ == 4) {
       frameCase_ = 0;
       frame_ = null;
     }
@@ -646,6 +698,54 @@ public  final class ControlFrame extends
     }
 
     /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    @java.lang.Override
+    public boolean hasClientTokens() {
+      return instance.hasClientTokens();
+    }
+    /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens getClientTokens() {
+      return instance.getClientTokens();
+    }
+    /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    public Builder setClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens value) {
+      copyOnWrite();
+      instance.setClientTokens(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    public Builder setClientTokens(
+        dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens.Builder builderForValue) {
+      copyOnWrite();
+      instance.setClientTokens(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    public Builder mergeClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens value) {
+      copyOnWrite();
+      instance.mergeClientTokens(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+     */
+    public Builder clearClientTokens() {
+      copyOnWrite();
+      instance.clearClientTokens();
+      return this;
+    }
+
+    /**
      * <pre>
      * Relay to daemon.
      * </pre>
@@ -786,12 +886,13 @@ public  final class ControlFrame extends
             dev.agentmesh.gen.agentmesh.relay.v1.Register.class,
             dev.agentmesh.gen.agentmesh.relay.v1.DialBack.class,
             dev.agentmesh.gen.agentmesh.relay.v1.Ping.class,
+            dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens.class,
             dev.agentmesh.gen.agentmesh.relay.v1.Registered.class,
             dev.agentmesh.gen.agentmesh.relay.v1.Pong.class,
           };
           java.lang.String info =
-              "\u0000\u0005\u0001\u0000\u0001\u000b\u0005\u0000\u0000\u0000\u0001<\u0000\u0002<" +
-              "\u0000\u0003<\u0000\n<\u0000\u000b<\u0000";
+              "\u0000\u0006\u0001\u0000\u0001\u000b\u0006\u0000\u0000\u0000\u0001<\u0000\u0002<" +
+              "\u0000\u0003<\u0000\u0004<\u0000\n<\u0000\u000b<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

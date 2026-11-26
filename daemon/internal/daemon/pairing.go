@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	relayv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/relay/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
@@ -94,20 +95,21 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 	}
 	relayURL := strings.TrimSpace(req.Msg.RelayUrl)
 	cfgRelayURL := strings.TrimSpace(d.cfg.Relay.URL)
-	var relayTCP, relayClientTok string
+	var relayTCP string
+	// ourRelay: the link names the relay this daemon is registered with, so it carries the device's token there.
+	ourRelay := false
 	if relayURL == "" {
 		relayURL = cfgRelayURL
 		relayTCP = d.cfg.Relay.TCP
-		if d.cfg.Relay.Token != "" {
-			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
-		}
+		ourRelay = d.cfg.Relay.Token != ""
 	} else if cfgRelayURL != "" && sameRelayURL(relayURL, cfgRelayURL) {
 		relayTCP = d.cfg.Relay.TCP
-		if d.cfg.Relay.Token != "" {
-			relayClientTok = relay.ClientToken(d.cfg.Relay.Token, d.daemonID)
-		}
+		ourRelay = d.cfg.Relay.Token != ""
 	}
 	directURL := strings.TrimSpace(req.Msg.DirectUrl)
+	if directURL == "" {
+		directURL = d.tailnetDirectURL(ctx)
+	}
 	if directURL == "" && d.info.Listen != "" {
 		if host, _, err := net.SplitHostPort(d.info.Listen); err == nil && host != "" && host != "0.0.0.0" && host != "::" {
 			directURL = "https://" + d.info.Listen
@@ -120,6 +122,13 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		exp := now.Add(ttl)
 		tok := ids.Secret(pairingTokenPrefix)
 		pid := ids.New("p", 10)
+		// The device's id is minted now, so the link can carry the device's own relay token: the relay accepts
+		// it while the pairing is open and, once redeemed, until the device is revoked.
+		devID := ids.New("dev", 10)
+		var relayClientTok string
+		if ourRelay {
+			relayClientTok = relay.DeviceToken(d.cfg.Relay.Token, d.daemonID, devID)
+		}
 		name := strings.TrimSpace(req.Msg.Name)
 		uri, err := pairing.EncodeURI(pairing.Payload{
 			HostID:           d.daemonID,
@@ -142,6 +151,7 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 			Class:      class,
 			CreatedAt:  now,
 			ExpiresAt:  exp,
+			DeviceID:   devID,
 			MutationID: req.Msg.Meta.GetMutationId(),
 			CreatedBy:  tx.Actor,
 		}); err != nil {
@@ -162,6 +172,9 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !replayed {
+		d.relayTokensChanged()
 	}
 	if replayed && out.Token == "" {
 		// The stored response was scrubbed when the pairing was redeemed or expired: there is no token or URI
@@ -227,7 +240,10 @@ func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.Rede
 		if name == "" {
 			name = "device"
 		}
-		devID := ids.New("dev", 10)
+		devID := rec.DeviceID
+		if devID == "" { // made before device ids were minted with the pairing
+			devID = ids.New("dev", 10)
+		}
 		devTok := auth.NewToken()
 		if err := tx.MarkPairingUsed(rec.Hash, devID); err != nil {
 			return err
@@ -272,6 +288,7 @@ func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.Rede
 	if err != nil {
 		return nil, err
 	}
+	d.relayTokensChanged()
 	return connect.NewResponse(out), nil
 }
 
@@ -325,6 +342,45 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 	if err != nil {
 		return nil, err
 	}
+	d.relayTokensChanged()
 	d.disconnectActor(id)
 	return connect.NewResponse(out), nil
+}
+
+// relayTokensChanged tells the relay connector the devices' relay tokens changed (a pairing made, redeemed or
+// pruned, a device revoked), so the relay hears the new set at once.
+func (d *Daemon) relayTokensChanged() {
+	if d.relay != nil {
+		d.relay.TokensChanged()
+	}
+}
+
+// relayClientTokens is the set of client tokens the relay may accept for this host: every open pairing until it
+// expires (first, so a host at the relay's cap can still pair), then every paired device not revoked.
+func (d *Daemon) relayClientTokens() ([]*relayv1.ClientToken, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	r := d.store.Read(ctx)
+	now := d.now()
+	open, err := r.OpenPairings(now)
+	if err != nil {
+		return nil, err
+	}
+	devs, err := r.ListDevices(false, localDeviceID)
+	if err != nil {
+		return nil, err
+	}
+	entry := func(devID string, ttl int64) *relayv1.ClientToken {
+		h := relay.TokenHash(relay.DeviceToken(d.cfg.Relay.Token, d.daemonID, devID))
+		return &relayv1.ClientToken{Sha256: h[:], TtlSeconds: ttl}
+	}
+	out := make([]*relayv1.ClientToken, 0, len(devs)+len(open))
+	for _, p := range open {
+		// Rounded up, and at least 1: 0 would mean no expiry.
+		out = append(out, entry(p.DeviceID, max(1, int64((p.ExpiresAt.Sub(now)+time.Second-1)/time.Second))))
+	}
+	for _, dev := range devs {
+		out = append(out, entry(dev.Id, 0))
+	}
+	return out, nil
 }
