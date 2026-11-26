@@ -5,7 +5,7 @@ package agentmesh.v1;
 import "agentmesh/v1/types.proto";
 import "google/protobuf/timestamp.proto";
 
-// Reporting: spend per agent/kind/model/phase and reviewer verdicts (`mesh cost`), new and retired model
+// Reporting: tokens (the main measure) and API-equivalent dollars per agent/kind/model/phase and reviewer verdicts (`mesh cost`), new and retired model
 // families (`mesh models`), and branch conflicts and file overlaps (`mesh conflicts`).
 
 message GetCostRequest {
@@ -35,6 +35,11 @@ message AgentCost {
   double sub_usd = 13;
   int64 cold = 14;
   double cold_usd = 15;
+  // input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+  // most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+  // include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+  // (a subagent's dollars are sub_usd).
+  int64 total = 16;
 }
 
 message KindCost {
@@ -56,9 +61,15 @@ message KindCost {
   bool has_first_ctx_median = 16;
   int64 cold = 17;
   double cold_usd = 18;
+  // input + w1 + w5 + output, as AgentCost.total.
+  int64 total = 19;
+  // This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+  double token_share = 20;
 }
 
+// Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
 message TokenKindCost {
+  option deprecated = true;
   string kind = 1;
   int64 sessions = 2;
   int64 calls = 3;
@@ -76,9 +87,18 @@ message ModelPhaseCost {
   double usd = 4;
   int64 ctx_per_call = 5;
   int64 out_per_call = 6;
+  int64 input = 7;
+  int64 w1 = 8;
+  int64 w5 = 9;
+  int64 read = 10;
+  int64 output = 11;
+  // input + w1 + w5 + output, as AgentCost.total.
+  int64 total = 12;
 }
 
+// Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
 message TokenModelPhaseCost {
+  option deprecated = true;
   string model = 1;
   string phase = 2;
   int64 calls = 3;
@@ -115,18 +135,44 @@ message VerdictCostSummary {
   int64 by_author = 12;
 }
 
+// One CLI's tokens in the measured span, and how far to trust them.
+message CliCost {
+  // claude, agy or opencode.
+  string cli = 1;
+  int64 calls = 2;
+  int64 input = 3;
+  int64 w1 = 4;
+  int64 w5 = 5;
+  int64 read = 6;
+  int64 output = 7;
+  // input + w1 + w5 + output, as AgentCost.total.
+  int64 total = 8;
+  // Exact or an estimate, and why (what the CLI records).
+  string basis = 9;
+  // Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+  // here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+  double usd = 10;
+}
+
 message GetCostResponse {
   string scope = 1;
   string prices_as_of = 2;
+  // What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+  // measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
   double usd = 3;
   repeated AgentCost agents = 4;
   repeated KindCost kinds = 5;
-  repeated TokenKindCost token_kinds = 6;
+  repeated TokenKindCost token_kinds = 6 [deprecated = true];
   repeated ModelPhaseCost by_model = 7;
-  repeated TokenModelPhaseCost tokens_by_model = 8;
+  repeated TokenModelPhaseCost tokens_by_model = 8 [deprecated = true];
   ReviewCostSummary reviews = 9;
   repeated VerdictCostSummary verdicts = 10;
   int32 resets = 11;
+  // The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+  int64 total_tokens = 12;
+  int64 total_read = 13;
+  // Per CLI, tokens first, with how exact each is.
+  repeated CliCost clis = 14;
 }
 
 message CheckModelsRequest {

@@ -963,6 +963,7 @@ type SessionCall struct {
 	Time   time.Time
 	Model  string
 	Input  int64
+	Write  int64 // cache writes
 	Read   int64
 	Output int64
 	USD    float64
@@ -982,7 +983,8 @@ type opencodeUsageMessage struct {
 		Output    int64 `json:"output"`
 		Reasoning int64 `json:"reasoning"`
 		Cache     struct {
-			Read int64 `json:"read"`
+			Read  int64 `json:"read"`
+			Write int64 `json:"write"`
 		} `json:"cache"`
 	} `json:"tokens"`
 }
@@ -1051,6 +1053,7 @@ func SessionCalls(dbPath, session string) []SessionCall {
 			Time:   time.UnixMilli(m.Time.Created),
 			Model:  model,
 			Input:  m.Tokens.Input,
+			Write:  m.Tokens.Cache.Write,
 			Read:   m.Tokens.Cache.Read,
 			Output: m.Tokens.Output + m.Tokens.Reasoning,
 			USD:    m.Cost,

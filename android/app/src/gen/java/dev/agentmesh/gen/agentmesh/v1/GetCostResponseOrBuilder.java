@@ -35,6 +35,11 @@ public interface GetCostResponseOrBuilder extends
       getPricesAsOfBytes();
 
   /**
+   * <pre>
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
+   * </pre>
+   *
    * <code>double usd = 3 [json_name = "usd"];</code>
    * @return The usd.
    */
@@ -69,18 +74,18 @@ public interface GetCostResponseOrBuilder extends
   int getKindsCount();
 
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> 
+  @java.lang.Deprecated java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> 
       getTokenKindsList();
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index);
+  @java.lang.Deprecated dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index);
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  int getTokenKindsCount();
+  @java.lang.Deprecated int getTokenKindsCount();
 
   /**
    * <code>repeated .agentmesh.v1.ModelPhaseCost by_model = 7 [json_name = "byModel"];</code>
@@ -97,18 +102,18 @@ public interface GetCostResponseOrBuilder extends
   int getByModelCount();
 
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> 
+  @java.lang.Deprecated java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> 
       getTokensByModelList();
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index);
+  @java.lang.Deprecated dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index);
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  int getTokensByModelCount();
+  @java.lang.Deprecated int getTokensByModelCount();
 
   /**
    * <code>.agentmesh.v1.ReviewCostSummary reviews = 9 [json_name = "reviews"];</code>
@@ -140,4 +145,46 @@ public interface GetCostResponseOrBuilder extends
    * @return The resets.
    */
   int getResets();
+
+  /**
+   * <pre>
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   * </pre>
+   *
+   * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+   * @return The totalTokens.
+   */
+  long getTotalTokens();
+
+  /**
+   * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+   * @return The totalRead.
+   */
+  long getTotalRead();
+
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.CliCost> 
+      getClisList();
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.CliCost getClis(int index);
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  int getClisCount();
 }

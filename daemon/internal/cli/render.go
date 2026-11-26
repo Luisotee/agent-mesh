@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 
@@ -246,10 +247,15 @@ func printTable(w io.Writer, headers []string, rows [][]string) {
 }
 
 func tokensText(n int64) string {
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	if n < 1000 {
+		return fmt.Sprint(n)
 	}
-	return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	// The unit is chosen after rounding: 999_600 is 1.0M, not 1000k.
+	// Half rounds up, as the desktop's Math.round and toFixed do (Go's %.0f rounds half to even: 2500 would be 2k).
+	if math.Round(float64(n)/1e3) >= 1000 {
+		return fmt.Sprintf("%.1fM", math.Round(float64(n)/1e5)/10)
+	}
+	return fmt.Sprintf("%.0fk", math.Round(float64(n)/1e3))
 }
 
 func trimRound2(v float64) string {
@@ -263,8 +269,27 @@ func trimRound2(v float64) string {
 
 func renderCost(m proto.Message, w io.Writer) {
 	r := m.(*v1.GetCostResponse)
-	fmt.Fprintf(w, "%s: $%.2f at API prices (%s)\n", r.Scope, r.Usd, r.PricesAsOf)
+	var in, wr, out int64
+	for _, c := range r.Clis {
+		in += c.Input
+		wr += c.W1 + c.W5
+		out += c.Output
+	}
+	fmt.Fprintf(w, "%s: %s tokens (input %s, cache write %s, output %s); cache reads %s apart; ≈ $%.2f at API prices for Claude (%s)\n",
+		r.Scope, tokensText(r.TotalTokens), tokensText(in), tokensText(wr), tokensText(out), tokensText(r.TotalRead), r.Usd, r.PricesAsOf)
+	fmt.Fprintln(w, "total = input + cache write + output; cache reads are shown apart (most of a Claude session, far cheaper on a plan)")
 	singleRun := strings.HasPrefix(r.Scope, "run ")
+	if len(r.Clis) > 0 {
+		fmt.Fprintln(w)
+		rows := make([][]string, 0, len(r.Clis))
+		for _, c := range r.Clis {
+			rows = append(rows, []string{c.Cli, fmt.Sprint(c.Calls), tokensText(c.Input), tokensText(c.W1 + c.W5), tokensText(c.Output), tokensText(c.Total), tokensText(c.Read), fmt.Sprintf("%.2f", c.Usd)})
+		}
+		printTable(w, []string{"cli", "calls", "input", "cache write", "output", "total", "cache read", "≈ $"}, rows)
+		for _, c := range r.Clis {
+			fmt.Fprintf(w, "  %s: %s\n", c.Cli, c.Basis)
+		}
+	}
 	if len(r.Agents) > 0 {
 		fmt.Fprintln(w)
 		rows := make([][]string, 0, len(r.Agents))
@@ -275,16 +300,16 @@ func renderCost(m proto.Message, w io.Writer) {
 			}
 			cold := ""
 			if a.Cold > 0 {
-				cold = fmt.Sprintf("%d ($%.2f)", a.Cold, a.ColdUsd)
+				cold = fmt.Sprintf("%d (≈ $%.2f)", a.Cold, a.ColdUsd)
 			}
 			rows = append(rows, []string{
 				agent, a.Kind, fmt.Sprint(a.Calls),
-				tokensText(a.Input), tokensText(a.W1), tokensText(a.W5), tokensText(a.Read), tokensText(a.Output),
+				tokensText(a.Input), tokensText(a.W1 + a.W5), tokensText(a.Output), tokensText(a.Total), tokensText(a.Read),
 				fmt.Sprintf("%.2f", a.Usd), fmt.Sprintf("%.2f/%.2f", a.PlanUsd, a.ExecUsd),
 				fmt.Sprintf("%.2f", a.SubUsd), cold,
 			})
 		}
-		printTable(w, []string{"agent", "kind", "calls", "input", "w1", "w5", "read", "output", "$", "plan/exec", "sub $", "cold"}, rows)
+		printTable(w, []string{"agent", "kind", "calls", "input", "cache write", "output", "total", "cache read", "≈ $", "plan/exec $", "sub $", "cold"}, rows)
 	}
 	if len(r.Kinds) > 0 {
 		fmt.Fprintln(w)
@@ -296,39 +321,17 @@ func renderCost(m proto.Message, w io.Writer) {
 			}
 			cold := ""
 			if k.Cold > 0 {
-				cold = fmt.Sprintf("%d ($%.2f)", k.Cold, k.ColdUsd)
+				cold = fmt.Sprintf("%d (≈ $%.2f)", k.Cold, k.ColdUsd)
 			}
 			rows = append(rows, []string{
 				k.Kind, fmt.Sprint(k.Sessions), fmt.Sprint(k.Calls),
-				fmt.Sprintf("%.2f", k.Usd), fmt.Sprintf("%.1f", k.Share), fmt.Sprintf("%.3f", k.UsdPerCall),
+				tokensText(k.Input), tokensText(k.W1 + k.W5), tokensText(k.Output), tokensText(k.Total), tokensText(k.Read), fmt.Sprintf("%.1f", k.TokenShare),
+				fmt.Sprintf("%.2f", k.Usd),
 				tokensText(k.CtxPerCall), fmt.Sprint(k.OutPerCall), fmt.Sprintf("%.1f", k.Write_5MShare),
 				prefix, cold,
 			})
 		}
-		printTable(w, []string{"kind", "sessions", "calls", "$", "%", "$/call", "ctx/call", "out/call", "5m %", "prefix", "cold"}, rows)
-	}
-	if len(r.TokenKinds) > 0 {
-		hasUSD := false
-		for _, tk := range r.TokenKinds {
-			if tk.Usd > 0 {
-				hasUSD = true
-				break
-			}
-		}
-		fmt.Fprintln(w, "\nagy & OpenCode (tokens):")
-		headers := []string{"kind", "sessions", "calls", "input", "read", "output"}
-		if hasUSD {
-			headers = append(headers, "$")
-		}
-		rows := make([][]string, 0, len(r.TokenKinds))
-		for _, tk := range r.TokenKinds {
-			row := []string{tk.Kind, fmt.Sprint(tk.Sessions), fmt.Sprint(tk.Calls), tokensText(tk.Input), tokensText(tk.Read), tokensText(tk.Output)}
-			if hasUSD {
-				row = append(row, fmt.Sprintf("%.2f", tk.Usd))
-			}
-			rows = append(rows, row)
-		}
-		printTable(w, headers, rows)
+		printTable(w, []string{"kind", "sessions", "calls", "input", "cache write", "output", "total", "cache read", "% of tokens", "≈ $", "ctx/call", "out/call", "5m %", "prefix", "cold"}, rows)
 	}
 	if len(r.ByModel) > 0 {
 		fmt.Fprintln(w, "\nby model and phase:")
@@ -338,36 +341,13 @@ func renderCost(m proto.Message, w io.Writer) {
 			if phase == "" {
 				phase = "-"
 			}
-			rows = append(rows, []string{bm.Model, phase, fmt.Sprint(bm.Calls), fmt.Sprintf("%.2f", bm.Usd), tokensText(bm.CtxPerCall), fmt.Sprint(bm.OutPerCall)})
+			rows = append(rows, []string{
+				bm.Model, phase, fmt.Sprint(bm.Calls),
+				tokensText(bm.Input), tokensText(bm.W1 + bm.W5), tokensText(bm.Output), tokensText(bm.Total), tokensText(bm.Read),
+				fmt.Sprintf("%.2f", bm.Usd), tokensText(bm.CtxPerCall), fmt.Sprint(bm.OutPerCall),
+			})
 		}
-		printTable(w, []string{"model", "phase", "calls", "$", "ctx/call", "out/call"}, rows)
-	}
-	if len(r.TokensByModel) > 0 {
-		hasUSD := false
-		for _, tm := range r.TokensByModel {
-			if tm.Usd > 0 {
-				hasUSD = true
-				break
-			}
-		}
-		fmt.Fprintln(w, "\nagy and OpenCode by model and phase (tokens):")
-		headers := []string{"model", "phase", "calls", "input", "read", "output"}
-		if hasUSD {
-			headers = append(headers, "$")
-		}
-		rows := make([][]string, 0, len(r.TokensByModel))
-		for _, tm := range r.TokensByModel {
-			phase := tm.Phase
-			if phase == "" {
-				phase = "-"
-			}
-			row := []string{tm.Model, phase, fmt.Sprint(tm.Calls), tokensText(tm.Input), tokensText(tm.Read), tokensText(tm.Output)}
-			if hasUSD {
-				row = append(row, fmt.Sprintf("%.2f", tm.Usd))
-			}
-			rows = append(rows, row)
-		}
-		printTable(w, headers, rows)
+		printTable(w, []string{"model", "phase", "calls", "input", "cache write", "output", "total", "cache read", "≈ $", "ctx/call", "out/call"}, rows)
 	}
 	if len(r.Verdicts) > 0 {
 		fmt.Fprintln(w, "\nreview findings, by the judge's verdict (`mesh verdict`; the PR author's unless the root changed it):")
@@ -396,7 +376,7 @@ func renderCost(m proto.Message, w io.Writer) {
 			fmt.Fprintf(w, "reviews: %d PRs, %s reviewers per PR (%s)\n", rev.ReviewedPrs, trimRound2(rev.ReviewersPerPr), strings.Join(parts, ", "))
 		}
 		if rev.Prs > 0 {
-			fmt.Fprintf(w, "Claude reviews: %d PRs, $%.2f ($%.2f per PR)\n", rev.Prs, rev.Usd, rev.UsdPerPr)
+			fmt.Fprintf(w, "Claude reviews: %d PRs, ≈ $%.2f at API prices (≈ $%.2f per PR)\n", rev.Prs, rev.Usd, rev.UsdPerPr)
 		}
 	}
 	fmt.Fprintf(w, "root resets: %d\n", r.Resets)

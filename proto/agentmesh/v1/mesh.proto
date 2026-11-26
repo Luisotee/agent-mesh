@@ -626,7 +626,8 @@ service MeshService {
     };
   }
 
-  // Spend per agent, kind and phase from session files, plus reviewer verdicts.
+  // Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+  // The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
   rpc GetCost(GetCostRequest) returns (GetCostResponse) {
     option (action) = {
       actors: [
@@ -638,7 +639,7 @@ service MeshService {
         ACTOR_CLASS_READ_ONLY_DEVICE
       ]
       cli: "cost"
-      summary: "Spend per agent, kind and phase, from session files"
+      summary: "Tokens per agent, kind and phase (dollars at API prices beside them), from session files"
     };
   }
 
