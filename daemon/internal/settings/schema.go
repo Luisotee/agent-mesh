@@ -320,6 +320,12 @@ func DefaultLeaves() []Leaf {
 			Summary: "percent of the machine's CPU cores each launched agent may use (at least one); 0 or 100 turns the cap off"},
 		Leaf{Key: "worker_memory_high", Type: Int, Default: 0.0,
 			Summary: "MB above which each launched agent is throttled in a transient systemd user scope (MemoryHigh); 0 turns the scope off"},
+		Leaf{Key: "limits.auto", Type: String, Default: "switch", Choices: []string{"off", "continue", "switch"},
+			Summary: "what the daemon does for an agent stopped at a usage limit: switch moves it to the next model of its chain " +
+				"that has quota left when the limit is its model's, and (with continue) reopens it on the same model once the " +
+				"limit is over; off leaves it to the root or the user"},
+		Leaf{Key: "limits.hold", Type: Seconds, Default: 1800.0,
+			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
 		Leaf{Key: "caps.agents", Type: Int, Default: 8.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
 	)

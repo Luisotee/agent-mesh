@@ -1,6 +1,6 @@
 // Package hook is what a CLI's hook runs (`mesh hook <kind> <event>`): it reports the hook to the daemon,
 // finding the daemon's address at call time, and spools the report while the daemon is down. It never fails
-// the CLI: whatever happens, the hook exits 0 and prints nothing (but an agy PreToolUse denial).
+// the CLI: whatever happens, the hook exits 0 and prints nothing (but a PreToolUse denial).
 package hook
 
 import (
@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
@@ -54,9 +55,9 @@ type Options struct {
 	CallTimeout time.Duration
 }
 
-// QuickTimeout bounds a quick report (an agy PreToolUse): the tool waits on the hook, and agy denies a tool
-// whose PreToolUse hook outlives its timeout (HookTimeout), so this one never waits on the spool lock or a
-// slow daemon.
+// QuickTimeout bounds a quick report (a PreToolUse): the tool waits on the hook, agy denies a tool whose
+// PreToolUse hook outlives its timeout (HookTimeout) and Claude runs it, so this one never waits on the spool lock
+// or a slow daemon.
 const QuickTimeout = time.Second
 
 // Run reports one hook. Its error is for the log only.
@@ -77,11 +78,22 @@ func Run(o Options) error {
 	if oversize {
 		payload = payload[:MaxPayload]
 	}
-	preTool := o.Kind == agy.Kind && o.Event == "PreToolUse"
-	// agy PreToolUse rules are checked here, so they hold while the daemon is down, and fail closed: a payload
-	// that can't be read whole is denied.
-	if preTool && (len(o.DenyPaths) > 0 || o.DenyPublish) {
-		deny, reason := agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish)
+	// A PreToolUse is quick: the tool waits on the hook, and both CLIs treat a hook that outlives its timeout as no
+	// answer (agy denies the tool, Claude runs it, whatever the hook printed).
+	preTool := (o.Kind == agy.Kind || o.Kind == claude.Kind) && o.Event == "PreToolUse"
+	// PreToolUse rules are checked here, so they hold while the daemon is down, and fail closed: a payload that
+	// can't be read whole is denied. agy's are paths and publish commands; Claude's (its paths are
+	// --disallowedTools rules) the publish commands.
+	checked := o.Event == "PreToolUse" && (o.Kind == agy.Kind && (len(o.DenyPaths) > 0 || o.DenyPublish) ||
+		o.Kind == claude.Kind && o.DenyPublish)
+	if checked {
+		var deny bool
+		var reason string
+		if o.Kind == agy.Kind {
+			deny, reason = agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish)
+		} else {
+			deny, reason = claude.EvaluatePreToolUse(payload, o.DenyPublish)
+		}
 		switch {
 		case readErr != nil:
 			deny, reason = true, "read-only/planning agent: the tool call could not be read ("+readErr.Error()+")"
@@ -89,11 +101,15 @@ func Run(o Options) error {
 			deny, reason = true, fmt.Sprintf("read-only/planning agent: the tool call is over %d bytes, too large to check", MaxPayload)
 		}
 		if deny && o.Stdout != nil {
-			b, _ := json.Marshal(struct {
-				Decision string `json:"decision"`
-				Reason   string `json:"reason"`
-			}{"deny", reason})
-			o.Stdout.Write(append(b, '\n'))
+			if o.Kind == claude.Kind {
+				o.Stdout.Write(claude.DenyJSON(reason))
+			} else {
+				b, _ := json.Marshal(struct {
+					Decision string `json:"decision"`
+					Reason   string `json:"reason"`
+				}{"deny", reason})
+				o.Stdout.Write(append(b, '\n'))
+			}
 		}
 	}
 	if readErr != nil {

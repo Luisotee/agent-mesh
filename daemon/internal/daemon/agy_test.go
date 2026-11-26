@@ -205,6 +205,7 @@ func TestAgyPlaceholderNeverHoldsADoorbellAndTypingDoes(t *testing.T) {
 
 func TestAgy429LimitSetsLimitedStateAndSwitchNextReopensSameConversation(t *testing.T) {
 	w := startReopen(t)
+	w.set(t, "limits.auto", "off") // these switch it by hand
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	worker, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
@@ -547,6 +548,7 @@ func TestAgyAgentAtErrorStillGetsItsDoorbell(t *testing.T) {
 // message waits, and the switch that moves it off the limit (a reopen, which LIMITED still takes) delivers it.
 func TestAgyAgentAtLimitHoldsItsDoorbellUntilTheSwitch(t *testing.T) {
 	w := startReopen(t)
+	w.set(t, "limits.auto", "off") // these switch it by hand
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{

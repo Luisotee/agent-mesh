@@ -315,3 +315,50 @@ func TestQuickTimeoutsDefaultWhenUnset(t *testing.T) {
 		}
 	}
 }
+
+// Claude's PreToolUse deny is checked here too, with the daemon down, and printed as Claude's permission decision;
+// a Claude agent without the rule, and every other event, print nothing.
+func TestClaudePreToolUsePublishDenyEvaluatesLocallyEvenWhenDaemonIsDown(t *testing.T) {
+	p, o := setup(t)
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.DenyPublish = "claude", "PreToolUse", &out, true
+	o.Stdin = strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git -C . push"}}`)
+	_ = Run(o)
+	if !strings.Contains(out.String(), `"permissionDecision":"deny"`) || !strings.Contains(out.String(), `"hookEventName":"PreToolUse"`) ||
+		!strings.Contains(out.String(), `may not run \"git push\"`) {
+		t.Fatalf("expected a Claude deny on stdout, got %q", out.String())
+	}
+	// The hook still reports (spooled while the daemon is down).
+	if left, _ := filepath.Glob(filepath.Join(p.Spool("a1"), "*.json")); len(left) != 1 {
+		t.Errorf("the denied call's hook was not spooled: %v", left)
+	}
+	for name, mk := range map[string]func(){
+		"a read": func() { o.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"gh pr view 5"}}`) },
+		"no rule": func() {
+			o.DenyPublish = false
+			o.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"git push"}}`)
+		},
+		"another event": func() {
+			o.DenyPublish, o.Event = true, "PostToolUse"
+			o.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"git push"}}`)
+		},
+	} {
+		out.Reset()
+		o.DenyPublish, o.Event = true, "PreToolUse"
+		mk()
+		_ = Run(o)
+		if out.Len() != 0 {
+			t.Errorf("%s printed %q", name, out.String())
+		}
+	}
+	// Fail closed: a payload that can't be read, or is too large to check, is denied.
+	for name, in := range map[string]string{"unreadable": `{not json`,
+		"oversize": `{"tool_name":"Bash","tool_input":{"command":"ls","x":"` + strings.Repeat("x", MaxPayload) + `"}}`} {
+		out.Reset()
+		o.DenyPublish, o.Event, o.Stdin = true, "PreToolUse", strings.NewReader(in)
+		_ = Run(o)
+		if !strings.Contains(out.String(), `"permissionDecision":"deny"`) {
+			t.Errorf("%s was not denied: %.200q", name, out.String())
+		}
+	}
+}
