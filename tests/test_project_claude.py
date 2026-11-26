@@ -103,3 +103,10 @@ def test_a_symlink_loop_passes_silently(tmp_path):
 def test_the_generated_tray_icons_are_guarded_too():
     assert "make-icons.mjs" in denial(guard(edit(str(ROOT / "desktop/electron/icons.ts"), "Write")))
     assert guard(edit(str(ROOT / "desktop/electron/main.ts"))).stdout == ""
+
+
+def test_the_project_settings_leave_hooks_and_the_inbound_setting_alone():
+    """meshd launches a Claude agent with its own hooks in `--settings`, and Claude Code adds them to the project's
+    (different events, so neither replaces the other). The project file turns no hooks off and sets no
+    `crossSessionInbound`, so an agent here hears from the daemon as one in a bare repo does."""
+    assert not {"disableAllHooks", "allowManagedHooksOnly", "crossSessionInbound"} & set(SETTINGS)

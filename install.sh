@@ -16,8 +16,8 @@ SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
 # Files an earlier install put the rules block in for Copilot and OpenCode: the old block names the herdr mesh, so it
-# is taken out and none is written (a daemon OpenCode agent learns the protocol from its first doorbell; Copilot has
-# no adapter yet). OpenCode reads the first of
+# is taken out and none is written (a daemon OpenCode or Copilot agent learns the protocol from its first
+# doorbell). OpenCode reads the first of
 # ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md, so a file left with nothing but the block is removed (an
 # empty one would hide the user's CLAUDE.md from it).
 STALE_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")

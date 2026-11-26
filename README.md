@@ -38,7 +38,7 @@ the root (a daemon agent, started by /delegate or the app)     keeps you in the 
 You need Linux or WSL with systemd user services, [Go](https://go.dev) (the installer builds the daemon), git, GitHub with [`gh`](https://cli.github.com) logged in, and [Claude Code](https://claude.com/claude-code) or the [Antigravity CLI](https://antigravity.google) (`agy`) or both.
 
 > [!WARNING]
-> Workers run with `--dangerously-skip-permissions`, so they can run any command on your machine without asking. What holds them: each works only in its own git worktree on a `mesh/<run>/<slug>` branch, read-only agents (askers, reviewers, and planners before approval) run under a deny list (no edits, no publishing), and workers are told to push only their own branch and open a PR, never to merge or deploy. Use it on repos and machines where that is acceptable, or turn the `skip_permissions` setting off (`mesh set skip_permissions false`) and answer the prompts in the agent's terminal yourself.
+> Workers run with `--dangerously-skip-permissions`, so they can run any command on your machine without asking. What holds them: each works only in its own git worktree on a `mesh/<run>/<slug>` branch, read-only agents (askers, reviewers, and planners before approval) run under a deny list (no edits, no publishing), and workers are told to push only their own branch and open a PR, never to merge or deploy. Use it on repos and machines where that is acceptable, or turn the `skip_permissions` setting off (`mesh set --key skip_permissions --value false`) and answer the prompts in the agent's terminal yourself.
 
 ```bash
 git clone https://github.com/Luisotee/agent-mesh
@@ -148,7 +148,7 @@ Every worker and reviewer is a full Claude Code or agy session drawing on your o
 
 ## Make it yours
 
-Every default (what each tier runs per CLI, reviewers per PR size, review rounds, the quota reserve, the lean-session lists) is a setting in the daemon's table: `mesh settings` prints each value and where it came from, `mesh set <key> <value>` changes it, and the apps' settings screen is generated from the same table.
+Every default (what each tier runs per CLI, reviewers per PR size, review rounds, the quota reserve, the lean-session lists) is a setting in the daemon's table: `mesh settings` prints each value and where it came from, `mesh set --key <key> --value <value>` changes it, and the apps' settings screen is generated from the same table.
 
 ## Docs
 

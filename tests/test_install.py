@@ -107,7 +107,7 @@ def test_the_rules_block_goes_into_claude_and_agy_only_and_names_the_daemons_pro
     for file in (".claude/CLAUDE.md", ".gemini/AGENTS.md"):
         text = (tmp_path / file).read_text()
         assert "<!-- agent-mesh:begin" in text and "📬 [mesh]" in text and "$AGENT_MESH_SHARE/protocol/PROTOCOL.md" in text
-        assert "herdr" not in text and "mesh reset" not in text and "mesh brief" not in text
+        assert "herdr" not in text and "mesh brief" in text and "mesh reset" in text
     assert not (tmp_path / ".copilot").exists() and not (tmp_path / ".config" / "opencode").exists()
 
 

@@ -318,7 +318,7 @@ Done (planned 2026-11-25, run mfb6a; the cutover is PR 6). Every agent on the ma
 - The folder `daemon/share` is a Claude plugin named `agent-mesh` (marketplace source `./daemon/share`): meshd loads it per launch with `--plugin-dir`, and Claude Code users may install it from the marketplace (a session-only plugin loads beside an installed one, as `agent-mesh@inline`). `make-concise` moved into it.
 - "meshctl" is "mesh" everywhere (the apps' text, the docs, the proto comments); `meshd --meshctl` and `AGENT_MESH_CLI` are gone.
 - Rollback: check out the commit before the cutover, run its `./install.sh` (it re-links `bin/mesh`, `protocol/`, `skills/`, the old snippet and the herdr plugin; the old state was never touched), then revert the merge. meshd stays installed either way.
-- Old runs' cost stays readable with the deleted script: `git show e3c05e0:bin/mesh > /tmp/mesh && python3 /tmp/mesh cost --run <id>`.
+- Old runs' cost stays readable with the deleted script: `git show d7fa9d7:bin/mesh > /tmp/mesh && python3 /tmp/mesh cost --run <id>`.
 
 **PRs, in order.**
 1. Docs: this section, and the deferrals above.
