@@ -199,7 +199,10 @@ func (d *Daemon) heldReservations() int {
 // Line is what `mesh brief` and `mesh spawn` tell the root: how many more agents fit and how many workers work.
 func (c capacity) Line() string {
 	fit := fmt.Sprintf("%d more agents fit now", c.MoreFit)
-	if c.MoreFit == 1 {
+	switch {
+	case c.MoreFit >= 1<<20:
+		fit = "no cap on agents"
+	case c.MoreFit == 1:
 		fit = "1 more agent fits now"
 	}
 	agents := fmt.Sprintf("%d agents live", c.Live)

@@ -94,6 +94,7 @@ func TestARelayRunsABAOnTheFixRangeAndCountsThreeSteps(t *testing.T) {
 		"reviewers": {Repo: w.pr.repo, Review: "7", Relay: true, Reviewers: "all"},
 		"since":     {Repo: w.pr.repo, Review: "7", Relay: true, Since: head1[:9]},
 		"kind":      {Repo: w.pr.repo, Review: "7", Relay: true, Kind: "claude"},
+		"no review": {Repo: w.pr.repo, Relay: true, Body: "a question"},
 	} {
 		if _, err := w.asRoot.Ask(ctx, connect.NewRequest(req)); code(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s: %v", name, err)

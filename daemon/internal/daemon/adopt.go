@@ -48,6 +48,10 @@ func (d *Daemon) claudeEnv() map[string]string {
 // AdoptSession makes a running Claude Code session the root of a run.
 func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error) {
 	m := req.Msg
+	// A paired phone must not register this machine's processes as roots: the host's own device only.
+	if actor := auth.ActorFrom(ctx); actor == nil || actor.Id != localDeviceID {
+		return nil, denied("only the host's own device may adopt a session")
+	}
 	if m.RunId == "" {
 		return nil, invalid("name the run (--run-id)")
 	}
@@ -129,6 +133,7 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		if err := d.finishRetire(ctx, root.Id); err != nil {
 			return nil, err
 		}
+		d.setRing(root.Id, nil) // a doorbell of the old process, typed to nobody now
 	}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAdoptSessionProcedure, out, func(tx *store.Tx) error {
 		now := tx.Now()

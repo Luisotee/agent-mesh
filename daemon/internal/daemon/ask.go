@@ -48,6 +48,9 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	if m.Since != "" && !commitRE.MatchString(m.Since) {
 		return nil, invalid("since %q: a commit id (hex, 7 to 40 characters)", m.Since)
 	}
+	if m.Relay && (m.Review == "" || m.Agent != "" || m.Peers != "") {
+		return nil, invalid("a relay reviews a pull request of a repo: give --repo and --review, and no agent or peers")
+	}
 	switch {
 	case m.Peers != "":
 		if len(m.Mcp) > 0 {
