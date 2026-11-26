@@ -31,9 +31,11 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 		flags[name].String("state", "", "")
 	}
 	flags["dir"].String("run", "", "")
+	positional := map[string]bool{} // commands whose one bare argument is a field (`to` or `agent`)
 	for _, a := range reg.Actions() {
 		if a.CLI != "" {
 			flags[a.CLI] = newCommand(a, Env{}, "").flags
+			positional[a.CLI] = positionalField(a.Method.Input()) != nil
 		}
 	}
 
@@ -47,6 +49,7 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 	cmdRE := regexp.MustCompile(`\bmesh ([a-z][a-z-]*)\b`)
 	subRE := regexp.MustCompile(`\$\(([^()]*)\)`)
 	flagRE := regexp.MustCompile(`(?:^|\s)--([a-z][a-z-]*)`)
+	placeholderRE := regexp.MustCompile(`<[^<>]*>`) // <root name> is one argument
 	checked := 0
 	for _, file := range files {
 		raw, err := os.ReadFile(file)
@@ -102,6 +105,23 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 				end := len(seg.text)
 				if i+1 < len(locs) {
 					end = locs[i+1][0]
+				}
+				// The words written before the command's first flag are its bare arguments: only a command with an
+				// `agent` or `to` field takes one, and then just one.
+				if _, generated := positional[name]; generated {
+					rest := placeholderRE.ReplaceAllString(seg.text[loc[1]:end], "ARG")
+					rest = strings.NewReplacer("…", " ", "...", " ").Replace(rest)
+					if f := strings.Index(rest, "--"); f >= 0 {
+						rest = rest[:f]
+					}
+					if f := strings.IndexAny(rest, "|>;&#[("); f >= 0 {
+						rest = rest[:f]
+					}
+					words := strings.Fields(rest)
+					if (len(words) > 0 && !positional[name]) || len(words) > 1 {
+						t.Errorf("%s: `%s` gives %q as arguments, but mesh %s takes %s", file, seg.text, words, name,
+							map[bool]string{true: "one (its agent)", false: "none (every field is a flag)"}[positional[name]])
+					}
 				}
 				for _, m := range flagRE.FindAllStringSubmatch(seg.text[loc[1]:end], -1) {
 					if fs.Lookup(m[1]) == nil && m[1] != "help" {
