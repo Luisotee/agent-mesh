@@ -899,8 +899,15 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
+	if freeOff != "" && role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" && m.Effort == "" {
+		// Nothing named, so the CLI's default model, which may be a free one: a root here names a paid model.
+		return nil, freeRefusal(freeRepo, freeOff)
+	}
 	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
 		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
+			if freeOff != "" {
+				return nil, freeRefusal(freeRepo, freeOff) // the CLI's default model may be a free one
+			}
 			// An effort alone: the CLI's default model at that effort.
 			if !validEffort(m.Effort) {
 				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))

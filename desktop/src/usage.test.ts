@@ -37,6 +37,19 @@ describe('usageView', () => {
     expect(v.claudeSource).toBe('cache')
   })
 
+  it("matches the host's guard for agy at quota_stop 0, 50 and 100 (agyModelAtReserve)", () => {
+    const rows = [
+      { group: 'Gemini', label: 'full', left: 100 },
+      { group: 'Gemini', label: 'half', left: 50 },
+      { group: 'Gemini', label: 'none', left: 0 },
+    ]
+    const flags = (quotaStop: number, minQuota: number) => usageView(create(GetUsageResponseSchema, { quotaStop, minQuota, agyRows: rows })).agy.map((r) => r.atReserve)
+    expect(flags(0, 100)).toEqual([true, true, true]) // everything is held at quota_stop 0
+    expect(flags(50, 50)).toEqual([false, true, true])
+    expect(flags(100, 0)).toEqual([false, false, false]) // no reserve at quota_stop 100, even with nothing left
+    expect(usageView(create(GetUsageResponseSchema, { quotaStop: 100, minQuota: 0, agyRows: rows })).warnings).toEqual([])
+  })
+
   it('keeps what a tier would start on, and a missing "left"', () => {
     const v = usageView(u)
     expect(v.tiers).toEqual([
@@ -107,5 +120,7 @@ describe('tokens', () => {
     expect(tokens(340_000n)).toBe('340k')
     expect(tokens(1_250_000)).toBe('1.3M')
     expect(tokens(300n)).toBe('300')
+    expect(tokens(999_600)).toBe('1.0M') // not 1000k
+    expect(tokens(999_400)).toBe('999k')
   })
 })

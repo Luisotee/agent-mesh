@@ -119,6 +119,23 @@ export function knownRepos(agents: Record<string, Agent>): string[] {
   return [...seen.entries()].filter(([r]) => r).sort((a, b) => b[1] - a[1]).map(([r]) => r)
 }
 
+export const cleanPath = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '').replace(/\/{2,}/g, '/') : p)
+
+/**
+ * Whether a folder a setting lists (`~/projects/shop`, `/home/u/projects/shop/`) names this repo's folder. The host
+ * decides this itself (it expands `~` and resolves symlinks); the app has no home folder to expand with, so a `~/x`
+ * entry is taken to match a repo at `x` under a home folder (`/home/<user>`, `/Users/<user>`, `/root`). A symlink
+ * the host resolves is not seen here, so it shows as a row of its own.
+ */
+export function sameRepo(entry: string, repo: string): boolean {
+  const e = cleanPath(entry)
+  const r = cleanPath(repo)
+  if (e === r) return true
+  if (e === '~' || !e.startsWith('~/')) return false
+  const rest = e.slice(1)
+  return r.endsWith(rest) && /^(\/home\/[^/]+|\/Users\/[^/]+|\/root)$/.test(r.slice(0, r.length - rest.length))
+}
+
 export interface Waiting {
   kind: 'plan' | 'question' | 'input'
   /** The agent that wrote the plan or asked, or is stopped at a prompt. */

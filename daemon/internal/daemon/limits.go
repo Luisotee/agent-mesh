@@ -232,6 +232,11 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 				"conversation. Continue exactly where you stopped.", model, next)
 			model = next
 		case held.IsZero():
+			// Back on the model it had: not when that is a free one and its repo has since been set against them
+			// (freemodels.go). It stays stopped at its limit, for its parent or the user to switch or resume.
+			if d.checkKept(tx.Reader, a, model) != nil {
+				return nil
+			}
 			why = "limit reset"
 			body = fmt.Sprintf("Your usage limit has reset; you are back on %s, in the same conversation. "+
 				"Continue exactly where you stopped.", model)

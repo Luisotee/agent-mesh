@@ -54,8 +54,9 @@ export function usageView(u: GetUsageResponse): UsageView {
     atReserve: (u.claude?.atReserve ?? []).includes(w.label),
     resetsAt: date(w.resetsAt),
   }))
-  // agy reports what is left: at the reserve once no more than `min_quota` (100 - `quota_stop`) is, as the host's guard has it.
-  const agy = u.agyRows.map((r) => ({ group: r.group, label: r.label, left: r.left, resets: r.resets, atReserve: reserve > 0 && r.left <= u.minQuota }))
+  // agy reports what is left. The host's guard (`agyModelAtReserve`): no reserve at all once `quota_stop` is 100, else a
+  // row is at it when no more than `min_quota` (100 - `quota_stop`) is left, so at `quota_stop` 0 every row is.
+  const agy = u.agyRows.map((r) => ({ group: r.group, label: r.label, left: r.left, resets: r.resets, atReserve: reserve < 100 && r.left <= u.minQuota }))
   const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, notes: t.notes }))
   const warnings = [...claude.filter((w) => w.atReserve).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.atReserve).map((r) => `agy ${r.group} ${r.label}`)]
   return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
@@ -77,7 +78,8 @@ export const usd = (v: number) => `$${v.toFixed(2)}`
 export function tokens(n: bigint | number): string {
   const v = Number(n)
   if (v < 1000) return String(v)
-  return v >= 1_000_000 ? `${(v / 1e6).toFixed(1)}M` : `${Math.round(v / 1e3)}k`
+  // The unit is chosen after rounding: 999_600 is 1.0M, not 1000k.
+  return Math.round(v / 1e3) >= 1000 ? `${(v / 1e6).toFixed(1)}M` : `${Math.round(v / 1e3)}k`
 }
 
 export interface CostTable {

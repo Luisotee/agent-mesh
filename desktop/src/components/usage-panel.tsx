@@ -23,8 +23,15 @@ const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\
  * reserve line, what agy tiers would start on, and what the sessions cost for a run or a span of days.
  */
 export function UsagePanel({ host }: { host: HostRuntime }) {
+  // Everything it holds (a reading, the cost's scope, a run id) belongs to one host: another host starts afresh.
+  return <UsageOf key={host.info.id} host={host} />
+}
+
+function UsageOf({ host }: { host: HostRuntime }) {
   const runs = useHostState(host, (s) => s.runs)
   const [usage, setUsage] = useState<Load<GetUsageResponse>>({ kind: 'loading' })
+  // The last refresh's error, kept beside the reading it did not replace.
+  const [usageError, setUsageError] = useState('')
   const [cost, setCost] = useState<Load<GetCostResponse>>({ kind: 'loading' })
   // The cost's scope: a span back from now, or one run's id.
   const [scope, setScope] = useState('7d')
@@ -38,10 +45,16 @@ export function UsagePanel({ host }: { host: HostRuntime }) {
       const n = ++seq.current.usage
       try {
         const value = await getUsage(host.client, refresh)
-        if (n === seq.current.usage) setUsage({ kind: 'ready', value })
+        if (n === seq.current.usage) {
+          setUsage({ kind: 'ready', value })
+          setUsageError('')
+        }
       } catch (e) {
-        // A reading we already have stays on screen under the error rather than vanishing on one failed poll.
-        if (n === seq.current.usage) setUsage((u) => (u.kind === 'ready' ? u : { kind: 'failed', error: say(e) }))
+        // A reading we already have stays on screen, with the error beside it, rather than vanishing on one failed poll.
+        if (n === seq.current.usage) {
+          setUsageError(say(e))
+          setUsage((u) => (u.kind === 'ready' ? u : { kind: 'failed', error: say(e) }))
+        }
       }
       setNow(new Date())
     },
@@ -101,6 +114,7 @@ export function UsagePanel({ host }: { host: HostRuntime }) {
       <Card title="Quota">
         {usage.kind === 'loading' && <p className="text-xs text-muted-foreground">Reading the quotas…</p>}
         {usage.kind === 'failed' && <p role="alert" className="text-xs text-destructive">{usage.error}</p>}
+        {usage.kind === 'ready' && usageError && <p role="alert" className="text-xs text-destructive">Last refresh failed: {usageError}. The reading below is from before.</p>}
         {view && (
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2.5">

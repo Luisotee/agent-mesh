@@ -19,6 +19,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -534,6 +535,17 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			}
 		}
 	}
+	// An OpenCode reviewer that ran on a zero-cost model before the repo was set against them (freemodels.go) is not
+	// sent the new head: a fresh one starts on a model the tier allows, or is refused.
+	var freshNote string
+	if reuse != nil && reuse.Kind == opencode.Kind {
+		d.warmOpenCodeModels(ctx, opencode.Kind)
+		at, _, _ := target(reuse) // where it will run, when a reopen is pending
+		if err := d.checkKept(r, reuse, at); err != nil {
+			freshNote = fmt.Sprintf("%s is on a model its repo keeps code from (repos.no_free_models): a new %s reviewer instead", reuse.Name, j.kind)
+			reuse, unanswered = nil, true
+		}
+	}
 	if reuse != nil {
 		member.AgentId, member.Name = reuse.Id, reuse.Name
 		model, effort, _ := target(reuse) // where it will run, when a reopen is pending
@@ -609,7 +621,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		return fail(member.Name, msg)
 	}
 	member.AgentId, member.Name, member.How, member.Model = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model
-	return member, res.Msg.Agent, ""
+	return member, res.Msg.Agent, freshNote
 }
 
 // ── verdicts and listing ──

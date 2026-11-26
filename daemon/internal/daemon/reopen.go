@@ -424,6 +424,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if m.Effort != "" {
 				effort = m.Effort
 			}
+			if err := d.checkKept(tx.Reader, a, model); err != nil {
+				return err
+			}
 			execTier = a.Tier
 		default:
 			tier := m.Tier
@@ -736,6 +739,7 @@ func canResume(r store.Reader, actor *v1.Actor, a *v1.Agent, targetRunID string)
 
 func (d *Daemon) previewReviveTarget(r store.Reader, a *v1.Agent, spec reviveSpec) (string, string, error) {
 	model, effort, _ := target(a)
+	kept := func() (string, string, error) { return model, effort, d.checkKept(r, a, model) }
 	switch {
 	case spec.plan:
 		return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name+"'s planning")
@@ -746,13 +750,13 @@ func (d *Daemon) previewReviveTarget(r store.Reader, a *v1.Agent, spec reviveSpe
 		if spec.effort != "" {
 			effort = spec.effort
 		}
-		return model, effort, nil
+		return kept()
 	case spec.tier != "" || spec.model != "":
 		return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name)
 	case spec.effort != "":
 		effort = spec.effort
 	}
-	return model, effort, nil
+	return kept()
 }
 
 // ResumeAgent brings an exited or retired agent back, in its own conversation. A task gives it new work (under
@@ -1199,6 +1203,10 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		}
 	case spec.effort != "":
 		effort = spec.effort
+	}
+	// What it did not pick anew (a task, or an effort, on the model it had) still runs on that model.
+	if err := d.checkKept(tx.Reader, a, model); err != nil {
+		return nil, err
 	}
 	rv, err := requestReopen(tx, a, model, effort, deny, "resumed", spec.why)
 	if err != nil {

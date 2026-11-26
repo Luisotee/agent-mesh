@@ -9,7 +9,7 @@ import { Input, Select, Textarea } from '@/components/ui/input'
 import { useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { knownRepos, repoName } from '@/derive'
+import { cleanPath, knownRepos, repoName, sameRepo } from '@/derive'
 import { controlFor, fromText, groupOf, toText, type Control } from '@/settings-form'
 import { themeNames } from '@/theme'
 
@@ -83,13 +83,15 @@ function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Sett
   }, [setting.value])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const all = [...repos, ...listed.filter((l) => !repos.includes(l))]
+  // Each repo once, then the listed folders no repo here is: a `~` or trailing-slash spelling is the repo it names.
+  const all = [...repos]
+  for (const l of listed) if (!all.some((r) => sameRepo(l, r))) all.push(cleanPath(l))
   async function toggle(repo: string, mayUse: boolean) {
     if (busy) return
     setBusy(true)
     setError('')
     try {
-      await setSetting(host.client, FREE_KEY, (mayUse ? listed.filter((l) => l !== repo) : [...listed, repo]) as never)
+      await setSetting(host.client, FREE_KEY, (mayUse ? listed.filter((l) => !sameRepo(l, repo)) : [...listed, repo]) as never)
     } catch (e) {
       setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
     } finally {
@@ -105,7 +107,7 @@ function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Sett
       {all.length === 0 && <p className="text-xs text-muted-foreground">No repo yet: the ones agents work in show up here.</p>}
       <ul className="flex flex-col divide-y">
         {all.map((repo) => {
-          const mayUse = !listed.includes(repo)
+          const mayUse = !listed.some((l) => sameRepo(l, repo))
           return (
             <li key={repo} className="flex items-center gap-3 py-1.5">
               <label className="flex flex-1 items-center gap-2 text-[13px]" title={repo}>

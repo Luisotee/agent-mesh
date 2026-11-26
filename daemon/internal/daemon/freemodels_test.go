@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 )
 
 // A repo listed in `repos.no_free_models` never gets a zero-cost OpenCode model (freemodels.go): a spawn on a tier
@@ -153,5 +154,151 @@ func TestFreeModelsOffRefusesASwitchOntoAFreeModel(t *testing.T) {
 	// Another paid model is fine.
 	if err := switchTo(&v1.SwitchAgentRequest{Model: "openai/gpt-5.3"}); err != nil {
 		t.Errorf("a paid model: %v", err)
+	}
+}
+
+// "Zero-cost" is what OpenCode itself lists as a model's price (both costs 0), whatever the model's provider, status
+// or tool support, not only what the `free` family expands to; a model with no listed price is refused as unknown.
+func TestFreeModelsOffGoesByTheCostOpenCodeLists(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	w.set(t, "repos.no_free_models", []any{repo})
+	spawn := func(slug, model string) error {
+		_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			RunId: w.run.Id, Repo: repo, Slug: slug, Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Model: model,
+		}))
+		return err
+	}
+	for model, why := range map[string]string{
+		"openrouter/some-model:free": "another provider's zero-cost model",
+		"opencode/old-free":          "a zero-cost model that is deprecated",
+		"opencode/mute-free":         "a zero-cost model that can't call tools",
+	} {
+		if err := spawn("z-"+strings.NewReplacer("/", "-", ":", "-").Replace(model), model); err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
+			t.Errorf("%s (%s): want a refusal naming repos.no_free_models, got %v", model, why, err)
+		}
+	}
+	// Unknown cost: listed without a price, and not listed at all.
+	for _, model := range []string{"local/mystery", "nowhere/never-listed"} {
+		if err := spawn("u-"+strings.NewReplacer("/", "-", ":", "-").Replace(model), model); err == nil || !strings.Contains(err.Error(), "no cost") {
+			t.Errorf("%s: want a refusal saying no cost is listed, got %v", model, err)
+		}
+	}
+	if err := spawn("paid", "openai/gpt-5.2"); err != nil {
+		t.Errorf("a model listed with a price: %v", err)
+	}
+}
+
+// A setup whose OpenCode lists no zero-cost model (only paid ones) works for a listed repo: the family's expansion
+// being empty does not make the paid models unknowable.
+func TestFreeModelsOffAllowsPaidModelsWhenNothingIsFree(t *testing.T) {
+	w := startReopen(t, fastPass, func(c *daemon.AgentConfig) {
+		c.Env["FAKEOPENCODE_MODELS"] = "openai/gpt-5.2\n{\"id\":\"gpt-5.2\",\"providerID\":\"openai\",\"status\":\"active\",\"cost\":{\"input\":5,\"output\":15},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-20\"}\n"
+	})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	repo := gitRepo(t)
+	w.set(t, "repos.no_free_models", []any{repo})
+	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2"})
+	for slug, req := range map[string]*v1.SpawnAgentRequest{
+		"by-tier":  {Tier: "mid"},
+		"by-model": {Model: "openai/gpt-5.2"},
+	} {
+		req.RunId, req.Repo, req.Slug, req.Kind = run.Id, repo, slug, opencode.Kind
+		a, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(req))
+		if err != nil || a.Msg.Agent.Model != "openai/gpt-5.2" {
+			t.Errorf("%s: %v (%v)", slug, err, a)
+		}
+	}
+}
+
+// An OpenCode root in a listed repo that names no model would run on the CLI's default, which may be a free one: refused;
+// naming a paid model is fine.
+func TestFreeModelsOffRefusesARootOnTheDefaultModel(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	w.set(t, "repos.no_free_models", []any{repo})
+	spawn := func(req *v1.SpawnAgentRequest) error {
+		run := startRun(t, w.device.Mesh, "")
+		req.RunId, req.Repo, req.Slug, req.Role, req.Kind = run.Id, repo, "oc-root", v1.AgentRole_AGENT_ROLE_ROOT, opencode.Kind
+		_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(req))
+		return err
+	}
+	for name, req := range map[string]*v1.SpawnAgentRequest{"nothing named": {}, "an effort alone": {Effort: "high"}} {
+		if err := spawn(req); err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
+			t.Errorf("a root with %s: want a refusal naming repos.no_free_models, got %v", name, err)
+		}
+	}
+	if err := spawn(&v1.SpawnAgentRequest{Model: "openai/gpt-5.2"}); err != nil {
+		t.Errorf("a root on a paid model: %v", err)
+	}
+}
+
+// An OpenCode agent that stopped on a free model is not brought back onto it once its repo is listed: a resume, or a
+// task sent to it, is refused (the send reports why it stayed stopped), and a resume onto a paid model works.
+func TestFreeModelsOffRefusesResumingAStoppedAgentOnAFreeModel(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	a := w.spawnUnder(t, w.asRoot, "oc-stopped", &v1.SpawnAgentRequest{Repo: repo, Kind: opencode.Kind, Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})
+	a = w.opencodeTurn(t, a, "hello") // a turn, so the conversation has an id to resume
+	if !strings.HasSuffix(a.Model, "-free") && a.Model != "opencode/big-pickle" {
+		t.Fatalf("started on %q, want a zero-cost model", a.Model)
+	}
+	if _, err := w.asRoot.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	w.set(t, "repos.no_free_models", []any{repo})
+
+	if _, err := w.asRoot.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: a.Id, Task: "Direct task: go on"})); err == nil ||
+		!strings.Contains(err.Error(), "repos.no_free_models") {
+		t.Errorf("resume on the free model it had: want a refusal naming repos.no_free_models, got %v", err)
+	}
+	sent, err := w.asRoot.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "one more thing"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Msg.Resumed != nil || !strings.Contains(sent.Msg.ResumeError, "repos.no_free_models") {
+		t.Errorf("a task to the stopped agent: resumed %v, reason %q", sent.Msg.Resumed, sent.Msg.ResumeError)
+	}
+	if got := w.agent(a.Id); got.State != v1.AgentState_AGENT_STATE_RETIRED {
+		t.Errorf("the agent left %v", got.State)
+	}
+	if _, err := w.asRoot.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: a.Id, Task: "Direct task: go on", Model: "openai/gpt-5.2"})); err != nil {
+		t.Errorf("a resume onto a paid model: %v", err)
+	}
+}
+
+// A round-2 review does not send the new head to an OpenCode reviewer of round 1 that ran on a zero-cost model: the
+// repo was listed in between, and a fresh reviewer starts on the tier's paid model.
+func TestFreeModelsOffDoesNotReuseAFreeOpenCodeReviewer(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "review.reviewers.small", []any{[]any{"opencode", "agy"}})
+	w.pr.push(t, "the feature")
+	round1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if len(round1.Agents) != 1 || round1.Agents[0].Kind != opencode.Kind {
+		t.Fatalf("round 1: %v", round1.Agents)
+	}
+	first := round1.Agents[0]
+	w.quiet(t, first.Id)
+	w.say(t, first.Id, v1.MessageType_MESSAGE_TYPE_DONE, "looks fine")
+	waitFor(t, "round 1's answer", func() bool { return len(w.answers(t)) == 1 })
+
+	w.set(t, "repos.no_free_models", []any{w.pr.repo})
+	w.set(t, "tiers.opencode.mid.model", []any{"opencode/deepseek-v4.1-flash-free", "opencode/gpt-paid"})
+	w.pr.push(t, "the fix")
+	round2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if len(round2.Ask.Members) != 1 {
+		t.Fatalf("round 2: %v", round2.Ask.Members)
+	}
+	m := round2.Ask.Members[0]
+	if m.Kind != opencode.Kind || m.How != "fresh" || m.AgentId == first.Id || m.Model != "opencode/gpt-paid" {
+		t.Errorf("round 2 member = %v, want a fresh opencode reviewer on opencode/gpt-paid, not agent %s", m, first.Id)
+	}
+	if !strings.Contains(strings.Join(round2.Notes, "\n"), "repos.no_free_models") {
+		t.Errorf("round 2 should say why: %v", round2.Notes)
 	}
 }

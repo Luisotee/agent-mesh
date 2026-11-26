@@ -18,7 +18,7 @@ import dev.agentmesh.android.notify.Notifier
 import dev.agentmesh.android.notify.PushChannel
 import dev.agentmesh.android.notify.notifies
 import dev.agentmesh.android.theme.ThemeStore
-import dev.agentmesh.android.theme.hostTheme
+import dev.agentmesh.android.theme.followedTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,11 +69,11 @@ class AppContainer(
     val runtimes: StateFlow<Map<String, HostRuntime>> get() = _runtimes
 
     init {
-        // The host's `app.theme`: the first host (in list order) that has one set.
+        // The host's `app.theme`: the first host (in list order) that has set one itself (followedTheme).
         scope.launch {
             _runtimes.flatMapLatest { rts ->
                 if (rts.isEmpty()) flowOf(null)
-                else combine(rts.values.map { it.state }) { states -> states.firstNotNullOfOrNull { hostTheme(it) } }
+                else combine(rts.values.map { it.state }) { states -> followedTheme(states.toList()) }
             }.collect { themes.setHostTheme(it) }
         }
         scope.launch {

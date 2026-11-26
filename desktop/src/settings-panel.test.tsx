@@ -81,6 +81,18 @@ describe('SettingsPanel', () => {
     expect(sentValue(client)).toMatchObject({ key: 'repos.no_free_models', value: ['/w/old', '/w/shop-api'] })
   })
 
+  it('reads the listed folders as the host does: no duplicate row for a ~ or trailing-slash spelling', async () => {
+    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], ['~/projects/shop', '/w/web/', '/w/gone', '/w/gone/'], { isSet: true })])
+    store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/home/u/projects/shop' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/web' }) } })
+    render(ui)
+    const section = screen.getByRole('region', { name: 'Free models by repo' })
+    expect(within(section).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label'))).toEqual(['May use free models: shop', 'May use free models: web', 'May use free models: gone'])
+    expect(within(section).getAllByRole('checkbox').map((c) => (c as HTMLInputElement).checked)).toEqual([false, false, false]) // all three are listed
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: shop' }))
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
+    expect(sentValue(client)).toMatchObject({ value: ['/w/web/', '/w/gone', '/w/gone/'] }) // the spelling is gone, nothing added
+  })
+
   it('takes a repo off the list, and shows the host\'s refusal', async () => {
     const { ui, client } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/a', '/w/b'], { isSet: true })])
     client.setSetting.mockRejectedValueOnce(new Error('[invalid_argument] nope'))
