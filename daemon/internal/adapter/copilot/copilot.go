@@ -43,8 +43,9 @@ const (
 	QuotaHold = 24 * time.Hour
 	// PolicyHold is for a 403 policy refusal: an admin has to change a setting, so it is retried hourly.
 	PolicyHold = time.Hour
-	// RateHold is for a screen rate limit that names no reset.
-	RateHold = 30 * time.Minute
+	// RateHold is for a screen rate limit that names no reset: the longest window, as bin/mesh's
+	// LIMIT_UNKNOWN_RESET counted any CLI whose reset it could not read.
+	RateHold = 5 * time.Hour
 )
 
 // publishCommands are the shell commands a read-only or planning agent may not run (the other adapters' list).
@@ -247,7 +248,10 @@ type Limit struct {
 	Hold time.Duration
 	// Policy marks a 403 refusal by the account's Copilot policy rather than a quota.
 	Policy bool
-	At     time.Time
+	// PerModel marks a rate limit on the model the agent runs ("the rate limit for this model"): the account's
+	// other models are free. Every other limit is on the whole account.
+	PerModel bool
+	At       time.Time
 }
 
 var policyRE = regexp.MustCompile(`(?i)not authorized to use this Copilot feature|access denied by Copilot policy`)
@@ -291,33 +295,35 @@ type Status struct {
 	Key string
 	// Limit is the newest limit error with no user or assistant message after it: the session is stopped at it.
 	Limit *Limit
-	// AnsweredAt is when the newest assistant message with text was written.
-	AnsweredAt time.Time
+	// AnsweredAt is when the newest assistant message with text was written, and PromptAt when the prompt it
+	// answers was typed (zero when that prompt is out of the events read). A hold set after PromptAt says nothing
+	// of the answer: the turn began before the limit did.
+	AnsweredAt, PromptAt time.Time
 }
 
 // Inspect reads the state of a session from its events. A turn ends in `assistant.turn_end`, but a model call
 // that asked for tools is followed by another turn: only a final answer (an assistant message with no tool
-// requests) followed by its turn end means idle.
+// requests) followed by its turn end means idle. The events are the tail of the file, so a turn can begin before
+// them: its model calls still say it is working, and its end says it is over, whatever came before the window.
 func Inspect(events []Event) Status {
 	var st Status
 	finalAnswer := false
+	var promptAt time.Time
 	for _, e := range events {
 		switch e.Type {
 		case "user.message":
-			st.State, st.Key, st.Limit, finalAnswer = "working", e.ID, nil, false
+			st.State, st.Key, st.Limit, finalAnswer, promptAt = "working", e.ID, nil, false, e.Time()
 		case "assistant.turn_start":
-			if st.State != "" {
-				st.State, st.Key, finalAnswer = "working", e.ID, false
-			}
+			st.State, st.Key, finalAnswer = "working", e.ID, false
 		case "assistant.message":
 			d := e.data()
 			st.Limit = nil
 			if strings.TrimSpace(d.Content) != "" {
-				st.AnsweredAt = e.Time()
+				st.AnsweredAt, st.PromptAt = e.Time(), promptAt
 			}
 			finalAnswer = len(d.ToolRequests) == 0
 		case "assistant.turn_end":
-			if finalAnswer && st.State != "" {
+			if finalAnswer {
 				st.State, st.Key = "idle", e.ID
 			}
 		case "session.error":
@@ -337,6 +343,9 @@ func Inspect(events []Event) Status {
 // rate limit." Anchored at the line start (past box and gutter glyphs) so the agent quoting one doesn't count.
 var limitRE = regexp.MustCompile(`(?i)^[^A-Za-z\n]*You've (?:hit (?:your|the) .*rate limit|reached your weekly rate limit)`)
 
+// perModelRE is the one rate-limit message about a single model; the session and weekly ones are the account's.
+var perModelRE = regexp.MustCompile(`(?i)rate limit for this model`)
+
 var resetRE = regexp.MustCompile(`(?i)(?:resets?|try again)\s+in\s+((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)`)
 
 // ScreenLimit finds a rate limit or a policy refusal on the last lines of a screen.
@@ -353,7 +362,7 @@ func ScreenLimit(lines []string) (Limit, bool) {
 					hold = d
 				}
 			}
-			return Limit{Message: firstLine(line, "rate limit"), Hold: hold}, true
+			return Limit{Message: firstLine(line, "rate limit"), Hold: hold, PerModel: perModelRE.MatchString(line)}, true
 		}
 		if strings.Contains(line, "Failed to load models: access denied by Copilot policy") {
 			return Limit{Message: firstLine(line, "access denied by Copilot policy"), Hold: PolicyHold, Policy: true}, true

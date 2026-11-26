@@ -189,3 +189,63 @@ func TestEventsPathFollowsCopilotHomeThenHome(t *testing.T) {
 		t.Errorf("%s", got)
 	}
 }
+
+// A turn whose events outgrow the tail read still ends: the prompt is out of the window, the final answer and
+// its turn end are in it.
+func TestInspectSeesATurnEndWhoseOpeningIsOutOfTheWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.jsonl")
+	line := func(typ, ts, data string) string {
+		return `{"type":"` + typ + `","id":"` + typ + ts + `","timestamp":"` + ts + `","data":` + data + `}` + "\n"
+	}
+	body := line("user.message", "2026-11-26T10:00:00.000Z", `{"content":"read it all"}`) +
+		line("assistant.turn_start", "2026-11-26T10:00:00.500Z", `{}`) +
+		line("assistant.message", "2026-11-26T10:00:01.000Z", `{"content":"","toolRequests":[{"name":"view"}]}`)
+	for i := 0; i < 4; i++ { // four 100 KiB tool outputs: past the tail
+		body += line("tool.execution_complete", "2026-11-26T10:00:02.000Z", `{"result":"`+strings.Repeat("x", 100<<10)+`"}`)
+	}
+	working := body + line("assistant.turn_end", "2026-11-26T10:00:03.000Z", `{}`) +
+		line("assistant.turn_start", "2026-11-26T10:00:04.000Z", `{}`)
+	done := working + line("assistant.message", "2026-11-26T10:00:05.000Z", `{"content":"all read","toolRequests":[]}`) +
+		line("assistant.turn_end", "2026-11-26T10:00:06.000Z", `{}`)
+	for name, tc := range map[string]struct {
+		body, state string
+	}{"mid-turn": {working, "working"}, "ended": {done, "idle"}} {
+		os.WriteFile(path, []byte(tc.body), 0o600)
+		evs, err := ReadEvents(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Type == "user.message" {
+				t.Fatalf("%s: the prompt is inside the window: the test does not test a cut", name)
+			}
+		}
+		if st := Inspect(evs); st.State != tc.state {
+			t.Errorf("%s: state %q, want %q", name, st.State, tc.state)
+		}
+	}
+}
+
+func TestInspectDatesTheAnsweredPromptAndScreenLimitsKnowTheirModel(t *testing.T) {
+	user := ev("user.message", "2026-11-26T10:00:00.000Z", `{"content":"hi"}`)
+	answer := ev("assistant.message", "2026-11-26T10:05:00.000Z", `{"content":"ok","toolRequests":[]}`)
+	st := Inspect([]Event{user, answer})
+	if want, _ := time.Parse(time.RFC3339Nano, "2026-11-26T10:00:00.000Z"); !st.PromptAt.Equal(want) || st.AnsweredAt.IsZero() {
+		t.Errorf("prompt %v answered %v", st.PromptAt, st.AnsweredAt)
+	}
+	if st := Inspect([]Event{answer}); !st.PromptAt.IsZero() {
+		t.Errorf("an answer whose prompt is out of the window has a prompt time: %v", st.PromptAt)
+	}
+	for line, perModel := range map[string]bool{
+		"You've hit the rate limit for this model.": true,
+		"You've hit your session rate limit.":       false,
+		"You've reached your weekly rate limit.":    false,
+		"You've hit your rate limit.":               false,
+	} {
+		l, ok := ScreenLimit([]string{line})
+		if !ok || l.PerModel != perModel {
+			t.Errorf("%q: %+v ok=%v, want per-model %v", line, l, ok, perModel)
+		}
+	}
+}

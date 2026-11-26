@@ -9,6 +9,8 @@
 //	/402       session.error with Copilot's 402 quota error
 //	/policy    session.error with the 403 policy refusal
 //	/limit     prints a rate-limit line on the screen, writes no turn
+//	/modellimit  the same, for the one model ("the rate limit for this model")
+//	/bighold   like /hold, but the turn then writes over 256 KiB of tool output before its final answer
 //	/edit      writes blocked.txt unless `write` is denied
 //	/push      prints "pushed" unless `shell(git push:*)` is denied
 //	/exit      exits 0
@@ -102,6 +104,10 @@ func main() {
 			fmt.Print("You've hit your rate limit. Resets in 2h.\r\n")
 			prompt()
 			continue
+		case "/modellimit":
+			fmt.Print("You've hit the rate limit for this model. Resets in 2h.\r\n")
+			prompt()
+			continue
 		}
 		emit("user.message", map[string]any{"content": line, "messageId": newID()})
 		switch line {
@@ -117,6 +123,19 @@ func main() {
 			fmt.Print("holding\r\n")
 			in.Scan()
 			finish("resumed")
+		case "/bighold":
+			emit("assistant.turn_start", map[string]any{"turnId": "0"})
+			fmt.Print("holding\r\n")
+			in.Scan()
+			emit("assistant.message", map[string]any{"messageId": newID(), "content": "", "toolRequests": []any{map[string]any{"name": "view"}}})
+			pad := strings.Repeat("x", 100<<10)
+			for i := 0; i < 4; i++ {
+				emit("tool.execution_complete", map[string]any{"result": pad})
+			}
+			emit("assistant.turn_end", map[string]any{"turnId": "0"})
+			emit("assistant.turn_start", map[string]any{"turnId": "1"})
+			finish("read it all")
+			fmt.Print("done: big\r\n")
 		case "/edit":
 			if denied("write") {
 				fmt.Print("edit denied\r\n")

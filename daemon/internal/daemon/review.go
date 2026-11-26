@@ -199,16 +199,22 @@ func (d *Daemon) kindAvailable(r store.Reader, kind, tier string) (bool, string)
 	case opencode.Kind:
 		return d.openCodeAvailable(r, tier)
 	case copilot.Kind:
-		return d.copilotAvailable(r)
+		return d.copilotAvailable(r, tier)
 	}
 	return true, ""
 }
 
-// copilotAvailable is whether Copilot is installed and not out of quota (or refused by policy): its holds are
-// kind-wide (`*`), set by a 402 for a day or a 403 for an hour, until it next answers (copilot.go).
-func (d *Daemon) copilotAvailable(r store.Reader) (bool, string) {
+// copilotAvailable is whether Copilot is installed, has the asked tier, and is not out of quota (or refused by
+// policy): its holds are kind-wide (`*`), set by a 402 for a day or a 403 for an hour, until it next answers
+// (copilot.go).
+func (d *Daemon) copilotAvailable(r store.Reader, tier string) (bool, string) {
 	if !d.installed(copilot.Kind) {
 		return false, ""
+	}
+	if tier != "" {
+		if _, ok := d.schema.Lookup("tiers." + copilot.Kind + "." + tier + ".model"); !ok {
+			return false, fmt.Sprintf("copilot has no %s tier", tier)
+		}
 	}
 	if held, _, err := r.ModelHold(copilot.Kind, holdAll, d.now()); err == nil && !held.IsZero() {
 		return false, fmt.Sprintf("copilot is at its limit until %s", held.UTC().Format(time.RFC3339))
