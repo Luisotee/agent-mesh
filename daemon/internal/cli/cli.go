@@ -748,7 +748,23 @@ func call(ctx context.Context, conn *client.Conn, env Env, a *registry.Action, r
 			if err := proto.Unmarshal(raw, &openRes); err != nil {
 				return err
 			}
-			return runOpen(ctx, conn, &openRes, env)
+			// A re-attach after the daemon restarted needs a fresh one-use ticket: ask again, as the first call did.
+			redo := func(ctx context.Context) (*v1.OpenAgentResponse, error) {
+				again, err := c.CallUnary(ctx, connect.NewRequest(req))
+				if err != nil {
+					return nil, err
+				}
+				raw, err := proto.Marshal(again.Msg)
+				if err != nil {
+					return nil, err
+				}
+				var r v1.OpenAgentResponse
+				if err := proto.Unmarshal(raw, &r); err != nil {
+					return nil, err
+				}
+				return &r, nil
+			}
+			return runOpen(ctx, conn, &openRes, env, redo)
 		}
 		return renderText(a.CLI, res.Msg, out)
 	}
