@@ -521,7 +521,8 @@ service MeshService {
     };
   }
 
-  // Register the peers of bin/mesh's peers.json (read only), without their conversations.
+  // Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
+  // that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
   rpc ImportPeers(ImportPeersRequest) returns (ImportPeersResponse) {
     option (action) = {
       actors: [
@@ -530,7 +531,7 @@ service MeshService {
       ]
       write: true
       cli: "import-peers"
-      summary: "Import the peers of bin/mesh's peers.json (read only), unbriefed"
+      summary: "Import the peers of bin/mesh's peers.json (read only), with their conversations"
     };
   }
 

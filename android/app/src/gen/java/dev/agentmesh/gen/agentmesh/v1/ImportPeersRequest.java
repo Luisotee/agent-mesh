@@ -132,6 +132,50 @@ public  final class ImportPeersRequest extends
 
   }
 
+  public static final int UNBRIEFED_FIELD_NUMBER = 3;
+  private boolean unbriefed_;
+  /**
+   * <pre>
+   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+   * its answers file come across, so a follow-up resumes it.
+   * </pre>
+   *
+   * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+   * @return The unbriefed.
+   */
+  @java.lang.Override
+  public boolean getUnbriefed() {
+    return unbriefed_;
+  }
+  /**
+   * <pre>
+   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+   * its answers file come across, so a follow-up resumes it.
+   * </pre>
+   *
+   * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+   * @param value The unbriefed to set.
+   */
+  private void setUnbriefed(boolean value) {
+    
+    unbriefed_ = value;
+  }
+  /**
+   * <pre>
+   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+   * its answers file come across, so a follow-up resumes it.
+   * </pre>
+   *
+   * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+   */
+  private void clearUnbriefed() {
+
+    unbriefed_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.ImportPeersRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -345,6 +389,52 @@ public  final class ImportPeersRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+     * its answers file come across, so a follow-up resumes it.
+     * </pre>
+     *
+     * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+     * @return The unbriefed.
+     */
+    @java.lang.Override
+    public boolean getUnbriefed() {
+      return instance.getUnbriefed();
+    }
+    /**
+     * <pre>
+     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+     * its answers file come across, so a follow-up resumes it.
+     * </pre>
+     *
+     * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+     * @param value The unbriefed to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUnbriefed(boolean value) {
+      copyOnWrite();
+      instance.setUnbriefed(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+     * its answers file come across, so a follow-up resumes it.
+     * </pre>
+     *
+     * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUnbriefed() {
+      copyOnWrite();
+      instance.clearUnbriefed();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ImportPeersRequest)
   }
   @java.lang.Override
@@ -364,10 +454,11 @@ public  final class ImportPeersRequest extends
             "bitField0_",
             "meta_",
             "from_",
+            "unbriefed_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208";
+              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

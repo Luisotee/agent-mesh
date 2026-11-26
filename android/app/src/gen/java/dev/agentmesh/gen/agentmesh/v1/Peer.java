@@ -1005,6 +1005,47 @@ public  final class Peer extends
     cloned_ = false;
   }
 
+  public static final int IN_CLONE_FIELD_NUMBER = 18;
+  private boolean inClone_;
+  /**
+   * <pre>
+   * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+   * removes: an import from `bin/mesh` carries this over.
+   * </pre>
+   *
+   * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+   * @return The inClone.
+   */
+  @java.lang.Override
+  public boolean getInClone() {
+    return inClone_;
+  }
+  /**
+   * <pre>
+   * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+   * removes: an import from `bin/mesh` carries this over.
+   * </pre>
+   *
+   * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+   * @param value The inClone to set.
+   */
+  private void setInClone(boolean value) {
+    
+    inClone_ = value;
+  }
+  /**
+   * <pre>
+   * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+   * removes: an import from `bin/mesh` carries this over.
+   * </pre>
+   *
+   * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+   */
+  private void clearInClone() {
+
+    inClone_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Peer parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2105,6 +2146,49 @@ public  final class Peer extends
       return this;
     }
 
+    /**
+     * <pre>
+     * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+     * removes: an import from `bin/mesh` carries this over.
+     * </pre>
+     *
+     * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+     * @return The inClone.
+     */
+    @java.lang.Override
+    public boolean getInClone() {
+      return instance.getInClone();
+    }
+    /**
+     * <pre>
+     * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+     * removes: an import from `bin/mesh` carries this over.
+     * </pre>
+     *
+     * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+     * @param value The inClone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInClone(boolean value) {
+      copyOnWrite();
+      instance.setInClone(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+     * removes: an import from `bin/mesh` carries this over.
+     * </pre>
+     *
+     * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInClone() {
+      copyOnWrite();
+      instance.clearInClone();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Peer)
   }
   @java.lang.Override
@@ -2139,12 +2223,13 @@ public  final class Peer extends
             "runningRun_",
             "runningAgent_",
             "cloned_",
+            "inClone_",
           };
           java.lang.String info =
-              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0012\u0000\u0001\u0001\u0012\u0012\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u1009\u0000\u0007\u0208\b\u0208\t\u0208" +
               "\n\u1009\u0001\u000b\u1009\u0002\f\u0208\r\u0208\u000e\u0208\u000f\u0208\u0010\u0208" +
-              "\u0011\u0007";
+              "\u0011\u0007\u0012\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

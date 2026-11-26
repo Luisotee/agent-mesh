@@ -175,7 +175,7 @@ Then:
 
 ## Standing peer askers
 
-A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read), **unbriefed**: their old conversations stay bin/mesh's, so the first round on the daemon is a first brief (`TODO.md`: PR 6 carries them across).
+A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read) **with their conversations** (from bin/mesh's runs, at the worktree path they ran in), so the first round on the daemon is a follow-up, not a brief; one whose bin/mesh agent may still be running comes across unbriefed (the import says so), and `--unbriefed` brings none.
 
 ```bash
 mesh ask --peers <name>,<group>,… --tier <tier> --body @"$(mesh dir)/tasks/q.md" [--timeout 3600] [--no-refresh]   # or --peers all

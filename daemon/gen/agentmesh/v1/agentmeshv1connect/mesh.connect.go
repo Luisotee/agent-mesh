@@ -219,7 +219,8 @@ type MeshServiceClient interface {
 	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
 	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
-	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
+	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
+	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
@@ -858,7 +859,8 @@ type MeshServiceHandler interface {
 	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
 	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
-	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
+	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
+	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)

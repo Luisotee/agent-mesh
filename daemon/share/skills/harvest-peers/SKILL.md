@@ -17,7 +17,7 @@ Get from the peer projects what would change this repo: features we lack, better
 The value is in the checking: a peer reads its own project well and ours from a distance, so every claim it makes about our code is checked before the user sees it.
 
 1. **Pick the peers.** `mesh peers` lists them by group, with what each is worth asking about. Default to the group this repo's `CLAUDE.md` / `AGENTS.md` or a group's `about` names for it; the user's words narrow it. No peers: say so and point to `find-peers`.
-2. **What's new since last time.** In `mesh peers`, a peer whose `sessionId` is empty has never been briefed on the daemon (one imported from bin/mesh's `peers.json` is unbriefed too) and gets the **first-round** brief; the rest get the **follow-up**. For the follow-up:
+2. **What's new since last time.** In `mesh peers`, a peer whose `sessionId` is empty has never been briefed on the daemon (one imported from bin/mesh's `peers.json` brings its conversation along, unless bin/mesh's agent might still be running or the import said `--unbriefed`) and gets the **first-round** brief; the rest get the **follow-up**. For the follow-up:
    - "since" is the oldest `asked` of those peers: `git log --since=<it> --oneline` here, and read what matters of it;
    - the open themes of the repo's tracker (its `TODO.md`, issues, or whatever its `CLAUDE.md` / `AGENTS.md` names);
    - each peer's last answers, so it isn't asked again what it already said and the brief can list what's settled: its `lastAnswers` file (a `reports/peers-<stamp>.md` of the run that asked it, under the daemon's run folders: `mesh dir --run <run id>`).

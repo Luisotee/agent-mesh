@@ -4613,7 +4613,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x18WAITING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11WAITING_KIND_PLAN\x10\x01\x12\x19\n" +
 	"\x15WAITING_KIND_QUESTION\x10\x02\x12\x16\n" +
-	"\x12WAITING_KIND_INPUT\x10\x032\xd82\n" +
+	"\x12WAITING_KIND_INPUT\x10\x032\xe72\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -4692,9 +4692,9 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x02\x01\x05\x10\x01\x1a\tedit-peer\"-Change the about of a peer or of a peer group\x12\x80\x01\n" +
 	"\n" +
 	"RemovePeer\x12\x1f.agentmesh.v1.RemovePeerRequest\x1a .agentmesh.v1.RemovePeerResponse\"/\x8a\xb5\x18+\n" +
-	"\x02\x01\x05\x10\x01\x1a\vremove-peer\"\x16Remove a standing peer\x12\xae\x01\n" +
-	"\vImportPeers\x12 .agentmesh.v1.ImportPeersRequest\x1a!.agentmesh.v1.ImportPeersResponse\"Z\x8a\xb5\x18V\n" +
-	"\x02\x01\x05\x10\x01\x1a\fimport-peers\"@Import the peers of bin/mesh's peers.json (read only), unbriefed\x12\x8f\x01\n" +
+	"\x02\x01\x05\x10\x01\x1a\vremove-peer\"\x16Remove a standing peer\x12\xbd\x01\n" +
+	"\vImportPeers\x12 .agentmesh.v1.ImportPeersRequest\x1a!.agentmesh.v1.ImportPeersResponse\"i\x8a\xb5\x18e\n" +
+	"\x02\x01\x05\x10\x01\x1a\fimport-peers\"OImport the peers of bin/mesh's peers.json (read only), with their conversations\x12\x8f\x01\n" +
 	"\aGetCost\x12\x1c.agentmesh.v1.GetCostRequest\x1a\x1d.agentmesh.v1.GetCostResponse\"G\x8a\xb5\x18C\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\x1a\x04cost\"3Spend per agent, kind and phase, from session files\x12\xc9\x01\n" +
 	"\vCheckModels\x12 .agentmesh.v1.CheckModelsRequest\x1a!.agentmesh.v1.CheckModelsResponse\"u\x8a\xb5\x18q\n" +

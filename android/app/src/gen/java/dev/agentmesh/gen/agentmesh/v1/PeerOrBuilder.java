@@ -280,4 +280,15 @@ public interface PeerOrBuilder extends
    * @return The cloned.
    */
   boolean getCloned();
+
+  /**
+   * <pre>
+   * It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+   * removes: an import from `bin/mesh` carries this over.
+   * </pre>
+   *
+   * <code>bool in_clone = 18 [json_name = "inClone"];</code>
+   * @return The inClone.
+   */
+  boolean getInClone();
 }

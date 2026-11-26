@@ -1308,7 +1308,10 @@ type Peer struct {
 	RunningRun   string `protobuf:"bytes,15,opt,name=running_run,json=runningRun,proto3" json:"running_run,omitempty"`
 	RunningAgent string `protobuf:"bytes,16,opt,name=running_agent,json=runningAgent,proto3" json:"running_agent,omitempty"`
 	// The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
-	Cloned        bool `protobuf:"varint,17,opt,name=cloned,proto3" json:"cloned,omitempty"`
+	Cloned bool `protobuf:"varint,17,opt,name=cloned,proto3" json:"cloned,omitempty"`
+	// It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+	// removes: an import from `bin/mesh` carries this over.
+	InClone       bool `protobuf:"varint,18,opt,name=in_clone,json=inClone,proto3" json:"in_clone,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1458,6 +1461,13 @@ func (x *Peer) GetRunningAgent() string {
 func (x *Peer) GetCloned() bool {
 	if x != nil {
 		return x.Cloned
+	}
+	return false
+}
+
+func (x *Peer) GetInClone() bool {
+	if x != nil {
+		return x.InClone
 	}
 	return false
 }
@@ -1973,7 +1983,11 @@ type ImportPeersRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
-	From          string `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	From string `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	// Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+	// default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+	// its answers file come across, so a follow-up resumes it.
+	Unbriefed     bool `protobuf:"varint,3,opt,name=unbriefed,proto3" json:"unbriefed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2020,6 +2034,13 @@ func (x *ImportPeersRequest) GetFrom() string {
 		return x.From
 	}
 	return ""
+}
+
+func (x *ImportPeersRequest) GetUnbriefed() bool {
+	if x != nil {
+		return x.Unbriefed
+	}
+	return false
 }
 
 type ImportPeersResponse struct {
@@ -2182,7 +2203,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\fPeerUpstream\x12\x16\n" +
 	"\x06remote\x18\x01 \x01(\tR\x06remote\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12\x10\n" +
-	"\x03url\x18\x03 \x01(\tR\x03url\"\x94\x04\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\"\xaf\x04\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x14\n" +
@@ -2204,7 +2225,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\vrunning_run\x18\x0f \x01(\tR\n" +
 	"runningRun\x12#\n" +
 	"\rrunning_agent\x18\x10 \x01(\tR\frunningAgent\x12\x16\n" +
-	"\x06cloned\x18\x11 \x01(\bR\x06cloned\"5\n" +
+	"\x06cloned\x18\x11 \x01(\bR\x06cloned\x12\x19\n" +
+	"\bin_clone\x18\x12 \x01(\bR\ainClone\"5\n" +
 	"\tPeerGroup\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05about\x18\x02 \x01(\tR\x05about\"(\n" +
@@ -2235,10 +2257,11 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\fdelete_clone\x18\x03 \x01(\bR\vdeleteClone\"U\n" +
 	"\x12RemovePeerResponse\x12\x1a\n" +
 	"\bworktree\x18\x01 \x01(\tR\bworktree\x12#\n" +
-	"\rdeleted_clone\x18\x02 \x01(\tR\fdeletedClone\"]\n" +
+	"\rdeleted_clone\x18\x02 \x01(\tR\fdeletedClone\"{\n" +
 	"\x12ImportPeersRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x18\n" +
-	"\x04from\x18\x02 \x01(\tB\x04\x98\xb5\x18\x01R\x04from\"K\n" +
+	"\x04from\x18\x02 \x01(\tB\x04\x98\xb5\x18\x01R\x04from\x12\x1c\n" +
+	"\tunbriefed\x18\x03 \x01(\bR\tunbriefed\"K\n" +
 	"\x13ImportPeersResponse\x12\x1a\n" +
 	"\bimported\x18\x01 \x03(\tR\bimported\x12\x18\n" +
 	"\askipped\x18\x02 \x03(\tR\askipped*c\n" +

@@ -40,4 +40,16 @@ public interface ImportPeersRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFromBytes();
+
+  /**
+   * <pre>
+   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+   * its answers file come across, so a follow-up resumes it.
+   * </pre>
+   *
+   * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
+   * @return The unbriefed.
+   */
+  boolean getUnbriefed();
 }
