@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +139,21 @@ func TestAgyPlanCompact(t *testing.T) {
 		if res.Msg.Argv[i] != want[i] {
 			t.Fatalf("argv %q", res.Msg.Argv)
 		}
+	}
+}
+
+// A tier-spawned agy agent's model is a family; `agy --model flash` is refused (live), so the compaction runs the
+// id the launch would.
+func TestAgyPlanCompactResolvesAFamilyToAnID(t *testing.T) {
+	a := New()
+	a.ListModels = func(context.Context, string, map[string]string) (string, error) { return sampleListing, nil }
+	res, err := a.PlanCompact(context.Background(), connect.NewRequest(&adapterv1.PlanCompactRequest{
+		SessionId: "c1", Model: "hydrogen", Effort: "high", Focus: "Keep the repo facts"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(res.Msg.Argv, " "); !strings.Contains(got, "--model gemini-4-hydrogen-high ") {
+		t.Fatalf("argv %q", got)
 	}
 }
 

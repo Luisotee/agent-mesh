@@ -36,6 +36,9 @@ const (
 	compactQuietWait = 60 * time.Second
 	compactStartWait = 60 * time.Second
 	compactTimeout   = 900 * time.Second
+	// compactSettle is how long after the CLI's own hook said a typed `/compact` is over the daemon waits for the
+	// compaction to show in the conversation's transcript before it goes on (AgentConfig's CompactSettle).
+	compactSettle = 20 * time.Second
 
 	capContext     = "context"      // the adapter can measure a conversation and plan a headless compaction
 	capCompactLive = "compact-live" // Claude: a warm prompt cache whose compaction can be typed into the live session
@@ -355,7 +358,19 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	if pc.TypedAt != nil { // live: waiting for the CLI to say it is over
 		switch {
 		case pc.DoneAt != nil:
+			// Claude Code fires SessionStart (compact) before the compacted transcript is on disk: reopening now
+			// (approve, a model switch) stops the process before its write, and the next `--resume` reads the old,
+			// uncompacted conversation (found live: two approves at once both left their 65k workers whole, one
+			// alone landed; the 215k worker of bin/mesh was the same race). So the compaction is done when the
+			// transcript says so (a size below the one before, or a boundary), or after compactSettle.
 			after := d.measureContext(ctx, a)
+			if !compactLanded(after, pc.TokensBefore) {
+				if now.Sub(pc.DoneAt.AsTime()) < orDuration(d.rt.cfg.CompactSettle, compactSettle) {
+					return true, nil // looked at again by the next contextPass
+				}
+				return false, d.endCompaction(ctx, a, pc, "the CLI reported the compaction done, but its transcript showed no smaller size in time",
+					pc.TokensBefore, tokensOf(after))
+			}
 			return false, d.endCompaction(ctx, a, pc, "done", pc.TokensBefore, tokensOf(after))
 		case gone || leftover:
 			return false, d.endCompaction(ctx, a, pc, "its process ended first", pc.TokensBefore, 0)
@@ -424,6 +439,16 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	return true, nil
 }
 
+// compactLanded reports whether a measurement of the conversation shows a compaction that began at before tokens:
+// a size below it, or a boundary (0 tokens: nothing has replied since). A transcript that can't be read at all,
+// or one that wasn't measured before, can't say, and isn't waited on.
+func compactLanded(after *v1.ContextUsage, before int64) bool {
+	if !after.GetMeasured() || before <= 0 {
+		return true
+	}
+	return after.Tokens == 0 || after.Tokens < before
+}
+
 // tokensOf is a measured size, 0 when unknown.
 func tokensOf(u *v1.ContextUsage) int64 {
 	if !u.GetMeasured() {
@@ -451,9 +476,9 @@ func (d *Daemon) updateCompaction(ctx context.Context, agentID, id string, f fun
 // before and after (0: unknown); no outcome is the quiet case of a conversation that wasn't worth
 // compacting.
 func (d *Daemon) endCompaction(ctx context.Context, a *v1.Agent, pc *v1.PendingCompaction, outcome string, before, after int64) error {
-	via := "live"
-	if pc.TypedAt == nil {
-		via = "headless"
+	via := "live" // typed into its terminal, or asked of a live agent and never typed (a user was typing)
+	if pc.TypedAt == nil && (pc.StartedAt != nil || a.TerminalId == "" || stopped(a)) {
+		via = "headless" // a stopped conversation's
 	}
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
@@ -495,9 +520,12 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 	if err != nil {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0)
 	}
-	model := a.Model
+	model, effort := a.Model, a.Effort
 	if a.PendingReopen != nil && a.PendingReopen.Model != "" {
 		model = a.PendingReopen.Model
+		if a.PendingReopen.Effort != "" {
+			effort = a.PendingReopen.Effort
+		}
 	}
 	env := d.cliBaseEnv()
 	lean, err := d.leanLaunch(ctx, a, env)
@@ -505,7 +533,7 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 		return false, d.endCompaction(ctx, a, pc, "planning its lean session failed: "+err.Error(), usage.Tokens, 0)
 	}
 	req := &adapterv1.PlanCompactRequest{Binary: d.rt.cfg.Binaries[a.Kind], SessionId: a.SessionId, Cwd: a.Worktree,
-		Env: env, Model: model, Effort: a.Effort, Focus: pc.Focus, Lean: lean}
+		Env: env, Model: model, Effort: effort, Focus: pc.Focus, Lean: lean}
 	if a.Kind == claude.Kind {
 		if adapter.ReadOnly(a.Role) || a.DenyEdits {
 			req.DenyTools = claude.DenyRules(a.Worktree, a.Repo)
@@ -516,7 +544,10 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 	}
 	plan, err := ad.PlanCompact(ctx, connect.NewRequest(req))
 	if err != nil {
-		return false, d.endCompaction(ctx, a, pc, "", 0, 0) // the adapter has no headless compaction
+		if connect.CodeOf(err) == connect.CodeUnimplemented {
+			return false, d.endCompaction(ctx, a, pc, "", 0, 0) // the adapter has no headless compaction
+		}
+		return false, d.endCompaction(ctx, a, pc, "planning the compaction failed: "+err.Error(), usage.Tokens, 0)
 	}
 	if len(plan.Msg.Argv) > 0 && !strings.Contains(plan.Msg.Argv[0], "/") {
 		if path, ok := lookPath(plan.Msg.Argv[0], plan.Msg.Env["PATH"]); ok {

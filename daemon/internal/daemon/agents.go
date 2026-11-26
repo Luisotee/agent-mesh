@@ -104,6 +104,9 @@ type AgentConfig struct {
 	// stop typing, for the CLI to begin compacting after `/compact` was typed, and for it to finish (defaults 60 s,
 	// 60 s and 15 min).
 	CompactQuietWait, CompactStartWait, CompactTimeout time.Duration
+	// CompactSettle is how long a live compaction the CLI reported done waits for its transcript to show it before
+	// the agent goes on (default 20 s).
+	CompactSettle time.Duration
 	// Reset overrides the root reset's timings (reset.go); zero values are the defaults.
 	Reset ResetTimings
 	// ContextEvery is how often agents with a compaction or a root reset still to carry out are looked at (default

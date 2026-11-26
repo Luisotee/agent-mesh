@@ -50,7 +50,13 @@ type usageLine struct {
 	Type        string `json:"type"`
 	Subtype     string `json:"subtype"`
 	IsSidechain bool   `json:"isSidechain"`
-	Message     struct {
+	// CompactMetadata is on a compact_boundary: Claude Code 2.1.332 records the conversation's size before
+	// (preTokens) and after (postTokens: the messages kept, without the system prompt and tools, which the next
+	// reply adds) the compaction.
+	CompactMetadata struct {
+		PostTokens int64 `json:"postTokens"`
+	} `json:"compactMetadata"`
+	Message struct {
 		Usage struct {
 			Input         int64 `json:"input_tokens"`
 			CacheRead     int64 `json:"cache_read_input_tokens"`
@@ -76,7 +82,7 @@ func parseUsageLine(line []byte) (usageLine, bool) {
 	return l, true
 }
 
-// lineTokens is a line's context size: 0 for a compaction, the main conversation's assistant reply's prompt, else
+// lineTokens is a line's context size: a compaction's postTokens (0 when the line has none), the main conversation's assistant reply's prompt, else
 // false. A subagent's reply (isSidechain) is another conversation's prompt, and a reply with no prompt tokens at
 // all (Claude Code's synthetic replies for an API error or a limit) says nothing about the size: both are skipped,
 // so the scan goes on to the reply before.
@@ -86,7 +92,7 @@ func lineTokens(line []byte) (int64, bool) {
 		return 0, false
 	}
 	if l.Type == "system" && l.Subtype == "compact_boundary" {
-		return 0, true
+		return l.CompactMetadata.PostTokens, true
 	}
 	if l.Type == "assistant" && l.hasUsage && !l.IsSidechain {
 		u := l.Message.Usage
