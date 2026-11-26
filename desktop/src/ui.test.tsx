@@ -691,6 +691,16 @@ describe('ChatView', () => {
     expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
   })
 
+  it('reads the tail again when an earlier page does not join what is held', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('x', TranscriptKind.USER, { text: 'from elsewhere' })], { startOffset: 0n, endOffset: 40n, atStart: true }) : res(tail)))
+    const { ui } = chat({ read })
+    render(ui)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    await waitFor(() => expect(read.mock.calls.filter(([r]) => r.backward && r.offset === -1n)).toHaveLength(2))
+    expect(await screen.findByRole('list', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByText('from elsewhere')).toBeNull()
+  })
+
   it('follows the conversation when the agent does something, from where it stopped', async () => {
     const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward ? res(tail) : res([entry('n', TranscriptKind.ASSISTANT, { text: 'a new reply' })], { startOffset: 100n, endOffset: 150n })))
     const { ui, host } = chat({ read })

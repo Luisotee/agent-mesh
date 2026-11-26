@@ -302,37 +302,32 @@ func TestActivityFramesQueuedDuringTheSnapshotAreDropped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	held, release := make(chan struct{}), make(chan struct{})
-	got := make(chan string, 8)
+	got := make(chan string, 64)
 	go bus.Serve(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, nil, func(f *v1.SubscribeEventsResponse) error {
 		if f.GetSnapshot() != nil {
 			close(held)
 			<-release
 			return nil
 		}
-		if f.GetActivity() != nil {
-			got <- "activity"
-		} else if f.GetEvent() != nil {
-			got <- "event"
+		if a := f.GetActivity(); a != nil {
+			got <- a.Detail
 		}
 		return nil
 	})
 	<-held
 	bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "old"})
 	close(release)
-	// A live frame after the snapshot is told, and the queued one before it is not.
-	time.Sleep(50 * time.Millisecond)
-	bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "new"})
-	select {
-	case x := <-got:
-		if x != "activity" {
-			t.Fatalf("told %s", x)
+	// Live frames after the snapshot are told (published until one is, as the stream may not have looked yet), and the
+	// one queued during the snapshot is not among them.
+	for told := false; !told; {
+		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "new"})
+		select {
+		case d := <-got:
+			if d != "new" {
+				t.Fatalf("told the frame queued during the snapshot: %s", d)
+			}
+			told = true
+		case <-time.After(20 * time.Millisecond):
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the live frame was never told")
-	}
-	select {
-	case x := <-got:
-		t.Fatalf("the frame queued during the snapshot was told too: %s", x)
-	case <-time.After(100 * time.Millisecond):
 	}
 }
