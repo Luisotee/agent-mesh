@@ -454,6 +454,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			reserveEvery = reserveAlertEvery
 		}
 		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling atomic.Bool
+		sampled = d.now() // the first capacity pass is one interval after start, not at once
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
