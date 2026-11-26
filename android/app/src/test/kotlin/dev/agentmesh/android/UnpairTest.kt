@@ -35,7 +35,7 @@ import java.io.File
 @Config(sdk = [34])
 class UnpairTest {
     @get:Rule val compose = createComposeRule()
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
 
     @Test fun `asking the host to revoke this device is done when it answers or already refuses the token`() = runBlocking {
         val api = RecordingApi()
