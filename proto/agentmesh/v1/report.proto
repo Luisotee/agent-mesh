@@ -1,0 +1,182 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// Reporting: spend per agent/kind/model/phase and reviewer verdicts (`mesh cost`), new and retired model
+// families (`mesh models`), and branch conflicts and file overlaps (`mesh conflicts`).
+
+message GetCostRequest {
+  // Run id to measure (defaults to the caller's run unless --since or --until is given).
+  string run_id = 1;
+  // Window start: a span back from now (7d, 36h, 90m) or ISO 8601 (local time when no offset is given).
+  string since = 2;
+  // Window end (default: now).
+  string until = 3;
+  // Include the per-agent table in window mode too.
+  bool agents = 4;
+}
+
+message AgentCost {
+  string run = 1;
+  string name = 2;
+  string kind = 3;
+  int64 calls = 4;
+  int64 input = 5;
+  int64 w1 = 6;
+  int64 w5 = 7;
+  int64 read = 8;
+  int64 output = 9;
+  double usd = 10;
+  double plan_usd = 11;
+  double exec_usd = 12;
+  double sub_usd = 13;
+  int64 cold = 14;
+  double cold_usd = 15;
+}
+
+message KindCost {
+  string kind = 1;
+  int64 sessions = 2;
+  int64 calls = 3;
+  double usd = 4;
+  double share = 5;
+  double usd_per_call = 6;
+  int64 ctx_per_call = 7;
+  int64 out_per_call = 8;
+  int64 input = 9;
+  int64 w1 = 10;
+  int64 w5 = 11;
+  int64 read = 12;
+  int64 output = 13;
+  double write_5m_share = 14;
+  int64 first_ctx_median = 15;
+  bool has_first_ctx_median = 16;
+  int64 cold = 17;
+  double cold_usd = 18;
+}
+
+message TokenKindCost {
+  string kind = 1;
+  int64 sessions = 2;
+  int64 calls = 3;
+  int64 input = 4;
+  int64 read = 5;
+  int64 output = 6;
+  // Non-zero when a tokens-only CLI (such as a paid OpenCode provider) reports its own dollar cost.
+  double usd = 7;
+}
+
+message ModelPhaseCost {
+  string model = 1;
+  string phase = 2;
+  int64 calls = 3;
+  double usd = 4;
+  int64 ctx_per_call = 5;
+  int64 out_per_call = 6;
+}
+
+message TokenModelPhaseCost {
+  string model = 1;
+  string phase = 2;
+  int64 calls = 3;
+  int64 input = 4;
+  int64 read = 5;
+  int64 output = 6;
+  double usd = 7;
+}
+
+message ReviewCostSummary {
+  int64 prs = 1;
+  double usd = 2;
+  double usd_per_pr = 3;
+  bool has_usd_per_pr = 4;
+  int64 reviewed_prs = 5;
+  double reviewers_per_pr = 6;
+  bool has_reviewers_per_pr = 7;
+  map<string, double> by_cli = 8;
+}
+
+message VerdictCostSummary {
+  string kind = 1;
+  string model = 2;
+  string tier = 3;
+  int64 reviews = 4;
+  int64 agree = 5;
+  int64 other = 6;
+  int64 disagree = 7;
+  int64 blocking = 8;
+  int64 findings = 9;
+  int32 agreed_pct = 10;
+  bool has_agreed_pct = 11;
+}
+
+message GetCostResponse {
+  string scope = 1;
+  string prices_as_of = 2;
+  double usd = 3;
+  repeated AgentCost agents = 4;
+  repeated KindCost kinds = 5;
+  repeated TokenKindCost token_kinds = 6;
+  repeated ModelPhaseCost by_model = 7;
+  repeated TokenModelPhaseCost tokens_by_model = 8;
+  ReviewCostSummary reviews = 9;
+  repeated VerdictCostSummary verdicts = 10;
+  int32 resets = 11;
+}
+
+message CheckModelsRequest {
+  RequestMeta meta = 1;
+  // List again now (default: reuse a result up to a day old).
+  bool check = 2;
+  // A family decided on (<kind>:<name>, e.g. agy:neon): no longer reported as new.
+  repeated string ack = 3;
+}
+
+message ModelFamilyEntry {
+  string family = 1;
+  bool in_tiers = 2;
+}
+
+message KindModels {
+  string kind = 1;
+  repeated ModelFamilyEntry listed = 2;
+  repeated string new_families = 3;
+  repeated string retired_families = 4;
+  repeated string acked_families = 5;
+}
+
+message CheckModelsResponse {
+  google.protobuf.Timestamp checked_at = 1;
+  repeated KindModels kinds = 2;
+  // One-line notice when new or retired models exist; empty when nothing changed.
+  string notice = 3;
+}
+
+message CheckConflictsRequest {
+  // Run id to check (defaults to the caller's own run; required for a device).
+  string run_id = 1;
+}
+
+enum ConflictKind {
+  CONFLICT_KIND_UNSPECIFIED = 0;
+  CONFLICT_KIND_CONFLICT = 1;
+  CONFLICT_KIND_OVERLAP = 2;
+}
+
+message BranchConflict {
+  string repo = 1;
+  string branch = 2;
+  string against = 3;
+  repeated string files = 4;
+  ConflictKind kind = 5;
+}
+
+message CheckConflictsResponse {
+  int32 checked_branches = 1;
+  repeated BranchConflict conflicts = 2;
+  repeated BranchConflict overlaps = 3;
+  repeated string warnings = 4;
+}
