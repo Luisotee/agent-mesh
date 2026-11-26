@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
@@ -74,10 +75,18 @@ type pusher struct {
 	mu      sync.Mutex
 	ctx     context.Context
 	devices map[string]chan pushJob
+
+	// spawned holds the agents spawned lately, as their AgentSpawned events said: a launch that fails deletes its
+	// agent in the transaction that reports the exit, so the store no longer has it when the exit is pushed.
+	// Only the dispatcher touches it.
+	spawned map[string]*v1.Agent
 }
 
+// maxSpawned bounds the spawned cache; past it the cache starts over (an agent launched long ago is in the store).
+const maxSpawned = 1000
+
 func newPusher(d *Daemon, cfg PushConfig) *pusher {
-	p := &pusher{d: d, client: cfg.Client, retry: cfg.Retry, in: make(chan []*v1.Event, pushInbox), devices: map[string]chan pushJob{}}
+	p := &pusher{d: d, client: cfg.Client, retry: cfg.Retry, in: make(chan []*v1.Event, pushInbox), devices: map[string]chan pushJob{}, spawned: map[string]*v1.Agent{}}
 	if p.client == nil {
 		p.client = webpush.NewClient()
 	}
@@ -92,7 +101,7 @@ func newPusher(d *Daemon, cfg PushConfig) *pusher {
 func (p *pusher) enqueue(evs []*v1.Event) {
 	var keep []*v1.Event
 	for _, e := range evs {
-		if notice.Relevant(e) {
+		if _, spawn := e.Payload.(*v1.Event_AgentSpawned); spawn || notice.Relevant(e) {
 			keep = append(keep, e)
 		}
 	}
@@ -122,6 +131,14 @@ func (p *pusher) run(ctx context.Context) {
 }
 
 func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
+	for _, e := range evs {
+		if s, ok := e.Payload.(*v1.Event_AgentSpawned); ok && s.AgentSpawned.GetAgent() != nil {
+			if len(p.spawned) >= maxSpawned {
+				p.spawned = map[string]*v1.Agent{}
+			}
+			p.spawned[s.AgentSpawned.Agent.Id] = s.AgentSpawned.Agent
+		}
+	}
 	r := p.d.store.Read(ctx)
 	regs, err := r.ListPush()
 	if err != nil || len(regs) == 0 {
@@ -141,17 +158,20 @@ func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
 		}
 		a, err := r.GetAgent(id)
 		if err != nil {
-			a = nil
+			a = p.spawned[id]
 		}
 		agents[id] = a
 		return a
 	}
 	for _, e := range evs {
 		n := notice.For(e, lookup)
+		if _, exit := e.Payload.(*v1.Event_AgentExited); exit {
+			delete(p.spawned, e.AgentId)
+		}
 		if n == nil || !kinds[n.Kind] {
 			continue
 		}
-		at := time.Now()
+		at := p.d.now()
 		if e.Time != nil {
 			at = e.Time.AsTime()
 		}
@@ -252,19 +272,41 @@ func (p *pusher) sender(ctx context.Context, device string, ch chan pushJob) {
 		case <-ctx.Done():
 			return
 		case j := <-ch:
-			p.deliver(ctx, device, j)
+			if !p.deliver(ctx, device, j) {
+				// The registration is gone (revoked, unregistered, or the endpoint is): what is still queued
+				// for it is dropped with the sender, and a new registration starts a new one.
+				p.mu.Lock()
+				if p.devices[device] == ch {
+					delete(p.devices, device)
+				}
+				p.mu.Unlock()
+				return
+			}
 		}
 	}
 }
 
-func (p *pusher) deliver(ctx context.Context, device string, j pushJob) {
+// current reports whether the device still has this endpoint, so nothing goes to a revoked or replaced one.
+func (p *pusher) current(ctx context.Context, device, endpoint string) bool {
+	reg, err := p.d.store.Read(ctx).Push(device)
+	return err == nil && reg.Endpoint == endpoint
+}
+
+// deliver sends one job, with its retries. It returns false when the device's registration is gone.
+func (p *pusher) deliver(ctx context.Context, device string, j pushJob) bool {
 	for attempt := 0; ; attempt++ {
+		if !p.current(ctx, device, j.endpoint) {
+			return false
+		}
 		res := webpush.Post(ctx, p.client, j.endpoint, j.msg)
 		if ctx.Err() != nil {
-			return
+			return true
 		}
-		if !p.settle(ctx, device, j.endpoint, res) || res.Outcome != webpush.Retry || attempt >= len(p.retry) {
-			return
+		if !p.settle(ctx, device, j.endpoint, res) {
+			return false
+		}
+		if res.Outcome != webpush.Retry || attempt >= len(p.retry) {
+			return true
 		}
 		wait := p.retry[attempt]
 		if res.RetryAfter > wait {
@@ -272,7 +314,7 @@ func (p *pusher) deliver(ctx context.Context, device string, j pushJob) {
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return true
 		case <-time.After(wait):
 		}
 	}
@@ -300,13 +342,18 @@ func (p *pusher) settle(ctx context.Context, device, endpoint string, res webpus
 			_, err := t.DeletePush(device, endpoint)
 			return err
 		}
+		if res.Outcome == webpush.Rejected {
+			// That push will never be taken, but the endpoint may be fine: record why, don't count it as failing.
+			p.d.log.Warn("push: rejected", "device", device, "host", host, "status", res.Status, "err", res.Err)
+			return t.NotePush(device, endpoint, res.Err.Error())
+		}
 		if !reg.FailingSince.IsZero() && t.Now().Sub(reg.FailingSince) > pushFailingMax {
 			alive = false
 			p.d.log.Info("push: endpoint failing for a week; removed", "device", device, "host", host, "err", res.Err)
 			_, err := t.DeletePush(device, endpoint)
 			return err
 		}
-		p.d.log.Warn("push: failed", "device", device, "host", host, "outcome", res.Outcome.String(), "err", res.Err)
+		p.d.log.Warn("push: failed", "device", device, "host", host, "outcome", res.Outcome.String(), "err", res.Err, "detail", res.Detail)
 		return t.MarkPush(device, endpoint, false, res.Err.Error())
 	})
 	if err != nil {
@@ -385,26 +432,29 @@ func (d *Daemon) UnregisterPush(ctx context.Context, req *connect.Request[v1.Unr
 	return connect.NewResponse(out), nil
 }
 
-// TestPush sends one test notification at once (no retry) and answers with how the push service took it.
+// TestPush sends one test notification at once (no retry) and answers with how the push service took it. Its
+// mutation is recorded only once the push service took the push: a retry of a failed call sends again (a call
+// that failed recorded nothing), and a retry of one that worked gets its answer without a second push.
 func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
 	device, err := pushTarget(ctx, req.Msg.DeviceId)
 	if err != nil {
 		return nil, err
 	}
-	var reg store.PushRecord
-	out := &v1.TestPushResponse{}
-	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
-		reg, err = t.Push(device)
-		if errors.Is(err, store.ErrNotFound) {
-			return notFound("device %s has no push endpoint: turn push on in the app", device)
+	actor := auth.ActorFrom(ctx)
+	if mid := req.Msg.Meta.GetMutationId(); mid != "" {
+		if proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid); err == nil && proc == agentmeshv1connect.MeshServiceTestPushProcedure {
+			out := &v1.TestPushResponse{}
+			if err := proto.Unmarshal(resp, out); err == nil {
+				return connect.NewResponse(out), nil
+			}
 		}
-		return err
-	})
+	}
+	reg, err := d.store.Read(ctx).Push(device)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("device %s has no push endpoint: turn push on in the app", device)
+	}
 	if err != nil {
 		return nil, err
-	}
-	if replayed {
-		return connect.NewResponse(out), nil
 	}
 	m, err := d.push.pushMessage(reg, pushPayload{V: 1, Daemon: d.daemonID, Kind: "test", Title: "agent-mesh",
 		Body: "Push notifications from " + d.hostName + " work.", At: d.now().UnixMilli()}, true)
@@ -413,15 +463,22 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 	}
 	res := webpush.Post(ctx, d.push.client, reg.Endpoint, m)
 	d.push.settle(ctx, device, reg.Endpoint, res)
-	if r, err := d.store.Read(ctx).Push(device); err == nil {
-		out.Registration = r.Proto()
-	}
 	switch res.Outcome {
 	case webpush.Delivered:
-		return connect.NewResponse(out), nil
 	case webpush.Gone:
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("the push service says the endpoint is gone (removed): turn push off and on in the app"))
 	default:
 		return nil, connect.NewError(connect.CodeUnavailable, res.Err)
 	}
+	out := &v1.TestPushResponse{}
+	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
+		r, err := t.Push(device)
+		if err == nil {
+			out.Registration = r.Proto()
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
 }

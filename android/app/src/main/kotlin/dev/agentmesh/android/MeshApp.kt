@@ -114,9 +114,11 @@ class AppContainer(
 
     /**
      * A push from host [hostId] (its UnifiedPush instance), decrypted. The host already applied its notify
-     * settings; a push from a daemon other than the one this host is now is dropped.
+     * settings; a push from a daemon other than the one this host is now is dropped, and so is any while push is off.
      */
     fun onPush(hostId: String, p: PushPayload) {
+        // A push the server held while the phone was offline can arrive after push was turned off.
+        if (!prefs.push.value) return
         val host = hosts.get(hostId) ?: return
         if (host.daemonId != null && p.daemon != host.daemonId) return
         if (p.isTest) return notifier.showInfo(hostId, p.title, p.body)

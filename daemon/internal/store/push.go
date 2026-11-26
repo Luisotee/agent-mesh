@@ -89,6 +89,12 @@ func (t *Tx) MarkPush(deviceID, endpoint string, ok bool, errText string) error 
 	return err
 }
 
+// NotePush records a push's error without counting the endpoint as failing (a push it will never take).
+func (t *Tx) NotePush(deviceID, endpoint, errText string) error {
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE push_endpoints SET last_error = ? WHERE device_id = ? AND endpoint = ?`, errText, deviceID, endpoint)
+	return err
+}
+
 const pushCols = `device_id, endpoint, p256dh, auth, created_at, updated_at, last_ok_at, last_error, failing_since`
 
 // Push returns a device's endpoint, or ErrNotFound.

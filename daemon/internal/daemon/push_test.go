@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/webpush"
 )
 
@@ -284,5 +286,110 @@ func TestPushRegistrationsBelongToTheirDevice(t *testing.T) {
 		if _, err := a.c.RegisterPush(ctx, connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s: %v", req.Endpoint, err)
 		}
+	}
+}
+
+func TestPushReportsALaunchThatFailedAndDeletedItsAgent(t *testing.T) {
+	h := startWith(t, "", fastPush)
+	ctx := context.Background()
+	srv := newFakePush(t)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	run := startRun(t, h.device.Mesh, "")
+	a := &v1.Agent{Id: "lf-w1", RunId: run.Id, Name: "shop-fix"}
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		if err := tx.PutAgent(a); err != nil {
+			return err
+		}
+		_, err := tx.AppendEvent(&v1.Event{RunId: run.Id, AgentId: a.Id, Payload: &v1.Event_AgentSpawned{AgentSpawned: &v1.AgentSpawned{Agent: a}}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// As failLaunch does: the exit and the agent's deletion in one transaction.
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		if _, err := tx.AppendEvent(&v1.Event{RunId: run.Id, AgentId: a.Id, Payload: &v1.Event_AgentExited{AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "launch failed: no CLI"}}}); err != nil {
+			return err
+		}
+		return tx.DeleteAgent(a.Id)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the failed launch's push", func() bool { return srv.delivered() == 1 })
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if got := ph.open(t, srv.got[0]); got.Kind != "failed" || got.Title != "shop-fix exited with code -1" {
+		t.Fatalf("payload %+v", got)
+	}
+}
+
+func TestTestPushIsRecordedOnlyOnceTaken(t *testing.T) {
+	h := startWith(t, "", fastPush)
+	ctx := context.Background()
+	srv := newFakePush(t, http.StatusBadRequest)
+	srv.Config.Handler = withBody(srv.Config.Handler, "internal secret reply")
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	test := func() error {
+		_, err := ph.c.TestPush(ctx, connect.NewRequest(&v1.TestPushRequest{Meta: meta("test-1")}))
+		return err
+	}
+	// A 400: the device sees the status, never the service's reply; the endpoint isn't counted as failing.
+	err := test()
+	if connect.CodeOf(err) != connect.CodeUnavailable || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("first: %v", err)
+	}
+	devs, _ := h.device.Mesh.ListDevices(ctx, connect.NewRequest(&v1.ListDevicesRequest{}))
+	if p := devs.Msg.Devices[0].Push; p.GetLastError() == "" || p.GetFailingSince() != nil {
+		t.Fatalf("after a rejection: %+v", p)
+	}
+	// The retry with the same mutation id really sends; a retry of that success doesn't send again.
+	if err := test(); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if err := test(); err != nil || srv.delivered() != 1 {
+		t.Fatalf("replay: %v, %d delivered", err, srv.delivered())
+	}
+}
+
+// withBody makes a handler write a body after its status.
+func withBody(h http.Handler, body string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(bodyWriter{w, body}, r)
+	})
+}
+
+type bodyWriter struct {
+	http.ResponseWriter
+	body string
+}
+
+func (b bodyWriter) WriteHeader(code int) {
+	b.ResponseWriter.WriteHeader(code)
+	_, _ = io.WriteString(b.ResponseWriter, b.body)
+}
+
+func TestNoPushGoesToARevokedDevice(t *testing.T) {
+	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{300 * time.Millisecond} })
+	ctx := context.Background()
+	srv := newFakePush(t, http.StatusServiceUnavailable)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, "rv-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w := h.seedAgent(run.Id, "rv-w1", "fix", "rv-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	readInbox(t, h.as(w))
+	if _, err := h.as(w).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "p"})); err != nil {
+		t.Fatal(err)
+	}
+	<-srv.arrived // the 503; the retry waits 300 ms
+	if _, err := h.device.Mesh.RevokeDevice(ctx, connect.NewRequest(&v1.RevokeDeviceRequest{Meta: meta(""), DeviceId: ph.id})); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(600 * time.Millisecond)
+	select {
+	case <-srv.arrived:
+		t.Fatal("the retry went to a revoked device")
+	default:
 	}
 }

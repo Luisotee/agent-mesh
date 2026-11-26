@@ -231,7 +231,11 @@ type Result struct {
 	Outcome    Outcome
 	Status     int
 	RetryAfter time.Duration
-	Err        error
+	// Err says what went wrong: the status only, never the reply's body, since it reaches the device that named
+	// the endpoint (meshd must not read some other service's reply back to a device).
+	Err error
+	// Detail is the start of the reply's body, for meshd's own log.
+	Detail string
 }
 
 // Message is one push: the encrypted body and the RFC 8030 headers.
@@ -291,12 +295,8 @@ func Post(ctx context.Context, client *http.Client, endpoint string, m Message) 
 	default:
 		r.Outcome = Rejected
 	}
-	msg := strings.TrimSpace(string(snippet))
-	if msg == "" {
-		r.Err = fmt.Errorf("push service answered %s", resp.Status)
-	} else {
-		r.Err = fmt.Errorf("push service answered %s: %s", resp.Status, msg)
-	}
+	r.Detail = strings.TrimSpace(string(snippet))
+	r.Err = fmt.Errorf("push service answered %s", resp.Status)
 	return r
 }
 

@@ -248,6 +248,10 @@ class NotificationsTest {
         api = RecordingApi()
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t", daemonId = "d1")
+        // Push off: a push the server still held posts nothing.
+        container.onPush(host.id, pushed(6, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        container.prefs.setPush(true)
         container.onPush(host.id, pushed(7, daemon = "d1"))
         val n = manager.allNotifications.single()
         assertEquals("shop-fix sent a plan", n.extras.getString("android.title"))
