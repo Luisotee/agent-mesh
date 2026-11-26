@@ -14,6 +14,7 @@ import type { HostRuntime } from '@/model'
 import { fromTail } from '@/transcript'
 import { tailLines, type TailLine } from '@/watch'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 
 /**
  * "Watch all": every live agent of the open runs on every host as a tile with its recent conversation, the ones that
@@ -86,6 +87,7 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
       <header className="flex items-center gap-1.5 border-b px-3 py-2">
         <StateIcon agent={a} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>
+        <VendorIcon kind={a.kind} model={a.model} className="text-muted-foreground" />
         <Badge>{ROLE_LABEL[a.role]}</Badge>
         <Button size="icon" variant="ghost" className="size-6" aria-label={`Pin ${a.name} as a split`} title="Show beside the open agent" onClick={() => app.pinSplit(tile.hostId, a.id)}>
           <Columns2 className="size-3.5" />

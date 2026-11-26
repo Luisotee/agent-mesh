@@ -13,6 +13,8 @@ import { Dock } from './components/dock'
 import { Panes } from './components/panes'
 import { SidePanel } from './components/side-panel'
 import { WatchAll } from './components/watch-all'
+import { ModelControl } from './components/model-control'
+import { VendorIcon } from './components/vendor-icon'
 import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
@@ -22,7 +24,7 @@ import { RunSidebar } from './components/run-sidebar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -32,6 +34,7 @@ import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
 import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
+import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } from './gen/agentmesh/v1/report_pb'
 import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
@@ -797,6 +800,77 @@ describe('NewWorkspaceDialog', () => {
     await userEvent.type(screen.getByLabelText('Name'), 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('/nope is not a git repository')
+  })
+})
+
+describe('ModelControl and vendor icons', () => {
+  const kinds = create(CheckModelsResponseSchema, { kinds: [create(KindModelsSchema, { kind: 'claude', listed: [create(ModelFamilyEntrySchema, { family: 'opus' }), create(ModelFamilyEntrySchema, { family: 'sonnet' })] })] })
+
+  function control(o: Parameters<typeof create<typeof AgentSchema>>[1] = {}) {
+    const f = fixture()
+    Object.assign(f.client, { switchAgent: vi.fn(async (_req: unknown) => ({})), checkModels: vi.fn(async (_req: unknown) => kinds) })
+    const a = agent('c1', { name: 'app-c', kind: 'claude', model: 'sonnet', effort: 'high', tier: 'mid', ...o })
+    f.host.store.setState((s) => ({ agents: { ...s.agents, c1: a } }))
+    return { ...f, a, client: f.client as typeof f.client & { switchAgent: ReturnType<typeof vi.fn>; checkModels: ReturnType<typeof vi.fn> } }
+  }
+
+  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way', () => {
+    const { host, a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
+    render(wrap(<ModelControl host={host} agent={a} />))
+    expect(screen.getByTestId('runs-on')).toHaveTextContent('claude · sonnet · high')
+    expect(screen.getByRole('img', { name: 'Anthropic Claude' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Switching to opus (moved)…')
+  })
+
+  it('switches to a tier, to a model of the host\'s list with an effort, or the effort alone', async () => {
+    const { host, a, wrap, client } = control()
+    render(wrap(<ModelControl host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    // To a tier (the host's tiers for the kind, or the usual four).
+    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
+    expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: 'strong', model: '', effort: '', next: false })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'model')
+    expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
+    await waitFor(() => expect(client.checkModels).toHaveBeenCalled())
+    await userEvent.type(screen.getByLabelText('Model'), 'opus')
+    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'max')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(2))
+    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: 'max' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'effort')
+    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'low')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(3))
+    expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
+  })
+
+  it('shows the host\'s refusal in its own words and keeps the dialog open', async () => {
+    const { host, a, wrap, client } = control()
+    client.switchAgent.mockRejectedValue(new Error('[failed_precondition] app-c already runs on sonnet at high effort'))
+    render(wrap(<ModelControl host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('app-c already runs on sonnet at high effort')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('draws a mark for each known vendor and a letter badge for the rest', () => {
+    render(<>
+      <VendorIcon kind="agy" /><VendorIcon kind="opencode" /><VendorIcon kind="copilot" /><VendorIcon kind="codex" /><VendorIcon kind="zed" />
+    </>)
+    expect(screen.getByRole('img', { name: 'Google Gemini' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'OpenCode' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'GitHub Copilot' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'OpenAI' })).toHaveTextContent('O')
+    expect(screen.getByRole('img', { name: 'zed' })).toHaveTextContent('Z')
   })
 })
 

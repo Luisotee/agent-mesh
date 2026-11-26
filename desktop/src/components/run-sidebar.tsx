@@ -9,6 +9,7 @@ import { RunStatus, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import { cn } from '@/lib/utils'
 import type { HostRuntime, SidebarGroup } from '@/model'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 import { WaitingList } from './waiting-list'
 import { NewRunDialog, SpawnDialog } from './spawn-dialogs'
 import { WorkspaceButton } from './workspace-dialog'
@@ -170,8 +171,9 @@ function AgentButton({ agent: a, host, note }: { agent: Agent; host: HostRuntime
             <Badge>{ROLE_LABEL[a.role]}</Badge>
           </span>
           <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {note ?? `${repoName(a.repo)} · ${a.kind}${a.model ? ` · ${a.model}` : ''}`}
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <VendorIcon kind={a.kind} model={a.model} className="size-3" />
+            <span className="truncate">{note ?? `${repoName(a.repo)} · ${a.kind}${a.model ? ` · ${a.model}` : ''}${a.effort ? ` · ${a.effort}` : ''}`}</span>
           </span>
         </span>
       </button>

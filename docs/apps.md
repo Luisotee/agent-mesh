@@ -179,7 +179,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ### Agents
 
-- ★ Provider, model, mode and effort per agent, switchable mid-session (P, O).
+- ★ Provider, model, mode and effort per agent, switchable mid-session (P, O). Built in the desktop: the CLI, model and effort with the vendor's mark everywhere an agent is shown, and a Change control over `SwitchAgent` (tier, model or effort; the host's refusals shown); not built: mode, and a model history (the host keeps none: `Agent` has only the current model).
 - ★ Agent profiles with "when to use" notes that orchestrators read (P).
 - ★ Session history across hosts with full-text search; resume any past session (O, P).
 - ★ Several accounts per CLI, swapped by the quota reserve (O).

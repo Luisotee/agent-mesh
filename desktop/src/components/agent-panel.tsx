@@ -8,6 +8,7 @@ import { ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
+import { ModelControl } from './model-control'
 import { ChatView } from './chat-view'
 import { MessagesPanel } from './messages-panel'
 import { TerminalView } from './terminal-view'
@@ -58,6 +59,7 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
             {agent.name} <Badge>{ROLE_LABEL[agent.role]}</Badge>
           </h1>
           <p className="text-sm text-muted-foreground" data-testid="agent-status">{statusSentence(agent)}</p>
+          <ModelControl host={host} agent={agent} className="mt-0.5" />
         </div>
         <StopButton host={host} agent={agent} />
       </header>

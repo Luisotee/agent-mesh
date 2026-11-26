@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -44,6 +44,16 @@ export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: m
 
 /** Approves an agent's plan: it goes on at its execution tier, in its own conversation. */
 export const approveAgent = (c: MeshClient, agent: string) => c.approveAgent({ meta: meta(), agent })
+
+/**
+ * Moves an agent to another tier, model or effort, in its own conversation (the host reopens it: `mesh switch`). The host
+ * refuses what it can't do and says why (already on it, at the quota reserve, a free model of a repo that wants none).
+ */
+export const switchAgent = (c: MeshClient, agent: string, to: { tier?: string; model?: string; effort?: string }) =>
+  c.switchAgent({ meta: meta(), agent, tier: to.tier ?? '', model: to.model ?? '', effort: to.effort ?? '', next: false, why: '' })
+
+/** The model families each CLI lists (the host reuses a check up to a day old). */
+export const checkModels = (c: MeshClient) => c.checkModels({ meta: meta(), check: false, ack: [] })
 
 /** Moves an agent to the next model of its chain (its model hit a quota), in its own conversation. */
 export const switchToNextModel = (c: MeshClient, agent: string) => c.switchAgent({ meta: meta(), agent, next: true })

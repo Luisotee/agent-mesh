@@ -8,6 +8,7 @@ import { ROLE_LABEL, repoName, statusSentence } from '@/derive'
 import { useHostViews, useNow } from '@/hooks'
 import { cn } from '@/lib/utils'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 
 /**
  * The live dock: a tile per live agent of the open runs, on every host, with what it is doing now. A worker that
@@ -72,6 +73,7 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
         <span className="flex items-center gap-1.5 pr-5">
           <StateIcon agent={a} />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>
+          <VendorIcon kind={a.kind} model={a.model} className="text-muted-foreground" />
           {tile.isNew && <Badge className="border-primary text-primary">new</Badge>}
         </span>
         <span className="truncate text-xs text-muted-foreground">

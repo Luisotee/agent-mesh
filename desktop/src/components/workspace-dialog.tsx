@@ -11,6 +11,8 @@ import type { Project } from '@/gen/agentmesh/v1/mesh_pb'
 import { AgentRole, RunStatus } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { startPoint, type StartFrom } from '@/workspace-start'
+import { vendorOfKind } from '@/vendor'
+import { VendorIcon } from './vendor-icon'
 import { tiersOf } from './spawn-dialogs'
 
 const message = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
@@ -187,7 +189,10 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           <Input required value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="fix-typo" pattern="[a-z0-9][a-z0-9-]*" />
         </Field>
         <Field label="CLI">
-          <Input required value={kind} onChange={(e) => setKind(e.target.value)} />
+          <div className="flex items-center gap-2">
+            <VendorIcon vendor={vendorOfKind(kind)} kind={kind} />
+            <Input required value={kind} onChange={(e) => setKind(e.target.value)} />
+          </div>
         </Field>
         <Field label="Tier" hint="Each tier is a model and effort in the host's settings.">
           <Select aria-label="Tier" value={tier} onChange={(e) => setChosen(e.target.value)}>

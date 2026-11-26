@@ -5,6 +5,7 @@ import { LEVEL_LABEL, hasLevels, levelOf, withLevel, type Level } from '@/autono
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
+import { ModelControl } from './model-control'
 import { MessageType } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
@@ -84,9 +85,8 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           )}
           <dt className="text-muted-foreground">Role</dt>
           <dd>{ROLE_LABEL[agent.role]}</dd>
-          <dt className="text-muted-foreground">Model</dt>
-          <dd className="truncate">{[agent.kind, agent.model, agent.effort].filter(Boolean).join(' · ')}</dd>
         </dl>
+        <ModelControl host={host} agent={agent} className="mt-1.5" />
         <div className="mt-2 flex gap-1.5">
           {canTerminal && agent.terminalId && (
             <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
