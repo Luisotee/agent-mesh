@@ -20,9 +20,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -250,22 +252,75 @@ type Message struct {
 	Topic string
 }
 
-// NewClient is the HTTP client for pushes: a 15 s timeout and no redirects, so a push goes only where the
-// endpoint says.
-func NewClient() *http.Client {
+// NewClient is the HTTP client for pushes: a 15 s timeout, no redirects (a push goes only where the endpoint
+// says) and no proxy. It refuses to connect to a loopback, private, link-local or unspecified address, checked on
+// the address it dials (after DNS), unless allowPrivate (nil: never) says yes: a paired device names the endpoint,
+// and meshd must not POST into the host's own network for it. A ntfy on the host or the LAN needs the setting.
+func NewClient(allowPrivate func() bool) *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
+		if allowPrivate != nil && allowPrivate() {
+			return nil
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil {
+			return err
+		}
+		if !Public(ip) {
+			return fmt.Errorf("%w (%s)", ErrPrivate, ip)
+		}
+		return nil
+	}}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	tr.DialContext = dialer.DialContext
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout:   15 * time.Second,
+		Transport: tr,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 }
 
+// ErrPrivate is a dial refused because the endpoint's address is not public.
+var ErrPrivate = errors.New("the endpoint's address is not public (the setting push.allow_private_endpoints allows it)")
+
+// Public reports whether ip is an address meshd may push to by default.
+func Public(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	return ip.IsValid() && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
+}
+
+// failure is a POST that got no answer, said without the endpoint: its URL is a capability (whoever has it can push
+// to the phone), and the error reaches the log, last_error and the device. A *url.Error holds the whole URL; what
+// it wraps (a dial, TLS or timeout error) names the address at most.
+func failure(endpoint string, err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	u, perr := url.Parse(endpoint)
+	if perr != nil {
+		return errors.New("push failed")
+	}
+	msg := err.Error()
+	if p := u.EscapedPath(); strings.Contains(msg, endpoint) || (len(p) > 1 && strings.Contains(msg, p)) || (u.RawQuery != "" && strings.Contains(msg, u.RawQuery)) {
+		return fmt.Errorf("push to %s: the request failed", u.Host)
+	}
+	return fmt.Errorf("push to %s: %w", u.Host, err)
+}
+
 // Post sends one message to an endpoint.
 func Post(ctx context.Context, client *http.Client, endpoint string, m Message) Result {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(m.Body))
 	if err != nil {
-		return Result{Outcome: Rejected, Err: err}
+		// Its text quotes the URL.
+		return Result{Outcome: Rejected, Err: errors.New("the endpoint is not a valid URL")}
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Content-Encoding", "aes128gcm")
@@ -278,7 +333,11 @@ func Post(ctx context.Context, client *http.Client, endpoint string, m Message) 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Result{Outcome: Retry, Err: err}
+		if errors.Is(err, ErrPrivate) {
+			// It won't work until the setting changes: no retries, and the endpoint isn't counted as failing.
+			return Result{Outcome: Rejected, Err: failure(endpoint, err)}
+		}
+		return Result{Outcome: Retry, Err: failure(endpoint, err)}
 	}
 	defer resp.Body.Close()
 	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))

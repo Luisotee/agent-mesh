@@ -5,9 +5,12 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,7 +133,7 @@ func TestPostOutcomes(t *testing.T) {
 	m := Message{Body: []byte("x"), TTL: time.Hour, Urgency: "high", Topic: "abc"}
 	for code, want := range map[int]Outcome{201: Delivered, 404: Gone, 410: Gone, 400: Rejected, 413: Rejected, 429: Retry, 503: Retry, 302: Rejected} {
 		status = code
-		r := Post(context.Background(), NewClient(), srv.URL, m)
+		r := Post(context.Background(), NewClient(allowAll), srv.URL, m)
 		if r.Outcome != want {
 			t.Errorf("%d: got %v (%v), want %v", code, r.Outcome, r.Err, want)
 		}
@@ -142,7 +145,36 @@ func TestPostOutcomes(t *testing.T) {
 		t.Fatalf("headers %v body %q", hdr, got)
 	}
 	srv.Close()
-	if r := Post(context.Background(), NewClient(), srv.URL, m); r.Outcome != Retry || r.Err == nil {
+	if r := Post(context.Background(), NewClient(allowAll), srv.URL, m); r.Outcome != Retry || r.Err == nil {
 		t.Fatalf("closed server: %+v", r)
+	}
+}
+
+func allowAll() bool { return true }
+
+func TestPostRefusesAPrivateAddressAndNeverQuotesTheEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(201) }))
+	defer srv.Close()
+	m := Message{Body: []byte("x"), TTL: time.Hour}
+	// Loopback by default: refused before connecting, not retried.
+	r := Post(context.Background(), NewClient(nil), srv.URL+"/upSECRET?up=1", m)
+	if r.Outcome != Rejected || !errors.Is(r.Err, ErrPrivate) || strings.Contains(r.Err.Error(), "SECRET") {
+		t.Fatalf("private: %+v", r)
+	}
+	if r := Post(context.Background(), NewClient(allowAll), srv.URL+"/upSECRET?up=1", m); r.Outcome != Delivered {
+		t.Fatalf("allowed: %+v", r)
+	}
+	// A network error names the host, never the path or the query.
+	srv.Close()
+	r = Post(context.Background(), NewClient(allowAll), srv.URL+"/upSECRET?up=1", m)
+	if r.Outcome != Retry || strings.Contains(r.Err.Error(), "SECRET") || strings.Contains(r.Err.Error(), "up=1") || !strings.Contains(r.Err.Error(), strings.TrimPrefix(srv.URL, "http://")) {
+		t.Fatalf("closed: %v", r.Err)
+	}
+	for addr, public := range map[string]bool{"8.8.8.8": true, "2606:4700::1": true, "10.0.0.5": false, "192.168.1.2": false,
+		"172.16.0.1": false, "127.0.0.1": false, "::1": false, "169.254.169.254": false, "fe80::1": false, "0.0.0.0": false,
+		"::ffff:10.0.0.5": false, "fd00::1": false} {
+		if got := Public(netip.MustParseAddr(addr)); got != public {
+			t.Errorf("Public(%s) = %v", addr, got)
+		}
 	}
 }

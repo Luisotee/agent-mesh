@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -29,7 +31,8 @@ import (
 type PushConfig struct {
 	// Retry is the wait before each retry of a push the service couldn't take yet (429, 5xx, a network error).
 	Retry []time.Duration
-	// Client posts the pushes; nil is webpush.NewClient (15 s timeout, no redirects).
+	// Client posts the pushes; nil is webpush.NewClient (15 s timeout, no redirects, public addresses only unless
+	// push.allow_private_endpoints).
 	Client *http.Client
 }
 
@@ -85,6 +88,9 @@ type pusher struct {
 	ctx     context.Context
 	senders map[senderKey]*pushSender
 
+	// started and live count senders, for tests.
+	started, live atomic.Int64
+
 	// spawned holds the agents spawned lately, as their AgentSpawned events said: a launch that fails deletes its
 	// agent in the transaction that reports the exit, so the store no longer has it when the exit is pushed.
 	// Only the dispatcher touches it.
@@ -97,7 +103,7 @@ const maxSpawned = 1000
 func newPusher(d *Daemon, cfg PushConfig) *pusher {
 	p := &pusher{d: d, client: cfg.Client, retry: cfg.Retry, in: make(chan []*v1.Event, pushInbox), senders: map[senderKey]*pushSender{}, spawned: map[string]*v1.Agent{}}
 	if p.client == nil {
-		p.client = webpush.NewClient()
+		p.client = webpush.NewClient(p.allowPrivate)
 	}
 	if p.retry == nil {
 		p.retry = defaultPushRetry
@@ -189,6 +195,13 @@ func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
 	}
 }
 
+// allowPrivate reads push.allow_private_endpoints, at each dial.
+func (p *pusher) allowPrivate() bool {
+	v, err := p.d.Setting(p.d.store.Read(context.Background()), "push.allow_private_endpoints")
+	b, _ := v.(bool)
+	return err == nil && b
+}
+
 // notifyKinds reads the host's app.notify.enabled and app.notify.events: what every client of this host notifies.
 func (p *pusher) notifyKinds(r store.Reader) (map[string]bool, bool) {
 	on, err := p.d.Setting(r, "app.notify.enabled")
@@ -251,12 +264,13 @@ func (p *pusher) send(regs []store.PushRecord, pl pushPayload, urgent bool) {
 func (p *pusher) queue(device string, j pushJob) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.ctx == nil || p.ctx.Err() != nil {
+		return // not started yet, or shutting down
+	}
 	k := senderKey{device, j.endpoint}
 	s := p.senders[k]
 	if s == nil {
-		if p.ctx == nil {
-			return
-		}
+		p.started.Add(1)
 		ctx, cancel := context.WithCancel(p.ctx)
 		s = &pushSender{ch: make(chan pushJob, pushDeviceQueue), cancel: cancel}
 		p.senders[k] = s
@@ -291,38 +305,50 @@ func (p *pusher) stop(device, keep string) {
 
 // sender delivers one endpoint's pushes in order, retrying each per p.retry.
 func (p *pusher) sender(ctx context.Context, k senderKey, s *pushSender) {
-	done := func() {
+	p.live.Add(1)
+	defer p.live.Add(-1)
+	leave := func() {
 		s.cancel()
 		p.mu.Lock()
 		if p.senders[k] == s {
 			delete(p.senders, k)
 		}
 		p.mu.Unlock()
-		// Out of the map, nothing more is queued here; what came in while this one was finishing goes to a new
-		// sender, whose first check drops it unless its endpoint is current again.
-		for {
-			select {
-			case j := <-s.ch:
-				p.queue(k.device, j)
-			default:
-				return
-			}
-		}
 	}
 	for {
 		select {
 		case <-ctx.Done():
-			done()
+			// Stopped (stop took it out already) or shutting down: what it holds is dropped.
+			leave()
 			return
 		case j := <-s.ch:
-			if !p.deliver(ctx, k.device, j) {
-				// The registration has another endpoint or none (revoked, unregistered, gone): what is still
-				// queued here is for this endpoint, so it is dropped with the sender.
-				done()
-				return
+			if p.deliver(ctx, k.device, j) {
+				continue
 			}
+			// The registration has another endpoint or none (revoked, unregistered, gone): what is still queued
+			// here is dropped with the sender, unless the device registered this same endpoint again meanwhile
+			// (then a new sender takes it; nothing more is queued here once this one is out of the map).
+			leave()
+			if ctx.Err() == nil && p.running() && p.current(ctx, k.device, k.endpoint) {
+				for {
+					select {
+					case j := <-s.ch:
+						p.queue(k.device, j)
+					default:
+						return
+					}
+				}
+			}
+			return
 		}
 	}
+}
+
+// running reports whether the pusher runs and isn't shutting down.
+func (p *pusher) running() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ctx != nil && p.ctx.Err() == nil
 }
 
 // current reports whether the device still has this endpoint, so nothing goes to a revoked or replaced one.
@@ -439,7 +465,13 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 		return nil, invalid("%v", err)
 	}
 	out := &v1.RegisterPushResponse{}
+	rekeyed := false
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRegisterPushProcedure, out, func(t *store.Tx) error {
+		old, err := t.Push(device)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		rekeyed = err == nil && old.Endpoint == endpoint && (!bytes.Equal(old.P256dh, pub) || !bytes.Equal(old.Auth, secret))
 		if err := t.PutPush(device, endpoint, pub, secret); err != nil {
 			return err
 		}
@@ -453,8 +485,13 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 	if err != nil {
 		return nil, err
 	}
-	// A replay changed nothing (it may be an old endpoint's): the senders stay.
-	if !replayed {
+	// A replay changed nothing (it may be an old endpoint's): the senders stay. New keys for the same endpoint stop
+	// its sender too: what it holds was encrypted for the old ones, which the phone can no longer read.
+	switch {
+	case replayed:
+	case rekeyed:
+		d.push.stop(device, "")
+	default:
 		d.push.stop(device, endpoint)
 	}
 	return connect.NewResponse(out), nil
@@ -528,18 +565,29 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 		if res.Status != 0 {
 			d.push.settle(context.WithoutCancel(ctx), device, reg.Endpoint, res)
 		}
-		return nil, connect.NewError(connect.CodeCanceled, err)
+		code := connect.CodeCanceled
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = connect.CodeDeadlineExceeded
+		}
+		return nil, connect.NewError(code, err)
 	}
 	d.push.settle(ctx, device, reg.Endpoint, res)
 	switch res.Outcome {
 	case webpush.Delivered:
 	case webpush.Gone:
+		d.push.stop(device, "") // a sender waiting out a retry for it stops now
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("the push service says the endpoint is gone (removed): turn push off and on in the app"))
 	default:
 		return nil, connect.NewError(connect.CodeUnavailable, res.Err)
 	}
+	// The push went out: its mutation is recorded even if the request expired during the post (checked before it),
+	// so a retry gets this answer instead of a second push.
+	meta := proto.CloneOf(req.Msg.Meta)
+	if meta != nil {
+		meta.ExpiresAt = nil
+	}
 	out := &v1.TestPushResponse{}
-	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
+	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
 		r, err := t.Push(device)
 		if err == nil {
 			out.Registration = r.Proto()

@@ -409,6 +409,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
 		Leaf{Key: "caps.agents", Type: Int, Default: 8.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
+		Leaf{Key: "push.allow_private_endpoints", Type: Bool, Default: false,
+			Summary: "let a device's push endpoint be on a loopback, private or link-local address (a ntfy on this host or the LAN); off, meshd pushes only to public addresses, so a paired device can't make it POST into this network"},
 	)
 	return append(ls, AppLeaves()...)
 }

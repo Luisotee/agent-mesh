@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,12 +127,20 @@ func (p *phone) open(t *testing.T, body []byte) payload {
 	return out
 }
 
-func fastPush(cfg *daemon.Config) {
-	cfg.Push.Retry = []time.Duration{5 * time.Millisecond, 5 * time.Millisecond}
+// startPush starts a daemon whose pushes retry after the given waits (default 5 ms twice) and may go to loopback,
+// where the fake push services listen.
+func startPush(t *testing.T, retry ...time.Duration) *harness {
+	t.Helper()
+	if retry == nil {
+		retry = []time.Duration{5 * time.Millisecond, 5 * time.Millisecond}
+	}
+	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = retry })
+	setPushSetting(t, h, "push.allow_private_endpoints", true)
+	return h
 }
 
 func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t)
 	info, _ := daemon.ReadInfo(h.state)
@@ -199,7 +209,7 @@ func setPushSetting(t *testing.T, h *harness, key string, v any) {
 }
 
 func TestPushRetriesThenForgetsAGoneEndpoint(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t, 503, 429, http.StatusCreated, http.StatusGone)
 	ph := pairPhone(t, h, "pixel", false)
@@ -233,7 +243,7 @@ func TestPushRetriesThenForgetsAGoneEndpoint(t *testing.T) {
 }
 
 func TestPushRegistrationsBelongToTheirDevice(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t)
 	a := pairPhone(t, h, "phone-a", false)
@@ -291,7 +301,7 @@ func TestPushRegistrationsBelongToTheirDevice(t *testing.T) {
 }
 
 func TestPushReportsALaunchThatFailedAndDeletedItsAgent(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t)
 	ph := pairPhone(t, h, "pixel", false)
@@ -325,7 +335,7 @@ func TestPushReportsALaunchThatFailedAndDeletedItsAgent(t *testing.T) {
 }
 
 func TestTestPushIsRecordedOnlyOnceTaken(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t, http.StatusBadRequest)
 	srv.Config.Handler = withBody(srv.Config.Handler, "internal secret reply")
@@ -371,7 +381,7 @@ func (b bodyWriter) WriteHeader(code int) {
 }
 
 func TestNoPushGoesToARevokedDevice(t *testing.T) {
-	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{300 * time.Millisecond} })
+	h := startPush(t, 300*time.Millisecond)
 	ctx := context.Background()
 	srv := newFakePush(t, http.StatusServiceUnavailable)
 	ph := pairPhone(t, h, "pixel", false)
@@ -396,7 +406,7 @@ func TestNoPushGoesToARevokedDevice(t *testing.T) {
 }
 
 func TestPushToANewEndpointDoesNotWaitForTheOldOnesRetries(t *testing.T) {
-	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{time.Hour} })
+	h := startPush(t, time.Hour)
 	ctx := context.Background()
 	old := newFakePush(t, http.StatusServiceUnavailable)
 	moved := newFakePush(t)
@@ -426,7 +436,7 @@ func TestPushToANewEndpointDoesNotWaitForTheOldOnesRetries(t *testing.T) {
 }
 
 func TestTestPushSendsNothingForAnExpiredOrReusedRequest(t *testing.T) {
-	h := startWith(t, "", fastPush)
+	h := startPush(t)
 	ctx := context.Background()
 	srv := newFakePush(t)
 	ph := pairPhone(t, h, "pixel", false)
@@ -448,7 +458,7 @@ func TestTestPushSendsNothingForAnExpiredOrReusedRequest(t *testing.T) {
 }
 
 func TestAReplayedRegisterPushLeavesTheCurrentSenderAlone(t *testing.T) {
-	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{300 * time.Millisecond} })
+	h := startPush(t, 300*time.Millisecond)
 	ctx := context.Background()
 	old, cur := newFakePush(t), newFakePush(t, http.StatusServiceUnavailable)
 	ph := pairPhone(t, h, "pixel", false)
@@ -471,4 +481,162 @@ func TestAReplayedRegisterPushLeavesTheCurrentSenderAlone(t *testing.T) {
 	<-cur.arrived             // the 503; the retry waits 300 ms
 	reg("r-1", old.URL+"/up") // a late retry of the first call: a replay, which changes nothing
 	waitFor(t, "the retried push", func() bool { return cur.delivered() == 1 })
+}
+
+// heldPush is a push service that holds its first request until released, then answers every one with status.
+func heldPush(t *testing.T, status int) (srv *httptest.Server, first <-chan struct{}, release func(), hits *atomic.Int32) {
+	got, rel := make(chan struct{}, 1), make(chan struct{})
+	hits = new(atomic.Int32)
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if hits.Add(1) == 1 {
+			got <- struct{}{}
+			<-rel
+		}
+		w.WriteHeader(status)
+	}))
+	var once sync.Once
+	release = func() { once.Do(func() { close(rel) }) }
+	t.Cleanup(srv.Close)
+	t.Cleanup(release) // before Close, which waits for the held handler
+	return srv, got, release, hits
+}
+
+// plans has a worker send its lead n plans, each one push.
+func plans(t *testing.T, h *harness, prefix string, n int) {
+	t.Helper()
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, prefix+"-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w := h.seedAgent(run.Id, prefix+"-w1", "fix", prefix+"-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	readInbox(t, h.as(w))
+	for i := range n {
+		if _, err := h.as(w).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "plan " + strconv.Itoa(i)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAGoneEndpointsQueueGoesWithItsSender(t *testing.T) {
+	h := startPush(t, time.Hour)
+	srv, first, release, hits := heldPush(t, http.StatusGone)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	plans(t, h, "gq", 5)
+	<-first
+	time.Sleep(300 * time.Millisecond) // the other four queue behind the held one
+	release()
+	waitFor(t, "the sender to stop", func() bool { _, live := h.d.PushSenders(); return live == 0 })
+	if started, _ := h.d.PushSenders(); started != 1 || hits.Load() != 1 {
+		t.Fatalf("%d senders started, %d posts", started, hits.Load())
+	}
+}
+
+func TestShutdownStartsNoSenderForWhatWasQueued(t *testing.T) {
+	// A few times: a sender woken by the shutdown with jobs queued may see either first.
+	for range 5 {
+		h := startPush(t, time.Hour)
+		srv, first, _, _ := heldPush(t, http.StatusCreated)
+		ph := pairPhone(t, h, "pixel", false)
+		ph.register(t, srv.URL+"/up")
+		plans(t, h, "sd", 10)
+		<-first
+		time.Sleep(200 * time.Millisecond) // the other nine queue behind the held one
+		h.stop()
+		waitFor(t, "no sender left", func() bool { _, live := h.d.PushSenders(); return live == 0 })
+		if started, _ := h.d.PushSenders(); started != 1 {
+			t.Fatalf("%d senders started", started)
+		}
+	}
+}
+
+func TestNewKeysForTheSameEndpointDropWhatTheOldOnesEncrypted(t *testing.T) {
+	h := startPush(t, 300*time.Millisecond)
+	srv := newFakePush(t, http.StatusServiceUnavailable)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	plans(t, h, "rk", 1)
+	<-srv.arrived // the 503; its retry, encrypted for the old keys, waits 300 ms
+	k, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ph.key = k
+	_, _ = rand.Read(ph.auth)
+	ph.register(t, srv.URL+"/up")
+	time.Sleep(600 * time.Millisecond)
+	if n := srv.delivered(); n != 0 {
+		t.Fatalf("%d pushes under the old keys were sent", n)
+	}
+}
+
+func TestTestPushThatExpiresDuringThePostIsStillRecorded(t *testing.T) {
+	h := startPush(t)
+	var posts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		time.Sleep(300 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	m := &v1.RequestMeta{MutationId: "slow", ExpiresAt: timestamppb.New(time.Now().Add(100 * time.Millisecond))}
+	for i := range 2 {
+		if _, err := ph.c.TestPush(context.Background(), connect.NewRequest(&v1.TestPushRequest{Meta: m})); err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	if n := posts.Load(); n != 1 {
+		t.Fatalf("%d posts", n)
+	}
+}
+
+func TestTestPushToAGoneEndpointStopsItsWaitingSender(t *testing.T) {
+	h := startPush(t, time.Hour)
+	srv := newFakePush(t, http.StatusServiceUnavailable, http.StatusGone)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	plans(t, h, "tg", 1)
+	<-srv.arrived // the 503; the retry waits an hour
+	if _, err := ph.c.TestPush(context.Background(), connect.NewRequest(&v1.TestPushRequest{Meta: meta("")})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("test push against a 410: %v", err)
+	}
+	waitFor(t, "the waiting sender to stop", func() bool { _, live := h.d.PushSenders(); return live == 0 })
+}
+
+func TestAFailedPushNeverShowsTheEndpointsPath(t *testing.T) {
+	h := startPush(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close() // nothing listens: a network error
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/upSECRET?up=1")
+	_, err := ph.c.TestPush(context.Background(), connect.NewRequest(&v1.TestPushRequest{Meta: meta("")}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("test push: %v", err)
+	}
+	devs, err := h.device.Mesh.ListDevices(context.Background(), connect.NewRequest(&v1.ListDevicesRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range devs.Msg.Devices {
+		if p := d.Push; p != nil && (p.LastError == "" || strings.Contains(p.LastError, "SECRET") || strings.Contains(p.LastError, "up=1")) {
+			t.Fatalf("last_error %q", p.LastError)
+		}
+	}
+}
+
+func TestPushesGoOnlyToPublicAddressesByDefault(t *testing.T) {
+	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{5 * time.Millisecond} })
+	srv := newFakePush(t)
+	ph := pairPhone(t, h, "pixel", true) // a read-only device keeps its push
+	ph.register(t, srv.URL+"/up")
+	_, err := ph.c.TestPush(context.Background(), connect.NewRequest(&v1.TestPushRequest{Meta: meta("")}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("test push to loopback: %v", err)
+	}
+	select {
+	case <-srv.arrived:
+		t.Fatal("meshd posted to a loopback endpoint")
+	default:
+	}
 }
