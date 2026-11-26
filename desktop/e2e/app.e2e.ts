@@ -107,6 +107,9 @@ async function agentId(name: string): Promise<string> {
 
 test('a terminal streams the agent, takes typing, and carries on across a daemon restart', async () => {
   const { page } = app
+  // The side panel takes a quarter of the width: a narrower terminal wraps the doorbells the lead gets and scrolls the
+  // banner this test looks for off its screen, so it is hidden here (the side panel has its own test, `sidebar.e2e.ts`).
+  await page.getByRole('button', { name: 'Hide the side panel' }).click().catch(() => {})
   await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()

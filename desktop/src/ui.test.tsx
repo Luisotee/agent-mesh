@@ -615,7 +615,7 @@ describe('SidePanel', () => {
     expect(client.getCost).toHaveBeenCalledWith({ agents: true, runId: 'r1', since: '' })
     const per = screen.getByRole('list', { name: 'Cost per agent' })
     expect(within(per).getAllByRole('listitem').map((l) => l.textContent)).toEqual(['app-lead$5.50', 'app-fix$2.00'])
-    const waiting = screen.getByRole('region', { name: 'Waiting on you' })
+    const waiting = screen.getByRole('region', { name: 'Waiting in this run' })
     expect(waiting).toHaveTextContent('app-fix sent a plan')
     const prs = screen.getByRole('region', { name: 'Pull requests' })
     expect(prs).toHaveTextContent('#12')
@@ -636,7 +636,7 @@ describe('SidePanel', () => {
     expect(await screen.findByTestId('cost-total')).toHaveTextContent('$2.00')
     expect(screen.getByRole('region', { name: 'Cost' })).toHaveTextContent('of $7.50 for the run')
     // No waiting list for a worker; its PR opens in the browser.
-    expect(screen.queryByRole('region', { name: 'Waiting on you' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Waiting in this run' })).toBeNull()
     await userEvent.click(within(screen.getByRole('region', { name: 'Pull requests' })).getByRole('button', { name: /^#12/ }))
     expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/12')
     await userEvent.click(screen.getByRole('button', { name: 'Hide the side panel' }))

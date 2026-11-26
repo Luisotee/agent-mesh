@@ -126,7 +126,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
         )}
       </Section>
       {lead && (
-        <Section title="Waiting on you" count={here.length}>
+        <Section title="Waiting in this run" count={here.length}>
           {here.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nothing in this run.</p>
           ) : (
