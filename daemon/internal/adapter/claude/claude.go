@@ -90,6 +90,11 @@ type hookGroup struct {
 // user's and the repo's own hooks. With denyPublish its PreToolUse hook also checks every shell command
 // against the publish rules (EvaluatePreToolUse), and a denial from a hook holds in every permission mode.
 func Settings(hookArgv []string, denyPublish bool) (string, error) {
+	return settingsWith(hookArgv, denyPublish, nil)
+}
+
+// settingsWith is Settings plus extra top-level keys (a lean launch's).
+func settingsWith(hookArgv []string, denyPublish bool, extra map[string]any) (string, error) {
 	hooks := map[string][]hookGroup{}
 	for _, ev := range hookEvents {
 		argv := append([]string{}, hookArgv...)
@@ -100,6 +105,9 @@ func Settings(hookArgv []string, denyPublish bool) (string, error) {
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
 	doc := map[string]any{"hooks": hooks}
+	for k, v := range extra {
+		doc[k] = v
+	}
 	if len(hookArgv) > 0 {
 		if stateDir := flagValue(hookArgv, "--state"); stateDir != "" {
 			doc["statusLine"] = map[string]any{
@@ -133,12 +141,12 @@ var publishCommands = []string{"git push", "gh pr review", "gh pr comment", "gh 
 // ReadOnly reports whether a role may not change code: an asker or a reviewer.
 func ReadOnly(role agentmeshv1.AgentRole) bool { return adapter.ReadOnly(role) }
 
-// DenyArgs is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
+// DenyRules is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
 // checkout, no publishing commands. Deny rules win over `--dangerously-skip-permissions`, so a read-only agent
 // stays read-only under it. The flag takes several values: put another flag after it. An edit rule stops Write
 // too; an agent can still write its report under the mesh's state dir.
-func DenyArgs(paths ...string) []string {
-	args := []string{"--disallowedTools"}
+func DenyRules(paths ...string) []string {
+	var args []string
 	seen := map[string]bool{}
 	for _, p := range paths {
 		if p == "" {
@@ -161,6 +169,11 @@ func DenyArgs(paths ...string) []string {
 	return args
 }
 
+// DenyArgs is DenyRules as the flag's argv.
+func DenyArgs(paths ...string) []string {
+	return append([]string{"--disallowedTools"}, DenyRules(paths...)...)
+}
+
 // PlanLaunch builds the command line: a conversation id chosen now (so a resume finds it) or the one to resume,
 // the model and effort, the deny list (a read-only role, or a planner), and the hooks.
 func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.PlanLaunchRequest]) (*connect.Response[adapterv1.PlanLaunchResponse], error) {
@@ -170,7 +183,11 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		bin = "claude"
 	}
 	deny := ReadOnly(m.Role) || m.DenyEdits
-	settings, err := Settings(m.HookArgv, deny)
+	var extra map[string]any
+	if m.Lean != nil {
+		extra = leanSettings(m.Env, m.Lean)
+	}
+	settings, err := settingsWith(m.HookArgv, deny, extra)
 	if err != nil {
 		return nil, err
 	}
@@ -191,9 +208,18 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if m.Effort != "" {
 		argv = append(argv, "--effort", m.Effort)
 	}
+	// One `--disallowedTools` carries both lists: the read-only rules and the lean tools.
+	var rules []string
 	if deny {
-		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
+		rules = DenyRules(m.Cwd, m.Repo)
 	}
+	if m.Lean != nil {
+		rules = append(rules, m.Lean.DenyTools...)
+	}
+	if len(rules) > 0 {
+		argv = append(append(argv, "--disallowedTools"), rules...)
+	}
+	argv = append(argv, LeanArgs(m.Lean)...)
 	argv = append(argv, "--settings", settings)
 	// The daemon's skills, loaded for this session only (never installed into the user's own): the share folder
 	// is a Claude plugin (`.claude-plugin/plugin.json`, `skills/`).

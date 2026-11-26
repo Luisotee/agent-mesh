@@ -873,6 +873,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	defer mu.Unlock()
 	plan, err := d.planLaunch(ctx, ad, agent, token, p.SessionId)
 	if err != nil {
+		os.RemoveAll(d.paths.Agent(agent.Id))
 		return nil, err
 	}
 	if p.SessionId == "" {
@@ -919,6 +920,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 		return err
 	}); err != nil {
 		d.rt.guard.release(agent.Id)
+		os.RemoveAll(d.paths.Agent(agent.Id)) // planLaunch wrote its MCP file, which may hold servers' secrets
 		return nil, err
 	}
 	launched, err := d.launch(ctx, agent, token, plan)

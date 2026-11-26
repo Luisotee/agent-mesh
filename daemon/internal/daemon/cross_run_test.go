@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,6 +36,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true}
 	})
 	repo := gitRepo(t)
+	w.userMCPServers(t, "context7", "playwright")
 
 	// Run 1: lead + worker.
 	run1 := startRun(t, w.device.Mesh, "")
@@ -48,6 +50,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 
 	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
 		RunId: run1.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+		Mcp: []string{"playwright"},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +166,13 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 		t.Fatalf("unexpected cross-run agent: %+v", w2)
 	}
 	w2 = w.waitState(w2.Id, v1.AgentState_AGENT_STATE_IDLE)
+	// The follow-up keeps the servers its spawn named: on the record and in the new launch's MCP file.
+	if !slices.Equal(w2.Mcp, []string{"playwright"}) {
+		t.Errorf("the cross-run agent's mcp %v", w2.Mcp)
+	}
+	if got := mcpFileServers(t, filepath.Join(w.state, "agents", w2.Id, "mcp.json")); !slices.Equal(got, []string{"context7", "playwright"}) {
+		t.Errorf("the cross-run launch's MCP servers %v", got)
+	}
 
 	// 5. One-process-per-conversation: attempting to resume w1 again while w2 runs is refused.
 	if _, err := root2Cli.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{

@@ -248,4 +248,53 @@ public interface SpawnAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getExecTierBytes();
+
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  java.util.List<java.lang.String>
+      getMcpList();
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  int getMcpCount();
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  java.lang.String getMcp(int index);
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  com.google.protobuf.ByteString
+      getMcpBytes(int index);
 }

@@ -850,6 +850,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err != nil {
 		return nil, invalid("%s is not a git repository: %v", m.Repo, err)
 	}
+	if err := d.checkMCP(ctx, kind, top, m.Mcp); err != nil {
+		return nil, err
+	}
 	name := filepath.Base(top) + "-" + m.Slug
 	if same, err := r.AgentsNamed(runID, name); err != nil {
 		return nil, err
@@ -887,7 +890,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || adapter.ReadOnly(role),
+		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: dedupe(m.Mcp),
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -901,6 +904,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	cleanup := func() {
 		git(context.Background(), top, "worktree", "remove", "--force", worktree)
 		git(context.Background(), top, "branch", "-D", branch)
+		// The lean launch's MCP file (planLaunch writes it) may hold servers' secrets.
+		os.RemoveAll(d.paths.Agent(agent.Id))
 	}
 	// The launch is planned before the agent is stored, so its conversation id is known before its first hook.
 	plan, err := d.planLaunch(ctx, ad, agent, token, "")
@@ -977,11 +982,16 @@ func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent
 	if mesh == "" {
 		return nil, errors.New("no mesh configured for the hooks")
 	}
+	env := d.agentEnv(a, token)
+	lean, err := d.leanLaunch(ctx, a, env)
+	if err != nil {
+		return nil, fmt.Errorf("planning %s's lean session: %w", a.Name, err)
+	}
 	plan, err := ad.PlanLaunch(ctx, connect.NewRequest(&adapterv1.PlanLaunchRequest{AgentId: a.Id, AgentName: a.Name,
 		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
 		HookArgv: []string{mesh, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
-		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions,
-		ResumeSessionId: resume, DenyEdits: a.DenyEdits}))
+		Env:      env, SkipPermissions: d.rt.cfg.SkipPermissions,
+		ResumeSessionId: resume, DenyEdits: a.DenyEdits, Lean: lean}))
 	if err != nil {
 		return nil, err
 	}

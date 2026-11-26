@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -893,6 +894,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				Phase:              a.Phase,
 				Peer:               a.Peer, // a peer stays a peer in the new run: read-only, its worktree kept
 				Pinned:             a.Pinned,
+				Mcp:                slices.Clone(a.Mcp), // the servers its spawn named: the new launch loads them too
 				DenyEdits:          a.DenyEdits,
 				State:              a.State,
 				Repo:               a.Repo,
