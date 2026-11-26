@@ -418,7 +418,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	if all, aerr := sr.AllAgents(); aerr == nil {
 		for _, other := range all {
 			if other.RunId != req.Msg.RunId && other.Worktree != "" &&
-				(hasProcess(other) || (openRuns[other.RunId] && !stopped(other))) {
+				(hasProcess(other) || openRuns[other.RunId]) {
 				busyWorktrees[other.Worktree] = true
 			}
 		}
@@ -440,7 +440,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		}
 		if busyWorktrees[a.Worktree] {
 			out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch,
-				BranchKept: true, Reason: "worktree is held by a live agent in another run"})
+				BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
 			continue
 		}
 		var wo *v1.WorktreeOutcome

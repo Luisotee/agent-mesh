@@ -315,7 +315,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	actor := auth.ActorFrom(ctx)
 	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "" && req.Msg.To != "parent" {
 		r := d.store.Read(ctx)
-		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
 		}
 	}
@@ -335,6 +335,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	var prep *preparedWorktree
 	var prepErr error
 	var prepLock *sync.Mutex
+	var resumedID string
 	if req.Msg.To != "" && req.Msg.To != "parent" && resumes(req.Msg.Type) {
 		r := d.store.Read(ctx)
 		if cand, cerr := d.FindAgent(r, actor, req.Msg.To); cerr == nil && stopped(cand) &&
@@ -347,7 +348,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if cur, cerr := d.FindAgent(r2, actor, cand.Id); cerr == nil && stopped(cur) && cur.SessionId != "" {
 				if run, rerr := r2.GetRun(cur.RunId); rerr == nil && run.Status == v1.RunStatus_RUN_STATUS_OPEN {
 					okReserve := true
-					if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && cur.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+					if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && cur.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 						model, effort, _ := target(cur)
 						okReserve = d.reserveCheck(r2, cur.RunId, cur.Kind, model, effort, "") == nil
 					}
@@ -420,7 +421,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				}
 			}
 		}
-		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			model, effort, _ := target(to)
 			if err := d.reserveCheck(t.Reader, to.RunId, to.Kind, model, effort, "sending a task to "+to.Name); err != nil {
 				return err
@@ -462,6 +463,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					return err
 				default:
 					out.Resumed = rv
+					resumedID = to.Id
 					if willPrep && prep.taskNote != "" {
 						msgBody += "\n\n" + prep.taskNote
 					}
@@ -501,8 +503,8 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		prepLock.Unlock()
 	}
 	if err != nil {
-		if out.Resumed != nil {
-			d.rt.guard.release(out.Message.GetToId()) // the write failed after the guard passed: nothing was requested
+		if out.Resumed != nil && resumedID != "" {
+			d.rt.guard.release(resumedID) // the write failed after the guard passed: nothing was requested
 		}
 		return nil, err
 	}

@@ -570,6 +570,9 @@ func canResume(r store.Reader, actor *v1.Actor, a *v1.Agent, targetRunID string)
 		return denied("only non-root agents may be resumed across runs")
 	}
 	src, err := r.GetRun(a.RunId)
+	if errors.Is(err, store.ErrNotFound) {
+		return notFound("no run %q", a.RunId)
+	}
 	if err != nil {
 		return err
 	}
@@ -682,7 +685,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, err
 	}
 	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
-	if task != "" && a0.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+	if task != "" && a0.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 		pm, pe, err := d.previewReviveTarget(r1, a0, spec)
 		if err != nil {
 			return nil, err
@@ -911,7 +914,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			tier = "" // a named model has no chain to walk
 		}
 		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
-		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
 				return nil, err
 			}
@@ -935,7 +938,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			effort = spec.effort
 		}
 		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
-		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
 				return nil, err
 			}

@@ -94,7 +94,8 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Also spawn & retire a worker to test ResumeAgent(--task vs no task) under reserve.
+	// Also spawn & retire a worker to test ResumeAgent(--task vs no task) under reserve, plus an ASKER
+	// (read-only role must also respect reserve on SendMessage(TASK) and ResumeAgent(--task)).
 	retRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
 		RunId: run.Id, Repo: repo, Slug: "ret", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
@@ -103,6 +104,14 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	}
 	retWorker := w.waitState(retRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	retWorker = retireStoppedWorker(t, w, retWorker)
+
+	askerRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "ask", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_ASKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	asker := w.waitState(askerRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	// Trigger fakeclaude's statusLine command (`mesh statusline --state ...`) via /ratelimits.
 	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
@@ -144,6 +153,17 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 		Meta: meta(""), To: worker.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "blocked task",
 	})); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("SendMessage(TASK) under reserve: %v", err)
+	}
+	if _, err := rootCli.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
+		Meta: meta(""), To: asker.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "blocked asker task",
+	})); code(err) != connect.CodeResourceExhausted {
+		t.Errorf("SendMessage(TASK) to ASKER under reserve: %v, want ResourceExhausted", err)
+	}
+	stoppedAsker := retireStoppedWorker(t, w, asker)
+	if _, err := rootCli.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: stoppedAsker.Id, Task: "blocked asker resume task",
+	})); code(err) != connect.CodeResourceExhausted {
+		t.Errorf("ResumeAgent(--task) to ASKER under reserve: %v, want ResourceExhausted", err)
 	}
 
 	// Answers STILL go through while at reserve, plain ResumeAgent succeeds, and a device task to ROOT succeeds.
@@ -210,7 +230,8 @@ func TestClaudeCacheAndOAuthFallbacks(t *testing.T) {
 	})
 	cacheBytes, _ := json.Marshal(map[string]any{
 		"cachedUsageUtilization": map[string]any{
-			"seven_day": map[string]any{"utilization": 94.0, "resets_at": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)},
+			"fetchedAtMs": time.Now().UnixMilli(),
+			"seven_day":   map[string]any{"utilization": 94.0, "resets_at": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)},
 		},
 	})
 	if err := os.WriteFile(filepath.Join(w.home, ".claude.json"), cacheBytes, 0o600); err != nil {
@@ -275,6 +296,21 @@ func TestClaudeUsageStaleBoundAndFamilyWindowMatching(t *testing.T) {
 		t.Errorf("stale Claude reading blocked ReserveGuard: %v", err)
 	}
 
+	// .claude.json without fetchedAtMs must be treated as stale even when file mtime is fresh (bin/mesh:3369).
+	noFetchedAt, _ := json.Marshal(map[string]any{
+		"cachedUsageUtilization": map[string]any{
+			"utilization": map[string]any{
+				"seven_day": map[string]any{"utilization": 95.0},
+			},
+		},
+	})
+	if err := os.WriteFile(filepath.Join(w.home, ".claude.json"), noFetchedAt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{})); err != nil || u.Msg.Claude != nil {
+		t.Fatalf(".claude.json without fetchedAtMs not treated as stale: %+v, err=%v", u, err)
+	}
+
 	// Family-specific windows (seven_day_opus / seven_day_sonnet) apply only to matching models, never empty model.
 	freshBytes, _ := json.Marshal(hook.ClaudeUsageSnapshot{
 		Windows: map[string]hook.ClaudeUsageWindow{"seven_day_opus": {Used: 97}},
@@ -298,6 +334,7 @@ func TestClaudeUsageStaleBoundAndFamilyWindowMatching(t *testing.T) {
 func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	ctx := context.Background()
 	reset := time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339)
+	var atReserve atomic.Bool
 	w := startReopen(t, func(c *daemon.AgentConfig) {
 		c.ReserveEvery = 40 * time.Millisecond
 		c.Usage = &daemon.UsageOps{
@@ -308,9 +345,14 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 				return "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n", nil
 			},
 			FetchClaudeUsage: func(context.Context) (*hook.ClaudeUsageSnapshot, error) {
+				opusUsed := 20.0
+				if atReserve.Load() {
+					opusUsed = 96.0
+				}
 				return &hook.ClaudeUsageSnapshot{
 					Windows: map[string]hook.ClaudeUsageWindow{
-						"five_hour": {Used: 96, Resets: reset},
+						"five_hour":      {Used: 50, Resets: reset},
+						"seven_day_opus": {Used: opusUsed, Resets: reset},
 					},
 					Source: "live",
 				}, nil
@@ -319,17 +361,41 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	})
 	repo := gitRepo(t)
 
-	// Run 1 has a Claude lead (live Claude agent).
-	runClaude := startRun(t, w.device.Mesh, "")
-	leadClaudeRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-		RunId: runClaude.Id, Repo: repo, Slug: "lead-c", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+	// Run 1 has only a Claude root (no non-root Claude workers): must NOT receive Claude alerts.
+	runRootOnly := startRun(t, w.device.Mesh, "")
+	leadRootOnly := w.waitState(func() string {
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			RunId: runRootOnly.Id, Repo: repo, Slug: "lead-ro", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Agent.Id
+	}(), v1.AgentState_AGENT_STATE_IDLE)
+
+	// Run 2 has a Claude root + a Claude sonnet worker: seven_day_opus does not apply to sonnet.
+	runSonnet := startRun(t, w.device.Mesh, "")
+	leadSonnet := w.spawnClaude(t, runSonnet, "lead-so", v1.AgentRole_AGENT_ROLE_ROOT)
+	sonnetRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: runSonnet.Id, Repo: repo, Slug: "w-sonnet", Model: "sonnet", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	leadClaude := w.waitState(leadClaudeRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.waitState(sonnetRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 
-	// Run 2 has only agy agents (agy lead + agy worker), no Claude agents.
+	// Run 3 has a Claude root + a Claude opus worker: receives seven_day_opus alert once quota crosses reserve.
+	runOpus := startRun(t, w.device.Mesh, "")
+	leadOpus := w.spawnClaude(t, runOpus, "lead-op", v1.AgentRole_AGENT_ROLE_ROOT)
+	opusRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: runOpus.Id, Repo: repo, Slug: "w-opus", Model: "opus", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(opusRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	// Run 4 has only agy agents, no Claude workers.
 	runAgy := startRun(t, w.device.Mesh, "")
 	leadAgyRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
 		RunId: runAgy.Id, Repo: repo, Slug: "lead-a", Kind: "agy", Role: v1.AgentRole_AGENT_ROLE_ROOT,
@@ -339,10 +405,18 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	}
 	leadAgy := w.waitState(leadAgyRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 
-	waitFor(t, "claude reserve alert in claude run lead", func() bool {
-		return w.infoTo(t, leadClaude, "[mesh alert reserve claude-five_hour]") != nil
+	atReserve.Store(true)
+	_ = os.Remove(statedir.Paths{Dir: w.state}.ClaudeUsage())
+	waitFor(t, "claude opus reserve alert in opus run lead", func() bool {
+		return w.infoTo(t, leadOpus, "[mesh alert reserve claude-seven_day_opus]") != nil
 	})
-	if msg := w.infoTo(t, leadAgy, "[mesh alert reserve claude-five_hour]"); msg != nil {
+	if msg := w.infoTo(t, leadRootOnly, "[mesh alert reserve claude-"); msg != nil {
+		t.Errorf("root-only run received Claude reserve alert: %+v", msg)
+	}
+	if msg := w.infoTo(t, leadSonnet, "[mesh alert reserve claude-seven_day_opus]"); msg != nil {
+		t.Errorf("sonnet-only run received seven_day_opus reserve alert: %+v", msg)
+	}
+	if msg := w.infoTo(t, leadAgy, "[mesh alert reserve claude-"); msg != nil {
 		t.Errorf("agy-only run received Claude reserve alert: %+v", msg)
 	}
 }
@@ -399,13 +473,18 @@ func TestAgyUsageReserveSkipsSpentModelsOnChain(t *testing.T) {
 func TestPeriodicReserveAlertPostedOnceToRunLead(t *testing.T) {
 	ctx := context.Background()
 	reset := time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339)
+	var atReserve atomic.Bool
 	w := startReopen(t, func(c *daemon.AgentConfig) {
 		c.ReserveEvery = 40 * time.Millisecond
 		c.Usage = &daemon.UsageOps{
 			FetchClaudeUsage: func(context.Context) (*hook.ClaudeUsageSnapshot, error) {
+				used := 20.0
+				if atReserve.Load() {
+					used = 96.0
+				}
 				return &hook.ClaudeUsageSnapshot{
 					Windows: map[string]hook.ClaudeUsageWindow{
-						"five_hour": {Used: 96, Resets: reset},
+						"five_hour": {Used: used, Resets: reset},
 					},
 					Source: "live",
 				}, nil
@@ -421,7 +500,10 @@ func TestPeriodicReserveAlertPostedOnceToRunLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	lead := w.waitState(leadRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	_ = w.spawnClaude(t, run, "w", v1.AgentRole_AGENT_ROLE_WORKER)
 
+	atReserve.Store(true)
+	_ = os.Remove(statedir.Paths{Dir: w.state}.ClaudeUsage())
 	waitFor(t, "reserve alert in lead inbox", func() bool {
 		return w.infoTo(t, lead, "[mesh alert reserve claude-five_hour]") != nil
 	})

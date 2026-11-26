@@ -196,6 +196,26 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 	}
 	w.waitState(w2.Id, v1.AgentState_AGENT_STATE_RETIRED)
 
+	// 7b. Even after w2 is retired in open run2, StopRun(run1) must keep w2's worktree while run2 stays open.
+	stopR1WhileR2Open, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{
+		Meta: meta(""), RunId: run1.Id,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptRetired := false
+	for _, wt := range stopR1WhileR2Open.Msg.Worktrees {
+		if wt.AgentId == w1.Id && wt.BranchKept && strings.Contains(wt.Reason, "another") {
+			keptRetired = true
+		}
+	}
+	if !keptRetired {
+		t.Errorf("expected StopRun(run1) to keep worktree held by retired w2 in open run2, got %+v", stopR1WhileR2Open.Msg.Worktrees)
+	}
+	if _, err := os.Stat(w2.Worktree); err != nil {
+		t.Errorf("StopRun(run1) removed worktree held by open run2: stat=%v", err)
+	}
+
 	// 8. StopRun(run2) must remove w2's clean worktree now that run1 is closed and w1 is stopped.
 	stopR2, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{
 		Meta: meta(""), RunId: run2.Id,

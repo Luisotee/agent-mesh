@@ -15,7 +15,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,15 +36,16 @@ import (
 )
 
 const (
-	claudeUsageTTL    = 5 * time.Minute
-	claudeUsageStale  = 15 * time.Minute
-	agyUsageTTL       = 5 * time.Minute
-	agyUsageMaxAge    = 3 * agyUsageTTL
-	agyResolveTTL     = agyUsageTTL
-	usageFailureTTL   = 2 * time.Minute
-	claudeUsageURL    = "https://api.anthropic.com/api/oauth/usage"
-	claudeUsageBeta   = "oauth-2025-04-20"
-	reserveAlertEvery = 15 * time.Minute
+	claudeUsageTTL       = 5 * time.Minute
+	claudeUsageStale     = 15 * time.Minute
+	agyUsageTTL          = 5 * time.Minute
+	agyUsageMaxAge       = 3 * agyUsageTTL
+	agyResolveTTL        = agyUsageTTL
+	usageFailureTTL      = 2 * time.Minute
+	claudeUsageURL       = "https://api.anthropic.com/api/oauth/usage"
+	claudeUsageBeta      = "oauth-2025-04-20"
+	reserveAlertEvery    = 15 * time.Minute
+	reserveAlertCooldown = time.Hour
 )
 
 // UsageOps overrides external usage, model listing, and GitHub CLI calls (for tests).
@@ -75,15 +78,16 @@ type usageState struct {
 	agyRows     []agy.UsageRow
 	agyFetched  time.Time
 	agyResolved map[agyResolveKey]agyResolvedName
-	alerted     map[string]map[string]time.Time // runID -> alertKey -> last alerted
+	alerted     map[string]map[string]time.Time // runID -> alertKey -> expiresAt
 }
 
 type agyReserveHit struct {
-	left    int
-	resets  string
-	model   string
-	display string
-	label   string
+	left      int
+	resets    string
+	fetchedAt time.Time
+	model     string
+	display   string
+	label     string
 }
 
 type claudeWindowMeta struct {
@@ -272,10 +276,6 @@ func (d *Daemon) readClaudeCachedFallback(claudeJSON string) *hook.ClaudeUsageSn
 	var fetched float64
 	if ms, ok := fields["fetchedAtMs"].(float64); ok && ms > 0 {
 		fetched = ms / 1000
-	} else if st, err := os.Stat(claudeJSON); err == nil {
-		fetched = float64(st.ModTime().UnixNano()) / 1e9
-	} else {
-		fetched = float64(d.now().UnixNano()) / 1e9
 	}
 	return &hook.ClaudeUsageSnapshot{
 		Windows: windows,
@@ -421,7 +421,7 @@ func (d *Daemon) agyBinary() (string, bool) {
 	return bin, err == nil
 }
 
-func (d *Daemon) cachedAgyUsageRows(now time.Time) []agy.UsageRow {
+func (d *Daemon) cachedAgyUsageRows(now time.Time) ([]agy.UsageRow, time.Time) {
 	usageFile := d.paths.AgyUsage()
 	if b, err := os.ReadFile(usageFile); err == nil && len(bytes.TrimSpace(b)) > 0 {
 		if st, serr := os.Stat(usageFile); serr == nil && now.Sub(st.ModTime()) <= agyUsageMaxAge {
@@ -430,23 +430,25 @@ func (d *Daemon) cachedAgyUsageRows(now time.Time) []agy.UsageRow {
 				d.rt.usage.agyRows = rows
 				d.rt.usage.agyFetched = st.ModTime()
 				d.rt.usage.mu.Unlock()
-				return rows
+				return rows, st.ModTime()
 			}
 		}
 	}
 	d.rt.usage.mu.Lock()
 	var rows []agy.UsageRow
+	var fetchedAt time.Time
 	if !d.rt.usage.agyFetched.IsZero() && now.Sub(d.rt.usage.agyFetched) <= agyUsageMaxAge {
 		rows = append([]agy.UsageRow(nil), d.rt.usage.agyRows...)
+		fetchedAt = d.rt.usage.agyFetched
 	}
 	d.rt.usage.mu.Unlock()
-	return rows
+	return rows, fetchedAt
 }
 
 // agyUsageRows returns parsed `agy -p /usage` rows from <state>/agy-usage.txt or (when allowExec is true and
 // cached rows are absent/stale) by running `agy -p /usage`. Never spawns `agy` when allowExec is false, and
 // ignores readings older than agyUsageMaxAge.
-func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) []agy.UsageRow {
+func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) ([]agy.UsageRow, time.Time) {
 	now := d.now()
 	usageFile := d.paths.AgyUsage()
 	failedFile := d.paths.AgyUsageFailed()
@@ -457,9 +459,9 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) []agy.
 				if rows := agy.ParseUsage(string(b)); len(rows) > 0 {
 					d.rt.usage.mu.Lock()
 					d.rt.usage.agyRows = rows
-					d.rt.usage.agyFetched = now
+					d.rt.usage.agyFetched = st.ModTime()
 					d.rt.usage.mu.Unlock()
-					return rows
+					return rows, st.ModTime()
 				}
 			}
 		}
@@ -488,7 +490,7 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) []agy.
 			d.rt.usage.agyRows = rows
 			d.rt.usage.agyFetched = now
 			d.rt.usage.mu.Unlock()
-			return rows
+			return rows, now
 		}
 	}
 
@@ -517,6 +519,9 @@ func (d *Daemon) resolveAgyModelDisplay(ctx context.Context, model, effort strin
 		return cached.id, cached.display
 	}
 	if !allowExec {
+		if ok {
+			return cached.id, cached.display
+		}
 		return model, ""
 	}
 	var resolvedID, display string
@@ -560,7 +565,7 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, ext
 	case "claude":
 		_ = d.claudeUsage(ctx, true, false)
 	case "agy":
-		rows := d.agyUsageRows(ctx, true, false)
+		rows, _ := d.agyUsageRows(ctx, true, false)
 		if len(rows) > 0 || (d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyModels != nil) {
 			for _, tier := range d.agyTierNames() {
 				chain, effort, err := d.tierChain(r, "agy", tier)
@@ -585,7 +590,7 @@ func (d *Daemon) agyModelAtReserveCached(model, effort string, stop float64) *ag
 		return nil
 	}
 	minQuota := int(math.Round(100 - stop))
-	rows := d.cachedAgyUsageRows(d.now())
+	rows, fetchedAt := d.cachedAgyUsageRows(d.now())
 	if len(rows) == 0 {
 		return nil
 	}
@@ -595,11 +600,12 @@ func (d *Daemon) agyModelAtReserveCached(model, effort string, stop float64) *ag
 		return nil
 	}
 	return &agyReserveHit{
-		left:    q.Left,
-		resets:  q.Resets,
-		model:   id,
-		display: disp,
-		label:   q.Label,
+		left:      q.Left,
+		resets:    q.Resets,
+		fetchedAt: fetchedAt,
+		model:     id,
+		display:   disp,
+		label:     q.Label,
 	}
 }
 
@@ -607,7 +613,7 @@ func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, st
 	if stop >= 100 || model == "" {
 		return nil
 	}
-	rows := d.agyUsageRows(ctx, allowExec, false)
+	rows, fetchedAt := d.agyUsageRows(ctx, allowExec, false)
 	if len(rows) == 0 {
 		return nil
 	}
@@ -621,11 +627,12 @@ func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, st
 		return nil
 	}
 	return &agyReserveHit{
-		left:    q.Left,
-		resets:  q.Resets,
-		model:   id,
-		display: disp,
-		label:   q.Label,
+		left:      q.Left,
+		resets:    q.Resets,
+		fetchedAt: fetchedAt,
+		model:     id,
+		display:   disp,
+		label:     q.Label,
 	}
 }
 
@@ -777,7 +784,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		out.Claude = cu
 	}
 
-	rows := d.agyUsageRows(ctx, true, refresh)
+	rows, _ := d.agyUsageRows(ctx, true, refresh)
 	for _, row := range rows {
 		out.AgyRows = append(out.AgyRows, &v1.AgyUsageRow{
 			Group:  row.Group,
@@ -917,19 +924,25 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	}
 	leadsByRun := map[string]*v1.Agent{}
 	usedKinds := map[string]bool{}
-	usedKindsByRun := map[string]map[string]bool{}
+	activeClaudeModels := map[string]map[string]bool{}
 	activeAgyModels := map[string]map[agyResolveKey]bool{}
 	for _, a := range agents {
-		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && !stopped(a) {
-			leadsByRun[a.RunId] = a
+		if stopped(a) {
+			continue
 		}
-		if !stopped(a) {
-			usedKinds[a.Kind] = true
-			if usedKindsByRun[a.RunId] == nil {
-				usedKindsByRun[a.RunId] = map[string]bool{}
+		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+			leadsByRun[a.RunId] = a
+			continue
+		}
+		usedKinds[a.Kind] = true
+		switch a.Kind {
+		case "claude":
+			if activeClaudeModels[a.RunId] == nil {
+				activeClaudeModels[a.RunId] = map[string]bool{}
 			}
-			usedKindsByRun[a.RunId][a.Kind] = true
-			if a.Kind == "agy" && a.Model != "" {
+			activeClaudeModels[a.RunId][a.Model] = true
+		case "agy":
+			if a.Model != "" {
 				if activeAgyModels[a.RunId] == nil {
 					activeAgyModels[a.RunId] = map[agyResolveKey]bool{}
 				}
@@ -939,36 +952,17 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	}
 
 	type alertItem struct {
-		key  string
-		body string
+		key       string
+		expiresAt time.Time
+		body      string
 	}
-	var claudeAlerts []alertItem
+	var claudeSnap *hook.ClaudeUsageSnapshot
 	if usedKinds["claude"] {
-		snap := d.claudeUsage(ctx, true, false)
-		if snap != nil {
-			now := d.now()
-			for _, meta := range claudeWindowOrder {
-				w, ok := snap.Windows[meta.key]
-				if !ok || claudeWindowStale(w, now) || w.Used < stop {
-					continue
-				}
-				dedupeKey := "claude:" + meta.key + ":" + w.Resets
-				resetPart := ""
-				if w.Resets != "" {
-					resetPart = ", resets " + w.Resets
-				}
-				claudeAlerts = append(claudeAlerts, alertItem{
-					key: dedupeKey,
-					body: fmt.Sprintf("[mesh alert reserve claude-%s] claude %s is at %.0f%% (quota_stop %.0f%%%s). "+
-						"New tasks on claude are held until reset or `mesh reserve off`.",
-						meta.key, meta.label, w.Used, stop, resetPart),
-				})
-			}
-		}
+		claudeSnap = d.claudeUsage(ctx, true, false)
 	}
 
 	if usedKinds["agy"] {
-		_ = d.agyUsageRows(ctx, true, false)
+		_, _ = d.agyUsageRows(ctx, true, false)
 	}
 
 	now := d.now()
@@ -981,8 +975,35 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 			continue
 		}
 		var alerts []alertItem
-		if usedKindsByRun[run.Id]["claude"] {
-			alerts = append(alerts, claudeAlerts...)
+		if models := activeClaudeModels[run.Id]; len(models) > 0 && claudeSnap != nil {
+			for _, meta := range claudeWindowOrder {
+				w, ok := claudeSnap.Windows[meta.key]
+				if !ok || claudeWindowStale(w, now) || w.Used < stop {
+					continue
+				}
+				applies := false
+				for m := range models {
+					if claudeWindowApplies(meta.key, m) {
+						applies = true
+						break
+					}
+				}
+				if !applies {
+					continue
+				}
+				dedupeKey, expiresAt := claudeAlertKeyAndExpiry(meta.key, w.Resets, now)
+				resetPart := ""
+				if w.Resets != "" {
+					resetPart = ", resets " + w.Resets
+				}
+				alerts = append(alerts, alertItem{
+					key:       dedupeKey,
+					expiresAt: expiresAt,
+					body: fmt.Sprintf("[mesh alert reserve claude-%s] claude %s is at %.0f%% (quota_stop %.0f%%%s). "+
+						"New tasks on claude are held until reset or `mesh reserve off`.",
+						meta.key, meta.label, w.Used, stop, resetPart),
+				})
+			}
 		}
 		for k := range activeAgyModels[run.Id] {
 			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, stop, false); hit != nil {
@@ -990,13 +1011,18 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				if hit.display != "" {
 					name = hit.display
 				}
-				dedupeKey := "agy:" + hit.label + ":" + hit.resets
+				readingAt := hit.fetchedAt
+				if readingAt.IsZero() {
+					readingAt = now
+				}
+				dedupeKey, expiresAt := agyAlertKeyAndExpiry(hit.label, hit.resets, readingAt, now)
 				resetPart := ""
 				if hit.resets != "" {
 					resetPart = ", resets " + hit.resets
 				}
 				alerts = append(alerts, alertItem{
-					key: dedupeKey,
+					key:       dedupeKey,
+					expiresAt: expiresAt,
 					body: fmt.Sprintf("[mesh alert reserve agy-%s] agy %s has %d%% left (quota_stop %.0f%%%s). "+
 						"Consider switching models or `mesh reserve off`.",
 						hit.model, name, hit.left, stop, resetPart),
@@ -1020,17 +1046,128 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				return nil
 			})
 			if err == nil && delivered {
-				d.markReserveAlertSent(run.Id, al.key, now)
+				d.markReserveAlertSent(run.Id, al.key, al.expiresAt)
 				d.deliverSoon(lead.Id)
 			}
 		}
 	}
 }
 
-func (d *Daemon) shouldSendReserveAlert(runID, key string, _ time.Time) bool {
+var (
+	wallClockResetRE = regexp.MustCompile(`(?i)^(?:(\d{1,2}):(\d{2})(?:\s*(am|pm))?|(\d{1,2})\s*(am|pm))(?:\s*\(([^)]+)\))?$`)
+	dayDurPrefixRE   = regexp.MustCompile(`^(\d+)d(.*)$`)
+)
+
+func parseRelativeReset(s string) (time.Duration, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) >= 3 && strings.EqualFold(s[:3], "in ") {
+		s = s[3:]
+	}
+	s = strings.ReplaceAll(strings.TrimSpace(s), " ", "")
+	if s == "" || strings.HasPrefix(s, "-") {
+		return 0, false
+	}
+	var extra time.Duration
+	if m := dayDurPrefixRE.FindStringSubmatch(strings.ToLower(s)); m != nil {
+		days, err := strconv.Atoi(m[1])
+		if err != nil {
+			return 0, false
+		}
+		extra = time.Duration(days) * 24 * time.Hour
+		s = m[2]
+		if s == "" {
+			return extra, extra > 0
+		}
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		return 0, false
+	}
+	total := extra + d
+	return total, total > 0
+}
+
+func parseAgyReset(resets string, readingAt time.Time) (time.Time, bool) {
+	s := strings.TrimSpace(resets)
+	if s == "" {
+		return time.Time{}, false
+	}
+	if t, ok := parseClaudeReset(s); ok {
+		return t, true
+	}
+	if dur, ok := parseRelativeReset(s); ok {
+		return readingAt.Add(dur), true
+	}
+	m := wallClockResetRE.FindStringSubmatch(s)
+	if m == nil {
+		return time.Time{}, false
+	}
+	hourStr, minStr, ampm, tzName := m[1], m[2], m[3], m[6]
+	if hourStr == "" {
+		hourStr, minStr, ampm = m[4], "0", m[5]
+	}
+	hour, herr := strconv.Atoi(hourStr)
+	minute, merr := strconv.Atoi(minStr)
+	if herr != nil || merr != nil || minute < 0 || minute > 59 {
+		return time.Time{}, false
+	}
+	if ampm != "" {
+		if hour < 1 || hour > 12 {
+			return time.Time{}, false
+		}
+		hour %= 12
+		if strings.EqualFold(ampm, "pm") {
+			hour += 12
+		}
+	} else if hour < 0 || hour > 23 {
+		return time.Time{}, false
+	}
+	loc := readingAt.Location()
+	if tzName = strings.TrimSpace(tzName); tzName != "" {
+		loaded, err := time.LoadLocation(tzName)
+		if err != nil {
+			return time.Time{}, false
+		}
+		loc = loaded
+	}
+	ref := readingAt.In(loc)
+	at := time.Date(ref.Year(), ref.Month(), ref.Day(), hour, minute, 0, 0, loc)
+	if !at.After(ref) {
+		at = at.AddDate(0, 0, 1)
+	}
+	return at, true
+}
+
+func formatAlertResetKey(prefix, resets string, resetAt time.Time, hasReset bool, now time.Time) (string, time.Time) {
+	if hasReset {
+		return prefix + ":" + resetAt.UTC().Truncate(time.Minute).Format("2006-01-02T15:04Z"), resetAt
+	}
+	res := strings.TrimSpace(resets)
+	if len(res) > 16 {
+		res = res[:16]
+	}
+	return prefix + ":" + res, now.Add(reserveAlertCooldown)
+}
+
+func claudeAlertKeyAndExpiry(windowKey, resets string, now time.Time) (string, time.Time) {
+	rt, ok := parseClaudeReset(resets)
+	return formatAlertResetKey("claude:"+windowKey, resets, rt, ok, now)
+}
+
+func agyAlertKeyAndExpiry(label, resets string, readingAt, now time.Time) (string, time.Time) {
+	rt, ok := parseAgyReset(resets, readingAt)
+	return formatAlertResetKey("agy:"+label, resets, rt, ok, now)
+}
+
+func (d *Daemon) shouldSendReserveAlert(runID, key string, now time.Time) bool {
 	d.rt.usage.mu.Lock()
 	defer d.rt.usage.mu.Unlock()
 	if m := d.rt.usage.alerted[runID]; m != nil {
+		for k, exp := range m {
+			if !now.Before(exp) {
+				delete(m, k)
+			}
+		}
 		if _, ok := m[key]; ok {
 			return false
 		}
@@ -1038,7 +1175,7 @@ func (d *Daemon) shouldSendReserveAlert(runID, key string, _ time.Time) bool {
 	return true
 }
 
-func (d *Daemon) markReserveAlertSent(runID, key string, now time.Time) {
+func (d *Daemon) markReserveAlertSent(runID, key string, expiresAt time.Time) {
 	d.rt.usage.mu.Lock()
 	defer d.rt.usage.mu.Unlock()
 	if d.rt.usage.alerted == nil {
@@ -1047,5 +1184,5 @@ func (d *Daemon) markReserveAlertSent(runID, key string, now time.Time) {
 	if d.rt.usage.alerted[runID] == nil {
 		d.rt.usage.alerted[runID] = map[string]time.Time{}
 	}
-	d.rt.usage.alerted[runID][key] = now
+	d.rt.usage.alerted[runID][key] = expiresAt
 }
