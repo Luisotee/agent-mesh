@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -295,9 +294,8 @@ type hooksSpec struct {
 // an agent whose environment lost the variable stays read-only. Every other event of such a session exits 0
 // silently, Stop included: an agent that lost its `$AGENT_MESH_AGENT` reports no turn at all (its state comes
 // back with its next reopen), which is the price of never reporting a person's session as the agent's. For
-// agents with deny rules, PreToolUse matches only the tools those rules can block (`editTools` and
-// `run_command`), failing closed with `HookTimeout`; for agents without deny rules, PreToolUse wraps the
-// command so hook failures never block tool calls.
+// agents with deny rules, PreToolUse matches `*` and fails closed with `HookTimeout`; for agents without deny
+// rules, PreToolUse wraps the command to exit 0 silently so hook failures never block tool calls.
 func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string) ([]byte, error) {
 	guarded := func(event string, extra ...string) string {
 		argv := append(append([]string{}, hookArgv...), extra...)
@@ -311,21 +309,19 @@ func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string
 	}
 	var preGroup hookGroup
 	if deny {
-		resolved := uniqueResolvedDirs(denyPaths...)
 		var preExtra []string
-		for _, p := range resolved {
+		for _, p := range uniqueResolvedDirs(denyPaths...) {
 			preExtra = append(preExtra, "--deny-path", p)
 		}
 		preExtra = append(preExtra, "--deny-publish")
 		preGroup = hookGroup{
-			Matcher: denyPreToolMatcher(len(resolved) > 0),
+			Matcher: "*",
 			Hooks:   []hookCommand{{Type: "command", Command: guarded("PreToolUse", preExtra...), Timeout: HookTimeout}},
 		}
 	} else {
-		preTimeout := max(HookTimeout/2, 1)
 		preArgv := append(append([]string{}, hookArgv...), "PreToolUse")
-		preCmd := fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; timeout %d %s >/dev/null 2>&1; exit 0`,
-			adapter.ShellQuote(agentID), preTimeout, adapter.ShellQuote(preArgv...))
+		preCmd := fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; %s >/dev/null 2>&1; exit 0`,
+			adapter.ShellQuote(agentID), adapter.ShellQuote(preArgv...))
 		preGroup = hookGroup{
 			Matcher: "*",
 			Hooks:   []hookCommand{{Type: "command", Command: preCmd, Timeout: HookTimeout}},
@@ -346,18 +342,6 @@ func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string
 		return nil, err
 	}
 	return append(b, '\n'), nil
-}
-
-func denyPreToolMatcher(hasPaths bool) string {
-	var names []string
-	if hasPaths {
-		for name := range editTools {
-			names = append(names, name)
-		}
-	}
-	names = append(names, "run_command")
-	sort.Strings(names)
-	return strings.Join(names, "|")
 }
 
 func uniqueResolvedDirs(paths ...string) []string {

@@ -95,8 +95,9 @@ func evalExisting(p string) (string, error) {
 }
 
 // mergeTracked is the committed version of a JSON object file (as the index has it, not the working copy, which a
-// launch before may have written) with content deep-merged in (objects merged recursively, arrays concatenated,
-// scalars replaced); content alone when either isn't a JSON object.
+// launch before may have written) with content merged in: the mesh's own top-level "agent-mesh" key is replaced
+// wholesale so a committed copy never runs hooks twice, while any other keys are deep-merged (objects merged
+// recursively, arrays concatenated, scalars replaced); content alone when either isn't a JSON object.
 func mergeTracked(ctx context.Context, worktree, slashRel string, content []byte) []byte {
 	committed, err := exec.CommandContext(ctx, "git", "-C", worktree, "show", ":"+slashRel).Output()
 	if err != nil {
@@ -107,7 +108,7 @@ func mergeTracked(ctx context.Context, worktree, slashRel string, content []byte
 	if !ok1 || !ok2 {
 		return content
 	}
-	merged := mergeJSONObject(base, ours)
+	merged := mergeJSONObject(base, ours, true)
 	b, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return content
@@ -129,12 +130,16 @@ func decodeJSONObject(raw []byte) (map[string]any, bool) {
 	return obj, ok && obj != nil
 }
 
-func mergeJSONObject(base, ours map[string]any) map[string]any {
+func mergeJSONObject(base, ours map[string]any, replaceAgentMesh bool) map[string]any {
 	out := make(map[string]any, len(base)+len(ours))
 	for k, v := range base {
 		out[k] = v
 	}
 	for k, v := range ours {
+		if replaceAgentMesh && k == "agent-mesh" {
+			out[k] = v
+			continue
+		}
 		if existing, ok := out[k]; ok {
 			out[k] = mergeJSONValue(existing, v)
 		} else {
@@ -147,7 +152,7 @@ func mergeJSONObject(base, ours map[string]any) map[string]any {
 func mergeJSONValue(base, ours any) any {
 	if bm, ok := base.(map[string]any); ok {
 		if om, ok := ours.(map[string]any); ok {
-			return mergeJSONObject(bm, om)
+			return mergeJSONObject(bm, om, false)
 		}
 	}
 	if ba, ok := base.([]any); ok {

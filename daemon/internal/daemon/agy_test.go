@@ -260,7 +260,7 @@ func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testin
 	}{
 		{"reviewer", v1.AgentRole_AGENT_ROLE_REVIEWER, false, false, false},
 		{"worker", v1.AgentRole_AGENT_ROLE_WORKER, false, false, true},
-		{"worker sharing agent-mesh key", v1.AgentRole_AGENT_ROLE_WORKER, false, true, true},
+		{"worker replaces committed agent-mesh key", v1.AgentRole_AGENT_ROLE_WORKER, false, true, false},
 		{"worker on a fork's head", v1.AgentRole_AGENT_ROLE_WORKER, true, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -653,11 +653,13 @@ func TestAgyStartupAfterLongDelayStillWaitsForQuietOutput(t *testing.T) {
 	w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 }
 
-// A broken meshctl in PreToolUse never blocks a writer's tools, and for a planning/read-only agent only the
-// denied tools fail closed while read_file keeps working.
-func TestAgyPreToolUseFailureDoesNotBlockWritersOrAllowedReadTools(t *testing.T) {
+// A broken meshctl in PreToolUse never blocks a writer's tools, and for a planning/read-only agent fails closed
+// for every tool (security over latency).
+func TestAgyPreToolUseFailureDoesNotBlockWritersAndFailsClosedForDeny(t *testing.T) {
+	hookLog := filepath.Join(t.TempDir(), "hook-events")
 	broken := filepath.Join(t.TempDir(), "broken-meshctl")
 	script := `#!/bin/sh
+echo "$AGENT_MESH_AGENT:$*" >> ` + hookLog + `
 for arg in "$@"; do
   if [ "$arg" = "PreToolUse" ]; then
     echo "not json"
@@ -673,8 +675,9 @@ exec ` + bins + `/meshctl "$@"
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.agyRoot(t, run.Id)
 
-	// Writer (no deny rules): write_file and run_command still succeed despite broken PreToolUse.
+	// Writer (no deny rules): read_file, write_file and run_command all succeed despite broken PreToolUse.
 	writer := w.spawnUnder(t, asLead, "writer", &v1.SpawnAgentRequest{Kind: "agy"})
+	w.agyTurn(t, writer, "read ok")
 	w.agyTurn(t, writer, "/edit")
 	if _, err := os.Stat(filepath.Join(writer.Worktree, "blocked.txt")); err != nil {
 		t.Fatalf("writer blocked.txt not written when PreToolUse failed: %v", err)
@@ -684,12 +687,10 @@ exec ` + bins + `/meshctl "$@"
 		t.Fatalf("writer /push blocked when PreToolUse failed: %q", w.screen(t, writer))
 	}
 
-	// Planner (with deny rules): read_file still succeeds, while /edit and /push fail closed.
+	// Planner (with deny rules): every tool (read_file, /edit, /push) fails closed when PreToolUse fails.
+	os.Remove(hookLog)
 	planner := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Kind: "agy", Plan: true, Tier: "strong"})
 	w.agyTurn(t, planner, "read please")
-	if !strings.Contains(w.screen(t, planner), "done: read please") {
-		t.Fatalf("planner read_file turn blocked when PreToolUse failed: %q", w.screen(t, planner))
-	}
 	w.agyTurn(t, planner, "/edit")
 	if _, err := os.Stat(filepath.Join(planner.Worktree, "blocked.txt")); err == nil {
 		t.Fatal("planner wrote blocked.txt when PreToolUse failed")
@@ -697,5 +698,11 @@ exec ` + bins + `/meshctl "$@"
 	w.agyTurn(t, planner, "/push")
 	if !strings.Contains(w.screen(t, planner), "git push denied") {
 		t.Fatalf("planner /push was not denied when PreToolUse failed: %q", w.screen(t, planner))
+	}
+	logged, _ := os.ReadFile(hookLog)
+	for _, line := range strings.Split(string(logged), "\n") {
+		if strings.HasPrefix(line, planner.Id+":") && strings.Contains(line, "PostToolUse") {
+			t.Fatalf("planner PostToolUse ran despite PreToolUse failure: %s", logged)
+		}
 	}
 }

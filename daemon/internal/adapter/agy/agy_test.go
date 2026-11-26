@@ -352,19 +352,15 @@ func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 	}
 }
 
-func TestHooksJSONPreToolUseFailOpenForWritersAndScopedFailClosedForDeny(t *testing.T) {
-	// Without deny rules: PreToolUse matches "*" and exits 0 silently even when meshctl is missing, exits non-zero,
-	// or prints non-JSON.
+func TestHooksJSONPreToolUseFailOpenForWritersAndFailClosedForDeny(t *testing.T) {
+	// Without deny rules: PreToolUse matches "*", runs without GNU timeout, and exits 0 silently even when
+	// meshctl is missing, exits non-zero, or prints non-JSON.
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad-meshctl")
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\necho 'not json!'\nexit 2\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	hang := filepath.Join(dir, "hang-meshctl")
-	if err := os.WriteFile(hang, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, bin := range []string{bad, filepath.Join(dir, "missing-meshctl"), hang} {
+	for _, bin := range []string{bad, filepath.Join(dir, "missing-meshctl")} {
 		b, err := HooksJSON("a1", []string{bin, "hook", "agy"}, false)
 		if err != nil {
 			t.Fatal(err)
@@ -377,6 +373,9 @@ func TestHooksJSONPreToolUseFailOpenForWritersAndScopedFailClosedForDeny(t *test
 		if len(pre) != 1 || pre[0].Matcher != "*" || pre[0].Hooks[0].Timeout != HookTimeout {
 			t.Fatalf("unexpected writer PreToolUse: %+v", pre)
 		}
+		if strings.Contains(pre[0].Hooks[0].Command, "timeout ") {
+			t.Errorf("writer PreToolUse should not depend on GNU timeout: %q", pre[0].Hooks[0].Command)
+		}
 		c := exec.Command("sh", "-c", pre[0].Hooks[0].Command)
 		c.Env = []string{"PATH=/usr/bin:/bin", "AGENT_MESH_AGENT=a1"}
 		out, err := c.CombinedOutput()
@@ -385,7 +384,7 @@ func TestHooksJSONPreToolUseFailOpenForWritersAndScopedFailClosedForDeny(t *test
 		}
 	}
 
-	// With deny rules: PreToolUse matcher covers every edit tool and run_command, never read_file.
+	// With deny rules: PreToolUse keeps Matcher "*" so every tool fails closed on hook failure.
 	b, err := HooksJSON("a1", []string{bad, "hook", "agy"}, true, dir)
 	if err != nil {
 		t.Fatal(err)
@@ -395,19 +394,7 @@ func TestHooksJSONPreToolUseFailOpenForWritersAndScopedFailClosedForDeny(t *test
 		t.Fatal(err)
 	}
 	pre := spec["agent-mesh"].PreToolUse
-	if len(pre) != 1 || pre[0].Hooks[0].Timeout != HookTimeout {
+	if len(pre) != 1 || pre[0].Matcher != "*" || pre[0].Hooks[0].Timeout != HookTimeout {
 		t.Fatalf("unexpected deny PreToolUse: %+v", pre)
-	}
-	matcher := pre[0].Matcher
-	for tool := range editTools {
-		if !strings.Contains(matcher, tool) {
-			t.Errorf("matcher %q missing edit tool %q", matcher, tool)
-		}
-	}
-	if !strings.Contains(matcher, "run_command") {
-		t.Errorf("matcher %q missing run_command", matcher)
-	}
-	if strings.Contains(matcher, "read_file") || matcher == "*" {
-		t.Errorf("matcher %q should only match denied tools", matcher)
 	}
 }
