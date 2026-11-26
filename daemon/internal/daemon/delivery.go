@@ -16,6 +16,7 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -368,7 +369,7 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 	text := strings.TrimSpace(reading.GetText())
 	rg.at = d.now() // before anything is typed: activity after it is this doorbell's
 	switch {
-	case reading.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED && !strings.HasPrefix(text, "📬 [mesh]"):
+	case reading.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED && !strings.HasPrefix(text, inputbox.DoorbellPrefix):
 		// A human's draft: positively seen, so the doorbell waits for it to go.
 		d.noteHold(ctx, a, msgs, text)
 		return nil
