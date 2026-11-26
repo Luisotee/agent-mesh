@@ -300,3 +300,25 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   await host.client().resetSetting({ key: 'app.theme' })
   await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
 })
+
+test('the usage and cost screen asks the host for what mesh usage and mesh cost print', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Usage and cost' }).click()
+  const panel = page.getByRole('region', { name: 'Usage' })
+  await panel.getByRole('heading', { name: /Usage and cost of local/ }).waitFor()
+  // A throwaway host has no Claude account (the screen says so), and the fake agy reports two quota rows, one nearly spent.
+  await panel.getByText(/Reserve: the host starts nothing new on a quota once 90% of it is used/).waitFor({ timeout: 30_000 })
+  await panel.getByText(/No reading/).waitFor()
+  await expect.poll(() => panel.getByRole('row', { name: /Neon/ }).innerText()).toContain('5% left')
+  await expect.poll(() => panel.getByRole('alert').innerText()).toContain('agy Gemini 4 Neon Neon')
+  // The same total the host computes for the CLI.
+  await panel.getByTestId('cost-total').waitFor({ timeout: 30_000 })
+  const cli = await host.client().getCost({ since: '7d' })
+  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toBe(`$${cli.usd.toFixed(2)}`)
+  await page.screenshot({ path: path.join(shots, 'usage.png') })
+
+  // A run is a scope of its own, named by its title.
+  await panel.getByRole('combobox', { name: 'Cost of' }).selectOption({ label: 'e2e run' })
+  await expect.poll(() => panel.getByText(/at API prices, run /).innerText()).toContain('run ')
+  await page.getByRole('button', { name: 'Usage and cost' }).click() // back to the agents
+})

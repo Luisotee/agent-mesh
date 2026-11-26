@@ -1,4 +1,4 @@
-import { QrCode, Settings } from 'lucide-react'
+import { Gauge, QrCode, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -10,6 +10,7 @@ import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
+import { UsagePanel } from '@/components/usage-panel'
 import { joinWaiting } from '@/derive'
 import { appPrefs } from '@/prefs'
 import { applyTheme, themeByName } from '@/theme'
@@ -128,6 +129,7 @@ function HostHeader({ host }: { host: HostRuntime }) {
   const conn = useHostState(host, (s) => s.conn)
   const open = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const usageOpen = useAppState((s) => s.usageOpen)
   // Only the host's own device may pair devices, so only there is the screen offered.
   const mayPair = useHostState(host, () => canPair(host.store))
   return (
@@ -143,6 +145,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
           <QrCode />
         </Button>
       )}
+      <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
+        <Gauge />
+      </Button>
       <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
         <Settings />
       </Button>
@@ -153,9 +158,11 @@ function HostHeader({ host }: { host: HostRuntime }) {
 function MainPane({ host }: { host: HostRuntime }) {
   const settingsOpen = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const usageOpen = useAppState((s) => s.usageOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
   if (settingsOpen) return <SettingsPanel host={host} />
   if (pairOpen) return <PairPanel host={host} />
+  if (usageOpen) return <UsagePanel host={host} />
   if (!agentId) {
     return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">Pick an agent in a run to see it here.</div>
   }

@@ -256,8 +256,8 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ### Usage and cost
 
-- ★ Quota per account with both windows a vendor has (Claude's 5-hour and weekly ones), each with its reset time and the reserve line, and a warning before the reserve (P, O).
-- ★ Cost per session and per run (P, ours).
+- ★ Quota per account with both windows a vendor has (Claude's 5-hour and weekly ones), each with its reset time and the reserve line, and a warning before the reserve (P, O). Built on the desktop (2026-11-26): the Usage and cost screen from `GetUsage`, refreshed every minute; a warning once a window is at the reserve (not before it); not on Android yet.
+- ★ Cost per session and per run (P, ours). Built on the desktop (2026-11-26) from `GetCost`, for a span (24 h, 7 d, 30 d) or one run, with the CLI's tables and an optional per-agent one.
 - Daily charts per provider (O).
 
 ### Extensibility

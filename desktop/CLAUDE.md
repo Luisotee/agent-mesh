@@ -24,7 +24,7 @@ The e2e tests open a real Electron window, so they need a display (WSLg has one,
 
 - `electron/`: the main process, kept thin: `main.ts` the window, `bridge.ts` and `socket.ts` the host bridge, `route.ts` and `pair.ts` how a paired host is reached (pinned TLS, direct or through the relay) and how a pairing link is redeemed, `hosts.ts` the saved host list, `links.ts` pairing links the OS opens the app with (read in main, shown for the user to confirm, never redeemed on their own), `shell.ts` notifications and the tray (it knows nothing of agents), `preload.cts` the API the renderer gets.
 - `shared/api.ts`: types only, the contract between main and the renderer.
-- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts` (loads the six theme files of `../shared/themes/`, shared with Android, and applies the host's `app.theme`).
+- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `usage.ts` (the usage and cost screen's rows), `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts` (loads the six theme files of `../shared/themes/`, shared with Android, and applies the host's `app.theme`).
 - `src/gen/`: the generated TypeScript (committed).
 - `e2e/`: the end-to-end tests and their harness.
 
