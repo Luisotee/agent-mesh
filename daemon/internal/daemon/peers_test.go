@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -396,5 +397,60 @@ func TestAskingPeersNeedsATierABodyAndAKnownPeer(t *testing.T) {
 	res := w.ask(t, &v1.AskRequest{Peers: "all", Tier: "mid", Body: "q", NoRefresh: true})
 	if task := w.task(t, res.Agents[0].Id); !strings.Contains(task, "was not refreshed (no_refresh)") || strings.Contains(task, "Upstream moved") {
 		t.Errorf("task %s", task)
+	}
+}
+
+func TestAPeerCheckoutThatCantMoveIsToldSoOnEveryAskUntilItDoes(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	// The peer left a change in its checkout: it is not moved, and upstream's commits stay news.
+	if err := os.WriteFile(filepath.Join(p.Worktree, "README"), []byte("scribbles"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	head := up.git(t, "rev-parse", "HEAD")
+	next := up.commit(t, "a.go", "package a")
+	for i := 0; i < 2; i++ {
+		res := w.ask(t, &v1.AskRequest{Peers: p.Name, Tier: "mid", Body: fmt.Sprintf("question %d", i), NoRefresh: false})
+		task := w.task(t, res.Agents[0].Id)
+		for _, want := range []string{"Upstream moved since you last looked: 1 commit(s) on origin/main, " + head[:9] + ".." + next[:9], "has local changes, so it was not moved", "Your checkout is at " + head[:9] + "."} {
+			if !strings.Contains(task, want) {
+				t.Errorf("ask %d lacks %q:\n%s", i, want, task)
+			}
+		}
+		// Done with this one so the next ask goes to the same agent.
+		w.quiet(t, res.Agents[0].Id)
+		w.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer")
+		waitFor(t, "the message", func() bool { return len(w.answers(t)) == i+1 })
+		w.quiet(t, res.Agents[0].Id)
+	}
+	if got := w.peer(t, p.Name); got.Seen != head {
+		t.Errorf("seen %s moved to a head the checkout never reached", got.Seen)
+	}
+	// Cleaned, it follows.
+	exec.Command("git", "-C", p.Worktree, "checkout", "--", "README").Run()
+	res := w.ask(t, &v1.AskRequest{Peers: p.Name, Tier: "mid", Body: "again"})
+	if task := w.task(t, res.Agents[0].Id); !strings.Contains(task, "Your checkout is at "+next[:9]+".") || strings.Contains(task, "not moved") {
+		t.Errorf("task %s", task)
+	}
+	// A group exists once it has a peer; a typo makes none.
+	if _, err := w.asRoot.EditPeer(ctx, connect.NewRequest(&v1.EditPeerRequest{Meta: meta(""), Target: "alpha-reserch", About: "x"})); code(err) != connect.CodeNotFound {
+		t.Errorf("an edit of a typo: %v", err)
+	}
+	// A peers ask takes no other target.
+	if _, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "all", Agent: "x", Tier: "mid", Body: "q"})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("peers and an agent: %v", err)
+	}
+	// A clone whose folder can't make a name needs --name.
+	odd := filepath.Join(t.TempDir(), "my repo")
+	if out, err := exec.Command("git", "clone", "-q", up.dir, odd).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if _, err := w.asRoot.AddPeer(ctx, connect.NewRequest(&v1.AddPeerRequest{Meta: meta(""), Source: odd})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a name with a space: %v", err)
+	}
+	if p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: odd, Name: "my-repo-research"}); p.Name != "my-repo-research" {
+		t.Errorf("named %v", p)
 	}
 }

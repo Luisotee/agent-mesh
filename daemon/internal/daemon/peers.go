@@ -200,6 +200,9 @@ func (d *Daemon) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerReq
 	name := m.Name
 	if name == "" {
 		name = peerName(filepath.Base(clone))
+		if !peerNameRE.MatchString(name) {
+			return nil, invalid("can't name a peer from %q: give --name (letters, digits, dots, dashes and underscores)", filepath.Base(clone))
+		}
 	}
 	if _, err := d.store.Read(ctx).GetPeer(name); err == nil {
 		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("a peer named %s exists: give another name (--name)", name))
@@ -283,11 +286,7 @@ func (d *Daemon) EditPeer(ctx context.Context, req *connect.Request[v1.EditPeerR
 		}
 		g, err := tx.GetPeerGroup(m.Target)
 		if errors.Is(err, store.ErrNotFound) {
-			// A group with peers, or a new one to describe before its first peer.
-			g = &v1.PeerGroup{Name: m.Target}
-			if !peerNameRE.MatchString(m.Target) {
-				return notFound("no peer or group %q", m.Target)
-			}
+			return notFound("no peer or group %q (a group exists once a peer is added to it: `mesh peers` lists them)", m.Target)
 		} else if err != nil {
 			return err
 		}
@@ -373,7 +372,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	var peers []*v1.Peer
+	var peers, created []*v1.Peer
 	for _, n := range names {
 		e := f.Peers[n]
 		skip := func(why string) { out.Skipped = append(out.Skipped, n+": "+why) }
@@ -414,9 +413,13 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		if p.Group == "" {
 			p.Group = "peers"
 		}
+		_, statErr := os.Stat(p.Worktree)
 		if err := d.ensurePeerWorktree(ctx, p); err != nil {
 			skip(err.Error())
 			continue
+		}
+		if statErr != nil {
+			created = append(created, p)
 		}
 		peers = append(peers, p)
 	}
@@ -436,6 +439,10 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			}
 		}
 		for _, p := range peers {
+			if _, err := tx.GetPeer(p.Name); err == nil {
+				out.Skipped = append(out.Skipped, p.Name+": already registered")
+				continue
+			}
 			if _, err := tx.GetPeerGroup(p.Group); errors.Is(err, store.ErrNotFound) {
 				if err := tx.PutPeerGroup(&v1.PeerGroup{Name: p.Group}); err != nil {
 					return err
@@ -449,6 +456,9 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		return nil
 	})
 	if err != nil {
+		for _, p := range created {
+			git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree)
+		}
 		return nil, err
 	}
 	return connect.NewResponse(out), nil
@@ -510,7 +520,13 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 		b.WriteString("This project has no upstream recorded: your checkout is as you left it.")
 	default:
 		fctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		_, err := git(fctx, p.Repo, "fetch", "--quiet", up.Remote)
+		cmd := exec.CommandContext(fctx, "git", "-C", p.Repo, "fetch", "--quiet", up.Remote)
+		// Never a prompt for a password or a passphrase: a peer that needs one is reported, not waited on.
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+		fout, err := cmd.CombinedOutput()
+		if err != nil {
+			err = fmt.Errorf("%v: %s", err, strings.TrimSpace(string(fout)))
+		}
 		cancel()
 		head, herr := git(ctx, p.Repo, "rev-parse", where)
 		switch {
@@ -535,15 +551,18 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 			if n > 30 {
 				fmt.Fprintf(&b, "\n… and %d more", n-30)
 			}
-			// The checkout moves to the head when it is clean.
+			// The checkout moves to the head when it is clean. Only then has it "seen" the head: a checkout left
+			// behind is told so again on the next ask, with the same commits.
 			if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
 				if _, err := git(ctx, p.Worktree, "checkout", "--quiet", "--detach", head); err == nil {
 					at = head
+					p.Seen = head
+				} else {
+					b.WriteString("\nYour checkout could not be moved to it.")
 				}
 			} else {
 				b.WriteString("\nYour checkout has local changes, so it was not moved.")
 			}
-			p.Seen = head
 		}
 	}
 	fmt.Fprintf(&b, "\nYour checkout is at %s.", short(at))
@@ -572,7 +591,8 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 		return nil, invalid("no question given (--body or --file)")
 	case m.Tier == "":
 		return nil, invalid("give the tier the peers run on (--tier): there is no default model")
-	case m.Model != "" || m.Kind != "" || m.Reviewers != "" || m.Review != "" || m.Repo != "" || m.Slug != "":
+	case m.Model != "" || m.Kind != "" || m.Reviewers != "" || m.Review != "" || m.Repo != "" || m.Slug != "" || m.Agent != "" ||
+		m.Since != "" || m.Size != "" || m.Effort != "":
 		return nil, invalid("peers is a question for standing peers: tier, body, timeout and no_refresh only")
 	}
 	r := d.store.Read(ctx)
@@ -664,7 +684,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		agent = d.view(cur)
 		member.AgentId, member.Model = mine.Id, mine.Model
 	} else {
-		a, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task, subMeta(m.Meta, "spawn-"+p.Name))
+		a, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
 		if err != nil {
 			var ce *connect.Error
 			msg := err.Error()
@@ -698,7 +718,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 
 // launchPeerAgent starts a peer's agent in this run: a new agent record of role asker named as the peer, in the
 // peer's own worktree, resuming the peer's conversation (a fresh one when it has none yet).
-func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Peer, tier, task string, meta *v1.RequestMeta) (*v1.Agent, error) {
+func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Peer, tier, task string) (*v1.Agent, error) {
 	if d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
 	}

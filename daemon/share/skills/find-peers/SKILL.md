@@ -36,7 +36,7 @@ The goal is a few projects that solve the **same problems by similar mechanisms*
 
    ```bash
    mesh add-peer --source https://github.com/<owner>/<repo> --group <group> --about "<what it is; what to ask it about>"   # at most 400 characters
-   mesh edit-peer --target <group> --about "<what the group is, whose peers they are>"                                    # a new group only
+   mesh edit-peer --target <group> --about "<what the group is, whose peers they are>"                                    # once the group has a peer
    ```
 
    - **Names:** each `add-peer` prints the peer's `name` (`<repo>-research`, the repo part cut to 20 characters): report that name, never one you built from the repo's name. Pass `--name <short>-research` when a basename is long, or when two shortlisted projects share one (the second add would fail).
