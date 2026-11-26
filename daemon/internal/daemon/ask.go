@@ -122,13 +122,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 		slug = askSlug(body)
 	}
 	// A retry of an ask whose spawn went through replays that spawn: no slug or guard to find again.
-	replay := false
-	if meta != nil {
-		if proc, _, err := d.store.Read(ctx).Mutation(actor.Id, meta.MutationId); err == nil && proc == agentmeshv1connect.MeshServiceSpawnAgentProcedure {
-			replay = true
-		}
-	}
-	if !replay {
+	if !d.spawnReplays(ctx, actor, meta) {
 		if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
 			return nil, err
 		}
@@ -143,6 +137,17 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 		return nil, err
 	}
 	return connect.NewResponse(&v1.AskResponse{Agents: []*v1.Agent{res.Msg.Agent}}), nil
+}
+
+// spawnReplays tells whether a SpawnAgent with this meta is a retry of one that went through: it answers from
+// the stored mutation, so the slug and the quota reserve are not looked at again (a quota that filled since is
+// no reason to fail a retry whose agent already exists).
+func (d *Daemon) spawnReplays(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta) bool {
+	if meta == nil {
+		return false
+	}
+	proc, _, err := d.store.Read(ctx).Mutation(actor.Id, meta.MutationId)
+	return err == nil && proc == agentmeshv1connect.MeshServiceSpawnAgentProcedure
 }
 
 func orClaude(kind string) string {
@@ -231,17 +236,23 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 			return nil, err
 		}
 	}
-	slug, err := d.freeSlug(r, actor.RunId, top, fmt.Sprintf("review-%d-%s", pr.Number, kind))
-	if err != nil {
-		return nil, err
+	spawnMeta := subMeta(m.Meta, "spawn")
+	slug := fmt.Sprintf("review-%d-%s", pr.Number, kind)
+	replay := d.spawnReplays(ctx, actor, spawnMeta)
+	if !replay {
+		if slug, err = d.freeSlug(r, actor.RunId, top, slug); err != nil {
+			return nil, err
+		}
 	}
 	last := m.Since
 	task := reviewTask(reviewSpec{pr: pr, kind: kind, level: level, body: body, last: last,
 		narrow: narrowSince(ctx, top, last, pr.Head)})
-	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
-		return nil, err
+	if !replay {
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
+			return nil, err
+		}
 	}
-	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(m.Meta, "spawn"), Repo: top, Slug: slug,
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task}))
 	if err != nil {
 		return nil, err
@@ -471,12 +482,17 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	}
 	if reuse != nil {
 		member.AgentId, member.Name = reuse.Id, reuse.Name
-		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, reuse.Kind, reuse.Model, reuse.Effort, "asking "+reuse.Name); err != nil {
+		model, effort, _ := target(reuse) // where it will run, when a reopen is pending
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, reuse.Kind, model, effort, "asking "+reuse.Name); err != nil {
 			return fail(reuse.Name, err.Error())
 		}
 		spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: reviewedAt, reused: true,
 			narrow: narrowSince(ctx, j.top, reviewedAt, j.pr.Head)}
 		var note string
+		// The move and the read of where it stayed are one step under the worktree's lock; SendMessage takes the
+		// lock itself, so it is let go before.
+		mu := d.worktreeLock(reuse.Worktree)
+		mu.Lock()
 		if why := moveWorktree(ctx, reuse, reviewedAt, j.pr.Head); why != "" {
 			spec.stayAt, spec.stayWhy = reviewedAt, why
 			if cur, err := git(ctx, reuse.Worktree, "rev-parse", "HEAD"); err == nil {
@@ -484,6 +500,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			}
 			note = fmt.Sprintf("%s's worktree stays at %s: %s", reuse.Name, short(spec.stayAt), why)
 		}
+		mu.Unlock()
 		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(j.meta, "send-"+j.kind), To: reuse.Id,
 			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: reviewTask(spec)}))
 		if err != nil {
@@ -507,20 +524,27 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		return member, d.view(cur), note
 	}
 	// A fresh one.
-	slug, err := d.freeSlug(r, actor.RunId, j.top, fmt.Sprintf("review-%d-%s", j.pr.Number, j.kind))
-	if err != nil {
-		return fail(j.kind, err.Error())
-	}
-	member.Name = filepath.Base(j.top) + "-" + slug
-	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
-		return fail(member.Name, err.Error())
+	// A retry whose spawn went through replays it: the slug and the reserve are not looked at again.
+	spawnMeta := subMeta(j.meta, "spawn-"+j.kind)
+	slug := fmt.Sprintf("review-%d-%s", j.pr.Number, j.kind)
+	if !d.spawnReplays(ctx, actor, spawnMeta) {
+		var err error
+		if slug, err = d.freeSlug(r, actor.RunId, j.top, slug); err != nil {
+			return fail(j.kind, err.Error())
+		}
+		member.Name = filepath.Base(j.top) + "-" + slug
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
+			return fail(member.Name, err.Error())
+		}
+	} else {
+		member.Name = filepath.Base(j.top) + "-" + slug
 	}
 	spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow}
 	if unanswered {
 		spec.last, spec.narrow = "", false
 	}
 	task := reviewTask(spec)
-	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(j.meta, "spawn-"+j.kind), Repo: j.top, Slug: slug,
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: j.top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: j.effort, Tier: j.tier, Base: j.pr.Head, Task: task}))
 	if err != nil {
 		var ce *connect.Error

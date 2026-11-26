@@ -291,7 +291,13 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 		}
 		// Nobody left of the earlier round (all skipped or gone): the slots fill again without the skipped kinds.
 		if len(kinds) == 0 {
-			if err := fill(skip); err != nil {
+			var left []string
+			for _, k := range skip {
+				if !has(keep, k) {
+					left = append(left, k)
+				}
+			}
+			if err := fill(left); err != nil {
 				return nil, nil, err
 			}
 		}

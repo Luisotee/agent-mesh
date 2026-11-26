@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -151,5 +152,55 @@ func TestAFreshQuestionRetriedWithTheSameMutationIdStartsOneAsker(t *testing.T) 
 	// An existing agent is asked by its name and a body only: the fields of a fresh one are refused.
 	if _, err := w.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Agent: a.Agents[0].Name, Tier: "mid", Body: "x"})); code(err) != connect.CodeInvalidArgument {
 		t.Errorf("an ask of an agent with a tier: %v", err)
+	}
+}
+
+// A round that crashed right after a reviewer's spawn went through finds that spawn on retry and takes the agent,
+// though the quota reserve filled meanwhile: the guards are for a launch, and nothing launches.
+func TestARetriedRoundReplaysAReviewerSpawnedBeforeItCrashedWhateverTheReserveSays(t *testing.T) {
+	w := startReviews(t, func(c *daemon.AgentConfig) { c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true} })
+	ctx := context.Background()
+	head := w.pr.push(t, "the feature")
+	spawned, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("ask-crash/spawn-claude"),
+		Repo: w.pr.repo, Slug: "review-7-claude", Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: "claude", Tier: "mid",
+		Base: head, Task: "Review (read-only): the PR."}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := w.waitState(spawned.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER), `/ratelimits {"five_hour":{"used_percentage":95,"resets_at":"`+reset+`"}}`+"\r")
+	waitFor(t, "the reserve to fill", func() bool {
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test") != nil
+	})
+	round := w.ask(t, &v1.AskRequest{Meta: meta("ask-crash"), Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
+	if len(round.Agents) != 1 || round.Agents[0].Id != rev.Id {
+		t.Fatalf("agents %v, members %v", round.Agents, round.Ask.Members)
+	}
+	if n := reviewers(t, w); n != 1 {
+		t.Errorf("%d reviewers", n)
+	}
+}
+
+// A kind in review.re_review.keep stays asked when every earlier kind is gone and the slots fill again.
+func TestAReReviewKeepsAKeptKindWhenTheSlotsFillAgain(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "review.re_review.skip", []any{"claude"})
+	w.set(t, "review.re_review.keep.large", []any{"claude"})
+	w.pr.push(t, "the feature")
+	round1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "mid", Reviewers: "agy"})
+	w.quiet(t, round1.Agents[0].Id)
+	w.say(t, round1.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "a finding")
+	waitFor(t, "round 1's message", func() bool { return len(w.answers(t)) == 1 })
+	w.set(t, "review.re_review.skip", []any{"agy", "claude"})
+	w.set(t, "review.re_review.keep.large", []any{"claude"})
+	w.pr.push(t, "the fix")
+	round2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "mid", Reviewers: "auto"})
+	claude := false
+	for _, m := range round2.Ask.Members {
+		claude = claude || m.Kind == "claude"
+	}
+	if !claude {
+		t.Errorf("claude is kept but was not asked: %v", round2.Ask.Members)
 	}
 }
