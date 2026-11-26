@@ -4865,9 +4865,9 @@ func (x *HoldPullRequestResponse) GetPullRequests() []*PullRequest {
 
 type ListProjectsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Only this repo (a path or a bare name of a `repos.dir` folder), one the full list has, fetched from its origin
-	// first, and with its open pull requests read from GitHub (a read-only device gets the refs last fetched and no
-	// pull requests): the full list is quick (it asks git, not the network) and has none.
+	// Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+	// pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none. A read-only
+	// device may name only a repo the full list has, and gets the refs last fetched and no pull requests.
 	Repo          string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

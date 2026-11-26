@@ -166,7 +166,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.ListMessagesRequest.run_id":               "The run whose messages to list.",
 	"agentmesh.v1.ListMessagesResponse.more":                "There are more messages after these.",
 	"agentmesh.v1.ListPeersRequest.group":                   "Only the peers of this group.",
-	"agentmesh.v1.ListProjectsRequest.repo":                 "Only this repo (a path or a bare name of a `repos.dir` folder), one the full list has, fetched from its origin first, and with its open pull requests read from GitHub (a read-only device gets the refs last fetched and no pull requests): the full list is quick (it asks git, not the network) and has none.",
+	"agentmesh.v1.ListProjectsRequest.repo":                 "Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none. A read-only device may name only a repo the full list has, and gets the refs last fetched and no pull requests.",
 	"agentmesh.v1.ListPullRequestsRequest.agent":            "Only this agent's.",
 	"agentmesh.v1.ListPullRequestsRequest.refresh":          "Read GitHub again whatever the cache says.",
 	"agentmesh.v1.ListPullRequestsRequest.run_id":           "The run (a device names it; an agent's is its own).",

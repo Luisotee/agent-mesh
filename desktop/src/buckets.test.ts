@@ -24,6 +24,9 @@ describe('bucketOf', () => {
     // What the host stores (reducer ProcessExited, recordExit): a stop by a signal, and a lost terminal as exit code -1 with no detail.
     expect(bucketOf(agent('a', { state: AgentState.EXITED, stateDetail: 'killed by signal', exitCode: -1 }), ctx())).toBe('done')
     expect(bucketOf(agent('a', { state: AgentState.EXITED, stateDetail: '', exitCode: -1 }), ctx())).toBe('failed')
+    expect(bucketOf(agent('a', { state: AgentState.EXITED, stateDetail: 'lost', exitCode: -1 }), ctx())).toBe('failed')
+    expect(bucketOf(agent('a', { state: AgentState.EXITED, stateDetail: 'stopped', exitCode: -1 }), ctx())).toBe('done') // recordStopped
+    expect(bucketOf(agent('a', { state: AgentState.EXITED, stateDetail: 'reopen failed: x', exitCode: -1 }), ctx())).toBe('failed')
     expect(bucketOf(agent('a', { state: AgentState.EXITED, exitCode: 0 }), ctx())).toBe('done')
   })
 

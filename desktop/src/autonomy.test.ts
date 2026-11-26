@@ -41,9 +41,13 @@ describe('autonomy levels', () => {
     // A level above it is still set, by the repo's path, with the name entry left in place.
     expect(withLevel(s, '/p/api', 'plans')).toEqual([{ key: PLANS_KEY, value: ['/p/api'] }])
     const t = settings(['api', '/p/api'], [])
-    expect(withLevel(t, '/p/api', 'default')).toEqual([{ key: MERGES_KEY, value: ['api'] }])
-    expect(levelOf(withLevelApplied(t, '/p/api', 'default'), '/q/api')).toBe('merges')
+    expect(withLevel(t, '/p/api', 'default')).toEqual([]) // `api` holds it at "merges" whatever the path entry says
+    expect(levelOf(withLevelApplied(t, '/p/api', 'plans'), '/q/api')).toBe('merges')
     expect(nameEntries(settings(['/p/api'], []), '/p/api')).toEqual([])
+    // A name entry holding the repo at a stricter level than the one chosen: nothing is written (the choice could not take effect).
+    expect(withLevel(settings([], ['api']), '/p/api', 'merges')).toEqual([])
+    expect(withLevel(settings([], ['api']), '/p/api', 'default')).toEqual([])
+    expect(withLevel(settings(['api'], []), '/p/api', 'plans')).toEqual([{ key: PLANS_KEY, value: ['/p/api'] }])
   })
 
   it('needs both settings on the host', () => {

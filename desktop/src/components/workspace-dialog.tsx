@@ -177,7 +177,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           )}
           {from.kind === 'pr' && (
             <Select aria-label="Pull request" value={from.ref ?? ''} onChange={(e) => setFrom({ kind: 'pr', ref: e.target.value })}>
-              <option value="">{project?.pullRequests.length ? 'Choose a pull request…' : 'No open pull requests'}</option>
+              <option value="">{project?.pullRequests.some((p) => !p.crossRepository) ? 'Choose a pull request…' : 'No open pull requests'}</option>
               {startablePullRequests(project?.pullRequests ?? []).map((p) => (
                 <option key={p.number} value={p.crossRepository ? '' : p.headRef} disabled={p.crossRepository}>
                   #{p.number} {p.title}{p.draft ? ' (draft)' : ''}{p.crossRepository ? ' (from a fork: not available)' : ''}
@@ -210,7 +210,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           </div>
         </Field>
         <Field label="Tier" hint="Each tier is a model and effort in the host's settings.">
-          <Select aria-label="Tier" value={tier} onChange={(e) => setChosen(e.target.value)}>
+          <Select aria-label="Tier" value={tier} disabled={noTier} onChange={(e) => setChosen(e.target.value)}>
             {role === AgentRole.ROOT && <option value="">The CLI's default</option>}
             {tiers.length === 0 && role === AgentRole.WORKER && <option value="">The host lists no tier for this CLI</option>}
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}

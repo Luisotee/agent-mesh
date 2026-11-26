@@ -389,6 +389,12 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		if err := d.applyEvents(tx, a, []*adapterv1.AgentEvent{ev}); err != nil {
 			return err
 		}
+		if reason == "lost" {
+			// A lost terminal is exit code -1 like a stop whose process was gone: the stored detail tells them apart.
+			if err := setExitDetail(tx, a, "lost"); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
 			AgentExited: &v1.AgentExited{ExitCode: code, Signal: signal, Reason: reason}}}); err != nil {
 			return err
@@ -1252,12 +1258,21 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	return connect.NewResponse(out), nil
 }
 
+// setExitDetail says why an agent exited where the reducer, which sees only an exit code and a signal, left no word.
+func setExitDetail(tx *store.Tx, a *v1.Agent, detail string) error {
+	a.StateDetail = detail
+	return tx.PutAgent(a)
+}
+
 // recordStopped records the exit of an agent whose process is already gone (applied to cur; the caller stores it).
 func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
 	lastSaid := a.StateDetail // the exit event below overwrites it
 	ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
 		Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: -1}}}
 	if err := d.applyEvents(tx, a, []*adapterv1.AgentEvent{ev}); err != nil {
+		return nil, err
+	}
+	if err := setExitDetail(tx, a, "stopped"); err != nil { // not a lost terminal, which is -1 with the detail "lost"
 		return nil, err
 	}
 	if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{

@@ -16,6 +16,8 @@ describe('StateIcon for an exited agent', () => {
     }
     expect(label(exited(-1, ''))).toBe('failed') // lost: recordExit(…, -1, 0, "lost") and the reducer clears the detail
     expect(label(exited(-1, 'killed by signal'))).toBe('stopped')
+    expect(label(exited(-1, 'stopped'))).toBe('stopped') // recordStopped: a stop whose process was already gone
+    expect(label(exited(-1, 'lost'))).toBe('failed')
     expect(label(exited(0, ''))).toBe('done')
     expect(label(exited(3, ''))).toBe('failed')
   })

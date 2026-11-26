@@ -80,14 +80,14 @@ export const ROLE_LABEL: Record<AgentRole, string> = {
 export type ExitKind = 'finished' | 'stopped' | 'failed'
 
 /**
- * How an exited agent ended, from what the host stores of it: a clean exit, one by a signal (a stop), and anything
- * else, which includes a lost terminal. The host stores a lost agent as exit code -1 with no detail, and a stop as
- * `killed by signal`; the live `agentExited` event's reason (`lost`, `killed`) stands in for the detail until the app
- * reloads the agent.
+ * How an exited agent ended, from what the host stores of it: a clean exit, a stop (a signal, or a stop recorded for a
+ * process already gone: `killed by signal`, `stopped`), and anything else, which includes a lost terminal (`lost`, or
+ * exit code -1 with no detail, as an older host stored it). The live `agentExited` event's reason (`killed`, `stopped`,
+ * `lost`, `reopen failed: …`) stands in for the detail until the app reloads the agent.
  */
 export function exitKind(a: Agent): ExitKind {
   if (a.stateDetail === 'lost') return 'failed'
-  if (a.stateDetail === 'killed' || a.stateDetail === 'killed by signal') return 'stopped'
+  if (a.stateDetail === 'killed' || a.stateDetail === 'killed by signal' || a.stateDetail === 'stopped') return 'stopped'
   return a.exitCode === 0 ? 'finished' : 'failed'
 }
 
@@ -110,7 +110,8 @@ export function statusSentence(a: Agent): string {
         case 'finished':
           return 'Finished'
         default:
-          // Exit code -1 with no signal is how the host records a terminal it lost.
+          // The host says why when it can (`reopen failed: …`, `launch failed: …`); exit code -1 with nothing said is a lost terminal.
+          if (a.stateDetail && a.stateDetail !== 'lost' && a.stateDetail !== 'exited') return `Exited: ${a.stateDetail}`
           return a.stateDetail === 'lost' || a.exitCode < 0 ? 'Lost: its terminal is gone' : `Exited with code ${a.exitCode}`
       }
     case AgentState.UNKNOWN:

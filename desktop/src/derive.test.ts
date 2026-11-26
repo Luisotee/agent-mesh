@@ -57,6 +57,10 @@ describe('statusSentence', () => {
     // What the host stores: a stop (signal) says `killed by signal`; a lost terminal is exit code -1 with no detail.
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'killed by signal' }))).toBe('Stopped')
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: '' }))).toBe('Lost: its terminal is gone')
+    // A stop recorded for a process already gone (the host stores `stopped`), not a lost terminal.
+    expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'stopped' }))).toBe('Stopped')
+    // A failed reopen says why, stored by the host and in the live event.
+    expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'reopen failed: no such model' }))).toBe('Exited: reopen failed: no such model')
     // The live event's reason, until the agent is reloaded.
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'killed' }))).toBe('Stopped')
     expect(statusSentence(a('x', { state: AgentState.UNKNOWN }))).toMatch(/unknown/)

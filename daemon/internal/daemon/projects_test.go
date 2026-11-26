@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 )
 
 func TestListProjectsFindsTheGitFoldersOfReposDirAndTheReposAgentsUsed(t *testing.T) {
@@ -123,15 +124,8 @@ func TestListProjectsForOneRepoFetchesForTheUserButNotForAReadOnlyDevice(t *test
 		return res.Msg.Projects[0].Branches, int(w.calls.Load()) - n
 	}
 
-	cp, err := w.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	red, err := pairingClient(w.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, gh := branches(w.as(red.Msg.DeviceToken))
+	ro := readOnlyDevice(t, w)
+	got, gh := branches(ro)
 	if slices.Contains(got, "origin/fresh") || gh != 0 {
 		t.Errorf("a read-only device fetched or asked GitHub: %v, %d gh calls", got, gh)
 	}
@@ -140,21 +134,65 @@ func TestListProjectsForOneRepoFetchesForTheUserButNotForAReadOnlyDevice(t *test
 	}
 }
 
-func TestListProjectsForOneRepoRefusesARepoItDoesNotList(t *testing.T) {
+func TestListProjectsForOneRepoIsRestrictedToListedReposOnlyForAReadOnlyDevice(t *testing.T) {
 	w := startPR(t)
 	other := t.TempDir() // a git repo that is in no repos.dir and that no agent used
 	runGit(t, "", "init", "--initial-branch=main", other)
-	_, err := w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: other}))
+	ctx := context.Background()
+	ro := readOnlyDevice(t, w)
+	_, err := ro.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: other}))
 	if connect.CodeOf(err) != connect.CodeNotFound {
-		t.Errorf("got %v, want not found", err)
+		t.Errorf("a read-only device naming an unlisted repo: %v, want not found", err)
 	}
-	// A folder inside a listed repo is that repo.
+	// The user's device may read any repo it names (a freshly cloned one), and so may a root.
+	for name, c := range map[string]agentmeshv1connect.MeshServiceClient{"device": w.device.Mesh, "root": w.as(w.rootTok)} {
+		res, err := c.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: other}))
+		if err != nil || len(res.Msg.Projects) != 1 || res.Msg.Projects[0].Path == "" {
+			t.Errorf("the %s naming an unlisted repo: %v, %v", name, res, err)
+		}
+	}
+	// A folder inside a listed repo is that repo, by the path the list gives.
 	sub := filepath.Join(w.repo, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res, err := w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: sub}))
+	res, err := ro.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: sub}))
 	if err != nil || len(res.Msg.Projects) != 1 || res.Msg.Projects[0].Path != w.repo {
 		t.Errorf("a subfolder of a listed repo: %v, %v", res, err)
 	}
+}
+
+func TestListProjectsForOneRepoKeepsTheListedPathThroughASymlink(t *testing.T) {
+	w := startPR(t)
+	real := t.TempDir()
+	runGit(t, "", "init", "--initial-branch=main", filepath.Join(real, "app"))
+	link := filepath.Join(t.TempDir(), "projects")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := structpb.NewValue([]any{link})
+	ctx := context.Background()
+	if _, err := w.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "repos.dir", Value: v})); err != nil {
+		t.Fatal(err)
+	}
+	listed := filepath.Join(link, "app")
+	res, err := w.device.Mesh.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: listed}))
+	if err != nil || len(res.Msg.Projects) != 1 || res.Msg.Projects[0].Path != listed || !res.Msg.Projects[0].InReposDir {
+		t.Errorf("got %v, %v: want the path the list gives (%s), in repos.dir", res, err, listed)
+	}
+}
+
+// readOnlyDevice is a client of a read-only paired device.
+func readOnlyDevice(t *testing.T, w *prWorld) agentmeshv1connect.MeshServiceClient {
+	t.Helper()
+	ctx := context.Background()
+	cp, err := w.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	red, err := pairingClient(w.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w.as(red.Msg.DeviceToken)
 }

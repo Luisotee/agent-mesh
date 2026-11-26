@@ -29,7 +29,7 @@ const (
 // ListProjects lists the repos work can start in: the git folders directly under the `repos.dir` folders, and every repo
 // an agent has worked in, each with its default branch and branches (from git, no network). With `repo` set it is that
 // one of those, fetched from its origin first, with its open pull requests read from GitHub (the workspace dialog
-// starts from one): a read-only device gets the refs last fetched and no pull requests, and a repo not listed is refused.
+// starts from one): a read-only device gets the refs last fetched and no pull requests, and only for a listed repo.
 func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error) {
 	actor := auth.ActorFrom(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -62,22 +62,25 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 	for p := range used {
 		paths = append(paths, p)
 	}
-	// With `repo`, the one listed project it names: a repo the host doesn't list is not the caller's to have fetched.
+	// With `repo`, that one project, by the path the list gives it when it is listed (git's resolved top may differ
+	// through a symlink). A read-only device reads only listed projects, and updates nothing: it gets the refs last
+	// fetched and no pull requests (they come from GitHub). A device (the user) may name any repo on the host, and a
+	// root too: they get fresh refs, so a branch or a PR's head they pick is there to start from (a failed fetch is not
+	// an error: the refs last fetched are listed).
 	fetch := false
 	if repo := req.Msg.Repo; repo != "" {
 		top, err := d.repoTop(ctx, repo)
 		if err != nil {
 			return nil, err
 		}
-		if !slices.ContainsFunc(paths, func(p string) bool { return sameDir(p, top) }) {
+		readOnly := actor.GetClass() == v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
+		if i := slices.IndexFunc(paths, func(p string) bool { return sameDir(p, top) }); i >= 0 {
+			top = paths[i]
+		} else if readOnly {
 			return nil, notFound("%s is not one of the projects the host lists (`mesh projects`)", repo)
 		}
 		paths = []string{top}
-		// Fresh refs, so a branch or a PR's head the user picks is there to start from (a failed fetch is not an error: the
-		// refs last fetched are listed). A read-only device updates nothing: it gets the refs last fetched, and no
-		// pull requests (they come from GitHub).
-		fetch = actor.GetClass() != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
-		if fetch {
+		if fetch = !readOnly; fetch {
 			fctx, stop := context.WithTimeout(ctx, 15*time.Second)
 			_, _ = git(fctx, top, "fetch", "--quiet", "origin")
 			stop()

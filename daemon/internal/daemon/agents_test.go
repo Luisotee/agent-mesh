@@ -512,6 +512,26 @@ func TestAnAgentWhoseTerminalVanishedIsMarkedLost(t *testing.T) {
 	if !lost || got.ExitCode != -1 {
 		t.Errorf("exit %d, lost %v", got.ExitCode, lost)
 	}
+	// The stored form tells it from a stop whose process was already gone (also exit code -1): a client reloading it must.
+	if got.StateDetail != "lost" {
+		t.Errorf("stored detail %q, want lost", got.StateDetail)
+	}
+}
+
+func TestAStopRecordedForAProcessAlreadyGoneIsStoredAsStopped(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir())
+	t.Cleanup(func() { stopTermHost(t, state) })
+	run := startRun(t, h.device.Mesh, "")
+	a := h.spawn(run.Id, gitRepo(t), "halt", "")
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if err := h.d.RecordStopped(context.Background(), a.Id); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.d.Store().Read(context.Background()).GetAgent(a.Id)
+	if err != nil || got.State != v1.AgentState_AGENT_STATE_EXITED || got.ExitCode != -1 || got.StateDetail != "stopped" {
+		t.Errorf("stopped agent %v, %v: want exited, -1, detail stopped", got, err)
+	}
 }
 
 func TestACLIThatExitsAtOnceIsRecordedExited(t *testing.T) {

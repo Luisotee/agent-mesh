@@ -46,6 +46,14 @@ export function levelOf(settings: Record<string, Setting>, repo: string): Level 
   return 'default'
 }
 
+const RANK: Record<Level, number> = { default: 0, merges: 1, plans: 2 }
+
+/** The level the folder-name entries alone give a repo. */
+function byNameLevel(settings: Record<string, Setting>, repo: string): Level {
+  const by = (key: string) => list(settings, key).some((e) => names(e, repo) && !exact(e, repo))
+  return by(PLANS_KEY) ? 'plans' : by(MERGES_KEY) ? 'merges' : 'default'
+}
+
 /**
  * The two lists with the repo's own path taken out of both and put in the one for `level`, as whole values to set; only
  * what changes. An entry that names it by folder name stays (it covers other repos too): `nameEntries` says when one
@@ -53,6 +61,9 @@ export function levelOf(settings: Record<string, Setting>, repo: string): Level 
  */
 export function withLevel(settings: Record<string, Setting>, repo: string, level: Level): Array<{ key: string; value: string[] }> {
   if (levelOf(settings, repo) === level) return []
+  // A folder-name entry already holds the repo at a stricter level than the one chosen, and the app never edits it: a
+  // path entry written now would change nothing until the user removes that entry.
+  if (RANK[byNameLevel(settings, repo)] > RANK[level]) return []
   const next = (key: string, into: boolean) => {
     const cur = list(settings, key)
     const kept = cur.filter((e) => !exact(e, repo))

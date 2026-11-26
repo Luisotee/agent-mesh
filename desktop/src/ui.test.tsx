@@ -884,6 +884,18 @@ describe('NewWorkspaceDialog', () => {
     ])
   })
 
+  it('does not invite a choice when every open pull request is from a fork', async () => {
+    const { host, client, wrap } = dialog()
+    const forks = create(ProjectSchema, { path: '/p/shop', name: 'shop', defaultBranch: 'main', pullRequests: [create(ProjectPullRequestSchema, { number: 9, title: 'From a fork', headRef: 'main', url: 'u9', crossRepository: true })] })
+    client.listProjects.mockImplementation(async (req: unknown) => create(ListProjectsResponseSchema, { projects: (req as { repo: string }).repo ? [forks] : projects }))
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    await userEvent.type(await screen.findByLabelText('Project'), '/p/shop')
+    await userEvent.tab()
+    await screen.findByText('Default branch: main')
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'pr')
+    expect(within(screen.getByLabelText('Pull request')).getAllByRole('option')[0]).toHaveTextContent('No open pull requests')
+  })
+
   it('does not start a worker on no tier when the host lists none for the CLI', async () => {
     const { host, client, wrap } = dialog()
     noTiers.on = true
