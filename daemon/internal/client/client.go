@@ -31,6 +31,10 @@ const CLIEnv = "AGENT_MESH_CLI"
 // RunDirEnv names the folder of the agent's run, for its plans, reports and tasks.
 const RunDirEnv = "AGENT_MESH_RUN_DIR"
 
+// ShareEnv names the folder of the daemon's protocol and skills (`<share>/protocol`, `<share>/skills`), for an
+// agent: the protocol file its first doorbell names is under it, and a Claude agent loads the skills from it.
+const ShareEnv = "AGENT_MESH_SHARE"
+
 // StateEnv names the daemon's state dir.
 const StateEnv = "AGENT_MESH_STATE"
 

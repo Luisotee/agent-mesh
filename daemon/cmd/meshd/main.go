@@ -42,6 +42,7 @@ func main() {
 	termUnit := flag.String("term-unit", "agent-mesh-term.service", "the user unit, for --term-launch systemd")
 	mesh := flag.String("mesh", filepath.Join(here, "mesh"), "the mesh CLI: the agents' hooks run it, and its folder goes first on their PATH")
 	flag.StringVar(mesh, "meshctl", filepath.Join(here, "mesh"), "the old name of --mesh")
+	share := flag.String("share", filepath.Join(here, "..", "share"), "the daemon's protocol and skills (protocol/, skills/): agents get it as $"+client.ShareEnv+", their first doorbell names its protocol, and Claude agents load its skills; ignored when it isn't there")
 	worktrees := flag.String("worktrees", "", "where agents' worktrees go (default <state>/worktrees)")
 	skip := flag.Bool("skip-permissions", false, "start agents with their CLI's permission prompts off")
 	var bins, envs multi
@@ -52,6 +53,13 @@ func main() {
 	if abs, err := filepath.Abs(*mesh); err == nil {
 		*mesh = abs
 	}
+	if abs, err := filepath.Abs(*share); err == nil {
+		if st, err := os.Stat(filepath.Join(abs, "protocol")); err == nil && st.IsDir() {
+			*share = abs
+		} else {
+			*share = ""
+		}
+	}
 	if *state == "" {
 		fmt.Fprintln(os.Stderr, "meshd: give --state or $"+client.StateEnv)
 		os.Exit(2)
@@ -59,7 +67,7 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	agents := daemon.AgentConfig{TermBinary: *termBinary, TermUnit: *termUnit, Mesh: *mesh,
+	agents := daemon.AgentConfig{TermBinary: *termBinary, TermUnit: *termUnit, Mesh: *mesh, Share: *share,
 		Worktrees: *worktrees, SkipPermissions: *skip, Binaries: map[string]string{}, Env: map[string]string{}}
 	if *termLaunch != "none" {
 		agents.TermLaunch = termclient.Launch(*termLaunch)

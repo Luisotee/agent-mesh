@@ -107,7 +107,10 @@ func (w *world) startMeshd() {
 	if err := os.WriteFile(filepath.Join(decoy, "mesh"), []byte("#!/bin/sh\necho the wrong mesh >&2\nexit 99\n"), 0o755); err != nil {
 		w.t.Fatal(err)
 	}
-	cmd := exec.Command(filepath.Join(bins, "meshd"), "--state", w.state, "--term-launch", "detached",
+	// The share folder meshd is given reaches the agents' environment ("protocol" in it is what makes it one).
+	share := filepath.Join(w.home, "share")
+	os.MkdirAll(filepath.Join(share, "protocol"), 0o755)
+	cmd := exec.Command(filepath.Join(bins, "meshd"), "--state", w.state, "--term-launch", "detached", "--share", share,
 		"--max-lifetime", "3m", "--cli", "claude="+filepath.Join(bins, "claude"),
 		"--cli", "agy="+filepath.Join(bins, "agy"),
 		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+decoy+":"+os.Getenv("PATH"),
@@ -457,6 +460,9 @@ func TestEndToEnd(t *testing.T) {
 	meshBin := lookPath(agentEnv, "mesh")
 	if meshBin != filepath.Join(bins, "mesh") {
 		t.Errorf("a bare `mesh` in the agent resolves to %q, want %q (PATH %s)", meshBin, filepath.Join(bins, "mesh"), envOf(agentEnv, "PATH"))
+	}
+	if got, want := envOf(agentEnv, "AGENT_MESH_SHARE"), filepath.Join(w.home, "share"); got != want {
+		t.Errorf("AGENT_MESH_SHARE = %q, want %q", got, want)
 	}
 	if got := envOf(agentEnv, "AGENT_MESH_CLI"); got != meshBin {
 		t.Errorf("AGENT_MESH_CLI = %q, want %q (the live bin/mesh hands over to it)", got, meshBin)
