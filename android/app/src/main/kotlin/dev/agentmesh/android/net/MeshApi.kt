@@ -31,6 +31,7 @@ import dev.agentmesh.gen.agentmesh.v1.RedeemPairingRequest
 import dev.agentmesh.gen.agentmesh.v1.MeshServiceClient
 import dev.agentmesh.gen.agentmesh.v1.RequestMeta
 import dev.agentmesh.gen.agentmesh.v1.ResetSettingRequest
+import dev.agentmesh.gen.agentmesh.v1.RevokeSelfRequest
 import dev.agentmesh.gen.agentmesh.v1.SetSettingRequest
 import dev.agentmesh.gen.agentmesh.v1.Setting
 import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsRequest
@@ -58,7 +59,7 @@ class ApiException(val code: Code, message: String, cause: Throwable? = null) : 
  */
 val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
-    "registerPush", "unregisterPush", "testPush",
+    "registerPush", "unregisterPush", "testPush", "revokeSelf",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -99,6 +100,9 @@ interface MeshApi {
 
     /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
     fun connectTerminal(path: String): TerminalSocket
+
+    /** Revokes this device's own pairing on the host: its token stops working there, and its streams are closed. */
+    suspend fun revokeSelf()
 
     suspend fun listSettings(prefix: String = ""): List<Setting>
     suspend fun setSetting(key: String, value: Value): Setting
@@ -175,6 +179,10 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
         service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(false).build()).ok().path
 
     override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
+
+    override suspend fun revokeSelf() {
+        service.revokeSelf(RevokeSelfRequest.newBuilder().setMeta(newMeta()).build()).ok()
+    }
 
     override suspend fun listSettings(prefix: String): List<Setting> =
         service.listSettings(ListSettingsRequest.newBuilder().setPrefix(prefix).build()).ok().settingsList

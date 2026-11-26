@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PREFS } from '../src/prefs'
-import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip, validNotice } from './shell-rules'
+import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip, updateNotice, validNotice } from './shell-rules'
 
 const ok = { tag: 'h:a1', title: 'x needs you', body: 'b', sound: true, hostId: 'h', agentId: 'a1', tab: 'terminal' }
 
@@ -30,5 +30,9 @@ describe('tray', () => {
     expect(shouldHideOnClose({ closeToTray: false, trayReady: true, quitting: false })).toBe(false)
     expect(shouldHideOnClose({ closeToTray: true, trayReady: false, quitting: false })).toBe(false)
     expect(shouldHideOnClose({ closeToTray: true, trayReady: true, quitting: true })).toBe(false)
+  })
+  it('says an update is ready, with its version when it has one', () => {
+    expect(updateNotice('0.2.0').body).toBe('Version 0.2.0 is downloaded and installs when you quit.')
+    expect(updateNotice('').body).toBe('A new version is downloaded and installs when you quit.')
   })
 })

@@ -163,6 +163,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RevokeDevice
+  /agentmesh.v1.MeshService/RevokeSelf
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetReserve
@@ -199,6 +200,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/ResolveModel
+  /agentmesh.v1.MeshService/RevokeSelf
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/TestPush

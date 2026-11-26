@@ -166,6 +166,12 @@ public interface MeshServiceClientInterface {
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
 
   /**
+   *  Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+   *  device can't be revoked.
+   */
+  public suspend fun revokeSelf(request: RevokeSelfRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeSelfResponse>
+
+  /**
    *  Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
    *  closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
    *  A device registers only itself; revoking the device deletes it.

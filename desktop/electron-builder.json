@@ -1,0 +1,56 @@
+{
+  "appId": "dev.agentmesh.desktop",
+  "productName": "agent-mesh",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**",
+    "dist-electron/**",
+    "package.json"
+  ],
+  "npmRebuild": false,
+  "protocols": [
+    {
+      "name": "agent-mesh pairing link",
+      "schemes": [
+        "agentmesh"
+      ]
+    }
+  ],
+  "linux": {
+    "target": [
+      "deb",
+      "AppImage"
+    ],
+    "category": "Development",
+    "synopsis": "Hand a change to the agent inside another repo",
+    "maintainer": "agent-mesh developers <agent-mesh@users.noreply.github.com>",
+    "syncDesktopName": true
+  },
+  "mac": {
+    "target": [
+      "dmg"
+    ],
+    "category": "public.app-category.developer-tools"
+  },
+  "win": {
+    "target": [
+      "nsis",
+      "zip"
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "Luisotee",
+      "repo": "agent-mesh"
+    }
+  ]
+}

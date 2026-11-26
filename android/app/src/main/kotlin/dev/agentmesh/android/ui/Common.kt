@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.net.Route
+import dev.agentmesh.android.net.isTailnetUrl
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.HostState
 import java.text.DateFormat
@@ -41,7 +42,7 @@ fun connSentence(c: ConnState, nowMs: Long = System.currentTimeMillis()): String
 }
 
 fun routeLabel(r: Route): String = when (r) {
-    is Route.Direct -> r.url
+    is Route.Direct -> if (isTailnetUrl(r.url)) "tailnet ${r.url}" else r.url
     is Route.Relay -> "relay ${r.relayTcp}"
 }
 
