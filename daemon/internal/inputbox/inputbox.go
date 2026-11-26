@@ -102,6 +102,10 @@ var (
 	// around it; its placeholder is grey (`38;2;128;128;128`).
 	OpenCode = Profile{Ghost: GhostDim | GhostGrey | GhostRGBGrey, Gutter: true, StatusBlock: true,
 		Placeholder: regexp.MustCompile(`^Ask anything(…|\.\.\.)\s*("[^"]*")?$`)}
+	// Copilot: a gutter box from a `╻▄▄…` top to a `╹▀▀…` bottom, every `┃` row typed text (no status rows inside
+	// it); its placeholder is dim. As `bin/mesh` drew it: not checked on a live Copilot (this account's is blocked).
+	Copilot = Profile{Ghost: GhostDim, Gutter: true,
+		Placeholder: regexp.MustCompile(`^Type @ to mention files, / for commands$`)}
 )
 
 var (

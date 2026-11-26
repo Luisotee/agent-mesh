@@ -199,3 +199,33 @@ func TestAnEscapeSequenceWithIntermediateBytesIsSkippedWhole(t *testing.T) {
 		}
 	}
 }
+
+// Copilot's gutter box: a `╻▄▄` top, `┃` rows and a `╹▀▀` bottom, the placeholder dim.
+func TestCopilotGutterBox(t *testing.T) {
+	screen := func(rows ...string) string {
+		out := "some output\r\n┃ a quoted line of output\r\n\r\n╻" + strings.Repeat("▄", 40) + "\r\n"
+		for _, r := range rows {
+			out += "┃ " + r + "\r\n"
+		}
+		return out + "╹" + strings.Repeat("▀", 40) + "\r\n"
+	}
+	for _, c := range []struct {
+		name string
+		rows []string
+		want inputbox.State
+		text string
+	}{
+		{"the dim placeholder is no draft", []string{dim + "Type @ to mention files, / for commands" + reset}, inputbox.Empty, ""},
+		{"the placeholder is empty whatever colour it is drawn in", []string{"Type @ to mention files, / for commands"}, inputbox.Empty, ""},
+		{"an empty box", []string{""}, inputbox.Empty, ""},
+		{"a draft", []string{"half a thought"}, inputbox.Typed, "half a thought"},
+		{"a draft over two rows", []string{"half a thought", "and more"}, inputbox.Typed, "half a thought and more"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := inputbox.Read(repaint(t, 60, 30, screen(c.rows...)), inputbox.Copilot, "x")
+			if got.State != c.want || got.Text != c.text {
+				t.Errorf("got %v %q, want %v %q", got.State, got.Text, c.want, c.text)
+			}
+		})
+	}
+}

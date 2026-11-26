@@ -9,12 +9,19 @@ import (
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // settleCap is how many ReadySettle periods after its first output a terminal that never goes quiet is marked
 // idle anyway.
 const settleCap = 30
+
+// trustUnanswered reports a Copilot agent that waits on its folder-trust dialog after the daemon's Enter presses
+// failed: it is looked at again, and goes on to idle once the dialog is answered by hand.
+func trustUnanswered(a *v1.Agent) bool {
+	return a.Kind == copilot.Kind && a.State == v1.AgentState_AGENT_STATE_NEEDS_INPUT && a.StateDetail == copilotTrustUnanswered
+}
 
 // settleStartingAgents marks STARTING agents idle once their terminal has drawn initial output and settled,
 // for adapters that lack a startup hook (e.g. agy).
@@ -28,7 +35,7 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 	}
 	var need []*v1.Agent
 	for _, a := range agents {
-		if a.State == v1.AgentState_AGENT_STATE_STARTING && a.TerminalId != "" &&
+		if (a.State == v1.AgentState_AGENT_STATE_STARTING || trustUnanswered(a)) && a.TerminalId != "" &&
 			!d.rt.adapters.HasCapability(a.Kind, "startup-hook") {
 			need = append(need, a)
 		}
@@ -64,10 +71,14 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 		if now.Sub(tm.LastOutput.AsTime()) < settle && now.Sub(first) < settleCap*settle {
 			continue
 		}
+		// A folder-trust dialog is no prompt: answer it, and wait until it is gone.
+		if a.Kind == copilot.Kind && d.copilotTrustGate(ctx, a) {
+			continue
+		}
 		var becameIdle bool
 		err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAgent(a.Id)
-			if err != nil || cur.State != v1.AgentState_AGENT_STATE_STARTING {
+			if err != nil || (cur.State != v1.AgentState_AGENT_STATE_STARTING && !trustUnanswered(cur)) {
 				return err
 			}
 			tx.Actor = &v1.Actor{Class: ClassOf(cur.Role), Id: cur.Id, Name: cur.Name, RunId: cur.RunId}

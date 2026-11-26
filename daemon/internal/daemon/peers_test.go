@@ -187,7 +187,7 @@ func TestImportingPeersReadsBinMeshsFileWithoutWritingItAndSkipsWhatItCant(t *te
 			"paseo-research": map[string]any{"repo": clone, "group": "orchestrators", "kind": "claude", "about": "a daemon per host", "seen": seen, "cwd": "/old/worktree",
 				"upstream": map[string]any{"remote": "origin", "branch": "main", "url": up.dir}, "run": "r1", "as": "paseo-research"},
 			"gone-research":  map[string]any{"repo": "/nowhere/gone", "group": "orchestrators", "about": "x"},
-			"codex-research": map[string]any{"repo": clone, "group": "g", "kind": "copilot", "about": "y"},
+			"codex-research": map[string]any{"repo": clone, "group": "g", "kind": "codex", "about": "y"},
 		},
 		"groups": map[string]any{"orchestrators": map[string]any{"about": "agent orchestration tools"}},
 	}, "", "  ")
@@ -201,7 +201,7 @@ func TestImportingPeersReadsBinMeshsFileWithoutWritingItAndSkipsWhatItCant(t *te
 	if got := strings.Join(res.Msg.Imported, ","); got != "group orchestrators,paseo-research" {
 		t.Errorf("imported %q", got)
 	}
-	if len(res.Msg.Skipped) != 2 || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "gone-research: its clone") || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "codex-research: its kind copilot has no adapter") {
+	if len(res.Msg.Skipped) != 2 || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "gone-research: its clone") || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "codex-research: its kind codex has no adapter") {
 		t.Errorf("skipped %v", res.Msg.Skipped)
 	}
 	p := w.peer(t, "paseo-research")
