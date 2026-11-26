@@ -94,3 +94,16 @@ func TestCapTextCountsCharactersAndNeverCutsOne(t *testing.T) {
 		t.Error("3000 characters were capped at a 4000 limit")
 	}
 }
+
+func TestOneLineCollapsesWhitespaceAndControlCharacters(t *testing.T) {
+	for in, want := range map[string]string{
+		"  carry on\nthen  stop\r\n": "carry on then stop",
+		"a\x1b[31mb\x15c":            "a [31mb c",
+		"\n\t ":                      "",
+		"café ☕":                     "café ☕",
+	} {
+		if got := oneLine(in); got != want {
+			t.Errorf("oneLine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

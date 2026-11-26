@@ -283,8 +283,14 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 // requestReopen stores a reopen on the agent (replacing one not done yet), with its event. The caller stores the
 // agent and, after the commit, calls deliverSoon.
 func requestReopen(tx *store.Tx, a *v1.Agent, model, effort string, deny bool, why, reason string) (*v1.Reopen, error) {
+	return requestReopenWith(tx, a, model, effort, deny, why, reason, false)
+}
+
+// requestReopenWith is requestReopen for a reopen that starts a fresh conversation (a root's reset) when fresh: the
+// event it records says so.
+func requestReopenWith(tx *store.Tx, a *v1.Agent, model, effort string, deny bool, why, reason string, fresh bool) (*v1.Reopen, error) {
 	r := &v1.Reopen{Id: ids.New("o", 10), Model: model, Effort: effort, DenyEdits: deny, Why: why, Reason: reason,
-		RequestedAt: timestamppb.New(tx.Now()), RequestedBy: tx.Actor}
+		RequestedAt: timestamppb.New(tx.Now()), RequestedBy: tx.Actor, Fresh: fresh}
 	a.PendingReopen = r
 	_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentReopenRequested{
 		AgentReopenRequested: &v1.AgentReopenRequested{Reopen: r}}})

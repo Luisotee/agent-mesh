@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -147,6 +148,12 @@ func mailText(ms []*v1.Message) string {
 	return strings.Join(parts, ", ")
 }
 
+// oneLine is text typed into a terminal as one line: control characters and runs of whitespace (a newline would be
+// a keystroke for the CLI) become single spaces.
+func oneLine(s string) string {
+	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+}
+
 // requestReset stores a reset on the root, with its event. The caller stores the agent and calls deliverSoon.
 func (d *Daemon) requestReset(tx *store.Tx, root *v1.Agent, via, next, focus string, compact bool, usage *v1.ContextUsage) (*v1.RootReset, error) {
 	if !d.rt.adapters.HasCapability(root.Kind, capContext) {
@@ -166,7 +173,7 @@ func (d *Daemon) requestReset(tx *store.Tx, root *v1.Agent, via, next, focus str
 	} else if len(waits) > 0 {
 		return nil, failedPrecondition("%s waits on you: answer it first (`mesh inbox`), then reset", mailText(waits))
 	}
-	rs := &v1.RootReset{Id: ids.New("r", 10), Via: via, Next: strings.TrimSpace(next), Compact: compact, Focus: strings.TrimSpace(focus),
+	rs := &v1.RootReset{Id: ids.New("r", 10), Via: via, Next: oneLine(next), Compact: compact, Focus: oneLine(focus),
 		RequestedAt: tsOf(tx.Now()), OldSession: root.SessionId}
 	if usage != nil {
 		rs.Tokens, rs.Transcript = usage.Tokens, usage.Transcript
@@ -208,7 +215,11 @@ func (d *Daemon) ResetRoot(ctx context.Context, req *connect.Request[v1.ResetRoo
 		if IsAgent(tx.Actor.Class) && tx.Actor.Id != root.Id {
 			return denied("only the run's root resets itself")
 		}
-		if run, err := tx.GetRun(runID); err != nil || run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+		run, err := tx.GetRun(runID)
+		if err != nil {
+			return err
+		}
+		if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", runID)
 		}
 		rootID = root.Id
@@ -318,6 +329,11 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 			}
 			return true, nil
 		}
+		if a.SessionId == "" || a.SessionId == pr.OldSession {
+			// Another reopen (a model switch, an automatic limit switch) replaced the reset's fresh one, and the root
+			// came back on its old conversation: it must not be told its context is gone.
+			return false, d.finishReset(ctx, a.Id, pr, "failed", "another reopen replaced the reset's fresh session, so the root is still on its old conversation", a.SessionId)
+		}
 		return d.ringBootstrap(ctx, a, pr, false, a.SessionId)
 	case "clear":
 		if gone { // it ended after the /clear: holding it would block its reopen
@@ -357,6 +373,9 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 		if u := d.measureContext(ctx, a); u.Measured && pr.Tokens > 0 && u.Tokens >= pr.Tokens {
 			return false, d.finishReset(ctx, a.Id, pr, "failed", "its context did not shrink", "")
 		}
+		if !takesDoorbell(a.State) {
+			return true, nil // the CLI's own state has not come back to its prompt: bounded by the timeout above
+		}
 		return d.ringBootstrap(ctx, a, pr, true, a.SessionId)
 	}
 	return false, d.finishReset(ctx, a.Id, pr, "failed", "unknown reset mode "+pr.Mode, "")
@@ -378,20 +397,21 @@ func (d *Daemon) startReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset, 
 	if gone {
 		return false, d.finishReset(ctx, a.Id, pr, "failed", "its process is gone", "")
 	}
+	var checkErr error
 	if takesDoorbell(a.State) {
-		quiet, err := d.quietToType(ctx, a.TerminalId)
-		if err != nil {
-			return true, err
-		}
-		if quiet {
+		var quiet bool
+		if quiet, checkErr = d.quietToType(ctx, a.TerminalId); checkErr == nil && quiet {
 			return d.beginReset(ctx, a, pr)
 		}
 		why = "someone is typing into it"
+		if checkErr != nil { // can't tell: the same wait, so a terminal host that stays down doesn't hold the root for good
+			why = "the terminal host did not answer: " + checkErr.Error()
+		}
 	}
 	if secs, _ := wait.(float64); now.Sub(pr.RequestedAt.AsTime()) > time.Duration(secs*float64(time.Second)) {
 		return false, d.finishReset(ctx, a.Id, pr, "failed", fmt.Sprintf("gave up after waiting %s: %s", ago(time.Duration(secs*float64(time.Second))), why), "")
 	}
-	return true, nil
+	return true, checkErr
 }
 
 // beginReset starts the reset at a quiet prompt: relaunch the root lean in a fresh conversation (a Claude root,
@@ -417,7 +437,7 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 			if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
 				return err
 			}
-			cur.PendingReset.Mode, cur.PendingReset.TypedAt = mode, timestamppb.New(now)
+			cur.PendingReset.Mode, cur.PendingReset.TypedAt, cur.PendingReset.OldSession = mode, timestamppb.New(now), cur.SessionId
 			if cur.PendingCompaction == nil {
 				cur.PendingCompaction = &v1.PendingCompaction{Id: ids.New("c", 10), Why: "reset", Focus: pr.Focus,
 					RequestedAt: timestamppb.New(now), Always: true}
@@ -430,13 +450,11 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 			if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
 				return err
 			}
-			cur.PendingReset.Mode, cur.PendingReset.TypedAt = mode, timestamppb.New(now)
+			cur.PendingReset.Mode, cur.PendingReset.TypedAt, cur.PendingReset.OldSession = mode, timestamppb.New(now), cur.SessionId
 			model, effort, deny := target(cur)
-			rv, err := requestReopen(tx, cur, model, effort, deny, "reset", "mesh reset")
-			if err != nil {
+			if _, err := requestReopenWith(tx, cur, model, effort, deny, "reset", "mesh reset", true); err != nil {
 				return err
 			}
-			rv.Fresh = true
 			return tx.PutAgent(cur)
 		})
 	default:
@@ -446,7 +464,7 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 			if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
 				return err
 			}
-			cur.PendingReset.Mode, cur.PendingReset.TypedAt = mode, timestamppb.New(now)
+			cur.PendingReset.Mode, cur.PendingReset.TypedAt, cur.PendingReset.OldSession = mode, timestamppb.New(now), cur.SessionId
 			return tx.PutAgent(cur)
 		})
 		if err == nil {
@@ -477,14 +495,15 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 
 // ringBootstrap types the bootstrap line into the reset root and finishes the reset.
 func (d *Daemon) ringBootstrap(ctx context.Context, a *v1.Agent, pr *v1.RootReset, compacted bool, newSession string) (bool, error) {
-	quiet, err := d.quietToType(ctx, a.TerminalId)
-	if err != nil {
-		return true, err
-	}
-	if !quiet {
+	quiet, qerr := d.quietToType(ctx, a.TerminalId)
+	if qerr != nil || !quiet {
 		// Someone is typing into the root: the line waits, for as long as a reset waits for a quiet prompt, and no
 		// longer: the root is not held for good (it holds doorbells while the reset is pending).
 		now := d.now()
+		blocked := "someone was typing into it"
+		if qerr != nil {
+			blocked = "the terminal host did not answer"
+		}
 		if pr.BootstrapWaitedSince == nil {
 			return true, d.updateReset(ctx, a.Id, pr.Id, func(_ *v1.Agent, p *v1.RootReset) { p.BootstrapWaitedSince = timestamppb.New(now) })
 		}
@@ -493,10 +512,10 @@ func (d *Daemon) ringBootstrap(ctx context.Context, a *v1.Agent, pr *v1.RootRese
 			return true, err
 		}
 		if secs, _ := wait.(float64); now.Sub(pr.BootstrapWaitedSince.AsTime()) > time.Duration(secs*float64(time.Second)) {
-			return false, d.finishReset(ctx, a.Id, pr, "failed", fmt.Sprintf("its session was reset, but the prompt to run `mesh brief` was not typed: someone was typing into it for %s. Run `mesh brief` yourself",
-				ago(time.Duration(secs*float64(time.Second)))), newSession)
+			return false, d.finishReset(ctx, a.Id, pr, "failed", fmt.Sprintf("its session was reset, but the prompt to run `mesh brief` was not typed: %s for %s. Run `mesh brief` yourself",
+				blocked, ago(time.Duration(secs*float64(time.Second)))), newSession)
 		}
-		return true, nil
+		return true, qerr
 	}
 	if err := d.typeLine(ctx, a.TerminalId, bootstrapText(a, pr, compacted)); err != nil {
 		return false, d.finishReset(ctx, a.Id, pr, "failed", "its session was reset, but the prompt to run `mesh brief` didn't get through: "+err.Error(), newSession)

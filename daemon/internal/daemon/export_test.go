@@ -2,8 +2,14 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"time"
 
+	"connectrpc.com/connect"
+
+	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -77,4 +83,22 @@ func (d *Daemon) SeedModelNotice(ctx context.Context, kind string, families ...s
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		return saveModelCheckState(tx, modelCheckState{At: d.now().Unix(), New: map[string][]string{kind: families}})
 	})
+}
+
+// flakyTerm is the terminal host's client whose ListTerminals fails while fail is set.
+type flakyTerm struct {
+	termv1connect.TermHostServiceClient
+	fail *atomic.Bool
+}
+
+func (f *flakyTerm) ListTerminals(ctx context.Context, req *connect.Request[termv1.ListTerminalsRequest]) (*connect.Response[termv1.ListTerminalsResponse], error) {
+	if f.fail.Load() {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("host down"))
+	}
+	return f.TermHostServiceClient.ListTerminals(ctx, req)
+}
+
+// FlakyTerminalList makes the daemon's terminal host fail ListTerminals while fail is set. Call it before any agent runs.
+func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
+	d.rt.term.API = &flakyTerm{d.rt.term.API, fail}
 }

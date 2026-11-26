@@ -300,6 +300,34 @@ func TestAHeadlessCompactionStartedBeforeARestartIsNotRunAgain(t *testing.T) {
 	}
 }
 
+func TestACompactionThatCannotBeTypedEndsInsteadOfRetrying(t *testing.T) {
+	w := startCompact(t)
+	run, worker, _, _ := followUpWorld(t, w)
+	w.size(t, worker, 400000, hour, 0)
+	// The agent's terminal can't be written to: the line is never typed.
+	err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(worker.Id)
+		if err != nil {
+			return err
+		}
+		a.TerminalId = "gone-terminal"
+		a.PendingCompaction = &v1.PendingCompaction{Id: "c-type", Why: "follow-up", Always: true, RequestedAt: timestamppb.Now()}
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the compaction ended", func() bool { return w.agent(worker.Id).PendingCompaction == nil })
+	cs := w.compacted(t, run.Id, worker.Id)
+	if len(cs) != 1 || !strings.HasPrefix(cs[0].Outcome, "could not type /compact: ") {
+		t.Fatalf("events %v", cs)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if n := len(w.compacted(t, run.Id, worker.Id)); n != 1 {
+		t.Errorf("%d events: it was asked again", n)
+	}
+}
+
 func TestApproveCompactsALivePlannerInItsTerminalBeforeTheReopen(t *testing.T) {
 	var log string
 	w := startCompact(t, func(c *daemon.AgentConfig) {

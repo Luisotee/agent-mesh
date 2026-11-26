@@ -60,7 +60,7 @@ func TestTheDaemonsProtocolHasTheStepsTheBriefPointsTo(t *testing.T) {
 	if !strings.Contains(parts["root.6"], "Review every plan") || !strings.Contains(parts["root.8"], "Check every `done`") {
 		t.Errorf("root.6 %q root.8 %q", firstLine(parts["root.6"]), firstLine(parts["root.8"]))
 	}
-	for _, want := range []string{"questions-and-reviews", "follow-ups", "root-card", "protocol", "tiers", "sizes"} {
+	for _, want := range []string{"questions-and-reviews", "follow-ups", "root-card", "protocol", "tiers", "sizes", "notes-and-your-own-context"} {
 		if _, ok := parts[want]; !ok {
 			t.Errorf("no part %q", want)
 		}

@@ -5,16 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
@@ -134,6 +137,19 @@ func TestAResetRelaunchesTheRootFreshAndTellsItToRunBrief(t *testing.T) {
 	}
 	if got := strings.Join(w.resetEvents(t, run.Id, lead.Id), ","); got != "requested,done" {
 		t.Errorf("events %s", got)
+	}
+	evs, err := w.d.Store().Read(ctx).EventsAfter(0, run.Id, 10000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := false
+	for _, e := range evs {
+		if rr := e.GetAgentReopenRequested(); rr != nil && e.AgentId == lead.Id && rr.Reopen.Why == "reset" {
+			fresh = rr.Reopen.Fresh
+		}
+	}
+	if !fresh {
+		t.Error("the reopen event of a reset's relaunch does not say fresh")
 	}
 	// The old token is gone with the old process; the fresh root works under its new one.
 	if _, err := w.as(w.token(t, lead.Id)).Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); err != nil {
@@ -540,5 +556,107 @@ func TestACompactingResetFailsWhenTheCompactionNeverStartsAndTypesNoBootstrap(t 
 	after := w.waitReset(t, lead.Id, "failed")
 	if after.LastReset.Reason != "the CLI did not start compacting" || strings.Contains(w.typed(), "mesh reset` just") {
 		t.Errorf("reason %q, typed %q", after.LastReset.Reason, w.typed())
+	}
+}
+
+// putReset stores a pending reset on the root as the daemon would have left it, for the steps a test can't reach in time.
+func (rw *resetWorld) putReset(t *testing.T, id string, f func(a *v1.Agent, pr *v1.RootReset)) {
+	t.Helper()
+	err := rw.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(id)
+		if err != nil {
+			return err
+		}
+		a.PendingReset = &v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now()}
+		f(a, a.PendingReset)
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARelaunchReplacedByAnotherReopenIsNotToldItsContextIsGone(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	run := startRun(t, w.device.Mesh, "")
+	lead, _ := w.root(t, run.Id)
+	before := w.agent(lead.Id)
+	// The reset's fresh reopen was replaced by a model switch: the root came back on its old conversation.
+	w.putReset(t, lead.Id, func(_ *v1.Agent, pr *v1.RootReset) {
+		pr.Mode, pr.TypedAt, pr.OldSession = "relaunch", timestamppb.Now(), before.SessionId
+	})
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "another reopen replaced the reset's fresh session") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	if strings.Contains(w.typed(), "your earlier context is gone") {
+		t.Errorf("a bootstrap said the context was gone: %q", w.typed())
+	}
+}
+
+func TestACompactingResetTypesNoBootstrapIntoABusyRoot(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	run := startRun(t, w.device.Mesh, "")
+	lead, _ := w.root(t, run.Id)
+	w.typeInto(w.agent(lead.Id), "/hold\r")
+	w.waitState(lead.Id, v1.AgentState_AGENT_STATE_WORKING)
+	// Its compaction is over (no pending one), but the root has not come back to its prompt.
+	w.putReset(t, lead.Id, func(_ *v1.Agent, pr *v1.RootReset) {
+		pr.Mode, pr.TypedAt, pr.Compact = "compact", timestamppb.Now(), true
+	})
+	time.Sleep(700 * time.Millisecond)
+	if strings.Contains(w.typed(), "just compacted your session") {
+		t.Fatalf("the bootstrap was typed into a busy root: %q", w.typed())
+	}
+	w.typeInto(w.agent(lead.Id), "\r") // the turn ends
+	w.waitReset(t, lead.Id, "done")
+	if !strings.Contains(w.typed(), "just compacted your session") {
+		t.Errorf("typed %q", w.typed())
+	}
+}
+
+func TestAResetCapturesTheOldSessionWhenItBegins(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	w.setSetting(t, "root_reset.relaunch", false)
+	run := startRun(t, w.device.Mesh, "")
+	lead, _ := w.root(t, run.Id)
+	before := w.agent(lead.Id)
+	// Asked while the root was on another conversation (the user's own /resume while the reset waited).
+	w.putReset(t, lead.Id, func(_ *v1.Agent, pr *v1.RootReset) { pr.OldSession = "stale-" + before.SessionId })
+	after := w.waitReset(t, lead.Id, "done")
+	if after.LastReset.OldSession != before.SessionId {
+		t.Errorf("old session %q, want %q", after.LastReset.OldSession, before.SessionId)
+	}
+}
+
+func TestAResetWaitsOnATerminalHostThatKeepsFailingAndThenGivesUp(t *testing.T) {
+	var down atomic.Bool
+	w := startReset(t, daemon.ResetTimings{})
+	w.d.FlakyTerminalList(&down)
+	w.setSetting(t, "root_reset.wait", 1.0)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	down.Store(true)
+	if _, err := asLead.ResetRoot(context.Background(), connect.NewRequest(&v1.ResetRootRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "gave up after waiting") || !strings.Contains(after.LastReset.Reason, "the terminal host did not answer") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	down.Store(false)
+}
+
+func TestAResetsNextAndFocusAreOneLine(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.ResetRoot(context.Background(), connect.NewRequest(&v1.ResetRootRequest{
+		Next: "check the PR\n\x1b[200~then stop\r", Compact: true, Focus: "keep\nthe notes"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := res.Msg.RootReset; r.Next != "check the PR [200~then stop" || r.Focus != "keep the notes" {
+		t.Errorf("next %q focus %q", r.Next, r.Focus)
 	}
 }

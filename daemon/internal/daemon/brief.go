@@ -192,7 +192,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			}
 			// A plan or question waits until it is answered; a done or failed until the root has read it (what it
 			// does next is in its notes, which the reset made it write).
-			if rep != nil && rep.ToId == rootID(root) && (rep.Type == v1.MessageType_MESSAGE_TYPE_PLAN ||
+			if isRoot && rep != nil && rep.ToId == rootID(root) && (rep.Type == v1.MessageType_MESSAGE_TYPE_PLAN ||
 				rep.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || unread[rep.Id]) {
 				kind = rep.Type
 				line += "; its " + strings.ToLower(strings.TrimPrefix(rep.Type.String(), "MESSAGE_TYPE_")) + " waits on you ← needs you"

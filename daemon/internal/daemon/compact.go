@@ -386,22 +386,23 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	if !wants(pc, usage) {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0)
 	}
-	quiet, err := d.quietToType(ctx, a.TerminalId)
-	if err != nil {
-		return true, err
-	}
-	if !quiet {
+	quiet, qerr := d.quietToType(ctx, a.TerminalId)
+	if qerr != nil || !quiet {
 		if pc.WaitedSince == nil {
 			return true, d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) { p.WaitedSince = timestamppb.New(now) })
 		}
 		if now.Sub(pc.WaitedSince.AsTime()) > orDuration(d.rt.cfg.CompactQuietWait, compactQuietWait) {
-			return false, d.endCompaction(ctx, a, pc, "a user was typing, so it was not compacted", usage.Tokens, 0)
+			why := "a user was typing, so it was not compacted"
+			if qerr != nil { // can't tell: the same wait, so a terminal host that stays down doesn't hold the agent for good
+				why = "its terminal could not be checked, so it was not compacted"
+			}
+			return false, d.endCompaction(ctx, a, pc, why, usage.Tokens, 0)
 		}
-		return true, nil
+		return true, qerr
 	}
 	line := "/compact"
-	if pc.Focus != "" {
-		line += " " + pc.Focus
+	if focus := oneLine(pc.Focus); focus != "" { // one line: a newline would be a keystroke
+		line += " " + focus
 	}
 	// Recorded before the line is typed: the CLI's PreCompact can arrive before typeLine returns, and a hook for a
 	// compaction not yet marked typed is ignored.
@@ -411,8 +412,9 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 		return true, err
 	}
 	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
-		_ = d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) { p.TypedAt = nil })
-		return true, err
+		// Ended, not retried: a failed Enter can leave the text in the input box, and typing it again would double
+		// the line (and hold every doorbell meanwhile).
+		return false, d.endCompaction(ctx, a, pc, "could not type /compact: "+err.Error(), usage.Tokens, 0)
 	}
 	return true, nil
 }
