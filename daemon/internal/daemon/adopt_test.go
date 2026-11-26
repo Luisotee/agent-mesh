@@ -146,6 +146,8 @@ func TestAnAdoptedSessionIsTheRootAndIsRungThroughItsSocket(t *testing.T) {
 	readInbox(t, asWorker)
 	msg := send(t, asWorker, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "finished")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, root.Id, msg.Id).IsZero() })
+	// The frame is written to the socket before the fake session logs it: wait for the line.
+	waitFor(t, "the frame in the session", func() bool { return len(lines(t, sess.log)) > 0 })
 	got := lines(t, sess.log)
 	if len(got) != 1 || !strings.HasPrefix(got[0], "frame: 📬 [mesh] done from") || !strings.Contains(got[0], "ROOT_CARD.md") {
 		t.Fatalf("what the session was given: %q", got)
