@@ -16,7 +16,7 @@ mesh dir           # the run's folder: plans/, reports/ and tasks/ go in it
 A line starting with `📬 [mesh]` in your input is a **doorbell**: the daemon types it into your terminal when you are idle, never while you work and never into what the user is typing. It shows only who sent what; the message is in your mailbox:
 
 ```bash
-mesh inbox         # prints your unread messages (JSON: type, from, body) and marks them read
+mesh inbox         # prints your unread messages (a header line with type, sender and time, then the body; `--format json` for the whole response) and marks them read
 ```
 
 Run `mesh inbox` whenever a doorbell rings, and reply only with `mesh send`. The first doorbell of a process also names this file: read it once. Messages from `mesh` itself (an `info` from the daemon) are the daemon's: a nudge for you, or an alert about an agent of yours.
