@@ -3,7 +3,7 @@ import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
-import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -125,7 +125,9 @@ describe('applyFrame', () => {
       ev(7, { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.WORKING, to: AgentState.IDLE, detail: '', needsInput: 0 } }),
     ]
     // A client that dropped after the snapshot and resumed gets the later events after a Resumed frame.
+    frames.push(ev(8, { case: 'agentRoleChanged', value: { $typeName: 'agentmesh.v1.AgentRoleChanged', from: AgentRole.ASKER, to: AgentRole.WORKER, why: 'change task' } }))
     const live = run(frames)
+    expect(live.agents.a1!.role).toBe(AgentRole.WORKER)
     const resumed = run([frames[0]!, { case: 'resumed', value: { $typeName: 'agentmesh.v1.Resumed' } }, ...frames.slice(1)])
     expect(resumed.agents).toEqual(live.agents)
     expect(resumed.cursor).toEqual(live.cursor)
