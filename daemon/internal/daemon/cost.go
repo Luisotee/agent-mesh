@@ -70,6 +70,9 @@ func claudeCallCost(model string, input, w5, w1, read, output int64) float64 {
 			break
 		}
 	}
+	if strings.Contains(ml, "fable-5-2") || strings.Contains(ml, "fable-5.2") {
+		rates = [5]float64{8.0, 10.0, 16.0, 0.20, 40.0} // Fable 5.2; the table's fable row is 5.1's
+	}
 	if strings.Contains(ml, "sonnet-5-5") || strings.Contains(ml, "sonnet-5.5") {
 		rates[3] = 0.10 // Sonnet 5.5 cache hits bill 0.05x its input price
 	}
