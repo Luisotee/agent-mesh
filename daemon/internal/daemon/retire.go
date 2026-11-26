@@ -433,7 +433,11 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	d.sweepWorktrees(context.WithoutCancel(ctx), sweepAgents)
 	// A replayed call has no agents: its stored response already says what happened (without the worktrees, which
 	// are only reported by the call that removed them).
+	seenWT := map[string]bool{}
 	for _, a := range agents {
+		if a.Worktree != "" {
+			seenWT[a.Worktree] = true
+		}
 		if why, bad := notStopped[a.Id]; bad {
 			out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch,
 				BranchKept: true, Reason: "its process could not be stopped, so its worktree stays: " + firstLine(why)})
@@ -444,38 +448,53 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 				BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
 			continue
 		}
-		var wo *v1.WorktreeOutcome
-		if a.Worktree != "" {
-			wmu := d.worktreeLock(a.Worktree)
-			wmu.Lock()
-			wo = d.removeWorktree(ctx, a)
-			wmu.Unlock()
-		} else {
-			wo = d.removeWorktree(ctx, a)
+		out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, a.Id, a.Repo, a.Worktree, a.Branch, a.BaseCommit, a.Peer))
+	}
+	if wts, werr := sr.ListWorktrees(req.Msg.RunId); werr == nil {
+		for _, wt := range wts {
+			if seenWT[wt.Path] {
+				continue
+			}
+			seenWT[wt.Path] = true
+			if busyWorktrees[wt.Path] {
+				out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{Worktree: wt.Path, Branch: wt.Branch,
+					BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
+				continue
+			}
+			out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, "", wt.Repo, wt.Path, wt.Branch, wt.BaseCommit, false))
 		}
-		out.Worktrees = append(out.Worktrees, wo)
 	}
 	return connect.NewResponse(out), nil
 }
 
-// removeWorktree removes an agent's worktree when it is clean and deletes its branch unless it holds work. Nothing
+func (d *Daemon) lockedRemoveWorktree(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer bool) *v1.WorktreeOutcome {
+	if worktree == "" {
+		return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer)
+	}
+	wmu := d.worktreeLock(worktree)
+	wmu.Lock()
+	defer wmu.Unlock()
+	return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer)
+}
+
+// removeWorktreePath removes a worktree when it is clean and deletes its branch unless it holds work. Nothing
 // is ever forced: a dirty worktree, or one git refuses to remove, stays.
-func (d *Daemon) removeWorktree(ctx context.Context, a *v1.Agent) *v1.WorktreeOutcome {
-	o := &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch, BranchKept: true}
-	if a.Worktree == "" || a.Repo == "" {
+func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer bool) *v1.WorktreeOutcome {
+	o := &v1.WorktreeOutcome{AgentId: agentID, Worktree: worktree, Branch: branch, BranchKept: true}
+	if worktree == "" || repo == "" {
 		o.Reason = "no worktree recorded"
 		return o
 	}
-	if a.Peer {
+	if peer {
 		o.Reason = "a standing peer's worktree is kept: it is the peer's, not this run's"
 		return o
 	}
 	var status string
 	var err error
-	_, statErr := os.Stat(a.Worktree)
+	_, statErr := os.Stat(worktree)
 	gone := errors.Is(statErr, os.ErrNotExist) // not the text of git's error: it follows the locale
 	if !gone {
-		status, err = git(ctx, a.Worktree, "status", "--porcelain")
+		status, err = git(ctx, worktree, "status", "--porcelain")
 	}
 	switch {
 	case err != nil:
@@ -483,27 +502,27 @@ func (d *Daemon) removeWorktree(ctx context.Context, a *v1.Agent) *v1.WorktreeOu
 		return o
 	case gone:
 		// Git still lists it, and would not delete the branch of a worktree it lists.
-		git(ctx, a.Repo, "worktree", "prune")
+		git(ctx, repo, "worktree", "prune")
 		o.WorktreeRemoved = true
 		o.Reason = "its worktree was already gone"
 	case status != "":
 		o.Reason = "uncommitted changes: the worktree and its branch stay"
 		return o
 	default:
-		if _, err := git(ctx, a.Repo, "worktree", "remove", a.Worktree); err != nil {
+		if _, err := git(ctx, repo, "worktree", "remove", worktree); err != nil {
 			o.Reason = "git would not remove it: " + firstLine(err.Error())
 			return o
 		}
 		o.WorktreeRemoved = true
 	}
-	if a.Branch == "" {
+	if branch == "" {
 		return o
 	}
-	if has, why := branchHasWork(ctx, a); has {
+	if has, why := branchHasWork(ctx, repo, branch, baseCommit); has {
 		o.Reason = why
 		return o
 	}
-	if _, err := git(ctx, a.Repo, "branch", "-D", a.Branch); err != nil {
+	if _, err := git(ctx, repo, "branch", "-D", branch); err != nil {
 		o.Reason = "couldn't delete its branch: " + firstLine(err.Error())
 		return o
 	}
@@ -514,25 +533,25 @@ func (d *Daemon) removeWorktree(ctx context.Context, a *v1.Agent) *v1.WorktreeOu
 // branchHasWork reports whether a branch is worth keeping: it moved past the commit it started at (its own work,
 // even when another branch stacked on it reaches the same commits), or a remote branch of its name exists (it was
 // pushed, so it may back a PR).
-func branchHasWork(ctx context.Context, a *v1.Agent) (bool, string) {
+func branchHasWork(ctx context.Context, repo, branch, baseCommit string) (bool, string) {
 	// A remote branch of its name means it was pushed. (Not "has an upstream": a worktree started from origin/main
 	// has that one for free.)
-	if refs, err := git(ctx, a.Repo, "for-each-ref", "--format=%(refname)", "refs/remotes/*/"+a.Branch); err == nil && refs != "" {
+	if refs, err := git(ctx, repo, "for-each-ref", "--format=%(refname)", "refs/remotes/*/"+branch); err == nil && refs != "" {
 		return true, "its branch was pushed: kept"
 	}
-	tip, err := git(ctx, a.Repo, "rev-parse", "--verify", "-q", "refs/heads/"+a.Branch)
+	tip, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return true, "can't read its branch: kept"
 	}
-	if a.BaseCommit != "" {
-		if tip != a.BaseCommit {
+	if baseCommit != "" {
+		if tip != baseCommit {
 			return true, "its branch has commits of its own: kept"
 		}
 		return false, ""
 	}
 	// An agent recorded without its start: commits reachable from the branch and from no other branch or remote.
-	cmd := exec.CommandContext(ctx, "git", "-C", a.Repo, "rev-list", "--count", "refs/heads/"+a.Branch,
-		"--not", "--exclude="+a.Branch, "--branches", "--remotes")
+	cmd := exec.CommandContext(ctx, "git", "-C", repo, "rev-list", "--count", "refs/heads/"+branch,
+		"--not", "--exclude="+branch, "--branches", "--remotes")
 	if b, err := cmd.Output(); err != nil || strings.TrimSpace(string(b)) != "0" {
 		return true, "its branch has commits of its own: kept"
 	}

@@ -213,7 +213,10 @@ type PlanLaunchRequest struct {
 	// role is denied either way.
 	DenyEdits bool `protobuf:"varint,14,opt,name=deny_edits,json=denyEdits,proto3" json:"deny_edits,omitempty"`
 	// A lean session (Claude only): what it starts without. Unset, the CLI loads the user's full set.
-	Lean          *LeanLaunch `protobuf:"bytes,15,opt,name=lean,proto3" json:"lean,omitempty"`
+	Lean *LeanLaunch `protobuf:"bytes,15,opt,name=lean,proto3" json:"lean,omitempty"`
+	// Open outside any run for the user's own terminal: resume the conversation without hooks, deny rules,
+	// lean cuts, or skip-permissions flags.
+	Standalone    bool `protobuf:"varint,16,opt,name=standalone,proto3" json:"standalone,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,6 +354,13 @@ func (x *PlanLaunchRequest) GetLean() *LeanLaunch {
 		return x.Lean
 	}
 	return nil
+}
+
+func (x *PlanLaunchRequest) GetStandalone() bool {
+	if x != nil {
+		return x.Standalone
+	}
+	return false
 }
 
 // LeanLaunch is the policy of a lean Claude session (design §11 of docs/design.md): tools, skills and plugins
@@ -2225,7 +2235,7 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
 	"\x11verified_versions\x18\x03 \x03(\tR\x10verifiedVersions\x12\"\n" +
-	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xc2\x04\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xe2\x04\n" +
 	"\x11PlanLaunchRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -2244,7 +2254,10 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x11resume_session_id\x18\r \x01(\tR\x0fresumeSessionId\x12\x1d\n" +
 	"\n" +
 	"deny_edits\x18\x0e \x01(\bR\tdenyEdits\x124\n" +
-	"\x04lean\x18\x0f \x01(\v2 .agentmesh.adapter.v1.LeanLaunchR\x04lean\x1a6\n" +
+	"\x04lean\x18\x0f \x01(\v2 .agentmesh.adapter.v1.LeanLaunchR\x04lean\x12\x1e\n" +
+	"\n" +
+	"standalone\x18\x10 \x01(\bR\n" +
+	"standalone\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x02\n" +

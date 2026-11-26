@@ -366,5 +366,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld();
 
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   * @return Whether the worktreeCreated field is set.
+   */
+  boolean hasWorktreeCreated();
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   * @return The worktreeCreated.
+   */
+  dev.agentmesh.gen.agentmesh.v1.WorktreeCreated getWorktreeCreated();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

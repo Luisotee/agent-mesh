@@ -235,4 +235,24 @@ public interface MeshServiceClientInterface {
    *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
    */
   public suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers = emptyMap()): ResponseMessage<ListMCPServersResponse>
+
+  /**
+   *  Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+   */
+  public suspend fun createWorktree(request: CreateWorktreeRequest, headers: Headers = emptyMap()): ResponseMessage<CreateWorktreeResponse>
+
+  /**
+   *  The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+   */
+  public suspend fun streamLog(headers: Headers = emptyMap()): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse>
+
+  /**
+   *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+   */
+  public suspend fun ringAgent(request: RingAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RingAgentResponse>
+
+  /**
+   *  Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+   */
+  public suspend fun openAgent(request: OpenAgentRequest, headers: Headers = emptyMap()): ResponseMessage<OpenAgentResponse>
 }
