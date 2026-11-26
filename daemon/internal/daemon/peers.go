@@ -70,6 +70,9 @@ func (d *Daemon) peerWorktree(name string) string { return filepath.Join(d.workt
 
 // ensurePeerWorktree makes the peer's own detached worktree of its clone, on the commit it last saw.
 func (d *Daemon) ensurePeerWorktree(ctx context.Context, p *v1.Peer) error {
+	if p.InClone {
+		return nil // it works in the clone's own checkout: the daemon makes nothing
+	}
 	if _, err := git(ctx, p.Worktree, "rev-parse", "--git-dir"); err == nil {
 		return nil
 	}
@@ -353,6 +356,9 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 		}
 	}
 	out := &v1.RemovePeerResponse{Worktree: p.Worktree}
+	if p.InClone {
+		out.Worktree = ""
+	}
 	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceRemovePeerProcedure, out, func(tx *store.Tx) error {
 		return tx.DeletePeer(p.Name)
 	}); err != nil {
@@ -360,11 +366,14 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	}
 	// The peer is gone from the registry either way; a worktree git won't remove is the daemon's own folder, so
 	// it is deleted, and one that still stands is said.
-	if _, err := git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree); err != nil {
-		os.RemoveAll(p.Worktree)
-		git(ctx, p.Repo, "worktree", "prune")
-		if _, serr := os.Stat(p.Worktree); serr == nil {
-			return nil, fmt.Errorf("%s is removed from the registry, but its worktree %s could not be: %w", p.Name, p.Worktree, err)
+	// A peer in the clone's own checkout has no worktree of its own: that folder is the user's.
+	if !p.InClone {
+		if _, err := git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree); err != nil {
+			os.RemoveAll(p.Worktree)
+			git(ctx, p.Repo, "worktree", "prune")
+			if _, serr := os.Stat(p.Worktree); serr == nil {
+				return nil, fmt.Errorf("%s is removed from the registry, but its worktree %s could not be: %w", p.Name, p.Worktree, err)
+			}
 		}
 	}
 	if m.DeleteClone {
@@ -376,28 +385,45 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	return connect.NewResponse(out), nil
 }
 
+// peersFileEntry is one peer of bin/mesh's peers.json, as far as an import reads it.
+type peersFileEntry struct {
+	Repo  string `json:"repo"`
+	Group string `json:"group"`
+	Kind  string `json:"kind"`
+	About string `json:"about"`
+	Seen  string `json:"seen"`
+	// What bin/mesh recorded of the conversation: the folder it ran in, whether that is the clone's own checkout,
+	// the run and agent that last asked it, when, and the answers file of that ask.
+	Cwd     string `json:"cwd"`
+	InClone bool   `json:"in_clone"`
+	Run     string `json:"run"`
+	As      string `json:"as"`
+	Asked   string `json:"asked"`
+	Answers struct {
+		Run  string `json:"run"`
+		File string `json:"file"`
+	} `json:"answers"`
+	Upstream struct {
+		Remote string `json:"remote"`
+		Branch string `json:"branch"`
+		URL    string `json:"url"`
+	} `json:"upstream"`
+}
+
 // peersFile is bin/mesh's peers.json, as far as an import reads it.
 type peersFile struct {
-	Peers map[string]struct {
-		Repo     string `json:"repo"`
-		Group    string `json:"group"`
-		Kind     string `json:"kind"`
-		About    string `json:"about"`
-		Seen     string `json:"seen"`
-		Upstream struct {
-			Remote string `json:"remote"`
-			Branch string `json:"branch"`
-			URL    string `json:"url"`
-		} `json:"upstream"`
-	} `json:"peers"`
+	Peers  map[string]peersFileEntry `json:"peers"`
 	Groups map[string]struct {
 		About string `json:"about"`
 	} `json:"groups"`
 }
 
-// ImportPeers registers what bin/mesh's peers.json lists and the registry doesn't have, without their
-// conversations: those are bin/mesh's (keyed by Claude to its worktrees' paths), and resuming one here while
-// bin/mesh can still ask the same peer would run two processes on one conversation. The file is only read.
+// ImportPeers registers what bin/mesh's peers.json lists and the registry doesn't have, with their conversations:
+// the session id comes from the run.json (live or archived) of the run that last asked the peer, and the worktree
+// path it ran in is kept (Claude keys a conversation by it), so a follow-up resumes it instead of briefing again.
+// A conversation whose bin/mesh agent may still be running, or that can't be found or used, comes across without
+// it (as does every peer with `unbriefed`): one process per conversation. A peer already registered that was never
+// asked is upgraded the same way. The files are only read.
 func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error) {
 	m := req.Msg
 	path := m.From
@@ -411,6 +437,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("reading %s: %v", path, err))
 	}
+	stateDir := filepath.Dir(expandHome(path))
 	var f peersFile
 	if err := json.Unmarshal(b, &f); err != nil {
 		return nil, invalid("%s is not a peers.json: %v", path, err)
@@ -422,6 +449,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 	}
 	sort.Strings(names)
 	var peers, created []*v1.Peer
+	var upgrades []*peerUpgrade
 	for _, n := range names {
 		e := f.Peers[n]
 		skip := func(why string) { out.Skipped = append(out.Skipped, n+": "+why) }
@@ -433,8 +461,14 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			skip("no clone recorded")
 			continue
 		}
-		if _, err := d.store.Read(ctx).GetPeer(n); err == nil {
-			skip("already registered")
+		if have, err := d.store.Read(ctx).GetPeer(n); err == nil {
+			if up, note := d.upgradePeer(ctx, stateDir, n, e, have, m.Unbriefed); up != nil {
+				upgrades = append(upgrades, up)
+			} else if note != "" {
+				skip("already registered; " + note)
+			} else {
+				skip("already registered")
+			}
 			continue
 		}
 		if _, err := git(ctx, e.Repo, "rev-parse", "--git-dir"); err != nil {
@@ -475,15 +509,36 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		}
 		p := &v1.Peer{Name: n, Repo: e.Repo, Group: group, Kind: kind, About: about, Seen: seen, Worktree: d.peerWorktree(n),
 			Upstream: up, Added: timestamppb.New(d.now())}
+		fresh := proto.Clone(p).(*v1.Peer)
+		if !m.Unbriefed {
+			if note := d.adoptConversation(stateDir, n, e, p); note != "" {
+				skip(note)
+			}
+		}
 		_, statErr := os.Stat(p.Worktree)
 		if err := d.ensurePeerWorktree(ctx, p); err != nil {
-			skip(err.Error())
-			continue
+			if p.SessionId == "" {
+				skip(err.Error())
+				continue
+			}
+			// Its old worktree path can't be used: it is briefed afresh in one of the daemon's own.
+			skip("its worktree " + p.Worktree + " can't be used (" + err.Error() + "): imported without its conversation")
+			p = fresh
+			_, statErr = os.Stat(p.Worktree)
+			if err := d.ensurePeerWorktree(ctx, p); err != nil {
+				skip(err.Error())
+				continue
+			}
 		}
-		if statErr != nil {
+		if statErr != nil && !p.InClone {
 			created = append(created, p)
 		}
 		peers = append(peers, p)
+	}
+	for _, up := range upgrades {
+		if up.made {
+			created = append(created, up.peer)
+		}
 	}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceImportPeersProcedure, out, func(tx *store.Tx) error {
 		out.Imported = nil
@@ -519,6 +574,17 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			}
 			out.Imported = append(out.Imported, p.Name)
 		}
+		for _, up := range upgrades {
+			cur, err := tx.GetPeer(up.peer.Name)
+			if err != nil || cur.SessionId != "" || cur.Asked != nil {
+				out.Skipped = append(out.Skipped, up.peer.Name+": asked meanwhile, left alone")
+				continue
+			}
+			if err := tx.PutPeer(up.peer); err != nil {
+				return err
+			}
+			out.Imported = append(out.Imported, up.peer.Name+" (conversation "+short(up.peer.SessionId)+")")
+		}
 		return nil
 	})
 	if err != nil {
@@ -526,6 +592,11 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree)
 		}
 		return nil, err
+	}
+	for _, up := range upgrades {
+		if up.oldWorktree != "" {
+			git(ctx, up.peer.Repo, "worktree", "remove", up.oldWorktree) // clean only: never --force a folder the daemon is done with
+		}
 	}
 	return connect.NewResponse(out), nil
 }
@@ -604,7 +675,7 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 			// Nothing recorded to compare with: the checkout goes to the head when it is clean, and only then
 			// has it seen it.
 			fmt.Fprintf(&b, "Upstream (%s) is at %s; you have not looked at this project before.", where, short(head))
-			if at == head {
+			if at == head || p.InClone {
 				p.Seen = head
 			} else if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
 				if _, err := git(ctx, p.Worktree, "checkout", "--quiet", "--detach", head); err == nil {
@@ -627,7 +698,11 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 			}
 			// The checkout moves to the head when it is clean. Only then has it "seen" the head: a checkout left
 			// behind is told so again on the next ask, with the same commits.
-			if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
+			if p.InClone {
+				// The clone's own checkout is never moved: the peer reads the newer code with git show.
+				p.Seen = head
+				fmt.Fprintf(&b, "\nYou run in the clone's own checkout, which stays at %s: read the newer code with `git show %s:<path>`.", short(at), short(head))
+			} else if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
 				if _, err := git(ctx, p.Worktree, "checkout", "--quiet", "--detach", head); err == nil {
 					at = head
 					p.Seen = head

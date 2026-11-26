@@ -237,6 +237,9 @@ message Peer {
   string running_agent = 16;
   // The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
   bool cloned = 17;
+  // It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or
+  // removes: an import from `bin/mesh` carries this over.
+  bool in_clone = 18;
 }
 
 message PeerGroup {
@@ -299,6 +302,10 @@ message ImportPeersRequest {
   RequestMeta meta = 1;
   // bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
   string from = 2 [(path) = true];
+  // Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
+  // default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
+  // its answers file come across, so a follow-up resumes it.
+  bool unbriefed = 3;
 }
 
 message ImportPeersResponse {
