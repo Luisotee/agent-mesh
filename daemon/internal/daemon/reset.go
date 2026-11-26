@@ -599,7 +599,7 @@ func (h hintInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 		line, failure := h.d.rootHint(ctx, root, hintAboutToWait[req.Spec().Procedure])
 		if line != "" {
-			res.Header().Set(HintHeader, line)
+			res.Header().Set(HintHeader, headerText(line))
 		}
 		if failure {
 			h.d.noteResetFailure(root)
@@ -711,4 +711,19 @@ func (d *Daemon) autoReset(ctx context.Context) {
 		}
 		d.deliverSoon(root.Id)
 	}
+}
+
+// headerText is a line made safe for a header value: control characters (a failed reset's reason may hold a
+// newline) become spaces, and it is cut to 1000 characters.
+func headerText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	if r := []rune(s); len(r) > 1000 {
+		s = string(r[:1000]) + "…"
+	}
+	return s
 }

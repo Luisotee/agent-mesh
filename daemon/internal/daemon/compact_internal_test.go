@@ -72,3 +72,13 @@ func TestHookTextCutsFromTheMiddleKeepingTheLastLine(t *testing.T) {
 		t.Errorf("invalid or over the cap: %d bytes, valid %v", len(got), utf8.ValidString(got))
 	}
 }
+
+func TestHeaderTextHasNoControlCharacters(t *testing.T) {
+	got := headerText("the last reset failed: line one\nline two\r\x00end")
+	if strings.ContainsAny(got, "\n\r\x00") || !strings.Contains(got, "line one line two") {
+		t.Errorf("%q", got)
+	}
+	if n := len([]rune(headerText(strings.Repeat("é", 5000)))); n != 1001 {
+		t.Errorf("length %d", n)
+	}
+}

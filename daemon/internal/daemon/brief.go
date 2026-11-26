@@ -108,6 +108,9 @@ func (d *Daemon) GetBrief(ctx context.Context, req *connect.Request[v1.GetBriefR
 			me = a
 		}
 	}
+	if ref := req.Msg.Agent; ref != "" && IsAgent(actor.Class) && me != nil && ref != me.Id && ref != me.Name {
+		return nil, denied("an agent briefs only itself: its unread mail is its own")
+	}
 	if me == nil {
 		if ref := req.Msg.Agent; ref != "" {
 			if me, err = d.FindAgent(r, actor, ref); err != nil {

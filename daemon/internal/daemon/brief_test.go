@@ -165,3 +165,22 @@ func TestARootsReminderIsSilentWhileItsResetTypes(t *testing.T) {
 		return strings.Contains(w.screen(t, w.agent(lead.Id)), "agent-mesh reminder (compact): you are "+lead.Name+", the root of run "+run.Id)
 	})
 }
+
+func TestAnAgentCannotBriefAnotherAgent(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	asWorker := w.as(w.token(t, worker.Id))
+	if _, err := asWorker.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{Agent: lead.Id})); code(err) != connect.CodePermissionDenied {
+		t.Errorf("a worker briefing the root: %v", err)
+	}
+	if _, err := asWorker.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{Agent: worker.Name})); err != nil {
+		t.Errorf("a worker briefing itself: %v", err)
+	}
+}
