@@ -9,7 +9,7 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	s := Default() // panics on a default that fails its own rule, a duplicate key or a missing summary
 	for _, key := range []string{"tiers.claude.mid.model", "tiers.claude.top.effort", "tiers.agy.strong.model",
 		"tiers.opencode.mid.note", "review.rounds.large", "review.reviewers.small", "quota_stop", "idle_retire",
-		"skip_permissions", "min_free_mb", "memory_pressure_max", "caps.agents"} {
+		"skip_permissions", "min_free_mb", "memory_pressure_max", "worker_cpus", "worker_memory_high", "caps.agents"} {
 		if _, ok := s.Lookup(key); !ok {
 			t.Errorf("no setting %s", key)
 		}
@@ -23,6 +23,12 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	}
 	if l, _ := s.Lookup("caps.agents"); l.Default != 8.0 {
 		t.Errorf("the agent cap defaults to %v, want 8", l.Default)
+	}
+	if l, _ := s.Lookup("worker_cpus"); l.Type != Percent || l.Default != 25.0 {
+		t.Errorf("worker_cpus = %+v", l)
+	}
+	if l, _ := s.Lookup("worker_memory_high"); l.Type != Int || l.Default != 0.0 {
+		t.Errorf("worker_memory_high = %+v", l)
 	}
 }
 

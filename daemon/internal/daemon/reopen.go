@@ -686,6 +686,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	}
 	token := auth.NewToken()
 	var cur *v1.Agent
+	cancelledClosed := false
 	err = d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		if cur, err = tx.GetAgent(a.Id); err != nil {
 			return err
@@ -705,6 +706,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 			if err == nil {
 				err = tx.PutAgent(cur)
 			}
+			cancelledClosed = err == nil
 			cur = nil
 			return err
 		}
@@ -736,7 +738,9 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		return err
 	})
 	if err != nil || cur == nil {
-		if err == nil {
+		if cancelledClosed {
+			d.rt.guard.release(a.Id)
+		} else if err == nil {
 			d.deliverSoon(a.Id)
 		}
 		return err
@@ -757,6 +761,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		delete(d.rt.launching, r.Id)
 		d.rt.mu.Unlock()
 	}()
+	d.rt.guard.refresh(a.Id, d.now())
 	tid, err := d.startTerminal(ctx, next, token, plan, r.Id)
 	if err != nil {
 		return d.dropReopen(ctx, a.Id, r, "starting its terminal: "+err.Error())
@@ -938,6 +943,14 @@ func (d *Daemon) adoptReopens(ctx context.Context, terminals []*termv1.Terminal,
 				err = d.recordExit(ctx, t.Id, a.Id, t.Labels["reopen"], t.ExitCode, t.Signal, "")
 			} else {
 				err = d.finishReopen(ctx, a.Id, a.PendingReopen, t.Id, nil)
+				if err == nil {
+					if t.StartedAt != nil {
+						d.rt.guard.seed(a.Id, t.StartedAt.AsTime(), d.now())
+					}
+					if t.Pid > 0 {
+						d.adoptCPUHolder(ctx, a, int(t.Pid), t.PidStartTicks)
+					}
+				}
 				d.log.Info("adopted a reopen's terminal", "agent", a.Name, "terminal", t.Id)
 			}
 			if err != nil {

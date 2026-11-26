@@ -65,6 +65,18 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
 		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,
 		ReadySettle: 150 * time.Millisecond,
+		Sys: &daemon.SystemOps{
+			ProcTable:   func() ([]proc.Info, error) { return nil, nil },
+			TaskIDs:     func(pid int) []int { return []int{pid} },
+			MachineCPUs: func() []int { return []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11} },
+			GetAffinity: func(int) ([]int, error) { return []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, nil },
+			SetAffinity: func(int, []int) error { return nil },
+			SignalProc:  func(int, uint64, syscall.Signal) error { return nil },
+			ProcAlive:   func(int, uint64) bool { return false },
+			RunScope: func(context.Context, []string) error {
+				return fmt.Errorf("systemd scopes are disabled in tests")
+			},
+		},
 	}
 }
 
