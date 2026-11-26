@@ -20,6 +20,8 @@ class Notice(
     val body: String,
     val agentId: String,
     val tab: Tab,
+    /** The host's event this came from (0: none): the same event from the live stream and from a push posts once. */
+    val seq: Long = 0,
 )
 
 /** An event older than this wasn't "just now": history replayed after a reconnect doesn't notify. */
@@ -46,9 +48,13 @@ fun brief(text: String): String {
  * What an event means to the person, if anything: an agent stopped at a prompt, a plan, a question, a report or a
  * failure sent to a run's lead, an agent that died. Only live events (history replayed after a reconnect stays
  * quiet), and never what the user did themselves. [agents] is the state before the event; [clockSkewMs] is how far
- * the host's clock is ahead of ours. The same rules as the desktop's `notify.ts`.
+ * the host's clock is ahead of ours. The same rules as the desktop's `notify.ts` and the daemon's
+ * `internal/notice` (what it pushes): change one, change all three.
  */
-fun noticeFor(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Long = 0): Notice? {
+fun noticeFor(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Long = 0): Notice? =
+    noticeOf(e, agents, nowMs, clockSkewMs)?.let { Notice(it.kind, it.title, it.body, it.agentId, it.tab, e.seq) }
+
+private fun noticeOf(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSkewMs: Long): Notice? {
     val at = if (e.hasTime()) e.time.toMillis() else 0L
     // The event's time is the host's: compare it with the host's clock now, not ours.
     if (nowMs + clockSkewMs - at > LIVE_WITHIN_MS) return null

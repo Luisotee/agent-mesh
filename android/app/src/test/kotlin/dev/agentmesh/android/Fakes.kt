@@ -91,6 +91,24 @@ class RecordingApi : MeshApi {
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
+
+    /** What push calls reached the host: "register <endpoint>", "unregister", "test". */
+    val push = java.util.Collections.synchronizedList(mutableListOf<String>())
+    var failPush: Exception? = null
+
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
+        failPush?.let { throw it }
+        push += "register $endpoint"
+        return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()
+    }
+
+    override suspend fun unregisterPush(): Boolean { push += "unregister"; return true }
+
+    override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
+        failPush?.let { throw it }
+        push += "test"
+        return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()
+    }
 }
 
 /** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */
@@ -119,4 +137,28 @@ object Frames {
 
     fun replayDone(offset: Long = 0) = TermFrame.newBuilder().setReplayDone(ReplayDone.newBuilder().setOffset(offset)).build()
     fun exited(code: Int = 0, signal: Int = 0) = TermFrame.newBuilder().setExited(Exited.newBuilder().setExitCode(code).setSignal(signal)).build()
+}
+
+/** A distributor a test drives: what the app registered, and whether one is installed and chosen. */
+class FakePushChannel : dev.agentmesh.android.notify.PushChannel {
+    var installed = listOf("io.heckel.ntfy")
+    var chosen: String? = null
+    val registered = java.util.Collections.synchronizedList(mutableListOf<String>())
+    val unregistered = java.util.Collections.synchronizedList(mutableListOf<String>())
+    override fun distributors() = installed
+    override fun current() = chosen
+    override fun pick(activity: android.app.Activity, done: (Boolean) -> Unit) {
+        chosen = installed.firstOrNull()
+        done(chosen != null)
+    }
+    override fun register(hostId: String, hostName: String) { registered += hostId }
+    override fun unregister(hostId: String) { unregistered += hostId }
+}
+
+/** Endpoints kept in memory. */
+class MemoryEndpoints : dev.agentmesh.android.notify.EndpointStore {
+    val map = java.util.concurrent.ConcurrentHashMap<String, dev.agentmesh.android.notify.SavedEndpoint>()
+    override fun get(hostId: String) = map[hostId]
+    override fun put(hostId: String, e: dev.agentmesh.android.notify.SavedEndpoint) { map[hostId] = e }
+    override fun remove(hostId: String) { map.remove(hostId) }
 }

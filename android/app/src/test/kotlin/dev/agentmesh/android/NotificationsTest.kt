@@ -18,6 +18,7 @@ import dev.agentmesh.android.notify.Notice
 import dev.agentmesh.android.notify.NoticeActionReceiver
 import dev.agentmesh.android.notify.NoticeKind
 import dev.agentmesh.android.notify.Notifier
+import dev.agentmesh.android.notify.PushPayload
 import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.gen.agentmesh.v1.AgentPhase
@@ -36,7 +37,8 @@ import org.robolectric.annotation.Config
 
 /** The app with no Keystore and a host that records: what a notification's buttons do is checked end to end. */
 class TestApp : MeshApp() {
-    override fun createContainer(): AppContainer = AppContainer(this, Plain, newApi = { _, _ -> NotificationsTest.api })
+    override fun createContainer(): AppContainer =
+        AppContainer(this, Plain, newApi = { _, _ -> NotificationsTest.api }, push = FakePushChannel(), pushStore = MemoryEndpoints())
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -235,5 +237,86 @@ class NotificationsTest {
         val shown = manager.allNotifications.single()
         assertTrue(shown.extras.getString("android.text")!!.endsWith("nothing was sent."))
         assertEquals(emptyList<String>(), api.approved)
+    }
+
+    // ── Push ──
+
+    private fun pushed(seq: Long, kind: String = "plan", agent: String = "w1", daemon: String = "") =
+        PushPayload(v = 1, daemon = daemon, seq = seq, kind = kind, title = "shop-fix sent a plan", body = "Change the typo", agent = agent, tab = "messages", at = 1)
+
+    @Test fun `a push posts the notice with its actions, once even when the live stream brings it too`() {
+        api = RecordingApi()
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t", daemonId = "d1")
+        container.onPush(host.id, pushed(7, daemon = "d1"))
+        val n = manager.allNotifications.single()
+        assertEquals("shop-fix sent a plan", n.extras.getString("android.title"))
+        assertEquals(listOf("Approve"), n.actions.map { it.title.toString() })
+        // The same event again (the live stream's copy, or the push service's retry) alerts no second time.
+        app.getSystemService(NotificationManager::class.java).cancelAll()
+        container.notifier.post(host.id, null, Notice(NoticeKind.Plan, "shop-fix sent a plan", "x", "w1", Tab.Messages, seq = 7))
+        container.onPush(host.id, pushed(7, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        // A push from another daemon than this host's, and one for the agent on screen, post nothing.
+        container.onPush(host.id, pushed(8, daemon = "someone-else"))
+        container.viewing.value = host.id to "w1"
+        container.onPush(host.id, pushed(9, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        container.viewing.value = null
+        container.onPush(host.id, pushed(0, kind = "test", agent = "", daemon = "d1"))
+        assertEquals("Change the typo", manager.allNotifications.single().extras.getString("android.text"))
+    }
+
+    @Test fun `push registers each host's endpoint on every ready connection, and forgets a removed host`() {
+        api = RecordingApi()
+        val (hostId, rt) = readyHost()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        // Off: an endpoint is kept but nothing is sent.
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        Thread.sleep(100)
+        assertTrue(api.push.isEmpty())
+        // On (through the distributor the user picked): every host registers, and the endpoint reaches the host.
+        val channel = container.push as FakePushChannel
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        var ok: Boolean? = null
+        container.enablePush(activity) { ok = it }
+        assertEquals(true, ok)
+        assertEquals(listOf(hostId), channel.registered.toList())
+        waitFor("RegisterPush") { api.push.toList() == listOf("register https://ntfy.example/upA?up=1") }
+        assertEquals(true, container.pushRegistrar.status.value[hostId]?.ok)
+        // A reconnect registers again (a host that lost it heals).
+        rt.onState(ConnState.Reconnecting(1, 0, "gone"))
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        waitFor("RegisterPush again") { api.push.size == 2 }
+        // A refusal shows on the settings screen.
+        api.failPush = dev.agentmesh.android.net.ApiException(com.connectrpc.Code.INVALID_ARGUMENT, "endpoint must be https")
+        rt.onState(ConnState.Reconnecting(1, 0, "gone"))
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        waitFor("the refusal") { container.pushRegistrar.status.value[hostId]?.ok == false }
+        assertTrue(container.pushRegistrar.status.value[hostId]!!.text.contains("endpoint must be https"))
+        // Removing the host drops its instance at the distributor.
+        container.hosts.remove(hostId)
+        waitFor("the unregister") { hostId in channel.unregistered }
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
+    @Test fun `turning push off tells the host and the distributor`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val channel = container.push as FakePushChannel
+        container.enablePush(org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()) {}
+        container.disablePush()
+        waitFor("UnregisterPush") { "unregister" in api.push && hostId in channel.unregistered }
+        assertEquals(false, container.prefs.push.value)
+    }
+
+    @Test fun `with no distributor installed push stays off`() {
+        api = RecordingApi()
+        val channel = container.push as FakePushChannel
+        channel.installed = emptyList()
+        var ok: Boolean? = null
+        container.enablePush(org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()) { ok = it }
+        assertEquals(false, ok)
+        assertEquals(false, container.prefs.push.value)
     }
 }
