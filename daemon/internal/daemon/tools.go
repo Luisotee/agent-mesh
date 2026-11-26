@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -102,49 +104,10 @@ func (d *Daemon) leanCut(ctx context.Context, r store.Reader, a *v1.Agent, env m
 		claudeaiSkills = claude.ClaudeAISkills
 	}
 
-	mode, err := d.settingString(r, "claude.mcp")
+	mode, mcpLoaded, mcpCut, err := d.mcpLoad(r, a, env)
 	if err != nil {
 		return nil, err
 	}
-	if a.McpAll {
-		mode = claude.MCPInherit
-	} else if mode != claude.MCPNone && mode != claude.MCPInherit {
-		mode = claude.MCPRepo
-	}
-	known := claude.KnownMCPServers(env, a.Repo)
-	var mcpLoaded, mcpCut []string
-	if mode == claude.MCPInherit {
-		for n := range known {
-			mcpLoaded = append(mcpLoaded, n)
-		}
-	} else {
-		keep, err := d.settingStrings(r, "claude.mcp_keep")
-		if err != nil {
-			return nil, err
-		}
-		want := map[string]bool{}
-		if mode == claude.MCPRepo {
-			for n, s := range known {
-				if s.Scope != "user" {
-					want[n] = true
-				}
-			}
-		}
-		for _, n := range append(append([]string{}, keep...), a.Mcp...) {
-			if _, ok := known[n]; ok {
-				want[n] = true
-			}
-		}
-		for n := range known {
-			if want[n] {
-				mcpLoaded = append(mcpLoaded, n)
-			} else {
-				mcpCut = append(mcpCut, n)
-			}
-		}
-	}
-	slices.Sort(mcpLoaded)
-	slices.Sort(mcpCut)
 
 	connectors := ""
 	if mode != claude.MCPInherit {
@@ -172,6 +135,57 @@ func (d *Daemon) leanCut(ctx context.Context, r store.Reader, a *v1.Agent, env m
 		Added:              added,
 	}, nil
 }
+
+// mcpLoad is the MCP side of a lean launch: the mode it runs in (`inherit` with `mcp_all`, else `repo` or `none`)
+// and which of the user's servers it loads and cuts, sorted.
+func (d *Daemon) mcpLoad(r store.Reader, a *v1.Agent, env map[string]string) (mode string, loaded, cut []string, err error) {
+	mode, err = d.settingString(r, "claude.mcp")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if a.McpAll {
+		mode = claude.MCPInherit
+	} else if mode != claude.MCPNone && mode != claude.MCPInherit {
+		mode = claude.MCPRepo
+	}
+	known := claude.KnownMCPServers(env, a.Repo)
+	if mode == claude.MCPInherit {
+		for n := range known {
+			loaded = append(loaded, n)
+		}
+	} else {
+		keep, err := d.settingStrings(r, "claude.mcp_keep")
+		if err != nil {
+			return "", nil, nil, err
+		}
+		want := map[string]bool{}
+		if mode == claude.MCPRepo {
+			for n, s := range known {
+				if s.Scope != "user" {
+					want[n] = true
+				}
+			}
+		}
+		for _, n := range append(append([]string{}, keep...), a.Mcp...) {
+			if _, ok := known[n]; ok {
+				want[n] = true
+			}
+		}
+		for n := range known {
+			if want[n] {
+				loaded = append(loaded, n)
+			} else {
+				cut = append(cut, n)
+			}
+		}
+	}
+	slices.Sort(loaded)
+	slices.Sort(cut)
+	return mode, loaded, cut, nil
+}
+
+// toolsAddedWhy is the `Why` of the reopen `mesh tools add` requests.
+const toolsAddedWhy = "tools added"
 
 func resolveAddition(cut *v1.ListToolsResponse, name string) (kind string, canonical string, err error) {
 	if slices.Contains(cut.Tools, name) {
@@ -343,7 +357,7 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 			}
 			leaseCheck = append(leaseCheck, excl...)
 		}
-		if err := d.checkMCPLease(tx.Reader, leaseCheck, a.Id); err != nil {
+		if err := d.checkMCPLease(tx.Reader, leaseCheck, a.Id, tx.Actor); err != nil {
 			return err
 		}
 
@@ -356,7 +370,7 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 			a.McpAll = true
 		}
 		cm, ce, cd := target(a)
-		rv, err := requestReopen(tx, a, cm, ce, cd, "tools added", strings.Join(every, ", "))
+		rv, err := requestReopen(tx, a, cm, ce, cd, toolsAddedWhy, strings.Join(every, ", "))
 		if err != nil {
 			return err
 		}
@@ -367,6 +381,24 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 		body := fmt.Sprintf("mesh reopened this conversation with %s (`mesh tools add`). Carry on: %s.", strings.Join(every, ", "), carry)
 		if _, err := tellTx(tx, a, body); err != nil {
 			return err
+		}
+		// The agent adding its own tools tells its parent it is waiting (PROTOCOL.md rule 10): a `wait`, which
+		// rings nothing and owes no answer, and which the watch counts as a declared wait.
+		if tx.Actor.GetId() == a.Id && a.ParentId != "" {
+			if parent, err := tx.GetAgent(a.ParentId); err == nil {
+				wait := &v1.Message{Id: ids.New("m", 10), RunId: a.RunId, From: tx.Actor, ToId: parent.Id, ToName: parent.Name,
+					Type: v1.MessageType_MESSAGE_TYPE_WAIT, Body: fmt.Sprintf("%s: reopening on its own request with %s (`mesh tools add`); its report is still to come.", a.Name, strings.Join(every, ", ")),
+					CreatedAt: tsOf(tx.Now()), DeliveredAt: tsOf(tx.Now())}
+				if err := tx.PutMessage(wait); err != nil {
+					return err
+				}
+				if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: parent.Id,
+					Payload: &v1.Event_MessageSent{MessageSent: &v1.MessageSent{Message: wait}}}); err != nil {
+					return err
+				}
+			} else if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
 		}
 		if err := tx.PutAgent(a); err != nil {
 			return err
@@ -388,6 +420,7 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 // exclusive (`claude.mcp_exclusive`), and any live agent currently holding it.
 func (d *Daemon) ListMCPServers(ctx context.Context, req *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
 	r := d.store.Read(ctx)
+	viewer := viewerRun(auth.ActorFrom(ctx))
 	repo := strings.TrimSpace(req.Msg.Repo)
 	if repo != "" {
 		if top, err := topOf(ctx, repo); err == nil {
@@ -427,7 +460,7 @@ func (d *Daemon) ListMCPServers(ctx context.Context, req *connect.Request[v1.Lis
 		heldBy := ""
 		if exclSet[n] {
 			if h, ok := holders[n]; ok {
-				heldBy = fmt.Sprintf("%s (run %s)", h.Name, h.RunId)
+				heldBy = holderLabelOrElse(h, viewer)
 			}
 		}
 		out.Servers = append(out.Servers, &v1.MCPServerInfo{

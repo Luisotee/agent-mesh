@@ -896,7 +896,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err := d.checkMCP(ctx, kind, top, mcpNames); err != nil {
 		return nil, err
 	}
-	if err := d.checkMCPLease(r, mcpNames, ""); err != nil {
+	if err := d.checkMCPLease(r, mcpNames, "", auth.ActorFrom(ctx)); err != nil {
 		return nil, err
 	}
 	name := filepath.Base(top) + "-" + m.Slug
@@ -974,7 +974,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
 			return err
 		}
-		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id); err != nil {
+		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id, tx.Actor); err != nil {
 			return err
 		}
 		if err := tx.PutAgent(agent); err != nil {

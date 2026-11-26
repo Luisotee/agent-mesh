@@ -772,7 +772,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			if err := d.checkMCP(ctx, a0.Kind, a0.Repo, reqMCP); err != nil {
 				return nil, err
 			}
-			if err := d.checkMCPLease(r0, reqMCP, a0.Id); err != nil {
+			if err := d.checkMCPLease(r0, reqMCP, a0.Id, auth.ActorFrom(ctx)); err != nil {
 				return nil, err
 			}
 		} else if a0.Kind != claude.Kind {
@@ -897,7 +897,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 					if clearMCP {
 						a.Mcp, a.McpAll = nil, false
 					} else {
-						if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id); err != nil {
+						if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id, tx.Actor); err != nil {
 							return err
 						}
 						a.Mcp, a.McpAll = reqMCP, false
@@ -978,7 +978,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				if clearMCP {
 					created.Mcp, created.McpAll = nil, false
 				} else {
-					if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id); err != nil {
+					if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id, tx.Actor); err != nil {
 						return err
 					}
 					created.Mcp, created.McpAll = reqMCP, false

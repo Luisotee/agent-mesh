@@ -687,6 +687,12 @@ func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
 		t.Errorf("help tools add: %d out=%q err=%q", code, helpOut.String(), helpErr.String())
 	}
 
+	// Only a group joins its words: `mesh stop run` keeps `run` as an argument of `stop`, not `stop-run`.
+	helpOut.Reset()
+	if code := Main([]string{"help", "stop", "run"}, env, nil); code != ExitOK || strings.Contains(helpOut.String(), "stop-run") {
+		t.Errorf("help stop run: %d out=%q", code, helpOut.String())
+	}
+
 	m, err := Request(action(t, "tools-add"), []string{"Edit", "--next", "finish", "playwright"})
 	if err != nil {
 		t.Fatal(err)
