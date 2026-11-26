@@ -75,3 +75,11 @@ func TestAProbeReturnsWhatTheCLIPrinted(t *testing.T) {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
 }
+
+// A probe given an environment with no PATH (a test's, a config's) still finds the programs the CLI runs.
+func TestAProbeWithNoPathInItsEnvironmentUsesTheDaemons(t *testing.T) {
+	out, err := Run(context.Background(), Spec{Bin: cli(t, `cat /dev/null; echo ok`), Env: []string{"HOME=/nonexistent"}, Timeout: 10 * time.Second})
+	if err != nil || strings.TrimSpace(string(out)) != "ok" {
+		t.Fatalf("out = %q, err = %v", out, err)
+	}
+}

@@ -121,6 +121,9 @@ func Env(env []string, stubs string) []string {
 			out = append(out, kv)
 		}
 	}
+	if path == "" { // none given: the daemon's own, as an exec with no PATH of its own would find programs by
+		path = os.Getenv("PATH")
+	}
 	var keep []string
 	for _, p := range filepath.SplitList(path) {
 		if p != "" && p != "/mnt" && !strings.HasPrefix(p, "/mnt/") {
