@@ -67,9 +67,9 @@ describe('cycleTab', () => {
 
 describe('pruneDismissed', () => {
   const agents = { a: { state: AgentState.IDLE }, b: { state: AgentState.WORKING } } as unknown as Record<string, Agent>
-  it('forgets a dismissal once the agent left the state it was dismissed in, or is gone, and only on its host', () => {
+  it('forgets a dismissal once the agent left the state it was dismissed in, only on its host, and keeps one of an agent not listed (a reload)', () => {
     const held = { 'h/a': AgentState.IDLE, 'h/b': AgentState.IDLE, 'h/gone': AgentState.IDLE, 'g/a': AgentState.NEEDS_INPUT }
-    expect(pruneDismissed(held, 'h', agents)).toEqual({ 'h/a': AgentState.IDLE, 'g/a': AgentState.NEEDS_INPUT })
+    expect(pruneDismissed(held, 'h', agents)).toEqual({ 'h/a': AgentState.IDLE, 'h/gone': AgentState.IDLE, 'g/a': AgentState.NEEDS_INPUT })
   })
   it('is the same object when nothing changed', () => {
     const held = { 'h/a': AgentState.IDLE }

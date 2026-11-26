@@ -143,7 +143,8 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	out := &v1.PromptAgentResponse{}
 	if _, err := d.write(context.WithoutCancel(ctx), meta, agentmeshv1connect.MeshServicePromptAgentProcedure, out,
 		func(*store.Tx) error { return nil }); err != nil {
-		return nil, err
+		// The prompt is in the terminal: an error would have the caller send it again, with nothing to say it was typed.
+		d.log.Warn("recording a typed prompt", "agent", a.Name, "err", err)
 	}
 	return connect.NewResponse(out), nil
 }

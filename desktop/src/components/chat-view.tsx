@@ -63,6 +63,9 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
           } else if (next.kind === 'more') {
             cur.current = { t: next.transcript, loaded: true }
             setState(cur.current)
+          } else if (from !== cur.current.t.end) {
+            // The read began somewhere else than where the transcript ends now: read again from the right place.
+            again.current = true
           }
         }
         setError('')

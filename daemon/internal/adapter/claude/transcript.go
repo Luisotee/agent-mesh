@@ -54,6 +54,7 @@ var (
 	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
 	// output as <local-command-stdout>, which is dropped).
+	localOutput = regexp.MustCompile(`^<local-command-(stdout|stderr|caveat)>`)
 	commandName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>\s*(.*?)\s*</command-args>`)
 )
@@ -152,7 +153,7 @@ func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
 	}
-	if meta || text == "" || strings.HasPrefix(text, "<local-command-") {
+	if meta || text == "" || localOutput.MatchString(text) {
 		return nil
 	}
 	if m := commandName.FindStringSubmatch(text); m != nil && strings.HasPrefix(text, "<command-") {
