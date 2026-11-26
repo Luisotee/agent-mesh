@@ -26,7 +26,7 @@ func (d *Daemon) workTextCached(r store.Reader, a *v1.Agent) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	prs, _ := r.AgentPRs(a.Id)
-	if t := evidenceText(workEvidence(ctx, a), prs); t != "" {
+	if t := evidenceText(workEvidence(ctx, a), prs, d.prs.read(a.Id)); t != "" {
 		return "Its work: " + t + "."
 	}
 	return ""

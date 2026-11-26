@@ -1160,7 +1160,13 @@ func (t *Tx) PutAgentPR(p *v1.PullRequest) error {
 	return err
 }
 
-// AgentPRs lists an agent's pull requests, by number then url.
+// DeleteAgentPR forgets a pull request an agent no longer owns.
+func (t *Tx) DeleteAgentPR(agentID, url string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM agent_prs WHERE agent_id = ? AND url = ?`, agentID, url)
+	return err
+}
+
+// AgentPRs lists an agent's pull requests by url.
 func (r Reader) AgentPRs(agentID string) ([]*v1.PullRequest, error) {
 	return scanAll(r, `SELECT data FROM agent_prs WHERE agent_id = ? ORDER BY url`, []any{agentID},
 		func() *v1.PullRequest { return &v1.PullRequest{} })

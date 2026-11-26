@@ -105,3 +105,8 @@ func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
 
 // ChecksWord exposes checksWord.
 func ChecksWord(rollup []map[string]any) string { return checksWord(rollup) }
+
+// EvidenceText exposes evidenceText.
+func EvidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) string {
+	return evidenceText(ev, prs, prsRead)
+}

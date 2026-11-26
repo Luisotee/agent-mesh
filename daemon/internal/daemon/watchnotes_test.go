@@ -99,7 +99,7 @@ func TestASilentWorkersAlertCarriesItsWorkAndTheWaitThatEnded(t *testing.T) {
 	a.pass()
 	body := a.alertBody("[mesh alert silent a-w1]")
 	for _, want := range []string{"ended a turn without reporting", "It had declared a wait", "which is over",
-		"Its work: 1 commit(s) past its base, not pushed, no PR, worktree clean."} {
+		"Its work: 1 commit(s) past its base, not pushed, PRs not read, worktree clean."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the alert lacks %q:\n%s", want, body)
 		}

@@ -344,3 +344,32 @@ func TestAPRStillInReviewNamesItsPendingReviewers(t *testing.T) {
 		t.Errorf("reviewing %q, want only the reviewer that still owes its answer", got)
 	}
 }
+
+// A clean read is the whole truth about an agent's PRs: one that is no longer returned is forgotten, while a
+// failed read forgets nothing.
+func TestAPRTheBranchNoLongerHasIsForgottenAfterACleanRead(t *testing.T) {
+	w := startPR(t)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false), ghPR(13, "OPEN", w.branchTip, false))
+	if rows := w.prs("", false); len(rows[0].PullRequests) != 2 {
+		t.Fatalf("%v", rows)
+	}
+	w.setList(ghPR(13, "OPEN", w.branchTip, false))
+	rows := w.prs("", true)
+	if len(rows[0].PullRequests) != 1 || rows[0].PullRequests[0].Number != 13 {
+		t.Errorf("after a clean read: %v, want only #13", rows[0].PullRequests)
+	}
+}
+
+func TestEvidenceNeverCallsAnUnreadPRNoPR(t *testing.T) {
+	ev := &v1.WorkEvidence{Commits: 3, HasCommits: true, Pushed: true, HasPushed: true}
+	if got := daemon.EvidenceText(ev, nil, false); !strings.Contains(got, "PRs not read") || strings.Contains(got, "no PR") {
+		t.Errorf("PRs never read: %q", got)
+	}
+	if got := daemon.EvidenceText(ev, nil, true); !strings.Contains(got, "no PR") {
+		t.Errorf("PRs read, none: %q", got)
+	}
+	prs := []*v1.PullRequest{{Number: 10, State: "open"}, {Number: 9, State: "open", Stale: true}}
+	if got := daemon.EvidenceText(ev, prs, true); !strings.Contains(got, "PR #9 open (as last read), PR #10 open") {
+		t.Errorf("order or stale mark: %q", got)
+	}
+}

@@ -34,6 +34,8 @@ const (
 	prFetchers  = 8                 // GitHub reads at once
 	prJSON      = "number,url,state,isDraft,headRefOid,statusCheckRollup"
 	prListLimit = "20"
+
+	briefGitHubWait = 8 * time.Second // how long a brief waits for GitHub before it shows the last state
 )
 
 var prURLRE = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
@@ -61,6 +63,14 @@ func (t *prTracker) due(agentID string, now time.Time) bool {
 		ttl = prRetryTTL
 	}
 	return now.Sub(p.at) >= ttl
+}
+
+// read reports whether the agent's PRs were read from GitHub (the last try worked).
+func (t *prTracker) read(agentID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	p, seen := t.tried[agentID]
+	return seen && p.ok
 }
 
 func (t *prTracker) failed(agentID string) bool {
@@ -219,6 +229,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 	r := d.store.Read(ctx)
 	msgs, err := r.RunMessages(a.RunId, "", -1)
 	if err != nil {
+		d.prs.note(a.Id, now, false)
 		return
 	}
 	var found []*v1.PullRequest
@@ -274,9 +285,14 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 				}
 			}
 		}
-		// Rows the read didn't return keep their last state; after a failed read they are marked stale.
+		// Rows the read didn't return: after a clean read they are no longer this agent's (a branch rewritten, a
+		// report that names others now), so they go; after a failed read they keep their last state, marked stale.
 		for _, o := range prev {
-			if ferr != nil && !o.Stale {
+			if ferr == nil {
+				if err := tx.DeleteAgentPR(a.Id, o.Url); err != nil {
+					return err
+				}
+			} else if !o.Stale {
 				o.Stale = true
 				if err := tx.PutAgentPR(o); err != nil {
 					return err
@@ -349,7 +365,7 @@ func workEvidence(ctx context.Context, a *v1.Agent) *v1.WorkEvidence {
 }
 
 // evidenceText is the evidence as `its work: …` parts: "3 commit(s) past its base", "not pushed", "worktree dirty".
-func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest) string {
+func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) string {
 	var parts []string
 	if ev.HasCommits {
 		if ev.Commits == 0 {
@@ -366,16 +382,25 @@ func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest) string {
 		}
 	}
 	if ev.HasCommits && ev.Commits > 0 {
+		prs = append([]*v1.PullRequest(nil), prs...)
+		sort.SliceStable(prs, func(i, j int) bool { return prs[i].Number < prs[j].Number })
 		var open []string
 		for _, p := range prs {
 			if p.State == "open" {
-				open = append(open, "PR #"+strconv.Itoa(int(p.Number))+" open")
+				t := "PR #" + strconv.Itoa(int(p.Number)) + " open"
+				if p.Stale {
+					t += " (as last read)"
+				}
+				open = append(open, t)
 			}
 		}
-		if len(open) > 0 {
+		switch {
+		case len(open) > 0:
 			parts = append(parts, strings.Join(open, ", "))
-		} else if len(prs) == 0 {
+		case len(prs) == 0 && prsRead:
 			parts = append(parts, "no PR")
+		case len(prs) == 0:
+			parts = append(parts, "PRs not read")
 		}
 	}
 	if ev.HasDirty {
@@ -395,7 +420,7 @@ func (d *Daemon) workText(ctx context.Context, a *v1.Agent) string {
 	}
 	d.refreshPRs(ctx, a, false)
 	prs, _ := d.store.Read(ctx).AgentPRs(a.Id)
-	if t := evidenceText(workEvidence(ctx, a), prs); t != "" {
+	if t := evidenceText(workEvidence(ctx, a), prs, d.prs.read(a.Id)); t != "" {
 		return "Its work: " + t + "."
 	}
 	return ""
@@ -498,7 +523,10 @@ func (d *Daemon) briefPRs(ctx context.Context, r store.Reader, runID string, age
 			listed = append(listed, a)
 		}
 	}
-	rows, err := d.pullRequests(ctx, r, runID, listed, false)
+	// GitHub is asked for at most a few seconds: a slow `gh` shows the last state recorded, not a stalled brief.
+	rctx, cancel := context.WithTimeout(ctx, briefGitHubWait)
+	defer cancel()
+	rows, err := d.pullRequests(rctx, r, runID, listed, false)
 	if err != nil {
 		d.log.Warn("brief pull requests", "run", runID, "err", err)
 		return nil
