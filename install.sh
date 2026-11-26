@@ -190,8 +190,8 @@ daemon_install() {
 
 # The files an install of the bin/mesh era left behind: links into the
 # old checkout (dangling once it is pulled), the retired skills, the Copilot and OpenCode rules blocks, `meshctl`
-# and the herdr plugin. Nothing of the old run state (~/.local/state/agent-mesh, ~/.config/agent-mesh.json) is read
-# or removed.
+# and the herdr plugin. Nothing of the old run state (~/.local/state/agent-mesh) is read or removed here, and
+# ~/.config/agent-mesh.json is left for meshd to import at its first start (--policy-file).
 clean_old_world() {
   local root skill opencode_had_block=0 file
   for root in "${SKILL_ROOTS[@]}"; do
