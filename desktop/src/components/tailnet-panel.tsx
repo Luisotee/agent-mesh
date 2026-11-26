@@ -27,14 +27,10 @@ export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse?: (addr
   const [error, setError] = useState('')
   // A host older than this app doesn't have the action: say nothing instead of an error on every visit.
   const [unsupported, setUnsupported] = useState(false)
-  // What is shown belongs to one host on one connection: a different host, or the same one reconnected (it may have
-  // been restarted with or without --tailscale, or upgraded), starts over.
+  // A different host remounts this (the caller keys it by host id). The same host reconnected may have been restarted
+  // with or without --tailscale, or upgraded: it is asked again, and an "unsupported" answer is forgotten.
   const connected = useHostState(host, (s) => s.conn.kind === 'ready')
-  useEffect(() => {
-    setStatus(undefined)
-    setError('')
-    setUnsupported(false)
-  }, [host, connected])
+  useEffect(() => setUnsupported(false), [connected])
 
   const running = status ? tailnetRunning(status) : false
   useEffect(() => {

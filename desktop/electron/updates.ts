@@ -36,6 +36,7 @@ export function startUpdates(o: {
   if (!o.packaged || o.isolated || !canSelfUpdate(o.platform, o.env)) return () => {}
   let stopped = false
   let checking = false
+  let told = ''
   const check = async () => {
     // A slow check or download is not started over by the next tick.
     if (checking) return
@@ -46,7 +47,10 @@ export function startUpdates(o: {
       const found = await updater.checkForUpdates()
       if (found?.downloadPromise) {
         await found.downloadPromise
-        o.notify?.(found.updateInfo?.version ?? '')
+        // A later check finds the same cached download again: say it once.
+        const version = found.updateInfo?.version ?? ''
+        if (version !== told || !version) o.notify?.(version)
+        told = version
       }
     } catch (e) {
       o.log(`update check failed: ${e instanceof Error ? e.message : String(e)}`)

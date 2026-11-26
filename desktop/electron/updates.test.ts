@@ -100,4 +100,14 @@ describe('startUpdates', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(notify).toHaveBeenCalledWith('0.2.0')
   })
+
+  it('says a download is ready once, not at every later check that finds it again', async () => {
+    vi.useFakeTimers()
+    const updater: Updater = { checkForUpdates: vi.fn(async () => ({ downloadPromise: Promise.resolve(['x']), updateInfo: { version: '0.2.0' } })) }
+    const notify = vi.fn()
+    startUpdates({ packaged: true, isolated: false, ...win, load: async () => updater, log: vi.fn(), notify, everyMs: 1000 })
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(4)
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
 })
