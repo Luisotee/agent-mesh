@@ -912,7 +912,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return nil, err
 		}
 	}
-	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+	if err := d.capGuard(r, "an agent in "+m.Repo, "", capShared(ctx)...); err != nil {
 		return nil, err
 	}
 	if err := d.checkMemoryGuard(r, "an agent in "+m.Repo); err != nil {
@@ -1007,7 +1007,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", runID)
 		}
-		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
+		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id, capShared(ctx)...); err != nil {
 			return err
 		}
 		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id, tx.Actor); err != nil {

@@ -1082,6 +1082,8 @@ type reviveSpec struct {
 	// is the task the resume is for, which the default focus names; crossRun says it comes back from another run.
 	compact, focus, taskText string
 	crossRun                 bool
+	// capShared are the agents the launch shares its place in the host's cap with (a review round's members).
+	capShared []string
 }
 
 // revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
@@ -1096,7 +1098,7 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	if err := d.hasProcessOnSessionOrWorktree(tx.Reader, a); err != nil {
 		return nil, err
 	}
-	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
+	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id, spec.capShared...); err != nil {
 		return nil, err
 	}
 	rv, err := d.reviveAs(tx, a, spec)

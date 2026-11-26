@@ -380,7 +380,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if last != nil && last.Head == pr.Head {
 		reuseFrom = nil
 	}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, func(i int) (*v1.AskMember, *v1.Agent, string) {
+	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) })
@@ -389,12 +389,14 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 // collectRound starts the members of a collected ask one after another and returns once they have started
 // (the answers come later, collect.go). The ask is stored before its first member starts and can't finish until
 // the last has (starting), so an answer that comes while the others are still starting is collected. keys name
-// the members (a reviewer's kind, a peer's name) and start(i) brings member i in: a member that can't be
-// reached is one with a line saying why, not an error. A mutation id of the request covers the whole ask: its
+// the members (a reviewer's kind, a peer's name) and start(ctx, i) brings member i in: a member that can't be
+// reached is one with a line saying why, not an error. With oneSlot the members of the round share one place in
+// `caps.agents` (a review round: its first reviewer must fit the cap, the others then join it, so the round is
+// never cut short by it); without, each counts as the agent it is (a peers group can be many). A mutation id of the request covers the whole ask: its
 // id comes from it, so a retry after an interruption finds the ask it left, keeps the members already started
 // (their own spawns replay too) and starts the rest; the final write records the mutation.
-func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string,
-	start func(i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
+func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string, oneSlot bool,
+	start func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
 	have := map[string]*v1.AskMember{}
 	if prev, err := d.store.Read(ctx).GetAsk(ask.Id); err == nil {
 		if prev.Status != v1.AskStatus_ASK_STATUS_OPEN || !prev.Starting {
@@ -418,9 +420,11 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		return nil, err
 	}
 	started := 0
+	var shared []string // the agents of this round already running, whose place in the cap the others share
 	for i, key := range keys {
 		if mem := have[key]; mem != nil {
 			if mem.AgentId != "" {
+				shared = append(shared, mem.AgentId)
 				if cur, err := d.getAgent(d.store.Read(ctx), mem.AgentId); err == nil {
 					out.Agents = append(out.Agents, d.view(cur))
 				}
@@ -428,12 +432,17 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 			}
 			continue
 		}
-		member, agent, note := start(i)
+		startCtx := ctx
+		if oneSlot {
+			startCtx = withCapShared(ctx, shared)
+		}
+		member, agent, note := start(startCtx, i)
 		if note != "" {
 			out.Notes = append(out.Notes, note)
 		}
 		if agent != nil {
 			out.Agents = append(out.Agents, agent)
+			shared = append(shared, agent.Id)
 			started++
 		}
 		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {

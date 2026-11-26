@@ -826,7 +826,7 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	for i, p := range peers {
 		names[i] = p.Name
 	}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, names, func(i int) (*v1.AskMember, *v1.Agent, string) {
+	return d.collectRound(ctx, actor, m.Meta, ask, out, names, false, func(_ context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startPeer(ctx, actor, peers[i], m, body)
 	}, func(store.Reader, *v1.Ask) string { return "" })
 }
