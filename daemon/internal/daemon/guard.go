@@ -88,7 +88,7 @@ func liveAgents(r store.Reader, except string) (int, error) {
 	}
 	n := 0
 	for _, a := range agents {
-		if a.Id != except && hasProcess(a) {
+		if a.Id != except && hasProcess(a) && !isAdopted(a) { // an adopted session is the user's own process
 			n++
 		}
 	}

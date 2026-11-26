@@ -123,7 +123,9 @@ func TestAnAdoptedSessionIsTheRootAndIsRungThroughItsSocket(t *testing.T) {
 	if who, err := asRoot.ListAgents(ctx, connect.NewRequest(&v1.ListAgentsRequest{RunId: run.Id})); err != nil || len(who.Msg.Agents) != 1 {
 		t.Fatalf("the root lists its run: %v, %v", who, err)
 	}
-	// It starts a worker, whose report reaches the session over the socket.
+	// It starts a worker, whose report reaches the session over the socket. The session is the user's own
+	// process: it fills none of the daemon's agent slots (one slot here is the worker's).
+	w.set(t, "caps.agents", 1)
 	spawned, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "work"}))
 	if err != nil {
 		t.Fatal(err)

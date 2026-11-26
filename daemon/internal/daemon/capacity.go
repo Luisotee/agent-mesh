@@ -163,7 +163,7 @@ func (d *Daemon) capacity(r store.Reader) (capacity, error) {
 		return capacity{}, err
 	}
 	for _, a := range agents {
-		if hasProcess(a) {
+		if hasProcess(a) && !isAdopted(a) {
 			c.Live++
 		}
 		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER && a.State == v1.AgentState_AGENT_STATE_WORKING {

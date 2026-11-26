@@ -14,6 +14,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"connectrpc.com/connect"
@@ -138,6 +139,11 @@ func (d *Daemon) relayStep(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		note = fmt.Sprintf("commits %s..%s fixed an earlier review; don't re-report what they fixed unless the fix is wrong", short(done[0].Head), short(pr.Head))
 	default:
 		kind = answeringKind(done[0])
+		if !slices.Contains(all, kind) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+				"step 3 asks %s again, and it is not installed and free now (`mesh models`): wait for it, or review the fix commits yourself (`git diff %s..%s`)",
+				kind, short(done[0].Head), short(pr.Head)))
+		}
 		job.reuse, job.since = done[0], done[0].Head
 		note = fmt.Sprintf("commits %s..%s fixed an earlier review; don't re-report what they fixed unless the fix is wrong", short(done[0].Head), short(pr.Head))
 	}
