@@ -28,12 +28,13 @@ fun AgentMeshTheme(theme: MeshTheme, content: @Composable () -> Unit) {
     }
 }
 
-/** The theme this device chose, resolved against the system's dark mode. */
+/** The theme this device chose (by default the host's), resolved against the system's dark mode. */
 @Composable
 fun rememberTheme(container: AppContainer): MeshTheme {
     val choice = container.themes.choice.collectAsStateWithLifecycleCompat()
+    val host = container.themes.host.collectAsStateWithLifecycleCompat()
     val dark = isSystemInDarkTheme()
-    return androidx.compose.runtime.remember(choice.value, dark) { container.themes.resolve(choice.value, dark) }
+    return androidx.compose.runtime.remember(choice.value, dark, host.value) { container.themes.resolve(choice.value, dark, host.value) }
 }
 
 val Mono = FontFamily.Monospace

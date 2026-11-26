@@ -254,6 +254,20 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 				"conversation. Continue exactly where you stopped.", model, next)
 			model = next
 		case held.IsZero():
+			// Back on the model it had: not when that is a free one and its repo has since been set against them
+			// (freemodels.go). It stays at its limit, and its parent is told once why, and what to do.
+			if kerr := d.checkKept(tx.Reader, a, model); kerr != nil {
+				since := time.Time{}
+				if a.LastActivity != nil {
+					since = a.LastActivity.AsTime()
+				}
+				text := fmt.Sprintf("%s's usage limit on %s is over, but it is not reopened (%s). Switch it to a paid model "+
+					"(`mesh switch --agent %s --model <model>`), or take its repo off `repos.no_free_models`.", a.Name, model, errMessage(kerr), a.Name)
+				if told, err = d.alertParentTx(tx, a, "kept", text, since); err != nil {
+					return err
+				}
+				return nil
+			}
 			why = "limit reset"
 			body = fmt.Sprintf("Your usage limit has reset; you are back on %s, in the same conversation. "+
 				"Continue exactly where you stopped.", model)
@@ -290,11 +304,14 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	if err == nil && settled != nil && d.notify != nil {
 		d.notify(settled.ToId)
 	}
-	if err != nil || !moved {
+	if err != nil {
 		return err
 	}
 	if told != nil && d.notify != nil {
 		d.notify(told.ToId)
+	}
+	if !moved {
+		return nil
 	}
 	d.deliverSoon(agentID)
 	return nil
@@ -340,6 +357,14 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
 	chain = d.expandChain(a.Kind, chain)
+	// A repo set against free models (freemodels.go) never moves on to one: the next paid model, or none.
+	if off := d.freeOffFor(r, a.Kind, a.Repo); off != "" {
+		kept, err := d.dropFree(a.Repo, off, chain)
+		if err != nil {
+			return "", nil
+		}
+		chain = kept
+	}
 	if len(chain) == 0 {
 		return "", nil
 	}

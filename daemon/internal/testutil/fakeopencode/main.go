@@ -86,6 +86,68 @@ opencode/tidepool-alpha-free
   "release_date": "2026-09-01",
   "variants": {"high": {"reasoningEffort": "high"}}
 }
+opencode/gpt-paid
+{
+  "id": "gpt-paid",
+  "providerID": "opencode",
+  "status": "active",
+  "cost": {"input": 1.25, "output": 10, "cache": {"read": 0.1, "write": 0}},
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-11-01"
+}
+openai/gpt-5.2
+{
+  "id": "gpt-5.2",
+  "providerID": "openai",
+  "status": "active",
+  "cost": {"input": 5, "output": 15},
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-11-20"
+}
+openai/gpt-5.3
+{
+  "id": "gpt-5.3",
+  "providerID": "openai",
+  "status": "active",
+  "cost": {"input": 5, "output": 15},
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-11-21"
+}
+openrouter/some-model:free
+{
+  "id": "some-model:free",
+  "providerID": "openrouter",
+  "status": "active",
+  "cost": {"input": 0, "output": 0},
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-08-01"
+}
+opencode/old-free
+{
+  "id": "old-free",
+  "providerID": "opencode",
+  "status": "deprecated",
+  "cost": {"input": 0, "output": 0},
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-01-01"
+}
+opencode/mute-free
+{
+  "id": "mute-free",
+  "providerID": "opencode",
+  "status": "active",
+  "cost": {"input": 0, "output": 0},
+  "capabilities": {"toolcall": false},
+  "release_date": "2026-02-01"
+}
+local/mystery
+{
+  "id": "mystery",
+  "providerID": "local",
+  "status": "active",
+  "capabilities": {"toolcall": true},
+  "release_date": "2026-03-01"
+}
 `
 
 var (

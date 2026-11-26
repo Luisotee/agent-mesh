@@ -30,6 +30,8 @@ android {
         getByName("main") {
             java.directories.add("src/gen/java")
             kotlin.directories.add("src/gen/kotlin")
+            // The theme files both apps share (../shared/themes/*.json, read as assets/themes/*.json).
+            assets.directories.add("../../shared")
         }
     }
     testOptions {

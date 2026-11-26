@@ -1001,7 +1001,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	}
 	d.warmOpenCodeModels(ctx, p.Kind)
 	r := d.store.Read(ctx)
-	model, effort, err := d.pick(r, p.Kind, tier, "", "", "the peer")
+	model, effort, err := d.pickIn(r, p.Repo, d.freeOffFor(r, p.Kind, p.Repo), p.Kind, tier, "", "", "the peer")
 	if err != nil {
 		return nil, err
 	}

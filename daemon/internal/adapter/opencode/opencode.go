@@ -190,6 +190,36 @@ func FreeModels(listing map[string]ModelInfo) []string {
 	return out
 }
 
+// Cost classes of a model in OpenCode's own listing (`opencode models --verbose`, the cost fields).
+const (
+	// CostPaid: both token prices are listed and one is above zero.
+	CostPaid = "paid"
+	// CostZero: both token prices are listed and are zero, whatever the provider, status or tool support.
+	CostZero = "zero"
+)
+
+// CostClasses classes every model of the listing by the cost OpenCode itself reports: CostZero or CostPaid. A model
+// with a missing or unreadable cost (or one that is not listed) is left out: its cost is unknown.
+func CostClasses(listing map[string]ModelInfo) map[string]string {
+	out := make(map[string]string, len(listing))
+	for model, info := range listing {
+		in, o := info.Cost.Input, info.Cost.Output
+		switch {
+		case in == nil || o == nil:
+		case *in == 0 && *o == 0:
+			out[model] = CostZero
+		default:
+			out[model] = CostPaid
+		}
+	}
+	return out
+}
+
+// Listing returns OpenCode's model listing (the cached one while it is fresh).
+func (a *Adapter) Listing(ctx context.Context, bin string, env map[string]string) (map[string]ModelInfo, error) {
+	return a.listModels(ctx, bin, env)
+}
+
 // ExpandChain expands any `free` family entry in `chain` to OpenCode's free models (newest first), deduplicating.
 func (a *Adapter) ExpandChain(ctx context.Context, bin string, env map[string]string, chain []string) ([]string, error) {
 	needListing := false
