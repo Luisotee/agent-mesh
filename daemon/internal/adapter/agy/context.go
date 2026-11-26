@@ -200,7 +200,7 @@ func (a *Adapter) MeasureContext(_ context.Context, req *connect.Request[adapter
 }
 
 // PlanCompact is a headless `/compact <focus>` on the conversation.
-func (a *Adapter) PlanCompact(_ context.Context, req *connect.Request[adapterv1.PlanCompactRequest]) (*connect.Response[adapterv1.PlanCompactResponse], error) {
+func (a *Adapter) PlanCompact(ctx context.Context, req *connect.Request[adapterv1.PlanCompactRequest]) (*connect.Response[adapterv1.PlanCompactResponse], error) {
 	m := req.Msg
 	if m.SessionId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("no conversation to compact"))
@@ -213,14 +213,23 @@ func (a *Adapter) PlanCompact(_ context.Context, req *connect.Request[adapterv1.
 	if m.Focus != "" {
 		prompt += " " + m.Focus
 	}
-	argv := []string{bin, "--conversation", m.SessionId}
-	if m.Model != "" {
-		argv = append(argv, "--model", m.Model)
-	}
-	argv = append(argv, "--dangerously-skip-permissions", "-p", prompt)
 	env := map[string]string{}
 	for k, v := range m.Env {
 		env[k] = v
 	}
+	for _, k := range SessionVars {
+		delete(env, k)
+	}
+	// The agent's model is a family (`flash`) and its effort: agy takes only an id from `agy models`, and
+	// `--model flash` exits 1 with the list (found live: every headless compaction of a tier-spawned agy failed).
+	model, err := a.resolveModel(ctx, bin, m.Model, m.Effort, env)
+	if err != nil {
+		return nil, err
+	}
+	argv := []string{bin, "--conversation", m.SessionId}
+	if model != "" {
+		argv = append(argv, "--model", model)
+	}
+	argv = append(argv, "--dangerously-skip-permissions", "-p", prompt)
 	return connect.NewResponse(&adapterv1.PlanCompactResponse{Argv: argv, Env: env}), nil
 }

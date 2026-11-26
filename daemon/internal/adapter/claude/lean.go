@@ -268,3 +268,31 @@ func LeanMCPConfig(env map[string]string, repo, mode string, keep, extra, except
 	b, err := json.MarshalIndent(map[string]any{"mcpServers": want}, "", " ")
 	return b, missing, err
 }
+
+// meshPluginNames are the names the mesh's own Claude plugin has had: the repo's marketplace plugin (bin/mesh's
+// skills, then the daemon's once it replaced them) and the daemon's share folder before the rename.
+var meshPluginNames = []string{"agent-mesh", "agent-mesh-daemon"}
+
+// sharePluginName is the name in the share folder's `.claude-plugin/plugin.json`, "" without one.
+func sharePluginName(share string) string {
+	name, _ := readObject(filepath.Join(share, ".claude-plugin", "plugin.json"))["name"].(string)
+	return name
+}
+
+// shadowedPlugins are the user's enabled copies of the mesh's own plugin (`name@marketplace`), which a launch with
+// `--plugin-dir <share>` turns off for that session (the user's own sessions keep theirs). Checked live on Claude
+// Code 2.1.332: an inline plugin of the same name replaces the installed one (no duplicates), but one of another
+// name loads beside it, and a daemon agent then lists two sets of skills (`agent-mesh-daemon:delegate` beside the
+// installed `agent-mesh:delegate-claude`, which points at bin/mesh).
+func shadowedPlugins(env map[string]string, share string) map[string]any {
+	names := append([]string{sharePluginName(share)}, meshPluginNames...)
+	off := map[string]any{}
+	for _, k := range UserPlugins(env) {
+		for _, n := range names {
+			if n != "" && strings.SplitN(k, "@", 2)[0] == n {
+				off[k] = false
+			}
+		}
+	}
+	return off
+}
