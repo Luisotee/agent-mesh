@@ -98,30 +98,27 @@ type Daemon struct {
 	agentmeshv1connect.UnimplementedMeshServiceHandler
 	agentmeshv1connect.UnimplementedPairingServiceHandler
 
-	cfg        Config
-	paths      Paths
-	log        *slog.Logger
-	now        func() time.Time
-	lock       *fsutil.Lock
-	store      *store.Store
-	bus        *events.Bus
-	reg        *registry.Registry
-	schema     *settings.Schema
-	daemonID   string
-	hostName   string
-	instanceID string
-	startedAt  time.Time
-	tlsCfg     *tls.Config
-	certFP     string
-	relay      *relay.Connector
-	// relayTokensLast is the last set of client tokens given to the relay (relayClientTokens).
-	relayTokensMu   sync.Mutex
-	relayTokensLast []*relayv1.ClientToken
-	mux             *http.ServeMux
-	stopping        chan struct{}
-	stopOnce        sync.Once
-	handlerOnce     sync.Once
-	info            Info
+	cfg         Config
+	paths       Paths
+	log         *slog.Logger
+	now         func() time.Time
+	lock        *fsutil.Lock
+	store       *store.Store
+	bus         *events.Bus
+	reg         *registry.Registry
+	schema      *settings.Schema
+	daemonID    string
+	hostName    string
+	instanceID  string
+	startedAt   time.Time
+	tlsCfg      *tls.Config
+	certFP      string
+	relay       *relay.Connector
+	mux         *http.ServeMux
+	stopping    chan struct{}
+	stopOnce    sync.Once
+	handlerOnce sync.Once
+	info        Info
 	// capabilities the host advertises in Hello.
 	capabilities []string
 	// notify, when set, is told that an agent has a message to deliver.
@@ -132,6 +129,10 @@ type Daemon struct {
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64
 	bgWG       sync.WaitGroup
+
+	// relayTokensLast is the last set of client tokens given to the relay (relayClientTokens).
+	relayTokensMu   sync.Mutex
+	relayTokensLast []*relayv1.ClientToken
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
