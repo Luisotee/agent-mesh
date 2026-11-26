@@ -27,6 +27,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -108,7 +109,8 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 	"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
 	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
-	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "AWS_PROFILE", "AWS_REGION",
+	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
+	"OPENCODE_API_KEY", "AWS_PROFILE", "AWS_REGION",
 	"AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
 type ticket struct {
@@ -136,7 +138,8 @@ type runtime struct {
 	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
 	guard       guard
 	cpus        cpuTracker
-	usage       usageState // usage cache / rate_limits (usage.go)
+	usage       usageState      // usage cache / rate_limits (usage.go)
+	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -156,7 +159,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		cfg.ReadySettle = 1 * time.Second
 	}
 	if cfg.Adapters == nil {
-		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New()}
+		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New(), opencode.New()}
 	}
 	reg, err := adapter.NewRegistry(context.Background(), cfg.Adapters...)
 	if err != nil {
@@ -413,6 +416,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		for {
 			d.drainSpool(ctx)
 			d.settleStartingAgents(ctx)
+			d.pollOpenCode(ctx)
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
@@ -799,6 +803,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if role != v1.AgentRole_AGENT_ROLE_ROOT {
 		d.warmUsage(ctx, r, kind, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
+	d.warmOpenCodeModels(ctx, kind)
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
@@ -930,8 +935,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return err
 		}
 		if strings.TrimSpace(m.Task) != "" {
+			task := withOpenCodeBodyNote(kind, m.Task)
 			msg := &v1.Message{Id: ids.New("m", 10), RunId: runID, From: tx.Actor, ToId: agent.Id, ToName: name,
-				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: m.Task, CreatedAt: timestamppb.New(tx.Now())}
+				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task, CreatedAt: timestamppb.New(tx.Now())}
 			if err := tx.PutMessage(msg); err != nil {
 				return err
 			}

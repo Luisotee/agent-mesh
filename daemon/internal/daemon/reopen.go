@@ -23,6 +23,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/reducer"
@@ -93,6 +94,16 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		return "", "", invalid("effort %q: one of %s", effort, strings.Join(settings.Efforts, ", "))
 	}
 	if model != "" {
+		if kind == opencode.Kind && model == opencode.FreeFamily {
+			expanded := d.expandChain(kind, []string{model})
+			if len(expanded) == 0 {
+				return "", "", invalid("no active zero-cost %s models found for %q", kind, model)
+			}
+			if effort == "" {
+				effort = namedEffort
+			}
+			return d.firstFree(r, kind, effort, expanded), effort, nil
+		}
 		if effort == "" {
 			effort = d.rt.adapters.ModelEffort(context.Background(), kind, model)
 		}
@@ -118,6 +129,7 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 	if err != nil {
 		return "", "", err
 	}
+	chain = d.expandChain(kind, chain)
 	if effort == "" {
 		effort = e
 	}
@@ -343,6 +355,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		r := d.store.Read(ctx)
 		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
 			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
+			d.warmOpenCodeModels(ctx, a.Kind)
 		}
 	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "approve") == nil && !stopped(a) })
@@ -463,6 +476,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		r := d.store.Read(ctx)
 		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
 			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
+			d.warmOpenCodeModels(ctx, a.Kind)
 		}
 	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "switch") == nil && !stopped(a) })
@@ -499,7 +513,16 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			}
 		case m.Model != "":
 			model = m.Model
-			if m.Effort != "" {
+			if a.Kind == opencode.Kind && model == opencode.FreeFamily {
+				expanded := d.expandChain(a.Kind, []string{model})
+				if len(expanded) == 0 {
+					return failedPrecondition("no active zero-cost %s models found for %q", a.Kind, model)
+				}
+				if m.Effort != "" {
+					effort = m.Effort
+				}
+				model = d.firstFree(tx.Reader, a.Kind, effort, expanded)
+			} else if m.Effort != "" {
 				effort = m.Effort
 			} else if own := d.rt.adapters.ModelEffort(ctx, a.Kind, model); own != "" {
 				effort = own // an exact id names its effort: the old one would move it to another model
@@ -518,13 +541,14 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			if err != nil {
 				return err
 			}
+			chain = d.expandChain(a.Kind, chain)
 			if m.Effort != "" {
 				effort = m.Effort
 			}
 			i := index(chain, was)
 			switch {
 			case i < 0:
-				model = chain[0] // the chain changed since it started: its first model
+				model = d.firstFree(tx.Reader, a.Kind, effort, chain) // the chain changed since it started: its first unheld model
 			case i+1 < len(chain):
 				// Never back to one before: they were tried. The first with quota left, else the next one.
 				if model = d.nextFree(tx.Reader, a.Kind, effort, chain, i); model == "" {
@@ -712,6 +736,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if task != "" {
 		d.warmUsage(ctx, r0, a0.Kind, agyResolveKey{model: a0.Model, effort: a0.Effort}, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
+	d.warmOpenCodeModels(ctx, a0.Kind)
 	d.learnSession(ctx, actor, a0.Id, func(a *v1.Agent) bool {
 		return canResume(d.store.Read(ctx), actor, a, targetRunID) == nil && stopped(a)
 	})
@@ -806,7 +831,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			} else if tr.Status != v1.RunStatus_RUN_STATUS_OPEN {
 				return failedPrecondition("run %s is closed", targetRunID)
 			}
-			taskBody := task
+			taskBody := withOpenCodeBodyNote(a.Kind, task)
 			if taskBody != "" && prep.taskNote != "" {
 				taskBody += "\n\n" + prep.taskNote
 			}

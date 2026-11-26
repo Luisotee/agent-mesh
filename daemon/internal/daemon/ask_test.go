@@ -221,7 +221,7 @@ func TestARoundStartsEveryReviewerAtTheHeadAndTheCallerIsRungOnce(t *testing.T) 
 	w := startReviews(t)
 	ctx := context.Background()
 	head := w.pr.push(t, "the feature")
-	w.set(t, "review.reviewers.small", []any{[]any{"claude"}, []any{"opencode", "agy"}})
+	w.set(t, "review.reviewers.small", []any{[]any{"claude"}, []any{"copilot", "agy"}})
 	res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto", Body: "mind the retry"})
 	if len(res.Agents) != 2 || res.Ask == nil || !res.Ask.Collected || res.Ask.Round != 1 || res.Ask.Head != head || res.Ask.Pr != w.pr.url() {
 		t.Fatalf("response %v", res)
@@ -234,7 +234,7 @@ func TestARoundStartsEveryReviewerAtTheHeadAndTheCallerIsRungOnce(t *testing.T) 
 		}
 	}
 	if byKind["claude"] == nil || byKind["agy"] == nil {
-		t.Fatalf("kinds %v (opencode is not installed: its slot takes agy)", byKind)
+		t.Fatalf("kinds %v (copilot is not installed: its slot takes agy)", byKind)
 	}
 	// Each starts at the PR's head, with the review text; Claude's also runs /code-review at the size's level.
 	for kind, a := range byKind {
@@ -256,7 +256,7 @@ func TestARoundStartsEveryReviewerAtTheHeadAndTheCallerIsRungOnce(t *testing.T) 
 		t.Errorf("hint %q", res.Hint)
 	}
 	if len(res.Notes) == 0 {
-		t.Errorf("no note about the skipped opencode")
+		t.Errorf("no note about the skipped copilot")
 	}
 
 	// The first answer is held: no message to the root, and it is marked delivered so it never rings.

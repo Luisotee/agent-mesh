@@ -140,6 +140,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	}
 	// A retry of an ask whose spawn went through replays that spawn: no slug or guard to find again.
 	if !d.spawnReplays(ctx, actor, meta) {
+		d.warmOpenCodeModels(ctx, orClaude(m.Kind))
 		if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
 			return nil, err
 		}
@@ -205,6 +206,8 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 		task = reviewTask(spec)
 	case body == "":
 		return nil, invalid("no question given (--body)")
+	default:
+		task = withOpenCodeBodyNote(a.Kind, task)
 	}
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), a.RunId, a.Kind, a.Model, a.Effort, "asking "+a.Name); err != nil {
 		return nil, err
@@ -265,6 +268,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	task := reviewTask(reviewSpec{pr: pr, kind: kind, level: level, body: body, last: last,
 		narrow: narrowSince(ctx, top, last, pr.Head)})
 	if !replay {
+		d.warmOpenCodeModels(ctx, kind)
 		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
 			return nil, err
 		}
@@ -330,7 +334,8 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 			}
 		}
 	}
-	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, prAuthorKind(r, top, pr.HeadRef), earlierKinds)
+	d.warmOpenCodeModels(ctx, "opencode")
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(r, top, pr.HeadRef), earlierKinds)
 	if err != nil {
 		return nil, err
 	}

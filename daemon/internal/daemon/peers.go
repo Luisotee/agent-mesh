@@ -844,6 +844,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	if err != nil {
 		return nil, err
 	}
+	d.warmOpenCodeModels(ctx, p.Kind)
 	r := d.store.Read(ctx)
 	model, effort, err := d.pick(r, p.Kind, tier, "", "", "the peer")
 	if err != nil {
@@ -909,7 +910,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 			return err
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: agent.RunId, From: tx.Actor, ToId: agent.Id, ToName: agent.Name,
-			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task, CreatedAt: timestamppb.New(tx.Now())}
+			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: withOpenCodeBodyNote(p.Kind, task), CreatedAt: timestamppb.New(tx.Now())}
 		if err := tx.PutMessage(msg); err != nil {
 			return err
 		}

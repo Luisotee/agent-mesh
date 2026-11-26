@@ -20,6 +20,7 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -141,10 +142,15 @@ func (d *Daemon) limitPass(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	warmedOpenCode := false
 	for _, a := range agents {
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED || a.Role == v1.AgentRole_AGENT_ROLE_ROOT ||
 			a.PendingReopen != nil || a.SessionId == "" {
 			continue
+		}
+		if a.Kind == opencode.Kind && !warmedOpenCode {
+			d.warmOpenCodeModels(ctx, opencode.Kind)
+			warmedOpenCode = true
 		}
 		if err := d.settleLimit(ctx, a.Id, auto); err != nil && ctx.Err() == nil {
 			d.log.Warn("limit pass", "agent", a.Name, "err", err)
@@ -246,11 +252,15 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 	if err != nil {
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
+	chain = d.expandChain(a.Kind, chain)
 	if effort == "" {
 		effort = tierEffort
 	}
 	i := index(chain, model)
 	if i < 0 {
+		if a.Kind == opencode.Kind && len(chain) > 0 {
+			return d.nextFree(r, a.Kind, effort, chain, -1), nil
+		}
 		return "", nil
 	}
 	return d.nextFree(r, a.Kind, effort, chain, i), nil
