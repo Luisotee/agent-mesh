@@ -87,7 +87,7 @@ describe('costView', () => {
     totalRead: 80_000_000n,
     clis: [
       { cli: 'claude', calls: 120n, input: 2_000_000n, w1: 500_000n, w5: 100_000n, output: 790_000n, total: 3_390_000n, read: 79_000_000n, basis: 'exact: the API usage' },
-      { cli: 'opencode', calls: 5n, input: 8000n, output: 2000n, total: 10_000n, read: 1_000_000n, basis: 'exact as the provider reports it' },
+      { cli: 'opencode', calls: 5n, input: 8000n, output: 2000n, total: 10_000n, read: 1_000_000n, usd: 0.05, basis: 'exact as the provider reports it' },
     ],
     kinds: [{ kind: 'claude', sessions: 4n, calls: 120n, usd: 12.3, share: 99.5, tokenShare: 70.5, total: 3_390_000n, input: 2_000_000n, w1: 500_000n, w5: 100_000n, output: 790_000n, read: 79_000_000n, usdPerCall: 0.1031, ctxPerCall: 150_000n, outPerCall: 800n }],
     byModel: [{ model: 'sonnet', phase: '', calls: 100n, usd: 8, input: 1000n, output: 2000n, total: 3000n, read: 5000n, ctxPerCall: 2_400_000n, outPerCall: 700n }],
@@ -105,8 +105,8 @@ describe('costView', () => {
     expect(v.scope).toBe('since 7d')
     expect(v.bases[0]).toEqual({ cli: 'claude', basis: 'exact: the API usage' })
     expect(v.tables.map((t) => t.title)).toEqual(['By CLI', 'By kind', 'By model and phase', "Review findings by the root's verdict"])
-    expect(v.tables[0]!.headers).toEqual(['cli', 'calls', 'input', 'cache write', 'output', 'total', 'cache read'])
-    expect(v.tables[0]!.rows[1]).toEqual(['opencode', '5', '8k', '0', '2k', '10k', '1.0M'])
+    expect(v.tables[0]!.headers).toEqual(['cli', 'calls', 'input', 'cache write', 'output', 'total', 'cache read', '≈ $'])
+    expect(v.tables[0]!.rows[1]).toEqual(['opencode', '5', '8k', '0', '2k', '10k', '1.0M', '0.05'])
     expect(v.tables[1]!.rows[0]).toEqual(['claude', '4', '120', '2.0M', '600k', '790k', '3.4M', '79.0M', '70.5', '12.30', '150k', '800'])
     expect(v.tables[2]!.rows[0]).toEqual(['sonnet', '-', '100', '1k', '0', '2k', '3k', '5k', '8.00', '2.4M', '700'])
     // The dollars come after the tokens in a table.

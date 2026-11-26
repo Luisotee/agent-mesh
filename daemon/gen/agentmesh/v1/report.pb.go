@@ -1074,7 +1074,10 @@ type CliCost struct {
 	// input + w1 + w5 + output, as AgentCost.total.
 	Total int64 `protobuf:"varint,8,opt,name=total,proto3" json:"total,omitempty"`
 	// Exact or an estimate, and why (what the CLI records).
-	Basis         string `protobuf:"bytes,9,opt,name=basis,proto3" json:"basis,omitempty"`
+	Basis string `protobuf:"bytes,9,opt,name=basis,proto3" json:"basis,omitempty"`
+	// Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+	// here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+	Usd           float64 `protobuf:"fixed64,10,opt,name=usd,proto3" json:"usd,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1172,12 +1175,19 @@ func (x *CliCost) GetBasis() string {
 	return ""
 }
 
+func (x *CliCost) GetUsd() float64 {
+	if x != nil {
+		return x.Usd
+	}
+	return 0
+}
+
 type GetCostResponse struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Scope      string                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
 	PricesAsOf string                 `protobuf:"bytes,2,opt,name=prices_as_of,json=pricesAsOf,proto3" json:"prices_as_of,omitempty"`
 	// What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-	// measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+	// measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
 	Usd           float64                `protobuf:"fixed64,3,opt,name=usd,proto3" json:"usd,omitempty"`
 	Agents        []*AgentCost           `protobuf:"bytes,4,rep,name=agents,proto3" json:"agents,omitempty"`
 	Kinds         []*KindCost            `protobuf:"bytes,5,rep,name=kinds,proto3" json:"kinds,omitempty"`
@@ -2081,7 +2091,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"agreed_pct\x18\n" +
 	" \x01(\x05R\tagreedPct\x12$\n" +
 	"\x0ehas_agreed_pct\x18\v \x01(\bR\fhasAgreedPct\x12\x1b\n" +
-	"\tby_author\x18\f \x01(\x03R\bbyAuthor\"\xbf\x01\n" +
+	"\tby_author\x18\f \x01(\x03R\bbyAuthor\"\xd1\x01\n" +
 	"\aCliCost\x12\x10\n" +
 	"\x03cli\x18\x01 \x01(\tR\x03cli\x12\x14\n" +
 	"\x05calls\x18\x02 \x01(\x03R\x05calls\x12\x14\n" +
@@ -2091,7 +2101,9 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x04read\x18\x06 \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\a \x01(\x03R\x06output\x12\x14\n" +
 	"\x05total\x18\b \x01(\x03R\x05total\x12\x14\n" +
-	"\x05basis\x18\t \x01(\tR\x05basis\"\xfa\x04\n" +
+	"\x05basis\x18\t \x01(\tR\x05basis\x12\x10\n" +
+	"\x03usd\x18\n" +
+	" \x01(\x01R\x03usd\"\xfa\x04\n" +
 	"\x0fGetCostResponse\x12\x14\n" +
 	"\x05scope\x18\x01 \x01(\tR\x05scope\x12 \n" +
 	"\fprices_as_of\x18\x02 \x01(\tR\n" +

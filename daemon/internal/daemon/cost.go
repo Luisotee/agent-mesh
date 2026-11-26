@@ -1493,16 +1493,27 @@ func (b *tallyBucket) merge(o *tallyBucket) {
 	b.firsts = append(b.firsts, o.firsts...)
 }
 
-// mergedBuckets folds the Claude tally and the agy and OpenCode one into one map, so a row counts every CLI.
-func mergedBuckets[K comparable](a, b map[K]*tallyBucket) map[K]*tallyBucket {
-	out := make(map[K]*tallyBucket, len(a)+len(b))
-	for _, m := range []map[K]*tallyBucket{a, b} {
-		for k, v := range m {
-			if out[k] == nil {
-				out[k] = newBucket(v.kind)
-			}
-			out[k].merge(v)
+// tokensOnly adds o's counts to b but none of its dollars: a row's dollars are Claude's API-equivalent price only (what
+// an OpenCode provider billed is reported once, per CLI, in CliCost.usd).
+func (b *tallyBucket) tokensOnly(o *tallyBucket) {
+	c := *o
+	c.usd, c.plan, c.exec, c.coldUSD, c.subUSD = 0, 0, 0, 0, 0
+	b.merge(&c)
+}
+
+// mergedBuckets folds the Claude tally and the agy and OpenCode one into one map, so a row counts every CLI's tokens
+// and Claude's dollars.
+func mergedBuckets[K comparable](priced, tokenOnly map[K]*tallyBucket) map[K]*tallyBucket {
+	out := make(map[K]*tallyBucket, len(priced)+len(tokenOnly))
+	for k, v := range priced {
+		out[k] = newBucket(v.kind)
+		out[k].merge(v)
+	}
+	for k, v := range tokenOnly {
+		if out[k] == nil {
+			out[k] = newBucket(v.kind)
 		}
+		out[k].tokensOnly(v)
 	}
 	return out
 }
@@ -1510,7 +1521,7 @@ func mergedBuckets[K comparable](a, b map[K]*tallyBucket) map[K]*tallyBucket {
 // cliBasis says how far a CLI's counts can be trusted, for `mesh cost` and the apps.
 var cliBasis = map[string]string{
 	"claude":   "exact: the API usage Claude Code records for each call (input, cache writes by TTL, cache reads, output)",
-	"opencode": "exact as the provider reports it to OpenCode (reasoning counts as output); a provider that reports no cache split shows none",
+	"opencode": "exact as the provider reports it to OpenCode (reasoning counts as output); its $ is what the provider reported, not an API-price estimate",
 	"agy":      "as agy records each step: no cache-write split, so cache writes sit in input; read it as an estimate",
 }
 
@@ -1564,6 +1575,7 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		return agents[i].Name < agents[j].Name
 	})
 
+	// Review dollars and shares are over Claude's priced dollars (the merged rows carry no other CLI's).
 	var kindUSD float64
 	var kindTokens int64
 	for _, b := range allKinds {
@@ -1671,9 +1683,18 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 	clis := make([]*v1.CliCost, 0, len(allCLIs))
 	var totalTokens, totalRead int64
 	for cli, b := range allCLIs {
+		// Claude's dollars are priced here; OpenCode's are the provider's own, kept out of every other row and total.
+		usd := tally.clis[cli]
+		if usd == nil {
+			usd = tokenTally.clis[cli]
+		}
+		var cliUSD float64
+		if usd != nil {
+			cliUSD = usd.usd
+		}
 		clis = append(clis, &v1.CliCost{
 			Cli: cli, Calls: b.calls, Input: b.input, W1: b.w1, W5: b.w5, Read: b.read, Output: b.output,
-			Total: b.tokens(), Basis: cliBasis[cli],
+			Total: b.tokens(), Basis: cliBasis[cli], Usd: round2(cliUSD),
 		})
 		totalTokens += b.tokens()
 		totalRead += b.read

@@ -277,9 +277,9 @@ func renderCost(m proto.Message, w io.Writer) {
 		fmt.Fprintln(w)
 		rows := make([][]string, 0, len(r.Clis))
 		for _, c := range r.Clis {
-			rows = append(rows, []string{c.Cli, fmt.Sprint(c.Calls), tokensText(c.Input), tokensText(c.W1 + c.W5), tokensText(c.Output), tokensText(c.Total), tokensText(c.Read)})
+			rows = append(rows, []string{c.Cli, fmt.Sprint(c.Calls), tokensText(c.Input), tokensText(c.W1 + c.W5), tokensText(c.Output), tokensText(c.Total), tokensText(c.Read), fmt.Sprintf("%.2f", c.Usd)})
 		}
-		printTable(w, []string{"cli", "calls", "input", "cache write", "output", "total", "cache read"}, rows)
+		printTable(w, []string{"cli", "calls", "input", "cache write", "output", "total", "cache read", "≈ $"}, rows)
 		for _, c := range r.Clis {
 			fmt.Fprintf(w, "  %s: %s\n", c.Cli, c.Basis)
 		}

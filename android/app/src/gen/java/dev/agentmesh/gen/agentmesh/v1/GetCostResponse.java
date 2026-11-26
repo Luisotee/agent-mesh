@@ -125,7 +125,7 @@ public  final class GetCostResponse extends
   /**
    * <pre>
    * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
    * </pre>
    *
    * <code>double usd = 3 [json_name = "usd"];</code>
@@ -138,7 +138,7 @@ public  final class GetCostResponse extends
   /**
    * <pre>
    * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
    * </pre>
    *
    * <code>double usd = 3 [json_name = "usd"];</code>
@@ -151,7 +151,7 @@ public  final class GetCostResponse extends
   /**
    * <pre>
    * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
    * </pre>
    *
    * <code>double usd = 3 [json_name = "usd"];</code>
@@ -1198,7 +1198,7 @@ public  final class GetCostResponse extends
     /**
      * <pre>
      * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
      * </pre>
      *
      * <code>double usd = 3 [json_name = "usd"];</code>
@@ -1211,7 +1211,7 @@ public  final class GetCostResponse extends
     /**
      * <pre>
      * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
      * </pre>
      *
      * <code>double usd = 3 [json_name = "usd"];</code>
@@ -1226,7 +1226,7 @@ public  final class GetCostResponse extends
     /**
      * <pre>
      * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
      * </pre>
      *
      * <code>double usd = 3 [json_name = "usd"];</code>

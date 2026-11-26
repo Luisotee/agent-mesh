@@ -145,13 +145,16 @@ message CliCost {
   int64 total = 8;
   // Exact or an estimate, and why (what the CLI records).
   string basis = 9;
+  // Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+  // here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+  double usd = 10;
 }
 
 message GetCostResponse {
   string scope = 1;
   string prices_as_of = 2;
   // What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
-  // measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+  // measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
   double usd = 3;
   repeated AgentCost agents = 4;
   repeated KindCost kinds = 5;

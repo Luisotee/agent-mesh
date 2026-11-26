@@ -350,6 +350,47 @@ public  final class CliCost extends
 
   }
 
+  public static final int USD_FIELD_NUMBER = 10;
+  private double usd_;
+  /**
+   * <pre>
+   * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+   * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+   * </pre>
+   *
+   * <code>double usd = 10 [json_name = "usd"];</code>
+   * @return The usd.
+   */
+  @java.lang.Override
+  public double getUsd() {
+    return usd_;
+  }
+  /**
+   * <pre>
+   * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+   * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+   * </pre>
+   *
+   * <code>double usd = 10 [json_name = "usd"];</code>
+   * @param value The usd to set.
+   */
+  private void setUsd(double value) {
+    
+    usd_ = value;
+  }
+  /**
+   * <pre>
+   * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+   * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+   * </pre>
+   *
+   * <code>double usd = 10 [json_name = "usd"];</code>
+   */
+  private void clearUsd() {
+
+    usd_ = 0D;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.CliCost parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -797,6 +838,49 @@ public  final class CliCost extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+     * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+     * </pre>
+     *
+     * <code>double usd = 10 [json_name = "usd"];</code>
+     * @return The usd.
+     */
+    @java.lang.Override
+    public double getUsd() {
+      return instance.getUsd();
+    }
+    /**
+     * <pre>
+     * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+     * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+     * </pre>
+     *
+     * <code>double usd = 10 [json_name = "usd"];</code>
+     * @param value The usd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUsd(double value) {
+      copyOnWrite();
+      instance.setUsd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+     * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+     * </pre>
+     *
+     * <code>double usd = 10 [json_name = "usd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUsd() {
+      copyOnWrite();
+      instance.clearUsd();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.CliCost)
   }
   @java.lang.Override
@@ -822,10 +906,11 @@ public  final class CliCost extends
             "output_",
             "total_",
             "basis_",
+            "usd_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0002" +
-              "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0208";
+              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0002" +
+              "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0208\n\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -95,4 +95,15 @@ public interface CliCostOrBuilder extends
    */
   com.google.protobuf.ByteString
       getBasisBytes();
+
+  /**
+   * <pre>
+   * Claude: its API-equivalent price. OpenCode: what the provider reported (zero for a free model). agy: none. Only
+   * here do an OpenCode provider's dollars appear: the rows and the response's usd are Claude's priced dollars.
+   * </pre>
+   *
+   * <code>double usd = 10 [json_name = "usd"];</code>
+   * @return The usd.
+   */
+  double getUsd();
 }

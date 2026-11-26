@@ -126,8 +126,8 @@ export function costView(r: GetCostResponse): CostView {
   if (r.clis.length)
     tables.push({
       title: 'By CLI',
-      headers: ['cli', 'calls', ...COUNT_HEADERS],
-      rows: r.clis.map((c) => [c.cli, String(c.calls), ...counts(c)]),
+      headers: ['cli', 'calls', ...COUNT_HEADERS, '≈ $'],
+      rows: r.clis.map((c) => [c.cli, String(c.calls), ...counts(c), c.usd.toFixed(2)]),
     })
   if (r.kinds.length)
     tables.push({

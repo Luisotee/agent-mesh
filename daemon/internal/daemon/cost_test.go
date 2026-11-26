@@ -456,7 +456,7 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	}
 	oc := foundTokenModels["opencode/big-pickle:"]
 	if foundTokenModels["argon:plan"] == nil || foundTokenModels["argon:plan"].Calls != 1 || foundTokenModels["hydrogen:exec"] == nil || foundTokenModels["hydrogen:exec"].Calls != 1 ||
-		oc == nil || oc.Calls != 1 || !approx(oc.Usd, 0.05) || oc.Input != 1200 || oc.W5 != 500 || oc.Read != 30_000 || oc.Output != 50 || oc.Total != 1750 {
+		oc == nil || oc.Calls != 1 || oc.Usd != 0 || oc.Input != 1200 || oc.W5 != 500 || oc.Read != 30_000 || oc.Output != 50 || oc.Total != 1750 {
 		t.Fatalf("by_model = %+v", r1.ByModel)
 	}
 	// Tokens are the main figure: total = input + cache writes + output, cache reads apart, and a row per CLI.
@@ -474,6 +474,24 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	if c := byCLI["opencode"]; c == nil || c.Total != 1750 || c.Read != 30_000 {
 		t.Fatalf("opencode = %+v", byCLI["opencode"])
 	}
+	// Dollars: every row and the headline are Claude's API-equivalent price; what the OpenCode provider billed shows
+	// once, on its own CLI row, and is in no other figure.
+	if c := byCLI["opencode"]; !approx(c.Usd, 0.05) {
+		t.Fatalf("opencode usd = %v, want the provider's 0.05", c.Usd)
+	}
+	if c := byCLI["claude"]; !approx(c.Usd, r1.Usd) {
+		t.Fatalf("claude usd = %v, want the headline %v", c.Usd, r1.Usd)
+	}
+	var kindUSD float64
+	for _, k := range r1.Kinds {
+		kindUSD += k.Usd
+	}
+	if !approx(kindUSD, r1.Usd) {
+		t.Fatalf("kind rows add to $%v, the headline is $%v: a row carries another CLI's dollars", kindUSD, r1.Usd)
+	}
+	if r1.Reviews == nil || r1.Reviews.Usd != 0 {
+		t.Fatalf("review dollars = %+v: the OpenCode reviewer's bill is not Claude's API price", r1.Reviews)
+	}
 	if r1.TotalTokens != 22_350 || r1.TotalRead != 70_000 {
 		t.Fatalf("total_tokens = %d, total_read = %d", r1.TotalTokens, r1.TotalRead)
 	}
@@ -481,7 +499,7 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	if a := byAgent["repo-agy"]; a == nil || a.Total != 2600 || a.Read != 40_000 || a.Usd != 0 || a.Kind != "agy worker" {
 		t.Fatalf("repo-agy = %+v", a)
 	}
-	if a := byAgent["repo-review-7-opencode"]; a == nil || a.Total != 1750 || !approx(a.Usd, 0.05) {
+	if a := byAgent["repo-review-7-opencode"]; a == nil || a.Total != 1750 || a.Usd != 0 {
 		t.Fatalf("repo-review-7-opencode = %+v", a)
 	}
 	for i := 1; i < len(r1.Agents); i++ {
