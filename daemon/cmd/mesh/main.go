@@ -1,4 +1,4 @@
-// Command mesh is agent-mesh's CLI for agents and users (renamed `mesh` at the switchover). Its commands
+// Command mesh is agent-mesh's CLI for agents and users (`meshctl` until the switchover began). Its commands
 // are the action registry's, derived from the schemas at run time (internal/cli); only `hook` (what a CLI's
 // hooks run) and `version` are written by hand.
 package main

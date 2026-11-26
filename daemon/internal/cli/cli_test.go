@@ -383,3 +383,14 @@ func TestDefaultStateIsTheInstalledDaemonsWhenItsSocketExists(t *testing.T) {
 		t.Errorf("no HOME: %q", got)
 	}
 }
+
+func TestDirTakesOnlyARunID(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Dir(env, []string{"--state", "/s", "--run", "r1x"}); code != ExitOK || strings.TrimSpace(out.String()) != "/s/runs/r1x" {
+		t.Errorf("dir: %d %q", code, out.String())
+	}
+	if code := Dir(env, []string{"--state", "/s", "--run", "../../x"}); code != ExitUsage {
+		t.Errorf("a path as a run id: %d", code)
+	}
+}

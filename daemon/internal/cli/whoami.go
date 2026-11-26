@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -64,6 +65,9 @@ func Whoami(env Env, args []string) int {
 	return printJSON(env.Stdout, out)
 }
 
+// runIDRE is what a run id looks like (ids.New): letters and digits, so no id names a path outside runs/.
+var runIDRE = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
 // Dir prints the folder of a run, where its agents write plans, reports and tasks: `$(mesh dir)/plans/<name>.md`.
 // An agent's is its own run's; anyone else names one with --run.
 func Dir(env Env, args []string) int {
@@ -88,6 +92,10 @@ func Dir(env Env, args []string) int {
 	}
 	if *state == "" {
 		fmt.Fprintln(env.Stderr, "mesh: give --state or $"+client.StateEnv)
+		return ExitUsage
+	}
+	if !runIDRE.MatchString(*run) {
+		fmt.Fprintf(env.Stderr, "mesh dir: %q is not a run id\n", *run)
 		return ExitUsage
 	}
 	fmt.Fprintln(env.Stdout, statedir.Paths{Dir: *state}.RunDir(*run))

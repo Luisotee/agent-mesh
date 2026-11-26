@@ -629,11 +629,11 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	// when it sees AGENT_MESH_TOKEN, and runs the CLI AGENT_MESH_CLI names).
 	if m := d.rt.cfg.Mesh; filepath.IsAbs(m) {
 		env[client.CLIEnv] = m
-		if env["PATH"] != "" {
-			env["PATH"] = filepath.Dir(m) + string(os.PathListSeparator) + env["PATH"]
-		} else {
-			env["PATH"] = filepath.Dir(m)
+		rest := env["PATH"]
+		if rest == "" {
+			rest = "/usr/local/bin:/usr/bin:/bin" // a daemon with no PATH: never leave the agent with only our folder
 		}
+		env["PATH"] = filepath.Dir(m) + string(os.PathListSeparator) + rest
 	}
 	return env
 }

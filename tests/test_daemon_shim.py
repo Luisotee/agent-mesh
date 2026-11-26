@@ -24,13 +24,14 @@ def stub(tmp_path):
 
 def test_a_daemon_agent_gets_the_go_cli(tmp_path):
     cli = stub(tmp_path)
-    r = run(tmp_path, {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_CLI": str(cli)}, "send", "parent", "--type", "done")
+    r = run(tmp_path, {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_AGENT": "a1", "AGENT_MESH_CLI": str(cli)}, "send", "parent", "--type", "done")
     assert r.returncode == 0, r.stderr
     assert r.stdout == "go mesh: send parent --type done\n"
 
 
 def test_a_daemon_agent_without_the_go_cli_fails_loudly(tmp_path):
-    for extra in ({"AGENT_MESH_TOKEN": "t"}, {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_CLI": str(tmp_path / "missing")}):
+    for extra in ({"AGENT_MESH_TOKEN": "t", "AGENT_MESH_AGENT": "a1"},
+                  {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_AGENT": "a1", "AGENT_MESH_CLI": str(tmp_path / "missing")}):
         r = run(tmp_path, extra, "status")
         assert r.returncode == 1
         assert "started by the agent-mesh daemon" in r.stderr
@@ -38,8 +39,9 @@ def test_a_daemon_agent_without_the_go_cli_fails_loudly(tmp_path):
 
 def test_herdr_agents_and_the_user_keep_this_mesh(tmp_path):
     cli = stub(tmp_path)
-    # No token: the user's shell. A token with MESH_RUN: not an agent of the daemon. Both run the old mesh.
-    for extra in ({"AGENT_MESH_CLI": str(cli)}, {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_CLI": str(cli), "MESH_RUN": "r1"}):
+    # No token: the user's shell. A token with MESH_RUN, or with no AGENT_MESH_AGENT: not an agent of the daemon.
+    for extra in ({"AGENT_MESH_CLI": str(cli)}, {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_AGENT": "a1", "AGENT_MESH_CLI": str(cli), "MESH_RUN": "r1"},
+                  {"AGENT_MESH_TOKEN": "t", "AGENT_MESH_CLI": str(cli)}):
         r = run(tmp_path, extra, "--help")
         assert r.returncode == 0 and "go mesh" not in r.stdout
         assert "usage" in r.stdout.lower()
