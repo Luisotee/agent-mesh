@@ -52,7 +52,33 @@ cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitign
 
 `./install.sh --uninstall` reverses all of it (units, drop-ins, binaries, `share/`, links, blocks) and keeps both state dirs. `tests/test_install.py` runs all of it in a temp HOME with `go`, `systemctl` and `herdr` stubbed, an upgrade from the old links included.
 
-An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI. 
+## Running a dev instance
+
+Always give it a state dir of its own: meshd has no default, so it can't land in a real one by accident. A unix socket path holds about 107 bytes, so keep the state dir path short: meshd refuses to start with a longer one.
+
+```bash
+state=$(mktemp -d)
+daemon/bin/meshd --state "$state"            # socket at $state/meshd.sock, device token at $state/device.token
+```
+
+Every call needs a token. The host's own CLI uses the device token meshd writes on first start (`device.token`, mode 0600); each agent gets its own at spawn, in `AGENT_MESH_TOKEN`. The actor of every action comes from the token, never from the request. Requests that carry a browser's `Origin` or `Sec-Fetch-Site` header are refused, and `--tcp` binds loopback only. A worker, asker, or reviewer token reads only its own run; a root may list earlier runs (`ListRuns`, `ListAgents`, `GetAgent`, `ListMessages`) and resume stopped non-root workers from them into its own open run. A token without a run is not stored.
+
+A run is one trust domain for events for now: every agent of a run receives its run's events, so a reviewer or asker sees the bodies of the `MessageSent` events between the run's other agents, though it can send only to its parent and children. `TODO.md` tracks revisiting it.
+
+## mesh (the CLI)
+
+Every action of the registry is a `mesh` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request (also before the command: `mesh --json '{…}' set`) and the other flags override it (a repeated field's first flag replaces the list the JSON gave, the next ones add to it), a `google.protobuf.Value` field takes any JSON or, when the text isn't JSON, the string it spells (`--value sonnet`, `--value 75`, `--value '["haiku","sonnet"]'`), and the response prints as JSON (a stream as one object per line), except `mesh inbox` and `mesh settings`, which print short text by default (an inbox as a header line and the body of each message, settings as `key = value`, with the default after an override) and give the whole response with `--format json`: the CLI's own view, the API is the same. Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command; without it (and without `$AGENT_MESH_STATE`) the CLI uses `$XDG_STATE_HOME/agent-mesh-daemon` (else `~/.local/state/agent-mesh-daemon`), where the installed units keep the state, but only when `meshd.sock` is there (`meshd` itself has no default). `mesh help` lists the commands, `mesh help <command>` its flags, each with the schema's own comment on the field (generated into `gen/` by `cmd/protoc-gen-flagdocs`, a `buf generate` plugin). A command whose request has a string field `to` or `agent` takes it as its one bare argument, wherever it stands among the flags (`mesh send parent --type done --body @report.md`, `mesh approve <agent> --tier mid`); it is a convention of the schema, so an action added with such a field gets it, and giving it twice (argument and flag) is an error. Only `hook`, `statusline`, `version`, `whoami` and `dir` are written by hand: `mesh whoami` prints the caller's role, name, id, run, run folder and parent as JSON, and `mesh dir` the run's folder (`$AGENT_MESH_RUN_DIR`, or `--run <id>` for a device).
+
+```bash
+export AGENT_MESH_STATE=$state
+daemon/bin/mesh start-run --title demo
+daemon/bin/mesh spawn --run-id <run> --repo ~/projects/shop-api --slug fix-typo --task @task.md
+daemon/bin/mesh agents --run-id <run>
+daemon/bin/mesh send --to shop-api-fix-typo --type task --body "…"
+daemon/bin/mesh events --run-id <run>                 # follow; resume with --cursor '{"generation":…,"seq":…}'
+```
+
+An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI.
 
 ## Settings
 
@@ -61,7 +87,7 @@ The policy (`bin/mesh`'s `POLICY`, design §21) is host data, the same from ever
 - `ListSettings {prefix}` returns `Setting`s: `key`, `value` (effective), `default`, `is_set`, `schema {type, summary, choices, restart}`, and who set it and when. Any actor class may call it. `mesh settings --prefix tiers.claude.`.
 - `SetSetting {meta, key, value}` and `ResetSetting {meta, key}` write: only a device or a root, idempotent like every write, and each emits a global `SettingChanged {key, value, previous, to_default}` with the actor and the mutation id. The event has no run, so every subscriber gets it, a run's agents included. A `Snapshot` doesn't carry settings: a client lists them after one, then follows the events. `mesh set --key quota_stop --value 75`, `mesh unset --key quota_stop`.
 - A value is checked against its type: `string`, `strings`, `int`, `percent`, `bool`, `seconds`, `effort`, `chain`, `slots`, `kinds`, `mb_or_auto`, `json`. A failure is `InvalidArgument` naming the rule (`quota_stop must be a whole number 0 to 100`); a key no leaf has is `NotFound`.
-- The daemon reads a leaf with `Daemon.Setting(reader, key)` (the override, else the default; a stored value the leaf's rule no longer takes is logged and the default used; a failed read is an error), so a change applies to the next read. A write that changes nothing (the same value again, a reset of a setting nobody set) emits no event. `seconds` is capped at 1e9 so a `time.Duration` can't overflow. Not ported yet, with the herdr-only leaves (views, `side_panes`, `root_reset.*`, `compact.*`, `claude.*`): they wait for the switchover. `meshd` doesn't import `~/.config/agent-mesh.json`.
+- The daemon reads a leaf with `Daemon.Setting(reader, key)` (the override, else the default; a stored value the leaf's rule no longer takes is logged and the default used; a failed read is an error), so a change applies to the next read. A write that changes nothing (the same value again, a reset of a setting nobody set) emits no event. `seconds` is capped at 1e9 so a `time.Duration` can't overflow. Not ported yet, with the herdr-only leaves (views, `side_panes`, `root_reset.*`, `compact.*`): `TODO.md` tracks them. `meshd` doesn't import `~/.config/agent-mesh.json`.
 
 ## Terminals
 
