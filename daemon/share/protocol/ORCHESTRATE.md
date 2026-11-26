@@ -1,0 +1,216 @@
+# agent-mesh orchestration (the daemon)
+
+The procedure for a run on the agent-mesh daemon (`meshd`): changes in several repos, a task list, questions about other repos and PR reviews. It is the daemon's version of the herdr mesh's file: no watch process, no exit codes, no panes. The daemon delivers every message as a doorbell at the recipient's next idle, tells a parent when a child exits, goes quiet or hits a limit, and nudges a worker that ends a turn without reporting.
+
+- **The root** is the agent that supervises the run, started by the user from the app or the CLI (`mesh start-run`, then `mesh spawn --role root`). It hands over everything delegated to it: one *worker* per affected repo, its own repo included. It changes code itself only for work the user gave it outside the delegation, or a part the user tells it to do itself.
+- **Each worker** loads its repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Depending on the task's size it either does the task directly, or researches it, sends the root a plan to review and, once approved, carries it out **itself**, with all the context its research built up.
+- **A worker never starts change agents.** It may start read-only ones (`--role asker` or `reviewer`) when it needs a second pair of eyes.
+
+Read `PROTOCOL.md` as well: it applies to you too, and `ROOT_CARD.md` is the part you act on every turn.
+
+**The policy is this host's:** what each tier runs per CLI, the reviewers per review size, review rounds, how long an idle agent stays open, the agent cap and the limit handling are daemon settings. `mesh settings [--prefix tiers]` lists them with their values; `mesh set --key <key> --value <value>` and `mesh unset --key <key>` change one (when the user asks). Read the tiers once per run: this file names settings (`tiers.claude.strong.model`, `review.rounds.small`, `idle_retire`, …), not their values.
+
+## Modes
+
+The CLI of a new agent is `--kind claude` (the default) or `--kind agy`; `mesh spawn` refuses a kind that isn't installed, and says what is. A request that names one ("have Gemini do it") sets it; otherwise Claude. A CLI can't be switched later: a conversation stays on its CLI (`mesh switch` moves it between models of the same one).
+
+### Tiers
+
+You pick every agent's model and effort as a **tier**, from the task: the daemon has no default and refuses a spawn without `--tier` (or a named `--model`). A tier is a model chain (the first with quota) and an effort per CLI, with a note on what it is for (`tiers.<kind>.<tier>.*`).
+
+| Tier | For |
+|---|---|
+| `light` | trivial tasks (copy, translations, a version bump, config) and short mechanical text |
+| `mid` | executing a clear plan, small tasks, routine questions and follow-ups, small-PR reviews |
+| `strong` | planning, unclear or risky work (auth, money, data migrations, concurrency), a bug whose cause is unknown, large-PR reviews |
+| `top` | Claude only (Fable), and only when the user names it: it draws on a capped share of their Claude limits |
+
+- **A large task picks twice:** its planning tier at spawn (`--tier`, with `--plan`), its execution tier at `mesh approve` (`--tier`, once you have read the plan). A plan that names its files and steps and leaves nothing open executes on `mid`; one with unknowns, a cross-cutting design or the risky areas above, on `strong`. A trivial or small task has one tier for the whole task. It stays in the **same conversation** across the move, so it keeps its research.
+- **The CLI is a pick too:** each vendor has its own quota. Mid or light work on agy saves the user's Claude limits.
+- **Moving a worker up:** on a thin plan, a failed check, a `question` that shows the task is harder than it looked, or a review that needs more than small fixes. Raise its **effort** first (`mesh switch <name> --effort high`): on the same model Claude keeps its cache. Then its tier (`mesh switch <name> --tier strong`, same conversation). `mesh switch <name> --next` is the quota move: the next model of its tier's chain.
+- **Planning is enforced for Claude:** a Claude agent started with `--plan` (or resumed with a task it plans) runs under a deny list (no file edits in its worktree or your checkout, no `git push`, no `gh pr` writes) until `mesh approve` reopens it without it. The shell stays open, so set-up and tests still run. agy has no deny list: its planners are held by the prompt alone.
+- **User overrides:** if the request names a model, agent or effort ("use Opus", "do it with agy"), pass it as `--model` / `--effort` (no tier needed). That one model then runs the whole task: it is *pinned*, with no plan phase and no switch to a tier.
+- **Usage limits** are the daemon's (`limits.auto`, default `switch`): an agent at its limit moves to the next model of its chain, or is continued at the reset, and an `info` tells it and you. Nothing for you to do unless `limits.auto` is `off`, or the alert (`[mesh alert limited …]`) says the account itself is at its limit: tell the user when it resets and send nothing meanwhile.
+- **Subagents** (any agent's, yours included): Claude Code's Agent tool starts a subagent on the caller's model unless it is given one. Give it a model by these tiers: Haiku for a search or a summary, Sonnet for reading code to a conclusion or a review, the caller's own only for planning-grade work.
+
+### Sizes
+
+Size every task. Only large work pays for a plan; the rest goes out as a direct task.
+
+| Size | For | Plan? |
+|---|---|---|
+| `trivial` | translations, copy, config, a version bump | no |
+| `small` | a bug fix, a UI tweak, a test, a contained refactor | no |
+| `large` (the default when unsure) | a feature, a cross-repo contract, anything you'd want to review before it's built | yes (`--plan`) |
+
+- **No plan** means the task text starts with `Direct task (no plan)`: the worker makes the change, verifies it and opens the PR. If the task turns out bigger or less clear than described, it sends a `question` before changing anything.
+- **A task-list group** (two or more tasks) gets one size for its combined work, as if it were one task: the smallest that fits. Independent trivial and small tasks grouped for shared context stay `small` and go out as one direct task. A group is `large` when one of its tasks is, when its tasks build on each other or share a design decision the plan should settle, or when the combined change is one you'd want to review before it's built. The number of tasks alone never makes it large.
+- **When unsure, go up a size.** A wrong small task costs a redo, and a wrong large one only costs a plan review.
+- **Questions:** `small`, unless answering needs research across the whole repo.
+- **Reviews:** sized by the PR: `small` for a PR of up to a few hundred lines in a few files, `large` for anything bigger. The size sets the reviewer slots (`review.reviewers.<size>`) and the level of a Claude reviewer's `/code-review` (`review.level.<size>`); the tier you give sets the reviewers' model, by the PR's risk rather than its size. A fresh reviewer runs at `review.effort`.
+- A bug whose cause is still unknown is `large`, planned on `strong`.
+
+## Root
+
+1. **Start:** the run exists (`mesh whoami` shows it, `mesh dir` its folder) and your first message is the user's request. Read `mesh settings --prefix tiers` once for this host's tiers. Keep `$(mesh dir)/notes.md` current from now on (below).
+2. **Find the scope:** which repos the request touches. Ask the user only if that's genuinely ambiguous.
+   - **Where repos are:** `mesh spawn --repo` takes a path (a git repository: the worktree is made from it). Give paths.
+   - **Every repo the request touches** gets a worker, your own included (`--repo .`): your context is the one that costs the most. Do a part yourself only when the user tells you to.
+   - **Work the user gave you before delegating** stays yours, in your current checkout. When a worker needs it, commit it on a branch and pass `--base <that branch>`: a worktree starts from `--base` (default `HEAD` of the repo) and sees neither your checkout nor your uncommitted changes.
+   - **Work an earlier worker did** (its PR got review comments, "make it Y instead of X"): resume that worker instead of spawning a fresh one ("Follow-ups").
+   - **A question, a PR review** changes nothing: see "Questions and reviews". **A list of tasks:** see "Task lists".
+3. **Size and route each task** ("Sizes", "Tiers"), then **propose the work and wait for the user's go.** Start nothing before it: no worktree, no spawn, no edit.
+   - **The proposal:** one line per worker: its repo and slice, size, CLI and tier, plus any part the user told you to do yourself. For a task list it is the board ("Task lists" step 1).
+   - **One go covers the run:** its PRs' reviews, fix rounds on them, answers to workers, and the calls "Decide, don't ask" leaves to you. So do fixes in the run's own PRs, a follow-up the user asks for on an earlier worker's work, and a small follow-up a worker proposes and builds in its own open PR. Other new work (a task added to the list, another repo, a follow-up big enough to plan) is proposed again.
+   - **No proposal** for a read-only question or a PR review the user asked for: the request is the work.
+   - **Running autonomously:** when the user says to go on without them, still write the proposal, for the record, write that instruction into `$(mesh dir)/notes.md` as a standing one, and start without waiting.
+4. **Spawn one worker per repo.** Write a task file per repo in `$(mesh dir)/tasks/` and start the worker in a fresh worktree:
+   ```bash
+   mesh spawn --kind <kind> --repo <path> --slug <slug> --tier <tier> [--plan [--exec-tier <tier>]] \
+     --task @"$(mesh dir)/tasks/<repo>.md"          # --model / --effort only if the user named one
+   ```
+   The slug names the branch (`mesh/<run>/<slug>`) and the agent (`<repo>-<slug>`), so make it short and descriptive: `fix-reactions`, not `task1`. `--plan` is for a large task (planning under the deny list, `--exec-tier` presets the execution tier); a trivial or small task has no `--plan` and its task text starts `Direct task (no plan)`. The task text goes to the worker as its first message and contains:
+   - that repo's slice of the request, with the user's own words quoted where the wording matters
+   - what you know that it needs: the contract the other repos expect (field names, API shapes, error cases), with file paths it can read for reference
+   - dependencies on other repos (what to wait for, and what the other workers will need from this one)
+   - what you know about that repo and what you only assume, with the assumptions marked so the worker checks them
+   - what is out of scope: files, behaviour or other repos it should leave alone
+   - for a large task: "send your plan for review before changing anything"; for every task: "report `done` with the PR link"
+
+   Tell the user, in one line per worker, its size, model and where it runs. `mesh spawn` is refused over `caps.agents` (default 8) or while the host is short of memory: say so, and start the next worker when one reports. Keep at most **4** workers working at once.
+5. **Supervise by ending your turn.** There is no watch to run. Every report, answer, alert and the daemon's own messages arrive as a doorbell at your next idle, and each is in your mailbox: `mesh inbox`. Do your own work, if you have any, and otherwise end your turn: a root that polls only spends its context.
+   - **What the daemon tells you** (an `info` from `mesh`, in your inbox): `[mesh alert exited <id>]` a worker's process ended without a report (resume it, `mesh resume <name>`, or reassign: its work is in its worktree); `[mesh alert unknown <id>]` nothing heard from it for ten minutes (look at it in the app; leave it unless it is plainly stuck); `[mesh alert limited <id>]` it is at a usage limit (the daemon moves it, or continues it at the reset; account-wide limits wait: tell the user the reset); `[mesh alert silent <id>]` it ended two turns without reporting, even after a nudge: read its terminal in the app, then answer it or resume it. One alert is sent per stretch of silence; a fresh task or answer starts the count again.
+   - **A declared wait:** a `wait` in your mailbox (no doorbell) says the worker waits on something long it started. Don't answer it; the daemon holds its nudge for `accountability.wait_max`.
+   - **What is waiting on whom:** `mesh waiting` lists the plans and questions waiting on you or the user, with their age and the prompts agents sit at; `mesh agents` lists the run's agents with their state (working, idle, needs input, unknown, limited, retired, exited) and `mesh agent <name>` shows one. Read `mesh agents`, not terminals. Look at a worker's terminal only for an alert or a stuck state, and never type into it: the app attaches to it for the user.
+   - **Your own work:** carry on with anything the user gave you outside the delegation while workers run; their messages queue until your turn ends. Never take over a worker's part. If your work depends on a worker's change, build against the contract you gave it, or wait for its `done` (its branch is `mesh/<run>/<slug>`) when you can't.
+   - **Keep your own context lean:** you live longest, so your context costs the most. Read plans and reports, not workers' transcripts. Look at diffs only where the plan says the risk is. Write decisions and what you do next into `notes.md` as you go.
+   - **An agent at a prompt** (`needs input` in `mesh agents`: a permission or a startup dialog) goes to the user: tell them which agent, and don't answer it yourself.
+6. **Review every plan** (`plan` messages; large tasks only). Read the plan file and check it against the request, the repo and the other workers' plans:
+   - Does it solve what was asked, and only that? Are the files and functions real (spot-check the code)?
+   - Is the *done when* a real check (tests, lint, build), not "looks right"?
+   - Do cross-repo contracts match (field names, API shapes)?
+
+   Then reply **once**:
+   - **approved:** `mesh approve <worker> --tier <execution tier> --why "<reason>"`, with `--body "<notes>"` if you have any ("Tiers": `mid` for a plan that leaves nothing open). This moves it to that tier's model and effort, in the same conversation, and lifts its deny list. It is refused unless the worker's newest report since its last task or answer is a `plan`: after a `question` or a `changes:` answer, the worker must send its plan again, changed or not, before you can approve it.
+   - **changes:** `mesh send <worker> --type answer --body "changes: <specific list>"`. The worker revises and sends the plan again, still on its planning model.
+
+   Ask the user only when a plan raises a real product decision; otherwise decide yourself. `mesh approve <worker> --keep-model` executes on the planning model (the deny list still goes, by a reopen); a later `mesh switch --tier` moves it.
+7. **Answer questions** with `mesh send <worker> --type answer --body "…"`: pass cross-repo facts between workers, make the call yourself whenever the request or the code settles it, and ask the user only for real product decisions, missing credentials, or a destructive choice.
+8. **Check every `done`** before passing it on; a worker's word is not proof.
+   - **A large task:** compare the PR diff (`gh pr diff <url> --name-only` first, then the risky files) against the plan you approved. A trivial or small task had no plan to check it against, so its reviewers check it against the task. Its `done` says what its self-review found and fixed.
+   - **Start its reviewers**, so every PR the run makes is reviewed without the user asking ("Questions and reviews"). Handle their findings as step 2 there says. A PR is done as soon as a round leaves nothing you agree with to fix, whatever rounds remain, or after its last round (`review.rounds.<size>`).
+   - If something's wrong, `mesh send <worker> --type task --body "<specific fixes>"` (start a small fix with `Direct task (no plan)`); a fix it should plan goes by `mesh resume` ("Follow-ups", step 2).
+9. **Close what you're done with:** once a worker's `done` checks out and you have nothing more for it, `mesh retire <worker>`: its process stops, its worktree and conversation stay, and `mesh resume <worker>` or a message brings it back with everything it knew. The daemon retires a worker for you once it has been idle `idle_retire` seconds (0 never) after its `done` or `failed`, unless a message waits for it, it declared a wait, a `plan` or `question` waits on you, or the user is attached to it. A message to a retired worker reopens it (same conversation): `mesh send` of a task, answer or question resumes it, then delivers; an `info` is only stored and read when it is next resumed.
+10. **A stuck worker** asks before it gives up: a `question` saying what blocks it, what it tried and its options. Answer it with a hint, a decision, or, when the task proves too costly or isn't needed any more, "drop it" (ask the user when the call is theirs); more effort is yours to add if you judge it helps. Its work stays with it: a buggy or unpolished result is a fix for the same worker, never a reason to hand the task to another.
+    - **`failed`** is only for what nobody in the run can fix: missing credentials or access, a decision only the user can make (a usage limit isn't one). Tell the user what blocked it, and resume the same worker once that's resolved.
+    - **Another CLI** (agy → Claude) only when the user asks for it: retire the worker and spawn a new one with `--base mesh/<run>/<old slug>` (a worktree starts from that branch's commits, on a branch of its own), giving it the plan and what blocked the first.
+11. **Finish:** when every worker has reported, its PR's reviews are settled and any work of your own is done, tell the user:
+    - one line per repo with the PR link and the worker's name (so it can be resumed later), plus anything you changed yourself
+    - what's left for them to do (review, test, deploy)
+    - anything that failed or was restarted
+    - the follow-ups you added to a repo's list of open work, or did in the run
+
+    Then `mesh retire` every agent that is still open. Closing the run (`mesh stop-run`: it retires every agent, removes clean worktrees, keeps branches with commits) is the user's: it is a device action, from the app or their shell. Workers can still be resumed after it by the user reopening the run.
+
+### Notes and your own context
+
+Keep `$(mesh dir)/notes.md` current as you decide: the user's standing instructions for this run, the decisions you made and why, what you do next, and any question for the user you ended a turn on (write it down *before* you end the turn: the user answers in the app, and a session that is later reset reads it back). A session that restarts (the user starts it fresh, or its CLI compacts it) rebuilds its picture from `notes.md`, `$(mesh dir)/tasks/`, `mesh agents` and `mesh inbox`, not from memory. **There is no `mesh reset` or `mesh brief` yet**: when your context grows heavy, tell the user so, with notes.md up to date, so they can restart you.
+
+## Task lists
+
+When the request is a list of tasks ("work through TODO.md", "fix these five issues"), you supervise and **write no code yourself**. The tasks go in a few themed **groups**, each one worker in its own worktree with one PR (and one plan, for a `large` group). Workers run as strong a model as you do, so one can take on a whole batch, and a worker already at home in a repo does the next task there far more cheaply than a fresh one.
+
+1. **Triage:** read each task, and just enough of the code to know its theme and what it depends on: the worker does the research. Write the board to `$(mesh dir)/board.md`, one row per task: task, repo, group (its worker's slug), depends on, and later the worker's name; one line per group with its size, CLI and tier. It is your proposal (Root step 3): show it to the user and get **one** go.
+2. **Order:** only a real dependency orders tasks. A task that builds on another's change goes in the same group, after it, or on a branch stacked on the earlier one's (`--base mesh/<run>/<earlier slug>`; its PR then targets that branch). Tasks that only touch the same files still run side by side: a conflict that shows up is rebased when the PRs merge.
+3. **Groups:** one worker, one worktree, one branch and **one PR** for all of a group's tasks, and **one plan** when the group is `large`.
+   - **What to group:** tasks that share a theme, or where what one task teaches the worker helps with another. A small task with no theme of its own joins some group rather than get a worker of its own. There's no size cap: lean towards fewer, bigger groups. Keep a task out of any group only when the request wants it merged on its own (an urgent fix) or no group fits.
+   - **Spawn** the worker once, with the whole group: its slug names the group. The task text has a `Group` section listing every task in the order to do them, each with what you know about it, and says: one plan for all of them (a `large` group), one commit (or more) per task, one PR with a section per task, one `done`.
+   - **One plan** (a `large` group): the worker researches every task and sends one plan covering each. Review it once; `mesh approve` then executes the whole group. A **"Maybe"** task (an idea to weigh) rides in its themed group: the plan says do or decline, with the evidence, and a declined one is reported in the `done`.
+   - **A group with no plan** goes out as one `Direct task (no plan)`: its worker does the tasks in order, a commit (or more) each, and opens one PR with a section per task. A task that proves bigger or less clear than described is asked about before that task's change; the tasks that don't depend on it go on.
+   - **Reviews** start once, on the group's PR, sized by the whole PR.
+   - **More work for a group** goes to the same worker, on its branch and in its open PR: by `mesh send <worker> --type task` only a `Direct task (no plan)`; a task it should plan, once its current `done` is in, by `mesh resume` ("Follow-ups" step 2).
+4. **Cap:** at most **4** workers working at once. A group counts as one. A fix round takes a slot like any working worker; reviewers don't. Start the next one when one reports.
+5. **Reviews:** check each finding before you act on it ("Questions and reviews", step 2), then send the findings you agree with to the author (a `task`, or by `mesh resume`), not to the reviewer.
+6. **Conflicts:** there is no `mesh conflicts` yet: before you report a merge order, compare the PRs' changed files (`gh pr diff <url> --name-only`) and say which overlap. Nobody merges. When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
+7. **Report:** the board as a table, with each task's PR, worker name, state (`mesh agents`) and review outcome and size; then the suggested merge order, and what's left for the user.
+
+## Questions and reviews
+
+A question about another repo, or a review of a PR, goes to a worker too, so it can be asked again later and can take the change on itself. There is no `mesh ask` yet: you start the read-only agent yourself and read its `done`.
+
+```bash
+mesh spawn --role asker   --kind <kind> --repo <path> --slug <slug> --tier <tier> --task "Question (read-only): …"
+mesh spawn --role reviewer --kind <kind> --repo <path> --slug <slug> --tier <tier> --base <PR head commit> \
+  --task @"$(mesh dir)/tasks/review-<pr>.md"
+```
+
+- **An asker or reviewer** is an ordinary agent with a read-only task: Claude ones run under the deny list (no file edits, no `git push`, no `gh pr` writes), agy ones only under their prompt. It answers with one `done`. Their names are `<repo>-<slug>`: ask the same one again with `mesh send <name> --type question --body "…"` (it is resumed if retired), and `mesh retire` it once you have no follow-up.
+- **The question:** give it what you know, as you would in a task file: what you are working on, what you need back, and in what form.
+- **Reviewing a PR:** `git fetch` the PR in the repo, then start the reviewer with `--base <the PR's head commit>` (`gh pr view <PR> --json headRefOid`) so its worktree is the head under review. Its task starts with `Review (read-only) of <PR> at <sha>`, tells it to read the PR's CI results first (`gh pr checks`) and run only the tests the change touches (the full suite only when the PR has no CI), to report findings as the "Worker" section says, and, for Claude, to run `/code-review` on it at `review.level.<size>`; it never passes `--fix` or `--comment`.
+- **Who reviews:** after the author's own self-review, outside reviewers by the PR's size: `review.reviewers.<size>` lists **slots**, each a chain of CLIs: take the first of each that is installed and not at its quota. By default a small PR gets one cheap reviewer and no Claude, a large one one reviewer; give a large or risky PR's reviewers `--tier strong`, a small one's `mid`. Start all of a PR's reviewers **at once**: they run side by side and answer by their own `done`; read each as it arrives.
+- **Rounds:** a PR gets at most `review.rounds.<size>` review rounds (a ceiling, not a quota). A re-review is only of a fix you asked for and only while rounds remain; send the same reviewers (`mesh send <name> --type task` with the new head and the one they read before, so they check the fix commits, not the whole PR) except the CLIs in `review.re_review.skip`.
+
+Then:
+
+1. **Relay the answer** to the user with the worker's name, so they can ask it again. Spot-check claims that matter against the code, as you would a `done`.
+2. **A review:** a finding is a claim to check, not an order (`PROTOCOL.md` rule 8). Reviewers mark each one **blocking** (a defect with the input that makes it fail) or **advisory**. For each one, check against the code that the bug really happens (trace it, or run the failing case) and whether the suggested fix is the best one, then decide: agree, agree with a different fix, or disagree and why. Fix a PR you wrote yourself. Send findings on a worker's PR, with your opinion on each, to the worker that made it ("Follow-ups"), not to the reviewer.
+   - **A round ends the reviews unless it needs a fix:** when none of its findings is one you agree with, the PR is done, however many rounds are allowed.
+   - **Every review is of one commit:** the task names the PR's head, and the reviewer records it.
+   - **After the last round's fix,** check the fix commits yourself (`git diff <reviewed head>..<new head>`), and the PR is done: no re-review, unless the user asks. If findings you agree with are still open after the last round, give them to the user with your opinion on each rather than starting another round, and don't turn them into a follow-up PR.
+3. **Turning the answer into a change** in that repo: start a `--role worker` there (`mesh spawn`) and put the asker's findings in its task. On the daemon an asker or reviewer stays read-only for its whole conversation (approval and a `Direct task (no plan)` don't lift it), so it never takes the change itself and its context doesn't carry over (`TODO.md`: parity with `bin/mesh`).
+
+**Not on the daemon yet** (see `TODO.md`): `mesh ask`, review rounds in one command with one merged findings file and `mesh verdict`, standing peers (`mesh peers`, `ask --peers`: when `find-peers` and `harvest-peers` come back they will need them), the quota reserve, `mesh cost`, `mesh conflicts`. Do these by hand as above.
+
+## Follow-ups
+
+When the request is about something a worker already built in this run, resume **that worker**: it still has its research, plan and reasoning, so a fresh one would only rediscover them.
+
+1. **Find it:** `mesh agents` lists the run's agents; the agent's branch and PR are in its `done`. A PR link names the worker whose branch is its head. An agent reads only its own run, so a worker of an earlier run can't be resumed from here (`TODO.md`): it is resumed from a device in that run, or you start a new worker in this run on that PR's branch (name the branch and PR in its task).
+2. **If it's still running**, give it by `mesh send <worker> --type task --body …` only a task it just does (a fix request; start it `Direct task (no plan)`: that also lifts a planner's deny list by a reopen). A task it should **plan** goes, once its `done` is in and it is retired (`mesh retire <worker>`: an idle worker is still running, and `resume` refuses a running one), by `mesh resume <worker> --task … --plan --tier <tier>`: it plans on that tier and, for Claude, under the deny list until `mesh approve`.
+3. **Otherwise resume it** (it is retired, or its process ended): `mesh resume <worker> --task @"$(mesh dir)/tasks/<repo>.md"` (add `--plan --tier <tier>` for a task it plans). It reopens the worker's own conversation, in its old worktree and branch, as your worker. A message to a retired worker (`mesh send`, a task, answer or question) resumes it the same way. The task text says: what to change (for a review, the comments themselves and **your opinion on each one**: agree, disagree and why, or what to do instead; ask it to check each finding itself before fixing it), and "plan first; push to the same branch so the PR updates; report `done`" (a small follow-up: start it with `Direct task (no plan)`).
+4. Supervise and review it exactly like a new worker.
+
+A conversation can't move to another CLI. A resumed worker keeps the model it ran on, except for a task that has a plan phase: that one plans on the tier you pass, and `mesh approve --tier` then moves it to the execution tier. There is no compaction at resume yet. If the worker's PR was merged or closed, its branch is the old one: tell it in the task which branch to use (`git switch -c` a new one from the default branch) and to open a new PR.
+
+## Worker
+
+You start inside your own worktree, on branch `mesh/<run>/<slug>`. It holds the same code as the main checkout (for a reviewer, the PR's head), so research there.
+
+**Reporting.** Every message to your parent goes through `mesh send parent …`. It is stored, and your parent's doorbell rings at its next idle. End your turn after it.
+
+**Read-only tasks.** A task that starts with `Question (read-only)` or `Review (read-only)` comes from your parent. Skip the plan: research, then answer. Change no files, commit nothing, push nothing, switch no branches, and post nothing on GitHub. Install dependencies only if you need them to answer (to run a test, for example). Report one `done`:
+- **A question:** the answer, with the file paths and functions that back it, and what you're unsure of.
+- **A review:** findings ranked by severity, each with file:line, a concrete failure (the input or state, and what goes wrong), why it matters and a suggested fix, and marked **blocking** (a defect you reproduced or traced, with the input that makes it fail) or **advisory** (everything else), then what you checked (the CI results you read and the tests you ran, say). Report only what you've confirmed in the code, mark anything you couldn't confirm as unverified, and leave out style preferences the repo's rules don't ask for. A review task names the commit it is of; when it also names the one you reviewed before, review what changed since and say which of your earlier findings are fixed. A Claude reviewer's task also asks it to run Claude Code's `/code-review` skill on the PR (or on the commits since its last review) and check each of its findings like any other claim; it never passes `--fix` or `--comment`.
+
+Then end your turn. A later task may ask more. An asker or reviewer stays read-only for the whole conversation: a change goes to a `--role worker`, not to you.
+
+**Direct tasks.** A task that starts with `Direct task (no plan)` (`Direct task:` and `Direct task.` read the same: a task not read so would be planned, with the deny list on) skips steps 4 to 6: research (step 3), then execute, verify, publish and report (steps 7 to 10). If the research shows the task is bigger or less clear than it says, send a `question` with what you found and end your turn before changing anything.
+
+1. **Follow the repo's rules.** The repo's `CLAUDE.md` / `AGENTS.md` apply to everything repo-specific: task tracking, branch and commit conventions, contract checks, the PR process. **Never edit files or switch branches in the main checkout**, and never touch another agent's worktree.
+2. **Set up:** a fresh worktree has no installed dependencies and no untracked files such as `.env`. Install what the repo needs. Don't copy secrets in unless the task says to.
+3. **Research** until you know exactly what to change: read the code, run the existing tests, reproduce the bug if there is one. Check every assumption the task marks before you rely on it. **Change nothing yet.** A Claude worker can't: until `approved`, the daemon denies it file edits in its worktree and `git push` (set-up and tests in the shell still run). That denial is expected; don't route around it with shell writes.
+4. **Plan:** write `$(mesh dir)/plans/<your-name>.md` from `PLAN_TEMPLATE.md` (same folder as this file). It is written for a reviewer who hasn't read the code: say what you found and where, name the exact files and functions, the invariants, the steps, the done-when command, and your open questions. For a group (your task has a `Group` section), one plan covers every task, a section each. Then run the `check-plan` skill on it: it checks the plan's load-bearing claims in the code, attacks it, and fixes it (and its Self-check section) before your parent reads it.
+5. **Ask for review:** `mesh send parent --type plan --body @"$(mesh dir)/plans/<your-name>.md"`, then **end your turn**. Don't start implementing while you wait.
+6. **On the answer:**
+   - `approved` → go on (the daemon reopens you on the execution tier, without the deny list: your conversation continues).
+   - `changes: …` → update the plan file, send it again as a `plan`, end your turn.
+   - Any other answer while you plan (to a `question`, say) → send the plan again as a `plan`, even unchanged, and end your turn: only a plan sent since the last answer can be approved.
+7. **Execute** the approved plan (or the direct task) yourself, in your worktree. Commit on your branch with clear messages. If the code turns out different from the plan in a way that changes its scope, stop, send a `question` and end your turn. Small corrections you can just note in the report.
+8. **Verify:** run the plan's done-when command and the repo's lint, test and build. Fix what fails. After two honest attempts at the same failure, send a `question` instead of guessing.
+9. **Publish:** push your branch and open the PR with `gh pr create`, following the repo's own PR rules (title, body, attribution, base branch). The PR body includes what changed, the commands that passed, and anything the reviewer should look at. Then do whatever the repo's rules require after a PR.
+   - **A follow-up** to work you already published goes on the **same branch**, so the existing PR updates. Open a new PR only if the task asks for one.
+   - **A stacked task** (your worktree started from another worker's branch) opens its PR against that branch.
+   - **A group:** once the one plan is approved (at once, for a `Direct task (no plan)` group), do the tasks in order, each as its own commit(s), and open one PR for all of them, with one section per task (what changed, the check that passed, any issue it closes).
+   - **Self-review:** then run the `self-review` skill on your PR's diff: check it against the task or plan, for correctness bugs and missing tests, with `/code-review` at `review.self_level.<size>` (`mesh settings --prefix review.self_level`) on Claude Code. Fix what you agree with, on the same branch, and push. A cheap outside reviewer comes after you: this is where the PR's blind spots are cheapest to find.
+10. **Report:** stop any server or watcher you started (`PROTOCOL.md` rule 2), run `mesh inbox` once more, then send **one** `done` to your parent (`--body @file` under `$(mesh dir)/reports/`) with the PR link, a summary, the checks that passed, the self-review line (`Self-review: N found, M fixed`, and why for any left), and any deviations from the plan, written briefly: lead with the result, keep every fact, reason and caveat, and don't restate the task or narrate your steps. If you're stuck, send a `question` (what blocks you, what you tried, your options) and end your turn: your parent decides. In a group, finish the tasks that don't depend on the stuck one first, then ask. Send `failed` only for what nobody in the run can fix. The root closes the run, not you.
+
+## Rules for everyone
+
+- **Workers push only** their own `mesh/<run>/<slug>` branch and open PRs. Nobody merges a PR or deploys.
+- **No sub-delegation of changes:** workers never start change agents, or a CLI headless. The run is the root plus its workers, and the read-only askers and reviewers either starts.
+- **Quiet supervision:** a working agent needs no check-ins. Act on reports, doorbells and the daemon's alerts only.
+- **Concise messages:** details go in `--body @file` reports and plans, not in chat.
+- **Decide, don't ask:** the root makes every call that the request, the code or a sensible default settles: sizes, reviewers, effort, which review findings to fix and how, retries, wording, merge order. Ask the user only when their answer would change the outcome in a way you can't judge yourself: a product decision, a trade-off only they can weigh, missing credentials, or anything destructive or outward-facing. Report what you decided, briefly, so they can overrule it. The one go before any work starts (Root step 3) stays.
+- **Fix it in the PR it came from:** review findings, and follow-ups that a worker or reviewer finds while working on a PR, are fixed in that same PR, on its branch, by the worker that made it (resumed if it's gone). That holds after you've called the PR done too: you check the new commits yourself, with no new review round. Don't open a new PR and branch for them: it gets reviewers of its own, whose findings bring more PRs, and so on without end. Only very rarely does one warrant its own PR; then it's a new task you decide on, never the default.
+- **New work goes to the agent that knows the code:** when a worker proposes something new and you agree (a small follow-up in its own PR needs no new go; anything bigger is proposed to the user first), that worker builds it, in its open PR when it has one: as a `Direct task (no plan)` by `mesh send` while it's live, or, if it needs a plan, by `mesh resume --plan` once its `done` is in. Any other small new task goes to an existing worker that already knows that code too, not a fresh agent. Spawn a fresh one only for work no worker has context for.
+- **Follow-ups land somewhere:** work that you or a worker discover but the request didn't ask for (a worker's report notes it), and that isn't a fix for one of the run's PRs, goes on that repo's own list of open work, wherever its rules track it. Whoever works in that repo adds it: a worker of the run that made a PR in that repo, as a task (it adds the line in its PR). A follow-up for a repo with no worker in the run goes in your Finish report, marked for the user to file. Never leave it only in chat.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -175,6 +176,13 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
 	}
 	argv = append(argv, "--settings", settings)
+	// The daemon's skills, loaded for this session only (never installed into the user's own): the share folder
+	// is a Claude plugin (`.claude-plugin/plugin.json`, `skills/`).
+	if share := m.Env["AGENT_MESH_SHARE"]; share != "" {
+		if _, err := os.Stat(filepath.Join(share, ".claude-plugin", "plugin.json")); err == nil {
+			argv = append(argv, "--plugin-dir", share)
+		}
+	}
 	if m.SkipPermissions {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}

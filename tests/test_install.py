@@ -207,11 +207,13 @@ def copy_of_repo(tmp_path: Path) -> Path:
 def test_daemon_install_copies_share_and_is_safe_to_rerun(tmp_path):
     repo, home = copy_of_repo(tmp_path), tmp_path / "home"
     home.mkdir()
-    (repo / "daemon" / "share").mkdir()
+    (repo / "daemon" / "share" / ".claude-plugin").mkdir(parents=True)
+    (repo / "daemon" / "share" / ".claude-plugin" / "plugin.json").write_text("{}")  # a hidden folder is copied too
     (repo / "daemon" / "share" / "marker.md").write_text("x")
     assert daemon_install(home, repo=repo).returncode == 0
     lib = home / ".local" / "lib" / "agent-mesh"
     assert (lib / "share" / "marker.md").read_text() == "x"
+    assert (lib / "share" / ".claude-plugin" / "plugin.json").read_text() == "{}"
     (repo / "daemon" / "share" / "marker.md").unlink()
     assert daemon_install(home, repo=repo).returncode == 0
     assert not (lib / "share" / "marker.md").exists() and not (lib / "share.old").exists()

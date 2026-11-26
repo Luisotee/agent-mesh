@@ -19,6 +19,7 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `internal/adapter`: the CLI-adapter registry; `internal/adapter/claude`: Claude Code's adapter; `internal/adapter/agy`: Antigravity CLI's (`agy`) adapter. `internal/reducer`: the pure state reducer. `internal/hook` and `cmd/mesh`: the hook command and its spool. `internal/proc`: pids checked by start time.
 - `internal/testutil/fakeclaude`, `internal/testutil/fakeagy`: the fake CLIs the tests run (turns and hooks, no network).
 - `packaging/systemd/`: the two user units for production (`install.sh --daemon` installs them).
+- `share/`: the protocol and skills daemon agents follow (`protocol/`: `PROTOCOL.md` for every agent, `ORCHESTRATE.md`, `ROOT_CARD.md`, `PLAN_TEMPLATE.md`; `skills/`; `.claude-plugin/plugin.json`), see "Protocol and skills".
 - `cmd/mesh`, `internal/cli`: the CLI (`mesh`), generated from the registry at run time.
 - `e2e/`: the end-to-end test of the real binaries (`TestEndToEnd`).
 
@@ -130,6 +131,15 @@ What `bin/mesh watch` did with exit codes (design, "The watchdog"), done by the 
 - **A turn without a report:** an agent at its prompt that was given a task or answer, and has sent no `plan`, `question`, `done` or `failed` since, with nothing unread in its inbox (the daemon's own nudge aside), is nudged once after `accountability.nudge_after` seconds (default 30; 0 turns nudges off): an `info` from `mesh` saying how to report. If it then has a turn (the nudge's doorbell rang) that ends the same way another `nudge_after` later, its parent is told once; a nudge whose doorbell is held back (a user typing) is not counted against it (`[mesh alert silent <id>]`). A new task or answer starts the count again.
 - **A declared wait** (a `wait` message to the parent, which rings no doorbell) holds the nudge for `accountability.wait_max` seconds (default 4 h) from when it was sent, or until the next task or answer. The wait carries no deadline of its own yet (`TODO.md`).
 - **Unread instructions:** `SendMessage` refuses a `plan`, `question`, `done` or `failed` from an agent while a `task` or `answer` is unread in its inbox (`FailedPrecondition`, nothing stored): it would answer instructions the agent hasn't read. `mesh inbox` reads them; `info` and `wait` are not reports and go through.
+
+## Protocol and skills
+
+`share/` is what a daemon agent reads and the skills it can use, written for the daemon's events (a message rings at the recipient's next idle; no watch process, no exit codes, no panes) and for the commands the Go CLI has. What the CLI lacks (`ask`, review rounds, peers, `reset`/`brief`, `cost`, `conflicts`) the files say plainly, with the manual way; `internal/cli/share_test.go` fails when a file names a `mesh` command or flag that doesn't exist, unless its sentence says "yet". The herdr mesh's `protocol/` and `skills/` are untouched until PR 6 of the switchover.
+
+- **`--share <dir>`** (default `../share` of the `meshd` binary, which is the installed `~/.local/lib/agent-mesh/share` or, in a dev build, this folder; ignored when it has no `protocol/`). Every agent gets `$AGENT_MESH_SHARE` (the absolute path).
+- **Skills per launch:** a Claude agent is launched with `--plugin-dir <share>` when `<share>/.claude-plugin/plugin.json` exists, so the skills load for that session only (as `agent-mesh-daemon:<name>`), never into the user's own `~/.claude`. agy has no such flag: its protocol tells it to read the `SKILL.md`.
+- **The first doorbell of each process** (a new terminal: a spawn, a resume, a reopen, a restart of meshd) ends with `(first one here: read <share>/protocol/PROTOCOL.md once, and follow it)`; a root's names `ROOT_CARD.md`, which tells it to read `PROTOCOL.md` too. The path is absolute, since the agent's CLI doesn't expand variables in what is typed to it. Later doorbells of the same process don't repeat it. The global rules block (`rules/global-snippet.md`) says the same for agents that read it first: the file the doorbell names, else `$AGENT_MESH_SHARE/protocol/PROTOCOL.md`, else `~/.config/agent-mesh/PROTOCOL.md` (a herdr agent).
+- **Skills:** `delegate` (the user's own session starts a run and a root and stops; the root is the supervisor), `delegate-review` (a root runs the review), `self-review`, `check-plan`.
 
 ## Delivery tests and hook fixtures
 

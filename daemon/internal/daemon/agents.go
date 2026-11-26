@@ -49,6 +49,10 @@ type AgentConfig struct {
 	TermUnit string
 	// Mesh is the absolute path of the CLI whose `hook` command the agents' hooks run.
 	Mesh string
+	// Share is the absolute path of the daemon's share folder (protocol/ and skills/, installed by
+	// `install.sh --daemon`): agents get it as $AGENT_MESH_SHARE, their first doorbell names its protocol, and a
+	// Claude agent loads its skills. Empty: none of that.
+	Share string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.
 	Binaries map[string]string
 	// Adapters are the CLI adapters; nil means the built-ins.
@@ -124,6 +128,7 @@ type runtime struct {
 	tickets     map[string]ticket
 	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
 	guard       guard
 	holds       holds // models at a usage limit (limits.go)
 	cpus        cpuTracker
@@ -153,7 +158,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		return nil, err
 	}
 	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
-		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
+		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.
@@ -369,6 +374,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
+	delete(d.rt.introduced, terminalID)
 	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
@@ -675,6 +681,9 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	env[client.TokenEnv], env[client.StateEnv] = token, d.paths.Dir
 	env["AGENT_MESH_AGENT"], env["AGENT_MESH_RUN"] = a.Id, a.RunId
 	env[client.RunDirEnv] = d.paths.RunDir(a.RunId)
+	if s := d.rt.cfg.Share; filepath.IsAbs(s) {
+		env[client.ShareEnv] = s
+	}
 	for k, v := range d.rt.cfg.Env {
 		env[k] = v
 	}
@@ -1149,9 +1158,19 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
 		return err
 	}
-	if err := d.typeLine(ctx, a.TerminalId, Doorbell(msgs)); err != nil {
+	line := Doorbell(msgs)
+	d.rt.mu.Lock()
+	first := !d.rt.introduced[a.TerminalId]
+	d.rt.mu.Unlock()
+	if first {
+		line += d.protocolPointer(a)
+	}
+	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
 		return err
 	}
+	d.rt.mu.Lock()
+	d.rt.introduced[a.TerminalId] = true
+	d.rt.mu.Unlock()
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		for _, m := range msgs {
 			// Only the delivery time is written, on the row as it is now: the agent may have read the message
@@ -1166,6 +1185,21 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 		}
 		return nil
 	})
+}
+
+// protocolPointer is what the first doorbell of a process adds: where the protocol is, as an absolute path (the
+// agent's CLI doesn't expand variables in what is typed to it). A root's names its card, which names the rest. Nothing
+// when the daemon has no share folder.
+func (d *Daemon) protocolPointer(a *v1.Agent) string {
+	share := d.rt.cfg.Share
+	if !filepath.IsAbs(share) {
+		return ""
+	}
+	protocol := filepath.Join(share, "protocol")
+	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+		return " (first one here: read " + filepath.Join(protocol, "ROOT_CARD.md") + " and follow it)"
+	}
+	return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, and follow it)"
 }
 
 // userTyping reports whether a client that can type is attached to a terminal and typed within TypingQuiet.
