@@ -305,16 +305,24 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 			return false, nil // the reopen runs next in this deliver
 		}
 		if gone {
-			return true, d.resumeAfterFailedRelaunch(ctx, a, pr)
+			return true, d.resumeAfterFailedRelaunch(ctx, a, pr, "the fresh session did not start; the old one was resumed")
 		}
 		if a.State != v1.AgentState_AGENT_STATE_IDLE {
 			if now.Sub(pr.TypedAt.AsTime()) > t.Confirm {
-				return false, d.finishReset(ctx, a.Id, pr, "failed", "the fresh session did not come up at its prompt", a.SessionId)
+				// Too slow (a dialog, memory pressure): the process would sit in an empty conversation, unbriefed.
+				// It is stopped and the old conversation resumed, as for a launch that failed.
+				if err := d.stopTerminal(ctx, a.TerminalId); err != nil {
+					return true, err
+				}
+				return true, d.resumeAfterFailedRelaunch(ctx, a, pr, "the fresh session did not come up at its prompt in time; it was stopped and the old one resumed")
 			}
 			return true, nil
 		}
 		return d.ringBootstrap(ctx, a, pr, false, a.SessionId)
 	case "clear":
+		if gone { // it ended after the /clear: holding it would block its reopen
+			return false, d.finishReset(ctx, a.Id, pr, "failed", "its process ended before the prompt to run `mesh brief` was typed", "")
+		}
 		if a.Kind == claude.Kind {
 			if a.SessionId == pr.OldSession || a.State != v1.AgentState_AGENT_STATE_IDLE {
 				if now.Sub(pr.TypedAt.AsTime()) > t.Confirm {
@@ -323,6 +331,9 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 				return true, nil
 			}
 		} else if now.Sub(pr.TypedAt.AsTime()) < t.Settle || a.State != v1.AgentState_AGENT_STATE_IDLE {
+			if now.Sub(pr.TypedAt.AsTime()) > t.Confirm { // never back at its prompt (a limit, an error): not held for good
+				return false, d.finishReset(ctx, a.Id, pr, "failed", "the root did not come back to its prompt after /clear; no prompt typed", "")
+			}
 			return true, nil // agy reports no new conversation before its next turn: settle, then ring
 		}
 		newSession := ""
@@ -333,6 +344,9 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	case "compact":
 		if a.PendingCompaction != nil {
 			return false, nil // the compaction step runs next in this deliver
+		}
+		if gone {
+			return false, d.finishReset(ctx, a.Id, pr, "failed", "its process ended before the prompt to run `mesh brief` was typed", "")
 		}
 		if pr.Reason != "" { // its compaction did not complete
 			return false, d.finishReset(ctx, a.Id, pr, "failed", pr.Reason, "")
@@ -426,8 +440,7 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 			return tx.PutAgent(cur)
 		})
 	default:
-		// agy drops hooks of a conversation other than its own, so the old id goes before the clear: the next
-		// turn's hooks record the new conversation.
+		// The mode is recorded first; for agy the old id goes once the clear is typed (below).
 		err = d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAgent(a.Id)
 			if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
@@ -465,8 +478,25 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 // ringBootstrap types the bootstrap line into the reset root and finishes the reset.
 func (d *Daemon) ringBootstrap(ctx context.Context, a *v1.Agent, pr *v1.RootReset, compacted bool, newSession string) (bool, error) {
 	quiet, err := d.quietToType(ctx, a.TerminalId)
-	if err != nil || !quiet {
+	if err != nil {
 		return true, err
+	}
+	if !quiet {
+		// Someone is typing into the root: the line waits, for as long as a reset waits for a quiet prompt, and no
+		// longer: the root is not held for good (it holds doorbells while the reset is pending).
+		now := d.now()
+		if pr.BootstrapWaitedSince == nil {
+			return true, d.updateReset(ctx, a.Id, pr.Id, func(_ *v1.Agent, p *v1.RootReset) { p.BootstrapWaitedSince = timestamppb.New(now) })
+		}
+		wait, err := d.Setting(d.store.Read(ctx), "root_reset.wait")
+		if err != nil {
+			return true, err
+		}
+		if secs, _ := wait.(float64); now.Sub(pr.BootstrapWaitedSince.AsTime()) > time.Duration(secs*float64(time.Second)) {
+			return false, d.finishReset(ctx, a.Id, pr, "failed", fmt.Sprintf("its session was reset, but the prompt to run `mesh brief` was not typed: someone was typing into it for %s. Run `mesh brief` yourself",
+				ago(time.Duration(secs*float64(time.Second)))), newSession)
+		}
+		return true, nil
 	}
 	if err := d.typeLine(ctx, a.TerminalId, bootstrapText(a, pr, compacted)); err != nil {
 		return false, d.finishReset(ctx, a.Id, pr, "failed", "its session was reset, but the prompt to run `mesh brief` didn't get through: "+err.Error(), newSession)
@@ -477,9 +507,9 @@ func (d *Daemon) ringBootstrap(ctx context.Context, a *v1.Agent, pr *v1.RootRese
 	return true, d.finishReset(ctx, a.Id, pr, "done", "", newSession)
 }
 
-// resumeAfterFailedRelaunch brings the old conversation back when the fresh process did not start: a reset never
-// leaves the root without a process.
-func (d *Daemon) resumeAfterFailedRelaunch(ctx context.Context, a *v1.Agent, pr *v1.RootReset) error {
+// resumeAfterFailedRelaunch brings the old conversation back when the fresh process did not start (or was too slow
+// to, and was stopped): a reset never leaves the root without a process, nor with an unbriefed one.
+func (d *Daemon) resumeAfterFailedRelaunch(ctx context.Context, a *v1.Agent, pr *v1.RootReset, why string) error {
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
@@ -501,7 +531,7 @@ func (d *Daemon) resumeAfterFailedRelaunch(ctx context.Context, a *v1.Agent, pr 
 	if err != nil {
 		return err
 	}
-	if err := d.finishReset(ctx, a.Id, pr, "failed", "the fresh session did not start; the old one was resumed", pr.OldSession); err != nil {
+	if err := d.finishReset(ctx, a.Id, pr, "failed", why, pr.OldSession); err != nil {
 		return err
 	}
 	d.deliverSoon(a.Id)

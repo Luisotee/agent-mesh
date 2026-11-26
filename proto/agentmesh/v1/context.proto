@@ -30,7 +30,7 @@ message ContextUsage {
 message PendingCompaction {
   // Unique per request.
   string id = 1;
-  // "resume", "approve" or "follow-up".
+  // "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
   string why = 2;
   // What the compaction keeps: the CLI's `/compact` argument.
   string focus = 3;
@@ -85,6 +85,9 @@ message RootReset {
   string mode = 15;
   // What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
   string focus = 16;
+  // Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+  // `root_reset.wait`, so the root is never held for good.
+  google.protobuf.Timestamp bootstrap_waited_since = 17;
 }
 
 // A compaction ran for an agent (live or on a stopped conversation before its reopen).

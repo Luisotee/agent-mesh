@@ -83,10 +83,14 @@ func TestHeaderTextHasNoControlCharacters(t *testing.T) {
 	}
 }
 
-func TestCapTextNeverCutsACharacter(t *testing.T) {
-	text := strings.Repeat("é", 3000) // 6000 bytes, no newline
+func TestCapTextCountsCharactersAndNeverCutsOne(t *testing.T) {
+	text := strings.Repeat("é", 5000) // 10000 bytes, no newline
 	got := capText(text, 4000, "cat notes.md")
-	if !utf8.ValidString(got) || !strings.Contains(got, "1000 more characters: cat notes.md") {
+	if !utf8.ValidString(got) || !strings.Contains(got, "1000 more characters: cat notes.md") || !strings.HasPrefix(got, strings.Repeat("é", 4000)+"\n") {
 		t.Errorf("%d bytes, valid %v: …%q", len(got), utf8.ValidString(got), got[len(got)-50:])
+	}
+	// Under the limit in characters (though over it in bytes): returned whole, not capped.
+	if under := strings.Repeat("é", 3000); capText(under, 4000, "x") != under {
+		t.Error("3000 characters were capped at a 4000 limit")
 	}
 }

@@ -94,6 +94,38 @@ func TestTheBriefGivesARootItsCardNotesWorkersAndMailWithoutReadingIt(t *testing
 	}
 }
 
+func TestADoneTheRootHasReadIsNotWaitingOnItInTheBrief(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	asWorker := w.as(w.token(t, worker.Id))
+	readInbox(t, asWorker)
+	if _, err := asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_DONE, Body: "done: fixed"})); err != nil {
+		t.Fatal(err)
+	}
+	brief := func() string {
+		b, err := asLead.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b.Msg.Text
+	}
+	if text := brief(); !strings.Contains(text, "its done waits on you ← needs you") {
+		t.Fatalf("an unread done is not listed:\n%s", text)
+	}
+	readInbox(t, asLead)
+	if text := brief(); strings.Contains(text, "waits on you") || strings.Contains(text, "waiting on you:") {
+		t.Errorf("a done the root has read still waits:\n%s", text)
+	}
+}
+
 func TestTheBriefAfterAResetCarriesWhatTheRootSaidNext(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{})
 	ctx := context.Background()

@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // compactWorld is a daemon whose headless compactions run the fake claude in print mode, recorded.
@@ -263,6 +265,38 @@ func TestACompactionThatFailsStillResumesTheAgent(t *testing.T) {
 	}
 	if n := len(w.compactions()); n != 1 {
 		t.Errorf("a failed compaction is not retried: %d runs", n)
+	}
+}
+
+func TestAHeadlessCompactionStartedBeforeARestartIsNotRunAgain(t *testing.T) {
+	w := startCompact(t)
+	run, before := w.stopped(t, "restart", "", v1.AgentRole_AGENT_ROLE_WORKER, 500000, hour, 0)
+	// What meshd left in the store when it died with the compaction's CLI running: the request, marked started.
+	err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(before.Id)
+		if err != nil {
+			return err
+		}
+		a.PendingCompaction = &v1.PendingCompaction{Id: "c-restart", Why: "resume", Always: true, RequestedAt: timestamppb.Now(),
+			StartedAt: timestamppb.Now(), TokensBefore: 500010}
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(w.compacted(t, run.Id, before.Id)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	cs := w.compacted(t, run.Id, before.Id)
+	if len(cs) != 1 || !strings.HasPrefix(cs[0].Outcome, "meshd restarted while it was compacting") || cs[0].TokensBefore != 500010 {
+		t.Fatalf("events %v", cs)
+	}
+	if n := len(w.compactions()); n != 0 {
+		t.Errorf("the compaction ran again: %v", w.compactions())
+	}
+	if got := w.agent(before.Id); got.PendingCompaction != nil {
+		t.Errorf("the request is still pending: %v", got.PendingCompaction)
 	}
 }
 

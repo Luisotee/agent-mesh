@@ -12,14 +12,17 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
 // resetWorld is a compactWorld whose fake claude logs every line typed into it, and which can make a fresh launch
 // fail (the file named by FAKECLAUDE_FAIL_FILE exists).
 type resetWorld struct {
 	*compactWorld
-	inputLog, failFile string
+	inputLog, failFile, hangFile, crashFile string
 }
 
 func startReset(t *testing.T, timings daemon.ResetTimings, tweaks ...func(*daemon.AgentConfig)) *resetWorld {
@@ -31,8 +34,10 @@ func startReset(t *testing.T, timings daemon.ResetTimings, tweaks ...func(*daemo
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	rw.inputLog, rw.failFile = filepath.Join(dir, "input.log"), filepath.Join(dir, "fail")
+	rw.hangFile, rw.crashFile = filepath.Join(dir, "hang"), filepath.Join(dir, "clearcrash")
 	all := append([]func(*daemon.AgentConfig){func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_INPUT_LOG"], c.Env["FAKECLAUDE_FAIL_FILE"] = rw.inputLog, rw.failFile
+		c.Env["FAKECLAUDE_HANG_FILE"], c.Env["FAKECLAUDE_CLEAR_CRASH_FILE"] = rw.hangFile, rw.crashFile
 		c.Reset = timings
 	}}, tweaks...)
 	rw.compactWorld = startCompact(t, all...)
@@ -278,6 +283,119 @@ func TestAFreshLaunchThatFailsResumesTheOldSessionSoTheRootKeepsAProcess(t *test
 	})
 	if all := w.launches(t, before.SessionId); len(all) < 2 {
 		t.Errorf("launches of the old session %v", all)
+	}
+}
+
+func TestAFreshLaunchTooSlowToReachItsPromptIsStoppedAndTheOldSessionResumed(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{Confirm: 800 * time.Millisecond})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	before := w.agent(lead.Id)
+	if err := os.WriteFile(w.hangFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := asLead.ResetRoot(ctx, connect.NewRequest(&v1.ResetRootRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "did not come up at its prompt in time") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	var cur *v1.Agent
+	waitFor(t, "the old session running again, the slow process gone", func() bool {
+		cur = w.agent(lead.Id)
+		return cur.State == v1.AgentState_AGENT_STATE_IDLE && cur.PendingReopen == nil && cur.SessionId == before.SessionId &&
+			cur.TerminalId != "" && cur.TerminalId != before.TerminalId
+	})
+	tc, err := termclient.New(statedir.Paths{Dir: w.state}.Term())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := 0
+	waitFor(t, "the slow process stopped", func() bool {
+		list, err := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		live = 0
+		for _, term := range list.Msg.Terminals {
+			if !term.Exited {
+				live++
+			}
+		}
+		return live == 1
+	})
+	if live != 1 {
+		t.Errorf("%d live terminals: the slow process was left running unbriefed", live)
+	}
+	if strings.Contains(w.typed(), "just gave you a fresh session") {
+		t.Errorf("a bootstrap was typed into a root that was resumed: %q", w.typed())
+	}
+}
+
+func TestAClearedRootThatEndsIsNotHeldByItsReset(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	w.setSetting(t, "root_reset.relaunch", false)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	if err := os.WriteFile(w.crashFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := asLead.ResetRoot(ctx, connect.NewRequest(&v1.ResetRootRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "its process ended before the prompt to run `mesh brief` was typed") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	if after.PendingReset != nil {
+		t.Errorf("still held: %v", after.PendingReset)
+	}
+}
+
+func TestABootstrapHeldBackByUserTypingIsGivenUpAndSaidSo(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	w.setSetting(t, "root_reset.relaunch", false)
+	w.setSetting(t, "root_reset.wait", 1.0)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	// A user is attached and silent, so the reset's /clear goes through at once...
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	s := w.openTerminal(sctx, w.agent(lead.Id), true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
+	defer s.Close()
+	for {
+		f, err := s.Recv(sctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.GetReplayDone() != nil {
+			break
+		}
+	}
+	s.Ready(sctx)
+	if _, err := asLead.ResetRoot(ctx, connect.NewRequest(&v1.ResetRootRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	// ...and starts typing the moment it is typed, and never stops: the bootstrap line is held back, then given up.
+	for !strings.Contains(w.typed(), "/clear\n") && sctx.Err() == nil {
+		time.Sleep(2 * time.Millisecond)
+	}
+	for a := w.agent(lead.Id); a.PendingReset != nil && sctx.Err() == nil; a = w.agent(lead.Id) {
+		if err := s.Input(sctx, []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "was not typed: someone was typing into it") || !strings.Contains(after.LastReset.Reason, "Run `mesh brief` yourself") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	if strings.Contains(w.typed(), "just gave you a fresh session") {
+		t.Errorf("a bootstrap was typed over a draft: %q", w.typed())
 	}
 }
 

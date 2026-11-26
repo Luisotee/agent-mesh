@@ -335,6 +335,11 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	if d.rt.ctxwork.running(a.Id) {
 		return true, nil
 	}
+	if pc.TypedAt == nil && pc.StartedAt != nil {
+		// A headless compaction was started and nothing here is running it: meshd restarted in the middle. Its CLI
+		// may still be running or may have finished, and running it again could compact twice: the request ends.
+		return false, d.endCompaction(ctx, a, pc, "meshd restarted while it was compacting; it was not run again", pc.TokensBefore, 0)
+	}
 	if !d.rt.adapters.HasCapability(a.Kind, capContext) {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0)
 	}
@@ -513,6 +518,13 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 	}
 	if !d.rt.ctxwork.begin(a.Id) {
 		return true, nil
+	}
+	// The marker is stored before the CLI starts, so a restart of meshd does not run it again (compactStep).
+	if err := d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) {
+		p.StartedAt, p.TokensBefore = timestamppb.New(d.now()), usage.Tokens
+	}); err != nil {
+		d.rt.ctxwork.end(a.Id)
+		return true, err
 	}
 	snapshot := a
 	go func() {

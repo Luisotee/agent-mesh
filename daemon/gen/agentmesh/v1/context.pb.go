@@ -121,7 +121,7 @@ type PendingCompaction struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique per request.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// "resume", "approve" or "follow-up".
+	// "resume", "approve", "follow-up", or "reset" (a root's compacting reset: the reset fails unless it is done).
 	Why string `protobuf:"bytes,2,opt,name=why,proto3" json:"why,omitempty"`
 	// What the compaction keeps: the CLI's `/compact` argument.
 	Focus       string                 `protobuf:"bytes,3,opt,name=focus,proto3" json:"focus,omitempty"`
@@ -299,9 +299,12 @@ type RootReset struct {
 	// How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
 	Mode string `protobuf:"bytes,15,opt,name=mode,proto3" json:"mode,omitempty"`
 	// What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
-	Focus         string `protobuf:"bytes,16,opt,name=focus,proto3" json:"focus,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Focus string `protobuf:"bytes,16,opt,name=focus,proto3" json:"focus,omitempty"`
+	// Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after
+	// `root_reset.wait`, so the root is never held for good.
+	BootstrapWaitedSince *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=bootstrap_waited_since,json=bootstrapWaitedSince,proto3" json:"bootstrap_waited_since,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *RootReset) Reset() {
@@ -444,6 +447,13 @@ func (x *RootReset) GetFocus() string {
 		return x.Focus
 	}
 	return ""
+}
+
+func (x *RootReset) GetBootstrapWaitedSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.BootstrapWaitedSince
+	}
+	return nil
 }
 
 // A compaction ran for an agent (live or on a stopped conversation before its reopen).
@@ -646,7 +656,7 @@ const file_agentmesh_v1_context_proto_rawDesc = "" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x123\n" +
 	"\adone_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x06doneAt\x12=\n" +
 	"\fwaited_since\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\vwaitedSince\x12#\n" +
-	"\rtokens_before\x18\r \x01(\x03R\ftokensBefore\"\xfa\x03\n" +
+	"\rtokens_before\x18\r \x01(\x03R\ftokensBefore\"\xcc\x04\n" +
 	"\tRootReset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03via\x18\x02 \x01(\tR\x03via\x12\x12\n" +
@@ -669,7 +679,8 @@ const file_agentmesh_v1_context_proto_rawDesc = "" +
 	"transcript\x12\x14\n" +
 	"\x05noted\x18\x0e \x01(\bR\x05noted\x12\x12\n" +
 	"\x04mode\x18\x0f \x01(\tR\x04mode\x12\x14\n" +
-	"\x05focus\x18\x10 \x01(\tR\x05focus\"\x96\x01\n" +
+	"\x05focus\x18\x10 \x01(\tR\x05focus\x12P\n" +
+	"\x16bootstrap_waited_since\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\x14bootstrapWaitedSince\"\x96\x01\n" +
 	"\x0eAgentCompacted\x12\x10\n" +
 	"\x03why\x18\x01 \x01(\tR\x03why\x12\x10\n" +
 	"\x03via\x18\x02 \x01(\tR\x03via\x12#\n" +
@@ -716,13 +727,14 @@ var file_agentmesh_v1_context_proto_depIdxs = []int32{
 	6,  // 6: agentmesh.v1.RootReset.requested_at:type_name -> google.protobuf.Timestamp
 	6,  // 7: agentmesh.v1.RootReset.typed_at:type_name -> google.protobuf.Timestamp
 	6,  // 8: agentmesh.v1.RootReset.finished_at:type_name -> google.protobuf.Timestamp
-	2,  // 9: agentmesh.v1.RootResetRequested.root_reset:type_name -> agentmesh.v1.RootReset
-	2,  // 10: agentmesh.v1.RootResetFinished.root_reset:type_name -> agentmesh.v1.RootReset
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	6,  // 9: agentmesh.v1.RootReset.bootstrap_waited_since:type_name -> google.protobuf.Timestamp
+	2,  // 10: agentmesh.v1.RootResetRequested.root_reset:type_name -> agentmesh.v1.RootReset
+	2,  // 11: agentmesh.v1.RootResetFinished.root_reset:type_name -> agentmesh.v1.RootReset
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_context_proto_init() }

@@ -76,7 +76,10 @@ func parseUsageLine(line []byte) (usageLine, bool) {
 	return l, true
 }
 
-// lineTokens is a line's context size: 0 for a compaction, an assistant reply's prompt, else false.
+// lineTokens is a line's context size: 0 for a compaction, the main conversation's assistant reply's prompt, else
+// false. A subagent's reply (isSidechain) is another conversation's prompt, and a reply with no prompt tokens at
+// all (Claude Code's synthetic replies for an API error or a limit) says nothing about the size: both are skipped,
+// so the scan goes on to the reply before.
 func lineTokens(line []byte) (int64, bool) {
 	l, ok := parseUsageLine(line)
 	if !ok {
@@ -85,9 +88,11 @@ func lineTokens(line []byte) (int64, bool) {
 	if l.Type == "system" && l.Subtype == "compact_boundary" {
 		return 0, true
 	}
-	if l.Type == "assistant" && l.hasUsage {
+	if l.Type == "assistant" && l.hasUsage && !l.IsSidechain {
 		u := l.Message.Usage
-		return u.Input + u.CacheRead + u.CacheCreation, true
+		if n := u.Input + u.CacheRead + u.CacheCreation; n > 0 {
+			return n, true
+		}
 	}
 	return 0, false
 }

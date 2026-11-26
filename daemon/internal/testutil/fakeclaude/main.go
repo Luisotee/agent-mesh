@@ -26,6 +26,11 @@
 //
 // With $FAKECLAUDE_COMPACT_LOG set, the focus of every typed /compact is appended there, one per line.
 //
+// With $FAKECLAUDE_HANG_FILE naming a file that exists, a fresh start (not a resume) draws nothing and fires no hook
+// for an hour: a launch too slow to reach its prompt.
+//
+// With $FAKECLAUDE_CLEAR_CRASH_FILE naming a file that exists, /clear exits 7 before any hook.
+//
 // With $FAKECLAUDE_FAIL_FILE naming a file that exists, a fresh start (not a resume) exits 3 before anything is
 // drawn or reported: a launch that fails.
 //
@@ -50,6 +55,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type settings struct {
@@ -131,6 +137,11 @@ func main() {
 			os.Exit(3)
 		}
 	}
+	if file := os.Getenv("FAKECLAUDE_HANG_FILE"); file != "" && source == "startup" {
+		if _, err := os.Stat(file); err == nil {
+			time.Sleep(time.Hour) // a fresh start that never reaches its prompt
+		}
+	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
 		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
@@ -208,6 +219,11 @@ func main() {
 		case "/compact":
 			compact("")
 		case "/clear":
+			if file := os.Getenv("FAKECLAUDE_CLEAR_CRASH_FILE"); file != "" {
+				if _, err := os.Stat(file); err == nil {
+					os.Exit(7) // dies on /clear, before any hook
+				}
+			}
 			hook("SessionEnd", map[string]any{"reason": "clear"})
 			session += "-cleared"
 			hook("SessionStart", map[string]any{"source": "clear"})

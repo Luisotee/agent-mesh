@@ -63,6 +63,18 @@ func TestMeasureContextNewestReplySinceCompaction(t *testing.T) {
 	}
 }
 
+func TestMeasureContextSkipsSubagentAndEmptyReplies(t *testing.T) {
+	home := t.TempDir()
+	writeTranscript(t, home, "/w", "s1",
+		reply(10, 150000, 0, ""),
+		`{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":50,"cache_read_input_tokens":300,"cache_creation_input_tokens":0}}}`,
+		`{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`)
+	u := measure(t, home, "/w", "s1").Usage
+	if !u.Measured || u.Tokens != 150010 {
+		t.Fatalf("a subagent's reply or an empty one set the size: %+v", u)
+	}
+}
+
 func TestMeasureContextZeroAfterCompactBoundary(t *testing.T) {
 	home := t.TempDir()
 	writeTranscript(t, home, "/w", "s1",

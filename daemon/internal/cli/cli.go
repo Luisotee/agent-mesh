@@ -563,7 +563,7 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 	// What the daemon wants a root to know about its own context (`mesh brief`, design §15): on stderr, so the
 	// response on stdout stays what a script reads.
 	if hint := res.Header().Get(HintHeader); hint != "" {
-		fmt.Fprintf(errOut, "mesh: %s (see ORCHESTRATE.md, \"Your own context\")\n", hint)
+		fmt.Fprintf(errOut, "mesh: %s (see ORCHESTRATE.md, \"Notes and your own context\")\n", hint)
 	}
 	if text {
 		return renderText(a.CLI, res.Msg, out)

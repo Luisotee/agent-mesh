@@ -25,14 +25,18 @@ const (
 	briefMail = 10
 )
 
-// capText is text up to limit characters, cut at a line end, then what was left out and where to read it.
+// capText is text up to limit characters (runes), cut at a line end, then what was left out and where to read it.
 func capText(text string, limit int, more string) string {
-	if len(text) <= limit {
+	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}
-	hard := utf8Floor(text, limit) // never inside a character: the response is a proto string
+	hard := 0 // the byte offset of the limit-th character: a cut is never inside one
+	for n := 0; n < limit && hard < len(text); n++ {
+		_, size := utf8.DecodeRuneInString(text[hard:])
+		hard += size
+	}
 	cut := strings.LastIndex(text[:hard], "\n")
-	if cut <= limit/2 {
+	if utf8.RuneCountInString(text[:cut+1]) <= limit/2 || cut < 0 {
 		cut = hard
 	}
 	return fmt.Sprintf("%s\n… %d more characters: %s", strings.TrimRight(text[:cut], " \t\r\n"), utf8.RuneCountInString(text[cut:]), more)
@@ -157,6 +161,16 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	}
 	var rows []row
 	var needs []string
+	unread := map[string]bool{} // the root's unread mail: a done or failed it has read waits on nobody
+	if root != nil {
+		mail, err := r.Inbox(root.Id, false)
+		if err != nil {
+			return "", err
+		}
+		for _, m := range mail {
+			unread[m.Id] = true
+		}
+	}
 	for _, a := range agents {
 		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
 			continue
@@ -171,7 +185,10 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			if err != nil {
 				return "", err
 			}
-			if rep != nil && rep.ToId == rootID(root) {
+			// A plan or question waits until it is answered; a done or failed until the root has read it (what it
+			// does next is in its notes, which the reset made it write).
+			if rep != nil && rep.ToId == rootID(root) && (rep.Type == v1.MessageType_MESSAGE_TYPE_PLAN ||
+				rep.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || unread[rep.Id]) {
 				kind = rep.Type
 				line += "; its " + strings.ToLower(strings.TrimPrefix(rep.Type.String(), "MESSAGE_TYPE_")) + " waits on you ← needs you"
 				needs = append(needs, a.Name)
