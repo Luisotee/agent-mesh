@@ -220,6 +220,20 @@ service MeshService {
     };
   }
 
+  // Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+  // calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+  // id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+  // accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+  // it runs in.
+  rpc AdoptSession(AdoptSessionRequest) returns (AdoptSessionResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "adopt"
+      summary: "Make this Claude Code session the run's root"
+    };
+  }
+
   // A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
   // pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
   // root otherwise fetches, diffs and lists by hand.
@@ -895,6 +909,21 @@ message ReadInboxRequest {
 
 message ReadInboxResponse {
   repeated Message messages = 1;
+}
+
+message AdoptSessionRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  // The Claude Code process to adopt and its start in clock ticks (`mesh adopt` finds the session above it
+  // and fills both in).
+  int32 pid = 3;
+  uint64 pid_start_ticks = 4;
+}
+
+message AdoptSessionResponse {
+  Agent agent = 1;
+  // What changed, in a line: a new root, or the run's own taken over.
+  string note = 2;
 }
 
 message CheckAgentRequest {

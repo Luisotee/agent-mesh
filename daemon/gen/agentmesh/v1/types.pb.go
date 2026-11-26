@@ -542,9 +542,14 @@ type Agent struct {
 	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
 	ToolsAdded bool `protobuf:"varint,37,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
 	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
-	McpAll        bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	McpAll bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	// A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+	// clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+	// daemon's, and the daemon never signals it.
+	AdoptedPid      int32  `protobuf:"varint,39,opt,name=adopted_pid,json=adoptedPid,proto3" json:"adopted_pid,omitempty"`
+	AdoptedPidStart uint64 `protobuf:"varint,40,opt,name=adopted_pid_start,json=adoptedPidStart,proto3" json:"adopted_pid_start,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -841,6 +846,20 @@ func (x *Agent) GetMcpAll() bool {
 		return x.McpAll
 	}
 	return false
+}
+
+func (x *Agent) GetAdoptedPid() int32 {
+	if x != nil {
+		return x.AdoptedPid
+	}
+	return 0
+}
+
+func (x *Agent) GetAdoptedPidStart() uint64 {
+	if x != nil {
+		return x.AdoptedPidStart
+	}
+	return 0
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -3219,8 +3238,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xf9\n" +
-	"\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xc6\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -3269,7 +3287,10 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"addedTools\x12\x1f\n" +
 	"\vtools_added\x18% \x01(\bR\n" +
 	"toolsAdded\x12\x17\n" +
-	"\amcp_all\x18& \x01(\bR\x06mcpAll\"\x9c\x02\n" +
+	"\amcp_all\x18& \x01(\bR\x06mcpAll\x12\x1f\n" +
+	"\vadopted_pid\x18' \x01(\x05R\n" +
+	"adoptedPid\x12*\n" +
+	"\x11adopted_pid_start\x18( \x01(\x04R\x0fadoptedPidStart\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +

@@ -35,6 +35,9 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 		return nil, err
 	}
 
+	if isAdopted(a) {
+		return nil, failedPrecondition("%s is your own Claude Code session (process %d): it is already in your terminal", a.Name, a.AdoptedPid)
+	}
 	if !stopped(a) {
 		if m.Model != "" || m.Effort != "" || len(m.ExtraArgs) > 0 {
 			return nil, invalid("%s is still running: omit --model, --effort and extra arguments to attach", a.Name)

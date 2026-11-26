@@ -141,6 +141,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	if helpAsked {
 		rest = append([]string{"help"}, rest...)
 	}
+	env = withAdoptedIdentity(env, *state)
 	if len(rest) > 0 {
 		if h, ok := hand[rest[0]]; ok {
 			// The hand-written command sees the global --state as it would $AGENT_MESH_STATE (its own --state wins).
@@ -211,6 +212,9 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
 		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", spoken(a.CLI), err, spoken(a.CLI))
 		return ExitUsage
+	}
+	if a.CLI == "adopt" {
+		fillAdoptRequest(env, req)
 	}
 	// A command with a text form has --format, "text" unless given: only text and json are valid, an empty one too.
 	if hasText(a.CLI) && cmd.format != "text" && cmd.format != "json" {

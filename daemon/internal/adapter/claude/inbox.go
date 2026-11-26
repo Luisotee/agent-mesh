@@ -250,3 +250,41 @@ func inboundSetting(cwd, managedDir, home, flag string) (string, string) {
 	}
 	return value, source
 }
+
+// Session is what a running Claude Code process records about itself (`sessions/<pid>.json`): the conversation it
+// holds, where it runs, its inbox socket, and what it is doing (`idle`, `busy`, `waiting`, `shell`).
+type Session struct {
+	ID, Cwd, SocketPath, Status string
+}
+
+// ReadSession reads the record of the process pid that started at startTicks, under the Claude config folder env
+// names. Not ok: no such file, or one an earlier process with that pid left.
+func ReadSession(env map[string]string, pid int, startTicks uint64) (Session, bool) {
+	home := configHome(env)
+	if home == "" || startTicks == 0 {
+		return Session{}, false
+	}
+	b, err := os.ReadFile(filepath.Join(home, "sessions", strconv.Itoa(pid)+".json"))
+	if err != nil {
+		return Session{}, false
+	}
+	var raw struct {
+		Pid       int    `json:"pid"`
+		ProcStart any    `json:"procStart"`
+		Socket    string `json:"messagingSocketPath"`
+		SessionID string `json:"sessionId"`
+		Cwd       string `json:"cwd"`
+		Status    string `json:"status"`
+	}
+	if json.Unmarshal(b, &raw) != nil || raw.Pid != pid || raw.ProcStart == nil ||
+		fmt.Sprint(raw.ProcStart) != strconv.FormatUint(startTicks, 10) {
+		return Session{}, false
+	}
+	return Session{ID: raw.SessionID, Cwd: raw.Cwd, SocketPath: raw.Socket, Status: raw.Status}, true
+}
+
+// InboundPolicy is the `crossSessionInbound` a running process takes frames under, and whose setting says so:
+// "accept" is the one a doorbell can be written under (DeliverNative checks the same).
+func InboundPolicy(env map[string]string, cwd string, pid int) (value, source string) {
+	return inboundSetting(cwd, ManagedDir, configHome(env), launchInbound("/proc", pid))
+}

@@ -62,6 +62,9 @@ const (
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
 	MeshServiceReadInboxProcedure = "/agentmesh.v1.MeshService/ReadInbox"
+	// MeshServiceAdoptSessionProcedure is the fully-qualified name of the MeshService's AdoptSession
+	// RPC.
+	MeshServiceAdoptSessionProcedure = "/agentmesh.v1.MeshService/AdoptSession"
 	// MeshServiceCheckAgentProcedure is the fully-qualified name of the MeshService's CheckAgent RPC.
 	MeshServiceCheckAgentProcedure = "/agentmesh.v1.MeshService/CheckAgent"
 	// MeshServiceListMessagesProcedure is the fully-qualified name of the MeshService's ListMessages
@@ -184,6 +187,12 @@ type MeshServiceClient interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+	// calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+	// id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+	// accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+	// it runs in.
+	AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error)
 	// A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
 	// pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
 	// root otherwise fetches, diffs and lists by hand.
@@ -375,6 +384,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceReadInboxProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
+			connect.WithClientOptions(opts...),
+		),
+		adoptSession: connect.NewClient[v1.AdoptSessionRequest, v1.AdoptSessionResponse](
+			httpClient,
+			baseURL+MeshServiceAdoptSessionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("AdoptSession")),
 			connect.WithClientOptions(opts...),
 		),
 		checkAgent: connect.NewClient[v1.CheckAgentRequest, v1.CheckAgentResponse](
@@ -618,6 +633,7 @@ type meshServiceClient struct {
 	stopRun          *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage      *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox        *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	adoptSession     *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
 	checkAgent       *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
 	listMessages     *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
 	listWaiting      *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
@@ -725,6 +741,11 @@ func (c *meshServiceClient) SendMessage(ctx context.Context, req *connect.Reques
 // ReadInbox calls agentmesh.v1.MeshService.ReadInbox.
 func (c *meshServiceClient) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	return c.readInbox.CallUnary(ctx, req)
+}
+
+// AdoptSession calls agentmesh.v1.MeshService.AdoptSession.
+func (c *meshServiceClient) AdoptSession(ctx context.Context, req *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error) {
+	return c.adoptSession.CallUnary(ctx, req)
 }
 
 // CheckAgent calls agentmesh.v1.MeshService.CheckAgent.
@@ -944,6 +965,12 @@ type MeshServiceHandler interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+	// calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+	// id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+	// accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+	// it runs in.
+	AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error)
 	// A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
 	// pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
 	// root otherwise fetches, diffs and lists by hand.
@@ -1131,6 +1158,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceReadInboxProcedure,
 		svc.ReadInbox,
 		connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceAdoptSessionHandler := connect.NewUnaryHandler(
+		MeshServiceAdoptSessionProcedure,
+		svc.AdoptSession,
+		connect.WithSchema(meshServiceMethods.ByName("AdoptSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceCheckAgentHandler := connect.NewUnaryHandler(
@@ -1385,6 +1418,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
+		case MeshServiceAdoptSessionProcedure:
+			meshServiceAdoptSessionHandler.ServeHTTP(w, r)
 		case MeshServiceCheckAgentProcedure:
 			meshServiceCheckAgentHandler.ServeHTTP(w, r)
 		case MeshServiceListMessagesProcedure:
@@ -1522,6 +1557,10 @@ func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ReadInbox is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AdoptSession is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CheckAgent(context.Context, *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error) {

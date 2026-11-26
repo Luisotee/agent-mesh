@@ -69,6 +69,9 @@ func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
 		return nil // no host: nothing to stop; the terminal id stays, for a boot with one
 	}
 	a, err := d.store.Read(ctx).GetAgent(agentID)
+	if err == nil && isAdopted(a) {
+		_ = os.Remove(d.paths.Adopted(int(a.AdoptedPid))) // its token is revoked: the file names nothing
+	}
 	if err != nil || a.State != v1.AgentState_AGENT_STATE_RETIRED || a.TerminalId == "" {
 		return err
 	}

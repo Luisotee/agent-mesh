@@ -137,3 +137,12 @@ func Usage(pid int) (rssKB, cpuTicks uint64, err error) {
 	}
 	return pages * uint64(os.Getpagesize()) / 1024, utime + stime, nil
 }
+
+// PPID is a process's parent (/proc/<pid>/stat field 4).
+func PPID(pid int) (int, error) {
+	f, err := stat(pid)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(f[1])
+}

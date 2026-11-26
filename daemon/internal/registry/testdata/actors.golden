@@ -118,6 +118,7 @@ ACTOR_CLASS_REVIEWER
 ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AddPeer
   /agentmesh.v1.MeshService/AddTools
+  /agentmesh.v1.MeshService/AdoptSession
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts

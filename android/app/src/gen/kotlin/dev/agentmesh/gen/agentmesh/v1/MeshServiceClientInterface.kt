@@ -78,6 +78,15 @@ public interface MeshServiceClientInterface {
   public suspend fun readInbox(request: ReadInboxRequest, headers: Headers = emptyMap()): ResponseMessage<ReadInboxResponse>
 
   /**
+   *  Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+   *  calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+   *  id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+   *  accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+   *  it runs in.
+   */
+  public suspend fun adoptSession(request: AdoptSessionRequest, headers: Headers = emptyMap()): ResponseMessage<AdoptSessionResponse>
+
+  /**
    *  A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
    *  pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
    *  root otherwise fetches, diffs and lists by hand.

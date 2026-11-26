@@ -140,6 +140,11 @@ message Agent {
   bool tools_added = 37;
   // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
   bool mcp_all = 38;
+  // A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+  // clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+  // daemon's, and the daemon never signals it.
+  int32 adopted_pid = 39;
+  uint64 adopted_pid_start = 40;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

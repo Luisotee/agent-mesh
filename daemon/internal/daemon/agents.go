@@ -490,6 +490,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(accounted) >= accountEvery {
 				accounted = now
 				d.accountability(ctx)
+				d.adoptedPass(ctx)
 			}
 			if now := d.now(); now.Sub(limited) >= retireEvery && limiting.CompareAndSwap(false, true) {
 				limited = now
@@ -1195,6 +1196,9 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	}
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {
 		return nil, denied("an agent stops only its own children")
+	}
+	if isAdopted(a) {
+		return nil, failedPrecondition("%s is your own Claude Code session (process %d): mesh never stops it; `mesh retire` takes it out of the run", a.Name, a.AdoptedPid)
 	}
 	// Held against a reopen in progress: a stop must not be undone by the relaunch.
 	mu := d.agentLock(a.Id)
