@@ -339,6 +339,9 @@ func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {
 		`│ Free limit reached`,
 		`  │  Too Many Requests [retrying in 30s attempt #4]`,
 		`// Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]`,
+		`  ■ Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]`,
+		`  The footer reads ■■⬝⬝⬝⬝⬝⬝ Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]`,
+		`  ■■⬝⬝ Too Many Requests [retrying in 8s attempt #2]`,
 		`+ Upstream request failed: Model is unavailable.`,
 		`- Free limit reached`,
 		`Free limit reached`,
@@ -361,6 +364,9 @@ func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {
 		{"  ┃  opencode/kimi-k2 usage limit reached. It will reset in 3 hours.", false, "3h0m0s"},
 		{"  ┃  Kimi K2 (Go) usage limit reached. It will reset in 3 hours.", false, "3h0m0s"},
 		{"  ┃  Free limit reached", false, "5h0m0s"},
+		// OpenCode 1.19.6 draws the retry line in the footer under the input box (seen live), after its spinner.
+		{"   ■■⬝⬝⬝⬝⬝⬝ Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]                         esc interrupt", false, "5h27m0s"},
+		{"   ■⬝⬝⬝⬝⬝⬝⬝ Error: Too Many Requests [retrying in 5s attempt #3]   esc interrupt", true, "10m0s"},
 		{"  ┃  Upstream request failed: Model is unavailable.", false, "5h0m0s"},
 	}
 	for _, c := range cases {

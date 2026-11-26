@@ -3,7 +3,8 @@ package daemon
 // Accountability: what `bin/mesh watch` did with exit codes, done by the daemon (docs/apps.md, "Switchover").
 // A parent is told, by an `info` from the daemon, when a worker of its own exits, is lost, goes quiet (unknown)
 // or stops at a usage limit. A worker that ends a turn with no report since its task is nudged once; if its next
-// turn ends the same way, its parent is told. A declared `wait` pauses that, for at most `accountability.wait_max`.
+// turn ends the same way, its parent is told. A declared `wait` pauses that, for at most `accountability.wait_max`,
+// or until the agent wakes; a wait declared after a nudge starts the count again.
 // A report is refused while a task or answer is unread (SendMessage). Nothing here reopens or switches an agent:
 // acting on a limit is the limits pass's job, and this only tells the parent.
 
@@ -141,7 +142,9 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			reported = true
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
-			wait = m.CreatedAt.AsTime()
+			// A wait answers an earlier nudge: its next silent wake is a first one again, nudged, not alerted (an
+			// agent that waits on background jobs ends a turn at each job's notification, each time still waiting).
+			wait, nudged, nudgedAt = m.CreatedAt.AsTime(), false, time.Time{}
 		case m.ToId == a.Id && m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, nudgeTag):
 			nudged, nudgedAt = true, m.CreatedAt.AsTime()
 		}
@@ -421,7 +424,8 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 			ring, err = tellTx(tx, cur, nudgeTag+" Your turn ended without a report to your parent. If the task is finished, "+
 				"run `mesh inbox`, then report it now: `mesh send parent --type done --body @$(mesh dir)/reports/"+cur.Name+".md` "+
 				"(or `plan`, `question`, `failed`). If you are waiting on something on purpose, declare it first: "+
-				"`mesh send parent --type wait --body \"<what>\"`.")
+				"`mesh send parent --type wait --body \"<what>\"`. A wait ends when something wakes you (a background job's notification, "+
+				"a monitor event): if you end that turn still waiting, declare a fresh wait first.")
 		case owesAlert:
 			ring, err = d.alertParentTx(tx, cur, "silent", fmt.Sprintf("%s ended a turn without reporting to you, and again after a nudge. "+
 				"It is idle at its prompt with no `done`, `failed`, `plan` or `question` since your last message to it.", cur.Name)+extras, task)

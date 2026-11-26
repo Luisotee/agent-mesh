@@ -40,6 +40,7 @@ var StopWait = 15 * time.Second
 // Test seams (nil in production): called at the points a race needs to be forced at.
 var (
 	spawnPlannedHook    func()               // SpawnAgent: planned, before the agent is stored
+	sendPlannedHook     func()               // SendMessage: prepared, before the write that stores the message
 	spawnCommittedHook  func(agentID string) // SpawnAgent: stored, before its terminal starts (its lock held)
 	stopRunLockedHook   func()               // StopRun: the run's agents locked, before the run is closed
 	stopAgentLockedHook func()               // StopAgent: the agent locked, before cancelling its pending reopen
@@ -1133,6 +1134,8 @@ type reviveSpec struct {
 	// is the task the resume is for, which the default focus names; crossRun says it comes back from another run.
 	compact, focus, taskText string
 	crossRun                 bool
+	// capShared are the agents the launch shares its place in the host's cap with (a review round's members).
+	capShared []string
 }
 
 // revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
@@ -1147,7 +1150,7 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	if err := d.hasProcessOnSessionOrWorktree(tx.Reader, a); err != nil {
 		return nil, err
 	}
-	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
+	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id, spec.capShared...); err != nil {
 		return nil, err
 	}
 	rv, err := d.reviveAs(tx, a, spec)

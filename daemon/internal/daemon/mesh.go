@@ -384,7 +384,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					}
 					if okReserve &&
 						d.hasProcessOnSessionOrWorktree(r2, cur) == nil &&
-						d.capGuard(r2, "resuming "+cur.Name, cur.Id) == nil &&
+						d.capGuard(r2, "resuming "+cur.Name, cur.Id, capShared(ctx)...) == nil &&
 						d.checkMemoryGuard(r2, "resuming "+cur.Name) == nil {
 						prepCandID = cur.Id
 						asWorker := proto.Clone(cur).(*v1.Agent)
@@ -401,6 +401,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 			prepLock = mu
 		}
+	}
+	if sendPlannedHook != nil {
+		sendPlannedHook()
 	}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
@@ -424,6 +427,19 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 		} else if to, err = d.FindAgent(t.Reader, actor, req.Msg.To); err != nil {
 			return err
+		}
+		// A peer's agent asked by a caller other than its parent answers that caller from now on (startPeer): the
+		// parent moves in this write, with the task, and only when the task goes through (below).
+		var movedFrom string
+		if id := reparentTo(ctx); id != "" && id == actor.Id && to.Peer && to.ParentId != id {
+			// Held checked again: its parent may have given it work since startPeer looked (that holds under the
+			// peer's lock only against other asks).
+			if why, err := peerHeldBy(t.Reader, to); err != nil {
+				return err
+			} else if why != "" {
+				return connect.NewError(connect.CodeFailedPrecondition, errors.New(why))
+			}
+			movedFrom, to.ParentId = to.ParentId, id
 		}
 		var asked *collectRef // the round this report answers, when it is a member's
 		if IsAgent(actor.Class) {
@@ -505,7 +521,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if prepErr != nil && to.Id == prepCandID {
 				out.ResumeError = fmt.Sprintf("preparing worktree for %s: %v", to.Name, prepErr)
 			} else {
-				spec := reviveSpec{task: direct, taskText: req.Msg.Body}
+				spec := reviveSpec{task: direct, taskText: req.Msg.Body, capShared: capShared(ctx)}
 				// The guards answer before anything is written: a refusal keeps the message and says why the agent
 				// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 				switch rv, err := d.revive(t, to, spec); {
@@ -548,6 +564,20 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 						return err
 					}
 				}
+			}
+		}
+		if movedFrom != "" {
+			if out.ResumeError != "" {
+				// The task is refused: the peer stays with its caller, whatever an earlier write of `to` stored.
+				to.ParentId = movedFrom
+				if cur, err := t.GetAgent(to.Id); err == nil && cur.ParentId != movedFrom {
+					cur.ParentId = movedFrom
+					if err := t.PutAgent(cur); err != nil {
+						return err
+					}
+				}
+			} else if err := t.PutAgent(to); err != nil {
+				return err
 			}
 		}
 		if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE && to.Id != "" {
