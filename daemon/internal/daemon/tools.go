@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -22,7 +21,7 @@ import (
 var claudeAIConnectorRE = regexp.MustCompile(`(?i)^claude[._ ]ai\b`)
 
 // canAccessTools reports whether actor may inspect (when write is false) or modify (when write is true) a's lean tools.
-func canAccessTools(r store.Reader, actor *v1.Actor, a *v1.Agent, write bool) error {
+func canAccessTools(actor *v1.Actor, a *v1.Agent, write bool) error {
 	if !IsAgent(actor.Class) {
 		return nil
 	}
@@ -38,7 +37,6 @@ func canAccessTools(r store.Reader, actor *v1.Actor, a *v1.Agent, write bool) er
 	if actor.RunId != "" && a.RunId != actor.RunId {
 		return denied("cannot inspect agent %s from another run", a.Name)
 	}
-	_ = r
 	return nil
 }
 
@@ -225,7 +223,7 @@ func (d *Daemon) ListTools(ctx context.Context, req *connect.Request[v1.ListTool
 	if err != nil {
 		return nil, err
 	}
-	if err := canAccessTools(r, actor, a, false); err != nil {
+	if err := canAccessTools(actor, a, false); err != nil {
 		return nil, err
 	}
 	if a.Kind != claude.Kind {
@@ -284,7 +282,7 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 	if err != nil {
 		return nil, err
 	}
-	if err := canAccessTools(r0, actor, a0, true); err != nil {
+	if err := canAccessTools(actor, a0, true); err != nil {
 		return nil, err
 	}
 	mu := d.agentLock(a0.Id)
@@ -297,7 +295,7 @@ func (d *Daemon) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsR
 		if err != nil {
 			return err
 		}
-		if err := canAccessTools(tx.Reader, tx.Actor, a, true); err != nil {
+		if err := canAccessTools(tx.Actor, a, true); err != nil {
 			return err
 		}
 		if a.Kind != claude.Kind {
@@ -442,9 +440,4 @@ func (d *Daemon) ListMCPServers(ctx context.Context, req *connect.Request[v1.Lis
 		})
 	}
 	return connect.NewResponse(out), nil
-}
-
-// Replay helper check for AddTools: proto.Unmarshal is used in case vtprotobuf isn't generated.
-func init() {
-	_ = errors.New
 }

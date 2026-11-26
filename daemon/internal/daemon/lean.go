@@ -315,15 +315,19 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 		return "", false, nil
 	}
 	a.Mcp = kept
-	if droppedAll && len(dropped) == 0 {
-		var heldList []string
-		for n, h := range holders {
-			heldList = append(heldList, fmt.Sprintf("%s by %s", n, h.Name))
-		}
-		slices.Sort(heldList)
-		return fmt.Sprintf("dropped claude.ai full MCP connectors on resume (exclusive servers held: %s)", strings.Join(heldList, ", ")), true, nil
+	var held []string
+	for n, h := range holders {
+		held = append(held, fmt.Sprintf("%s by %s", n, h.Name))
 	}
-	return "dropped exclusive MCP server(s) on resume: " + strings.Join(dropped, ", "), true, nil
+	slices.Sort(held)
+	if len(dropped) == 0 {
+		return fmt.Sprintf("dropped claude.ai full MCP connectors on resume (exclusive servers held: %s)", strings.Join(held, ", ")), true, nil
+	}
+	note := "dropped exclusive MCP server(s) on resume: " + strings.Join(dropped, ", ")
+	if droppedAll {
+		note += "; and claude.ai full MCP connectors (exclusive servers held: " + strings.Join(held, ", ") + ")"
+	}
+	return note, true, nil
 }
 
 // dedupe drops repeats, keeping the first of each in order.

@@ -731,7 +731,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if err != nil {
 		return nil, err
 	}
-	hasMCPFlag := len(m.Mcp) > 0
+	hasMCPFlag := len(reqMCP) > 0 || clearMCP // an empty or comma-only value is no flag
 	actor := auth.ActorFrom(ctx)
 	if IsAgent(actor.Class) {
 		if actor.RunId == "" {
