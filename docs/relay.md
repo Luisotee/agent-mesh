@@ -7,6 +7,7 @@
 - **Persistent host TLS identity:** On first start `meshd` generates an ECDSA P-256 self-signed certificate in `<state>/tls.crt` and `<state>/tls.key` (mode `0600`) and records its canonical SHA-256 DER fingerprint (`sha256:<64-lower-hex>`) in `meshd.json` (`cert_fingerprint`). If one half of the pair is missing or corrupt, `meshd` refuses to start rather than rotating the certificate and breaking paired clients' pins.
 - **Zero-trust relay:** `meshd` dials out to `mesh-relay`'s `--listen` HTTP/WebSocket endpoint and keeps a control WebSocket open. For each client connection, the relay asks `meshd` to dial back with a single-use ticket and splices the raw byte streams (`TCP_NODELAY` on every socket). Inner TLS runs end to end between the client and `meshd`, pinned to the host's certificate fingerprint; the relay never terminates inner TLS and inspects zero payload bytes.
 - **Direct TLS route (LAN / Tailscale):** Passing `meshd --listen <addr>` (off by default; `--tcp` remains plain loopback HTTP) serves the same `d.Handler()` over TLS with the same persistent certificate.
+- **Built-in Tailscale:** `meshd --tailscale` joins a tailnet itself and serves the same TLS API there ("Built-in Tailscale" below).
 
 ## Endpoints and wire protocols
 
@@ -16,12 +17,13 @@ Designed to run behind `nginx-proxy-manager` (TLS on port `443` with WebSockets 
 
 - `GET /healthz` — returns `200 ok\n` for uptime monitoring.
 - `GET /v1/daemon/control` — daemon control WebSocket (`Authorization: Bearer <relay_secret>`). Invalid or missing bearer token returns HTTP `401` before upgrade (daemon stops retrying on `401`/`403`).
-  1. Daemon sends binary `agentmesh.relay.v1.ControlFrame` (`Register{host_id, host_name, daemon_version}`).
+  1. Daemon sends binary `agentmesh.relay.v1.ControlFrame` (`Register{host_id, host_name, daemon_version, device_tokens, client_tokens}`).
   2. Relay replaces any older session for `host_id` with close code `4001` (`replaced`), then replies `Registered{host_id}`.
   3. Daemon sends `Ping{seq}` heartbeats; relay replies `Pong{seq}`. Client-backoff resets only after the first `Pong`.
   4. When an app connects, relay sends `DialBack{ticket, stream_id}`.
+  5. Whenever its devices change, the daemon sends `ClientTokens{tokens}`, which replaces the host's set ("Client relay tokens").
 - `GET /v1/daemon/stream?ticket=<rtk_...>` — daemon dial-back WebSocket (`Authorization: Bearer <relay_secret>`). Pre-upgrade HTTP errors: `401` on bad token, `400` on missing ticket, `404` on an unknown, already-used or expired ticket (tickets are atomically deleted on claim, and the relay drops an unclaimed one when its dial-back wait ends, so a late claim finds nothing).
-- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`). Pre-upgrade HTTP errors: `400` on missing `host_id`, `401` on bad token, `503` if the daemon is offline, `429` if too many pending streams are queued for the host, `504` on dial-back timeout. Each WebSocket message is capped at 4 MiB here: unlike the raw-TCP endpoint, a browser client gets no chunking, so it must send smaller messages.
+- `GET /v1/client/connect?host_id=<host_id>` — optional WebSocket client endpoint (`Authorization: Bearer <client_relay_token>`). Pre-upgrade HTTP errors: `400` on missing `host_id`, `401` on bad token, `503` if the daemon is offline (whatever the token: see "Client relay tokens"), `429` if too many pending streams are queued for the host, `504` on dial-back timeout. Each WebSocket message is capped at 4 MiB here: unlike the raw-TCP endpoint, a browser client gets no chunking, so it must send smaller messages.
 
 Typed WebSocket close codes sent after upgrade on `/v1/daemon/control`:
 - `4001` replaced by a newer daemon session
@@ -37,12 +39,32 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
    ```text
    MESH1 <host_id> <relay_client_token>\n
    ```
-   The `relay_client_token` (`amr_...`) is derived from the relay secret as `"amr_" + base64url_nopad(HMAC-SHA256(relay_secret, "agentmesh-client-v1:" + host_id))`. It authorizes connections only to `<host_id>` and cannot register daemons or access other hosts.
+   The `relay_client_token` (`amr_...`) is the paired device's own token ("Client relay tokens"). It authorizes connections only to `<host_id>`, and cannot register daemons or access other hosts.
 3. Relay replies with one line:
    - `OK\n` — the daemon dialed back and the raw TCP socket is now spliced directly to the daemon's TLS listener.
    - `ERR <code> <message>\n` (`bad_request`, `auth`, `offline`, `busy`, `timeout`, `unavailable`) — connection closes immediately.
 4. Immediately after reading `OK\n`, the client starts a TLS 1.2+ handshake (`h2` or `http/1.1` ALPN) on the same socket, verifying that the server's leaf certificate SHA-256 matches the pinned `cert_fingerprint` from the pairing payload (`tlsutil.ErrPinMismatch` on mismatch).
 5. Inside TLS, the client speaks standard ConnectRPC (`POST /agentmesh.v1.PairingService/RedeemPairing`, `POST /agentmesh.v1.MeshService/<Method>`) and terminal WebSockets (`GET /v1/term/<agent>?ticket=...`, using `http/1.1` ALPN).
+
+## Client relay tokens
+
+Each paired device has a relay token of its own, so the relay refuses a revoked device at the preamble, before it asks the daemon to dial back:
+
+- **The token** is `"amr_" + base64url_nopad(HMAC-SHA256(relay_secret, "agentmesh-device-v1:" + host_id + ":" + device_id))`. The daemon stores nothing new: it derives each device's token again when it needs it.
+- **The link carries it.** `CreatePairing` mints the device's id together with the pairing (`pairings.device_id`). The link's `rt` is that device's token, valid for the redemption itself and, once redeemed, for the device's whole life. Apps store it as before.
+- **The daemon tells the relay which tokens are valid**, by SHA-256 hash (the relay never holds a token):
+  - `Register.device_tokens = true` carries the first set in `client_tokens`, atomically with registration.
+  - Each change sends a `ClientTokens` frame that replaces the set: a pairing made, redeemed or pruned, a device revoked.
+  - The set holds every device whose token isn't revoked, and every open pairing with its expiry (`ClientToken.expires_unix`), which the relay enforces by itself. At most 1000 entries per host.
+- **The relay's check:**
+  - A host registered with `device_tokens` is reached only by a token in its set (and not expired); anything else gets `ERR auth` / `401`, the host-wide token included.
+  - A host registered without it (an older daemon) keeps the host-wide token, `"amr_" + base64url_nopad(HMAC-SHA256(relay_secret, "agentmesh-client-v1:" + host_id))`.
+  - A host that isn't connected answers `offline` / `503` to any token, since its set is unknown.
+- **Versions:**
+  - The preamble is unchanged (`MESH1 <host_id> <token>`).
+  - A new relay serves an old daemon by the host-wide token.
+  - An old relay ignores the new fields and frame and refuses the new tokens, so upgrade the relay first.
+  - A device paired before per-device tokens holds the host-wide token, which a new daemon's relay refuses: it re-pairs to use the relay (direct routes are unaffected). So does a link made before the upgrade and not yet redeemed.
 
 ## Pairing flow and URI contract
 
@@ -53,7 +75,36 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
    ```
 3. The app connects over either `Direct` (`d`, `https://...` with leaf pin `fp`) or `Relay` (`rtcp` + `h` + `rt` + pin `fp`), calls `PairingService/RedeemPairing{token, device_name}` (unauthenticated by bearer token, guarded by `RefuseBrowsers` and the single-use `amp_...` token), receives a permanent per-device `amt_...` bearer token (`ACTOR_CLASS_DEVICE` or `ACTOR_CLASS_READ_ONLY_DEVICE`), and persists `{host_id, device_token, cert_fingerprint, direct_url, relay_tcp, relay_client_token}`.
 4. `CreatePairing`'s `mutations` record is scrubbed on redemption and expiry so the one-time pairing token is not retained on disk. A retry of `CreatePairing` with the same mutation id after that returns `FailedPrecondition` (`pairing already redeemed`), not an empty link. `DevicePaired` and `DeviceRevoked` events reach only the host's own device. A `relay_url` override keeps the configured relay's TCP address and client token when it names the same relay (scheme and host case-insensitive, default port and trailing slash ignored); any other relay gets neither.
-5. `ListDevices` and `RevokeDevice` list paired devices and revoke a device's `amt_...` token; revocation immediately cancels the device's open `SubscribeEvents` and `/v1/term/*` streams.
+5. `ListDevices` and `RevokeDevice` list paired devices and revoke a device's `amt_...` token; revocation immediately cancels the device's open `SubscribeEvents` and `/v1/term/*` streams, and the relay refuses the device's relay token from then on.
+
+## Built-in Tailscale
+
+`meshd --tailscale` makes the daemon a node of a tailnet, through tsnet, with nothing installed on the host. It works with Tailscale or with Headscale.
+
+- **Flags** (each with an environment twin, for a systemd drop-in):
+  - `--tailscale` (`AGENT_MESH_TAILSCALE=1`): join the tailnet.
+  - `--tailscale-hostname` (`AGENT_MESH_TAILSCALE_HOSTNAME`, default `mesh-<host name>`, so it doesn't collide with the machine's own Tailscale node).
+  - `--tailscale-port` (default 443: tsnet has its own port space).
+  - `--tailscale-control-url` (`AGENT_MESH_TAILSCALE_CONTROL_URL`): a **Headscale** server; empty is Tailscale's.
+  - `--tailscale-auth-key-file` (`AGENT_MESH_TAILSCALE_AUTH_KEY_FILE`, mode `0600`, or `AGENT_MESH_TAILSCALE_AUTH_KEY`): an auth key (Tailscale's admin console, or `headscale preauthkeys create`), used only while the node needs login. meshd drops the variable from its environment after reading it.
+- **Login:**
+  - Without an auth key, the node waits for login. Its URL is in meshd's log (once per URL) and in `mesh tailnet` (`TailnetStatus`), with the node's state, addresses and the direct address links get.
+  - Only the host's own device may read it: whoever opens the URL attaches the node to their tailnet.
+  - An expired node key shows as `NeedsLogin` again.
+- **State** lives in `<state>/tailscale` (mode `0700`): the node key, so the node keeps its name and address across restarts. Delete it and the node joins again under a new address, and links to the old one stop working.
+- **What it serves:** the same TLS API as `--listen`: same handler, same certificate and fingerprint, same device tokens. There is no plain HTTP, Funnel, Tailscale SSH, web client or Tailscale certificate.
+- **Pairing** puts `https://<tailnet IPv4>[:port]` in the link's `d` once the node runs (an explicit `direct_url` wins; `--listen` is the fallback). The IP works whether or not the device resolves MagicDNS names. The device must be on the same tailnet (the Tailscale app), and it pins the fingerprint as on any direct route. The relay stays the link's fallback route.
+- **Build:** meshd must be built with `-tags ts_omit_logtail,ts_omit_peerapiserver` (`install.sh` does). Otherwise tsnet uploads its logs to log.tailscale.com and runs Tailscale's peerapi on the node, so meshd refuses `--tailscale` in a build without them.
+  - tsnet adds about 17 MB to meshd (28.6 to 45.8 MB) and about a minute to a cold build; the other binaries don't change.
+  - It sets the module's floor at Go 1.27.4.
+- **With systemd**, put the variables in a drop-in, `~/.config/systemd/user/agent-mesh.service.d/tailscale.conf` (`install.sh` leaves it alone):
+  ```ini
+  [Service]
+  Environment=AGENT_MESH_TAILSCALE=1
+  Environment=AGENT_MESH_TAILSCALE_AUTH_KEY_FILE=%h/.config/agent-mesh/tailscale.key
+  ```
+  Then `systemctl --user daemon-reload && systemctl --user restart agent-mesh` and `mesh tailnet`.
+- **Without tsnet:** a host that already runs Tailscale can use `meshd --listen <tailscale IP>:<port>` instead.
 
 ## Integration notes for Android and Desktop workers
 

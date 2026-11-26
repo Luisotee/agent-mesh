@@ -16,6 +16,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/tailnet"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
@@ -33,6 +34,11 @@ func main() {
 	relayURL := flag.String("relay-url", os.Getenv("AGENT_MESH_RELAY_URL"), "self-hosted relay URL (for example https://relay.example.com)")
 	relayTCP := flag.String("relay-tcp", os.Getenv("AGENT_MESH_RELAY_TCP"), "relay raw TCP client address (for example relay.example.com:8443) for pairing payloads")
 	relayTokenFile := flag.String("relay-token-file", os.Getenv("AGENT_MESH_RELAY_TOKEN_FILE"), "file holding the relay shared secret (mode 0600, or $AGENT_MESH_RELAY_TOKEN)")
+	tsOn := flag.Bool("tailscale", envBool("AGENT_MESH_TAILSCALE"), "join a tailnet (Tailscale, or Headscale with --tailscale-control-url) and serve the TLS API there (or $AGENT_MESH_TAILSCALE=1)")
+	tsHost := flag.String("tailscale-hostname", os.Getenv("AGENT_MESH_TAILSCALE_HOSTNAME"), "the node's name on the tailnet (default mesh-<host name>)")
+	tsPort := flag.Uint("tailscale-port", 443, "the tailnet port the TLS API is served on")
+	tsControl := flag.String("tailscale-control-url", os.Getenv("AGENT_MESH_TAILSCALE_CONTROL_URL"), "the control server, such as a Headscale URL (default Tailscale's)")
+	tsKeyFile := flag.String("tailscale-auth-key-file", os.Getenv("AGENT_MESH_TAILSCALE_AUTH_KEY_FILE"), "file holding a Tailscale auth key (mode 0600, or $AGENT_MESH_TAILSCALE_AUTH_KEY): logs the node in without a browser")
 	hostName := flag.String("host-name", os.Getenv("AGENT_MESH_HOST_NAME"), "readable host name advertised over relay and pairing (default hostname)")
 	maxLife := flag.Duration("max-lifetime", 0, "exit after this long, and start mesh-term with the same "+
 		"(tests: no orphan survives a killed test)")
@@ -127,6 +133,15 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	var tn daemon.Tailnet
+	if *tsOn {
+		node, err := startTailnet(*state, *hostName, *tsHost, *tsPort, *tsControl, *tsKeyFile, log)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "meshd:", err)
+			os.Exit(2)
+		}
+		tn = node
+	}
 	d, err := daemon.New(daemon.Config{
 		StateDir:   *state,
 		PolicyFile: *policyFile,
@@ -138,11 +153,15 @@ func main() {
 			Token:    relaySecret,
 			HostName: *hostName,
 		},
-		Logger: log,
-		Now:    time.Now,
-		Agents: agents,
+		Tailnet: tn,
+		Logger:  log,
+		Now:     time.Now,
+		Agents:  agents,
 	})
 	if err != nil {
+		if tn != nil {
+			_ = tn.Close()
+		}
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
@@ -150,4 +169,47 @@ func main() {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// startTailnet makes the host's Tailscale node in <state>/tailscale. The auth key is read once and dropped from
+// the environment, so nothing meshd starts inherits it.
+func startTailnet(state, hostName, tsHost string, port uint, controlURL, keyFile string, log *slog.Logger) (*tailnet.Node, error) {
+	if err := tailnet.CheckBuild(); err != nil {
+		return nil, err
+	}
+	if port == 0 || port > 65535 {
+		return nil, fmt.Errorf("--tailscale-port %d: want 1-65535", port)
+	}
+	var authKey string
+	if keyFile != "" {
+		var err error
+		if authKey, err = fsutil.ReadSecret(keyFile); err != nil {
+			return nil, fmt.Errorf("--tailscale-auth-key-file: %w", err)
+		}
+	} else {
+		authKey = strings.TrimSpace(os.Getenv("AGENT_MESH_TAILSCALE_AUTH_KEY"))
+	}
+	_ = os.Unsetenv("AGENT_MESH_TAILSCALE_AUTH_KEY")
+	if tsHost == "" {
+		if hostName == "" {
+			hostName, _ = os.Hostname()
+		}
+		tsHost = "mesh-" + hostName
+	}
+	return tailnet.New(tailnet.Config{
+		Dir:        filepath.Join(state, "tailscale"),
+		Hostname:   tsHost,
+		Port:       uint16(port),
+		ControlURL: strings.TrimSpace(controlURL),
+		AuthKey:    authKey,
+		Logger:     log,
+	})
 }

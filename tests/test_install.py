@@ -1,6 +1,7 @@
 """install.sh in a temp HOME, with `go`, `systemctl` and `herdr` stubbed: the daemon install, the links, the rules
 blocks, the Claude Code plugin taking over the skills, an upgrade from the bin/mesh era's links, and --uninstall."""
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,6 +13,7 @@ RETIRED = ["delegate-agy", "delegate-claude", "delegate-claude-agy"]
 
 # a go that builds the packages it is given into the -o folder, as `go build -o dir/ ./cmd/a ./cmd/b` does
 GO_STUB = '''#!/bin/sh
+echo "$@" >> "$HOME/go.log"
 out=""; prev=""
 for a in "$@"; do
   [ "$prev" = -o ] && out="$a"
@@ -97,6 +99,9 @@ def test_install_builds_the_daemon_and_links_mesh_the_protocol_and_the_skills_in
         assert (units / unit).read_text() == (ROOT / "daemon" / "packaging" / "systemd" / unit).read_text()
         dropin = (units / f"{unit}.d" / "path.conf").read_text()
         assert dropin.startswith("[Service]\nEnvironment=\"PATH=") and "/usr/bin" in dropin
+    # meshd is built with the tags --tailscale needs, the same ones the daemon checks for (tailnet.BuildTags)
+    tags = re.search(r'BuildTags = "([^"]+)"', (ROOT / "daemon/internal/tailnet/tailnet.go").read_text()).group(1)
+    assert any(f"-tags {tags} " in c for c in calls(tmp_path, "go.log")), calls(tmp_path, "go.log")
     assert calls(tmp_path, "systemctl.log") == ["--user daemon-reload", "--user enable agent-mesh.service",
                                                 "--user restart agent-mesh.service"]
     assert not (tmp_path / ".local" / "bin" / "meshctl").exists() and not (tmp_path / ".local" / "state").exists()
