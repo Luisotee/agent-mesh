@@ -893,8 +893,15 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
 		return fail(err.Error())
 	}
+	before, _ := git(ctx, p.Worktree, "rev-parse", "HEAD")
 	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh)
 	member.Head, member.UpstreamNew = at, newCommits
+	// An ask refused after the checkout moved puts it back: the peer may be working for its caller on it.
+	restore := func() {
+		if before != "" && at != before && !p.InClone {
+			git(ctx, p.Worktree, "checkout", "--quiet", "--detach", before)
+		}
+	}
 	task := askPrefix + "\n\n" + note + "\n\n" + body
 	var agent *v1.Agent
 	if mine != nil {
@@ -904,9 +911,11 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		res, err := d.SendMessage(withReparent(ctx, actor.Id), connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(m.Meta, "send-"+p.Name), To: mine.Id,
 			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task}))
 		if err != nil {
+			restore()
 			return fail(err.Error())
 		}
 		if res.Msg.ResumeError != "" {
+			restore()
 			// The task was stored with the refusal: it is not for the next resume, which brings the peer back for
 			// a later question, so it is marked read.
 			d.dropStoredTask(ctx, actor, mine.Id, res.Msg.Message.GetId())
@@ -1186,6 +1195,9 @@ func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
 	} else {
 		name = parent.Name
 	}
+	if mine.State == v1.AgentState_AGENT_STATE_WORKING || mine.State == v1.AgentState_AGENT_STATE_STARTING || mine.PendingReopen != nil {
+		return fmt.Sprintf("it is still answering an earlier question of %s", name), nil
+	}
 	if held, _, err := collecting(r, mine.Id, mine.ParentId); err != nil {
 		return "", err
 	} else if held != nil {
@@ -1203,6 +1215,26 @@ func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
 	for _, m := range unread {
 		if m.From.GetId() == mine.ParentId && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER) {
 			return fmt.Sprintf("it has not yet read a message of %s", name), nil
+		}
+	}
+	// A task or answer of its parent that it has read and not yet reported on (as reportOwed reads it): the
+	// parent waits for that report, from a peer that can still give it.
+	if parent != nil && hasProcess(parent) && !stopped(mine) {
+		msgs, err := r.RunMessages(mine.RunId, "", -1) // -1: no limit
+		if err != nil {
+			return "", err
+		}
+		owes := false
+		for _, m := range msgs {
+			switch {
+			case m.ToId == mine.Id && m.From.GetId() == mine.ParentId && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
+				owes = true
+			case m.From.GetId() == mine.Id && m.ToId == mine.ParentId && isReport(m.Type):
+				owes = false
+			}
+		}
+		if owes {
+			return fmt.Sprintf("it still owes %s a report on its task", name), nil
 		}
 	}
 	last, err := lastReport(r, mine)

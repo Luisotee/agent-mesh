@@ -861,14 +861,18 @@ func TestOpenCodeFooterLimitLineRotatesTheAgent(t *testing.T) {
 func TestOpenCodeLimitedReviewerSettlesItsMemberWhenItCannotMove(t *testing.T) {
 	for _, tc := range []struct {
 		name, command, auto, line string
-		settles                   bool
+		settles, accountHold      bool
 	}{
-		{"free usage limit outlasts the ask", "/limit-pane-free", "switch", "no other model to move to", true},
-		{"rate limit ends within the ask", "/limit-pane", "switch", "", false},
+		{"free usage limit outlasts the ask", "/limit-pane-free", "switch", "no other model to move to", true, false},
+		{"rate limit ends within the ask", "/limit-pane", "switch", "", false, false},
 		// Whatever the policy: with `off` nothing moves the agent, and the round must not wait on it either; the
 		// line says which policy it is, not that the chain is exhausted.
-		{"free usage limit with limits.auto off", "/limit-pane-free", "off", "limits.auto is off", true},
-		{"free usage limit with limits.auto continue", "/limit-pane-free", "continue", "limits.auto is continue", true},
+		{"free usage limit with limits.auto off", "/limit-pane-free", "off", "limits.auto is off", true, false},
+		{"free usage limit with limits.auto continue", "/limit-pane-free", "continue", "limits.auto is continue", true, false},
+		// With `off` nothing continues the agent at the reset either, so a limit that ends within the ask settles too.
+		{"rate limit ends within the ask with limits.auto off", "/limit-pane", "off", "limits.auto is off", true, false},
+		// A limit on the whole account says so, not that the tier's chain ran out.
+		{"every model held", "/limit-pane-free", "switch", "the account or CLI is at its limit", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := startReviews(t, fastPass)
@@ -882,6 +886,13 @@ func TestOpenCodeLimitedReviewerSettlesItsMemberWhenItCannotMove(t *testing.T) {
 			}
 			w.quiet(t, res.Agents[0].Id) // its task's doorbell taken and the turn it started over
 			rev := w.agent(res.Agents[0].Id)
+			if tc.accountHold {
+				if err := w.d.Store().Write(context.Background(), &v1.Actor{Id: "meshd", Name: "meshd"}, "", func(tx *store.Tx) error {
+					return tx.PutModelLimit(opencode.Kind, "*", time.Now().Add(5*time.Hour))
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			w.typeInto(rev, tc.command+"\r")
 			w.waitState(rev.Id, v1.AgentState_AGENT_STATE_LIMITED)
 			if tc.settles {

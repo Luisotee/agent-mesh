@@ -4,10 +4,12 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 )
 
 // A review round counts as one agent against `caps.agents`: its first reviewer has to fit, the others then join
@@ -178,5 +180,34 @@ func TestAReReviewsRefusedReuseIsNotAStartedMember(t *testing.T) {
 		if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.CreatedAt.AsTime().After(r1.Ask.CreatedAt.AsTime()) {
 			t.Errorf("the refused reviewer keeps an unread task of the new round: %q", m.Body)
 		}
+	}
+}
+
+// A running reviewer the round meant to ask again but couldn't (its reserve refused it) is not part of the
+// round: it counts against `caps.agents` again, so the next slot's spawn can't take the host past the cap.
+func TestAReviewerThatCouldNotBeAskedAgainLeavesTheRoundsCapPlace(t *testing.T) {
+	w := startReviews(t, func(c *daemon.AgentConfig) { c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true} })
+	ctx := context.Background()
+	w.pr.push(t, "round 1")
+	r1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
+	w.quiet(t, r1.Agents[0].Id)
+	w.say(t, r1.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "fine")
+	waitFor(t, "round 1 finished", func() bool { return len(w.answers(t)) == 1 })
+
+	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER), `/ratelimits {"five_hour":{"used_percentage":95,"resets_at":"`+reset+`"}}`+"\r")
+	waitFor(t, "the reserve to fill", func() bool {
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test") != nil
+	})
+	w.set(t, "caps.agents", 3) // the root, the running reviewer and the worker fill it
+
+	w.pr.push(t, "round 2")
+	// claude's reviewer can't be asked (the reserve is full); agy's slot needs a place the host doesn't have.
+	_, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}))
+	if err == nil {
+		t.Fatal("the round started an agent past caps.agents 3")
+	}
+	if n := reviewers(t, w); n != 1 {
+		t.Errorf("%d reviewers after the refused round, want the running one only", n)
 	}
 }

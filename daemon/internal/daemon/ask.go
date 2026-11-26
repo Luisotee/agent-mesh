@@ -383,10 +383,10 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	}
 	// Reviewers of the earlier round already running are part of this one whichever slot comes first: they share
 	// its place in the cap from the start, so the order of the kinds never decides who the cap refuses.
-	var running []string
-	for _, k := range kinds {
+	running := make([]string, len(kinds)) // by slot: "" for one with no running reviewer to reuse
+	for i, k := range kinds {
 		if a, _, _ := reusableReviewer(r, actor, reuseFrom, k); a != nil && hasProcess(a) {
-			running = append(running, a.Id)
+			running[i] = a.Id
 		}
 	}
 	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, running, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
@@ -401,7 +401,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 // the members (a reviewer's kind, a peer's name) and start(ctx, i) brings member i in: a member that can't be
 // reached is one with a line saying why, not an error. With oneSlot the members of the round share one place in
 // `caps.agents` (a review round: its first reviewer must fit the cap, the others then join it, so the round is
-// never cut short by it, and those of `running` already hold it); without, each counts as the agent it is (a
+// never cut short by it, and the agents of `running` (by key: one already running for that slot, "" for none) already hold it, until their slot fails); without, each counts as the agent it is (a
 // peers group can be many). A mutation id of the request covers the whole ask: its id comes from it, so a retry after an
 // interruption finds the ask it left, keeps the members already started (their own spawns replay too) and starts the rest; the final write records the mutation.
 func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string, oneSlot bool, running []string,
@@ -429,7 +429,12 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		return nil, err
 	}
 	started := 0
-	shared := slices.Clone(running) // the agents of this round already running, whose place in the cap the others share
+	var shared []string // the agents of this round already running, whose place in the cap the others share
+	for _, id := range running {
+		if id != "" {
+			shared = append(shared, id)
+		}
+	}
 	for i, key := range keys {
 		if mem := have[key]; mem != nil {
 			if mem.AgentId != "" && mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
@@ -453,8 +458,13 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		}
 		if agent != nil {
 			out.Agents = append(out.Agents, agent)
-			shared = append(shared, agent.Id)
+			if !slices.Contains(shared, agent.Id) {
+				shared = append(shared, agent.Id)
+			}
 			started++
+		} else if i < len(running) && running[i] != "" {
+			// Its reviewer was not asked after all: it is no part of the round, and counts against the cap again.
+			shared = slices.DeleteFunc(shared, func(id string) bool { return id == running[i] })
 		}
 		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAsk(ask.Id)

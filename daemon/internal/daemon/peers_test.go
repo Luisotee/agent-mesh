@@ -1209,3 +1209,111 @@ func TestARetiredPeerThatAskedAQuestionGoesToTheNextCaller(t *testing.T) {
 		t.Fatalf("the peer's agent is parented to %s, want the root", got.ParentId)
 	}
 }
+
+// A plain task its parent gave a peer, which it read and has not reported on, holds it for that parent, whatever
+// state it is in: here it stopped at a usage limit. Another caller's ask must not take it (its `done` would go
+// to the new caller, and the parent's later sends are refused).
+func TestAPeerThatReadItsCallersTaskAndDidNotReportIsNotTaken(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer")
+	if _, err := w.as(wTok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: peerAgent.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "one more thing"})); err != nil {
+		t.Fatal(err)
+	}
+	w.quiet(t, peerAgent.Id)
+	readInbox(t, w.as(w.token(t, peerAgent.Id))) // read, so no unread mail holds it
+	w.typeInto(w.agent(peerAgent.Id), "/limit You've hit your session limit\r")
+	w.waitState(peerAgent.Id, v1.AgentState_AGENT_STATE_LIMITED)
+
+	_, err = w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60}))
+	if err == nil || !strings.Contains(err.Error(), "still owes repo-two a report") {
+		t.Fatalf("an ask of a peer that owes its caller a report: %v", err)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != "a-w2" {
+		t.Fatalf("a refused ask moved the peer's agent to %s", got.ParentId)
+	}
+}
+
+// An ask refused after the peer's checkout was brought up to its upstream puts the checkout back: the peer may
+// be working on it for its caller.
+func TestARefusedAskOfAPeerLeavesItsCheckoutWhereItWas(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer") // free now
+	wt := w.agent(peerAgent.Id).Worktree
+	head := gitOut(t, wt, "rev-parse", "HEAD")
+	up.commit(t, "new.txt", "upstream moved")
+
+	daemon.OnSendPlanned(func() {
+		daemon.OnSendPlanned(nil)
+		// After the ask has moved the checkout, before it stores its task: the worker gives its peer work.
+		if _, err := w.as(wTok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: peerAgent.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "one more thing"})); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Cleanup(func() { daemon.OnSendPlanned(nil) })
+	if _, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60})); err == nil {
+		t.Fatal("the ask of a peer given work meanwhile went ahead")
+	}
+	if got := gitOut(t, wt, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("a refused ask left the checkout at %s, want it back at %s", got[:9], head[:9])
+	}
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v", args, dir, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// The state of a peer is looked at again in the write that moves it: its caller may have set it working since the
+// ask looked.
+func TestAPeerSetWorkingMeanwhileIsNotTaken(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer") // free now
+
+	daemon.OnSendPlanned(func() {
+		daemon.OnSendPlanned(nil)
+		w.typeInto(w.agent(peerAgent.Id), "/hold\r") // busy with something of its own
+		w.waitState(peerAgent.Id, v1.AgentState_AGENT_STATE_WORKING)
+	})
+	t.Cleanup(func() { daemon.OnSendPlanned(nil) })
+	_, err = w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60}))
+	if err == nil || !strings.Contains(err.Error(), "still answering an earlier question of repo-two") {
+		t.Fatalf("an ask of a peer set working meanwhile: %v", err)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != "a-w2" {
+		t.Fatalf("the peer's agent moved to %s", got.ParentId)
+	}
+}
