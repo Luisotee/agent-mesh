@@ -26,7 +26,7 @@ function fixture(o: { usage?: () => Promise<unknown>; cost?: () => Promise<unkno
   store.setState({ runs: { r1: create(RunSchema, { id: 'r1', title: 'e2e run' }) } })
   const client = {
     getUsage: vi.fn(o.usage ?? (async () => create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: { source: 'live', atReserve: ['weekly window'], windows: [{ key: 'seven_day', label: 'weekly window', used: 95 }, { key: 'five_hour', label: 'five-hour window', used: 20 }] } }))),
-    getCost: vi.fn(o.cost ?? (async () => create(GetCostResponseSchema, { scope: 'since 7d', usd: 4.5, kinds: [{ kind: 'claude', sessions: 1n, calls: 2n, usd: 4.5, share: 100 }] }))),
+    getCost: vi.fn(o.cost ?? (async () => create(GetCostResponseSchema, { scope: 'since 7d', usd: 4.5, totalTokens: 12_300_000n, totalRead: 90_000_000n, clis: [{ cli: 'claude', calls: 2n, input: 10_000_000n, w1: 1_000_000n, output: 1_300_000n, total: 12_300_000n, read: 90_000_000n, basis: 'exact: the API usage' }], kinds: [{ kind: 'claude', sessions: 1n, calls: 2n, usd: 4.5, share: 100, total: 12_300_000n }] }))),
   }
   const host = { info: { id: 'h', name: 'home', kind: 'state-dir', target: '/s' }, store, client } as unknown as HostRuntime
   const model = createAppModel({ hosts: { list: async () => [], fixed: false }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as never)
@@ -42,9 +42,14 @@ describe('UsagePanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('At the reserve (90% of a quota used): Claude weekly window')
     expect(document.querySelector('[data-window="five_hour"]')).not.toHaveTextContent('at the reserve')
     expect(client.getUsage).toHaveBeenCalledWith({ refresh: false })
-    await waitFor(() => expect(screen.getByTestId('cost-total')).toHaveTextContent('$4.50'))
+    // Tokens are the main figure; the dollars follow, as what the Claude sessions would cost at API prices.
+    await waitFor(() => expect(screen.getByTestId('cost-total')).toHaveTextContent('12.3M tokens'))
+    expect(screen.getByTestId('cost-total')).not.toHaveTextContent('$')
+    expect(screen.getByTestId('cost-usd')).toHaveTextContent('≈ $4.50 at API prices for Claude')
+    expect(screen.getByText(/cache reads 90\.0M apart/)).toBeInTheDocument()
+    expect(screen.getByText('claude: exact: the API usage')).toBeInTheDocument()
     expect(client.getCost).toHaveBeenCalledWith({ agents: false, runId: '', since: '7d' })
-    expect(within(screen.getByRole('table', { name: 'By CLI' })).getByText('claude')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'By kind' })).getByText('claude')).toBeInTheDocument()
   })
 
   it('asks again for another span or one run, per agent, and refreshes past the host cache', async () => {

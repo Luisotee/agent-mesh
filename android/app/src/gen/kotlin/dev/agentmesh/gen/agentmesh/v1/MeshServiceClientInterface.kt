@@ -263,7 +263,8 @@ public interface MeshServiceClientInterface {
   public suspend fun importPeers(request: ImportPeersRequest, headers: Headers = emptyMap()): ResponseMessage<ImportPeersResponse>
 
   /**
-   *  Spend per agent, kind and phase from session files, plus reviewer verdicts.
+   *  Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+   *  The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
    */
   public suspend fun getCost(request: GetCostRequest, headers: Headers = emptyMap()): ResponseMessage<GetCostResponse>
 

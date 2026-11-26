@@ -472,6 +472,53 @@ public  final class AgentCost extends
     coldUsd_ = 0D;
   }
 
+  public static final int TOTAL_FIELD_NUMBER = 16;
+  private long total_;
+  /**
+   * <pre>
+   * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+   * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+   * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+   * (a subagent's dollars are sub_usd).
+   * </pre>
+   *
+   * <code>int64 total = 16 [json_name = "total"];</code>
+   * @return The total.
+   */
+  @java.lang.Override
+  public long getTotal() {
+    return total_;
+  }
+  /**
+   * <pre>
+   * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+   * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+   * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+   * (a subagent's dollars are sub_usd).
+   * </pre>
+   *
+   * <code>int64 total = 16 [json_name = "total"];</code>
+   * @param value The total to set.
+   */
+  private void setTotal(long value) {
+    
+    total_ = value;
+  }
+  /**
+   * <pre>
+   * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+   * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+   * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+   * (a subagent's dollars are sub_usd).
+   * </pre>
+   *
+   * <code>int64 total = 16 [json_name = "total"];</code>
+   */
+  private void clearTotal() {
+
+    total_ = 0L;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.AgentCost parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1052,6 +1099,55 @@ public  final class AgentCost extends
       return this;
     }
 
+    /**
+     * <pre>
+     * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+     * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+     * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+     * (a subagent's dollars are sub_usd).
+     * </pre>
+     *
+     * <code>int64 total = 16 [json_name = "total"];</code>
+     * @return The total.
+     */
+    @java.lang.Override
+    public long getTotal() {
+      return instance.getTotal();
+    }
+    /**
+     * <pre>
+     * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+     * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+     * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+     * (a subagent's dollars are sub_usd).
+     * </pre>
+     *
+     * <code>int64 total = 16 [json_name = "total"];</code>
+     * @param value The total to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTotal(long value) {
+      copyOnWrite();
+      instance.setTotal(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+     * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+     * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+     * (a subagent's dollars are sub_usd).
+     * </pre>
+     *
+     * <code>int64 total = 16 [json_name = "total"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTotal() {
+      copyOnWrite();
+      instance.clearTotal();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgentCost)
   }
   @java.lang.Override
@@ -1083,11 +1179,12 @@ public  final class AgentCost extends
             "subUsd_",
             "cold_",
             "coldUsd_",
+            "total_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u0000" +
-              "\u000b\u0000\f\u0000\r\u0000\u000e\u0002\u000f\u0000";
+              "\u000b\u0000\f\u0000\r\u0000\u000e\u0002\u000f\u0000\u0010\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
