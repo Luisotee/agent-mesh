@@ -34,6 +34,24 @@ describe('applyFrame', () => {
     expect(s.cursor?.seq).toBe(6n)
   })
 
+  it('an activity frame updates what a working agent runs, without moving the cursor, and leaves other states alone', () => {
+    const activity = (agentId: string, detail: string, ms: number): Frame => ({ case: 'activity', value: { $typeName: 'agentmesh.v1.AgentActivity', runId: 'r1', agentId, detail, time: timestampFromMs(ms) } })
+    const s = run([snapshot([agent('a1', { state: AgentState.WORKING, stateDetail: 'Bash' }), agent('a2', { state: AgentState.IDLE })]), activity('a1', 'Edit', 9000), activity('a2', 'Bash', 9000), activity('gone', 'Bash', 9000)])
+    expect(s.agents.a1).toMatchObject({ stateDetail: 'Edit' })
+    expect(Number(s.agents.a1!.lastActivity!.seconds)).toBe(9)
+    expect(s.agents.a2).toMatchObject({ state: AgentState.IDLE, stateDetail: '' })
+    expect(s.cursor?.seq).toBe(5n)
+  })
+
+  it('an agent that just launched gets its terminal from the event that records it, not from the next listing', () => {
+    const s = run([
+      snapshot([]),
+      ev(6, { case: 'agentSpawned', value: { $typeName: 'agentmesh.v1.AgentSpawned', agent: agent('a1') } }),
+      ev(7, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 'term-1', launched: false } }),
+    ])
+    expect(s.agents.a1).toMatchObject({ id: 'a1', terminalId: 'term-1' })
+  })
+
   it('a retire, a stopped run and a reopen change what the host says they change', () => {
     const waiting = agent('a1', { state: AgentState.NEEDS_INPUT, needsInput: 2, stateDetail: 'Bash', model: 'sonnet' })
     let s = run([snapshot([waiting]), ev(6, { case: 'agentRetired', value: { $typeName: 'agentmesh.v1.AgentRetired', reason: 'requested' } })])
@@ -72,7 +90,7 @@ describe('applyFrame', () => {
   })
 
   it('an adoption records the terminal', () => {
-    const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9' } })])
+    const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9', launched: false } })])
     expect(s.agents.a1?.terminalId).toBe('t9')
   })
 

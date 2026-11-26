@@ -4,6 +4,7 @@ package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/ask.proto";
+import "agentmesh/v1/chat.proto";
 import "agentmesh/v1/commands.proto";
 import "agentmesh/v1/context.proto";
 import "agentmesh/v1/options.proto";
@@ -423,6 +424,32 @@ service MeshService {
         ACTOR_CLASS_READ_ONLY_DEVICE
       ]
       summary: "Get a ticket for an agent's terminal stream"
+    };
+  }
+
+  // An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
+  // a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
+  rpc ReadTranscript(ReadTranscriptRequest) returns (ReadTranscriptResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "transcript"
+      summary: "Show an agent's conversation as its CLI recorded it"
+    };
+  }
+
+  // Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
+  // a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
+  // with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+  rpc PromptAgent(PromptAgentRequest) returns (PromptAgentResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "prompt"
+      summary: "Type a prompt into an agent's terminal as the user"
     };
   }
 
@@ -1092,6 +1119,9 @@ message SubscribeEventsRequest {
   Cursor cursor = 1;
   // Only this run's events; empty means all.
   string run_id = 2;
+  // Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+  // state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+  bool activity = 3;
 }
 
 message SubscribeEventsResponse {
@@ -1103,7 +1133,20 @@ message SubscribeEventsResponse {
     Event event = 3;
     // The stream ends on purpose (the daemon is shutting down); reconnect from the last cursor.
     End end = 4;
+    // What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+    // reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+    AgentActivity activity = 5;
   }
+}
+
+// The tool an agent's CLI is running, reported by its hooks. A tool call that changes no state writes no Event
+// (that would log every tool call), so it is this frame, sent to the live subscribers of its run only.
+message AgentActivity {
+  string run_id = 1;
+  string agent_id = 2;
+  // The tool now running (the agent's state detail).
+  string detail = 3;
+  google.protobuf.Timestamp time = 4;
 }
 
 message Snapshot {

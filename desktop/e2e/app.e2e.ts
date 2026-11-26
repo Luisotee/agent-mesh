@@ -107,7 +107,7 @@ async function agentId(name: string): Promise<string> {
 
 test('a terminal streams the agent, takes typing, and carries on across a daemon restart', async () => {
   const { page } = app
-  await page.getByRole('button', { name: /repo-lead/ }).click()
+  await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
   // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.
@@ -196,7 +196,7 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
 
 test('settings are generated from the host, set from the app, and change live when an agent sets them', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Settings' })
   await panel.getByLabel('Filter settings').fill('app.notify.sound')
   const row = panel.locator('[data-setting="app.notify.sound"]')
@@ -230,7 +230,7 @@ test('settings are generated from the host, set from the app, and change live wh
   await panel.getByLabel('Filter settings').fill('app.notify.sound')
   await row.getByRole('button', { name: 'Reset app.notify.sound' }).click()
   await expect.poll(() => box.isChecked()).toBe(true)
-  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
 test('notifications follow the host\'s settings, history stays quiet, and the tray is told what waits', async () => {
@@ -267,7 +267,7 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   const { page } = app
   const themeOf = () => page.evaluate(() => ({ name: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, density: document.documentElement.dataset.density }))
   expect((await themeOf()).name).toBe('Dracula')
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Settings' })
   await panel.getByLabel('Filter settings').fill('app.theme')
   const select = panel.getByRole('combobox', { name: 'Value of app.theme' })
@@ -298,12 +298,12 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   await host.client().setSetting({ key: 'app.theme', value: { kind: { case: 'stringValue', value: 'Solarized' } } })
   await expect.poll(async () => (await themeOf()).name).toBe('Dracula')
   await host.client().resetSetting({ key: 'app.theme' })
-  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
 test('a repo is kept from free models by a switch in the settings, and the host then refuses OpenCode there', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const section = page.getByRole('region', { name: 'Free models by repo' })
   const box = section.getByRole('checkbox', { name: /May use free models: repo$/ })
   await expect.poll(() => box.isChecked()).toBe(true)
@@ -321,7 +321,7 @@ test('a repo is kept from free models by a switch in the settings, and the host 
   await box.click()
   await expect.poll(() => box.isChecked()).toBe(true)
   await expect.poll(async () => JSON.stringify((await listed())?.value?.kind)).toContain('"values":[]')
-  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
 test('the usage and cost screen asks the host for what mesh usage and mesh cost print', async () => {

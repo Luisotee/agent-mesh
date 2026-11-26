@@ -7,7 +7,8 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * The daemon found the agent's terminal still running at boot and took it back.
+ * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+ * the daemon found it still running at boot and took it back.
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.AgentAdopted}
@@ -66,6 +67,44 @@ public  final class AgentAdopted extends
     checkByteStringIsUtf8(value);
     terminalId_ = value.toStringUtf8();
 
+  }
+
+  public static final int LAUNCHED_FIELD_NUMBER = 2;
+  private boolean launched_;
+  /**
+   * <pre>
+   * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+   * </pre>
+   *
+   * <code>bool launched = 2 [json_name = "launched"];</code>
+   * @return The launched.
+   */
+  @java.lang.Override
+  public boolean getLaunched() {
+    return launched_;
+  }
+  /**
+   * <pre>
+   * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+   * </pre>
+   *
+   * <code>bool launched = 2 [json_name = "launched"];</code>
+   * @param value The launched to set.
+   */
+  private void setLaunched(boolean value) {
+    
+    launched_ = value;
+  }
+  /**
+   * <pre>
+   * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+   * </pre>
+   *
+   * <code>bool launched = 2 [json_name = "launched"];</code>
+   */
+  private void clearLaunched() {
+
+    launched_ = false;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AgentAdopted parseFrom(
@@ -153,7 +192,8 @@ public  final class AgentAdopted extends
 
   /**
    * <pre>
-   * The daemon found the agent's terminal still running at boot and took it back.
+   * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+   * the daemon found it still running at boot and took it back.
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.AgentAdopted}
@@ -218,6 +258,46 @@ public  final class AgentAdopted extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+     * </pre>
+     *
+     * <code>bool launched = 2 [json_name = "launched"];</code>
+     * @return The launched.
+     */
+    @java.lang.Override
+    public boolean getLaunched() {
+      return instance.getLaunched();
+    }
+    /**
+     * <pre>
+     * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+     * </pre>
+     *
+     * <code>bool launched = 2 [json_name = "launched"];</code>
+     * @param value The launched to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLaunched(boolean value) {
+      copyOnWrite();
+      instance.setLaunched(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+     * </pre>
+     *
+     * <code>bool launched = 2 [json_name = "launched"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLaunched() {
+      copyOnWrite();
+      instance.clearLaunched();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgentAdopted)
   }
   @java.lang.Override
@@ -235,9 +315,11 @@ public  final class AgentAdopted extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "terminalId_",
+            "launched_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -1187,6 +1187,160 @@ func (x *MeasureContextResponse) GetUsage() *v1.ContextUsage {
 	return nil
 }
 
+type ReadTranscriptRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Cwd       string                 `protobuf:"bytes,2,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	// The environment the CLI's records are found by (HOME, its config dir).
+	Env map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// As agentmesh.v1.ReadTranscriptRequest.
+	Offset        int64 `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
+	Backward      bool  `protobuf:"varint,5,opt,name=backward,proto3" json:"backward,omitempty"`
+	MaxBytes      int64 `protobuf:"varint,6,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadTranscriptRequest) Reset() {
+	*x = ReadTranscriptRequest{}
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadTranscriptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadTranscriptRequest) ProtoMessage() {}
+
+func (x *ReadTranscriptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadTranscriptRequest.ProtoReflect.Descriptor instead.
+func (*ReadTranscriptRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ReadTranscriptRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ReadTranscriptRequest) GetCwd() string {
+	if x != nil {
+		return x.Cwd
+	}
+	return ""
+}
+
+func (x *ReadTranscriptRequest) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *ReadTranscriptRequest) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ReadTranscriptRequest) GetBackward() bool {
+	if x != nil {
+		return x.Backward
+	}
+	return false
+}
+
+func (x *ReadTranscriptRequest) GetMaxBytes() int64 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
+type ReadTranscriptResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*v1.TranscriptEntry  `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	StartOffset   int64                  `protobuf:"varint,2,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`
+	EndOffset     int64                  `protobuf:"varint,3,opt,name=end_offset,json=endOffset,proto3" json:"end_offset,omitempty"`
+	AtStart       bool                   `protobuf:"varint,4,opt,name=at_start,json=atStart,proto3" json:"at_start,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadTranscriptResponse) Reset() {
+	*x = ReadTranscriptResponse{}
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadTranscriptResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadTranscriptResponse) ProtoMessage() {}
+
+func (x *ReadTranscriptResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadTranscriptResponse.ProtoReflect.Descriptor instead.
+func (*ReadTranscriptResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ReadTranscriptResponse) GetEntries() []*v1.TranscriptEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ReadTranscriptResponse) GetStartOffset() int64 {
+	if x != nil {
+		return x.StartOffset
+	}
+	return 0
+}
+
+func (x *ReadTranscriptResponse) GetEndOffset() int64 {
+	if x != nil {
+		return x.EndOffset
+	}
+	return 0
+}
+
+func (x *ReadTranscriptResponse) GetAtStart() bool {
+	if x != nil {
+		return x.AtStart
+	}
+	return false
+}
+
 type PlanCompactRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Binary    string                 `protobuf:"bytes,1,opt,name=binary,proto3" json:"binary,omitempty"`
@@ -1207,7 +1361,7 @@ type PlanCompactRequest struct {
 
 func (x *PlanCompactRequest) Reset() {
 	*x = PlanCompactRequest{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[16]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1219,7 +1373,7 @@ func (x *PlanCompactRequest) String() string {
 func (*PlanCompactRequest) ProtoMessage() {}
 
 func (x *PlanCompactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[16]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1232,7 +1386,7 @@ func (x *PlanCompactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCompactRequest.ProtoReflect.Descriptor instead.
 func (*PlanCompactRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{16}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PlanCompactRequest) GetBinary() string {
@@ -1308,7 +1462,7 @@ type PlanCompactResponse struct {
 
 func (x *PlanCompactResponse) Reset() {
 	*x = PlanCompactResponse{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[17]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1474,7 @@ func (x *PlanCompactResponse) String() string {
 func (*PlanCompactResponse) ProtoMessage() {}
 
 func (x *PlanCompactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[17]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1487,7 @@ func (x *PlanCompactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCompactResponse.ProtoReflect.Descriptor instead.
 func (*PlanCompactResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{17}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PlanCompactResponse) GetArgv() []string {
@@ -1364,7 +1518,7 @@ type DecodeHookRequest struct {
 
 func (x *DecodeHookRequest) Reset() {
 	*x = DecodeHookRequest{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[18]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1376,7 +1530,7 @@ func (x *DecodeHookRequest) String() string {
 func (*DecodeHookRequest) ProtoMessage() {}
 
 func (x *DecodeHookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[18]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1389,7 +1543,7 @@ func (x *DecodeHookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeHookRequest.ProtoReflect.Descriptor instead.
 func (*DecodeHookRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{18}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DecodeHookRequest) GetAgentId() string {
@@ -1436,7 +1590,7 @@ type DecodeHookResponse struct {
 
 func (x *DecodeHookResponse) Reset() {
 	*x = DecodeHookResponse{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[19]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1602,7 @@ func (x *DecodeHookResponse) String() string {
 func (*DecodeHookResponse) ProtoMessage() {}
 
 func (x *DecodeHookResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[19]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1615,7 @@ func (x *DecodeHookResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeHookResponse.ProtoReflect.Descriptor instead.
 func (*DecodeHookResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{19}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DecodeHookResponse) GetEvents() []*AgentEvent {
@@ -1496,7 +1650,7 @@ type AgentEvent struct {
 
 func (x *AgentEvent) Reset() {
 	*x = AgentEvent{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[20]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1662,7 @@ func (x *AgentEvent) String() string {
 func (*AgentEvent) ProtoMessage() {}
 
 func (x *AgentEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[20]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1675,7 @@ func (x *AgentEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentEvent.ProtoReflect.Descriptor instead.
 func (*AgentEvent) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{20}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AgentEvent) GetTime() *timestamppb.Timestamp {
@@ -1719,7 +1873,7 @@ type SessionStarted struct {
 
 func (x *SessionStarted) Reset() {
 	*x = SessionStarted{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[21]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1731,7 +1885,7 @@ func (x *SessionStarted) String() string {
 func (*SessionStarted) ProtoMessage() {}
 
 func (x *SessionStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[21]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1744,7 +1898,7 @@ func (x *SessionStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionStarted.ProtoReflect.Descriptor instead.
 func (*SessionStarted) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{21}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SessionStarted) GetSessionId() string {
@@ -1771,7 +1925,7 @@ type TurnStarted struct {
 
 func (x *TurnStarted) Reset() {
 	*x = TurnStarted{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[22]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1783,7 +1937,7 @@ func (x *TurnStarted) String() string {
 func (*TurnStarted) ProtoMessage() {}
 
 func (x *TurnStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[22]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1796,7 +1950,7 @@ func (x *TurnStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnStarted.ProtoReflect.Descriptor instead.
 func (*TurnStarted) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{22}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *TurnStarted) GetByMesh() bool {
@@ -1816,7 +1970,7 @@ type Activity struct {
 
 func (x *Activity) Reset() {
 	*x = Activity{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[23]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1828,7 +1982,7 @@ func (x *Activity) String() string {
 func (*Activity) ProtoMessage() {}
 
 func (x *Activity) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[23]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1841,7 +1995,7 @@ func (x *Activity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Activity.ProtoReflect.Descriptor instead.
 func (*Activity) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{23}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Activity) GetDetail() string {
@@ -1861,7 +2015,7 @@ type NeedsInput struct {
 
 func (x *NeedsInput) Reset() {
 	*x = NeedsInput{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[24]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1873,7 +2027,7 @@ func (x *NeedsInput) String() string {
 func (*NeedsInput) ProtoMessage() {}
 
 func (x *NeedsInput) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[24]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1886,7 +2040,7 @@ func (x *NeedsInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedsInput.ProtoReflect.Descriptor instead.
 func (*NeedsInput) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{24}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *NeedsInput) GetReason() string {
@@ -1904,7 +2058,7 @@ type TurnEnded struct {
 
 func (x *TurnEnded) Reset() {
 	*x = TurnEnded{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[25]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1916,7 +2070,7 @@ func (x *TurnEnded) String() string {
 func (*TurnEnded) ProtoMessage() {}
 
 func (x *TurnEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[25]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1929,7 +2083,7 @@ func (x *TurnEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnEnded.ProtoReflect.Descriptor instead.
 func (*TurnEnded) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{25}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{27}
 }
 
 type Compacting struct {
@@ -1940,7 +2094,7 @@ type Compacting struct {
 
 func (x *Compacting) Reset() {
 	*x = Compacting{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[26]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1952,7 +2106,7 @@ func (x *Compacting) String() string {
 func (*Compacting) ProtoMessage() {}
 
 func (x *Compacting) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[26]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1965,7 +2119,7 @@ func (x *Compacting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Compacting.ProtoReflect.Descriptor instead.
 func (*Compacting) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{26}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{28}
 }
 
 type SessionEnded struct {
@@ -1977,7 +2131,7 @@ type SessionEnded struct {
 
 func (x *SessionEnded) Reset() {
 	*x = SessionEnded{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[27]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +2143,7 @@ func (x *SessionEnded) String() string {
 func (*SessionEnded) ProtoMessage() {}
 
 func (x *SessionEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[27]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2002,7 +2156,7 @@ func (x *SessionEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionEnded.ProtoReflect.Descriptor instead.
 func (*SessionEnded) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{27}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SessionEnded) GetReason() string {
@@ -2022,7 +2176,7 @@ type ProcessExited struct {
 
 func (x *ProcessExited) Reset() {
 	*x = ProcessExited{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[28]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2034,7 +2188,7 @@ func (x *ProcessExited) String() string {
 func (*ProcessExited) ProtoMessage() {}
 
 func (x *ProcessExited) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[28]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2047,7 +2201,7 @@ func (x *ProcessExited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessExited.ProtoReflect.Descriptor instead.
 func (*ProcessExited) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{28}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ProcessExited) GetExitCode() int32 {
@@ -2073,7 +2227,7 @@ type DecodeError struct {
 
 func (x *DecodeError) Reset() {
 	*x = DecodeError{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[29]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2085,7 +2239,7 @@ func (x *DecodeError) String() string {
 func (*DecodeError) ProtoMessage() {}
 
 func (x *DecodeError) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[29]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2098,7 +2252,7 @@ func (x *DecodeError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeError.ProtoReflect.Descriptor instead.
 func (*DecodeError) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{29}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *DecodeError) GetError() string {
@@ -2124,7 +2278,7 @@ type RateLimited struct {
 
 func (x *RateLimited) Reset() {
 	*x = RateLimited{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[30]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2136,7 +2290,7 @@ func (x *RateLimited) String() string {
 func (*RateLimited) ProtoMessage() {}
 
 func (x *RateLimited) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[30]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2149,7 +2303,7 @@ func (x *RateLimited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RateLimited.ProtoReflect.Descriptor instead.
 func (*RateLimited) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{30}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RateLimited) GetMessage() string {
@@ -2190,7 +2344,7 @@ type TurnFailed struct {
 
 func (x *TurnFailed) Reset() {
 	*x = TurnFailed{}
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[31]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2202,7 +2356,7 @@ func (x *TurnFailed) String() string {
 func (*TurnFailed) ProtoMessage() {}
 
 func (x *TurnFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[31]
+	mi := &file_agentmesh_adapter_v1_adapter_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2215,7 +2369,7 @@ func (x *TurnFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnFailed.ProtoReflect.Descriptor instead.
 func (*TurnFailed) Descriptor() ([]byte, []int) {
-	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{31}
+	return file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TurnFailed) GetError() string {
@@ -2229,7 +2383,7 @@ var File_agentmesh_adapter_v1_adapter_proto protoreflect.FileDescriptor
 
 const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\n" +
-	"\"agentmesh/adapter/v1/adapter.proto\x12\x14agentmesh.adapter.v1\x1a\x1aagentmesh/v1/context.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x11\n" +
+	"\"agentmesh/adapter/v1/adapter.proto\x12\x14agentmesh.adapter.v1\x1a\x17agentmesh/v1/chat.proto\x1a\x1aagentmesh/v1/context.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x11\n" +
 	"\x0fDescribeRequest\"\x9a\x01\n" +
 	"\x10DescribeResponse\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
@@ -2335,7 +2489,24 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"J\n" +
 	"\x16MeasureContextResponse\x120\n" +
-	"\x05usage\x18\x01 \x01(\v2\x1a.agentmesh.v1.ContextUsageR\x05usage\"\xf3\x02\n" +
+	"\x05usage\x18\x01 \x01(\v2\x1a.agentmesh.v1.ContextUsageR\x05usage\"\x99\x02\n" +
+	"\x15ReadTranscriptRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x10\n" +
+	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x12F\n" +
+	"\x03env\x18\x03 \x03(\v24.agentmesh.adapter.v1.ReadTranscriptRequest.EnvEntryR\x03env\x12\x16\n" +
+	"\x06offset\x18\x04 \x01(\x03R\x06offset\x12\x1a\n" +
+	"\bbackward\x18\x05 \x01(\bR\bbackward\x12\x1b\n" +
+	"\tmax_bytes\x18\x06 \x01(\x03R\bmaxBytes\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xae\x01\n" +
+	"\x16ReadTranscriptResponse\x127\n" +
+	"\aentries\x18\x01 \x03(\v2\x1d.agentmesh.v1.TranscriptEntryR\aentries\x12!\n" +
+	"\fstart_offset\x18\x02 \x01(\x03R\vstartOffset\x12\x1d\n" +
+	"\n" +
+	"end_offset\x18\x03 \x01(\x03R\tendOffset\x12\x19\n" +
+	"\bat_start\x18\x04 \x01(\bR\aatStart\"\xf3\x02\n" +
 	"\x12PlanCompactRequest\x12\x16\n" +
 	"\x06binary\x18\x01 \x01(\tR\x06binary\x12\x1d\n" +
 	"\n" +
@@ -2423,7 +2594,7 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x0fINPUT_BOX_EMPTY\x10\x01\x12\x13\n" +
 	"\x0fINPUT_BOX_TYPED\x10\x02\x12\x12\n" +
 	"\x0eINPUT_BOX_NONE\x10\x03\x12\x15\n" +
-	"\x11INPUT_BOX_UNCLEAR\x10\x042\xa6\a\n" +
+	"\x11INPUT_BOX_UNCLEAR\x10\x042\x93\b\n" +
 	"\x11CliAdapterService\x12Y\n" +
 	"\bDescribe\x12%.agentmesh.adapter.v1.DescribeRequest\x1a&.agentmesh.adapter.v1.DescribeResponse\x12_\n" +
 	"\n" +
@@ -2434,7 +2605,8 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\rDescribeModel\x12*.agentmesh.adapter.v1.DescribeModelRequest\x1a+.agentmesh.adapter.v1.DescribeModelResponse\x12e\n" +
 	"\fReadInputBox\x12).agentmesh.adapter.v1.ReadInputBoxRequest\x1a*.agentmesh.adapter.v1.ReadInputBoxResponse\x12h\n" +
 	"\rDeliverNative\x12*.agentmesh.adapter.v1.DeliverNativeRequest\x1a+.agentmesh.adapter.v1.DeliverNativeResponse\x12k\n" +
-	"\x0eMeasureContext\x12+.agentmesh.adapter.v1.MeasureContextRequest\x1a,.agentmesh.adapter.v1.MeasureContextResponse\x12b\n" +
+	"\x0eMeasureContext\x12+.agentmesh.adapter.v1.MeasureContextRequest\x1a,.agentmesh.adapter.v1.MeasureContextResponse\x12k\n" +
+	"\x0eReadTranscript\x12+.agentmesh.adapter.v1.ReadTranscriptRequest\x1a,.agentmesh.adapter.v1.ReadTranscriptResponse\x12b\n" +
 	"\vPlanCompact\x12(.agentmesh.adapter.v1.PlanCompactRequest\x1a).agentmesh.adapter.v1.PlanCompactResponseB\xe4\x01\n" +
 	"\x18com.agentmesh.adapter.v1B\fAdapterProtoP\x01ZHgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1;adapterv1\xa2\x02\x03AAX\xaa\x02\x14Agentmesh.Adapter.V1\xca\x02\x14Agentmesh\\Adapter\\V1\xe2\x02 Agentmesh\\Adapter\\V1\\GPBMetadata\xea\x02\x16Agentmesh::Adapter::V1b\x06proto3"
 
@@ -2451,7 +2623,7 @@ func file_agentmesh_adapter_v1_adapter_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_adapter_v1_adapter_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agentmesh_adapter_v1_adapter_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_agentmesh_adapter_v1_adapter_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_agentmesh_adapter_v1_adapter_proto_goTypes = []any{
 	(InputBox)(0),                  // 0: agentmesh.adapter.v1.InputBox
 	(*DescribeRequest)(nil),        // 1: agentmesh.adapter.v1.DescribeRequest
@@ -2470,86 +2642,94 @@ var file_agentmesh_adapter_v1_adapter_proto_goTypes = []any{
 	(*DescribeModelResponse)(nil),  // 14: agentmesh.adapter.v1.DescribeModelResponse
 	(*MeasureContextRequest)(nil),  // 15: agentmesh.adapter.v1.MeasureContextRequest
 	(*MeasureContextResponse)(nil), // 16: agentmesh.adapter.v1.MeasureContextResponse
-	(*PlanCompactRequest)(nil),     // 17: agentmesh.adapter.v1.PlanCompactRequest
-	(*PlanCompactResponse)(nil),    // 18: agentmesh.adapter.v1.PlanCompactResponse
-	(*DecodeHookRequest)(nil),      // 19: agentmesh.adapter.v1.DecodeHookRequest
-	(*DecodeHookResponse)(nil),     // 20: agentmesh.adapter.v1.DecodeHookResponse
-	(*AgentEvent)(nil),             // 21: agentmesh.adapter.v1.AgentEvent
-	(*SessionStarted)(nil),         // 22: agentmesh.adapter.v1.SessionStarted
-	(*TurnStarted)(nil),            // 23: agentmesh.adapter.v1.TurnStarted
-	(*Activity)(nil),               // 24: agentmesh.adapter.v1.Activity
-	(*NeedsInput)(nil),             // 25: agentmesh.adapter.v1.NeedsInput
-	(*TurnEnded)(nil),              // 26: agentmesh.adapter.v1.TurnEnded
-	(*Compacting)(nil),             // 27: agentmesh.adapter.v1.Compacting
-	(*SessionEnded)(nil),           // 28: agentmesh.adapter.v1.SessionEnded
-	(*ProcessExited)(nil),          // 29: agentmesh.adapter.v1.ProcessExited
-	(*DecodeError)(nil),            // 30: agentmesh.adapter.v1.DecodeError
-	(*RateLimited)(nil),            // 31: agentmesh.adapter.v1.RateLimited
-	(*TurnFailed)(nil),             // 32: agentmesh.adapter.v1.TurnFailed
-	nil,                            // 33: agentmesh.adapter.v1.PlanLaunchRequest.EnvEntry
-	nil,                            // 34: agentmesh.adapter.v1.PlanLaunchResponse.EnvEntry
-	nil,                            // 35: agentmesh.adapter.v1.LookupSessionRequest.EnvEntry
-	nil,                            // 36: agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
-	nil,                            // 37: agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
-	nil,                            // 38: agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
-	nil,                            // 39: agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
-	(v1.AgentRole)(0),              // 40: agentmesh.v1.AgentRole
-	(*timestamppb.Timestamp)(nil),  // 41: google.protobuf.Timestamp
-	(*v1.ContextUsage)(nil),        // 42: agentmesh.v1.ContextUsage
+	(*ReadTranscriptRequest)(nil),  // 17: agentmesh.adapter.v1.ReadTranscriptRequest
+	(*ReadTranscriptResponse)(nil), // 18: agentmesh.adapter.v1.ReadTranscriptResponse
+	(*PlanCompactRequest)(nil),     // 19: agentmesh.adapter.v1.PlanCompactRequest
+	(*PlanCompactResponse)(nil),    // 20: agentmesh.adapter.v1.PlanCompactResponse
+	(*DecodeHookRequest)(nil),      // 21: agentmesh.adapter.v1.DecodeHookRequest
+	(*DecodeHookResponse)(nil),     // 22: agentmesh.adapter.v1.DecodeHookResponse
+	(*AgentEvent)(nil),             // 23: agentmesh.adapter.v1.AgentEvent
+	(*SessionStarted)(nil),         // 24: agentmesh.adapter.v1.SessionStarted
+	(*TurnStarted)(nil),            // 25: agentmesh.adapter.v1.TurnStarted
+	(*Activity)(nil),               // 26: agentmesh.adapter.v1.Activity
+	(*NeedsInput)(nil),             // 27: agentmesh.adapter.v1.NeedsInput
+	(*TurnEnded)(nil),              // 28: agentmesh.adapter.v1.TurnEnded
+	(*Compacting)(nil),             // 29: agentmesh.adapter.v1.Compacting
+	(*SessionEnded)(nil),           // 30: agentmesh.adapter.v1.SessionEnded
+	(*ProcessExited)(nil),          // 31: agentmesh.adapter.v1.ProcessExited
+	(*DecodeError)(nil),            // 32: agentmesh.adapter.v1.DecodeError
+	(*RateLimited)(nil),            // 33: agentmesh.adapter.v1.RateLimited
+	(*TurnFailed)(nil),             // 34: agentmesh.adapter.v1.TurnFailed
+	nil,                            // 35: agentmesh.adapter.v1.PlanLaunchRequest.EnvEntry
+	nil,                            // 36: agentmesh.adapter.v1.PlanLaunchResponse.EnvEntry
+	nil,                            // 37: agentmesh.adapter.v1.LookupSessionRequest.EnvEntry
+	nil,                            // 38: agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
+	nil,                            // 39: agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
+	nil,                            // 40: agentmesh.adapter.v1.ReadTranscriptRequest.EnvEntry
+	nil,                            // 41: agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
+	nil,                            // 42: agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
+	(v1.AgentRole)(0),              // 43: agentmesh.v1.AgentRole
+	(*timestamppb.Timestamp)(nil),  // 44: google.protobuf.Timestamp
+	(*v1.ContextUsage)(nil),        // 45: agentmesh.v1.ContextUsage
+	(*v1.TranscriptEntry)(nil),     // 46: agentmesh.v1.TranscriptEntry
 }
 var file_agentmesh_adapter_v1_adapter_proto_depIdxs = []int32{
-	40, // 0: agentmesh.adapter.v1.PlanLaunchRequest.role:type_name -> agentmesh.v1.AgentRole
-	33, // 1: agentmesh.adapter.v1.PlanLaunchRequest.env:type_name -> agentmesh.adapter.v1.PlanLaunchRequest.EnvEntry
+	43, // 0: agentmesh.adapter.v1.PlanLaunchRequest.role:type_name -> agentmesh.v1.AgentRole
+	35, // 1: agentmesh.adapter.v1.PlanLaunchRequest.env:type_name -> agentmesh.adapter.v1.PlanLaunchRequest.EnvEntry
 	4,  // 2: agentmesh.adapter.v1.PlanLaunchRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
-	34, // 3: agentmesh.adapter.v1.PlanLaunchResponse.env:type_name -> agentmesh.adapter.v1.PlanLaunchResponse.EnvEntry
+	36, // 3: agentmesh.adapter.v1.PlanLaunchResponse.env:type_name -> agentmesh.adapter.v1.PlanLaunchResponse.EnvEntry
 	5,  // 4: agentmesh.adapter.v1.PlanLaunchResponse.worktree_files:type_name -> agentmesh.adapter.v1.WorktreeFile
-	35, // 5: agentmesh.adapter.v1.LookupSessionRequest.env:type_name -> agentmesh.adapter.v1.LookupSessionRequest.EnvEntry
-	41, // 6: agentmesh.adapter.v1.LookupSessionRequest.not_before:type_name -> google.protobuf.Timestamp
+	37, // 5: agentmesh.adapter.v1.LookupSessionRequest.env:type_name -> agentmesh.adapter.v1.LookupSessionRequest.EnvEntry
+	44, // 6: agentmesh.adapter.v1.LookupSessionRequest.not_before:type_name -> google.protobuf.Timestamp
 	0,  // 7: agentmesh.adapter.v1.ReadInputBoxResponse.box:type_name -> agentmesh.adapter.v1.InputBox
-	36, // 8: agentmesh.adapter.v1.DeliverNativeRequest.env:type_name -> agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
-	37, // 9: agentmesh.adapter.v1.MeasureContextRequest.env:type_name -> agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
-	42, // 10: agentmesh.adapter.v1.MeasureContextResponse.usage:type_name -> agentmesh.v1.ContextUsage
-	38, // 11: agentmesh.adapter.v1.PlanCompactRequest.env:type_name -> agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
-	4,  // 12: agentmesh.adapter.v1.PlanCompactRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
-	39, // 13: agentmesh.adapter.v1.PlanCompactResponse.env:type_name -> agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
-	41, // 14: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
-	21, // 15: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
-	41, // 16: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
-	22, // 17: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
-	23, // 18: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
-	24, // 19: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
-	25, // 20: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
-	26, // 21: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
-	27, // 22: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
-	28, // 23: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
-	29, // 24: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
-	30, // 25: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
-	31, // 26: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
-	32, // 27: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
-	41, // 28: agentmesh.adapter.v1.RateLimited.reset_at:type_name -> google.protobuf.Timestamp
-	1,  // 29: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
-	3,  // 30: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
-	19, // 31: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
-	7,  // 32: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
-	13, // 33: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
-	9,  // 34: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:input_type -> agentmesh.adapter.v1.ReadInputBoxRequest
-	11, // 35: agentmesh.adapter.v1.CliAdapterService.DeliverNative:input_type -> agentmesh.adapter.v1.DeliverNativeRequest
-	15, // 36: agentmesh.adapter.v1.CliAdapterService.MeasureContext:input_type -> agentmesh.adapter.v1.MeasureContextRequest
-	17, // 37: agentmesh.adapter.v1.CliAdapterService.PlanCompact:input_type -> agentmesh.adapter.v1.PlanCompactRequest
-	2,  // 38: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
-	6,  // 39: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
-	20, // 40: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
-	8,  // 41: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
-	14, // 42: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
-	10, // 43: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:output_type -> agentmesh.adapter.v1.ReadInputBoxResponse
-	12, // 44: agentmesh.adapter.v1.CliAdapterService.DeliverNative:output_type -> agentmesh.adapter.v1.DeliverNativeResponse
-	16, // 45: agentmesh.adapter.v1.CliAdapterService.MeasureContext:output_type -> agentmesh.adapter.v1.MeasureContextResponse
-	18, // 46: agentmesh.adapter.v1.CliAdapterService.PlanCompact:output_type -> agentmesh.adapter.v1.PlanCompactResponse
-	38, // [38:47] is the sub-list for method output_type
-	29, // [29:38] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	38, // 8: agentmesh.adapter.v1.DeliverNativeRequest.env:type_name -> agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
+	39, // 9: agentmesh.adapter.v1.MeasureContextRequest.env:type_name -> agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
+	45, // 10: agentmesh.adapter.v1.MeasureContextResponse.usage:type_name -> agentmesh.v1.ContextUsage
+	40, // 11: agentmesh.adapter.v1.ReadTranscriptRequest.env:type_name -> agentmesh.adapter.v1.ReadTranscriptRequest.EnvEntry
+	46, // 12: agentmesh.adapter.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
+	41, // 13: agentmesh.adapter.v1.PlanCompactRequest.env:type_name -> agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
+	4,  // 14: agentmesh.adapter.v1.PlanCompactRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
+	42, // 15: agentmesh.adapter.v1.PlanCompactResponse.env:type_name -> agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
+	44, // 16: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
+	23, // 17: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
+	44, // 18: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
+	24, // 19: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
+	25, // 20: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
+	26, // 21: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
+	27, // 22: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
+	28, // 23: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
+	29, // 24: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
+	30, // 25: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
+	31, // 26: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
+	32, // 27: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
+	33, // 28: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
+	34, // 29: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
+	44, // 30: agentmesh.adapter.v1.RateLimited.reset_at:type_name -> google.protobuf.Timestamp
+	1,  // 31: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
+	3,  // 32: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
+	21, // 33: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
+	7,  // 34: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
+	13, // 35: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
+	9,  // 36: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:input_type -> agentmesh.adapter.v1.ReadInputBoxRequest
+	11, // 37: agentmesh.adapter.v1.CliAdapterService.DeliverNative:input_type -> agentmesh.adapter.v1.DeliverNativeRequest
+	15, // 38: agentmesh.adapter.v1.CliAdapterService.MeasureContext:input_type -> agentmesh.adapter.v1.MeasureContextRequest
+	17, // 39: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:input_type -> agentmesh.adapter.v1.ReadTranscriptRequest
+	19, // 40: agentmesh.adapter.v1.CliAdapterService.PlanCompact:input_type -> agentmesh.adapter.v1.PlanCompactRequest
+	2,  // 41: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
+	6,  // 42: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
+	22, // 43: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
+	8,  // 44: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
+	14, // 45: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
+	10, // 46: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:output_type -> agentmesh.adapter.v1.ReadInputBoxResponse
+	12, // 47: agentmesh.adapter.v1.CliAdapterService.DeliverNative:output_type -> agentmesh.adapter.v1.DeliverNativeResponse
+	16, // 48: agentmesh.adapter.v1.CliAdapterService.MeasureContext:output_type -> agentmesh.adapter.v1.MeasureContextResponse
+	18, // 49: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:output_type -> agentmesh.adapter.v1.ReadTranscriptResponse
+	20, // 50: agentmesh.adapter.v1.CliAdapterService.PlanCompact:output_type -> agentmesh.adapter.v1.PlanCompactResponse
+	41, // [41:51] is the sub-list for method output_type
+	31, // [31:41] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_adapter_v1_adapter_proto_init() }
@@ -2557,7 +2737,7 @@ func file_agentmesh_adapter_v1_adapter_proto_init() {
 	if File_agentmesh_adapter_v1_adapter_proto != nil {
 		return
 	}
-	file_agentmesh_adapter_v1_adapter_proto_msgTypes[20].OneofWrappers = []any{
+	file_agentmesh_adapter_v1_adapter_proto_msgTypes[22].OneofWrappers = []any{
 		(*AgentEvent_SessionStarted)(nil),
 		(*AgentEvent_TurnStarted)(nil),
 		(*AgentEvent_Activity)(nil),
@@ -2576,7 +2756,7 @@ func file_agentmesh_adapter_v1_adapter_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_adapter_v1_adapter_proto_rawDesc), len(file_agentmesh_adapter_v1_adapter_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   39,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

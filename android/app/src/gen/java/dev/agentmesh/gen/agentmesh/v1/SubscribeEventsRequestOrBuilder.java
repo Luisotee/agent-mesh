@@ -48,4 +48,15 @@ public interface SubscribeEventsRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunIdBytes();
+
+  /**
+   * <pre>
+   * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+   * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+   * </pre>
+   *
+   * <code>bool activity = 3 [json_name = "activity"];</code>
+   * @return The activity.
+   */
+  boolean getActivity();
 }

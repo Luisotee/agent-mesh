@@ -2282,10 +2282,13 @@ func (x *AgentExited) GetReason() string {
 	return ""
 }
 
-// The daemon found the agent's terminal still running at boot and took it back.
+// The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+// the daemon found it still running at boot and took it back.
 type AgentAdopted struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+	Launched      bool `protobuf:"varint,2,opt,name=launched,proto3" json:"launched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2325,6 +2328,13 @@ func (x *AgentAdopted) GetTerminalId() string {
 		return x.TerminalId
 	}
 	return ""
+}
+
+func (x *AgentAdopted) GetLaunched() bool {
+	if x != nil {
+		return x.Launched
+	}
+	return false
 }
 
 // A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
@@ -3514,10 +3524,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\vAgentExited\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06signal\x18\x02 \x01(\x05R\x06signal\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"/\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"K\n" +
 	"\fAgentAdopted\x12\x1f\n" +
 	"\vterminal_id\x18\x01 \x01(\tR\n" +
-	"terminalId\"D\n" +
+	"terminalId\x12\x1a\n" +
+	"\blaunched\x18\x02 \x01(\bR\blaunched\"D\n" +
 	"\x14AgentReopenRequested\x12,\n" +
 	"\x06reopen\x18\x01 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen\"}\n" +
 	"\rAgentReopened\x12,\n" +

@@ -12,7 +12,9 @@ describe('controlFor', () => {
     expect(controlFor('kinds', ['claude', 'agy'])).toEqual({ kind: 'multi', choices: ['claude', 'agy'] })
     expect(controlFor('chain', [])).toEqual({ kind: 'lines' })
     expect(controlFor('string', [])).toEqual({ kind: 'text' })
+    expect(controlFor('string', ['dock', 'tab'])).toEqual({ kind: 'select', choices: ['dock', 'tab'] })
     expect(controlFor('mb_or_auto', [])).toEqual({ kind: 'text' })
+    expect(controlFor('shortcut', [])).toEqual({ kind: 'shortcut' })
     expect(controlFor('int_or_auto', [])).toEqual({ kind: 'text' })
   })
   it('falls back to JSON for slots, json and any type it does not know', () => {

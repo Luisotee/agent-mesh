@@ -647,6 +647,24 @@ func TestWorktreesRoundTripAndRejectDuplicates(t *testing.T) {
 	}
 }
 
+func TestAfterCommitRunsOnlyForATransactionThatCommitted(t *testing.T) {
+	s := open(t)
+	var ran []string
+	err := s.Write(context.Background(), nil, "", func(tx *Tx) error {
+		tx.AfterCommit(func() { ran = append(ran, "rolled back") })
+		return errors.New("no")
+	})
+	if err == nil || len(ran) != 0 {
+		t.Fatalf("a failed write: %v, ran %v", err, ran)
+	}
+	if err := s.Write(context.Background(), nil, "", func(tx *Tx) error {
+		tx.AfterCommit(func() { ran = append(ran, "committed") })
+		return nil
+	}); err != nil || len(ran) != 1 || ran[0] != "committed" {
+		t.Fatalf("a write that committed: %v, ran %v", err, ran)
+	}
+}
+
 func waitingMsg(id string, typ v1.MessageType, from, to string, at time.Time) *v1.Message {
 	return &v1.Message{Id: id, RunId: "r1", ToId: to, Type: typ, From: &v1.Actor{Id: from}, CreatedAt: timestamppb.New(at)}
 }

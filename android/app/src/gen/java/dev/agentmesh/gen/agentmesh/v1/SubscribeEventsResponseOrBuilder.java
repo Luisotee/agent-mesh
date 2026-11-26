@@ -78,5 +78,26 @@ public interface SubscribeEventsResponseOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.End getEnd();
 
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   * @return Whether the activity field is set.
+   */
+  boolean hasActivity();
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   * @return The activity.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentActivity getActivity();
+
   public dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse.FrameCase getFrameCase();
 }

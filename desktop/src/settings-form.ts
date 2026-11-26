@@ -10,6 +10,8 @@ export type Control =
   | { kind: 'lines' }
   /** A set of the choices (checkboxes). */
   | { kind: 'multi'; choices: string[] }
+  /** A key chord, recorded by pressing it. */
+  | { kind: 'shortcut' }
   | { kind: 'json' }
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -32,9 +34,13 @@ export function controlFor(type: string, choices: string[]): Control {
     case 'chain':
       return { kind: 'lines' }
     case 'string':
+      // A string with choices is one of them (the host refuses any other).
+      return choices.length ? { kind: 'select', choices } : { kind: 'text' }
     case 'mb_or_auto':
     case 'int_or_auto':
       return { kind: 'text' }
+    case 'shortcut':
+      return { kind: 'shortcut' }
     default:
       // slots, json, and any type a newer host has that this app doesn't know: raw JSON is always right.
       return { kind: 'json' }
@@ -51,6 +57,7 @@ export function toText(c: Control, v: unknown): string {
     case 'number':
     case 'text':
     case 'select':
+    case 'shortcut':
       return v === undefined || v === null ? '' : String(v)
     default:
       return ''

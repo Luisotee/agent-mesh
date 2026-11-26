@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'getUsage', 'getCost', 'tailnetStatus'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'getUsage', 'getCost', 'tailnetStatus'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -34,6 +34,18 @@ export const spawnAgent = (c: MeshClient, input: SpawnInput) => c.spawnAgent({ m
 
 export const stopAgent = (c: MeshClient, agent: string) => c.stopAgent({ meta: meta(), agent })
 
+/** Stops an agent's process on purpose and keeps its conversation: a message to it brings it back. */
+export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ meta: meta(), agent })
+
+/** Rings an agent that has unread messages again (the host says why when it can't). */
+export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: meta(), agent })
+
+/** Approves an agent's plan: it goes on at its execution tier, in its own conversation. */
+export const approveAgent = (c: MeshClient, agent: string) => c.approveAgent({ meta: meta(), agent })
+
+/** Moves an agent to the next model of its chain (its model hit a quota), in its own conversation. */
+export const switchToNextModel = (c: MeshClient, agent: string) => c.switchAgent({ meta: meta(), agent, next: true })
+
 export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: string) =>
   c.sendMessage({ meta: meta(), to, type, body })
 
@@ -42,6 +54,15 @@ export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.
 
 /** One page of a run's messages, oldest first, after the message with `afterId` (empty: from the start). */
 export const listMessages = (c: MeshClient, runId: string, afterId: string) => c.listMessages({ runId, afterId, limit: 500 })
+
+/**
+ * A page of an agent's conversation as its CLI recorded it: backward from `offset` (-1: the end), or on from it. The
+ * host says `supported: false` for a CLI whose record it doesn't read.
+ */
+export const readTranscript = (c: MeshClient, agent: string, offset: bigint, backward: boolean) => c.readTranscript({ agent, offset, backward })
+
+/** Types a prompt into the agent's running CLI as the user would (the chat composer): one process, one conversation. */
+export const promptAgent = (c: MeshClient, agent: string, text: string) => c.promptAgent({ meta: meta(), agent, text })
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)

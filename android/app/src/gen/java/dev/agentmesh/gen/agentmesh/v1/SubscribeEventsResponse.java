@@ -24,6 +24,7 @@ public  final class SubscribeEventsResponse extends
     RESUMED(2),
     EVENT(3),
     END(4),
+    ACTIVITY(5),
     FRAME_NOT_SET(0);
     private final int value;
     private FrameCase(int value) {
@@ -43,6 +44,7 @@ public  final class SubscribeEventsResponse extends
         case 2: return RESUMED;
         case 3: return EVENT;
         case 4: return END;
+        case 5: return ACTIVITY;
         case 0: return FRAME_NOT_SET;
         default: return null;
       }
@@ -319,6 +321,81 @@ public  final class SubscribeEventsResponse extends
    */
   private void clearEnd() {
     if (frameCase_ == 4) {
+      frameCase_ = 0;
+      frame_ = null;
+    }
+  }
+
+  public static final int ACTIVITY_FIELD_NUMBER = 5;
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   */
+  @java.lang.Override
+  public boolean hasActivity() {
+    return frameCase_ == 5;
+  }
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentActivity getActivity() {
+    if (frameCase_ == 5) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentActivity) frame_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentActivity.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   */
+  private void setActivity(dev.agentmesh.gen.agentmesh.v1.AgentActivity value) {
+    java.util.Objects.requireNonNull(value);
+    frame_ = value;
+    frameCase_ = 5;
+  }
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   */
+  private void mergeActivity(dev.agentmesh.gen.agentmesh.v1.AgentActivity value) {
+    java.util.Objects.requireNonNull(value);
+    if (frameCase_ == 5 &&
+        frame_ != dev.agentmesh.gen.agentmesh.v1.AgentActivity.getDefaultInstance()) {
+      frame_ = dev.agentmesh.gen.agentmesh.v1.AgentActivity.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentActivity) frame_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      frame_ = value;
+    }
+    frameCase_ = 5;
+  }
+  /**
+   * <pre>
+   * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+   * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+   */
+  private void clearActivity() {
+    if (frameCase_ == 5) {
       frameCase_ = 0;
       frame_ = null;
     }
@@ -697,6 +774,84 @@ public  final class SubscribeEventsResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    @java.lang.Override
+    public boolean hasActivity() {
+      return instance.hasActivity();
+    }
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentActivity getActivity() {
+      return instance.getActivity();
+    }
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    public Builder setActivity(dev.agentmesh.gen.agentmesh.v1.AgentActivity value) {
+      copyOnWrite();
+      instance.setActivity(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    public Builder setActivity(
+        dev.agentmesh.gen.agentmesh.v1.AgentActivity.Builder builderForValue) {
+      copyOnWrite();
+      instance.setActivity(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    public Builder mergeActivity(dev.agentmesh.gen.agentmesh.v1.AgentActivity value) {
+      copyOnWrite();
+      instance.mergeActivity(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
+     * reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentActivity activity = 5 [json_name = "activity"];</code>
+     */
+    public Builder clearActivity() {
+      copyOnWrite();
+      instance.clearActivity();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SubscribeEventsResponse)
   }
   @java.lang.Override
@@ -719,10 +874,11 @@ public  final class SubscribeEventsResponse extends
             dev.agentmesh.gen.agentmesh.v1.Resumed.class,
             dev.agentmesh.gen.agentmesh.v1.Event.class,
             dev.agentmesh.gen.agentmesh.v1.End.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentActivity.class,
           };
           java.lang.String info =
-              "\u0000\u0004\u0001\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001<\u0000\u0002<" +
-              "\u0000\u0003<\u0000\u0004<\u0000";
+              "\u0000\u0005\u0001\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001<\u0000\u0002<" +
+              "\u0000\u0003<\u0000\u0004<\u0000\u0005<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
