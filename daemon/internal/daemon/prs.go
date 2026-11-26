@@ -289,6 +289,9 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
 			delete(prev, prKey(p.Url))
+			if o != nil {
+				p.Held = o.Held // a read of GitHub says nothing of the user's hold
+			}
 			if err := tx.PutAgentPR(p); err != nil { // also moves its read time on
 				return err
 			}
@@ -580,6 +583,9 @@ func prText(row *v1.AgentPullRequests, done bool) string {
 		t := fmt.Sprintf("PR #%d %s", p.Number, p.State)
 		if p.Draft {
 			t += ", draft"
+		}
+		if p.Held {
+			t += ", HELD by the user: do not merge"
 		}
 		if p.Checks != "" {
 			t += ", checks " + p.Checks

@@ -498,6 +498,44 @@ public  final class PullRequest extends
     stale_ = false;
   }
 
+  public static final int HELD_FIELD_NUMBER = 10;
+  private boolean held_;
+  /**
+   * <pre>
+   * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+   * </pre>
+   *
+   * <code>bool held = 10 [json_name = "held"];</code>
+   * @return The held.
+   */
+  @java.lang.Override
+  public boolean getHeld() {
+    return held_;
+  }
+  /**
+   * <pre>
+   * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+   * </pre>
+   *
+   * <code>bool held = 10 [json_name = "held"];</code>
+   * @param value The held to set.
+   */
+  private void setHeld(boolean value) {
+    
+    held_ = value;
+  }
+  /**
+   * <pre>
+   * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+   * </pre>
+   *
+   * <code>bool held = 10 [json_name = "held"];</code>
+   */
+  private void clearHeld() {
+
+    held_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.PullRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1091,6 +1129,46 @@ public  final class PullRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+     * </pre>
+     *
+     * <code>bool held = 10 [json_name = "held"];</code>
+     * @return The held.
+     */
+    @java.lang.Override
+    public boolean getHeld() {
+      return instance.getHeld();
+    }
+    /**
+     * <pre>
+     * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+     * </pre>
+     *
+     * <code>bool held = 10 [json_name = "held"];</code>
+     * @param value The held to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeld(boolean value) {
+      copyOnWrite();
+      instance.setHeld(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+     * </pre>
+     *
+     * <code>bool held = 10 [json_name = "held"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeld() {
+      copyOnWrite();
+      instance.clearHeld();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PullRequest)
   }
   @java.lang.Override
@@ -1117,10 +1195,11 @@ public  final class PullRequest extends
             "source_",
             "checkedAt_",
             "stale_",
+            "held_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0004" +
-              "\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0004" +
+              "\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007\n\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -1229,6 +1229,12 @@ func (t *Tx) DeleteAgentPR(agentID, url string) error {
 	return err
 }
 
+// PRsByURL lists the records of one pull request, one for each agent that owns it.
+func (r Reader) PRsByURL(url string) ([]*v1.PullRequest, error) {
+	return scanAll(r, `SELECT data FROM agent_prs WHERE url = ? ORDER BY agent_id`, []any{url},
+		func() *v1.PullRequest { return &v1.PullRequest{} })
+}
+
 // AgentPRs lists an agent's pull requests by url.
 func (r Reader) AgentPRs(agentID string) ([]*v1.PullRequest, error) {
 	return scanAll(r, `SELECT data FROM agent_prs WHERE agent_id = ? ORDER BY url`, []any{agentID},

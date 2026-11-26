@@ -197,6 +197,10 @@ func logEntryFromEvent(ev *v1.Event, agentNames map[string]string, filterID, fil
 		if pr.Checks != "" || ch.FromChecks != "" {
 			change += ", checks " + arrow(ch.FromChecks, pr.Checks)
 		}
+		if ch.FromState == pr.State && ch.FromChecks == pr.Checks {
+			// Nothing GitHub said changed: the user held the merge, or released it.
+			change = fmt.Sprintf("#%d %s", pr.Number, map[bool]string{true: "held", false: "released"}[pr.Held])
+		}
 		entry.Detail = joinFields(change, pr.Url)
 	case *v1.Event_AgentSpawned:
 		a := p.AgentSpawned.GetAgent()
