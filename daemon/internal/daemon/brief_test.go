@@ -52,6 +52,7 @@ func TestTheBriefGivesARootItsCardNotesWorkersAndMailWithoutReadingIt(t *testing
 		"root context 200k, cache cold since",
 		"## notes (" + notes + ")", "the user wants the retry fix", "more characters: cat " + notes,
 		"## agents (mesh agents)", "- " + worker.Name + " (claude opus)", "its plan waits on you ← needs you", "waiting on you: " + worker.Name,
+		"host: ", " more agents fit now (", " agents live, caps.agents auto", " workers working, caps.working auto",
 		"## your unread mail (headers; `mesh inbox` reads it)", "- plan from " + worker.Name + " at ", ": the plan: change X",
 		"## board",
 	} {

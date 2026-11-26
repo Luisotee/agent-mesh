@@ -137,6 +137,10 @@ func SetBriefGitHubWait(d time.Duration) func() {
 // PRText exposes prText.
 func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, done) }
 
+// SampleCapacityAt runs one capacity pass as if it were `now`; CapacityLine is what the root is told.
+func (d *Daemon) SampleCapacityAt(ctx context.Context, now time.Time) { d.sampleCapacityAt(ctx, now) }
+func (d *Daemon) CapacityLine(ctx context.Context) string             { return d.capacityLine(ctx) }
+
 // OnSendPlanned sets SendMessage's test seam: called after its preparation, before the write that stores the message.
 func OnSendPlanned(f func()) { sendPlannedHook = f }
 

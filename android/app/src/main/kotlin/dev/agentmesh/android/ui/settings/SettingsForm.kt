@@ -33,7 +33,7 @@ fun controlFor(type: String, choices: List<String>): Control = when (type) {
     "effort" -> Control.Select(choices.ifEmpty { EFFORTS })
     "kinds" -> if (choices.isNotEmpty()) Control.Multi(choices) else Control.Lines
     "strings", "chain" -> Control.Lines
-    "string", "mb_or_auto" -> Control.Text
+    "string", "mb_or_auto", "int_or_auto" -> Control.Text
     // slots, json, and any type a newer host has that this app doesn't know: raw JSON is always right.
     else -> Control.RawJson
 }
@@ -76,9 +76,10 @@ fun fromText(type: String, c: Control, text: String): Parsed = when (c) {
     }
     Control.Text -> {
         val t = text.trim()
-        // mb_or_auto is "auto" or a whole number of MB.
-        if (type == "mb_or_auto" && t.isNotEmpty() && t != "auto" && t.toDoubleOrNull() != null) Parsed.Ok(JsonPrimitive(t.toDouble().toLong()))
-        else Parsed.Ok(JsonPrimitive(if (type == "mb_or_auto") t else text))
+        // mb_or_auto and int_or_auto are "auto" or a whole number.
+        val autoOrNumber = type == "mb_or_auto" || type == "int_or_auto"
+        if (autoOrNumber && t.isNotEmpty() && t != "auto" && t.toDoubleOrNull() != null) Parsed.Ok(JsonPrimitive(t.toDouble().toLong()))
+        else Parsed.Ok(JsonPrimitive(if (autoOrNumber) t else text))
     }
     else -> Parsed.Ok(JsonPrimitive(text))
 }

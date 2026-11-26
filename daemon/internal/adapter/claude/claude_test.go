@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -283,5 +284,37 @@ func TestPermissionSummaryIsACommandOrAPathNeverContents(t *testing.T) {
 		if got := PermissionSummary(json.RawMessage(tc.input)); got != tc.want {
 			t.Errorf("PermissionSummary(%s) = %q, want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+// A root's Read tool is denied the whole of ORCHESTRATE.md, at the path it is given and at the one a symlink leads
+// to; other roles read it as before.
+func TestARootCannotReadTheWholeProcedureFile(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "install", "share")
+	os.MkdirAll(filepath.Join(real, "protocol"), 0o755)
+	os.WriteFile(filepath.Join(real, "protocol", "ORCHESTRATE.md"), []byte("x"), 0o644)
+	link := filepath.Join(dir, "config-share")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks")
+	}
+	plan := func(role agentmeshv1.AgentRole) string {
+		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			Role: role, Cwd: t.TempDir(), Env: map[string]string{"AGENT_MESH_SHARE": link}, HookArgv: []string{"mesh", "hook"}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(res.Msg.Argv, "\x00")
+	}
+	root := plan(agentmeshv1.AgentRole_AGENT_ROLE_ROOT)
+	resolved, _ := filepath.EvalSymlinks(filepath.Join(link, "protocol", "ORCHESTRATE.md"))
+	for _, want := range []string{"--disallowedTools\x00Read(/" + filepath.Join(link, "protocol", "ORCHESTRATE.md") + ")",
+		"Read(/" + resolved + ")"} {
+		if !strings.Contains(root, want) {
+			t.Errorf("a root's launch lacks %q: %q", want, root)
+		}
+	}
+	if w := plan(agentmeshv1.AgentRole_AGENT_ROLE_WORKER); strings.Contains(w, "ORCHESTRATE.md") {
+		t.Errorf("a worker's launch denies the file: %q", w)
 	}
 }

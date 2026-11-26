@@ -491,8 +491,9 @@ func serveInbox(dir string, frames chan<- string) {
 		home = filepath.Join(os.Getenv("HOME"), ".claude")
 	}
 	os.MkdirAll(filepath.Join(home, "sessions"), 0o700)
+	cwd, _ := os.Getwd()
 	rec, _ := json.Marshal(map[string]any{"pid": os.Getpid(), "procStart": procStart(), "messagingSocketPath": sock,
-		"sessionId": session})
+		"sessionId": session, "cwd": cwd, "status": "idle"})
 	os.WriteFile(filepath.Join(home, "sessions", fmt.Sprintf("%d.json", os.Getpid())), rec, 0o600)
 	go func() {
 		for {

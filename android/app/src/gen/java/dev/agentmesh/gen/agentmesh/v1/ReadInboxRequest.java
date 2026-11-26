@@ -15,6 +15,7 @@ public  final class ReadInboxRequest extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.ReadInboxRequest)
     ReadInboxRequestOrBuilder {
   private ReadInboxRequest() {
+    id_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -138,6 +139,122 @@ public  final class ReadInboxRequest extends
   private void clearAll() {
 
     all_ = false;
+  }
+
+  public static final int FULL_FIELD_NUMBER = 4;
+  private boolean full_;
+  /**
+   * <pre>
+   * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+   * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+   * always get whole bodies.
+   * </pre>
+   *
+   * <code>bool full = 4 [json_name = "full"];</code>
+   * @return The full.
+   */
+  @java.lang.Override
+  public boolean getFull() {
+    return full_;
+  }
+  /**
+   * <pre>
+   * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+   * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+   * always get whole bodies.
+   * </pre>
+   *
+   * <code>bool full = 4 [json_name = "full"];</code>
+   * @param value The full to set.
+   */
+  private void setFull(boolean value) {
+    
+    full_ = value;
+  }
+  /**
+   * <pre>
+   * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+   * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+   * always get whole bodies.
+   * </pre>
+   *
+   * <code>bool full = 4 [json_name = "full"];</code>
+   */
+  private void clearFull() {
+
+    full_ = false;
+  }
+
+  public static final int ID_FIELD_NUMBER = 5;
+  private java.lang.String id_;
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @return The id.
+   */
+  @java.lang.Override
+  public java.lang.String getId() {
+    return id_;
+  }
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @return The bytes for id.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(id_);
+  }
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @param value The id to set.
+   */
+  private void setId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    id_ = value;
+  }
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   */
+  private void clearId() {
+
+    id_ = getDefaultInstance().getId();
+  }
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @param value The bytes for id to set.
+   */
+  private void setIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    id_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ReadInboxRequest parseFrom(
@@ -364,6 +481,126 @@ public  final class ReadInboxRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+     * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+     * always get whole bodies.
+     * </pre>
+     *
+     * <code>bool full = 4 [json_name = "full"];</code>
+     * @return The full.
+     */
+    @java.lang.Override
+    public boolean getFull() {
+      return instance.getFull();
+    }
+    /**
+     * <pre>
+     * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+     * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+     * always get whole bodies.
+     * </pre>
+     *
+     * <code>bool full = 4 [json_name = "full"];</code>
+     * @param value The full to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFull(boolean value) {
+      copyOnWrite();
+      instance.setFull(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+     * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+     * always get whole bodies.
+     * </pre>
+     *
+     * <code>bool full = 4 [json_name = "full"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFull() {
+      copyOnWrite();
+      instance.clearFull();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+     * read unless peek is set.
+     * </pre>
+     *
+     * <code>string id = 5 [json_name = "id"];</code>
+     * @return The id.
+     */
+    @java.lang.Override
+    public java.lang.String getId() {
+      return instance.getId();
+    }
+    /**
+     * <pre>
+     * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+     * read unless peek is set.
+     * </pre>
+     *
+     * <code>string id = 5 [json_name = "id"];</code>
+     * @return The bytes for id.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getIdBytes() {
+      return instance.getIdBytes();
+    }
+    /**
+     * <pre>
+     * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+     * read unless peek is set.
+     * </pre>
+     *
+     * <code>string id = 5 [json_name = "id"];</code>
+     * @param value The id to set.
+     * @return This builder for chaining.
+     */
+    public Builder setId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+     * read unless peek is set.
+     * </pre>
+     *
+     * <code>string id = 5 [json_name = "id"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearId() {
+      copyOnWrite();
+      instance.clearId();
+      return this;
+    }
+    /**
+     * <pre>
+     * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+     * read unless peek is set.
+     * </pre>
+     *
+     * <code>string id = 5 [json_name = "id"];</code>
+     * @param value The bytes for id to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ReadInboxRequest)
   }
   @java.lang.Override
@@ -384,10 +621,12 @@ public  final class ReadInboxRequest extends
             "meta_",
             "peek_",
             "all_",
+            "full_",
+            "id_",
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0007\u0003\u0007";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0007\u0003\u0007\u0004\u0007\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

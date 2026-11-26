@@ -646,3 +646,120 @@ func TestWorktreesRoundTripAndRejectDuplicates(t *testing.T) {
 		t.Fatalf("ListWorktrees after delete = %+v, %v", list, err)
 	}
 }
+
+func waitingMsg(id string, typ v1.MessageType, from, to string, at time.Time) *v1.Message {
+	return &v1.Message{Id: id, RunId: "r1", ToId: to, Type: typ, From: &v1.Actor{Id: from}, CreatedAt: timestamppb.New(at)}
+}
+
+func waitingIDs(t *testing.T, s *Store, to string) []string {
+	t.Helper()
+	msgs, err := s.Read(context.Background()).Waiting(to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range msgs {
+		ids = append(ids, m.Id)
+	}
+	return ids
+}
+
+// A plan or question waits until an answer to its author follows it; a re-put (read, delivered) changes nothing,
+// and an answer that comes first doesn't clear a later message, even on the same nanosecond (id breaks the tie).
+func TestWaitingIsWhatNoAnswerHasFollowed(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	put := func(m *v1.Message) {
+		t.Helper()
+		if err := s.Write(ctx, nil, "", func(tx *Tx) error { return tx.PutMessage(m) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const plan, q, ans, info = v1.MessageType_MESSAGE_TYPE_PLAN, v1.MessageType_MESSAGE_TYPE_QUESTION,
+		v1.MessageType_MESSAGE_TYPE_ANSWER, v1.MessageType_MESSAGE_TYPE_INFO
+	put(waitingMsg("m1", plan, "w1", "lead", fixed))
+	put(waitingMsg("m2", q, "w2", "lead", fixed.Add(time.Second)))
+	put(waitingMsg("m3", info, "w1", "lead", fixed.Add(2*time.Second)))
+	if got := waitingIDs(t, s, "lead"); len(got) != 2 || got[0] != "m1" || got[1] != "m2" {
+		t.Fatalf("waiting = %v", got)
+	}
+	// The answer to w1 clears w1's plan, not w2's question.
+	put(waitingMsg("a1", ans, "lead", "w1", fixed.Add(3*time.Second)))
+	if got := waitingIDs(t, s, "lead"); len(got) != 1 || got[0] != "m2" {
+		t.Fatalf("after the answer: %v", got)
+	}
+	// Reading the plan afterwards re-puts it: it does not come back.
+	old, _ := s.Read(ctx).Inbox("lead", true)
+	for _, m := range old {
+		if m.Id == "m1" {
+			m.ReadAt = timestamppb.New(fixed.Add(4 * time.Second))
+			put(m)
+		}
+	}
+	if got := waitingIDs(t, s, "lead"); len(got) != 1 || got[0] != "m2" {
+		t.Fatalf("after a re-put: %v", got)
+	}
+	// A new plan from w1 waits again; an answer on the same nanosecond with a smaller id doesn't clear it.
+	put(waitingMsg("m5", plan, "w1", "lead", fixed.Add(5*time.Second)))
+	put(waitingMsg("m4", ans, "lead", "w1", fixed.Add(5*time.Second)))
+	if got := waitingIDs(t, s, "lead"); len(got) != 2 || got[1] != "m5" {
+		t.Fatalf("a tie: %v", got)
+	}
+	if got := waitingIDs(t, s, "w1"); len(got) != 0 {
+		t.Errorf("another agent's waiting: %v", got)
+	}
+}
+
+// A database from before migration 11 holds messages and no waiting rows: the first Open fills them in, the
+// same way the live rule would have, and doesn't do it again.
+func TestWaitingIsFilledFromAnOlderDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meshd.db")
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const plan, ans = v1.MessageType_MESSAGE_TYPE_PLAN, v1.MessageType_MESSAGE_TYPE_ANSWER
+	s.Write(ctx, nil, "", func(tx *Tx) error {
+		for _, m := range []*v1.Message{
+			waitingMsg("m1", plan, "w1", "lead", fixed),
+			waitingMsg("m2", ans, "lead", "w1", fixed.Add(time.Second)),
+			waitingMsg("m3", plan, "w1", "lead", fixed.Add(2*time.Second)),
+			waitingMsg("m4", plan, "w2", "lead", fixed.Add(3*time.Second)),
+		} {
+			if err := tx.PutMessage(m); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	// Make it look like a database that has not been through the backfill.
+	if _, err := s.w.Exec(`DELETE FROM waiting`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.w.Exec(`DELETE FROM meta WHERE key = ?`, waitingBackfillKey); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := waitingIDs(t, s, "lead"); len(got) != 2 || got[0] != "m3" || got[1] != "m4" {
+		t.Fatalf("after the backfill: %v", got)
+	}
+	// Not again: a row removed now stays removed across an Open.
+	if _, err := s.w.Exec(`DELETE FROM waiting WHERE message_id = 'm4'`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := waitingIDs(t, s, "lead"); len(got) != 1 || got[0] != "m3" {
+		t.Fatalf("after a second Open: %v", got)
+	}
+}

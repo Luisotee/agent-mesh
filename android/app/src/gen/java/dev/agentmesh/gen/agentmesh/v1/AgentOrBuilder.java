@@ -656,4 +656,22 @@ public interface AgentOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReviewByBytes();
+
+  /**
+   * <pre>
+   * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+   * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+   * daemon's, and the daemon never signals it.
+   * </pre>
+   *
+   * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+   * @return The adoptedPid.
+   */
+  int getAdoptedPid();
+
+  /**
+   * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+   * @return The adoptedPidStart.
+   */
+  long getAdoptedPidStart();
 }

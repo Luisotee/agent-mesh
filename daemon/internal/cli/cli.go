@@ -141,6 +141,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	if helpAsked {
 		rest = append([]string{"help"}, rest...)
 	}
+	env = identityFor(rest, env, *state)
 	if len(rest) > 0 {
 		if h, ok := hand[rest[0]]; ok {
 			// The hand-written command sees the global --state as it would $AGENT_MESH_STATE (its own --state wins).
@@ -211,6 +212,9 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
 		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", spoken(a.CLI), err, spoken(a.CLI))
 		return ExitUsage
+	}
+	if a.CLI == "adopt" {
+		fillAdoptRequest(env, req)
 	}
 	// A command with a text form has --format, "text" unless given: only text and json are valid, an empty one too.
 	if hasText(a.CLI) && cmd.format != "text" && cmd.format != "json" {
@@ -744,7 +748,23 @@ func call(ctx context.Context, conn *client.Conn, env Env, a *registry.Action, r
 			if err := proto.Unmarshal(raw, &openRes); err != nil {
 				return err
 			}
-			return runOpen(ctx, conn, &openRes, env)
+			// A re-attach after the daemon restarted needs a fresh one-use ticket: ask again, as the first call did.
+			redo := func(ctx context.Context) (*v1.OpenAgentResponse, error) {
+				again, err := c.CallUnary(ctx, connect.NewRequest(req))
+				if err != nil {
+					return nil, err
+				}
+				raw, err := proto.Marshal(again.Msg)
+				if err != nil {
+					return nil, err
+				}
+				var r v1.OpenAgentResponse
+				if err := proto.Unmarshal(raw, &r); err != nil {
+					return nil, err
+				}
+				return &r, nil
+			}
+			return runOpen(ctx, conn, &openRes, env, redo)
 		}
 		return renderText(a.CLI, res.Msg, out)
 	}

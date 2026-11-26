@@ -123,3 +123,22 @@ func TestAffinityAndCPUList(t *testing.T) {
 		t.Errorf("CPUList(nil) = %q, want empty", got)
 	}
 }
+
+// A command that ran and ended between two samples is in its parent's waited-for children times: Usage counts
+// them, so a worker whose CPU goes into short builds and test runs doesn't read as idle.
+func TestUsageCountsTheCPUOfFinishedChildren(t *testing.T) {
+	_, before, err := Usage(os.Getpid())
+	if err != nil {
+		t.Skip("no /proc")
+	}
+	if out, err := exec.Command("sh", "-c", "i=0; while [ $i -lt 600000 ]; do i=$((i+1)); done").CombinedOutput(); err != nil {
+		t.Fatalf("the child: %v %s", err, out)
+	}
+	_, after, err := Usage(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after-before < 5 { // at least 50 ms of the child CPU
+		t.Errorf("CPU ticks went from %d to %d: the finished child was not counted", before, after)
+	}
+}

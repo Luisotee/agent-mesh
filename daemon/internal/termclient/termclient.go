@@ -88,7 +88,20 @@ func SystemdArgv(unit string) []string {
 	return []string{"systemctl", "--user", "start", unit}
 }
 
-// Ensure returns a client for a running host in dir, starting one as opts says if none answers.
+// helloTimeout bounds one probe of the host in Ensure. The client's own 2 s is for dialling only: a host that
+// accepted the connection and never answers (starting, stopped, a loaded machine) would otherwise block the
+// probe for as long as its context lives, and Ensure's own deadline is only looked at between probes.
+var helloTimeout = 3 * time.Second
+
+// probe is one Hello, bounded by helloTimeout.
+func (c *Client) probe(ctx context.Context) (*termv1.HelloResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, helloTimeout)
+	defer cancel()
+	return c.Hello(ctx)
+}
+
+// Ensure returns a client for a running host in dir, starting one as opts says if none answers. It gives up after
+// opts.Wait (10 s by default) plus one probe, whether the host refuses connections or accepts and stays silent.
 func Ensure(ctx context.Context, dir string, opts Options) (*Client, *termv1.HelloResponse, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, nil, err
@@ -97,7 +110,7 @@ func Ensure(ctx context.Context, dir string, opts Options) (*Client, *termv1.Hel
 	if err != nil {
 		return nil, nil, err
 	}
-	if hello, err := c.Hello(ctx); err == nil {
+	if hello, err := c.probe(ctx); err == nil {
 		return c, hello, nil
 	}
 	if opts.Wait == 0 {
@@ -110,7 +123,9 @@ func Ensure(ctx context.Context, dir string, opts Options) (*Client, *termv1.Hel
 		}
 	case LaunchSystemd:
 		argv := SystemdArgv(opts.Unit)
-		if out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput(); err != nil {
+		sctx, cancel := context.WithTimeout(ctx, opts.Wait) // `systemctl start` of a wedged unit waits as long as the unit does
+		defer cancel()
+		if out, err := exec.CommandContext(sctx, argv[0], argv[1:]...).CombinedOutput(); err != nil {
 			return nil, nil, fmt.Errorf("%s: %v: %s", strings.Join(argv, " "), err, out)
 		}
 	case LaunchExternal:
@@ -119,7 +134,7 @@ func Ensure(ctx context.Context, dir string, opts Options) (*Client, *termv1.Hel
 	}
 	deadline := time.Now().Add(opts.Wait)
 	for {
-		hello, err := c.Hello(ctx)
+		hello, err := c.probe(ctx)
 		if err == nil {
 			return c, hello, nil
 		}
