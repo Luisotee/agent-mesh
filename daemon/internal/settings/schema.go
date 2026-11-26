@@ -502,6 +502,7 @@ func AppLeaves() []Leaf {
 			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},
 		{Key: "app.keys.settings", Type: Shortcut, Default: "Mod+,", Summary: "shortcut: open or close the host's settings"},
+		{Key: "app.keys.chat_toggle", Type: Shortcut, Default: "Mod+Shift+J", Summary: "shortcut: switch the open agent between its chat and its terminal"},
 		{Key: "app.keys.dock", Type: Shortcut, Default: "Mod+Shift+D", Summary: "shortcut: show or hide the live dock"},
 		{Key: "app.keys.tab_next", Type: Shortcut, Default: "Ctrl+Tab", Summary: "shortcut: the next open agent tab"},
 		{Key: "app.keys.tab_prev", Type: Shortcut, Default: "Ctrl+Shift+Tab", Summary: "shortcut: the previous open agent tab"},

@@ -59,6 +59,10 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     palette: () => app.openPalette(!st().paletteOpen),
     settings: () => app.openSettings(!st().settingsOpen),
     dock: () => app.setDock(!st().dockOpen),
+    chat_toggle: () => {
+      const { agentId, tab } = st()
+      if (agentId) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
+    },
     tab_next: () => {
       const t = nextTab(st(), 1)
       if (t) app.selectAgent(t.hostId, t.agentId)
@@ -88,6 +92,7 @@ export function buildCommands(app: AppModel): Command[] {
   }
   view('settings', s.settingsOpen ? 'Close the host settings' : 'Open the host settings', !!selected)
   view('dock', s.dockOpen ? 'Hide the live dock' : 'Show the live dock')
+  view('chat_toggle', 'Switch the open agent between chat and terminal', !!s.agentId)
   view('tab_next', 'Next tab', s.tabs.length > 1)
   view('tab_prev', 'Previous tab', s.tabs.length > 1)
   view('tab_close', 'Close the open tab', !!s.agentId)

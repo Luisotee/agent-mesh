@@ -40,6 +40,8 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.ReadInputBoxRequest.token":           "The ref token of the doorbell to count above the box; empty counts none.",
 	"agentmesh.adapter.v1.ReadInputBoxResponse.text":           "What is typed, whitespace squeezed (INPUT_BOX_TYPED).",
 	"agentmesh.adapter.v1.ReadInputBoxResponse.token_above":    "Copies of the token above the input box (whitespace removed, so no wrap splits it).",
+	"agentmesh.adapter.v1.ReadTranscriptRequest.env":           "The environment the CLI's records are found by (HOME, its config dir).",
+	"agentmesh.adapter.v1.ReadTranscriptRequest.offset":        "As agentmesh.v1.ReadTranscriptRequest.",
 	"agentmesh.adapter.v1.SessionStarted.source":               "\"startup\", \"resume\", \"clear\", \"compact\".",
 	"agentmesh.adapter.v1.TurnStarted.by_mesh":                 "The turn began with a mesh doorbell (`📬 [mesh]`), not text the user typed. False when unknown.",
 	"agentmesh.adapter.v1.WorktreeFile.git_exclude":            "Keep the file out of git status: an untracked one is ignored (a self-ignoring .gitignore beside it, so other checkouts of the repo are untouched; <git-common-dir>/info/exclude only at the worktree's top), and a tracked one is marked skip-worktree.",

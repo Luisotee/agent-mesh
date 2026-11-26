@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect, test, beforeAll, afterAll } from 'vitest'
 import { ActorClass } from '../src/gen/agentmesh/v1/actor_pb'
+import { TranscriptKind } from '../src/gen/agentmesh/v1/chat_pb'
 import { AgentRole, AgentState } from '../src/gen/agentmesh/v1/types_pb'
 import { launchApp, type App } from './electron'
 import { buildBinaries, makeHost, until, type Host } from './harness'
@@ -15,7 +16,7 @@ const shots = path.resolve(import.meta.dirname, '../test-results')
 beforeAll(async () => {
   bins = mkdtempSync(path.join(os.tmpdir(), 'amd-bins-'))
   buildBinaries(bins)
-  host = makeHost(bins)
+  host = makeHost(bins, { fakeClaudeEnv: { FAKECLAUDE_TRANSCRIPT: '1' } })
   await host.start()
   mkdirSync(shots, { recursive: true })
   app = await launchApp({ state: host.state, home: host.home })
@@ -163,4 +164,46 @@ test('the command palette across the host, and shortcuts rebound from the settin
     return palette.count().then((n) => n > 0)
   }, { timeout: 10_000 }).toBe(true)
   await page.keyboard.press('Escape')
+})
+
+test('the chat view: the conversation as blocks, a prompt typed from the composer, switching with the terminal', async () => {
+  const { page } = app
+  const tabs = page.getByRole('tablist', { name: 'Open agents' })
+  await tabs.getByRole('tab', { name: /repo-lead/ }).click()
+  const panel = page.getByRole('article', { name: 'repo-lead' })
+  await panel.getByRole('tab', { name: 'chat' }).click()
+  await panel.getByRole('tabpanel', { name: 'chat' }).waitFor({ state: 'visible' })
+  await panel.getByText('Nothing said yet.').waitFor()
+
+  // A prompt from the composer reaches the agent's CLI, and its turn shows up in the conversation.
+  const box = panel.getByRole('textbox', { name: 'Prompt' })
+  await box.fill('fix the typo')
+  await box.press('Enter')
+  const list = panel.getByRole('list', { name: 'Conversation' })
+  await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('fix the typo')
+  await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Done: fix the typo')
+  await panel.getByText('Ran 1 tool: Bash').waitFor()
+  await expect.poll(() => box.inputValue()).toBe('')
+  await page.screenshot({ path: path.join(shots, 'chat.png') })
+
+  // It is the same process: the terminal, from the toggle shortcut, shows the same turn.
+  await page.keyboard.press('Control+Shift+J')
+  await panel.getByRole('tabpanel', { name: 'terminal' }).waitFor({ state: 'visible' })
+  await expect.poll(() => panel.locator('.xterm-rows').innerText(), { timeout: 20_000 }).toContain('done: fix the typo')
+  await page.keyboard.press('Control+Shift+J')
+  await panel.getByRole('tabpanel', { name: 'chat' }).waitFor({ state: 'visible' })
+
+  // Several lines are one prompt; the host refuses to type into a draft someone left in the terminal.
+  await box.fill('first line')
+  await box.press('Shift+Enter')
+  await box.type('second line')
+  await box.press('Enter')
+  await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Done: first line')
+  expect(await list.innerText()).toContain('second line')
+
+  // The conversation was written by the CLI, not by us: ReadTranscript says the same through the API.
+  const lead = (await host.client().listAgents({})).agents.find((a) => a.name === 'repo-lead')!
+  const read = await host.client().readTranscript({ agent: lead.id, offset: -1n, backward: true })
+  expect(read.supported).toBe(true)
+  expect(read.entries.filter((e) => e.kind === TranscriptKind.USER).map((e) => e.text)).toEqual(['fix the typo', 'first line\nsecond line'])
 })

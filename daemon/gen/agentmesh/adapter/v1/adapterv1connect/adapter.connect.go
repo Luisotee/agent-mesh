@@ -57,6 +57,9 @@ const (
 	// CliAdapterServiceMeasureContextProcedure is the fully-qualified name of the CliAdapterService's
 	// MeasureContext RPC.
 	CliAdapterServiceMeasureContextProcedure = "/agentmesh.adapter.v1.CliAdapterService/MeasureContext"
+	// CliAdapterServiceReadTranscriptProcedure is the fully-qualified name of the CliAdapterService's
+	// ReadTranscript RPC.
+	CliAdapterServiceReadTranscriptProcedure = "/agentmesh.adapter.v1.CliAdapterService/ReadTranscript"
 	// CliAdapterServicePlanCompactProcedure is the fully-qualified name of the CliAdapterService's
 	// PlanCompact RPC.
 	CliAdapterServicePlanCompactProcedure = "/agentmesh.adapter.v1.CliAdapterService/PlanCompact"
@@ -80,6 +83,9 @@ type CliAdapterServiceClient interface {
 	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
 	// compacts itself) is never compacted by mesh.
 	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// ReadTranscript reads a page of a conversation from the CLI's own record, for the chat view. An adapter without
+	// it has no chat view (the daemon answers `supported: false`).
+	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
 	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
@@ -143,6 +149,12 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
 			connect.WithClientOptions(opts...),
 		),
+		readTranscript: connect.NewClient[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse](
+			httpClient,
+			baseURL+CliAdapterServiceReadTranscriptProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("ReadTranscript")),
+			connect.WithClientOptions(opts...),
+		),
 		planCompact: connect.NewClient[v1.PlanCompactRequest, v1.PlanCompactResponse](
 			httpClient,
 			baseURL+CliAdapterServicePlanCompactProcedure,
@@ -162,6 +174,7 @@ type cliAdapterServiceClient struct {
 	readInputBox   *connect.Client[v1.ReadInputBoxRequest, v1.ReadInputBoxResponse]
 	deliverNative  *connect.Client[v1.DeliverNativeRequest, v1.DeliverNativeResponse]
 	measureContext *connect.Client[v1.MeasureContextRequest, v1.MeasureContextResponse]
+	readTranscript *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
 	planCompact    *connect.Client[v1.PlanCompactRequest, v1.PlanCompactResponse]
 }
 
@@ -205,6 +218,11 @@ func (c *cliAdapterServiceClient) MeasureContext(ctx context.Context, req *conne
 	return c.measureContext.CallUnary(ctx, req)
 }
 
+// ReadTranscript calls agentmesh.adapter.v1.CliAdapterService.ReadTranscript.
+func (c *cliAdapterServiceClient) ReadTranscript(ctx context.Context, req *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
+	return c.readTranscript.CallUnary(ctx, req)
+}
+
 // PlanCompact calls agentmesh.adapter.v1.CliAdapterService.PlanCompact.
 func (c *cliAdapterServiceClient) PlanCompact(ctx context.Context, req *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
 	return c.planCompact.CallUnary(ctx, req)
@@ -229,6 +247,9 @@ type CliAdapterServiceHandler interface {
 	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
 	// compacts itself) is never compacted by mesh.
 	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// ReadTranscript reads a page of a conversation from the CLI's own record, for the chat view. An adapter without
+	// it has no chat view (the daemon answers `supported: false`).
+	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
 	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
@@ -288,6 +309,12 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceReadTranscriptHandler := connect.NewUnaryHandler(
+		CliAdapterServiceReadTranscriptProcedure,
+		svc.ReadTranscript,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("ReadTranscript")),
+		connect.WithHandlerOptions(opts...),
+	)
 	cliAdapterServicePlanCompactHandler := connect.NewUnaryHandler(
 		CliAdapterServicePlanCompactProcedure,
 		svc.PlanCompact,
@@ -312,6 +339,8 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServiceDeliverNativeHandler.ServeHTTP(w, r)
 		case CliAdapterServiceMeasureContextProcedure:
 			cliAdapterServiceMeasureContextHandler.ServeHTTP(w, r)
+		case CliAdapterServiceReadTranscriptProcedure:
+			cliAdapterServiceReadTranscriptHandler.ServeHTTP(w, r)
 		case CliAdapterServicePlanCompactProcedure:
 			cliAdapterServicePlanCompactHandler.ServeHTTP(w, r)
 		default:
@@ -353,6 +382,10 @@ func (UnimplementedCliAdapterServiceHandler) DeliverNative(context.Context, *con
 
 func (UnimplementedCliAdapterServiceHandler) MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.MeasureContext is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.ReadTranscript is not implemented"))
 }
 
 func (UnimplementedCliAdapterServiceHandler) PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {

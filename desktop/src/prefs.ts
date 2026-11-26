@@ -51,6 +51,7 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
 export const DEFAULT_KEYS = {
   palette: 'Mod+Shift+P',
   settings: 'Mod+,',
+  chat_toggle: 'Mod+Shift+J',
   dock: 'Mod+Shift+D',
   tab_next: 'Ctrl+Tab',
   tab_prev: 'Ctrl+Shift+Tab',

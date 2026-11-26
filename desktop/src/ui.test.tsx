@@ -7,6 +7,7 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { ChatView } from './components/chat-view'
 import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
 import { ShortcutField } from './components/shortcut-field'
@@ -22,6 +23,8 @@ import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
 import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
+import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
@@ -143,10 +146,10 @@ describe('AgentPanel', () => {
 })
 
 describe('AgentPanel without a terminal', () => {
-  it('shows the overview and messages tabs, and no terminal tab', () => {
+  it('shows the overview, messages and chat tabs, and no terminal tab', () => {
     const { host, wrap } = fixture()
     render(wrap(<AgentPanel host={host} agentId="w1" />))
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['overview', 'messages'])
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['overview', 'messages', 'chat'])
     expect(screen.getByLabelText('Message', { exact: true })).toBeVisible()
   })
 })
@@ -602,5 +605,123 @@ describe('ShortcutField', () => {
     fireEvent.keyDown(rec, { key: 'Escape' })
     expect(save).toHaveBeenCalledTimes(2)
     expect(rec).toHaveTextContent('Change')
+  })
+})
+
+describe('ChatView', () => {
+  const entry = (id: string, kind: TranscriptKind, o: Partial<{ text: string; tool: string; toolInput: string; toolUseId: string; isError: boolean }> = {}) => create(TranscriptEntrySchema, { id, kind, ...o })
+  const res = (entries: ReturnType<typeof entry>[], o: Partial<{ startOffset: bigint; endOffset: bigint; atStart: boolean; supported: boolean; sessionId: string }> = {}) =>
+    create(ReadTranscriptResponseSchema, { supported: true, sessionId: 's1', startOffset: 10n, endOffset: 100n, atStart: false, entries, ...o })
+  const tail = [
+    entry('m', TranscriptKind.MESH, { text: '📬 [mesh] task from lead (ref a1)' }),
+    entry('u', TranscriptKind.USER, { text: 'fix the typo' }),
+    entry('a', TranscriptKind.ASSISTANT, { text: 'Looking at **README.md**.' }),
+    entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'grep -rn typo .', toolUseId: 't1' }),
+    entry('r1', TranscriptKind.TOOL_RESULT, { text: 'README.md:3: typo', toolUseId: 't1' }),
+    entry('c2', TranscriptKind.TOOL_CALL, { tool: 'Read', toolInput: '/w/README.md', toolUseId: 't2' }),
+    entry('r2', TranscriptKind.TOOL_RESULT, { text: 'no such file', toolUseId: 't2', isError: true }),
+  ]
+  function chat(o: { agent?: Partial<Parameters<typeof create<typeof AgentSchema>>[1]>; readOnly?: boolean; read?: ReturnType<typeof vi.fn> } = {}) {
+    const f = fixture()
+    f.host.store.setState((s) => ({
+      agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE, needsInput: 0, stateDetail: '', terminalId: 't', sessionId: 's1', ...o.agent } as typeof s.agents.w1 & object },
+      daemon: { capabilities: ['terminals'], actor: { class: o.readOnly ? ActorClass.READ_ONLY_DEVICE : ActorClass.DEVICE } } as never,
+    }))
+    const readTranscript = o.read ?? vi.fn(async (_req: { offset: bigint; backward: boolean }) => res(tail))
+    const promptAgent = vi.fn(async (_req: unknown) => ({}))
+    Object.assign(f.client, { readTranscript, promptAgent })
+    const ui = f.wrap(<ChatView host={f.host} agentId="w1" active panelId="p" tabId="t" />)
+    return { ...f, readTranscript, promptAgent, ui }
+  }
+
+  it('shows the conversation as blocks, with tool calls folded and the reply as Markdown', async () => {
+    const { ui, readTranscript } = chat()
+    render(ui)
+    const list = await screen.findByRole('list', { name: 'Conversation' })
+    expect(readTranscript).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', offset: -1n, backward: true }))
+    expect(within(list).getByText(/From the mesh: task from lead/)).toBeInTheDocument()
+    expect(within(list).getByText('fix the typo')).toBeInTheDocument()
+    expect(within(list).getByText('README.md').tagName).toBe('STRONG')
+    const tools = within(list).getByText('Ran 2 tools: Bash, Read').closest('details')!
+    expect(tools).not.toHaveAttribute('open')
+    expect(tools).toHaveTextContent('README.md:3: typo')
+    expect(tools).toHaveTextContent('no such file')
+    expect(screen.getByRole('button', { name: 'Load earlier' })).toBeInTheDocument()
+  })
+
+  it('reads earlier entries on request and puts them first', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('old', TranscriptKind.USER, { text: 'the very first prompt' })], { startOffset: 0n, endOffset: 10n, atStart: true }) : res(tail)))
+    const { ui } = chat({ read })
+    render(ui)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    const first = (await screen.findAllByRole('listitem'))[0]!
+    expect(first).toHaveTextContent('the very first prompt')
+    expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 10n, backward: true }))
+    expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
+  })
+
+  it('follows the conversation when the agent does something, from where it stopped', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward ? res(tail) : res([entry('n', TranscriptKind.ASSISTANT, { text: 'a new reply' })], { startOffset: 100n, endOffset: 150n })))
+    const { ui, host } = chat({ read })
+    render(ui)
+    await screen.findByRole('list', { name: 'Conversation' })
+    expect(screen.queryByText('a new reply')).toBeNull()
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING, stateDetail: 'Bash' } } })))
+    expect(await screen.findByText('a new reply')).toBeInTheDocument()
+    expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100n, backward: false }))
+    expect(screen.getByTestId('chat-status')).toHaveTextContent('Working: Bash')
+  })
+
+  it('starts over when the conversation changes', async () => {
+    const read = vi.fn(async (_req: { offset: bigint; backward: boolean }) => res(tail))
+    const { ui, host } = chat({ read })
+    render(ui)
+    await screen.findByRole('list', { name: 'Conversation' })
+    read.mockImplementation(async () => res([entry('x', TranscriptKind.USER, { text: 'after /clear' })], { sessionId: 's2' }))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, sessionId: 's2' } } })))
+    expect(await screen.findByText('after /clear')).toBeInTheDocument()
+    expect(screen.queryByText('fix the typo')).toBeNull()
+  })
+
+  it('types the prompt into the agent: Enter sends, Shift+Enter adds a line, the host\'s refusal is shown', async () => {
+    const { ui, promptAgent } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'first{Shift>}{Enter}{/Shift}second')
+    expect(box).toHaveValue('first\nsecond')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', text: 'first\nsecond' })))
+    await waitFor(() => expect(box).toHaveValue(''))
+
+    promptAgent.mockRejectedValueOnce(new Error("[failed_precondition] app-fix's input box holds a draft"))
+    await userEvent.type(box, 'again{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent("input box holds a draft")
+    expect(box).toHaveValue('again') // kept to send again
+  })
+
+  it('says why it cannot be typed into: read-only device, a stopped agent, a prompt waiting in the terminal', async () => {
+    const ro = chat({ readOnly: true })
+    const { unmount } = render(ro.ui)
+    expect(await screen.findByText(/This device is read-only/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeDisabled()
+    unmount()
+
+    const gone = chat({ agent: { state: AgentState.RETIRED } })
+    const second = render(gone.ui)
+    expect(await screen.findByText(/The agent has stopped/)).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Conversation' })).toBeInTheDocument() // its conversation can still be read
+    second.unmount()
+
+    const asking = chat({ agent: { state: AgentState.NEEDS_INPUT, needsInput: 1 } })
+    render(asking.ui)
+    await userEvent.click(await screen.findByRole('button', { name: 'Open the terminal' }))
+    expect(asking.model.store.getState().tab).toBe('terminal')
+  })
+
+  it('tells the user a CLI has no record to read, and still takes prompts', async () => {
+    const { ui } = chat({ read: vi.fn(async () => res([], { supported: false })) })
+    render(ui)
+    expect(await screen.findByText(/has none we read yet/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeEnabled()
   })
 })

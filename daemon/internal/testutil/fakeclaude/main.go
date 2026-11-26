@@ -43,6 +43,9 @@
 // With $FAKECLAUDE_TRUST_DIALOG set it draws the folder-trust dialog and fires no hook until a line is typed,
 // unless $HOME/.claude.json trusts the folder or a parent (`projects[<path>].hasTrustDialogAccepted`).
 //
+// With $FAKECLAUDE_TRANSCRIPT set each plain prompt's turn is written to the session's transcript under
+// $HOME/.claude/projects, in the shapes Claude Code writes: the chat view's source.
+//
 // With $FAKECLAUDE_PLACEHOLDER set it draws Claude Code's empty-box placeholder after its prompt, as the real one
 // does at a fresh pane: text that looks like a draft to anything reading the screen.
 //
@@ -193,7 +196,12 @@ func main() {
 	go func() {
 		in := bufio.NewScanner(os.Stdin)
 		for in.Scan() {
-			lines <- in.Text()
+			l := in.Text()
+			// A bracketed paste of several lines is one prompt, as the real CLI takes it.
+			for strings.Contains(l, "\x1b[200~") && !strings.Contains(l, "\x1b[201~") && in.Scan() {
+				l += "\n" + in.Text()
+			}
+			lines <- l
 		}
 		close(lines)
 	}()
@@ -373,6 +381,7 @@ func run(line string, next func() string) {
 		hook("PreToolUse", map[string]any{"tool_name": "Bash"})
 		hook("PostToolUse", map[string]any{"tool_name": "Bash"})
 		say("done: %s\r\n", line)
+		recordTurn(line)
 		hook("Stop", map[string]any{"stop_hook_active": false})
 	}
 	prompt()
@@ -588,4 +597,39 @@ func boundary() {
 	}
 	defer f.Close()
 	f.WriteString(`{"type":"system","subtype":"compact_boundary"}` + "\n")
+}
+
+var recorded int
+
+// recordTurn appends a turn to the session's transcript, in the shapes Claude Code writes (a user line, an assistant
+// line with text and a tool call, the tool's result, the closing text), when $FAKECLAUDE_TRANSCRIPT is set: the file
+// the chat view reads. Off by default, as a transcript that exists changes what compaction tests see (`boundary`).
+func recordTurn(prompt string) {
+	home := os.Getenv("HOME")
+	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	recorded++
+	id := fmt.Sprintf("%s-%d", session, recorded)
+	now := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+	line := func(kind, uuid string, content any) {
+		b, _ := json.Marshal(map[string]any{"type": kind, "uuid": uuid, "timestamp": now(), "sessionId": session, "isSidechain": false,
+			"message": map[string]any{"role": kind, "content": content}})
+		f.Write(append(b, '\n'))
+	}
+	line("user", id+"-u", prompt)
+	line("assistant", id+"-a1", []map[string]any{
+		{"type": "text", "text": "Working on: " + prompt},
+		{"type": "tool_use", "id": "toolu_" + id, "name": "Bash", "input": map[string]any{"command": "echo " + prompt, "description": "say it"}}})
+	line("user", id+"-r", []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_" + id, "content": prompt}})
+	line("assistant", id+"-a2", []map[string]any{{"type": "text", "text": "Done: " + prompt}})
 }

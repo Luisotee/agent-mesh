@@ -119,7 +119,7 @@ export interface AppState extends WorkspaceState {
   settingsQuery: string
 }
 
-export type AgentTab = 'overview' | 'messages' | 'terminal'
+export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
 
 export interface AppModel {
   store: StoreApi<AppState>

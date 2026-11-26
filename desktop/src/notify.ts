@@ -1,6 +1,6 @@
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { AgentRole, AgentState, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
-import type { AgentTab } from './model'
+import type { AgentTabId } from '../shared/api'
 
 export type NotifyKind = 'input' | 'plan' | 'question' | 'report' | 'failed' | 'exited' | 'limited' | 'error'
 
@@ -11,7 +11,7 @@ export interface Notice {
   title: string
   body: string
   agentId: string
-  tab: AgentTab
+  tab: AgentTabId
 }
 
 /** An event older than this wasn't "just now": history replayed after a reconnect doesn't notify. */

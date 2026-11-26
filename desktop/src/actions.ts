@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -54,6 +54,15 @@ export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.
 
 /** One page of a run's messages, oldest first, after the message with `afterId` (empty: from the start). */
 export const listMessages = (c: MeshClient, runId: string, afterId: string) => c.listMessages({ runId, afterId, limit: 500 })
+
+/**
+ * A page of an agent's conversation as its CLI recorded it: backward from `offset` (-1: the end), or on from it. The
+ * host says `supported: false` for a CLI whose record it doesn't read.
+ */
+export const readTranscript = (c: MeshClient, agent: string, offset: bigint, backward: boolean) => c.readTranscript({ agent, offset, backward })
+
+/** Types a prompt into the agent's running CLI as the user would (the chat composer): one process, one conversation. */
+export const promptAgent = (c: MeshClient, agent: string, text: string) => c.promptAgent({ meta: meta(), agent, text })
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
