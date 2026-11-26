@@ -374,14 +374,14 @@ func TestABusySessionIsGivenLongerBeforeItsFrameIsTakenForLost(t *testing.T) {
 	// A session that holds the frame but keeps drawing looks busy: the daemon waits up to three times
 	// confirm_after before typing a second doorbell into it.
 	w, log := inboxWorld(t, map[string]string{"FAKECLAUDE_INBOX_HOLD": "1", "FAKECLAUDE_SPIN": "1"})
-	w.set(t, "delivery.confirm_after", 1)
+	w.set(t, "delivery.confirm_after", 0.6)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	worker := w.spawnUnder(t, asLead, "spinning", &v1.SpawnAgentRequest{})
 	sent := time.Now()
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
-	if waited := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); waited < 2500*time.Millisecond {
+	if waited := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); waited < 1500*time.Millisecond {
 		t.Errorf("the frame was taken for lost after %s, while the session was drawing", waited)
 	}
 	if got := lines(t, log); len(got) != 2 || !strings.HasPrefix(got[0], "frame:") || !strings.HasPrefix(got[1], "📬") {

@@ -39,9 +39,10 @@ var StopWait = 15 * time.Second
 
 // Test seams (nil in production): called at the points a race needs to be forced at.
 var (
-	spawnPlannedHook   func()               // SpawnAgent: planned, before the agent is stored
-	spawnCommittedHook func(agentID string) // SpawnAgent: stored, before its terminal starts (its lock held)
-	stopRunLockedHook  func()               // StopRun: the run's agents locked, before the run is closed
+	spawnPlannedHook    func()               // SpawnAgent: planned, before the agent is stored
+	spawnCommittedHook  func(agentID string) // SpawnAgent: stored, before its terminal starts (its lock held)
+	stopRunLockedHook   func()               // StopRun: the run's agents locked, before the run is closed
+	stopAgentLockedHook func()               // StopAgent: the agent locked, before cancelling its pending reopen
 )
 
 // launchedHook is a test seam: called once a reopen's terminal is started and before it is recorded, with a
