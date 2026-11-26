@@ -152,7 +152,8 @@ func (d *Daemon) setupRun(ctx context.Context, meta *v1.RequestMeta) (*v1.Run, e
 // machinery needs a repo, and the agent has no project of its own.
 func (d *Daemon) setupRepo(ctx context.Context) (string, error) {
 	dir := filepath.Join(d.paths.Dir, "setup")
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+	// Ready only with a commit to branch from: a first try that was cut off after `git init` is finished, not trusted.
+	if _, err := git(ctx, dir, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err == nil {
 		return dir, nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -161,7 +162,8 @@ func (d *Daemon) setupRepo(ctx context.Context) (string, error) {
 	if _, err := git(ctx, dir, "init", "-q"); err != nil {
 		return "", connect.NewError(connect.CodeFailedPrecondition, err)
 	}
-	if _, err := git(ctx, dir, "-c", "user.name=agent-mesh", "-c", "user.email=meshd@localhost", "commit", "-q", "--allow-empty", "-m", "setup agent's scratch repo"); err != nil {
+	// The user's own git settings (signing, hooks) are for their repos, not this one.
+	if _, err := git(ctx, dir, "-c", "user.name=agent-mesh", "-c", "user.email=meshd@localhost", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "--no-verify", "-m", "setup agent's scratch repo"); err != nil {
 		return "", connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	return dir, nil

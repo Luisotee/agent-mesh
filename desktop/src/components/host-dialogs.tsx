@@ -118,7 +118,7 @@ export function RemoveHostDialog({ host }: { host: HostRuntime }) {
       <DialogTrigger render={<Button size="icon" variant="ghost" aria-label={`Remove host ${host.info.name}`} title="Remove this host from the app" />}>
         <Trash2 />
       </DialogTrigger>
-      <DialogContent title={`Remove ${host.info.name}?`} description="The app forgets this host and the token it saved for it. The daemon, its runs and its agents are not touched, and you can add the host again.">
+      <DialogContent title={`Remove ${host.info.name}?`} description="The app forgets this host and the token it saved for it. The daemon, its runs and its agents are not touched, and you can add the host again. This app's device stays in the daemon's list until you revoke it there (the host's Pair a device screen, or mesh revoke-device).">
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
         <Button variant="destructive" disabled={busy} onClick={() => void remove()}>Remove host</Button>
       </DialogContent>

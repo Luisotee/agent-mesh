@@ -41,6 +41,9 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
   const [error, setError] = useState('')
   const [copied, setCopied] = useState('')
   const connected = useRef(false)
+  // A callback a parent makes anew on every render must not make the scan start again.
+  const done = useRef(onConnected)
+  done.current = onConnected
 
   const connect = useCallback(
     async (id: string) => {
@@ -50,14 +53,14 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
       setError('')
       try {
         await app.connectLocal(id)
-        onConnected?.()
+        done.current?.()
       } catch (e) {
         connected.current = false
         setError(clean(e))
         setBusy('')
       }
     },
-    [app, onConnected],
+    [app],
   )
 
   const scan = useCallback(

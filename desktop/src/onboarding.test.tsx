@@ -110,6 +110,20 @@ describe('the first-run screen', () => {
     expect(api.local.connect).not.toHaveBeenCalled()
   })
 
+  it('starts the setup agent for a daemon found here, but not for a host added by hand', async () => {
+    const byHand = fakeApi()
+    const model = createAppModel(byHand as unknown as DesktopApi)
+    await model.load()
+    await model.addHost({ name: 'home', kind: 'state-dir', path: '/s' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(startSetupCalled(byHand)).toBe(false)
+    const found = fakeApi()
+    const m2 = createAppModel(found as unknown as DesktopApi)
+    await m2.load()
+    await m2.connectLocal('native')
+    await waitFor(() => expect(startSetupCalled(found)).toBe(true))
+  })
+
   it('has nothing to detect when the host list is fixed by the environment', async () => {
     const api = fakeApi({ fixed: true })
     render(<App api={api as unknown as DesktopApi} />)

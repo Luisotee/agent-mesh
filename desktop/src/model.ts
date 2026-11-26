@@ -199,16 +199,16 @@ export function createAppModel(api: DesktopApi): AppModel {
     // A click on a notification of a host that has since been removed goes nowhere.
     if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false }))
   })
-  /** Takes a host the main process saved: connects to it, and on the first one opens the setup chat. */
-  async function adopt(info: HostInfo) {
-    const first = store.getState().hosts.length === 0
+  /** Takes a host the main process saved and connects to it; `openSetup`: opens the setup chat. */
+  async function adopt(info: HostInfo, openSetup = false) {
     const rt = connectHost(api, info, hooks)
     watch(rt)
     set((s) => ({ hosts: [...s.hosts, rt], hostId: info.id, agentId: undefined, firstRun: false }))
     recount()
     configure()
-    // The first thing a new user sees is the assistant, not an empty list.
-    if (first) void model.openSetup(info.id)
+    // A daemon found on this machine is a new install: the first thing the user sees is the assistant. A host added by
+    // hand may be one with weeks of runs: starting an agent there is the user's call (the empty pane offers it).
+    if (openSetup) void model.openSetup(info.id)
   }
   let loading: Promise<void> | undefined
   async function loadHosts() {
@@ -232,7 +232,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       await adopt(await api.hosts.add(h))
     },
     async connectLocal(id) {
-      await adopt(await api.local.connect(id))
+      await adopt(await api.local.connect(id), true)
     },
     async openSetup(hostId) {
       const host = store.getState().hosts.find((h) => h.info.id === hostId)

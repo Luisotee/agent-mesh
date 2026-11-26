@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -193,4 +194,27 @@ func TestSetupAgentFirstDoorbellNamesItsInstructions(t *testing.T) {
 	if strings.Contains(flat(w.screen(t, a)), "ROOT_CARD") {
 		t.Errorf("the setup agent was pointed at the root card:\n%s", w.screen(t, a))
 	}
+}
+
+// A scratch repo left with no commit (a first try cut off after `git init`, or whose commit a hook or a signing setting
+// refused) is finished by the next StartSetup, not handed to SpawnAgent as it is.
+func TestStartSetupFinishesAHalfMadeScratchRepo(t *testing.T) {
+	share := shareWithSetup(t)
+	state := filepath.Join(t.TempDir(), "state")
+	scratch := filepath.Join(state, "setup")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", scratch, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	got := startSetup(t, h)
+	if got.Agent == nil || got.Agent.Name != "setup-agent" {
+		t.Fatalf("StartSetup on a half-made repo = %+v", got)
+	}
+	if out, err := exec.Command("git", "-C", scratch, "rev-parse", "--verify", "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("the scratch repo still has no commit: %v %s", err, out)
+	} // Let the agent finish starting, so the daemon isn't still writing into the state dir when the test's cleanup runs.
+	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 }

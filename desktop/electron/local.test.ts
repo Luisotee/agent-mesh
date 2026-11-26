@@ -215,7 +215,7 @@ describe('Local, on Windows', () => {
       f.probes.Ubuntu = probeOut({ hello: ['mutations', 'tls'], listen: '127.0.0.1:9443' })
       return out(`${MESH}ok=1\n`)
     })
-    const local = new Local(newHosts(), f.deps)
+    const local = new Local(newHosts(), f.deps, { tries: 2, everyMs: 0 })
     await expect(local.fix('wsl:Ubuntu', 'start')).rejects.toThrow(/not on offer/)
     await expect(local.fix('wsl:Nope', 'enable-listen')).rejects.toThrow(/not on offer/)
     const after = await local.fix('wsl:Ubuntu', 'enable-listen')
@@ -223,6 +223,14 @@ describe('Local, on Windows', () => {
     const run = f.calls.find((c) => c.stdin?.includes('daemon-reload'))!
     expect(run.stdin).toContain('AGENT_MESH_LISTEN=127.0.0.1:9443')
     expect(run.stdin).toContain('daemon-reload')
+  })
+
+  it('says so when a fix ran but the daemon is still where it was', async () => {
+    const f = fake('win32', ['Ubuntu'])
+    f.probes = { Ubuntu: probeOut({ hello: ['mutations'], listen: '' }) }
+    f.scripts.push((stdin) => (stdin.includes('daemon-reload') ? out(`${MESH}ok=1\n`) : undefined))
+    const local = new Local(newHosts(), f.deps, { tries: 2, everyMs: 0 })
+    await expect(local.fix('wsl:Ubuntu', 'enable-listen')).rejects.toThrow(/isn't listening yet/)
   })
 
   it('reports a fix that failed instead of scanning on', async () => {

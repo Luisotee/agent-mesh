@@ -49,6 +49,8 @@ export function realDeps(): LocalDeps {
           const code = err ? (typeof (err as NodeJS.ErrnoException & { code?: unknown }).code === 'number' ? ((err as unknown as { code: number }).code) : -1) : 0
           resolve({ code, stdout: stdout ?? Buffer.alloc(0) })
         })
+        // A program that exits before it reads its script (or never starts) must not become an uncaught EPIPE.
+        child.stdin?.on('error', () => {})
         if (stdin !== undefined) child.stdin?.end(stdin)
       }),
     async reach(host, port, fingerprint) {
@@ -116,12 +118,12 @@ state="\${XDG_STATE_HOME:-$HOME/.local/state}/agent-mesh-daemon"
 if command -v mesh >/dev/null 2>&1; then echo "${SENTINEL}installed=1"; else echo "${SENTINEL}installed=0"; fi
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then echo "${SENTINEL}systemd=1"; else echo "${SENTINEL}systemd=0"; fi
 if [ -f "$state/meshd.json" ]; then echo "${SENTINEL}info=$(tr -d '\\n' < "$state/meshd.json")"; fi
-if h=$(mesh hello 2>/dev/null); then echo "${SENTINEL}hello=$(printf '%s' "$h" | tr -d '\\n')"; fi
+if h=$(mesh hello 2>/dev/null </dev/null); then echo "${SENTINEL}hello=$(printf '%s' "$h" | tr -d '\\n')"; fi
 if [ -e "$HOME/.config/systemd/user/agent-mesh.service.d/listen.conf" ]; then echo "${SENTINEL}listenconf=1"; fi
 `
 
 const START = `
-systemctl --user enable --now agent-mesh >/dev/null 2>&1 && echo "${SENTINEL}ok=1" || echo "${SENTINEL}err=systemctl --user enable --now agent-mesh failed"
+systemctl --user enable --now agent-mesh >/dev/null 2>&1 </dev/null && echo "${SENTINEL}ok=1" || echo "${SENTINEL}err=systemctl --user enable --now agent-mesh failed"
 `
 
 const ENABLE_LISTEN = `
@@ -129,14 +131,14 @@ d="$HOME/.config/systemd/user/agent-mesh.service.d"
 f="$d/listen.conf"
 if [ -e "$f" ]; then echo "${SENTINEL}err=$f exists already: edit it to set AGENT_MESH_LISTEN"; exit 0; fi
 mkdir -p "$d" && printf '[Service]\\nEnvironment="AGENT_MESH_LISTEN=${LISTEN_ADDRESS}"\\n' > "$f" \\
-  && systemctl --user daemon-reload && systemctl --user restart agent-mesh && echo "${SENTINEL}ok=1" \\
+  && systemctl --user daemon-reload </dev/null && systemctl --user restart agent-mesh </dev/null && echo "${SENTINEL}ok=1" \\
   || echo "${SENTINEL}err=could not write $f and restart agent-mesh"
 `
 
 const pairScript = (port: number) => `
 PATH="$HOME/.local/bin:$HOME/.local/lib/agent-mesh/bin:$PATH"
 e=$(mktemp)
-if p=$(mesh pair --name Desktop --ttl-seconds 120 --direct-url https://127.0.0.1:${port} 2>"$e"); then echo "${SENTINEL}pair=$(printf '%s' "$p" | tr -d '\\n')"; else echo "${SENTINEL}err=mesh pair failed: $(tr -d '\\n' < "$e")"; fi
+if p=$(mesh pair --name Desktop --ttl-seconds 120 --direct-url https://127.0.0.1:${port} 2>"$e" </dev/null); then echo "${SENTINEL}pair=$(printf '%s' "$p" | tr -d '\\n')"; else echo "${SENTINEL}err=mesh pair failed: $(tr -d '\\n' < "$e")"; fi
 rm -f "$e"
 `
 
@@ -161,6 +163,8 @@ export class Local {
   constructor(
     private readonly hosts: Hosts,
     private readonly deps: LocalDeps = realDeps(),
+    /** How long `fix` waits for the daemon to settle: this many scans, this far apart (a test shortens it). */
+    private readonly settle = { tries: 12, everyMs: 1_000 },
   ) {}
 
   /** Single-flight: a second call while one runs gets its answer (a strict-mode effect, a double click). */
@@ -342,12 +346,16 @@ export class Local {
     }
     // The daemon takes a moment to come up (and to bind its listen address).
     let list: LocalCandidate[] = []
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < this.settle.tries; i++) {
       list = await this.detect()
       const now = list.find((c) => c.id === id)
       if (now && now.state !== 'not-running' && !(fix === 'enable-listen' && now.state === 'no-listen')) break
-      await new Promise((res) => setTimeout(res, 1_000))
+      await new Promise((res) => setTimeout(res, this.settle.everyMs))
     }
+    // Still where it was: say so, rather than showing the same card as if nothing happened.
+    const now = list.find((c) => c.id === id)
+    if (now && fix === 'start' && now.state === 'not-running') throw new Error("Started it, but the daemon still isn't answering. Look at its log: journalctl --user -u agent-mesh")
+    if (now && fix === 'enable-listen' && now.state === 'no-listen') throw new Error("Restarted it, but the daemon isn't listening yet. Is port 9443 in use? Look at its log: journalctl --user -u agent-mesh")
     return list
   }
 }
