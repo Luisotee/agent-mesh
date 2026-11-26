@@ -162,3 +162,14 @@ func TestProtobufFieldsRejectsTruncated(t *testing.T) {
 		t.Fatal("a cut message must be an error")
 	}
 }
+
+func TestAgyPlanCompactDropsTheSessionVars(t *testing.T) {
+	res, err := New().PlanCompact(context.Background(), connect.NewRequest(&adapterv1.PlanCompactRequest{
+		SessionId: "c1", Model: "gemini-4-neon-high", Env: map[string]string{SessionVars[0]: "x", "KEEP": "1"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := res.Msg.Env[SessionVars[0]]; ok || res.Msg.Env["KEEP"] != "1" {
+		t.Fatalf("env %v", res.Msg.Env)
+	}
+}

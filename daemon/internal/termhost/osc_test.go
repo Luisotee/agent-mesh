@@ -78,3 +78,32 @@ func TestScreenKeepsTheEscapeSequenceThatCutsAnOSCShort(t *testing.T) {
 		t.Fatalf("the CSI after the OSC was drawn as text: %q", got)
 	}
 }
+
+// An unterminated OSC cut short by a new `ESC ]` hands over to that OSC: its non-ASCII text is dropped too.
+func TestScreenFiltersAnOSCThatAnotherOSCCutsShort(t *testing.T) {
+	for _, in := range []string{
+		"abc\x1b]0;ascii\x1b]0;✳ title\a def",
+		"abc\x1b]0;✳ a\x1b]0;✳ b\a def",
+		"abc\x1b]0;✳ a\x1b", // split: the second introducer arrives in the next write
+	} {
+		writes := []string{in}
+		if strings.HasSuffix(in, "\x1b") {
+			writes = []string{in, "]0;✳ b\a def"}
+		}
+		got := plain(repaintOf(t, writes...))
+		if strings.Contains(got, "title") || strings.Contains(got, " a") && strings.Contains(got, "✳") || strings.Contains(got, " b") || !strings.Contains(got, "def") {
+			t.Errorf("%q: the second title was drawn or the text lost: %q", in, got)
+		}
+	}
+}
+
+func TestOSCFilterRestartsOnANewIntroducer(t *testing.T) {
+	var f oscFilter
+	out := string(f.filter([]byte("\x1b]0;ascii\x1b]0;✳ x")))
+	if out != "\x1b]0;ascii\x1b\\" || f.state != 2 || string(f.held) != "\x1b]0;✳ x" || !f.wide {
+		t.Fatalf("out %q, state %d, held %q, wide %v", out, f.state, f.held, f.wide)
+	}
+	if out = string(f.filter([]byte("\x07z"))); out != "z" || f.state != 0 {
+		t.Fatalf("out %q, state %d", out, f.state)
+	}
+}

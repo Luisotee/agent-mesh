@@ -217,6 +217,9 @@ func (a *Adapter) PlanCompact(ctx context.Context, req *connect.Request[adapterv
 	for k, v := range m.Env {
 		env[k] = v
 	}
+	for _, k := range SessionVars {
+		delete(env, k)
+	}
 	// The agent's model is a family (`flash`) and its effort: agy takes only an id from `agy models`, and
 	// `--model flash` exits 1 with the list (found live: every headless compaction of a tier-spawned agy failed).
 	model, err := a.resolveModel(ctx, bin, m.Model, m.Effort, env)

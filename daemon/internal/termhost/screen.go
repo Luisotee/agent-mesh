@@ -228,6 +228,13 @@ func (f *oscFilter) filter(p []byte) []byte {
 				continue
 			case b == 0x1b:
 				f.state = 3
+			case f.state == 3 && b == ']': // ESC ] cuts the string short and starts the next one
+				if !f.wide { // end it properly: the next one is ours to judge, and the emulator must not stay inside this one
+					out = append(append(out, f.held[:len(f.held)-2]...), 0x1b, '\\')
+				}
+				f.state, f.wide = 2, false
+				f.held = append(f.held[:0], 0x1b, ']')
+				continue
 			case f.state == 3: // ESC then something else: the string ends there, as the emulator ends it
 				if !f.wide {
 					out = append(out, f.held...)

@@ -508,6 +508,21 @@ func (d *Daemon) endCompaction(ctx context.Context, a *v1.Agent, pc *v1.PendingC
 	})
 }
 
+// compactTarget is the model and effort a headless compaction runs on: the agent's, each replaced by what a pending
+// reopen names (a reopen may change only one of them).
+func compactTarget(a *v1.Agent) (model, effort string) {
+	model, effort = a.Model, a.Effort
+	if p := a.PendingReopen; p != nil {
+		if p.Model != "" {
+			model = p.Model
+		}
+		if p.Effort != "" {
+			effort = p.Effort
+		}
+	}
+	return model, effort
+}
+
 // compactHeadless compacts a stopped conversation before its reopen, off the agent's lock (it takes minutes): the
 // agent's own CLI, `-p /compact <focus>` on its conversation, in its worktree, on the model it will resume on,
 // with the agent's lean session but none of its identity or hooks.
@@ -520,13 +535,7 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 	if err != nil {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0)
 	}
-	model, effort := a.Model, a.Effort
-	if a.PendingReopen != nil && a.PendingReopen.Model != "" {
-		model = a.PendingReopen.Model
-		if a.PendingReopen.Effort != "" {
-			effort = a.PendingReopen.Effort
-		}
-	}
+	model, effort := compactTarget(a)
 	env := d.cliBaseEnv()
 	lean, err := d.leanLaunch(ctx, a, env)
 	if err != nil {
