@@ -34,6 +34,7 @@ export function buildBinaries(dir: string): void {
     mesh: './cmd/mesh',
     'mesh-relay': './cmd/mesh-relay',
     claude: './internal/testutil/fakeclaude',
+    agy: './internal/testutil/fakeagy',
   }
   for (const [out, pkg] of Object.entries(targets)) {
     execFileSync('go', ['build', '-o', path.join(dir, out), pkg], { cwd: daemonDir, env: { ...baseEnv(), CGO_ENABLED: '0' }, stdio: 'pipe' })
@@ -142,7 +143,9 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
         path.join(bins, 'meshd'),
         ['--state', state, '--tcp', '127.0.0.1:0', '--max-lifetime', '10m', '--term-launch', 'detached',
           '--term-binary', path.join(bins, 'mesh-term'), '--mesh', path.join(bins, 'mesh'),
-          '--cli', `claude=${claude}`, '--worktrees', worktrees,
+          '--cli', `claude=${claude}`,
+          // Never a real agy: meshd runs `agy -p /usage` for the usage panel, and a real one opens a Google login in the browser.
+          '--cli', `agy=${path.join(bins, 'agy')}`, '--worktrees', worktrees,
           ...(opts.listen ? ['--listen', opts.listen] : []),
           ...(opts.hostName ? ['--host-name', opts.hostName] : []),
           ...(opts.relay ? ['--relay-url', opts.relay.url, '--relay-tcp', opts.relay.tcp, '--relay-token-file', opts.relay.tokenFile] : [])],
