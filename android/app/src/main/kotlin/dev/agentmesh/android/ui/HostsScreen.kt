@@ -79,7 +79,8 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
     }
     removing?.let { h ->
         val runtime = runtimes[h.id]
-        val ready = runtime?.state?.value?.conn is ConnState.Ready
+        val state by (runtime?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.agentmesh.android.store.HostState()) }).collectAsStateWithLifecycleCompat()
+        val ready = runtime != null && state.conn is ConnState.Ready
         RemoveHostDialog(
             hostName = h.name,
             canUnpair = ready,
