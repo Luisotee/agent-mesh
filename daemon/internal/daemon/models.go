@@ -254,20 +254,25 @@ func (d *Daemon) computeModelCheck(r store.Reader, listed, acked map[string][]st
 			next.New[kind] = fresh
 		}
 	}
-	if len(listed) == 0 {
-		// Nothing read yet: look again next time rather than caching empty for a day.
+	// A kind that listed nothing this time (not installed yet, a failed or timed-out listing) keeps what the last
+	// good check found for it: its baseline (OpenCode diffs against it) and its notices. The result then isn't
+	// cached for a day, so the next call looks again rather than trusting a partial listing.
+	carried := len(listed) == 0
+	for kind := range prev.Listed {
+		if _, ok := listed[kind]; ok {
+			continue
+		}
+		carried = true
+		next.Listed[kind] = prev.Listed[kind]
+		if v := prev.New[kind]; len(v) > 0 {
+			next.New[kind] = v
+		}
+		if v := prev.Retired[kind]; len(v) > 0 {
+			next.Retired[kind] = v
+		}
+	}
+	if carried {
 		next.At = 0
-		// ...and keep what the last good check found, so a failed listing doesn't wipe the notice.
-		next.Listed, next.New, next.Retired = prev.Listed, prev.New, prev.Retired
-		if next.Listed == nil {
-			next.Listed = map[string][]string{}
-		}
-		if next.New == nil {
-			next.New = map[string][]string{}
-		}
-		if next.Retired == nil {
-			next.Retired = map[string][]string{}
-		}
 	}
 	return next
 }

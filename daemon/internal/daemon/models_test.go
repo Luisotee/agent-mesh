@@ -215,3 +215,32 @@ func TestModelsTracksOpenCodeNewAndRetiredFreeModelsAndChecksAuth(t *testing.T) 
 		t.Fatalf("worker CheckModels err = %v", err)
 	}
 }
+
+func TestModelsAPartialListingKeepsTheFailedKindsBaseline(t *testing.T) {
+	agyList := agyListingBase
+	oc := opencodeListingBase
+	now := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	h := startModelsHarness(t, &agyList, &oc, &now)
+	ctx := context.Background()
+	check := func(id string) *v1.CheckModelsResponse {
+		t.Helper()
+		res, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta(id), Check: true}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg
+	}
+	check("p1") // baseline: both CLIs listed
+
+	// OpenCode's listing fails while agy's works; a model OpenCode gains meanwhile must still be flagged later.
+	oc = ""
+	partial := check("p2")
+	if ok := kindEntry(partial, "opencode"); ok == nil || len(ok.Listed) == 0 {
+		t.Fatalf("opencode baseline dropped by a partial listing: %+v", ok)
+	}
+	oc = opencodeListingNew
+	again := check("p3")
+	if got := kindEntry(again, "opencode"); got == nil || !slices.Equal(got.NewFamilies, []string{"opencode/nova-free"}) {
+		t.Fatalf("opencode after the failed listing = %+v", got)
+	}
+}

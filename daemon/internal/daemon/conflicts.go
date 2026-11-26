@@ -265,17 +265,19 @@ func defaultBaseRO(ctx context.Context, top string) string {
 }
 
 func mergeConflicts(ctx context.Context, repo, ours, theirs string) ([]string, bool, error) {
-	stdout, stderr, code, err := gitRORaw(ctx, repo, "merge-tree", "--write-tree", "--name-only", "--no-messages", ours, theirs)
+	// -z: names come NUL-separated and unquoted (without it git C-quotes a non-ASCII name); the first record is
+	// the merged tree's OID.
+	stdout, stderr, code, err := gitRORaw(ctx, repo, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ours, theirs)
 	if code == 0 && err == nil {
 		return nil, false, nil
 	}
 	if code == 1 {
-		lines := strings.Split(strings.ReplaceAll(string(stdout), "\r\n", "\n"), "\n")
+		records := strings.Split(string(stdout), "\x00")
 		var files []string
-		if len(lines) > 1 {
-			for _, line := range lines[1:] {
-				if strings.TrimSpace(line) != "" {
-					files = append(files, line)
+		if len(records) > 1 {
+			for _, rec := range records[1:] {
+				if rec != "" {
+					files = append(files, rec)
 				}
 			}
 		}

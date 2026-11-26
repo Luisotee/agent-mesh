@@ -504,3 +504,32 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 		t.Fatalf("worker window err = %v", err)
 	}
 }
+
+// A root reads any run and a --since window (bin/mesh parity); a worker only its own run.
+func TestCostRootIsNotScopedToItsRunButAWorkerIs(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		for _, id := range []string{"r1", "r2"} {
+			if err := tx.PutRun(&v1.Run{Id: id, Title: id, Status: v1.RunStatus_RUN_STATUS_OPEN, CreatedAt: costTS(0)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rtok := h.seedAgent("r1", "root1", "repo-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	wtok := h.seedAgent("r1", "w1", "repo-w1", "", v1.AgentRole_AGENT_ROLE_WORKER)
+	for name, req := range map[string]*v1.GetCostRequest{"other run": {RunId: "r2"}, "window": {Since: "7d"}} {
+		if _, err := h.as(rtok).GetCost(ctx, connect.NewRequest(req)); err != nil {
+			t.Fatalf("root %s: %v", name, err)
+		}
+	}
+	if _, err := h.as(wtok).GetCost(ctx, connect.NewRequest(&v1.GetCostRequest{RunId: "r2"})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("worker other run err = %v", err)
+	}
+	if _, err := h.as(wtok).GetCost(ctx, connect.NewRequest(&v1.GetCostRequest{})); err != nil {
+		t.Fatalf("worker own run: %v", err)
+	}
+}

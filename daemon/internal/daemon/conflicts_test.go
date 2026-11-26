@@ -308,3 +308,29 @@ func TestConflictsReadsWorktreeWithoutWritingIndexAndRespectsScoping(t *testing.
 		t.Fatal("expected control `git status` to refresh index")
 	}
 }
+
+func TestConflictsNamesANonASCIIConflictedFileUnquoted(t *testing.T) {
+	h := start(t, "")
+	repo := gitRepo(t)
+	commitFileIn(t, repo, "docs/café ü.md", "1\n", "base")
+
+	wt1, b1, base1 := addWorktreeBranch(t, repo, "r1", "b1", "")
+	commitFileIn(t, wt1, "docs/café ü.md", "2\n", "b1")
+	wt2, b2, base2 := addWorktreeBranch(t, repo, "r1", "b2", "")
+	commitFileIn(t, wt2, "docs/café ü.md", "3\n", "b2")
+
+	seedConflictRun(t, h, "r1",
+		&v1.Agent{Id: "a1", RunId: "r1", Name: "repo-b1", Repo: repo, Worktree: wt1, Branch: b1, BaseCommit: base1, CreatedAt: timestamppb.Now()},
+		&v1.Agent{Id: "a2", RunId: "r1", Name: "repo-b2", Repo: repo, Worktree: wt2, Branch: b2, BaseCommit: base2, CreatedAt: timestamppb.Now()},
+	)
+	res, err := h.device.Mesh.CheckConflicts(context.Background(), connect.NewRequest(&v1.CheckConflictsRequest{RunId: "r1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Msg.Conflicts) != 1 || !slices.Equal(res.Msg.Conflicts[0].Files, []string{"docs/café ü.md"}) {
+		t.Fatalf("conflicts = %+v", res.Msg.Conflicts)
+	}
+	if len(res.Msg.Overlaps) != 0 {
+		t.Fatalf("a conflicted file also reported as an overlap: %+v", res.Msg.Overlaps)
+	}
+}

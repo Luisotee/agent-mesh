@@ -49,7 +49,7 @@ var (
 	spanRE        = regexp.MustCompile(`^(\d+)([dhm])$`)
 	rootCommandRE = regexp.MustCompile(`(?m)(?:^|[;&|(]|\b(?:do|then|else|time)\b)\s*(?:timeout\s+\S+\s+)?(?:\w+=\S*\s+)*mesh (?:spawn|init|ask|approve|resume|switch|watch|start-run)\b`)
 	sanitizeCwdRE = regexp.MustCompile(`[^A-Za-z0-9]`)
-	reviewPRRE    = regexp.MustCompile(`^Review \(read-only\) of ([^\s:]+)`)
+	reviewPRRE    = regexp.MustCompile(`^\s*Review \(read-only\) of (.+?)(?: at [0-9a-f]{7,40})?: review this pull request`)
 	pullNumRE     = regexp.MustCompile(`/pull/(\d+)(?:$|[/?#])`)
 )
 
@@ -1134,7 +1134,9 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 
 	hasWindow := !since.IsZero() || !until.IsZero()
 	runID := m.RunId
-	if IsAgent(actor.Class) && actor.Class != v1.ActorClass_ACTOR_CLASS_ROOT {
+	// A root is exempt from scopedRun on purpose (bin/mesh parity: a root's `mesh cost --since` reads every run and
+	// the sessions outside any run); workers, askers and reviewers read only their own run.
+	if IsAgent(actor.GetClass()) && actor.GetClass() != v1.ActorClass_ACTOR_CLASS_ROOT {
 		if hasWindow && runID == "" {
 			return nil, denied("an agent reads only its own run")
 		}
@@ -1142,8 +1144,8 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 			return nil, err
 		}
 	} else if runID == "" && !hasWindow {
-		if actor != nil && IsAgent(actor.Class) && actor.RunId != "" {
-			runID = actor.RunId
+		if IsAgent(actor.GetClass()) && actor.GetRunId() != "" {
+			runID = actor.GetRunId()
 		} else {
 			return nil, invalid("name a run, or a window with --since (`mesh cost --since 7d`)")
 		}
