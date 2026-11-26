@@ -46,9 +46,10 @@ func TestAnAgyThatWantsALoginIsCaughtReportedAndLeftAlone(t *testing.T) {
 		return res.Msg
 	}
 
-	// A run with an agy worker (spawned while agy is not held: `agy models` is held once a login is recorded).
+	// A run with an agy worker, by an exact model id: `agy models` is held once a login is recorded (the reserve
+	// pass may record it before this spawn), and listing it to pick a tier's model would fail.
 	if _, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-		Repo: gitRepo(t), Slug: "agy-w", Kind: "agy", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})); err != nil {
+		Repo: gitRepo(t), Slug: "agy-w", Kind: "agy", Model: "gemini-4-hydrogen-high", Role: v1.AgentRole_AGENT_ROLE_WORKER})); err != nil {
 		t.Fatal(err)
 	}
 
