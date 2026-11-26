@@ -17,6 +17,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
+	"github.com/Luisotee/agent-mesh/daemon/internal/repoarg"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -425,6 +426,8 @@ func (d *Daemon) ListMCPServers(ctx context.Context, req *connect.Request[v1.Lis
 	if repo != "" {
 		if top, err := d.repoTop(ctx, repo); err == nil {
 			repo = top
+		} else if repoarg.IsBareName(repo) {
+			return nil, err // a name that finds no repo is not a folder to read config from
 		}
 	}
 	known := claude.KnownMCPServers(d.agentEnv(&v1.Agent{}, ""), repo)

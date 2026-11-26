@@ -220,4 +220,8 @@ func TestListMCPServersTakesABareRepoName(t *testing.T) {
 	if !strings.Contains(strings.Join(names, ","), "shopsrv") {
 		t.Errorf("servers %v: the repo's own was not found by its bare name", names)
 	}
+	// A name that finds no repo is an error, not a quiet read of ./typo.
+	if _, err := w.device.Mesh.ListMCPServers(context.Background(), connect.NewRequest(&v1.ListMCPServersRequest{Repo: "typo"})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("a bare name with no repo: %v", err)
+	}
 }
