@@ -174,3 +174,17 @@ func TestOpenCodeTokenAboveTheGutterBox(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 }
+
+func TestColonFormSGRIsReadNotTakenForAReset(t *testing.T) {
+	// A curly underline (`4:3`) in the middle of a dim placeholder doesn't reset it.
+	dimmed := dim + "Try " + "\x1b[4:3m" + "this" + reset
+	if got := inputbox.Read(repaint(t, 80, 24, claudeScreen(dimmed)), inputbox.Claude, "x"); got.State != inputbox.Empty {
+		t.Errorf("%v %q", got.State, got.Text)
+	}
+	// Colour 8 and a mid grey in the colon form are ghost text where the CLI draws it so.
+	for _, sgr := range []string{"\x1b[38:5:8m", "\x1b[38:2::128:128:128m", "\x1b[38:2:128:128:128m", "\x1b[38;2;128;128;128;1m"} {
+		if got := inputbox.Read(repaint(t, 80, 24, claudeScreen(sgr+"a hint"+reset)), inputbox.Profile{Ghost: inputbox.GhostDim | inputbox.GhostGrey | inputbox.GhostRGBGrey}, "x"); got.State != inputbox.Empty {
+			t.Errorf("%q: %v %q", sgr, got.State, got.Text)
+		}
+	}
+}

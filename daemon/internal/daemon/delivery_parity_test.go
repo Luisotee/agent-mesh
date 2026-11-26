@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -135,9 +136,10 @@ func TestADraftLeftInTheBoxByAUserWhoDetachedHoldsTheDoorbell(t *testing.T) {
 	worker := w.spawnUnder(t, asLead, "drafty", &v1.SpawnAgentRequest{})
 
 	// The user types half a thought, with no Enter, and detaches: the host sees no client any more.
-	draft := "half a thought"
+	// Non-ASCII, and longer than the 80 characters of it an event keeps: the cut must fall on a character.
+	draft := "meio pensamento çãõ " + strings.Repeat("ç", 90)
 	w.typeInto(worker, draft)
-	waitFor(t, "the draft on the screen", func() bool { return strings.Contains(w.screen(t, worker), draft) })
+	waitFor(t, "the draft on the screen", func() bool { return strings.Contains(w.screen(t, worker), "meio pensamento") })
 	time.Sleep(500 * time.Millisecond) // past the typing-quiet window: only the screen can hold it now
 
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_TASK, "do the thing")
@@ -147,11 +149,11 @@ func TestADraftLeftInTheBoxByAUserWhoDetachedHoldsTheDoorbell(t *testing.T) {
 	if !w.deliveredAt(t, worker.Id, msg.Id).IsZero() {
 		t.Fatal("the doorbell was typed into a human's draft")
 	}
-	if screen := w.screen(t, worker); strings.Contains(screen, "📬") || !strings.Contains(screen, draft) {
+	if screen := w.screen(t, worker); strings.Contains(screen, "📬") || !strings.Contains(screen, "meio pensamento") {
 		t.Fatalf("the draft was disturbed:\n%s", screen)
 	}
 	for _, ev := range w.events(t, run.Id) {
-		if h := ev.GetDoorbellHeld(); h != nil && (!strings.Contains(h.Draft, draft) || len(h.MessageIds) != 1) {
+		if h := ev.GetDoorbellHeld(); h != nil && (!utf8.ValidString(h.Draft) || !strings.HasPrefix(draft, h.Draft) || len(h.MessageIds) != 1) {
 			t.Errorf("DoorbellHeld %+v", h)
 		}
 	}

@@ -97,7 +97,8 @@ func processRecord(home string, pid int, startTicks uint64) (record, bool) {
 
 // writeInbox writes one user frame into a Claude session's inbox socket. A path that isn't a socket owned by
 // this user (a symlink, another user's) isn't written to. The socket never answers, so a write is all there is
-// to go by. No auth line: Claude Code requires one only on Windows.
+// to go by. No auth line: Claude Code requires one only on Windows. The check and the dial are two steps: a path
+// swapped between them (by the same user, who could write the record and the socket anyway) isn't caught.
 func writeInbox(path, text string) error {
 	path = strings.TrimPrefix(path, "uds:")
 	info, err := os.Lstat(path)

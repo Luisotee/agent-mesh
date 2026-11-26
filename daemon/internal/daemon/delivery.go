@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -81,9 +82,6 @@ func (d *Daemon) deliverSoon(agentID string) {
 	d.rt.deliverQueued[agentID] = true
 	d.rt.mu.Unlock()
 	go func() {
-		d.rt.mu.Lock()
-		delete(d.rt.deliverQueued, agentID)
-		d.rt.mu.Unlock()
 		if err := d.deliver(context.Background(), agentID); err != nil {
 			d.log.Warn("doorbell", "agent", agentID, "err", err)
 		}
@@ -147,6 +145,10 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	mu := d.agentLock(agentID)
 	mu.Lock()
 	defer mu.Unlock()
+	// A trigger from here on queues one more run: those waiting on the lock are covered by this one.
+	d.rt.mu.Lock()
+	delete(d.rt.deliverQueued, agentID)
+	d.rt.mu.Unlock()
 
 	r := d.store.Read(ctx)
 	a, err := r.GetAgent(agentID)
@@ -290,8 +292,12 @@ func sameInstant(t interface{ AsTime() time.Time }, at time.Time) bool {
 
 // confirm marks the ring's messages delivered, once the doorbell is known to have got through, and ends the ring.
 func (d *Daemon) confirm(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.Message, via string) error {
+	// Marked first: a write that fails keeps the ring, and the next pass confirms it again, not rings a duplicate.
+	if err := d.markDelivered(ctx, msgs, via, rg.attempts); err != nil {
+		return err
+	}
 	d.endRing(a.Id, rg)
-	return d.markDelivered(ctx, msgs, via, rg.attempts)
+	return nil
 }
 
 // endRing ends a ring the agent took: the protocol it named is now known to that process.
@@ -379,8 +385,11 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 		if err := d.pressEnter(ctx, a.TerminalId); err != nil {
 			return err
 		}
-		if prev != nil {
-			rg.token = prev.token // the text in the box is the earlier try's
+		// The text submitted is an earlier try's (or an earlier daemon's): its token is the one to look for.
+		if m := refInText.FindStringSubmatch(text); m != nil {
+			rg.token = m[1]
+		} else if prev != nil {
+			rg.token = prev.token
 		}
 	case reading.GetBox() != adapterv1.InputBox_INPUT_BOX_EMPTY && rg.typed:
 		// A retry into a screen that shows no readable box (a dialog, an alternate screen): count the try and
@@ -399,6 +408,8 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 	d.setRing(a.Id, rg)
 	return nil
 }
+
+var refInText = regexp.MustCompile(`\(ref ([0-9a-f]{6})\b`)
 
 // ringToken is the fresh `ref` of one doorbell: only that token counts on the screen, so an earlier doorbell of
 // the same sender can't confirm a new one still sitting in the input box.
@@ -432,8 +443,8 @@ func (d *Daemon) noteHold(ctx context.Context, a *v1.Agent, msgs []*v1.Message, 
 	for i, m := range msgs {
 		ids[i] = m.Id
 	}
-	if len(draft) > 80 {
-		draft = draft[:80]
+	if r := []rune(draft); len(r) > 80 {
+		draft = string(r[:80]) // on a character boundary: an event's strings must be valid UTF-8
 	}
 	if err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_DoorbellHeld{

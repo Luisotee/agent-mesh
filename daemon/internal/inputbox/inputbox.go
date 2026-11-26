@@ -350,8 +350,24 @@ func sgr(params string, dim, grey8, rgbGrey *bool) {
 	parts := strings.Split(params, ";")
 	p := make([]int, len(parts))
 	for i, s := range parts {
-		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+		switch n, err := strconv.Atoi(s); {
+		case s == "": // an empty parameter is 0
+		case strings.Contains(s, ":"):
+			// A colon-separated sub-parameter list (`38:2::128:128:128`, `4:3`): an extended colour is read here,
+			// anything else is skipped, and none is a reset.
+			p[i] = -1
+			if sub := strings.Split(s, ":"); sub[0] == "38" {
+				subs := make([]int, 0, len(sub))
+				for _, x := range sub[1:] {
+					v, _ := strconv.Atoi(x)
+					subs = append(subs, v)
+				}
+				extColour(subs, true, grey8, rgbGrey)
+			}
+		case err == nil && n >= 0:
 			p[i] = n
+		default:
+			p[i] = -1
 		}
 	}
 	at := func(i int) int {
@@ -364,14 +380,7 @@ func sgr(params string, dim, grey8, rgbGrey *bool) {
 		switch n := p[i]; {
 		case n == 38 || n == 48 || n == 58: // an extended colour: its index or RGB values aren't attributes
 			if n == 38 {
-				*grey8 = at(i+1) == 5 && at(i+2) == 8
-				*rgbGrey = false
-				if at(i+1) == 2 && i+4 < len(p) {
-					r, g, b := p[i+2], p[i+3], p[i+4]
-					hi, lo := max(r, g, b), min(r, g, b)
-					mean := float64(r+g+b) / 3
-					*rgbGrey = hi-lo <= 24 && mean >= 96 && mean <= 160
-				}
+				extColour(p[i+1:], false, grey8, rgbGrey)
 			}
 			switch at(i + 1) {
 			case 5:
@@ -399,5 +408,26 @@ func sgr(params string, dim, grey8, rgbGrey *bool) {
 		default:
 			i++
 		}
+	}
+}
+
+// extColour reads what follows a `38` (a foreground): `5;8` is colour 8, `2;r;g;b` an RGB colour that is a grey
+// when its channels are close and its luminance mid. The colon form has an optional colour space after the 2
+// (`2::r:g:b`), so its channels are the last three values.
+func extColour(v []int, colon bool, grey8, rgbGrey *bool) {
+	*grey8, *rgbGrey = false, false
+	if len(v) >= 2 && v[0] == 5 {
+		*grey8 = v[1] == 8
+		return
+	}
+	if len(v) >= 4 && v[0] == 2 {
+		rgb := v[1:4] // `2;r;g;b`, more parameters may follow
+		if colon {
+			rgb = v[len(v)-3:]
+		}
+		r, g, b := rgb[0], rgb[1], rgb[2]
+		hi, lo := max(r, g, b), min(r, g, b)
+		mean := float64(r+g+b) / 3
+		*rgbGrey = hi-lo <= 24 && mean >= 96 && mean <= 160
 	}
 }

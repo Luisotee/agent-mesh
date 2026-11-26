@@ -338,7 +338,7 @@ func DefaultLeaves() []Leaf {
 		Leaf{Key: "delivery.confirm_after", Type: Seconds, Default: 10.0,
 			Summary: "seconds a doorbell may go unconfirmed (no sign of life from the agent, its messages unread, its ref not above the input box) before it is rung again"},
 		Leaf{Key: "delivery.ring_tries", Type: Int, Default: 4.0,
-			Summary: "doorbells rung for one set of messages before giving up with a DoorbellFailed event; nothing more is typed until the agent's activity moves"},
+			Summary: "doorbells (written to an inbox socket or typed) rung for one set of messages before giving up with a DoorbellFailed event; nothing more is typed until the agent's activity moves"},
 		Leaf{Key: "delivery.draft_hold_alert", Type: Seconds, Default: 600.0,
 			Summary: "seconds a doorbell waits for a human's draft in the agent's input box before a DoorbellHeld event says so (it is never typed into the draft); 0 never says"},
 		Leaf{Key: "claude.lean", Type: Bool, Default: true,
