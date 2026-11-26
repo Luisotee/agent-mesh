@@ -35,7 +35,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "building into $root/bin"
-(cd "$daemon_dir" && CGO_ENABLED=0 go build -o "$root/bin/" ./cmd/meshd ./cmd/mesh-term ./cmd/meshctl ./internal/testutil/capturehooks)
+(cd "$daemon_dir" && CGO_ENABLED=0 go build -o "$root/bin/" ./cmd/meshd ./cmd/mesh-term ./cmd/mesh ./internal/testutil/capturehooks)
 
 repo="$root/repo"
 mkdir -p "$repo" "$root/capture"
@@ -55,7 +55,7 @@ chmod +x "$root/bin/claude-asks"
 
 state="$root/state"
 "$root/bin/meshd" --state "$state" --term-launch detached --max-lifetime 30m \
-  --meshctl "$root/bin/meshctl" --term-binary "$root/bin/mesh-term" --cli "claude=$root/bin/claude-asks" \
+  --mesh "$root/bin/mesh" --term-binary "$root/bin/mesh-term" --cli "claude=$root/bin/claude-asks" \
   --agent-env "AGENT_MESH_HOOK_CAPTURE=$root/capture" >"$root/meshd.log" 2>&1 &
 meshd_pid=$!
 for _ in $(seq 1 100); do [ -f "$state/meshd.json" ] && break; sleep 0.1; done

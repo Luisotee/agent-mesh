@@ -655,11 +655,11 @@ func TestAgyStartupAfterLongDelayStillWaitsForQuietOutput(t *testing.T) {
 	w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 }
 
-// A broken meshctl in PreToolUse never blocks a writer's tools, and for a planning/read-only agent fails closed
+// A broken mesh in PreToolUse never blocks a writer's tools, and for a planning/read-only agent fails closed
 // for every tool (security over latency).
 func TestAgyPreToolUseFailureDoesNotBlockWritersAndFailsClosedForDeny(t *testing.T) {
 	hookLog := filepath.Join(t.TempDir(), "hook-events")
-	broken := filepath.Join(t.TempDir(), "broken-meshctl")
+	broken := filepath.Join(t.TempDir(), "broken-mesh")
 	script := `#!/bin/sh
 echo "$AGENT_MESH_AGENT:$*" >> ` + hookLog + `
 for arg in "$@"; do
@@ -668,12 +668,12 @@ for arg in "$@"; do
     exit 2
   fi
 done
-exec ` + bins + `/meshctl "$@"
+exec ` + bins + `/mesh "$@"
 `
 	if err := os.WriteFile(broken, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	w := startReopen(t, func(c *daemon.AgentConfig) { c.Meshctl = broken })
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.Mesh = broken })
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.agyRoot(t, run.Id)
 

@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
 func action(t *testing.T, name string) *registry.Action {
@@ -126,8 +127,43 @@ func TestFlagsBuildTheRequest(t *testing.T) {
 	if _, err := Request(action(t, "send"), []string{"--type", "nonsense"}); err == nil {
 		t.Error("a bad enum was accepted")
 	}
-	if _, err := Request(action(t, "agent"), []string{"a1"}); err == nil {
-		t.Error("a positional argument was accepted")
+	if _, err := Request(action(t, "settings"), []string{"tiers."}); err == nil {
+		t.Error("a positional argument was accepted by a command with no agent or to field")
+	}
+}
+
+// The one bare argument is the request's `to` or `agent`, wherever it stands among the flags.
+func TestAPositionalArgumentFillsToOrAgent(t *testing.T) {
+	for _, args := range [][]string{
+		{"parent", "--type", "done", "--body", "x"},
+		{"--type", "done", "parent", "--body", "x"},
+		{"--type", "done", "--body", "x", "parent"},
+	} {
+		m, err := Request(action(t, "send"), args)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if s := as(t, m, &v1.SendMessageRequest{}); s.To != "parent" || s.Body != "x" || s.Type != v1.MessageType_MESSAGE_TYPE_DONE {
+			t.Errorf("%v: %v", args, s)
+		}
+	}
+	m, err := Request(action(t, "approve"), []string{"--tier", "mid", "repo-fix", "--body", "x"})
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if a := as(t, m, &v1.ApproveAgentRequest{}); a.Agent != "repo-fix" || a.Tier != "mid" {
+		t.Errorf("approve %v", a)
+	}
+	for name, args := range map[string][]string{
+		"given twice, argument and flag": {"parent", "--to", "other", "--type", "done"},
+		"two arguments":                  {"parent", "other", "--type", "done"},
+	} {
+		if _, err := Request(action(t, "send"), args); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if _, err := Request(action(t, "agent"), []string{"a1"}); err != nil {
+		t.Errorf("agent a1: %v", err)
 	}
 }
 
@@ -148,7 +184,7 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 		t.Errorf("help for an unknown command: %d", code)
 	}
 	ran := false
-	if code := Main([]string{"--state", "/x", "hook", "a"}, env, map[string]func([]string) int{"hook": func(a []string) int {
+	if code := Main([]string{"--state", "/x", "hook", "a"}, env, map[string]func(Env, []string) int{"hook": func(_ Env, a []string) int {
 		ran = len(a) == 1
 		return 0
 	}}); code != 0 || !ran {
@@ -158,7 +194,7 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 		t.Errorf("--state after the command: %d %q", code, errb.String())
 	}
 	out.Reset()
-	if code := Main([]string{"help"}, env, map[string]func([]string) int{"hook": nil}); code != ExitOK ||
+	if code := Main([]string{"help"}, env, map[string]func(Env, []string) int{"hook": nil}); code != ExitOK ||
 		!strings.Contains(out.String(), "spawn") || !strings.Contains(out.String(), "hook") {
 		t.Errorf("help: %d %q", code, out.String())
 	}
@@ -297,7 +333,7 @@ func TestRepeatedFlagsAddUpAndTheFirstReplacesJSON(t *testing.T) {
 	}
 }
 
-// `meshctl --json <request> <command>`: the global flag is the command's own.
+// `mesh --json <request> <command>`: the global flag is the command's own.
 func TestGlobalJSONIsTheCommandsRequest(t *testing.T) {
 	var out, errb bytes.Buffer
 	env := Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
@@ -321,4 +357,67 @@ func mustReg(t *testing.T) *registry.Registry {
 		t.Fatal(err)
 	}
 	return reg
+}
+
+// With no --state and no $AGENT_MESH_STATE the CLI uses the installed daemon's state dir, only when it is there.
+func TestDefaultStateIsTheInstalledDaemonsWhenItsSocketExists(t *testing.T) {
+	home := t.TempDir()
+	envOf := func(m map[string]string) Env { return Env{Getenv: func(k string) string { return m[k] }} }
+	if got := DefaultState(envOf(map[string]string{"HOME": home})); got != "" {
+		t.Errorf("no daemon: %q", got)
+	}
+	dir := filepath.Join(home, ".local", "state", DefaultStateDir)
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(statedir.Paths{Dir: dir}.Socket(), nil, 0o600)
+	if got := DefaultState(envOf(map[string]string{"HOME": home})); got != dir {
+		t.Errorf("default %q, want %q", got, dir)
+	}
+	if got := DefaultState(envOf(map[string]string{"HOME": home, "AGENT_MESH_STATE": "/x"})); got != "/x" {
+		t.Errorf("the environment wins: %q", got)
+	}
+	xdg := filepath.Join(home, "xdg")
+	if got := DefaultState(envOf(map[string]string{"HOME": home, "XDG_STATE_HOME": xdg})); got != "" {
+		t.Errorf("XDG_STATE_HOME is read first: %q", got)
+	}
+	if got := DefaultState(envOf(map[string]string{})); got != "" {
+		t.Errorf("no HOME: %q", got)
+	}
+}
+
+func TestDirTakesOnlyARunID(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Dir(env, []string{"--state", "/s", "--run", "r1x"}); code != ExitOK || strings.TrimSpace(out.String()) != "/s/runs/r1x" {
+		t.Errorf("dir: %d %q", code, out.String())
+	}
+	if code := Dir(env, []string{"--state", "/s", "--run", "../../x"}); code != ExitUsage {
+		t.Errorf("a path as a run id: %d", code)
+	}
+}
+
+// The global --state reaches the hand-written commands, before or after the command's name.
+func TestGlobalStateReachesWhoamiAndDir(t *testing.T) {
+	for _, args := range [][]string{{"--state", "/s", "dir", "--run", "r1x"}, {"dir", "--state", "/s", "--run", "r1x"}} {
+		var out, errb bytes.Buffer
+		env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+		hand := map[string]func(Env, []string) int{"dir": Dir}
+		if code := Main(args, env, hand); code != ExitOK || strings.TrimSpace(out.String()) != "/s/runs/r1x" {
+			t.Errorf("%v: %d %q %q", args, code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Dir(env, []string{"--help"}); code != ExitOK {
+		t.Errorf("dir --help: %d", code)
+	}
+	if code := Whoami(env, []string{"-h"}); code != ExitOK {
+		t.Errorf("whoami -h: %d", code)
+	}
+}
+
+// An empty bare argument still counts as the one: a second is an error, not a replacement.
+func TestAnEmptyPositionalIsStillThePositional(t *testing.T) {
+	if _, err := Request(action(t, "send"), []string{"", "extra", "--type", "done"}); err == nil {
+		t.Error(`send "" extra was accepted`)
+	}
 }

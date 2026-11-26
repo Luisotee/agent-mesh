@@ -181,7 +181,7 @@ func TestPreToolUsePublishCheck(t *testing.T) {
 func TestSettingsDenyPublishAndStopFailure(t *testing.T) {
 	plan := func(role agentmeshv1.AgentRole, denyEdits bool) string {
 		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
-			Role: role, DenyEdits: denyEdits, Cwd: t.TempDir(), HookArgv: []string{"meshctl", "hook", "claude"}}))
+			Role: role, DenyEdits: denyEdits, Cwd: t.TempDir(), HookArgv: []string{"mesh", "hook", "claude"}}))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -44,6 +44,31 @@ func (g *guard) release(agentID string) {
 	delete(g.reserved, agentID)
 }
 
+// refresh restarts an existing reservation's clock at the actual launch (reopen may wait after the resume
+// requested it). Swaps that took no reservation (approve, switch) stay unreserved.
+func (g *guard) refresh(agentID string, now time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, ok := g.reserved[agentID]; ok {
+		g.reserved[agentID] = now
+	}
+}
+
+// seed restores a reservation for a live terminal adopted at boot if it is still within ReserveFor.
+func (g *guard) seed(agentID string, startedAt, now time.Time) {
+	if startedAt.IsZero() || now.Sub(startedAt) >= ReserveFor {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.reserved == nil {
+		g.reserved = map[string]time.Time{}
+	}
+	if _, ok := g.reserved[agentID]; !ok {
+		g.reserved[agentID] = startedAt
+	}
+}
+
 func exhausted(format string, args ...any) error {
 	return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf(format, args...))
 }
@@ -87,7 +112,7 @@ func (d *Daemon) capGuard(r store.Reader, what, except string) error {
 	}
 	if n >= limit {
 		return exhausted("not starting %s: %d agents run on this host, at the limit (caps.agents %d). Retire agents "+
-			"that have reported, or raise the cap (`meshctl set --key caps.agents --value <n>`; 0 is no cap)",
+			"that have reported, or raise the cap (`mesh set --key caps.agents --value <n>`; 0 is no cap)",
 			what, n, limit)
 	}
 	return nil
@@ -159,6 +184,16 @@ func (d *Daemon) memoryPressure() (float64, bool) {
 // over the floor long after the machine has started thrashing. A launch that passes reserves AgentMB for
 // ReserveFor, under its agent's id.
 func (d *Daemon) memoryGuard(r store.Reader, what, agentID string) error {
+	return d.checkMemory(r, what, agentID, true)
+}
+
+// checkMemoryGuard checks the memory floor and pressure without taking a reservation (used early in SpawnAgent
+// before creating a worktree).
+func (d *Daemon) checkMemoryGuard(r store.Reader, what string) error {
+	return d.checkMemory(r, what, "", false)
+}
+
+func (d *Daemon) checkMemory(r store.Reader, what, agentID string, reserve bool) error {
 	pmax, err := d.Setting(r, "memory_pressure_max")
 	if err != nil {
 		return err
@@ -201,7 +236,7 @@ func (d *Daemon) memoryGuard(r store.Reader, what, agentID string) error {
 		switch {
 		case now.Sub(t) >= ReserveFor:
 			delete(g.reserved, id)
-		case id != agentID:
+		case !reserve || id != agentID:
 			held++
 		}
 	}
@@ -215,6 +250,8 @@ func (d *Daemon) memoryGuard(r store.Reader, what, agentID string) error {
 			"agents that have reported and stop leftover dev servers, then try again, or lower `min_free_mb` (0 turns the "+
 			"guard off)", what, max(free, 0), starting, floor)
 	}
-	g.reserved[agentID] = now
+	if reserve {
+		g.reserved[agentID] = now
+	}
 	return nil
 }

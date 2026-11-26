@@ -47,8 +47,8 @@ type AgentConfig struct {
 	TermArgs   []string
 	// TermUnit is the systemd user unit, for the systemd launch.
 	TermUnit string
-	// Meshctl is the absolute path of the CLI whose `hook` command the agents' hooks run.
-	Meshctl string
+	// Mesh is the absolute path of the CLI whose `hook` command the agents' hooks run.
+	Mesh string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.
 	Binaries map[string]string
 	// Adapters are the CLI adapters; nil means the built-ins.
@@ -77,6 +77,10 @@ type AgentConfig struct {
 	MeminfoPath, PressurePath string
 	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
 	RetireEvery time.Duration
+	// SweepAgentPoll and SweepKillPoll override the process-sweep poll intervals (defaults 500 ms and 300 ms).
+	SweepAgentPoll, SweepKillPoll time.Duration
+	// Sys overrides OS process, affinity, signal, and systemd scope calls (for tests).
+	Sys *SystemOps
 	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
@@ -110,6 +114,7 @@ type runtime struct {
 	adapters *adapter.Registry
 	term     *termclient.Client
 	hello    *termv1.HelloResponse
+	sys      *SystemOps
 
 	mu          sync.Mutex
 	lastOutput  map[string]time.Time // terminal id → newest output mark
@@ -119,6 +124,7 @@ type runtime struct {
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 	guard       guard
 	holds       holds // models at a usage limit (limits.go)
+	cpus        cpuTracker
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -144,7 +150,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
+	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
@@ -202,6 +208,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var adoptSweeps []*v1.Agent
 	for _, a := range agents {
 		if claimed[a.TerminalId] {
 			continue
@@ -209,10 +216,12 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
 		if a.State == v1.AgentState_AGENT_STATE_RETIRED && ok && !t.Exited {
-			// A crash between marking it retired and stopping its process: finish the stop.
-			if err := d.finishRetire(ctx, a.Id); err != nil {
+			// A crash between marking it retired and stopping its process: finish the stop, and sweep leftovers
+			// off the startup path so a slow process exit doesn't hold up daemon boot.
+			if err := d.stopRetiredProcess(ctx, a.Id); err != nil {
 				return err
 			}
+			adoptSweeps = append(adoptSweeps, a)
 			continue
 		}
 		if a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED {
@@ -243,6 +252,12 @@ func (d *Daemon) adopt(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if t.StartedAt != nil {
+				d.rt.guard.seed(a.Id, t.StartedAt.AsTime(), d.now())
+			}
+			if t.Pid > 0 {
+				d.adoptCPUHolder(ctx, a, int(t.Pid), t.PidStartTicks)
+			}
 			d.log.Info("adopted terminal", "agent", a.Name, "terminal", t.Id, "pid", t.Pid)
 		}
 	}
@@ -251,6 +266,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 			d.log.Warn("terminal no agent claims; left running", "terminal", t.Id, "pid", t.Pid, "labels", t.Labels)
 		}
 	}
+	d.sweepAsync(adoptSweeps)
 	return nil
 }
 
@@ -638,10 +654,32 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	env["TERM"], env["COLORTERM"] = "xterm-256color", "truecolor"
 	env[client.TokenEnv], env[client.StateEnv] = token, d.paths.Dir
 	env["AGENT_MESH_AGENT"], env["AGENT_MESH_RUN"] = a.Id, a.RunId
+	env[client.RunDirEnv] = d.paths.RunDir(a.RunId)
 	for k, v := range d.rt.cfg.Env {
 		env[k] = v
 	}
+	// The folder of the host's own `mesh` goes first on the agent's PATH, so a bare `mesh` is this daemon's CLI
+	// whatever else is installed (the live bin/mesh, ahead on a login shell's PATH, also hands over to it
+	// when it sees AGENT_MESH_TOKEN, and runs the CLI AGENT_MESH_CLI names).
+	if m := d.rt.cfg.Mesh; filepath.IsAbs(m) {
+		env[client.CLIEnv] = m
+		rest := env["PATH"]
+		if rest == "" {
+			rest = "/usr/local/bin:/usr/bin:/bin" // a daemon with no PATH: never leave the agent with only our folder
+		}
+		env["PATH"] = filepath.Dir(m) + string(os.PathListSeparator) + rest
+	}
 	return env
+}
+
+// ensureRunDir makes a run's folders; it is safe to call again.
+func (d *Daemon) ensureRunDir(run string) error {
+	for _, f := range RunFolders {
+		if err := os.MkdirAll(filepath.Join(d.paths.RunDir(run), f), 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SpawnAgent starts an agent in a new worktree of a repo, in a terminal of the host.
@@ -720,8 +758,12 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
-	// The cap, early, before a worktree is made for nothing; the launch checks it again where it is stored.
+	// The cap and memory floor, early, before a worktree is made for nothing; the launch checks both again
+	// where the agent is stored (reserving its memory then).
 	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+		return nil, err
+	}
+	if err := d.checkMemoryGuard(r, "an agent in "+m.Repo); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(m.Repo) == "" {
@@ -747,6 +789,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	if strings.HasPrefix(base, "-") {
 		return nil, invalid("base %q looks like an option", base)
+	}
+	if err := d.ensureRunDir(runID); err != nil {
+		return nil, err
 	}
 	branch := "mesh/" + runID + "/" + m.Slug
 	worktree := filepath.Join(d.worktrees(), runID, name)
@@ -854,13 +899,13 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 // planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of
 // that one. The model, effort and deny list are the agent's.
 func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent, token, resume string) (*adapterv1.PlanLaunchResponse, error) {
-	meshctl := d.rt.cfg.Meshctl
-	if meshctl == "" {
-		return nil, errors.New("no meshctl configured for the hooks")
+	mesh := d.rt.cfg.Mesh
+	if mesh == "" {
+		return nil, errors.New("no mesh configured for the hooks")
 	}
 	plan, err := ad.PlanLaunch(ctx, connect.NewRequest(&adapterv1.PlanLaunchRequest{AgentId: a.Id, AgentName: a.Name,
 		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
-		HookArgv: []string{meshctl, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
+		HookArgv: []string{mesh, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
 		Env:      d.agentEnv(a, token), SkipPermissions: d.rt.cfg.SkipPermissions,
 		ResumeSessionId: resume, DenyEdits: a.DenyEdits}))
 	if err != nil {
@@ -897,6 +942,9 @@ func (d *Daemon) startTerminal(ctx context.Context, a *v1.Agent, token string, p
 		Argv: plan.Argv, Env: plan.Env, Cwd: a.Worktree, Cols: 120, Rows: 40, Labels: labels}))
 	if err != nil {
 		return "", err
+	}
+	if a.Role != v1.AgentRole_AGENT_ROLE_ROOT && term.Msg.Terminal.Pid > 0 {
+		d.confineAgent(ctx, int(term.Msg.Terminal.Pid), term.Msg.Terminal.PidStartTicks, a.Name)
 	}
 	return term.Msg.Terminal.Id, nil
 }
@@ -1169,19 +1217,19 @@ func writeDidNotHappen(err error) bool {
 }
 
 // Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
-// read with `meshctl inbox`.
+// read with `mesh inbox`.
 func Doorbell(msgs []*v1.Message) string {
 	kind := func(m *v1.Message) string {
 		return strings.ToLower(strings.TrimPrefix(m.Type.String(), "MESSAGE_TYPE_")) + " from " + m.From.GetName()
 	}
 	if len(msgs) == 1 {
-		return "📬 [mesh] " + kind(msgs[0]) + ": run `meshctl inbox`"
+		return "📬 [mesh] " + kind(msgs[0]) + ": run `mesh inbox`"
 	}
 	parts := make([]string, len(msgs))
 	for i, m := range msgs {
 		parts[i] = kind(m)
 	}
-	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `meshctl inbox`", len(msgs), strings.Join(parts, ", "))
+	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `mesh inbox`", len(msgs), strings.Join(parts, ", "))
 }
 
 // ── terminal streams through the daemon ──

@@ -20,7 +20,7 @@ source scripts/env.sh && ./gradlew testDebugUnitTest --tests 'dev.agentmesh.andr
 source scripts/env.sh && ./gradlew lintDebug assembleDebug
 ```
 
-The end-to-end tests (`DaemonE2ETest`, through `DaemonHarness`) build meshd, mesh-term, meshctl, mesh-relay and the fake `claude` with Go into `app/build/e2e-bin`, and give each test its own state dir, HOME and loopback port, so they touch nothing of the user's; they are skipped when Go isn't found or `SKIP_E2E=1` is set. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
+The end-to-end tests (`DaemonE2ETest`, through `DaemonHarness`) build meshd, mesh-term, mesh, mesh-relay and the fake `claude` with Go into `app/build/e2e-bin`, and give each test its own state dir, HOME and loopback port, so they touch nothing of the user's; they are skipped when Go isn't found or `SKIP_E2E=1` is set. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
 
 ## Layout
 

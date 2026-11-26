@@ -120,6 +120,7 @@ type Daemon struct {
 	streamsMu  sync.Mutex
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64
+	bgWG       sync.WaitGroup
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the
@@ -457,6 +458,8 @@ func listenLoopback(addr string) (net.Listener, error) {
 }
 
 func (d *Daemon) close() {
+	d.stopOnce.Do(func() { close(d.stopping) })
+	d.bgWG.Wait()
 	if d.store != nil {
 		d.store.Close()
 	}
@@ -470,3 +473,6 @@ func tsOf(t time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(t)
 }
+
+// RunFolders are the folders every run's dir holds.
+var RunFolders = statedir.RunFolders

@@ -1,6 +1,6 @@
-// Command meshctl is agent-mesh's CLI for agents and users (renamed `mesh` at the switchover). Its commands
+// Command mesh is agent-mesh's CLI for agents and users (`meshctl` until the switchover began). Its commands
 // are the action registry's, derived from the schemas at run time (internal/cli); only `hook` (what a CLI's
-// hooks run) and `version` are written by hand.
+// hooks run), `version`, `whoami` and `dir` are written by hand.
 package main
 
 import (
@@ -11,13 +11,16 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
 )
 
-// Version is meshctl's version.
+// Version is mesh's version.
 const Version = "0.1.0-dev"
 
 func main() {
-	os.Exit(cli.Main(os.Args[1:], cli.OSEnv(), map[string]func([]string) int{
-		"hook":    runHook,
-		"version": func([]string) int { fmt.Println("meshctl", Version); return 0 },
+	env := cli.OSEnv()
+	os.Exit(cli.Main(os.Args[1:], env, map[string]func(cli.Env, []string) int{
+		"hook":    func(_ cli.Env, a []string) int { return runHook(a) },
+		"whoami":  cli.Whoami,
+		"dir":     cli.Dir,
+		"version": func(cli.Env, []string) int { fmt.Println("mesh", Version); return 0 },
 	}))
 }
 
@@ -50,7 +53,7 @@ func runHook(args []string) int {
 		}
 	}
 	if state == "" || agent == "" || kind == "" || event == "" {
-		fmt.Fprintln(os.Stderr, "meshctl hook: need <kind> --state <dir> --agent <id> <event>")
+		fmt.Fprintln(os.Stderr, "mesh hook: need <kind> --state <dir> --agent <id> <event>")
 		return 0
 	}
 	cwd, _ := os.Getwd()

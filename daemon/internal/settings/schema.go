@@ -316,6 +316,10 @@ func DefaultLeaves() []Leaf {
 			Summary: `MB of memory plus swap under which no agent starts; "auto" is 10% of RAM plus 10% of swap plus 1 GB (at least 2 GB), 0 turns the guard off`},
 		Leaf{Key: "memory_pressure_max", Type: Percent, Default: 10.0,
 			Summary: "no agent starts while the memory pressure (full avg60) is over this percent; 0 turns the guard off"},
+		Leaf{Key: "worker_cpus", Type: Percent, Default: 25.0,
+			Summary: "percent of the machine's CPU cores each launched agent may use (at least one); 0 or 100 turns the cap off"},
+		Leaf{Key: "worker_memory_high", Type: Int, Default: 0.0,
+			Summary: "MB above which each launched agent is throttled in a transient systemd user scope (MemoryHigh); 0 turns the scope off"},
 		Leaf{Key: "limits.auto", Type: String, Default: "switch", Choices: []string{"off", "continue", "switch"},
 			Summary: "what the daemon does for an agent stopped at a usage limit: switch moves it to the next model of its chain " +
 				"that has quota left when the limit is its model's, and (with continue) reopens it on the same model once the " +
