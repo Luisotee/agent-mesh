@@ -20,6 +20,7 @@ import (
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
@@ -104,6 +105,7 @@ func (w *reopenWorld) deliveredAt(t *testing.T, agentID, messageID string) time.
 // send sends a message from a worker to its parent (as the worker) and returns it.
 func (w *reopenWorld) sendToParent(t *testing.T, from *v1.Agent, typ v1.MessageType) *v1.Message {
 	t.Helper()
+	readInbox(t, w.as(w.token(t, from.Id)))
 	res, err := w.as(w.token(t, from.Id)).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{
 		Meta: meta(""), To: "parent", Type: typ, Body: "from " + from.Name}))
 	if err != nil {
@@ -262,5 +264,15 @@ func TestAFreshPanesPlaceholderNeverHoldsADoorbell(t *testing.T) {
 	})
 	if held := rang.Sub(typed); held < typingQuiet-200*time.Millisecond {
 		t.Errorf("the doorbell rang %s after a keystroke, inside the %s a typing user holds it", held, typingQuiet)
+	}
+}
+
+// readInbox is an agent running `mesh inbox`: a report is refused while a task or answer is unread.
+func readInbox(t *testing.T, c agentmeshv1connect.MeshServiceClient) {
+	t.Helper()
+	// A device has no inbox: the same closure sends as either.
+	if _, err := c.ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{Meta: meta("")})); err != nil &&
+		code(err) != connect.CodePermissionDenied {
+		t.Fatal(err)
 	}
 }

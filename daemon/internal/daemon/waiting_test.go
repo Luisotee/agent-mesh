@@ -44,6 +44,7 @@ func TestListWaitingIsWhatNobodyHasAnsweredYet(t *testing.T) {
 	w4 := h.seedAgent(run.Id, "a-w4", "repo-four", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	send := func(tok, to string, typ v1.MessageType, body string) {
 		t.Helper()
+		readInbox(t, h.as(tok))
 		if _, err := h.as(tok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: to, Type: typ, Body: body})); err != nil {
 			t.Fatal(err)
 		}

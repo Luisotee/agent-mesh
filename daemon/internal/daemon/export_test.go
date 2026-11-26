@@ -36,6 +36,9 @@ func (d *Daemon) Reserved(agentID string) bool {
 // SameRelayURL exposes sameRelayURL.
 func SameRelayURL(a, b string) bool { return sameRelayURL(a, b) }
 
+// Accountability runs one pass of the accountability loop (nudges and alerts to parents).
+func (d *Daemon) Accountability(ctx context.Context) { d.accountability(ctx) }
+
 // Release, Refresh, and Seed expose guard methods for tests.
 func (d *Daemon) Release(agentID string) { d.rt.guard.release(agentID) }
 func (d *Daemon) Refresh(agentID string) { d.rt.guard.refresh(agentID, d.now()) }

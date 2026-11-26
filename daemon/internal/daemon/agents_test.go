@@ -322,6 +322,23 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 	if _, err := h.as(revTok).Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); code(err) != connect.CodeUnauthenticated {
 		t.Errorf("an exited agent's token still works: %v", err)
 	}
+	// The reviewer left with no report, so the daemon told its parent (a message that rings the parent's doorbell
+	// and starts a turn): the crash is typed once that turn has ended, not into it.
+	var told *v1.Message
+	waitFor(t, "the parent told of the reviewer's exit, and rung", func() bool {
+		peek, _ := h.as(tok).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Peek: true}))
+		for _, m := range peek.Msg.Messages {
+			if strings.HasPrefix(m.Body, "[mesh alert exited "+rev.Msg.Agent.Id+"]") && m.DeliveredAt != nil {
+				told = m
+			}
+		}
+		return told != nil
+	})
+	waitFor(t, "the turn the alert started to end", func() bool {
+		cur := h.agent(a.Id)
+		return cur.State == v1.AgentState_AGENT_STATE_IDLE && cur.LastActivity != nil &&
+			cur.LastActivity.AsTime().After(told.DeliveredAt.AsTime())
+	})
 	// A crash is recorded with its code.
 	h.typeInto(a, "/crash\r")
 	if got := h.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED); got.ExitCode != 7 {

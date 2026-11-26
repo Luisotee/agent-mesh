@@ -267,6 +267,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if to.Id != self.ParentId && to.ParentId != self.Id {
 				return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
 			}
+			// A report to its parent sent while a task or answer is unread would answer instructions the agent hasn't
+			// read (a question to its own child is not a report).
+			if to.Id == self.ParentId && isReport(req.Msg.Type) {
+				if err := unreadInstructions(t.Reader, self); err != nil {
+					return err
+				}
+			}
 			// A plan from an agent with no plan phase (a direct task that turned out to need one, or an approved one
 			// given a follow-up) enters one, so approving it moves it to an execution tier. It plans on the model
 			// it is on: nothing reopens it to add the deny list (design §9). A named model covers the whole task:

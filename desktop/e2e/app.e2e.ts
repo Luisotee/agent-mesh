@@ -179,12 +179,14 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   await page.getByRole('region', { name: 'Waiting on you' }).waitFor({ state: 'detached', timeout: 20_000 })
 
   // A question is answered with free text; a report is shown as Markdown.
+  await asWorker.readInbox({}) // an agent reads its answer first: a report is refused while one is unread
   await asWorker.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch should I base this on?' })
   await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-planner asked a question/ }).click()
   const q = page.getByRole('form', { name: 'Answer the question' })
   await q.getByLabel('Your answer').fill('main')
   await q.getByRole('button', { name: 'Send answer' }).click()
   await expect.poll(async () => (await asWorker.readInbox({ peek: true, all: true })).messages.map((m) => m.body)).toContain('main')
+  await asWorker.readInbox({}) // an agent reads its answer first: a report is refused while one is unread
   await asWorker.sendMessage({ to: 'parent', type: MessageType.DONE, body: '## Result\n\n- **PR** opened\n- tests pass' })
   const report = page.getByRole('article', { name: 'Report from repo-planner' })
   await report.getByRole('heading', { name: 'Result' }).waitFor()
@@ -254,6 +256,7 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
 
   // Take plans off the list of what notifies (through the host's settings): the next plan is silent, the tray still counts.
   await host.client().setSetting({ key: 'app.notify.events', value: { kind: { case: 'listValue', value: { values: [{ kind: { case: 'stringValue', value: 'input' } }] } } } })
+  await asNoisy.readInbox({})
   await asNoisy.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch?' })
   await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(2)
   expect(notices()).toHaveLength(before)
