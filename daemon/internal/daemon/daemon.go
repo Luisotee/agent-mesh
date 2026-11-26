@@ -437,7 +437,12 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		d.serveTailnet(bg, tlsSrv)
 	}
 	if d.relay != nil {
-		go func() { _ = d.relay.Run(bg) }()
+		// In bgWG: close() closes the store only once the connector, which reads it for the token set, has stopped.
+		d.bgWG.Add(1)
+		go func() {
+			defer d.bgWG.Done()
+			_ = d.relay.Run(bg)
+		}()
 		go func() {
 			if err := tlsSrv.ServeTLS(d.relay.Listener(), "", ""); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {

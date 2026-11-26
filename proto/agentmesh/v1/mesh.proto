@@ -1222,7 +1222,8 @@ message TailnetStatusResponse {
   repeated string addresses = 6;
   // The control server (a Headscale URL), empty for Tailscale's own.
   string control_url = 7;
-  // The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`), once it runs.
+  // The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`, or its IPv6 address in
+  // brackets when it has no IPv4 one), once it runs.
   string direct_url = 8;
   // Why the node isn't running, when Tailscale says (health warnings, a start error).
   repeated string problems = 9;

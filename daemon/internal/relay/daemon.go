@@ -40,7 +40,8 @@ type ConnectorConfig struct {
 	// ClientTokens, when set, lists the client tokens the relay may accept for this host (by hash), read at
 	// every registration and after every TokensChanged. The relay then accepts no other token, the host-wide
 	// one included. Nil keeps the host-wide token (ClientToken). An error fails that registration (it is
-	// retried) or skips that update: the relay never gets an empty set by mistake.
+	// retried) or delays that update (read again, 1 s doubling to 30 s): the relay never gets an empty set by
+	// mistake.
 	ClientTokens func() ([]*relayv1.ClientToken, error)
 }
 

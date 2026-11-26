@@ -1861,7 +1861,8 @@ export type TailnetStatusResponse = Message<"agentmesh.v1.TailnetStatusResponse"
   controlUrl: string;
 
   /**
-   * The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    *
    * @generated from field: string direct_url = 8;
    */

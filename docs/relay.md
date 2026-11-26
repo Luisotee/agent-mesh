@@ -60,6 +60,7 @@ Each paired device has a relay token of its own, so the relay refuses a revoked 
   - A host registered with `device_tokens` is reached only by a token in its set (and not expired); anything else gets `ERR auth` / `401`, the host-wide token included.
   - A host registered without it (an older daemon) keeps the host-wide token, `"amr_" + base64url_nopad(HMAC-SHA256(relay_secret, "agentmesh-client-v1:" + host_id))`.
   - A host that isn't connected answers `offline` / `503` to any token, since its set is unknown.
+  - `CreatePairing` returns before the relay has the new pairing's token (the push follows within moments), so a client that redeems a link over the relay at once, a script or a test, must retry `ERR auth` / `401` for a few seconds.
 - **Versions:**
   - The preamble is unchanged (`MESH1 <host_id> <token>`).
   - A new relay serves an old daemon by the host-wide token.
@@ -93,7 +94,7 @@ Each paired device has a relay token of its own, so the relay refuses a revoked 
   - An expired node key shows as `NeedsLogin` again.
 - **State** lives in `<state>/tailscale` (mode `0700`): the node key, so the node keeps its name and address across restarts. Delete it and the node joins again under a new address, and links to the old one stop working.
 - **What it serves:** the same TLS API as `--listen`: same handler, same certificate and fingerprint, same device tokens. There is no plain HTTP, Funnel, Tailscale SSH, web client or Tailscale certificate.
-- **Pairing** puts `https://<tailnet IPv4>[:port]` in the link's `d` once the node runs (an explicit `direct_url` wins; `--listen` is the fallback). The IP works whether or not the device resolves MagicDNS names. The device must be on the same tailnet (the Tailscale app), and it pins the fingerprint as on any direct route. The relay stays the link's fallback route.
+- **Pairing** puts `https://<tailnet IPv4>[:port]` (`https://[<IPv6>][:port]` for a node with no IPv4 address) in the link's `d` once the node runs (an explicit `direct_url` wins; `--listen` is the fallback). The IP works whether or not the device resolves MagicDNS names. The device must be on the same tailnet (the Tailscale app), and it pins the fingerprint as on any direct route. The relay stays the link's fallback route.
 - **Build:** meshd must be built with `-tags ts_omit_logtail,ts_omit_peerapiserver` (`install.sh` does). Otherwise tsnet uploads its logs to log.tailscale.com and runs Tailscale's peerapi on the node, so meshd refuses `--tailscale` in a build without them.
   - tsnet adds about 17 MB to meshd (28.6 to 45.8 MB) and about a minute to a cold build; the other binaries don't change.
   - It sets the module's floor at Go 1.27.4.
