@@ -60,42 +60,45 @@ public  final class ClientToken extends
     sha256_ = getDefaultInstance().getSha256();
   }
 
-  public static final int EXPIRES_UNIX_FIELD_NUMBER = 2;
-  private long expiresUnix_;
+  public static final int TTL_SECONDS_FIELD_NUMBER = 2;
+  private long ttlSeconds_;
   /**
    * <pre>
-   * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
    * </pre>
    *
-   * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
-   * @return The expiresUnix.
+   * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
+   * @return The ttlSeconds.
    */
   @java.lang.Override
-  public long getExpiresUnix() {
-    return expiresUnix_;
+  public long getTtlSeconds() {
+    return ttlSeconds_;
   }
   /**
    * <pre>
-   * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
    * </pre>
    *
-   * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
-   * @param value The expiresUnix to set.
+   * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
+   * @param value The ttlSeconds to set.
    */
-  private void setExpiresUnix(long value) {
+  private void setTtlSeconds(long value) {
     
-    expiresUnix_ = value;
+    ttlSeconds_ = value;
   }
   /**
    * <pre>
-   * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
    * </pre>
    *
-   * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
+   * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
    */
-  private void clearExpiresUnix() {
+  private void clearTtlSeconds() {
 
-    expiresUnix_ = 0L;
+    ttlSeconds_ = 0L;
   }
 
   public static dev.agentmesh.gen.agentmesh.relay.v1.ClientToken parseFrom(
@@ -241,41 +244,44 @@ public  final class ClientToken extends
 
     /**
      * <pre>
-     * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
      * </pre>
      *
-     * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
-     * @return The expiresUnix.
+     * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
+     * @return The ttlSeconds.
      */
     @java.lang.Override
-    public long getExpiresUnix() {
-      return instance.getExpiresUnix();
+    public long getTtlSeconds() {
+      return instance.getTtlSeconds();
     }
     /**
      * <pre>
-     * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
      * </pre>
      *
-     * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
-     * @param value The expiresUnix to set.
+     * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
+     * @param value The ttlSeconds to set.
      * @return This builder for chaining.
      */
-    public Builder setExpiresUnix(long value) {
+    public Builder setTtlSeconds(long value) {
       copyOnWrite();
-      instance.setExpiresUnix(value);
+      instance.setTtlSeconds(value);
       return this;
     }
     /**
      * <pre>
-     * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+     * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
      * </pre>
      *
-     * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
+     * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
      * @return This builder for chaining.
      */
-    public Builder clearExpiresUnix() {
+    public Builder clearTtlSeconds() {
       copyOnWrite();
-      instance.clearExpiresUnix();
+      instance.clearTtlSeconds();
       return this;
     }
 
@@ -296,7 +302,7 @@ public  final class ClientToken extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "sha256_",
-            "expiresUnix_",
+            "ttlSeconds_",
           };
           java.lang.String info =
               "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\n\u0002\u0002" +

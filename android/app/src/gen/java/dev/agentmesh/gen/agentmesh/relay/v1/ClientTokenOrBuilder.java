@@ -22,11 +22,12 @@ public interface ClientTokenOrBuilder extends
 
   /**
    * <pre>
-   * Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
    * </pre>
    *
-   * <code>int64 expires_unix = 2 [json_name = "expiresUnix"];</code>
-   * @return The expiresUnix.
+   * <code>int64 ttl_seconds = 2 [json_name = "ttlSeconds"];</code>
+   * @return The ttlSeconds.
    */
-  long getExpiresUnix();
+  long getTtlSeconds();
 }

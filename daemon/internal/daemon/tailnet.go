@@ -32,12 +32,17 @@ const tailnetStateRunning = "Running"
 
 // serveTailnet serves the TLS API on the tailnet. Listening may wait on the control server, so it runs on its
 // own: a node that can't come up leaves meshd serving everything else, and TailnetStatus says why.
-func (d *Daemon) serveTailnet(ctx context.Context, tlsSrv *http.Server, errc chan<- error) {
+func (d *Daemon) serveTailnet(ctx context.Context, tlsSrv *http.Server) {
 	tn := d.cfg.Tailnet
+	failed := func(what string, err error) {
+		d.log.Error(what, "err", err)
+		msg := what + ": " + err.Error()
+		d.tailnetErr.Store(&msg)
+	}
 	go func() {
 		ln, err := tn.Listen("tcp", fmt.Sprintf(":%d", tn.Port()))
 		if err != nil {
-			d.log.Error("listening on the tailnet", "err", err)
+			failed("listening on the tailnet", err)
 			return
 		}
 		if ctx.Err() != nil {
@@ -46,15 +51,15 @@ func (d *Daemon) serveTailnet(ctx context.Context, tlsSrv *http.Server, errc cha
 		}
 		d.log.Info("serving on the tailnet", "port", tn.Port())
 		if err := tlsSrv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
-			d.log.Error("serving on the tailnet", "err", err)
+			failed("serving on the tailnet", err)
 		}
 	}()
 }
 
 // tailnetDirectURL is the address a pairing link carries for the tailnet node: its IPv4 address, which works
-// whether or not the device resolves MagicDNS names. Empty until the node runs.
+// whether or not the device resolves MagicDNS names. Empty until the node runs, and when meshd can't serve there.
 func (d *Daemon) tailnetDirectURL(ctx context.Context) string {
-	if d.cfg.Tailnet == nil {
+	if d.cfg.Tailnet == nil || d.tailnetErr.Load() != nil {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -96,7 +101,9 @@ func (d *Daemon) TailnetStatus(ctx context.Context, _ *connect.Request[v1.Tailne
 		st = &v1.TailnetStatusResponse{Problems: []string{err.Error()}}
 	}
 	st.Enabled = true
-	if st.GetState() == tailnetStateRunning {
+	if e := d.tailnetErr.Load(); e != nil {
+		st.Problems = append(st.Problems, *e)
+	} else if st.GetState() == tailnetStateRunning {
 		st.DirectUrl = tailnetURL(st.GetAddresses(), d.cfg.Tailnet.Port())
 	}
 	return connect.NewResponse(st), nil

@@ -38,8 +38,9 @@ message ClientTokens {
 message ClientToken {
   // SHA-256 of the token as the client sends it in its preamble.
   bytes sha256 = 1;
-  // Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
-  int64 expires_unix = 2;
+  // Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+  // Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
+  int64 ttl_seconds = 2;
 }
 
 message Registered {

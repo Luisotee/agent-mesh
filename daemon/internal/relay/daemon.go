@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -38,8 +39,9 @@ type ConnectorConfig struct {
 	HeartbeatTimeout time.Duration
 	// ClientTokens, when set, lists the client tokens the relay may accept for this host (by hash), read at
 	// every registration and after every TokensChanged. The relay then accepts no other token, the host-wide
-	// one included. Nil keeps the host-wide token (ClientToken).
-	ClientTokens func() []*relayv1.ClientToken
+	// one included. Nil keeps the host-wide token (ClientToken). An error fails that registration (it is
+	// retried) or skips that update: the relay never gets an empty set by mistake.
+	ClientTokens func() ([]*relayv1.ClientToken, error)
 }
 
 // Connector maintains the daemon's outbound control connection to the relay and yields dialed-back
@@ -110,13 +112,16 @@ func (c *Connector) TokensChanged() {
 	}
 }
 
-func (c *Connector) clientTokens() []*relayv1.ClientToken {
-	list := c.cfg.ClientTokens()
+func (c *Connector) clientTokens() ([]*relayv1.ClientToken, error) {
+	list, err := c.cfg.ClientTokens()
+	if err != nil {
+		return nil, err
+	}
 	if len(list) > MaxClientTokens {
 		c.log.Error("too many client relay tokens; the relay gets the first ones", "tokens", len(list), "max", MaxClientTokens)
 		list = list[:MaxClientTokens]
 	}
-	return list
+	return list, nil
 }
 
 // Online reports whether the control connection is registered and healthy.
@@ -184,8 +189,12 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 		case <-c.tokensChanged:
 		default:
 		}
+		list, err := c.clientTokens()
+		if err != nil {
+			return false, fmt.Errorf("listing the client relay tokens: %w", err)
+		}
 		reg.DeviceTokens = true
-		reg.ClientTokens = c.clientTokens()
+		reg.ClientTokens = list
 	}
 	if err := writeControlFrame(ctx, ws, &relayv1.ControlFrame{
 		Frame: &relayv1.ControlFrame_Register{Register: reg},
@@ -229,9 +238,14 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 					return
 				case <-c.tokensChanged:
 				}
-				list := c.clientTokens()
+				list, err := c.clientTokens()
+				if err != nil {
+					// The relay keeps its last set; the next change or registration reads again.
+					c.log.Error("listing the client relay tokens; the relay keeps its last set", "err", err)
+					continue
+				}
 				writeMu.Lock()
-				err := writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
+				err = writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
 					Frame: &relayv1.ControlFrame_ClientTokens{ClientTokens: &relayv1.ClientTokens{Tokens: list}},
 				})
 				writeMu.Unlock()

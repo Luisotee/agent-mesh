@@ -355,35 +355,32 @@ func (d *Daemon) relayTokensChanged() {
 	}
 }
 
-// relayClientTokens is the set of client tokens the relay may accept for this host: every paired device not
-// revoked, and every open pairing until it expires. On a read error it keeps the last set it gave, so a failing
-// read never locks every device out.
-func (d *Daemon) relayClientTokens() []*relayv1.ClientToken {
+// relayClientTokens is the set of client tokens the relay may accept for this host: every open pairing until it
+// expires (first, so a host at the relay's cap can still pair), then every paired device not revoked.
+func (d *Daemon) relayClientTokens() ([]*relayv1.ClientToken, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	r := d.store.Read(ctx)
-	devs, err := r.ListDevices(false, localDeviceID)
-	var open []store.OpenPairing
-	if err == nil {
-		open, err = r.OpenPairings(d.now())
-	}
-	d.relayTokensMu.Lock()
-	defer d.relayTokensMu.Unlock()
+	now := d.now()
+	open, err := r.OpenPairings(now)
 	if err != nil {
-		d.log.Error("reading the devices for the relay; it keeps the last set", "err", err)
-		return d.relayTokensLast
+		return nil, err
 	}
-	entry := func(devID string, expires int64) *relayv1.ClientToken {
+	devs, err := r.ListDevices(false, localDeviceID)
+	if err != nil {
+		return nil, err
+	}
+	entry := func(devID string, ttl int64) *relayv1.ClientToken {
 		h := relay.TokenHash(relay.DeviceToken(d.cfg.Relay.Token, d.daemonID, devID))
-		return &relayv1.ClientToken{Sha256: h[:], ExpiresUnix: expires}
+		return &relayv1.ClientToken{Sha256: h[:], TtlSeconds: ttl}
 	}
 	out := make([]*relayv1.ClientToken, 0, len(devs)+len(open))
+	for _, p := range open {
+		// Rounded up, and at least 1: 0 would mean no expiry.
+		out = append(out, entry(p.DeviceID, max(1, int64((p.ExpiresAt.Sub(now)+time.Second-1)/time.Second))))
+	}
 	for _, dev := range devs {
 		out = append(out, entry(dev.Id, 0))
 	}
-	for _, p := range open {
-		out = append(out, entry(p.DeviceID, p.ExpiresAt.Unix()))
-	}
-	d.relayTokensLast = out
-	return out
+	return out, nil
 }

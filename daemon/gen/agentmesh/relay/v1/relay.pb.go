@@ -301,8 +301,9 @@ type ClientToken struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// SHA-256 of the token as the client sends it in its preamble.
 	Sha256 []byte `protobuf:"bytes,1,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	// Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
-	ExpiresUnix   int64 `protobuf:"varint,2,opt,name=expires_unix,json=expiresUnix,proto3" json:"expires_unix,omitempty"`
+	// Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+	// Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
+	TtlSeconds    int64 `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -344,9 +345,9 @@ func (x *ClientToken) GetSha256() []byte {
 	return nil
 }
 
-func (x *ClientToken) GetExpiresUnix() int64 {
+func (x *ClientToken) GetTtlSeconds() int64 {
 	if x != nil {
-		return x.ExpiresUnix
+		return x.TtlSeconds
 	}
 	return 0
 }
@@ -560,10 +561,11 @@ const file_agentmesh_relay_v1_relay_proto_rawDesc = "" +
 	"\rdevice_tokens\x18\x04 \x01(\bR\fdeviceTokens\x12D\n" +
 	"\rclient_tokens\x18\x05 \x03(\v2\x1f.agentmesh.relay.v1.ClientTokenR\fclientTokens\"G\n" +
 	"\fClientTokens\x127\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x1f.agentmesh.relay.v1.ClientTokenR\x06tokens\"H\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x1f.agentmesh.relay.v1.ClientTokenR\x06tokens\"F\n" +
 	"\vClientToken\x12\x16\n" +
-	"\x06sha256\x18\x01 \x01(\fR\x06sha256\x12!\n" +
-	"\fexpires_unix\x18\x02 \x01(\x03R\vexpiresUnix\"%\n" +
+	"\x06sha256\x18\x01 \x01(\fR\x06sha256\x12\x1f\n" +
+	"\vttl_seconds\x18\x02 \x01(\x03R\n" +
+	"ttlSeconds\"%\n" +
 	"\n" +
 	"Registered\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\"?\n" +

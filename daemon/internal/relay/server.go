@@ -73,17 +73,18 @@ type hostSession struct {
 	cancel  context.CancelFunc
 
 	// deviceTokens: the daemon gives its devices' tokens (Register.device_tokens), and tokens holds them by
-	// hash, with the Unix second each expires after (0: never). Without it, the host-wide token is checked.
+	// hash, with the time each expires on the relay's clock (zero: never). Without it, the host-wide token is
+	// checked.
 	deviceTokens bool
 	tokensMu     sync.Mutex
-	tokens       map[[sha256.Size]byte]int64
+	tokens       map[[sha256.Size]byte]time.Time
 }
 
 // MaxClientTokens caps the client tokens a daemon may give the relay for one host.
 const MaxClientTokens = 1000
 
-func (h *hostSession) setTokens(list []*relayv1.ClientToken) {
-	m := make(map[[sha256.Size]byte]int64, len(list))
+func (h *hostSession) setTokens(list []*relayv1.ClientToken, now time.Time) {
+	m := make(map[[sha256.Size]byte]time.Time, len(list))
 	for i, t := range list {
 		if i == MaxClientTokens {
 			break
@@ -91,7 +92,11 @@ func (h *hostSession) setTokens(list []*relayv1.ClientToken) {
 		if len(t.GetSha256()) != sha256.Size {
 			continue
 		}
-		m[[sha256.Size]byte(t.GetSha256())] = t.GetExpiresUnix()
+		var exp time.Time
+		if ttl := t.GetTtlSeconds(); ttl > 0 {
+			exp = now.Add(time.Duration(ttl) * time.Second)
+		}
+		m[[sha256.Size]byte(t.GetSha256())] = exp
 	}
 	h.tokensMu.Lock()
 	h.tokens = m
@@ -106,7 +111,7 @@ func (h *hostSession) acceptsToken(token string, now time.Time) bool {
 	h.tokensMu.Lock()
 	exp, ok := h.tokens[sum]
 	h.tokensMu.Unlock()
-	return ok && (exp == 0 || now.Unix() <= exp)
+	return ok && (exp.IsZero() || !now.After(exp))
 }
 
 func (h *hostSession) sendFrame(ctx context.Context, f *relayv1.ControlFrame) error {
@@ -391,7 +396,7 @@ func (s *Server) serveDaemonControl(w http.ResponseWriter, r *http.Request) {
 		deviceTokens: reg.DeviceTokens,
 	}
 	if reg.DeviceTokens {
-		sess.setTokens(reg.ClientTokens)
+		sess.setTokens(reg.ClientTokens, s.now())
 	}
 
 	s.mu.Lock()
@@ -448,7 +453,7 @@ func (s *Server) serveDaemonControl(w http.ResponseWriter, r *http.Request) {
 			}
 		case *relayv1.ControlFrame_ClientTokens:
 			if sess.deviceTokens {
-				sess.setTokens(v.ClientTokens.GetTokens())
+				sess.setTokens(v.ClientTokens.GetTokens(), s.now())
 			}
 		}
 	}

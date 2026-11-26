@@ -20,9 +20,9 @@ import (
 // noPin is a well-formed fingerprint no certificate has: a refused client never gets as far as TLS.
 var noPin = "sha256:" + strings.Repeat("0", 64)
 
-func tokenEntry(tok string, expires int64) *relayv1.ClientToken {
+func tokenEntry(tok string, ttl int64) *relayv1.ClientToken {
 	h := TokenHash(tok)
-	return &relayv1.ClientToken{Sha256: h[:], ExpiresUnix: expires}
+	return &relayv1.ClientToken{Sha256: h[:], TtlSeconds: ttl}
 }
 
 // fakeControl registers hostID on the relay by hand and counts the DialBack frames it gets, so a test can tell
@@ -86,8 +86,8 @@ func TestRelayDeviceTokensGateThePreamble(t *testing.T) {
 		HostId: "h-1", DeviceTokens: true,
 		ClientTokens: []*relayv1.ClientToken{
 			tokenEntry(devA, 0), tokenEntry(devB, 0),
-			tokenEntry(pending, time.Now().Add(time.Hour).Unix()),
-			tokenEntry(expired, time.Now().Add(-time.Minute).Unix()),
+			tokenEntry(pending, 3600),
+			tokenEntry(expired, 1),
 		},
 	})
 	waitOnline(t, srv, "h-1")
@@ -99,7 +99,6 @@ func TestRelayDeviceTokensGateThePreamble(t *testing.T) {
 		t.Fatalf("open pairing: %v", err)
 	}
 	for name, tok := range map[string]string{
-		"expired pairing": expired,
 		"host-wide token": ClientToken(secret, "h-1"),
 		"other host's":    DeviceToken(secret, "h-2", "dev-a"),
 		"empty":           "",
@@ -107,6 +106,17 @@ func TestRelayDeviceTokensGateThePreamble(t *testing.T) {
 		if err := srv.authorizeClient("h-1", tok); !errors.Is(err, errBadClientToken) {
 			t.Errorf("%s: got %v, want a refusal", name, err)
 		}
+	}
+
+	// A pairing's lifetime runs on the relay's clock from when the relay got it.
+	srv.mu.Lock()
+	sess := srv.hosts["h-1"]
+	srv.mu.Unlock()
+	if !sess.acceptsToken(expired, time.Now()) || sess.acceptsToken(expired, time.Now().Add(2*time.Second)) {
+		t.Fatal("a 1 s pairing token: want accepted now and refused 2 s later")
+	}
+	if !sess.acceptsToken(pending, time.Now().Add(59*time.Minute)) || !sess.acceptsToken(devA, time.Now().Add(1000*time.Hour)) {
+		t.Fatal("an hour's pairing or a device's token expired early")
 	}
 
 	// Revoking b: the daemon sends the new set, and b is refused at the preamble with no dial-back asked for.
@@ -165,6 +175,7 @@ func TestConnectorPushesClientTokens(t *testing.T) {
 	devB := DeviceToken(secret, "h-1", "dev-b")
 	var mu sync.Mutex
 	current := []string{devA, devB}
+	failFirst := true // the first read fails: the connector must not register with an empty set
 	dir := t.TempDir()
 	tlsCfg, fp, err := tlsutil.LoadOrCreate(filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key"), "h-1")
 	if err != nil {
@@ -173,14 +184,18 @@ func TestConnectorPushesClientTokens(t *testing.T) {
 	conn, err := NewConnector(ConnectorConfig{
 		RelayURL: hs.URL, Secret: secret, HostID: "h-1",
 		HeartbeatInterval: 100 * time.Millisecond, HeartbeatTimeout: time.Second,
-		ClientTokens: func() []*relayv1.ClientToken {
+		ClientTokens: func() ([]*relayv1.ClientToken, error) {
 			mu.Lock()
 			defer mu.Unlock()
+			if failFirst {
+				failFirst = false
+				return nil, errors.New("database is locked")
+			}
 			var out []*relayv1.ClientToken
 			for _, tok := range current {
 				out = append(out, tokenEntry(tok, 0))
 			}
-			return out
+			return out, nil
 		},
 	})
 	if err != nil {

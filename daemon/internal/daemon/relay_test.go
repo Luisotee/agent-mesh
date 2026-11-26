@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -265,13 +266,17 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 // fakeTailnet stands in for the host's Tailscale node: a loopback listener and a canned status, so no test
 // joins a tailnet.
 type fakeTailnet struct {
-	mu     sync.Mutex
+	listenErr error
+	mu        sync.Mutex
 	ln     net.Listener
 	status *v1.TailnetStatusResponse
 	closed chan struct{}
 }
 
 func (f *fakeTailnet) Listen(network, _ string) (net.Listener, error) {
+	if f.listenErr != nil {
+		return nil, f.listenErr
+	}
 	l, err := net.Listen(network, "127.0.0.1:0")
 	f.mu.Lock()
 	f.ln = l
@@ -377,6 +382,38 @@ func TestTailnetServesPinnedTLSAndPairsOverIt(t *testing.T) {
 	case <-tn.closed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("meshd didn't close the tailnet node when it stopped")
+	}
+}
+
+// A node meshd can't serve on says why, and links don't send devices to it.
+func TestTailnetListenFailureIsReported(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), listenErr: errors.New("port in use"),
+		status: &v1.TailnetStatusResponse{State: "Running", Addresses: []string{"100.64.0.9"}}}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn})
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st, err := h.device.Mesh.TailnetStatus(ctx, connect.NewRequest(&v1.TailnetStatusRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(st.Msg.Problems) > 0 {
+			if !strings.Contains(st.Msg.Problems[0], "port in use") || st.Msg.DirectUrl != "" {
+				t.Fatalf("TailnetStatus = %v", st.Msg)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the Listen failure never showed in TailnetStatus")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-fail")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp.Msg.DirectUrl != "" {
+		t.Fatalf("pairing DirectUrl = %q with no tailnet listener", cp.Msg.DirectUrl)
 	}
 }
 

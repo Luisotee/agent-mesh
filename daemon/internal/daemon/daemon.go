@@ -15,12 +15,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	relayv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/relay/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
@@ -130,9 +130,8 @@ type Daemon struct {
 	nextStream uint64
 	bgWG       sync.WaitGroup
 
-	// relayTokensLast is the last set of client tokens given to the relay (relayClientTokens).
-	relayTokensMu   sync.Mutex
-	relayTokensLast []*relayv1.ClientToken
+	// tailnetErr is why meshd isn't serving on the tailnet (Listen or Serve failed), for TailnetStatus.
+	tailnetErr atomic.Pointer[string]
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
@@ -435,7 +434,7 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	defer stopBG()
 	d.runBackground(bg)
 	if d.cfg.Tailnet != nil {
-		d.serveTailnet(bg, tlsSrv, errc)
+		d.serveTailnet(bg, tlsSrv)
 	}
 	if d.relay != nil {
 		go func() { _ = d.relay.Run(bg) }()

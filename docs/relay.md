@@ -55,7 +55,7 @@ Each paired device has a relay token of its own, so the relay refuses a revoked 
 - **The daemon tells the relay which tokens are valid**, by SHA-256 hash (the relay never holds a token):
   - `Register.device_tokens = true` carries the first set in `client_tokens`, atomically with registration.
   - Each change sends a `ClientTokens` frame that replaces the set: a pairing made, redeemed or pruned, a device revoked.
-  - The set holds every device whose token isn't revoked, and every open pairing with its expiry (`ClientToken.expires_unix`), which the relay enforces by itself. At most 1000 entries per host.
+  - The set holds every device whose token isn't revoked, and every open pairing with its remaining lifetime (`ClientToken.ttl_seconds`, relative so the relay's clock needn't match the host's), which the relay enforces by itself. At most 1000 entries per host, open pairings first.
 - **The relay's check:**
   - A host registered with `device_tokens` is reached only by a token in its set (and not expired); anything else gets `ERR auth` / `401`, the host-wide token included.
   - A host registered without it (an older daemon) keeps the host-wide token, `"amr_" + base64url_nopad(HMAC-SHA256(relay_secret, "agentmesh-client-v1:" + host_id))`.
@@ -84,9 +84,9 @@ Each paired device has a relay token of its own, so the relay refuses a revoked 
 - **Flags** (each with an environment twin, for a systemd drop-in):
   - `--tailscale` (`AGENT_MESH_TAILSCALE=1`): join the tailnet.
   - `--tailscale-hostname` (`AGENT_MESH_TAILSCALE_HOSTNAME`, default `mesh-<host name>`, so it doesn't collide with the machine's own Tailscale node).
-  - `--tailscale-port` (default 443: tsnet has its own port space).
+  - `--tailscale-port` (`AGENT_MESH_TAILSCALE_PORT`, default 443: tsnet has its own port space).
   - `--tailscale-control-url` (`AGENT_MESH_TAILSCALE_CONTROL_URL`): a **Headscale** server; empty is Tailscale's.
-  - `--tailscale-auth-key-file` (`AGENT_MESH_TAILSCALE_AUTH_KEY_FILE`, mode `0600`, or `AGENT_MESH_TAILSCALE_AUTH_KEY`): an auth key (Tailscale's admin console, or `headscale preauthkeys create`), used only while the node needs login. meshd drops the variable from its environment after reading it.
+  - `--tailscale-auth-key-file` (`AGENT_MESH_TAILSCALE_AUTH_KEY_FILE`, mode `0600`, or `AGENT_MESH_TAILSCALE_AUTH_KEY`): an auth key (Tailscale's admin console, or `headscale preauthkeys create`), used only while the node needs login. meshd drops the variable from its environment at start, with or without `--tailscale`.
 - **Login:**
   - Without an auth key, the node waits for login. Its URL is in meshd's log (once per URL) and in `mesh tailnet` (`TailnetStatus`), with the node's state, addresses and the direct address links get.
   - Only the host's own device may read it: whoever opens the URL attaches the node to their tailnet.
