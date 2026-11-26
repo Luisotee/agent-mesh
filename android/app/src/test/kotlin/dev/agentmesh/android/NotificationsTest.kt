@@ -18,6 +18,7 @@ import dev.agentmesh.android.notify.Notice
 import dev.agentmesh.android.notify.NoticeActionReceiver
 import dev.agentmesh.android.notify.NoticeKind
 import dev.agentmesh.android.notify.Notifier
+import dev.agentmesh.android.notify.PushPayload
 import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.gen.agentmesh.v1.AgentPhase
@@ -36,7 +37,8 @@ import org.robolectric.annotation.Config
 
 /** The app with no Keystore and a host that records: what a notification's buttons do is checked end to end. */
 class TestApp : MeshApp() {
-    override fun createContainer(): AppContainer = AppContainer(this, Plain, newApi = { _, _ -> NotificationsTest.api })
+    override fun createContainer(): AppContainer =
+        AppContainer(this, Plain, newApi = { _, _ -> NotificationsTest.api }, push = FakePushChannel(), pushStore = MemoryEndpoints())
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -235,5 +237,163 @@ class NotificationsTest {
         val shown = manager.allNotifications.single()
         assertTrue(shown.extras.getString("android.text")!!.endsWith("nothing was sent."))
         assertEquals(emptyList<String>(), api.approved)
+    }
+
+    // ── Push ──
+
+    private fun pushed(seq: Long, kind: String = "plan", agent: String = "w1", daemon: String = "") =
+        PushPayload(v = 1, daemon = daemon, seq = seq, kind = kind, title = "shop-fix sent a plan", body = "Change the typo", agent = agent, tab = "messages", at = 1)
+
+    @Test fun `a push posts the notice with its actions, once even when the live stream brings it too`() {
+        api = RecordingApi()
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t", daemonId = "d1")
+        // Push off: a push the server still held posts nothing.
+        container.onPush(host.id, pushed(6, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        container.prefs.setPush(true)
+        container.onPush(host.id, pushed(7, daemon = "d1"))
+        val n = manager.allNotifications.single()
+        assertEquals("shop-fix sent a plan", n.extras.getString("android.title"))
+        assertEquals(listOf("Approve"), n.actions.map { it.title.toString() })
+        // The same event again (the live stream's copy, or the push service's retry) alerts no second time.
+        app.getSystemService(NotificationManager::class.java).cancelAll()
+        container.notifier.post(host.id, null, Notice(NoticeKind.Plan, "shop-fix sent a plan", "x", "w1", Tab.Messages, seq = 7))
+        container.onPush(host.id, pushed(7, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        // A push from another daemon than this host's, and one for the agent on screen, post nothing.
+        container.onPush(host.id, pushed(8, daemon = "someone-else"))
+        container.viewing.value = host.id to "w1"
+        container.onPush(host.id, pushed(9, daemon = "d1"))
+        assertEquals(0, manager.allNotifications.size)
+        container.viewing.value = null
+        container.onPush(host.id, pushed(0, kind = "test", agent = "", daemon = "d1"))
+        assertEquals("Change the typo", manager.allNotifications.single().extras.getString("android.text"))
+    }
+
+    @Test fun `push registers each host's endpoint on every ready connection, and forgets a removed host`() {
+        api = RecordingApi()
+        val (hostId, rt) = readyHost()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        // Off: an endpoint is kept but nothing is sent.
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        Thread.sleep(100)
+        assertTrue(api.push.isEmpty())
+        // On (through the distributor the user picked): every host registers, and the endpoint reaches the host.
+        val channel = container.push as FakePushChannel
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        var ok: Boolean? = null
+        container.enablePush(activity) { ok = it }
+        assertEquals(true, ok)
+        assertEquals(listOf(hostId), channel.registered.toList())
+        waitFor("RegisterPush") { api.push.toList() == listOf("register https://ntfy.example/upA?up=1") }
+        waitFor("the status") { container.pushRegistrar.status.value[hostId]?.ok == true }
+        // A reconnect registers again (a host that lost it heals).
+        rt.onState(ConnState.Reconnecting(1, 0, "gone"))
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        waitFor("RegisterPush again") { api.push.size == 2 }
+        // A refusal shows on the settings screen.
+        api.failPush = dev.agentmesh.android.net.ApiException(com.connectrpc.Code.INVALID_ARGUMENT, "endpoint must be https")
+        rt.onState(ConnState.Reconnecting(1, 0, "gone"))
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        waitFor("the refusal") { container.pushRegistrar.status.value[hostId]?.ok == false }
+        assertTrue(container.pushRegistrar.status.value[hostId]!!.text.contains("endpoint must be https"))
+        // Removing the host drops its instance at the distributor.
+        container.hosts.remove(hostId)
+        waitFor("the unregister") { hostId in channel.unregistered }
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
+    @Test fun `turning push off tells the host and the distributor`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val channel = container.push as FakePushChannel
+        container.enablePush(org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()) {}
+        container.disablePush()
+        waitFor("UnregisterPush") { "unregister" in api.push && hostId in channel.unregistered }
+        assertEquals(false, container.prefs.push.value)
+    }
+
+    @Test fun `turning push off and on again while a host is slow to answer keeps the new registration`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val channel = container.push as FakePushChannel
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        waitFor("RegisterPush") { "register https://ntfy.example/upA?up=1" in api.push }
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.unregisterGate = gate
+        // Off: the distributor drops the instance at once, whatever the host does.
+        container.disablePush()
+        assertEquals(listOf(hostId), channel.unregistered.toList())
+        assertNull(container.pushRegistrar.status.value[hostId])
+        // On again before the host answered: the new endpoint waits for that call, so the host can't delete it after.
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
+        Thread.sleep(100)
+        assertTrue("register https://ntfy.example/upB?up=1" !in api.push)
+        gate.complete(Unit)
+        waitFor("RegisterPush of the new endpoint") { "register https://ntfy.example/upB?up=1" in api.push }
+        assertEquals(listOf("register https://ntfy.example/upA?up=1", "unregister", "register https://ntfy.example/upB?up=1"), api.push.toList().distinct())
+        assertEquals(listOf(hostId), channel.unregistered.toList())
+        waitFor("the status") { container.pushRegistrar.status.value[hostId]?.ok == true }
+    }
+
+    @Test fun `off, on and off again while a host is slow to answer leaves nothing registered`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        waitFor("RegisterPush") { "register https://ntfy.example/upA?up=1" in api.push }
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.unregisterGate = gate
+        container.disablePush()
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
+        container.disablePush()
+        gate.complete(Unit)
+        waitFor("both UnregisterPush calls") { api.push.count { it == "unregister" } == 2 }
+        Thread.sleep(200)
+        assertTrue(api.push.toList().toString(), "register https://ntfy.example/upB?up=1" !in api.push)
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
+    @Test fun `turning push off while a registration is on its way unregisters after it`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        container.enablePush(activity) {}
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.registerGate = gate
+        container.pushRegistrar.onEndpoint(hostId, dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth"))
+        container.disablePush()
+        gate.complete(Unit)
+        waitFor("UnregisterPush") { "unregister" in api.push }
+        assertEquals(listOf("register https://ntfy.example/upA?up=1", "unregister"), api.push.toList())
+        Thread.sleep(100)
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
+    @Test fun `with push on, a host not connected yet whose endpoint is kept waits for the host`() {
+        api = RecordingApi()
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        waitFor("the runtime") { container.runtimes.value[host.id] != null }
+        container.pushRegistrar.onEndpoint(host.id, dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth"))
+        container.prefs.setPush(true)
+        waitFor("the status") { container.pushRegistrar.status.value[host.id]?.text == "Waiting for the host" }
+    }
+
+    @Test fun `with no distributor installed push stays off`() {
+        api = RecordingApi()
+        val channel = container.push as FakePushChannel
+        channel.installed = emptyList()
+        var ok: Boolean? = null
+        container.enablePush(org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()) { ok = it }
+        assertEquals(false, ok)
+        assertEquals(false, container.prefs.push.value)
     }
 }
