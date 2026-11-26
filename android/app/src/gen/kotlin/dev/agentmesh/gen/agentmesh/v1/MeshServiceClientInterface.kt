@@ -202,4 +202,19 @@ public interface MeshServiceClientInterface {
    *  Register the peers of bin/mesh's peers.json (read only), without their conversations.
    */
   public suspend fun importPeers(request: ImportPeersRequest, headers: Headers = emptyMap()): ResponseMessage<ImportPeersResponse>
+
+  /**
+   *  Spend per agent, kind and phase from session files, plus reviewer verdicts.
+   */
+  public suspend fun getCost(request: GetCostRequest, headers: Headers = emptyMap()): ResponseMessage<GetCostResponse>
+
+  /**
+   *  Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
+   */
+  public suspend fun checkModels(request: CheckModelsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckModelsResponse>
+
+  /**
+   *  Find which run branches with commits conflict with their base or each other, and which workers share files.
+   */
+  public suspend fun checkConflicts(request: CheckConflictsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckConflictsResponse>
 }

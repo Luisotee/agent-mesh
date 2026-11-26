@@ -576,4 +576,49 @@ public class MeshServiceClient(
     ),
   )
 
+
+  /**
+   *  Spend per agent, kind and phase from session files, plus reviewer verdicts.
+   */
+  override suspend fun getCost(request: GetCostRequest, headers: Headers): ResponseMessage<GetCostResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetCost",
+      dev.agentmesh.gen.agentmesh.v1.GetCostRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetCostResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
+   */
+  override suspend fun checkModels(request: CheckModelsRequest, headers: Headers): ResponseMessage<CheckModelsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CheckModels",
+      dev.agentmesh.gen.agentmesh.v1.CheckModelsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Find which run branches with commits conflict with their base or each other, and which workers share files.
+   */
+  override suspend fun checkConflicts(request: CheckConflictsRequest, headers: Headers): ResponseMessage<CheckConflictsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CheckConflicts",
+      dev.agentmesh.gen.agentmesh.v1.CheckConflictsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CheckConflictsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

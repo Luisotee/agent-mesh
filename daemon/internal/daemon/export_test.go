@@ -6,6 +6,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // OnLaunched sets reopen's test seam (nil clears it).
@@ -69,4 +70,11 @@ func OwnAgentForTest(p proc.Info, a *v1.Agent) bool {
 // AdoptCPUHolderForTest exposes adoptCPUHolder for tests.
 func AdoptCPUHolderForTest(d *Daemon, ctx context.Context, a *v1.Agent, pid int, startTicks uint64) {
 	d.adoptCPUHolder(ctx, a, pid, startTicks)
+}
+
+// SeedModelNotice saves a model check, fresh now, with new families no tier names (what ModelNotice then says).
+func (d *Daemon) SeedModelNotice(ctx context.Context, kind string, families ...string) error {
+	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		return saveModelCheckState(tx, modelCheckState{At: d.now().Unix(), New: map[string][]string{kind: families}})
+	})
 }

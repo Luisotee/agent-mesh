@@ -126,6 +126,35 @@ func TestADoneTheRootHasReadIsNotWaitingOnItInTheBrief(t *testing.T) {
 	}
 }
 
+func TestTheBriefCarriesTheModelNoticeToTheRootOnly(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	if err := w.d.SeedModelNotice(ctx, "agy", "xenon"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := asLead.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.Msg.Text, "mesh: new agy models no tier names: xenon") {
+		t.Errorf("the root's brief lacks the model notice:\n%s", b.Msg.Text)
+	}
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	wb, err := w.as(w.token(t, worker.Id)).GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(wb.Msg.Text, "new agy models") {
+		t.Errorf("a worker is told what the root decides:\n%s", wb.Msg.Text)
+	}
+}
+
 func TestTheBriefAfterAResetCarriesWhatTheRootSaidNext(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{})
 	ctx := context.Background()

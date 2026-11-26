@@ -575,3 +575,59 @@ func TestReservePositionalAndUsageRenderer(t *testing.T) {
 		}
 	}
 }
+
+func TestCostModelsAndConflictsRenderers(t *testing.T) {
+	var out bytes.Buffer
+	renderCost(&v1.GetCostResponse{
+		Scope:      "run r1",
+		PricesAsOf: "2026-10-28",
+		Usd:        0.18,
+		Agents: []*v1.AgentCost{
+			{Run: "r1", Name: "repo-fix", Kind: "worker", Calls: 2, Output: 4000, Usd: 0.05, PlanUsd: 0.02, ExecUsd: 0.03, SubUsd: 0.05, Cold: 1, ColdUsd: 0.02},
+		},
+		Kinds: []*v1.KindCost{
+			{Kind: "worker", Sessions: 1, Calls: 2, Usd: 0.05, Share: 100, UsdPerCall: 0.025, OutPerCall: 2000, FirstCtxMedian: 30000, HasFirstCtxMedian: true},
+		},
+		ByModel: []*v1.ModelPhaseCost{
+			{Model: "opus", Phase: "plan", Calls: 1, Usd: 0.02, OutPerCall: 1000},
+		},
+		Verdicts: []*v1.VerdictCostSummary{
+			{Kind: "opencode", Model: "opencode/big-pickle", Tier: "mid", Reviews: 2, Findings: 8, AgreedPct: 38, HasAgreedPct: true, Blocking: 1},
+		},
+		Reviews: &v1.ReviewCostSummary{
+			ReviewedPrs: 1, ReviewersPerPr: 1.0, HasReviewersPerPr: true,
+			ByCli: map[string]float64{"opencode": 1.0},
+		},
+	}, &out)
+	for _, want := range []string{"run r1: $0.18", "repo-fix", "by model and phase:", "review findings, by the root's verdict", "38%", "reviews: 1 PRs, 1.0 reviewers per PR (opencode 1.0)", "root resets: 0"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("renderCost missing %q in:\n%s", want, out.String())
+		}
+	}
+
+	out.Reset()
+	renderModels(&v1.CheckModelsResponse{
+		Kinds: []*v1.KindModels{
+			{Kind: "agy", Listed: []*v1.ModelFamilyEntry{{Family: "neon", InTiers: true}, {Family: "xenon"}}},
+		},
+		Notice: "mesh: new agy models no tier names: xenon.",
+	}, &out)
+	if !strings.Contains(out.String(), "agy: neon (a tier), xenon") || !strings.Contains(out.String(), "xenon.") {
+		t.Errorf("renderModels:\n%s", out.String())
+	}
+
+	out.Reset()
+	renderConflicts(&v1.CheckConflictsResponse{
+		CheckedBranches: 2,
+		Conflicts:       []*v1.BranchConflict{{Repo: "repo", Branch: "mesh/r1/b1", Against: "mesh/r1/b2", Files: []string{"a.txt"}}},
+		Overlaps:        []*v1.BranchConflict{{Repo: "repo", Branch: "mesh/r1/b1", Against: "mesh/r1/b3", Files: []string{"b.txt"}}},
+	}, &out)
+	for _, want := range []string{"mesh/r1/b1", "a.txt", "Note: these workers change the same files", "b.txt"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("renderConflicts missing %q in:\n%s", want, out.String())
+		}
+	}
+	if !hasText("cost") || !hasText("models") || !hasText("conflicts") {
+		t.Error("expected cost, models, conflicts to have text renderers")
+	}
+}

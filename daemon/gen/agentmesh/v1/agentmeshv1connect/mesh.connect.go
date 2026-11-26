@@ -116,6 +116,13 @@ const (
 	MeshServiceRemovePeerProcedure = "/agentmesh.v1.MeshService/RemovePeer"
 	// MeshServiceImportPeersProcedure is the fully-qualified name of the MeshService's ImportPeers RPC.
 	MeshServiceImportPeersProcedure = "/agentmesh.v1.MeshService/ImportPeers"
+	// MeshServiceGetCostProcedure is the fully-qualified name of the MeshService's GetCost RPC.
+	MeshServiceGetCostProcedure = "/agentmesh.v1.MeshService/GetCost"
+	// MeshServiceCheckModelsProcedure is the fully-qualified name of the MeshService's CheckModels RPC.
+	MeshServiceCheckModelsProcedure = "/agentmesh.v1.MeshService/CheckModels"
+	// MeshServiceCheckConflictsProcedure is the fully-qualified name of the MeshService's
+	// CheckConflicts RPC.
+	MeshServiceCheckConflictsProcedure = "/agentmesh.v1.MeshService/CheckConflicts"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -207,6 +214,12 @@ type MeshServiceClient interface {
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
 	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
+	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
+	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
+	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// Find which run branches with commits conflict with their base or each other, and which workers share files.
+	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -442,6 +455,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ImportPeers")),
 			connect.WithClientOptions(opts...),
 		),
+		getCost: connect.NewClient[v1.GetCostRequest, v1.GetCostResponse](
+			httpClient,
+			baseURL+MeshServiceGetCostProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetCost")),
+			connect.WithClientOptions(opts...),
+		),
+		checkModels: connect.NewClient[v1.CheckModelsRequest, v1.CheckModelsResponse](
+			httpClient,
+			baseURL+MeshServiceCheckModelsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
+			connect.WithClientOptions(opts...),
+		),
+		checkConflicts: connect.NewClient[v1.CheckConflictsRequest, v1.CheckConflictsResponse](
+			httpClient,
+			baseURL+MeshServiceCheckConflictsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CheckConflicts")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -484,6 +515,9 @@ type meshServiceClient struct {
 	editPeer        *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
 	removePeer      *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
 	importPeers     *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
+	getCost         *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
+	checkModels     *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	checkConflicts  *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -671,6 +705,21 @@ func (c *meshServiceClient) ImportPeers(ctx context.Context, req *connect.Reques
 	return c.importPeers.CallUnary(ctx, req)
 }
 
+// GetCost calls agentmesh.v1.MeshService.GetCost.
+func (c *meshServiceClient) GetCost(ctx context.Context, req *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error) {
+	return c.getCost.CallUnary(ctx, req)
+}
+
+// CheckModels calls agentmesh.v1.MeshService.CheckModels.
+func (c *meshServiceClient) CheckModels(ctx context.Context, req *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error) {
+	return c.checkModels.CallUnary(ctx, req)
+}
+
+// CheckConflicts calls agentmesh.v1.MeshService.CheckConflicts.
+func (c *meshServiceClient) CheckConflicts(ctx context.Context, req *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
+	return c.checkConflicts.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -760,6 +809,12 @@ type MeshServiceHandler interface {
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
 	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
+	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
+	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
+	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// Find which run branches with commits conflict with their base or each other, and which workers share files.
+	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -991,6 +1046,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ImportPeers")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceGetCostHandler := connect.NewUnaryHandler(
+		MeshServiceGetCostProcedure,
+		svc.GetCost,
+		connect.WithSchema(meshServiceMethods.ByName("GetCost")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCheckModelsHandler := connect.NewUnaryHandler(
+		MeshServiceCheckModelsProcedure,
+		svc.CheckModels,
+		connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCheckConflictsHandler := connect.NewUnaryHandler(
+		MeshServiceCheckConflictsProcedure,
+		svc.CheckConflicts,
+		connect.WithSchema(meshServiceMethods.ByName("CheckConflicts")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -1067,6 +1140,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceRemovePeerHandler.ServeHTTP(w, r)
 		case MeshServiceImportPeersProcedure:
 			meshServiceImportPeersHandler.ServeHTTP(w, r)
+		case MeshServiceGetCostProcedure:
+			meshServiceGetCostHandler.ServeHTTP(w, r)
+		case MeshServiceCheckModelsProcedure:
+			meshServiceCheckModelsHandler.ServeHTTP(w, r)
+		case MeshServiceCheckConflictsProcedure:
+			meshServiceCheckConflictsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1222,4 +1301,16 @@ func (UnimplementedMeshServiceHandler) RemovePeer(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ImportPeers is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetCost is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckModels is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckConflicts is not implemented"))
 }
