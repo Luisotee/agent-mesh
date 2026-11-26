@@ -1,6 +1,11 @@
 {
   "name": "Nord",
   "dark": true,
+  "font": {
+    "sans": "Inter",
+    "mono": "Cascadia Code"
+  },
+  "density": "comfortable",
   "tokens": {
     "background": "#2e3440",
     "foreground": "#eceff4",

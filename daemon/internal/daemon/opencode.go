@@ -52,6 +52,8 @@ type openCodeRuntime struct {
 	polled       map[string]*openCodePollState
 	seenEvidence map[openCodeEvidenceKey]bool
 	freeModels   []string
+	// costs is each listed model's cost class (opencode.CostClasses); nil until a listing was read.
+	costs        map[string]string
 	lastWarmFail time.Time
 	lastWarmErr  string
 }
@@ -131,9 +133,19 @@ func (d *Daemon) warmOpenCodeModels(ctx context.Context, kind string) {
 	}
 	d.rt.openCode.mu.Unlock()
 
-	expanded, err := oc.ExpandChain(ctx, bin, d.opencodeBaseEnv(), []string{opencode.FreeFamily})
+	listing, err := oc.Listing(ctx, bin, d.opencodeBaseEnv())
+	var expanded []string
+	if err == nil {
+		expanded = opencode.FreeModels(listing)
+	} else {
+		err = fmt.Errorf("listing opencode models: %w", err)
+	}
 	d.rt.openCode.mu.Lock()
 	defer d.rt.openCode.mu.Unlock()
+	if err == nil {
+		// What OpenCode reports as each model's cost, for `repos.no_free_models` (freemodels.go).
+		d.rt.openCode.costs = opencode.CostClasses(listing)
+	}
 	if err != nil || len(expanded) == 0 {
 		d.rt.openCode.lastWarmFail = d.nowTime()
 		if err != nil {

@@ -314,11 +314,27 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
 	// both need its conversation id, found before the write (learnSession).
 	actor := auth.ActorFrom(ctx)
-	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "" && req.Msg.To != "parent" {
+	if resumes(req.Msg.Type) && req.Msg.To != "" {
 		r := d.store.Read(ctx)
-		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
-			d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+		var to *v1.Agent
+		var err error
+		if req.Msg.To == "parent" {
+			// The sender's parent, as the write below resolves it.
+			if IsAgent(actor.Class) {
+				if self, serr := d.getAgent(r, actor.Id); serr == nil && self.ParentId != "" {
+					to, err = d.getAgent(r, self.ParentId)
+				}
+			}
+		} else {
+			to, err = d.FindAgent(r, actor, req.Msg.To)
+		}
+		if to != nil && err == nil {
+			// Whatever the message is and whoever it is for (a root too): it may resume or reopen the agent, which
+			// reads OpenCode's model costs for `repos.no_free_models` (checkKept).
 			d.warmOpenCodeModels(ctx, to.Kind)
+			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "parent" && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+				d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+			}
 		}
 	}
 	// A worker's done to its parent carries a footer on what its PR's reviews found; whether the worker has made

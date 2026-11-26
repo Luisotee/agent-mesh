@@ -338,6 +338,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "where `mesh add-peer <url>` clones a project: <dir>/<group>/<repo> (a leading ~ is the daemon's home)"},
 		Leaf{Key: "repos.dir", Type: Strings, Default: []any{},
 			Summary: "folders a bare `--repo <name>` is looked up in, in order: the name must be a repo's own top folder there (a leading ~ is the daemon's home); a repo in the caller's working directory needs no setting"},
+		Leaf{Key: "repos.no_free_models", Type: Strings, Default: []any{},
+			Summary: "top folders of repos whose code must not go to OpenCode's free models (some of their providers keep prompts or train on them): nothing there is started on, switched to or picked as a reviewer on a zero-cost model; a zero-cost model is one OpenCode itself lists at no cost, and one it lists no cost for is refused too; a paid OpenCode model is not held back (absolute folders; a leading ~ is the daemon's home: a relative entry matches nothing). Agents already running keep their model; one stopped is not resumed onto a free model, and a root names its model"},
 		Leaf{Key: "quota_stop", Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Type: Seconds, Default: 300.0,
@@ -447,6 +449,8 @@ func AppLeaves() []Leaf {
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
 			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; phones' pushes follow it too, all but error and limited for now"},
+		{Key: "app.theme", Type: String, Default: "Dracula",
+			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,
 			Summary: "closing the desktop window keeps the app running in the tray (off by default: a desktop with no tray would leave no way back to the window)"},
 	}
