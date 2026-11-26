@@ -144,7 +144,8 @@ func (d *Daemon) Hello(ctx context.Context, req *connect.Request[v1.HelloRequest
 
 // StartRun starts a run.
 func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error) {
-	out := &v1.StartRunResponse{}
+	notice := d.ModelNotice(ctx)
+	out := &v1.StartRunResponse{ModelNotice: notice}
 	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStartRunProcedure, out, func(t *store.Tx) error {
 		title := strings.TrimSpace(req.Msg.Title)
 		if title == "" {

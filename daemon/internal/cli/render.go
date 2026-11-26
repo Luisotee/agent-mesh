@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -21,6 +22,9 @@ var renderers = map[string]struct {
 	"inbox":         {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
 	"settings":      {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
 	"usage":         {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
+	"cost":          {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
+	"models":        {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
+	"conflicts":     {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
 	"tools":         {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
 	"tools-servers": {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
 }
@@ -139,6 +143,246 @@ func renderUsage(m proto.Message, w io.Writer) {
 		}
 	}
 	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota once %d%% of it is used (quota_stop)\n", u.QuotaStop)
+}
+
+func printTable(w io.Writer, headers []string, rows [][]string) {
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = len(h)
+	}
+	for _, r := range rows {
+		for i, c := range r {
+			if len(c) > widths[i] {
+				widths[i] = len(c)
+			}
+		}
+	}
+	writeRow := func(cols []string) {
+		for i, c := range cols {
+			if i > 0 {
+				fmt.Fprint(w, "  ")
+			}
+			if i == len(cols)-1 {
+				fmt.Fprint(w, c)
+			} else {
+				fmt.Fprintf(w, "%-*s", widths[i], c)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+	writeRow(headers)
+	seps := make([]string, len(headers))
+	for i, wid := range widths {
+		seps[i] = strings.Repeat("-", wid)
+	}
+	writeRow(seps)
+	for _, r := range rows {
+		writeRow(r)
+	}
+}
+
+func tokensText(n int64) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	}
+	return fmt.Sprintf("%.0fk", float64(n)/1e3)
+}
+
+func trimRound2(v float64) string {
+	s := fmt.Sprintf("%.2f", v)
+	s = strings.TrimRight(s, "0")
+	if strings.HasSuffix(s, ".") {
+		s += "0"
+	}
+	return s
+}
+
+func renderCost(m proto.Message, w io.Writer) {
+	r := m.(*v1.GetCostResponse)
+	fmt.Fprintf(w, "%s: $%.2f at API prices (%s)\n", r.Scope, r.Usd, r.PricesAsOf)
+	singleRun := strings.HasPrefix(r.Scope, "run ")
+	if len(r.Agents) > 0 {
+		fmt.Fprintln(w)
+		rows := make([][]string, 0, len(r.Agents))
+		for _, a := range r.Agents {
+			agent := a.Name
+			if !singleRun && a.Run != "" {
+				agent = a.Run + ":" + a.Name
+			}
+			cold := ""
+			if a.Cold > 0 {
+				cold = fmt.Sprintf("%d ($%.2f)", a.Cold, a.ColdUsd)
+			}
+			rows = append(rows, []string{
+				agent, a.Kind, fmt.Sprint(a.Calls),
+				tokensText(a.Input), tokensText(a.W1), tokensText(a.W5), tokensText(a.Read), tokensText(a.Output),
+				fmt.Sprintf("%.2f", a.Usd), fmt.Sprintf("%.2f/%.2f", a.PlanUsd, a.ExecUsd),
+				fmt.Sprintf("%.2f", a.SubUsd), cold,
+			})
+		}
+		printTable(w, []string{"agent", "kind", "calls", "input", "w1", "w5", "read", "output", "$", "plan/exec", "sub $", "cold"}, rows)
+	}
+	if len(r.Kinds) > 0 {
+		fmt.Fprintln(w)
+		rows := make([][]string, 0, len(r.Kinds))
+		for _, k := range r.Kinds {
+			prefix := ""
+			if k.HasFirstCtxMedian {
+				prefix = tokensText(k.FirstCtxMedian)
+			}
+			cold := ""
+			if k.Cold > 0 {
+				cold = fmt.Sprintf("%d ($%.2f)", k.Cold, k.ColdUsd)
+			}
+			rows = append(rows, []string{
+				k.Kind, fmt.Sprint(k.Sessions), fmt.Sprint(k.Calls),
+				fmt.Sprintf("%.2f", k.Usd), fmt.Sprintf("%.1f", k.Share), fmt.Sprintf("%.3f", k.UsdPerCall),
+				tokensText(k.CtxPerCall), fmt.Sprint(k.OutPerCall), fmt.Sprintf("%.1f", k.Write_5MShare),
+				prefix, cold,
+			})
+		}
+		printTable(w, []string{"kind", "sessions", "calls", "$", "%", "$/call", "ctx/call", "out/call", "5m %", "prefix", "cold"}, rows)
+	}
+	if len(r.TokenKinds) > 0 {
+		hasUSD := false
+		for _, tk := range r.TokenKinds {
+			if tk.Usd > 0 {
+				hasUSD = true
+				break
+			}
+		}
+		fmt.Fprintln(w, "\nagy & OpenCode (tokens):")
+		headers := []string{"kind", "sessions", "calls", "input", "read", "output"}
+		if hasUSD {
+			headers = append(headers, "$")
+		}
+		rows := make([][]string, 0, len(r.TokenKinds))
+		for _, tk := range r.TokenKinds {
+			row := []string{tk.Kind, fmt.Sprint(tk.Sessions), fmt.Sprint(tk.Calls), tokensText(tk.Input), tokensText(tk.Read), tokensText(tk.Output)}
+			if hasUSD {
+				row = append(row, fmt.Sprintf("%.2f", tk.Usd))
+			}
+			rows = append(rows, row)
+		}
+		printTable(w, headers, rows)
+	}
+	if len(r.ByModel) > 0 {
+		fmt.Fprintln(w, "\nby model and phase:")
+		rows := make([][]string, 0, len(r.ByModel))
+		for _, bm := range r.ByModel {
+			phase := bm.Phase
+			if phase == "" {
+				phase = "-"
+			}
+			rows = append(rows, []string{bm.Model, phase, fmt.Sprint(bm.Calls), fmt.Sprintf("%.2f", bm.Usd), tokensText(bm.CtxPerCall), fmt.Sprint(bm.OutPerCall)})
+		}
+		printTable(w, []string{"model", "phase", "calls", "$", "ctx/call", "out/call"}, rows)
+	}
+	if len(r.TokensByModel) > 0 {
+		hasUSD := false
+		for _, tm := range r.TokensByModel {
+			if tm.Usd > 0 {
+				hasUSD = true
+				break
+			}
+		}
+		fmt.Fprintln(w, "\nagy and OpenCode by model and phase (tokens):")
+		headers := []string{"model", "phase", "calls", "input", "read", "output"}
+		if hasUSD {
+			headers = append(headers, "$")
+		}
+		rows := make([][]string, 0, len(r.TokensByModel))
+		for _, tm := range r.TokensByModel {
+			phase := tm.Phase
+			if phase == "" {
+				phase = "-"
+			}
+			row := []string{tm.Model, phase, fmt.Sprint(tm.Calls), tokensText(tm.Input), tokensText(tm.Read), tokensText(tm.Output)}
+			if hasUSD {
+				row = append(row, fmt.Sprintf("%.2f", tm.Usd))
+			}
+			rows = append(rows, row)
+		}
+		printTable(w, headers, rows)
+	}
+	if len(r.Verdicts) > 0 {
+		fmt.Fprintln(w, "\nreview findings, by the root's verdict (`mesh verdict`):")
+		rows := make([][]string, 0, len(r.Verdicts))
+		for _, v := range r.Verdicts {
+			agreed := ""
+			if v.HasAgreedPct {
+				agreed = fmt.Sprintf("%d%%", v.AgreedPct)
+			}
+			rows = append(rows, []string{v.Kind, v.Model, v.Tier, fmt.Sprint(v.Reviews), fmt.Sprint(v.Findings), agreed, fmt.Sprint(v.Blocking)})
+		}
+		printTable(w, []string{"kind", "model", "tier", "reviews", "findings", "agreed", "blocking"}, rows)
+	}
+	if rev := r.Reviews; rev != nil && (rev.ReviewedPrs > 0 || rev.Prs > 0) {
+		fmt.Fprintln(w)
+		if rev.ReviewedPrs > 0 {
+			clis := make([]string, 0, len(rev.ByCli))
+			for k := range rev.ByCli {
+				clis = append(clis, k)
+			}
+			sort.Strings(clis)
+			parts := make([]string, 0, len(clis))
+			for _, k := range clis {
+				parts = append(parts, fmt.Sprintf("%s %s", k, trimRound2(rev.ByCli[k])))
+			}
+			fmt.Fprintf(w, "reviews: %d PRs, %s reviewers per PR (%s)\n", rev.ReviewedPrs, trimRound2(rev.ReviewersPerPr), strings.Join(parts, ", "))
+		}
+		if rev.Prs > 0 {
+			fmt.Fprintf(w, "Claude reviews: %d PRs, $%.2f ($%.2f per PR)\n", rev.Prs, rev.Usd, rev.UsdPerPr)
+		}
+	}
+	fmt.Fprintf(w, "root resets: %d\n", r.Resets)
+}
+
+func renderModels(m proto.Message, w io.Writer) {
+	r := m.(*v1.CheckModelsResponse)
+	for _, k := range r.Kinds {
+		if len(k.Listed) == 0 {
+			continue
+		}
+		parts := make([]string, 0, len(k.Listed))
+		for _, e := range k.Listed {
+			if e.InTiers {
+				parts = append(parts, e.Family+" (a tier)")
+			} else {
+				parts = append(parts, e.Family)
+			}
+		}
+		fmt.Fprintf(w, "%s: %s\n", k.Kind, strings.Join(parts, ", "))
+	}
+	if r.Notice != "" {
+		fmt.Fprintln(w, r.Notice)
+	} else {
+		fmt.Fprintln(w, "mesh: nothing new or retired since the tiers were set")
+	}
+}
+
+func renderConflicts(m proto.Message, w io.Writer) {
+	r := m.(*v1.CheckConflictsResponse)
+	for _, warn := range r.Warnings {
+		fmt.Fprintln(w, warn)
+	}
+	if len(r.Conflicts) > 0 {
+		rows := make([][]string, 0, len(r.Conflicts))
+		for _, c := range r.Conflicts {
+			rows = append(rows, []string{c.Repo, c.Branch, c.Against, strings.Join(c.Files, " ")})
+		}
+		printTable(w, []string{"repo", "branch", "against", "files"}, rows)
+	} else {
+		fmt.Fprintf(w, "No conflicts among %d branch(es) with commits.\n", r.CheckedBranches)
+	}
+	if len(r.Overlaps) > 0 {
+		fmt.Fprintln(w, "\nNote: these workers change the same files (committed or not); nothing to do now; after a merge, the root has each affected worker rebase:")
+		rows := make([][]string, 0, len(r.Overlaps))
+		for _, o := range r.Overlaps {
+			rows = append(rows, []string{o.Repo, o.Branch, o.Against, strings.Join(o.Files, " ")})
+		}
+		printTable(w, []string{"repo", "branch", "against", "files"}, rows)
+	}
 }
 
 func renderTools(m proto.Message, w io.Writer) {
