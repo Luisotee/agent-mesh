@@ -20,6 +20,7 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -61,16 +62,21 @@ func (d *Daemon) noteLimit(tx *store.Tx, a *v1.Agent, rl *adapterv1.RateLimited,
 }
 
 // firstFree is the first model of a chain with quota left (not held in SQLite and not under agy's reserve); with
-// every one held or spent, the one freed first (or with the most quota left).
+// every one held or spent, the one freed first (or with the most quota left). Returns "" when no launchable
+// model is in `chain` (never the literal unexpanded `free` family).
 func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) string {
-	now := d.now()
-	best, bestAt := chain[0], time.Time{}
+	now := d.nowTime()
+	var best string
+	var bestAt time.Time
 	var agySpent *struct {
 		left  int
 		model string
 	}
 	stop := d.quotaStop(r)
-	for i, m := range chain {
+	for _, m := range chain {
+		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
+			continue
+		}
 		until, _, err := r.ModelHold(kind, m, now)
 		if err != nil {
 			continue
@@ -89,7 +95,7 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 			}
 			return m
 		}
-		if i == 0 || until.Before(bestAt) {
+		if best == "" || until.Before(bestAt) {
 			best, bestAt = m, until
 		}
 	}
@@ -99,11 +105,28 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 	return best
 }
 
+// soonestHold returns the earliest active hold expiry among models in `chain`, or zero if none are held.
+func (d *Daemon) soonestHold(r store.Reader, kind string, chain []string) time.Time {
+	now := d.now()
+	var soonest time.Time
+	for _, m := range chain {
+		if until, _, err := r.ModelHold(kind, m, now); err == nil && !until.IsZero() {
+			if soonest.IsZero() || until.Before(soonest) {
+				soonest = until
+			}
+		}
+	}
+	return soonest
+}
+
 // nextFree is the first model after position i of a chain with quota left (not held and not under agy's reserve), or "".
 func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i int) string {
 	now := d.now()
 	stop := d.quotaStop(r)
 	for _, m := range chain[i+1:] {
+		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
+			continue
+		}
 		until, _, err := r.ModelHold(kind, m, now)
 		if err != nil || !until.IsZero() {
 			continue
@@ -141,10 +164,15 @@ func (d *Daemon) limitPass(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	warmedOpenCode := false
 	for _, a := range agents {
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED || a.Role == v1.AgentRole_AGENT_ROLE_ROOT ||
 			a.PendingReopen != nil || a.SessionId == "" {
 			continue
+		}
+		if a.Kind == opencode.Kind && !warmedOpenCode {
+			d.warmOpenCodeModels(ctx, opencode.Kind)
+			warmedOpenCode = true
 		}
 		if err := d.settleLimit(ctx, a.Id, auto); err != nil && ctx.Err() == nil {
 			d.log.Warn("limit pass", "agent", a.Name, "err", err)
@@ -246,11 +274,18 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 	if err != nil {
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
+	chain = d.expandChain(a.Kind, chain)
+	if len(chain) == 0 {
+		return "", nil
+	}
 	if effort == "" {
 		effort = tierEffort
 	}
 	i := index(chain, model)
 	if i < 0 {
+		if a.Kind == opencode.Kind && len(chain) > 0 {
+			return d.nextFree(r, a.Kind, effort, chain, -1), nil
+		}
 		return "", nil
 	}
 	return d.nextFree(r, a.Kind, effort, chain, i), nil

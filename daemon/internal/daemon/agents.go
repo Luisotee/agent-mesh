@@ -27,6 +27,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -55,6 +56,9 @@ type AgentConfig struct {
 	Share string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.
 	Binaries map[string]string
+	// LookPath resolves a CLI binary name when Binaries has no entry for its kind; nil defaults to searching
+	// the agent's PATH then exec.LookPath. Tests set it so absent Binaries entries never pick up host CLIs.
+	LookPath func(name string) (string, bool)
 	// Adapters are the CLI adapters; nil means the built-ins.
 	Adapters []adapter.Adapter
 	// Worktrees is where agents' worktrees go; empty means <state>/worktrees.
@@ -111,6 +115,10 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "AWS_PROFILE", "AWS_REGION",
 	"AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
+// Provider API keys passed only to OpenCode agents whose model isn't an `opencode/*` free/built-in model,
+// so read-only free reviewers of an untrusted PR never receive third-party provider secrets.
+var opencodeInheritedEnv = []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"}
+
 type ticket struct {
 	agentID    string
 	terminalID string
@@ -136,7 +144,8 @@ type runtime struct {
 	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
 	guard       guard
 	cpus        cpuTracker
-	usage       usageState // usage cache / rate_limits (usage.go)
+	usage       usageState      // usage cache / rate_limits (usage.go)
+	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -156,7 +165,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		cfg.ReadySettle = 1 * time.Second
 	}
 	if cfg.Adapters == nil {
-		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New()}
+		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New(), opencode.New()}
 	}
 	reg, err := adapter.NewRegistry(context.Background(), cfg.Adapters...)
 	if err != nil {
@@ -382,6 +391,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	delete(d.rt.introduced, terminalID)
 	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
+	d.clearOpenCodeTerminal(terminalID)
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		err = nil // the reopen acknowledged it first
@@ -405,7 +415,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -413,6 +423,13 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		for {
 			d.drainSpool(ctx)
 			d.settleStartingAgents(ctx)
+			if pollingOpenCode.CompareAndSwap(false, true) {
+				// Off this loop: readScreen waits up to 3 s per agent, and the spool and the doorbells must not.
+				go func() {
+					defer pollingOpenCode.Store(false)
+					d.pollOpenCode(ctx)
+				}()
+			}
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
@@ -584,6 +601,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	if err := tx.PutAgent(a); err != nil {
 		return err
 	}
+	if before.State == v1.AgentState_AGENT_STATE_LIMITED && s.State != v1.AgentState_AGENT_STATE_LIMITED {
+		d.clearOpenCodeEvidence(a.Id)
+	}
 	// The detail alone (the tool now running) changes on every tool call: kept on the agent, not logged.
 	if s.State == before.State && s.NeedsInput == before.NeedsInput {
 		return nil
@@ -708,6 +728,13 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 			env[k] = v
 		}
 	}
+	if a.Kind == opencode.Kind && !strings.HasPrefix(a.Model, "opencode/") {
+		for _, k := range opencodeInheritedEnv {
+			if v, ok := os.LookupEnv(k); ok {
+				env[k] = v
+			}
+		}
+	}
 	env["TERM"], env["COLORTERM"] = "xterm-256color", "truecolor"
 	env[client.TokenEnv], env[client.StateEnv] = token, d.paths.Dir
 	env["AGENT_MESH_AGENT"], env["AGENT_MESH_RUN"] = a.Id, a.RunId
@@ -797,6 +824,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if role != v1.AgentRole_AGENT_ROLE_ROOT {
 		d.warmUsage(ctx, r, kind, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
+	d.warmOpenCodeModels(ctx, kind)
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
@@ -933,8 +961,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return err
 		}
 		if strings.TrimSpace(m.Task) != "" {
+			task := withOpenCodeBodyNote(kind, m.Task)
 			msg := &v1.Message{Id: ids.New("m", 10), RunId: runID, From: tx.Actor, ToId: agent.Id, ToName: name,
-				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: m.Task, CreatedAt: timestamppb.New(tx.Now())}
+				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task, CreatedAt: timestamppb.New(tx.Now())}
 			if err := tx.PutMessage(msg); err != nil {
 				return err
 			}

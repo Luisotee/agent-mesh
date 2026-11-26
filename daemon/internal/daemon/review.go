@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -108,7 +109,7 @@ func reviewTask(s reviewSpec) string {
 			fmt.Fprintf(&b, codeReviewOwn, head)
 		}
 	}
-	return b.String()
+	return withOpenCodeBodyNote(s.kind, b.String())
 }
 
 var nonWord = regexp.MustCompile(`[^a-z0-9]+`)
@@ -178,10 +179,54 @@ func (d *Daemon) settingInt(r store.Reader, key string) (int, error) {
 	return int(f), err
 }
 
-// installed reports whether a kind has an adapter here.
+// installed reports whether a kind has an adapter here (and for OpenCode, a runnable binary).
 func (d *Daemon) installed(kind string) bool {
-	_, err := d.rt.adapters.Get(kind)
-	return err == nil
+	if _, err := d.rt.adapters.Get(kind); err != nil {
+		return false
+	}
+	if kind == opencode.Kind {
+		_, ok := d.opencodeBinary()
+		return ok
+	}
+	return true
+}
+
+func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
+	if !d.installed(opencode.Kind) {
+		return false, ""
+	}
+	now := d.now()
+	if allHeld, _, err := r.ModelHold(opencode.Kind, holdAll, now); err == nil && !allHeld.IsZero() {
+		return false, fmt.Sprintf("opencode is at its limit until %s", allHeld.UTC().Format(time.RFC3339))
+	}
+	if tier == "" {
+		return true, ""
+	}
+	chain, _, err := d.tierChain(r, opencode.Kind, tier)
+	if err != nil {
+		return true, ""
+	}
+	chain = d.expandChain(opencode.Kind, chain)
+	if len(chain) == 0 {
+		return false, d.openCodeNoFreeError()
+	}
+	var soonest time.Time
+	for _, m := range chain {
+		if m == opencode.FreeFamily {
+			continue
+		}
+		if held, _, err := r.ModelHold(opencode.Kind, m, now); err == nil && !held.IsZero() {
+			if soonest.IsZero() || held.Before(soonest) {
+				soonest = held
+			}
+			continue
+		}
+		return true, ""
+	}
+	if !soonest.IsZero() {
+		return false, fmt.Sprintf("all opencode %s models are held until %s", tier, soonest.UTC().Format(time.RFC3339))
+	}
+	return true, ""
 }
 
 // prAuthorKind is the CLI kind of the agent that wrote the PR: the newest agent on the host whose branch is
@@ -207,7 +252,7 @@ func prAuthorKind(r store.Reader, top, headRef string) string {
 // otherwise a comma list. A re-review asks the kinds of the last round again, except those in
 // `review.re_review.skip` (a size's `keep` list brings one back). It also returns what was left out, one
 // line each.
-func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlier []string) (kinds, notes []string, err error) {
+func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, earlier []string) (kinds, notes []string, err error) {
 	key := sizeKey(size)
 	has := func(l []string, k string) bool {
 		for _, x := range l {
@@ -236,19 +281,33 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 			// The author's kind last, whatever the slot lists first.
 			sort.SliceStable(chain, func(a, b int) bool { return chain[a] != author && chain[b] == author })
 			picked := false
-			var missing []string
+			var missing, held []string
 			for _, k := range chain {
 				if !d.installed(k) {
 					missing = append(missing, k)
-				} else if !has(kinds, k) && !has(left, k) {
+					continue
+				}
+				if k == opencode.Kind {
+					if ok, why := d.openCodeAvailable(r, tier); !ok {
+						if why != "" {
+							held = append(held, why)
+						}
+						continue
+					}
+				}
+				if !has(kinds, k) && !has(left, k) {
 					kinds, picked = append(kinds, k), true
 					if len(missing) > 0 {
 						notes = append(notes, fmt.Sprintf("%s is not installed here: slot %d takes %s", strings.Join(missing, ", "), i+1, k))
+					}
+					for _, h := range held {
+						notes = append(notes, fmt.Sprintf("%s: slot %d takes %s", h, i+1, k))
 					}
 					break
 				}
 			}
 			if !picked {
+				notes = append(notes, held...)
 				notes = append(notes, fmt.Sprintf("slot %d (%s): no kind of it is installed or free: no reviewer for it", i+1, strings.Join(chain, ", ")))
 			}
 		}
@@ -257,6 +316,17 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 	switch {
 	case mode == "all":
 		for _, k := range d.rt.adapters.Kinds() {
+			if !d.installed(k) {
+				continue
+			}
+			if k == opencode.Kind {
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+			}
 			add(k)
 		}
 	case mode != "auto" && mode != "":
@@ -266,6 +336,14 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 			case k == "":
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
+			case k == opencode.Kind:
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+				add(k)
 			default:
 				add(k)
 			}
@@ -285,6 +363,14 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 				notes = append(notes, fmt.Sprintf("%s reviewed it once and is not asked again (review.re_review.skip)", k))
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
+			case k == opencode.Kind:
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+				add(k)
 			default:
 				add(k)
 			}
