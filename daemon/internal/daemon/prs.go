@@ -260,14 +260,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
 			delete(prev, prKey(p.Url))
-			if o != nil && o.State == p.State && o.Checks == p.Checks && o.Draft == p.Draft && !o.Stale {
-				// Nothing changed: the row is rewritten only to move its read time on.
-				if err := tx.PutAgentPR(p); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := tx.PutAgentPR(p); err != nil {
+			if err := tx.PutAgentPR(p); err != nil { // also moves its read time on
 				return err
 			}
 			if o == nil || o.State != p.State || o.Checks != p.Checks {
