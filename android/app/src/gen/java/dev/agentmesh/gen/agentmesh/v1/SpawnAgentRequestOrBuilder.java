@@ -297,4 +297,24 @@ public interface SpawnAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMcpBytes(int index);
+
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  java.lang.String getReviews();
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  com.google.protobuf.ByteString
+      getReviewsBytes();
 }

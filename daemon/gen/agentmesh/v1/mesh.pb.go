@@ -463,7 +463,9 @@ type SpawnAgentRequest struct {
 	// Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
 	// such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
 	// (else every server loads already).
-	Mcp           []string `protobuf:"bytes,14,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	Mcp []string `protobuf:"bytes,14,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	// Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+	Reviews       string `protobuf:"bytes,15,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -594,6 +596,13 @@ func (x *SpawnAgentRequest) GetMcp() []string {
 		return x.Mcp
 	}
 	return nil
+}
+
+func (x *SpawnAgentRequest) GetReviews() string {
+	if x != nil {
+		return x.Reviews
+	}
+	return ""
 }
 
 type SpawnAgentResponse struct {
@@ -2752,7 +2761,9 @@ type ApproveAgentRequest struct {
 	// Added to the "approved" answer.
 	Body string `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
 	// Why this tier, recorded on the reopen.
-	Why           string `protobuf:"bytes,8,opt,name=why,proto3" json:"why,omitempty"`
+	Why string `protobuf:"bytes,8,opt,name=why,proto3" json:"why,omitempty"`
+	// Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+	Reviews       string `protobuf:"bytes,9,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2839,6 +2850,13 @@ func (x *ApproveAgentRequest) GetBody() string {
 func (x *ApproveAgentRequest) GetWhy() string {
 	if x != nil {
 		return x.Why
+	}
+	return ""
+}
+
+func (x *ApproveAgentRequest) GetReviews() string {
+	if x != nil {
+		return x.Reviews
 	}
 	return ""
 }
@@ -5006,7 +5024,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x0fListRunsRequest\x12\x10\n" +
 	"\x03all\x18\x01 \x01(\bR\x03all\"9\n" +
 	"\x10ListRunsResponse\x12%\n" +
-	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\xf9\x02\n" +
+	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\x93\x03\n" +
 	"\x11SpawnAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1c\n" +
@@ -5022,7 +5040,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04tier\x18\v \x01(\tR\x04tier\x12\x12\n" +
 	"\x04plan\x18\f \x01(\bR\x04plan\x12\x1b\n" +
 	"\texec_tier\x18\r \x01(\tR\bexecTier\x12\x10\n" +
-	"\x03mcp\x18\x0e \x03(\tR\x03mcp\"?\n" +
+	"\x03mcp\x18\x0e \x03(\tR\x03mcp\x12\x18\n" +
+	"\areviews\x18\x0f \x01(\tR\areviews\"?\n" +
 	"\x12SpawnAgentResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"*\n" +
 	"\x11ListAgentsRequest\x12\x15\n" +
@@ -5149,7 +5168,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x129\n" +
 	"\bimported\x18\x02 \x03(\v2\x1d.agentmesh.v1.ImportedSettingR\bimported\x12\x18\n" +
 	"\askipped\x18\x03 \x03(\tR\askipped\x12\x17\n" +
-	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xe1\x01\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xfb\x01\n" +
 	"\x13ApproveAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x12\n" +
@@ -5159,7 +5178,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\n" +
 	"keep_model\x18\x06 \x01(\bR\tkeepModel\x12\x12\n" +
 	"\x04body\x18\a \x01(\tR\x04body\x12\x10\n" +
-	"\x03why\x18\b \x01(\tR\x03why\"\xa0\x01\n" +
+	"\x03why\x18\b \x01(\tR\x03why\x12\x18\n" +
+	"\areviews\x18\t \x01(\tR\areviews\"\xa0\x01\n" +
 	"\x14ApproveAgentResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\x12/\n" +
 	"\amessage\x18\x02 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12,\n" +
@@ -5326,7 +5346,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x18WAITING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11WAITING_KIND_PLAN\x10\x01\x12\x19\n" +
 	"\x15WAITING_KIND_QUESTION\x10\x02\x12\x16\n" +
-	"\x12WAITING_KIND_INPUT\x10\x032\xe2A\n" +
+	"\x12WAITING_KIND_INPUT\x10\x032\xe3A\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -5404,9 +5424,9 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"SetReserve\x12\x1f.agentmesh.v1.SetReserveRequest\x1a .agentmesh.v1.SetReserveResponse\"Q\x8a\xb5\x18M\n" +
 	"\x02\x01\x05\x10\x01\x1a\areserve\"<Let a run past the quota reserve (off) or hold it to it (on)\x12\xb3\x01\n" +
 	"\x03Ask\x12\x18.agentmesh.v1.AskRequest\x1a\x19.agentmesh.v1.AskResponse\"w\x8a\xb5\x18s\n" +
-	"\x02\x01\x02\x10\x01\x1a\x03ask\"fAsk a question or have a PR reviewed (a round of reviewers is collected into one file and one message)\x12\xb2\x01\n" +
-	"\rRecordVerdict\x12\".agentmesh.v1.RecordVerdictRequest\x1a#.agentmesh.v1.RecordVerdictResponse\"X\x8a\xb5\x18T\n" +
-	"\x02\x01\x05\x10\x01\x1a\averdict\"CRecord your verdict on a reviewer's findings of a PR's latest round\x12\x98\x01\n" +
+	"\x02\x01\x02\x10\x01\x1a\x03ask\"fAsk a question or have a PR reviewed (a round of reviewers is collected into one file and one message)\x12\xb3\x01\n" +
+	"\rRecordVerdict\x12\".agentmesh.v1.RecordVerdictRequest\x1a#.agentmesh.v1.RecordVerdictResponse\"Y\x8a\xb5\x18U\n" +
+	"\x03\x01\x02\x05\x10\x01\x1a\averdict\"CRecord your verdict on a reviewer's findings of a PR's latest round\x12\x98\x01\n" +
 	"\bListAsks\x12\x1d.agentmesh.v1.ListAsksRequest\x1a\x1e.agentmesh.v1.ListAsksResponse\"M\x8a\xb5\x18I\n" +
 	"\x04\x01\x02\x05\x06\x1a\x04asks\";List the asks and review rounds of a run, with who answered\x12\xb5\x01\n" +
 	"\tListPeers\x12\x1e.agentmesh.v1.ListPeersRequest\x1a\x1f.agentmesh.v1.ListPeersResponse\"g\x8a\xb5\x18c\n" +

@@ -126,4 +126,24 @@ public interface ApproveAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWhyBytes();
+
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  java.lang.String getReviews();
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  com.google.protobuf.ByteString
+      getReviewsBytes();
 }
