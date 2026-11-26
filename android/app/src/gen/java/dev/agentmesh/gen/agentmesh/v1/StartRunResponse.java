@@ -15,6 +15,7 @@ public  final class StartRunResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.StartRunResponse)
     StartRunResponseOrBuilder {
   private StartRunResponse() {
+    modelNotice_ = "";
   }
   private int bitField0_;
   public static final int RUN_FIELD_NUMBER = 1;
@@ -62,6 +63,73 @@ public  final class StartRunResponse extends
   private void clearRun() {
     run_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int MODEL_NOTICE_FIELD_NUMBER = 2;
+  private java.lang.String modelNotice_;
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @return The modelNotice.
+   */
+  @java.lang.Override
+  public java.lang.String getModelNotice() {
+    return modelNotice_;
+  }
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @return The bytes for modelNotice.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getModelNoticeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(modelNotice_);
+  }
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @param value The modelNotice to set.
+   */
+  private void setModelNotice(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    modelNotice_ = value;
+  }
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   */
+  private void clearModelNotice() {
+
+    modelNotice_ = getDefaultInstance().getModelNotice();
+  }
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @param value The bytes for modelNotice to set.
+   */
+  private void setModelNoticeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    modelNotice_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.StartRunResponse parseFrom(
@@ -208,6 +276,75 @@ public  final class StartRunResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+     * </pre>
+     *
+     * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+     * @return The modelNotice.
+     */
+    @java.lang.Override
+    public java.lang.String getModelNotice() {
+      return instance.getModelNotice();
+    }
+    /**
+     * <pre>
+     * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+     * </pre>
+     *
+     * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+     * @return The bytes for modelNotice.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getModelNoticeBytes() {
+      return instance.getModelNoticeBytes();
+    }
+    /**
+     * <pre>
+     * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+     * </pre>
+     *
+     * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+     * @param value The modelNotice to set.
+     * @return This builder for chaining.
+     */
+    public Builder setModelNotice(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setModelNotice(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+     * </pre>
+     *
+     * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearModelNotice() {
+      copyOnWrite();
+      instance.clearModelNotice();
+      return this;
+    }
+    /**
+     * <pre>
+     * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+     * </pre>
+     *
+     * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+     * @param value The bytes for modelNotice to set.
+     * @return This builder for chaining.
+     */
+    public Builder setModelNoticeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setModelNoticeBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.StartRunResponse)
   }
   @java.lang.Override
@@ -226,9 +363,11 @@ public  final class StartRunResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "run_",
+            "modelNotice_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
