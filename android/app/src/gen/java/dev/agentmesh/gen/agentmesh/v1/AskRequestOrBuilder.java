@@ -45,19 +45,19 @@ public interface AskRequestOrBuilder extends
 
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The repo.
    */
   java.lang.String getRepo();
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The bytes for repo.
    */
   com.google.protobuf.ByteString

@@ -154,10 +154,10 @@ public  final class AskRequest extends
   private java.lang.String repo_;
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The repo.
    */
   @java.lang.Override
@@ -166,10 +166,10 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The bytes for repo.
    */
   @java.lang.Override
@@ -179,10 +179,10 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @param value The repo to set.
    */
   private void setRepo(
@@ -193,10 +193,10 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    */
   private void clearRepo() {
 
@@ -204,10 +204,10 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The git repository a fresh asker or reviewer works in.
+   * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @param value The bytes for repo to set.
    */
   private void setRepoBytes(
@@ -1329,10 +1329,10 @@ public  final class AskRequest extends
 
     /**
      * <pre>
-     * The git repository a fresh asker or reviewer works in.
+     * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return The repo.
      */
     @java.lang.Override
@@ -1341,10 +1341,10 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The git repository a fresh asker or reviewer works in.
+     * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return The bytes for repo.
      */
     @java.lang.Override
@@ -1354,10 +1354,10 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The git repository a fresh asker or reviewer works in.
+     * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @param value The repo to set.
      * @return This builder for chaining.
      */
@@ -1369,10 +1369,10 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The git repository a fresh asker or reviewer works in.
+     * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearRepo() {
@@ -1382,10 +1382,10 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The git repository a fresh asker or reviewer works in.
+     * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @param value The bytes for repo to set.
      * @return This builder for chaining.
      */

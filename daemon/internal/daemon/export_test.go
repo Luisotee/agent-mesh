@@ -103,6 +103,9 @@ func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
 	d.rt.term.API = &flakyTerm{d.rt.term.API, fail}
 }
 
+// RepoTop is repoTop for the tests.
+func (d *Daemon) RepoTop(ctx context.Context, arg string) (string, error) { return d.repoTop(ctx, arg) }
+
 // ChecksWord exposes checksWord.
 func ChecksWord(rollup []map[string]any) string { return checksWord(rollup) }
 

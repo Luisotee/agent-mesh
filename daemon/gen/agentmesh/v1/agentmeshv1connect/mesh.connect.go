@@ -75,6 +75,9 @@ const (
 	MeshServiceListSettingsProcedure = "/agentmesh.v1.MeshService/ListSettings"
 	// MeshServiceSetSettingProcedure is the fully-qualified name of the MeshService's SetSetting RPC.
 	MeshServiceSetSettingProcedure = "/agentmesh.v1.MeshService/SetSetting"
+	// MeshServiceImportSettingsProcedure is the fully-qualified name of the MeshService's
+	// ImportSettings RPC.
+	MeshServiceImportSettingsProcedure = "/agentmesh.v1.MeshService/ImportSettings"
 	// MeshServiceResetSettingProcedure is the fully-qualified name of the MeshService's ResetSetting
 	// RPC.
 	MeshServiceResetSettingProcedure = "/agentmesh.v1.MeshService/ResetSetting"
@@ -123,6 +126,9 @@ const (
 	MeshServiceGetCostProcedure = "/agentmesh.v1.MeshService/GetCost"
 	// MeshServiceCheckModelsProcedure is the fully-qualified name of the MeshService's CheckModels RPC.
 	MeshServiceCheckModelsProcedure = "/agentmesh.v1.MeshService/CheckModels"
+	// MeshServiceResolveModelProcedure is the fully-qualified name of the MeshService's ResolveModel
+	// RPC.
+	MeshServiceResolveModelProcedure = "/agentmesh.v1.MeshService/ResolveModel"
 	// MeshServiceCheckConflictsProcedure is the fully-qualified name of the MeshService's
 	// CheckConflicts RPC.
 	MeshServiceCheckConflictsProcedure = "/agentmesh.v1.MeshService/CheckConflicts"
@@ -193,6 +199,10 @@ type MeshServiceClient interface {
 	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
 	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+	// maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+	// `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+	ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
@@ -241,6 +251,9 @@ type MeshServiceClient interface {
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+	// standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+	ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
@@ -388,6 +401,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
 			connect.WithClientOptions(opts...),
 		),
+		importSettings: connect.NewClient[v1.ImportSettingsRequest, v1.ImportSettingsResponse](
+			httpClient,
+			baseURL+MeshServiceImportSettingsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ImportSettings")),
+			connect.WithClientOptions(opts...),
+		),
 		resetSetting: connect.NewClient[v1.ResetSettingRequest, v1.ResetSettingResponse](
 			httpClient,
 			baseURL+MeshServiceResetSettingProcedure,
@@ -514,6 +533,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
 			connect.WithClientOptions(opts...),
 		),
+		resolveModel: connect.NewClient[v1.ResolveModelRequest, v1.ResolveModelResponse](
+			httpClient,
+			baseURL+MeshServiceResolveModelProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ResolveModel")),
+			connect.WithClientOptions(opts...),
+		),
 		checkConflicts: connect.NewClient[v1.CheckConflictsRequest, v1.CheckConflictsResponse](
 			httpClient,
 			baseURL+MeshServiceCheckConflictsProcedure,
@@ -586,6 +611,7 @@ type meshServiceClient struct {
 	subscribeEvents  *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
 	listSettings     *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
 	setSetting       *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	importSettings   *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
 	resetSetting     *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
 	resetRoot        *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
 	listPullRequests *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
@@ -607,6 +633,7 @@ type meshServiceClient struct {
 	importPeers      *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
 	getCost          *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
 	checkModels      *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	resolveModel     *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
 	checkConflicts   *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
 	listTools        *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 	addTools         *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
@@ -710,6 +737,11 @@ func (c *meshServiceClient) ListSettings(ctx context.Context, req *connect.Reque
 // SetSetting calls agentmesh.v1.MeshService.SetSetting.
 func (c *meshServiceClient) SetSetting(ctx context.Context, req *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error) {
 	return c.setSetting.CallUnary(ctx, req)
+}
+
+// ImportSettings calls agentmesh.v1.MeshService.ImportSettings.
+func (c *meshServiceClient) ImportSettings(ctx context.Context, req *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error) {
+	return c.importSettings.CallUnary(ctx, req)
 }
 
 // ResetSetting calls agentmesh.v1.MeshService.ResetSetting.
@@ -817,6 +849,11 @@ func (c *meshServiceClient) CheckModels(ctx context.Context, req *connect.Reques
 	return c.checkModels.CallUnary(ctx, req)
 }
 
+// ResolveModel calls agentmesh.v1.MeshService.ResolveModel.
+func (c *meshServiceClient) ResolveModel(ctx context.Context, req *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error) {
+	return c.resolveModel.CallUnary(ctx, req)
+}
+
 // CheckConflicts calls agentmesh.v1.MeshService.CheckConflicts.
 func (c *meshServiceClient) CheckConflicts(ctx context.Context, req *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
 	return c.checkConflicts.CallUnary(ctx, req)
@@ -906,6 +943,10 @@ type MeshServiceHandler interface {
 	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
 	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+	// maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+	// `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+	ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
@@ -954,6 +995,9 @@ type MeshServiceHandler interface {
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+	// standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+	ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
@@ -1097,6 +1141,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceImportSettingsHandler := connect.NewUnaryHandler(
+		MeshServiceImportSettingsProcedure,
+		svc.ImportSettings,
+		connect.WithSchema(meshServiceMethods.ByName("ImportSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceResetSettingHandler := connect.NewUnaryHandler(
 		MeshServiceResetSettingProcedure,
 		svc.ResetSetting,
@@ -1223,6 +1273,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceResolveModelHandler := connect.NewUnaryHandler(
+		MeshServiceResolveModelProcedure,
+		svc.ResolveModel,
+		connect.WithSchema(meshServiceMethods.ByName("ResolveModel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceCheckConflictsHandler := connect.NewUnaryHandler(
 		MeshServiceCheckConflictsProcedure,
 		svc.CheckConflicts,
@@ -1311,6 +1367,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListSettingsHandler.ServeHTTP(w, r)
 		case MeshServiceSetSettingProcedure:
 			meshServiceSetSettingHandler.ServeHTTP(w, r)
+		case MeshServiceImportSettingsProcedure:
+			meshServiceImportSettingsHandler.ServeHTTP(w, r)
 		case MeshServiceResetSettingProcedure:
 			meshServiceResetSettingHandler.ServeHTTP(w, r)
 		case MeshServiceResetRootProcedure:
@@ -1353,6 +1411,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceGetCostHandler.ServeHTTP(w, r)
 		case MeshServiceCheckModelsProcedure:
 			meshServiceCheckModelsHandler.ServeHTTP(w, r)
+		case MeshServiceResolveModelProcedure:
+			meshServiceResolveModelHandler.ServeHTTP(w, r)
 		case MeshServiceCheckConflictsProcedure:
 			meshServiceCheckConflictsHandler.ServeHTTP(w, r)
 		case MeshServiceListToolsProcedure:
@@ -1454,6 +1514,10 @@ func (UnimplementedMeshServiceHandler) SetSetting(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetSetting is not implemented"))
 }
 
+func (UnimplementedMeshServiceHandler) ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ImportSettings is not implemented"))
+}
+
 func (UnimplementedMeshServiceHandler) ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetSetting is not implemented"))
 }
@@ -1536,6 +1600,10 @@ func (UnimplementedMeshServiceHandler) GetCost(context.Context, *connect.Request
 
 func (UnimplementedMeshServiceHandler) CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckModels is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResolveModel is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {

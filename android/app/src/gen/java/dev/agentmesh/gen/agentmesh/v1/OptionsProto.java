@@ -13,6 +13,7 @@ public final class OptionsProto {
     registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.action);
     registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.permissions);
     registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.path);
+    registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.repoName);
   }
   public static final int ACTION_FIELD_NUMBER = 50001;
   /**
@@ -64,6 +65,28 @@ public final class OptionsProto {
         null,
         null,
         50003,
+        com.google.protobuf.WireFormat.FieldType.BOOL,
+        java.lang.Boolean.class);
+  public static final int REPO_NAME_FIELD_NUMBER = 50004;
+  /**
+   * <pre>
+   * On a `path` field that names a git repository: a bare name (no slash, not `.`, `..` or `~…`) is left as it is
+   * when no folder of that name is in the caller's working directory, for the daemon to look up in its `repos.dir`
+   * setting. Anything else is resolved as a `path` is.
+   * </pre>
+   *
+   * <code>extend .google.protobuf.FieldOptions { ... }</code>
+   */
+  public static final
+    com.google.protobuf.GeneratedMessageLite.GeneratedExtension<
+      com.google.protobuf.DescriptorProtos.FieldOptions,
+      java.lang.Boolean> repoName = com.google.protobuf.GeneratedMessageLite
+          .newSingularGeneratedExtension(
+        com.google.protobuf.DescriptorProtos.FieldOptions.getDefaultInstance(),
+        false,
+        null,
+        null,
+        50004,
         com.google.protobuf.WireFormat.FieldType.BOOL,
         java.lang.Boolean.class);
 

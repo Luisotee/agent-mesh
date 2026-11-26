@@ -35,4 +35,8 @@ extend google.protobuf.ServiceOptions {
 extend google.protobuf.FieldOptions {
   // Resolved by the CLI against the caller's working directory (~ expanded) before sending, when not a URL or -flag.
   bool path = 50003;
+  // On a `path` field that names a git repository: a bare name (no slash, not `.`, `..` or `~…`) is left as it is
+  // when no folder of that name is in the caller's working directory, for the daemon to look up in its `repos.dir`
+  // setting. Anything else is resolved as a `path` is.
+  bool repo_name = 50004;
 }

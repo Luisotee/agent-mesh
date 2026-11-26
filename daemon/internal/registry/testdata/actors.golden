@@ -30,6 +30,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResetRoot
   /agentmesh.v1.MeshService/ResetSetting
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RingAgent
@@ -61,6 +62,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RingAgent
@@ -87,6 +89,7 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
@@ -107,6 +110,7 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
@@ -125,6 +129,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ImportPeers
+  /agentmesh.v1.MeshService/ImportSettings
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
@@ -142,6 +147,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/RemovePeer
   /agentmesh.v1.MeshService/ResetRoot
   /agentmesh.v1.MeshService/ResetSetting
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RevokeDevice
@@ -175,5 +181,6 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents

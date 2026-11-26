@@ -917,13 +917,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if strings.TrimSpace(m.Repo) == "" {
 		return nil, invalid("no repo given")
 	}
-	repoArg, err := filepath.Abs(m.Repo)
+	top, err := d.repoTop(ctx, m.Repo)
 	if err != nil {
-		return nil, invalid("repo: %v", err)
-	}
-	top, err := git(ctx, repoArg, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return nil, invalid("%s is not a git repository: %v", m.Repo, err)
+		return nil, err
 	}
 	mcpNames, _, err := parseMCPArg(m.Mcp)
 	if err != nil {

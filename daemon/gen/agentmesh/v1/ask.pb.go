@@ -702,7 +702,7 @@ type AskRequest struct {
 	// An existing agent of this run, by name, to ask or to ask again (it is resumed if retired). Without it, a
 	// fresh agent is started in `repo`.
 	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
-	// The git repository a fresh asker or reviewer works in.
+	// The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
 	Repo string `protobuf:"bytes,3,opt,name=repo,proto3" json:"repo,omitempty"`
 	// The question, or the notes to the reviewers; `@file` reads it from a file.
 	Body string `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
@@ -2155,12 +2155,12 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\vfinished_at\x18\x16 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1a\n" +
 	"\bstarting\x18\x17 \x01(\bR\bstarting\x12\x18\n" +
-	"\acontext\x18\x18 \x01(\tR\acontext\"\xaa\x03\n" +
+	"\acontext\x18\x18 \x01(\tR\acontext\"\xae\x03\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
-	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x18\n" +
-	"\x04repo\x18\x03 \x01(\tB\x04\x98\xb5\x18\x01R\x04repo\x12\x12\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
+	"\x04repo\x18\x03 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x16\n" +
 	"\x06review\x18\x05 \x01(\tR\x06review\x12\x12\n" +
 	"\x04size\x18\x06 \x01(\tR\x04size\x12\x12\n" +
