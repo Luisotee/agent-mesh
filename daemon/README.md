@@ -6,10 +6,11 @@ The Go daemon that replaces herdr and the old `bin/mesh` script, the mesh every 
 
 - `../proto/`: the API as protobuf. `agentmesh/v1` is the action registry (`MeshService`, each RPC with its allowed actor classes in the `action` option), `agentmesh/term/v1` the terminal host's API and WebSocket frames, `agentmesh/adapter/v1` the CLI-adapter plugin interface. `buf.yaml` and `buf.gen.yaml` live there.
 - `gen/`: the generated Go code (committed; regenerate with `cd proto && buf generate`). Reviewers can skip it.
-- `cmd/meshd`: the daemon (including optional `--listen` TLS and `--relay-url` outbound relay connector).
+- `cmd/meshd`: the daemon (including optional `--listen` TLS, `--relay-url` outbound relay connector and `--tailscale` built-in tailnet node).
 - `cmd/protoc-gen-flagdocs`: a `buf generate` plugin that writes the schema's field comments into `gen/` (`FieldDocs`) for `mesh help`; not shipped.
 - `cmd/mesh-relay`: the self-hosted stream relay (`docs/relay.md`), static binary for VPS deployment (`packaging/relay/`, `packaging/systemd/agent-mesh-relay.service`).
-- `internal/tlsutil`, `internal/pairing`, `internal/relay`: persistent ECDSA P-256 cert & SHA-256 fingerprint pinning, `agentmesh://pair` URI codec, and zero-trust relay server/connector/client.
+- `internal/tlsutil`, `internal/pairing`, `internal/relay`: persistent ECDSA P-256 cert & SHA-256 fingerprint pinning, `agentmesh://pair` URI codec, and zero-trust relay server/connector/client (per-device client tokens, `docs/relay.md`).
+- `internal/tailnet`: the built-in Tailscale node over tsnet (`meshd --tailscale`, `docs/relay.md` "Built-in Tailscale"); only it and `cmd/meshd` import tsnet, so the daemon's tests never compile it, and its own test runs Tailscale's test control server on 127.0.0.1.
 - `internal/registry`: the action registry read from the descriptors; `testdata/actors.golden` pins what each actor class may call.
 - `internal/auth`: tokens (stored as SHA-256), the interceptor that takes the actor from the token, and the browser refusal.
 - `internal/store`: SQLite (pure Go, WAL), embedded numbered migrations, backed up before migrating.
@@ -38,13 +39,14 @@ cd daemon && go test ./...                   # the Go tests only
 cd proto && buf generate                     # after changing a .proto
 cd daemon && go test ./internal/registry -update   # accept a reviewed change of who may call what
 cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitignored)
+cd daemon && go build -tags ts_omit_logtail,ts_omit_peerapiserver -o bin/ ./cmd/...   # as install.sh builds: --tailscale needs the tags
 ```
 
 ## Installing
 
 `./install.sh` (safe to re-run; `--daemon` is accepted as an alias) installs the daemon from this checkout's branch:
 
-- It builds `cmd/meshd`, `cmd/mesh-term` and `cmd/mesh` into a temp folder first (a failed build changes nothing, links included), then moves each binary into `~/.local/lib/agent-mesh/bin/` with one rename, so a running meshd or mesh-term is never broken by an upgrade. `daemon/share/` (the protocol and skills) is copied to `~/.local/lib/agent-mesh/share/`. The installed daemon is versioned by install, not by the checked-out branch: a branch switch here changes no agent until the next install.
+- It builds `cmd/meshd`, `cmd/mesh-term` and `cmd/mesh` (with `-tags ts_omit_logtail,ts_omit_peerapiserver`, which `meshd --tailscale` requires: no tsnet log upload, no Tailscale peerapi) into a temp folder first (a failed build changes nothing, links included), then moves each binary into `~/.local/lib/agent-mesh/bin/` with one rename, so a running meshd or mesh-term is never broken by an upgrade. `daemon/share/` (the protocol and skills) is copied to `~/.local/lib/agent-mesh/share/`. The installed daemon is versioned by install, not by the checked-out branch: a branch switch here changes no agent until the next install.
 - It copies `packaging/systemd/agent-mesh.service` and `agent-mesh-term.service` into `~/.config/systemd/user/` (or `$XDG_CONFIG_HOME`), each with a drop-in `<unit>.d/path.conf` holding the `PATH` of the shell that ran the installer: a user unit's own `PATH` is short, and the agents' CLIs (`claude`, `agy`) must be found. Re-run it to refresh that `PATH` or to upgrade. Independently of that drop-in, `meshd` resolves the login shell's `PATH` once at startup (`$SHELL -lc`, bounded at 3 s, process group killed, read between NUL sentinels so profile noise can't leak in) and merges it ahead of its own `PATH` and the usual `~/.local/bin` and `~/bin` fallbacks, so `nvm` and other user-installed CLIs are found under systemd; a failing, slow or empty shell is logged and the inherited `PATH` stays (`--no-login-path` skips it).
 - It runs `systemctl --user daemon-reload`, `enable agent-mesh.service` and `restart agent-mesh.service` (meshd Wants the terminal host, which stays up across a meshd restart, with its terminals). Without a user session or `systemctl` the files are installed and it says how to start meshd.
 - It links `~/.local/bin/mesh` to the installed `mesh`, `~/.config/agent-mesh` to the installed `share/protocol` (the snippet's fallback path), and each skill of `share/skills` into `~/.claude/skills` and `~/.gemini/config/skills` (the installed copy's, so agy gets them globally; Claude's come from the marketplace plugin instead when it is installed at user scope, or with `--plugin`). A real file where a link goes is left alone.

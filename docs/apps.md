@@ -112,7 +112,12 @@ An app can hold several routes per host and uses whichever works, so the same ma
    - A reconnecting daemon replaces its old control connection (with a `replaced` close code); closes are typed; an offline daemon fails fast; `TCP_NODELAY` everywhere (Paradev #5013: 60–200 ms per keystroke without it); binary end to end; the daemon re-registers on every reconnect.
    - TLS runs end to end: the daemon holds its own certificate and the app pins its fingerprint from the pairing QR code. The relay can't read or change the traffic, and there is no custom crypto.
    - The pairing QR code carries the relay URL, the host's id, the certificate fingerprint and a one-time token. One relay serves many daemons.
-3. **Tailscale built in** (`tsnet`: the daemon joins the tailnet itself, nothing to install on the host), or Headscale for a fully self-hosted tailnet.
+   - Each device has its own relay token. The daemon gives the relay their hashes, so a revoked device is refused before the relay asks the daemon to dial back (`docs/relay.md`, "Client relay tokens").
+3. **Tailscale built in** (`tsnet`: the daemon joins the tailnet itself, nothing to install on the host), or Headscale for a fully self-hosted tailnet. Built (`meshd --tailscale`, `docs/relay.md` "Built-in Tailscale"):
+   - The node serves the same pinned TLS API and device tokens as `--listen`, and pairing links carry its tailnet address. The device runs the Tailscale app itself.
+   - It is turned on by flags and environment, not settings: the auth key is a secret, and joining a network is the operator's call.
+   - The login URL is in `mesh tailnet` (`TailnetStatus`), for the host's own device only.
+   - meshd is built without tsnet's log upload and peerapi (`-tags ts_omit_logtail,ts_omit_peerapiserver`).
 4. **Any VPN or tunnel** (WireGuard, Cloudflare Tunnel): works with nothing of ours.
 
 ntfy can run on the same VPS as the relay, so one small server covers both connections and notifications.

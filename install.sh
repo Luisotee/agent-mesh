@@ -30,6 +30,8 @@ DAEMON_LIB="$HOME/.local/lib/agent-mesh"  # bin/ (meshd, mesh-term, mesh) and sh
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 DAEMON_UNITS=(agent-mesh.service agent-mesh-term.service)
 DAEMON_BINS=(meshd mesh-term mesh)  # built from daemon/cmd/<name>
+# --tailscale needs these (daemon/internal/tailnet.BuildTags): no tsnet log upload, no Tailscale peerapi on the node
+DAEMON_TAGS=ts_omit_logtail,ts_omit_peerapiserver
 BEGIN="<!-- agent-mesh:begin (managed by agent-mesh/install.sh) -->"
 END="<!-- agent-mesh:end -->"
 
@@ -137,7 +139,7 @@ daemon_install() {
   mkdir -p "$stage/bin"
   local pkgs=()
   for b in "${DAEMON_BINS[@]}"; do pkgs+=("./cmd/$b"); done
-  (cd "$REPO/daemon" && "$go" build -trimpath -o "$stage/bin/" "${pkgs[@]}") \
+  (cd "$REPO/daemon" && "$go" build -trimpath -tags "$DAEMON_TAGS" -o "$stage/bin/" "${pkgs[@]}") \
     || { echo "install.sh: the build failed; nothing was changed" >&2; return 1; }
   for b in "${DAEMON_BINS[@]}"; do
     [[ -x "$stage/bin/$b" ]] || { echo "install.sh: the build made no $b; nothing was changed" >&2; return 1; }
