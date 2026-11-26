@@ -627,7 +627,9 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	member.AgentId, member.Name, member.How, member.Model = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model
 	if notReused != nil {
 		// The earlier reviewer, on a model its repo no longer allows, is not left running beside its replacement.
-		_, _ = d.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: subMeta(j.meta, "retire-"+j.kind), Agent: notReused.Id}))
+		if _, err := d.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: subMeta(j.meta, "retire-"+j.kind), Agent: notReused.Id})); err != nil {
+			d.log.Warn("retiring a reviewer that was not reused", "agent", notReused.Name, "err", err)
+		}
 	}
 	return member, res.Msg.Agent, freshNote
 }
