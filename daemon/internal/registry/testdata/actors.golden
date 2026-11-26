@@ -1,5 +1,6 @@
 ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/AddPeer
+  /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/CheckConflicts
@@ -13,10 +14,12 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ImportPeers
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadInbox
@@ -35,6 +38,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
 ACTOR_CLASS_WORKER
+  /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/CheckConflicts
@@ -45,9 +49,11 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResumeAgent
@@ -58,6 +64,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
 ACTOR_CLASS_ASKER
+  /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
@@ -65,14 +72,17 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SubscribeEvents
 ACTOR_CLASS_REVIEWER
+  /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
@@ -80,15 +90,18 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SubscribeEvents
 ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AddPeer
+  /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
@@ -103,10 +116,12 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/RecordVerdict
@@ -135,10 +150,12 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
+  /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/SubscribeEvents

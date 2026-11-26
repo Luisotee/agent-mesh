@@ -369,8 +369,10 @@ type LeanLaunch struct {
 	// A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`),
 	// and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.
 	McpConfigPath string `protobuf:"bytes,5,opt,name=mcp_config_path,json=mcpConfigPath,proto3" json:"mcp_config_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Pass `--system-prompt-snapshot off` on resume so tools added after the initial lean turn appear in requests.
+	DisablePromptSnapshot bool `protobuf:"varint,6,opt,name=disable_prompt_snapshot,json=disablePromptSnapshot,proto3" json:"disable_prompt_snapshot,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *LeanLaunch) Reset() {
@@ -436,6 +438,13 @@ func (x *LeanLaunch) GetMcpConfigPath() string {
 		return x.McpConfigPath
 	}
 	return ""
+}
+
+func (x *LeanLaunch) GetDisablePromptSnapshot() bool {
+	if x != nil {
+		return x.DisablePromptSnapshot
+	}
+	return false
 }
 
 type WorktreeFile struct {
@@ -2238,7 +2247,7 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04lean\x18\x0f \x01(\v2 .agentmesh.adapter.v1.LeanLaunchR\x04lean\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x02\n" +
 	"\n" +
 	"LeanLaunch\x12\x1d\n" +
 	"\n" +
@@ -2247,7 +2256,8 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\voff_plugins\x18\x03 \x03(\tR\n" +
 	"offPlugins\x120\n" +
 	"\x14hide_claudeai_skills\x18\x04 \x01(\bR\x12hideClaudeaiSkills\x12&\n" +
-	"\x0fmcp_config_path\x18\x05 \x01(\tR\rmcpConfigPath\"\x96\x01\n" +
+	"\x0fmcp_config_path\x18\x05 \x01(\tR\rmcpConfigPath\x126\n" +
+	"\x17disable_prompt_snapshot\x18\x06 \x01(\bR\x15disablePromptSnapshot\"\x96\x01\n" +
 	"\fWorktreeFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x12\n" +

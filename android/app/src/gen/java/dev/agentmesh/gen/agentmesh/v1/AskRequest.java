@@ -28,6 +28,7 @@ public  final class AskRequest extends
     since_ = "";
     slug_ = "";
     peers_ = "";
+    mcp_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -156,7 +157,7 @@ public  final class AskRequest extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The repo.
    */
   @java.lang.Override
@@ -168,7 +169,7 @@ public  final class AskRequest extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for repo.
    */
   @java.lang.Override
@@ -181,7 +182,7 @@ public  final class AskRequest extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @param value The repo to set.
    */
   private void setRepo(
@@ -195,7 +196,7 @@ public  final class AskRequest extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    */
   private void clearRepo() {
 
@@ -206,7 +207,7 @@ public  final class AskRequest extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @param value The bytes for repo to set.
    */
   private void setRepoBytes(
@@ -979,6 +980,135 @@ public  final class AskRequest extends
     timeout_ = 0;
   }
 
+  public static final int MCP_FIELD_NUMBER = 17;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> mcp_;
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getMcpList() {
+    return mcp_;
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  @java.lang.Override
+  public int getMcpCount() {
+    return mcp_.size();
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getMcp(int index) {
+    return mcp_.get(index);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the mcp at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getMcpBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        mcp_.get(index));
+  }
+  private void ensureMcpIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        mcp_;  if (!tmp.isModifiable()) {
+      mcp_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param index The index to set the value at.
+   * @param value The mcp to set.
+   */
+  private void setMcp(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param value The mcp to add.
+   */
+  private void addMcp(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.add(value);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param values The mcp to add.
+   */
+  private void addAllMcp(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureMcpIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, mcp_);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   */
+  private void clearMcp() {
+    mcp_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param value The bytes of the mcp to add.
+   */
+  private void addMcpBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureMcpIsMutable();
+    mcp_.add(value.toStringUtf8());
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.AskRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1202,7 +1332,7 @@ public  final class AskRequest extends
      * The git repository a fresh asker or reviewer works in.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return The repo.
      */
     @java.lang.Override
@@ -1214,7 +1344,7 @@ public  final class AskRequest extends
      * The git repository a fresh asker or reviewer works in.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return The bytes for repo.
      */
     @java.lang.Override
@@ -1227,7 +1357,7 @@ public  final class AskRequest extends
      * The git repository a fresh asker or reviewer works in.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @param value The repo to set.
      * @return This builder for chaining.
      */
@@ -1242,7 +1372,7 @@ public  final class AskRequest extends
      * The git repository a fresh asker or reviewer works in.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearRepo() {
@@ -1255,7 +1385,7 @@ public  final class AskRequest extends
      * The git repository a fresh asker or reviewer works in.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @param value The bytes for repo to set.
      * @return This builder for chaining.
      */
@@ -2055,6 +2185,134 @@ public  final class AskRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @return A list containing the mcp.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getMcpList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getMcpList());
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @return The count of mcp.
+     */
+    @java.lang.Override
+    public int getMcpCount() {
+      return instance.getMcpCount();
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param index The index of the element to return.
+     * @return The mcp at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getMcp(int index) {
+      return instance.getMcp(index);
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the mcp at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getMcpBytes(int index) {
+      return instance.getMcpBytes(index);
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param index The index to set the value at.
+     * @param value The mcp to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMcp(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setMcp(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param value The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcp(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addMcp(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param values The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllMcp(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllMcp(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMcp() {
+      copyOnWrite();
+      instance.clearMcp();
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+     * </pre>
+     *
+     * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+     * @param value The bytes of the mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcpBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addMcpBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskRequest)
   }
   @java.lang.Override
@@ -2088,11 +2346,13 @@ public  final class AskRequest extends
             "peers_",
             "noRefresh_",
             "timeout_",
+            "mcp_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208" +
-              "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004";
+              "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004\u0011\u021a" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

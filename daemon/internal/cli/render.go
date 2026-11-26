@@ -19,14 +19,16 @@ var renderers = map[string]struct {
 	into func() proto.Message
 	text func(proto.Message, io.Writer)
 }{
-	"inbox":     {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
-	"settings":  {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
-	"usage":     {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
-	"cost":      {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
-	"models":    {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
-	"conflicts": {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
-	"brief":     {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
-	"reset":     {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
+	"inbox":         {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
+	"settings":      {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
+	"usage":         {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
+	"cost":          {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
+	"models":        {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
+	"conflicts":     {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
+	"tools":         {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
+	"tools-servers": {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
+	"brief":         {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
+	"reset":         {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 }
 
 // hasText reports whether a command has a text form (and so a --format flag).
@@ -401,5 +403,64 @@ func renderConflicts(m proto.Message, w io.Writer) {
 			rows = append(rows, []string{o.Repo, o.Branch, o.Against, strings.Join(o.Files, " ")})
 		}
 		printTable(w, []string{"repo", "branch", "against", "files"}, rows)
+	}
+}
+
+func renderTools(m proto.Message, w io.Writer) {
+	t := m.(*v1.ListToolsResponse)
+	if !t.Lean {
+		fmt.Fprintln(w, "claude.lean is off: this session runs with everything")
+		return
+	}
+	line := func(label string, xs []string) {
+		if len(xs) > 0 {
+			fmt.Fprintf(w, "%s: %s\n", label, strings.Join(xs, ", "))
+		}
+	}
+	line("tools cut", t.Tools)
+	line("skills cut", t.Skills)
+	line("plugins cut", t.Plugins)
+	if t.ClaudeaiSkills != "" {
+		fmt.Fprintf(w, "claude.ai skills cut: %s\n", t.ClaudeaiSkills)
+	}
+	fmt.Fprintf(w, "mcp (%s): loaded [%s]", t.McpMode, strings.Join(t.McpLoaded, ", "))
+	if len(t.McpCut) > 0 {
+		fmt.Fprintf(w, "; cut [%s]", strings.Join(t.McpCut, ", "))
+	}
+	fmt.Fprintln(w)
+	if t.ClaudeaiConnectors != "" {
+		fmt.Fprintf(w, "connectors cut: %s\n", t.ClaudeaiConnectors)
+	}
+	line("added back", t.Added)
+}
+
+func renderToolsServers(m proto.Message, w io.Writer) {
+	servers := m.(*v1.ListMCPServersResponse).Servers
+	if len(servers) == 0 {
+		fmt.Fprintln(w, "no MCP servers in the user's config")
+		return
+	}
+	width := 0
+	for _, s := range servers {
+		if len(s.Name) > width {
+			width = len(s.Name)
+		}
+	}
+	for _, s := range servers {
+		var marks []string
+		if s.Always {
+			marks = append(marks, "always loaded")
+		}
+		if s.Exclusive {
+			marks = append(marks, "exclusive")
+		}
+		line := fmt.Sprintf("%-*s  %s", width, s.Name, s.About)
+		if len(marks) > 0 {
+			line += "  [" + strings.Join(marks, ", ") + "]"
+		}
+		if s.HeldBy != "" {
+			line += "  held by " + s.HeldBy
+		}
+		fmt.Fprintln(w, line)
 	}
 }

@@ -170,4 +170,49 @@ public interface ResumeAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFocusBytes();
+
+  /**
+   * <pre>
+   * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
+   * had, dropping any exclusive server another live agent now holds.
+   * </pre>
+   *
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  java.util.List<java.lang.String>
+      getMcpList();
+  /**
+   * <pre>
+   * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
+   * had, dropping any exclusive server another live agent now holds.
+   * </pre>
+   *
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  int getMcpCount();
+  /**
+   * <pre>
+   * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
+   * had, dropping any exclusive server another live agent now holds.
+   * </pre>
+   *
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  java.lang.String getMcp(int index);
+  /**
+   * <pre>
+   * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
+   * had, dropping any exclusive server another live agent now holds.
+   * </pre>
+   *
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  com.google.protobuf.ByteString
+      getMcpBytes(int index);
 }

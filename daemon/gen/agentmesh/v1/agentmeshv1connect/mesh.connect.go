@@ -123,6 +123,13 @@ const (
 	// MeshServiceCheckConflictsProcedure is the fully-qualified name of the MeshService's
 	// CheckConflicts RPC.
 	MeshServiceCheckConflictsProcedure = "/agentmesh.v1.MeshService/CheckConflicts"
+	// MeshServiceListToolsProcedure is the fully-qualified name of the MeshService's ListTools RPC.
+	MeshServiceListToolsProcedure = "/agentmesh.v1.MeshService/ListTools"
+	// MeshServiceAddToolsProcedure is the fully-qualified name of the MeshService's AddTools RPC.
+	MeshServiceAddToolsProcedure = "/agentmesh.v1.MeshService/AddTools"
+	// MeshServiceListMCPServersProcedure is the fully-qualified name of the MeshService's
+	// ListMCPServers RPC.
+	MeshServiceListMCPServersProcedure = "/agentmesh.v1.MeshService/ListMCPServers"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -220,6 +227,14 @@ type MeshServiceClient interface {
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
+	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
+	// added back.
+	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
+	// Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
+	// Claude session by reopening the same conversation at its next idle.
+	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
+	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
+	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -473,6 +488,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("CheckConflicts")),
 			connect.WithClientOptions(opts...),
 		),
+		listTools: connect.NewClient[v1.ListToolsRequest, v1.ListToolsResponse](
+			httpClient,
+			baseURL+MeshServiceListToolsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListTools")),
+			connect.WithClientOptions(opts...),
+		),
+		addTools: connect.NewClient[v1.AddToolsRequest, v1.AddToolsResponse](
+			httpClient,
+			baseURL+MeshServiceAddToolsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("AddTools")),
+			connect.WithClientOptions(opts...),
+		),
+		listMCPServers: connect.NewClient[v1.ListMCPServersRequest, v1.ListMCPServersResponse](
+			httpClient,
+			baseURL+MeshServiceListMCPServersProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -518,6 +551,9 @@ type meshServiceClient struct {
 	getCost         *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
 	checkModels     *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
 	checkConflicts  *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
+	listTools       *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	addTools        *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
+	listMCPServers  *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -720,6 +756,21 @@ func (c *meshServiceClient) CheckConflicts(ctx context.Context, req *connect.Req
 	return c.checkConflicts.CallUnary(ctx, req)
 }
 
+// ListTools calls agentmesh.v1.MeshService.ListTools.
+func (c *meshServiceClient) ListTools(ctx context.Context, req *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error) {
+	return c.listTools.CallUnary(ctx, req)
+}
+
+// AddTools calls agentmesh.v1.MeshService.AddTools.
+func (c *meshServiceClient) AddTools(ctx context.Context, req *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error) {
+	return c.addTools.CallUnary(ctx, req)
+}
+
+// ListMCPServers calls agentmesh.v1.MeshService.ListMCPServers.
+func (c *meshServiceClient) ListMCPServers(ctx context.Context, req *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
+	return c.listMCPServers.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -815,6 +866,14 @@ type MeshServiceHandler interface {
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
+	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
+	// added back.
+	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
+	// Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
+	// Claude session by reopening the same conversation at its next idle.
+	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
+	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
+	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1064,6 +1123,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("CheckConflicts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListToolsHandler := connect.NewUnaryHandler(
+		MeshServiceListToolsProcedure,
+		svc.ListTools,
+		connect.WithSchema(meshServiceMethods.ByName("ListTools")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceAddToolsHandler := connect.NewUnaryHandler(
+		MeshServiceAddToolsProcedure,
+		svc.AddTools,
+		connect.WithSchema(meshServiceMethods.ByName("AddTools")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListMCPServersHandler := connect.NewUnaryHandler(
+		MeshServiceListMCPServersProcedure,
+		svc.ListMCPServers,
+		connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -1146,6 +1223,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceCheckModelsHandler.ServeHTTP(w, r)
 		case MeshServiceCheckConflictsProcedure:
 			meshServiceCheckConflictsHandler.ServeHTTP(w, r)
+		case MeshServiceListToolsProcedure:
+			meshServiceListToolsHandler.ServeHTTP(w, r)
+		case MeshServiceAddToolsProcedure:
+			meshServiceAddToolsHandler.ServeHTTP(w, r)
+		case MeshServiceListMCPServersProcedure:
+			meshServiceListMCPServersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1313,4 +1396,16 @@ func (UnimplementedMeshServiceHandler) CheckModels(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckConflicts is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListTools is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AddTools is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMCPServers is not implemented"))
 }

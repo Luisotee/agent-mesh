@@ -536,8 +536,15 @@ type Agent struct {
 	// Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
 	// 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
 	LastTurnByMesh bool `protobuf:"varint,35,opt,name=last_turn_by_mesh,json=lastTurnByMesh,proto3" json:"last_turn_by_mesh,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+	// `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+	AddedTools []string `protobuf:"bytes,36,rep,name=added_tools,json=addedTools,proto3" json:"added_tools,omitempty"`
+	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+	ToolsAdded bool `protobuf:"varint,37,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
+	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+	McpAll        bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -811,6 +818,27 @@ func (x *Agent) GetLastReset() *RootReset {
 func (x *Agent) GetLastTurnByMesh() bool {
 	if x != nil {
 		return x.LastTurnByMesh
+	}
+	return false
+}
+
+func (x *Agent) GetAddedTools() []string {
+	if x != nil {
+		return x.AddedTools
+	}
+	return nil
+}
+
+func (x *Agent) GetToolsAdded() bool {
+	if x != nil {
+		return x.ToolsAdded
+	}
+	return false
+}
+
+func (x *Agent) GetMcpAll() bool {
+	if x != nil {
+		return x.McpAll
 	}
 	return false
 }
@@ -3004,7 +3032,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\x9e\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xf9\n" +
 	"\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
@@ -3049,7 +3077,12 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\rpending_reset\x18! \x01(\v2\x17.agentmesh.v1.RootResetR\fpendingReset\x126\n" +
 	"\n" +
 	"last_reset\x18\" \x01(\v2\x17.agentmesh.v1.RootResetR\tlastReset\x12)\n" +
-	"\x11last_turn_by_mesh\x18# \x01(\bR\x0elastTurnByMesh\"\x9c\x02\n" +
+	"\x11last_turn_by_mesh\x18# \x01(\bR\x0elastTurnByMesh\x12\x1f\n" +
+	"\vadded_tools\x18$ \x03(\tR\n" +
+	"addedTools\x12\x1f\n" +
+	"\vtools_added\x18% \x01(\bR\n" +
+	"toolsAdded\x12\x17\n" +
+	"\amcp_all\x18& \x01(\bR\x06mcpAll\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +

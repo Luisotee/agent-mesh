@@ -457,3 +457,43 @@ func taskIDTo(t *testing.T, w *reopenWorld, agent string) string {
 	t.Fatal("no task")
 	return ""
 }
+
+// A worker that asked for its own tools is idle on purpose until it is reopened, for a wait's length at most; any
+// other pending reopen (a switch, an approval) leaves the agent watched, so a hang mid-turn is still nudged.
+func TestOnlyAToolsAddedReopenHoldsTheNudge(t *testing.T) {
+	pending := func(a *acct, why string, at time.Time) {
+		a.t.Helper()
+		err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			w, err := tx.GetAgent("a-w1")
+			if err != nil {
+				return err
+			}
+			w.PendingReopen = &v1.Reopen{Id: "o-1", Why: why, RequestedAt: timestamppb.New(at)}
+			return tx.PutAgent(w)
+		})
+		if err != nil {
+			a.t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		why   string
+		age   time.Duration
+		nudge int
+	}{
+		{"tools added", 0, 0},
+		{"tools added", 5 * time.Hour, 1}, // past accountability.wait_max: the reopen is stuck, not pending
+		{"switch", 0, 1},
+		{"approve", 0, 1},
+	} {
+		a := newAcct(t)
+		a.setting("accountability.nudge_after", 1.0)
+		a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+		a.taskRead()
+		pending(a, c.why, time.Now().Add(-c.age))
+		time.Sleep(1200 * time.Millisecond)
+		a.pass()
+		if n := a.mailOf("a-w1", "[mesh nudge]"); n != c.nudge {
+			t.Errorf("pending %q requested %s ago: %d nudges, want %d", c.why, c.age, n, c.nudge)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -39,11 +41,12 @@ type Env struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Getenv func(string) string
+	Getwd  func() (string, error)
 }
 
 // OSEnv is the process's own environment.
 func OSEnv() Env {
-	return Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv}
+	return Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv, Getwd: os.Getwd}
 }
 
 // DefaultStateDir is where the installed daemon (`install.sh --daemon`, the systemd units) keeps its state,
@@ -81,6 +84,38 @@ const (
 	ExitError = 1 // the daemon refused or failed the call
 	ExitUsage = 2
 )
+
+// commandGroups are the commands whose first argument may name a subcommand, `mesh tools add` for the action
+// `tools-add`. Any other command keeps its words as arguments, so `mesh stop run` is not `stop-run`.
+var commandGroups = map[string]bool{"tools": true}
+
+// spoken is how a user types an action's name: `tools add` for `tools-add`.
+func spoken(cli string) string {
+	for g := range commandGroups {
+		if rest, ok := strings.CutPrefix(cli, g+"-"); ok {
+			return g + " " + rest
+		}
+	}
+	return cli
+}
+
+// subcommands are the words that may follow a group, sorted.
+func subcommands(reg *registry.Registry, group string) []string {
+	var out []string
+	for _, a := range reg.Actions() {
+		if rest, ok := strings.CutPrefix(a.CLI, group+"-"); ok {
+			out = append(out, rest)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// mistypedSubcommand reports that word, after a group, is a subcommand that doesn't exist rather than the agent
+// the group's own action takes: agent names hold a `-` and ids are 11 characters, so a short plain word is a typo.
+func mistypedSubcommand(word string) bool {
+	return !strings.Contains(word, "-") && len(word) < 11
+}
 
 // Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
 // dispatched before the registry is even loaded (each gets the environment, with a global --state as $AGENT_MESH_STATE): a hook must work, and exit 0, whatever else fails.
@@ -125,6 +160,12 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	}
 	if len(rest) == 0 || rest[0] == "help" {
 		if len(rest) > 1 {
+			if len(rest) > 2 && commandGroups[rest[1]] && !strings.HasPrefix(rest[2], "-") {
+				if a := find(reg, rest[1]+"-"+rest[2]); a != nil {
+					newCommand(a, env, *state).usage(env.Stdout)
+					return ExitOK
+				}
+			}
 			if a := find(reg, rest[1]); a != nil {
 				newCommand(a, env, *state).usage(env.Stdout)
 				return ExitOK
@@ -139,26 +180,38 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		usage(env.Stdout, reg, hand)
 		return ExitOK
 	}
-	a := find(reg, rest[0])
+	var a *registry.Action
+	cmdArgs := rest[1:]
+	if len(rest) >= 2 && commandGroups[rest[0]] && !strings.HasPrefix(rest[1], "-") {
+		if sub := find(reg, rest[0]+"-"+rest[1]); sub != nil {
+			a, cmdArgs = sub, rest[2:]
+		} else if mistypedSubcommand(rest[1]) {
+			fmt.Fprintf(env.Stderr, "mesh %s: unknown subcommand %q (%s; or an agent's name)\n", rest[0], rest[1], strings.Join(subcommands(reg, rest[0]), ", "))
+			return ExitUsage
+		}
+	}
+	if a == nil {
+		a = find(reg, rest[0])
+	}
 	if a == nil {
 		fmt.Fprintf(env.Stderr, "mesh: unknown command %q (mesh help lists them)\n", rest[0])
 		return ExitUsage
 	}
 	cmd := newCommand(a, env, *state)
 	cmd.whole = *whole
-	req, err := cmd.parse(rest[1:])
+	req, err := cmd.parse(cmdArgs)
 	if errors.Is(err, flag.ErrHelp) {
 		cmd.usage(env.Stdout)
 		return ExitOK
 	}
 	if err != nil {
 		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
-		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", a.CLI, err, a.CLI)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", spoken(a.CLI), err, spoken(a.CLI))
 		return ExitUsage
 	}
 	// A command with a text form has --format, "text" unless given: only text and json are valid, an empty one too.
 	if hasText(a.CLI) && cmd.format != "text" && cmd.format != "json" {
-		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", a.CLI, cmd.format)
+		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", spoken(a.CLI), cmd.format)
 		return ExitUsage
 	}
 	if cmd.state == "" {
@@ -171,7 +224,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		return ExitError
 	}
 	if err := call(context.Background(), conn, a, req, env.Stdout, env.Stderr, cmd.format == "text"); err != nil {
-		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", spoken(a.CLI), err)
 		return ExitError
 	}
 	return ExitOK
@@ -203,7 +256,7 @@ func usage(w io.Writer, reg *registry.Registry, hand map[string]func(Env, []stri
 	fmt.Fprintln(w, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]   (mesh help <command> for its flags)")
 	fmt.Fprintln(w, "\ncommands:")
 	for _, a := range reg.Actions() {
-		fmt.Fprintf(w, "  %-14s %s\n", a.CLI, a.Summary)
+		fmt.Fprintf(w, "  %-14s %s\n", spoken(a.CLI), a.Summary)
 	}
 	names := make([]string, 0, len(hand))
 	for n := range hand {
@@ -289,9 +342,13 @@ func newCommand(a *registry.Action, env Env, state string) *command {
 func (c *command) usage(w io.Writer) {
 	arg := ""
 	if f := positionalField(c.action.Method.Input()); f != nil {
-		arg = " [<" + string(f.Name()) + ">]"
+		if f.IsList() {
+			arg = " [<" + string(f.Name()) + ">...]"
+		} else {
+			arg = " [<" + string(f.Name()) + ">]"
+		}
 	}
-	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", c.action.CLI, arg, c.action.Summary)
+	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", spoken(c.action.CLI), arg, c.action.Summary)
 	fmt.Fprintln(w, "  A text flag's value starting with @ reads a file (@- stdin); @@ starts it with a literal @.")
 	c.flags.SetOutput(w)
 	c.flags.PrintDefaults()
@@ -451,10 +508,10 @@ func (c *command) set(f protoreflect.FieldDescriptor, val protoreflect.Value) {
 // flags override the JSON wherever they stand.
 func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	// The one argument that isn't a flag is the agent the command acts on (see positionalField), wherever it
-	// stands among the flags: `mesh send parent --type done`, `mesh approve --tier mid <agent>`.
+	// stands among the flags: `mesh send parent --type done`, `mesh approve --tier mid <agent>`. For repeated
+	// positional fields (such as `mesh tools add <names...>`), every non-flag argument appends to the list.
 	pos := positionalField(c.action.Method.Input())
-	var word string
-	haveWord := false
+	var words []string
 	for {
 		if err := c.flags.Parse(args); err != nil {
 			return nil, err
@@ -462,16 +519,20 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		if c.flags.NArg() == 0 {
 			break
 		}
-		if pos == nil || haveWord {
+		if pos == nil || (!pos.IsList() && len(words) > 0) {
 			return nil, fmt.Errorf("unexpected argument %q: every field is a flag (mesh help %s)", c.flags.Arg(0), c.action.CLI)
 		}
-		word, haveWord, args = c.flags.Arg(0), true, c.flags.Args()[1:]
+		words, args = append(words, c.flags.Arg(0)), c.flags.Args()[1:]
 	}
-	if haveWord {
-		if c.given[pos.Number()] {
+	if len(words) > 0 {
+		if c.given[pos.Number()] && !pos.IsList() {
 			return nil, fmt.Errorf("%s is given twice, as an argument and as --%s", pos.Name(), FlagName(pos))
 		}
-		c.pending = append(c.pending, func() { c.set(pos, protoreflect.ValueOfString(word)) })
+		c.pending = append(c.pending, func() {
+			for _, w := range words {
+				c.set(pos, protoreflect.ValueOfString(w))
+			}
+		})
 	}
 	if c.whole != "" {
 		if err := protojson.Unmarshal([]byte(c.whole), c.req); err != nil {
@@ -480,6 +541,13 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	}
 	for _, apply := range c.pending {
 		apply()
+	}
+	fields := c.action.Method.Input().Fields()
+	for i := 0; i < fields.Len(); i++ {
+		f := fields.Get(i)
+		if isPathField(f) && c.req.Has(f) {
+			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(c.req.Get(f).String(), c.env)))
+		}
 	}
 	if c.action.Write {
 		f := c.action.Method.Input().Fields().ByName("meta")
@@ -499,11 +567,50 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	return c.req, nil
 }
 
-// positionalField is the field a command's one bare argument fills: the request's string field `to` (who a
-// message goes to) or `agent` (which agent the action acts on), when it has one, so `mesh send parent …` and
-// `mesh approve <agent> …` read as the commands agents already use. A convention of the schema, not a table of
-// commands: an action added with such a field gets it, and any other field stays a flag.
+var cliURLRE = regexp.MustCompile(`^(?:[A-Za-z][A-Za-z0-9+.-]*://|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:)`)
+
+func isPathField(f protoreflect.FieldDescriptor) bool {
+	if f.Kind() != protoreflect.StringKind || f.IsList() {
+		return false
+	}
+	fopts, _ := f.Options().(*descriptorpb.FieldOptions)
+	return fopts != nil && proto.HasExtension(fopts, v1.E_Path) && proto.GetExtension(fopts, v1.E_Path).(bool)
+}
+
+func resolveCLIPath(s string, env Env) string {
+	if strings.TrimSpace(s) == "" || strings.HasPrefix(s, "-") || cliURLRE.MatchString(s) {
+		return s
+	}
+	if s == "~" || strings.HasPrefix(s, "~/") {
+		home := ""
+		if env.Getenv != nil {
+			home = env.Getenv("HOME")
+		}
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		if home != "" {
+			s = filepath.Join(home, strings.TrimPrefix(s, "~"))
+		}
+	}
+	if !filepath.IsAbs(s) {
+		getwd := env.Getwd
+		if getwd == nil {
+			getwd = os.Getwd
+		}
+		if wd, err := getwd(); err == nil && wd != "" {
+			s = filepath.Join(wd, s)
+		}
+	}
+	return filepath.Clean(s)
+}
+
+// positionalField is the field a command's bare argument(s) fill: a repeated `names` list, else singular `to`,
+// `agent`, or `mode` when present.
 func positionalField(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
+	if f := md.Fields().ByName("names"); f != nil && f.Kind() == protoreflect.StringKind && f.IsList() {
+		return f
+	}
 	for _, name := range []protoreflect.Name{"to", "agent", "mode"} {
 		if f := md.Fields().ByName(name); f != nil && f.Kind() == protoreflect.StringKind && !f.IsList() {
 			return f

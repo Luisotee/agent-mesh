@@ -217,4 +217,21 @@ public interface MeshServiceClientInterface {
    *  Find which run branches with commits conflict with their base or each other, and which workers share files.
    */
   public suspend fun checkConflicts(request: CheckConflictsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckConflictsResponse>
+
+  /**
+   *  List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
+   *  added back.
+   */
+  public suspend fun listTools(request: ListToolsRequest, headers: Headers = emptyMap()): ResponseMessage<ListToolsResponse>
+
+  /**
+   *  Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
+   *  Claude session by reopening the same conversation at its next idle.
+   */
+  public suspend fun addTools(request: AddToolsRequest, headers: Headers = emptyMap()): ResponseMessage<AddToolsResponse>
+
+  /**
+   *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
+   */
+  public suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers = emptyMap()): ResponseMessage<ListMCPServersResponse>
 }

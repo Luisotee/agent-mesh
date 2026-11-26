@@ -906,7 +906,14 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err != nil {
 		return nil, invalid("%s is not a git repository: %v", m.Repo, err)
 	}
-	if err := d.checkMCP(ctx, kind, top, m.Mcp); err != nil {
+	mcpNames, _, err := parseMCPArg(m.Mcp)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.checkMCP(ctx, kind, top, mcpNames); err != nil {
+		return nil, err
+	}
+	if err := d.checkMCPLease(r, mcpNames, "", auth.ActorFrom(ctx)); err != nil {
 		return nil, err
 	}
 	name := filepath.Base(top) + "-" + m.Slug
@@ -946,7 +953,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: dedupe(m.Mcp),
+		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames,
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -984,6 +991,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
 			return err
 		}
+		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id, tx.Actor); err != nil {
+			return err
+		}
 		if err := tx.PutAgent(agent); err != nil {
 			return err
 		}
@@ -1006,6 +1016,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 				Payload: &v1.Event_MessageSent{MessageSent: &v1.MessageSent{Message: msg}}}); err != nil {
 				return err
 			}
+		}
+		// A server its repo loads that another agent holds stayed out of its MCP file (leanLaunch): tell it.
+		if _, err := d.noteHeldUnnamed(tx, agent); err != nil {
+			return err
 		}
 		out.Agent = agent
 		return nil

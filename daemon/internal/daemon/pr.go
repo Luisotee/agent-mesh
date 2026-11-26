@@ -37,6 +37,11 @@ func (d *Daemon) ghBinary() string {
 	if b := d.rt.cfg.Binaries["gh"]; b != "" {
 		return b
 	}
+	if pathList := d.cliBaseEnv()["PATH"]; pathList != "" {
+		if bin, ok := lookPath("gh", pathList); ok {
+			return bin
+		}
+	}
 	return "gh"
 }
 

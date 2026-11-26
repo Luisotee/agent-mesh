@@ -26,7 +26,7 @@ public interface AddPeerRequestOrBuilder extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @return The source.
    */
   java.lang.String getSource();
@@ -35,7 +35,7 @@ public interface AddPeerRequestOrBuilder extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for source.
    */
   com.google.protobuf.ByteString

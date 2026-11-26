@@ -63,6 +63,7 @@ func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
 	// Its launch no longer counts against the memory guard, and a caller that gives up now would leave the process
 	// running under a retired agent: the stop is bounded by StopWait, not by the caller.
 	d.rt.guard.release(agentID)
+	_ = os.Remove(d.leanMCPFile(agentID))
 	ctx = context.WithoutCancel(ctx)
 	if d.rt.term == nil {
 		return nil // no host: nothing to stop; the terminal id stays, for a boot with one

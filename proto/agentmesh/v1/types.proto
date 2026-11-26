@@ -132,6 +132,13 @@ message Agent {
   // Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
   // 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
   bool last_turn_by_mesh = 35;
+  // Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+  // `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+  repeated string added_tools = 36;
+  // True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+  bool tools_added = 37;
+  // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+  bool mcp_all = 38;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

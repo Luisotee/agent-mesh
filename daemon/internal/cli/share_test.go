@@ -33,11 +33,14 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 		flags[name].String("state", "", "")
 	}
 	flags["dir"].String("run", "", "")
-	positional := map[string]bool{} // commands whose one bare argument is a field (`to` or `agent`)
+	positional := map[string]bool{}     // commands whose one bare argument is a field (`to` or `agent`)
+	positionalList := map[string]bool{} // commands whose bare arguments fill a repeated list (`names`)
 	for _, a := range reg.Actions() {
 		if a.CLI != "" {
 			flags[a.CLI] = newCommand(a, Env{}, "").flags
-			positional[a.CLI] = positionalField(a.Method.Input()) != nil
+			pf := positionalField(a.Method.Input())
+			positional[a.CLI] = pf != nil
+			positionalList[a.CLI] = pf != nil && pf.IsList()
 		}
 	}
 
@@ -95,6 +98,14 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 			locs := cmdRE.FindAllStringSubmatchIndex(seg.text, -1)
 			for i, loc := range locs {
 				name := seg.text[loc[2]:loc[3]]
+				argStart := loc[1]
+				if fields := strings.Fields(seg.text[argStart:]); len(fields) > 0 && !strings.HasPrefix(fields[0], "-") {
+					sub := name + "-" + fields[0]
+					if _, ok := flags[sub]; ok {
+						name = sub
+						argStart += strings.Index(seg.text[argStart:], fields[0]) + len(fields[0])
+					}
+				}
 				fs, ok := flags[name]
 				if !ok {
 					if strings.Contains(seg.line, " yet") || strings.Contains(seg.line, "not on the daemon") {
@@ -109,9 +120,9 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 					end = locs[i+1][0]
 				}
 				// The words written before the command's first flag are its bare arguments: only a command with an
-				// `agent` or `to` field takes one, and then just one.
-				if _, generated := positional[name]; generated {
-					rest := placeholderRE.ReplaceAllString(seg.text[loc[1]:end], "ARG")
+				// `agent` or `to` field takes one (and repeated `names` takes several).
+				if _, generated := positional[name]; generated && argStart <= end {
+					rest := placeholderRE.ReplaceAllString(seg.text[argStart:end], "ARG")
 					rest = strings.NewReplacer("…", " ", "...", " ").Replace(rest)
 					if f := strings.Index(rest, "--"); f >= 0 {
 						rest = rest[:f]
@@ -120,14 +131,16 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 						rest = rest[:f]
 					}
 					words := strings.Fields(rest)
-					if (len(words) > 0 && !positional[name]) || len(words) > 1 {
+					if (len(words) > 0 && !positional[name]) || (len(words) > 1 && !positionalList[name]) {
 						t.Errorf("%s: `%s` gives %q as arguments, but mesh %s takes %s", file, seg.text, words, name,
 							map[bool]string{true: "one (its agent)", false: "none (every field is a flag)"}[positional[name]])
 					}
 				}
-				for _, m := range flagRE.FindAllStringSubmatch(seg.text[loc[1]:end], -1) {
-					if fs.Lookup(m[1]) == nil && m[1] != "help" {
-						t.Errorf("%s: `%s` has no --%s", file, seg.text, m[1])
+				if argStart <= end {
+					for _, m := range flagRE.FindAllStringSubmatch(seg.text[argStart:end], -1) {
+						if fs.Lookup(m[1]) == nil && m[1] != "help" {
+							t.Errorf("%s: `%s` has no --%s", file, seg.text, m[1])
+						}
 					}
 				}
 			}

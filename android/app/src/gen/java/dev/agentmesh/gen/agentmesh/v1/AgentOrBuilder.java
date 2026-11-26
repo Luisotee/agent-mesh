@@ -569,4 +569,69 @@ public interface AgentOrBuilder extends
    * @return The lastTurnByMesh.
    */
   boolean getLastTurnByMesh();
+
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
+   * @return A list containing the addedTools.
+   */
+  java.util.List<java.lang.String>
+      getAddedToolsList();
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
+   * @return The count of addedTools.
+   */
+  int getAddedToolsCount();
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
+   * @param index The index of the element to return.
+   * @return The addedTools at the given index.
+   */
+  java.lang.String getAddedTools(int index);
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
+   * @param index The index of the element to return.
+   * @return The addedTools at the given index.
+   */
+  com.google.protobuf.ByteString
+      getAddedToolsBytes(int index);
+
+  /**
+   * <pre>
+   * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+   * </pre>
+   *
+   * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
+   * @return The toolsAdded.
+   */
+  boolean getToolsAdded();
+
+  /**
+   * <pre>
+   * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+   * </pre>
+   *
+   * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
+   * @return The mcpAll.
+   */
+  boolean getMcpAll();
 }

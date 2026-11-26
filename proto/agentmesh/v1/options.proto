@@ -31,3 +31,8 @@ extend google.protobuf.MethodOptions {
 extend google.protobuf.ServiceOptions {
   repeated PermissionOptions permissions = 50002;
 }
+
+extend google.protobuf.FieldOptions {
+  // Resolved by the CLI against the caller's working directory (~ expanded) before sending, when not a URL or -flag.
+  bool path = 50003;
+}

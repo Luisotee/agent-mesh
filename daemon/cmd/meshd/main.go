@@ -45,6 +45,7 @@ func main() {
 	share := flag.String("share", filepath.Join(here, "..", "share"), "the daemon's protocol and skills (protocol/, skills/): agents get it as $"+client.ShareEnv+", their first doorbell names its protocol, and Claude agents load its skills; ignored when it isn't there")
 	worktrees := flag.String("worktrees", "", "where agents' worktrees go (default <state>/worktrees)")
 	skip := flag.Bool("skip-permissions", false, "start agents with their CLI's permission prompts off")
+	noLoginPath := flag.Bool("no-login-path", false, "do not resolve PATH from a login shell at startup")
 	var bins, envs multi
 	flag.Var(&bins, "cli", "kind=path of an agent CLI, e.g. claude=/usr/local/bin/claude (repeatable)")
 	flag.Var(&envs, "agent-env", "KEY=VALUE added to every agent's environment (repeatable)")
@@ -100,6 +101,14 @@ func main() {
 			os.Exit(2)
 		}
 		agents.Env[k] = v
+	}
+	if !*noLoginPath && agents.Env["PATH"] == "" {
+		if resolved, err := daemon.ResolveLoginPath(ctx, os.Getenv("SHELL"), os.Getenv("HOME"), os.Getenv("PATH")); err != nil {
+			log.Warn("login shell PATH resolution failed; using fallback PATH", "err", err)
+			_ = os.Setenv("PATH", resolved)
+		} else if resolved != "" {
+			_ = os.Setenv("PATH", resolved)
+		}
 	}
 	var relaySecret string
 	if *relayURL != "" {
