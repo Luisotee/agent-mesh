@@ -86,7 +86,7 @@ private fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit
     Column(modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("No hosts yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "A host is a machine running meshd. Pair with it using the code from meshctl pair (a QR code or a link), or add it by hand with its address and a device token.",
+            "A host is a machine running meshd. Pair with it using the code from mesh pair (a QR code or a link), or add it by hand with its address and a device token.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp),
         )
         if (recovered) Text("The saved host list couldn't be read, so it was set aside (hosts.json.bad in the app's files). Add your hosts again.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 12.dp))

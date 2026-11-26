@@ -268,7 +268,7 @@ var tierDefaults = []struct {
 }
 
 // The lean Claude defaults (bin/mesh's LEAN_*; design §11). Tools by name; bundled skills; plugins nothing in a
-// mesh uses. A worker's skills are the share plugin's, bare and namespaced (`agent-mesh-daemon:`), because
+// mesh uses. A worker's skills are the share plugin's, bare and namespaced (`agent-mesh:`), because
 // the same skill may be linked into the user's own skills folder.
 var (
 	leanDeny     = []string{"Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion", "EnterWorktree"}
@@ -277,8 +277,8 @@ var (
 		"schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring", "keybindings-help",
 		"fewer-permission-prompts", "claude-approvals", "update-config"}
 	workerLeanSkills = []string{"delegate", "delegate-review", "find-peers", "harvest-peers",
-		"agent-mesh-daemon:delegate", "agent-mesh-daemon:delegate-review", "agent-mesh-daemon:find-peers",
-		"agent-mesh-daemon:harvest-peers"}
+		"agent-mesh:delegate", "agent-mesh:delegate-review", "agent-mesh:find-peers",
+		"agent-mesh:harvest-peers"}
 	leanPlugins = []string{"pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"}
 )
 

@@ -2358,7 +2358,7 @@ export const MeshService: GenService<{
     output: typeof GetBriefResponseSchema;
   },
   /**
-   * A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
+   * A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
    *
    * @generated from rpc agentmesh.v1.MeshService.ReportHook
    */
