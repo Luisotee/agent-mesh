@@ -96,7 +96,11 @@ class RecordingApi : MeshApi {
     val push = java.util.Collections.synchronizedList(mutableListOf<String>())
     var failPush: Exception? = null
 
+    /** While set, RegisterPush hangs until it completes, even when cancelled: a request already on its way. */
+    @Volatile var registerGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
     override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
+        registerGate?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { it.await() } }
         failPush?.let { throw it }
         push += "register $endpoint"
         return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()

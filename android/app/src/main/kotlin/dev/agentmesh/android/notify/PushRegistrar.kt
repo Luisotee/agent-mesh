@@ -4,13 +4,17 @@ import android.content.Context
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.hosts.SecretBox
 import dev.agentmesh.android.store.ConnState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -47,7 +51,8 @@ data class PushStatus(val text: String, val ok: Boolean)
 /**
  * Gives each host this device's push endpoint: when the distributor hands one over, and again on every connection
  * that becomes ready (so a changed endpoint, or a host that lost it, heals on the next connect). While push is off
- * ([enabled] false) it registers nothing.
+ * ([enabled] false) it registers nothing. A host's RegisterPush and UnregisterPush calls go one at a time, in the
+ * order they were asked for, so a slow call can't land after a newer one and undo it.
  */
 class PushRegistrar(
     private val store: EndpointStore,
@@ -60,6 +65,14 @@ class PushRegistrar(
 
     private val watching = HashMap<String, Job>()
 
+    /** Each host's turn for its push calls (a fair mutex: first asked, first sent). */
+    private val turns = HashMap<String, Mutex>()
+
+    /** The registration [onEndpoint] started per host, cancelled when push goes off or the host is forgotten. */
+    private val pending = HashMap<String, Job>()
+
+    private fun turn(hostId: String) = synchronized(turns) { turns.getOrPut(hostId) { Mutex() } }
+
     init {
         scope.launch {
             combine(runtimes, enabled) { rts, on -> if (on) rts else emptyMap() }.collect { rts ->
@@ -67,13 +80,14 @@ class PushRegistrar(
                     for (id in watching.keys - rts.keys) watching.remove(id)?.cancel()
                     for ((id, rt) in rts) if (id !in watching) watching[id] = watch(rt)
                 }
+                if (rts.isEmpty()) synchronized(pending) { pending.values.forEach { it.cancel() }; pending.clear() }
             }
         }
     }
 
     private fun watch(rt: HostRuntime): Job = scope.launch {
-        // Ready already (push was just turned on), then every connection after.
-        launch { rt.connected.collect { register(rt) } }
+        // Subscribed before the state is read, so a connection that becomes ready in between isn't missed.
+        launch(start = CoroutineStart.UNDISPATCHED) { rt.connected.collect { register(rt) } }
         when {
             rt.state.value.conn is ConnState.Ready -> register(rt)
             // A cold start keeps the endpoint from last time: what is missing is the connection.
@@ -81,7 +95,11 @@ class PushRegistrar(
         }
     }
 
-    private fun set(hostId: String, s: PushStatus?) = _status.update { if (s == null) it - hostId else it + (hostId to s) }
+    /** Sets a host's status; a status (not a removal) only while push is on. */
+    private fun set(hostId: String, s: PushStatus?) {
+        if (s != null && !enabled.value) return
+        _status.update { if (s == null) it - hostId else it + (hostId to s) }
+    }
 
     /** The distributor gave [hostId]'s instance an endpoint (a first one, or a new one). */
     fun onEndpoint(hostId: String, e: SavedEndpoint) {
@@ -89,19 +107,30 @@ class PushRegistrar(
         if (!enabled.value) return
         val rt = runtimes.value[hostId] ?: return
         set(hostId, PushStatus("Waiting for the host", ok = false))
-        if (rt.state.value.conn is ConnState.Ready) scope.launch { register(rt) }
+        if (rt.state.value.conn !is ConnState.Ready) return
+        synchronized(pending) {
+            pending.remove(hostId)?.cancel()
+            // Undispatched: it takes its turn now, behind a call already asked for.
+            pending[hostId] = scope.launch(start = CoroutineStart.UNDISPATCHED) { register(rt) }
+        }
     }
 
     private suspend fun register(rt: HostRuntime) {
-        val e = store.get(rt.hostId) ?: return set(rt.hostId, PushStatus("Waiting for the distributor", ok = false))
-        val api = rt.api() ?: return
-        // Push was just off: the host's UnregisterPush goes first, or it would delete the new endpoint.
-        synchronized(unregistering) { unregistering[rt.hostId] }?.join()
-        try {
-            api.registerPush(e.url, e.p256dh, e.auth)
-            set(rt.hostId, PushStatus("Registered with the host", ok = true))
-        } catch (ex: Exception) {
-            set(rt.hostId, PushStatus("The host refused it: ${ex.message ?: ex.javaClass.simpleName}", ok = false))
+        if (store.get(rt.hostId) == null) return set(rt.hostId, PushStatus("Waiting for the distributor", ok = false))
+        turn(rt.hostId).withLock {
+            // Read again after waiting: push may have gone off, or the endpoint changed, meanwhile.
+            val e = store.get(rt.hostId)
+            if (!enabled.value || e == null) return
+            val api = rt.api() ?: return
+            val st = try {
+                api.registerPush(e.url, e.p256dh, e.auth)
+                PushStatus("Registered with the host", ok = true)
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Exception) {
+                PushStatus("The host refused it: ${ex.message ?: ex.javaClass.simpleName}", ok = false)
+            }
+            if (store.get(rt.hostId) == e) set(rt.hostId, st)
         }
     }
 
@@ -110,6 +139,7 @@ class PushRegistrar(
 
     /** The instance is gone (unregistered here or by the distributor): forget its endpoint. */
     fun forget(hostId: String) {
+        synchronized(pending) { pending.remove(hostId)?.cancel() }
         store.remove(hostId)
         set(hostId, null)
     }
@@ -125,19 +155,14 @@ class PushRegistrar(
         }
     }
 
-    private val unregistering = HashMap<String, Job>()
-
     /**
      * Tells each host to stop pushing here, all at once in the background, if it can be reached now (else it learns
-     * when the endpoint is gone). A registration with that host waits for its call to end.
+     * when the endpoint is gone). Each call takes its host's turn at once, so a registration asked for later goes
+     * after it, and one already being sent goes before it.
      */
-    fun unregisterAt(hostIds: List<String>) = synchronized(unregistering) {
-        for (id in hostIds) {
-            val before = unregistering[id]
-            unregistering[id] = scope.launch {
-                before?.join()
-                runCatching { runtimes.value[id]?.api()?.unregisterPush() }
-            }
+    fun unregisterAt(hostIds: List<String>) {
+        for (id in hostIds) scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            turn(id).withLock { runCatching { runtimes.value[id]?.api()?.unregisterPush() } }
         }
     }
 }

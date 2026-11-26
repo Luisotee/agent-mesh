@@ -341,6 +341,43 @@ class NotificationsTest {
         waitFor("the status") { container.pushRegistrar.status.value[hostId]?.ok == true }
     }
 
+    @Test fun `off, on and off again while a host is slow to answer leaves nothing registered`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        waitFor("RegisterPush") { "register https://ntfy.example/upA?up=1" in api.push }
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.unregisterGate = gate
+        container.disablePush()
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
+        container.disablePush()
+        gate.complete(Unit)
+        waitFor("both UnregisterPush calls") { api.push.count { it == "unregister" } == 2 }
+        Thread.sleep(200)
+        assertTrue(api.push.toList().toString(), "register https://ntfy.example/upB?up=1" !in api.push)
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
+    @Test fun `turning push off while a registration is on its way unregisters after it`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        container.enablePush(activity) {}
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.registerGate = gate
+        container.pushRegistrar.onEndpoint(hostId, dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth"))
+        container.disablePush()
+        gate.complete(Unit)
+        waitFor("UnregisterPush") { "unregister" in api.push }
+        assertEquals(listOf("register https://ntfy.example/upA?up=1", "unregister"), api.push.toList())
+        Thread.sleep(100)
+        assertNull(container.pushRegistrar.status.value[hostId])
+    }
+
     @Test fun `with push on, a host not connected yet whose endpoint is kept waits for the host`() {
         api = RecordingApi()
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
