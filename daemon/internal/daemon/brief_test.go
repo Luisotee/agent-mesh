@@ -78,7 +78,8 @@ func TestTheBriefGivesARootItsCardNotesWorkersAndMailWithoutReadingIt(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(wb.Msg.Text, "not this run's root ("+lead.Name+")") || strings.Contains(wb.Msg.Text, "Root card") {
+	if !strings.Contains(wb.Msg.Text, "not this run's root ("+lead.Name+")") || strings.Contains(wb.Msg.Text, "Root card") ||
+		strings.Contains(wb.Msg.Text, "the user wants the retry fix") {
 		t.Errorf("worker brief:\n%s", wb.Msg.Text)
 	}
 	// A device names the run; another run is not an agent's to read.

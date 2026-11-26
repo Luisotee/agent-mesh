@@ -82,3 +82,11 @@ func TestHeaderTextHasNoControlCharacters(t *testing.T) {
 		t.Errorf("length %d", n)
 	}
 }
+
+func TestCapTextNeverCutsACharacter(t *testing.T) {
+	text := strings.Repeat("é", 3000) // 6000 bytes, no newline
+	got := capText(text, 4000, "cat notes.md")
+	if !utf8.ValidString(got) || !strings.Contains(got, "1000 more characters: cat notes.md") {
+		t.Errorf("%d bytes, valid %v: …%q", len(got), utf8.ValidString(got), got[len(got)-50:])
+	}
+}

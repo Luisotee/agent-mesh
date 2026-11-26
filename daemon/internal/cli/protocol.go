@@ -80,7 +80,13 @@ func Sections(dir string) (names []string, parts map[string]string) {
 		if i := strings.Index(body, "\n"); i >= 0 {
 			body = body[i+1:]
 		}
-		idx := stepStart.FindAllStringIndex(body, -1)
+		var idx [][]int
+		for _, loc := range stepStart.FindAllStringIndex(body, -1) {
+			// Steps run 1, 2, 3, …: a numbered line inside a step (a nested list) is not the next one.
+			if m := stepNumber.FindStringSubmatch(body[loc[0]:]); m != nil && m[1] == fmt.Sprint(len(idx)+1) {
+				idx = append(idx, loc)
+			}
+		}
 		for k, loc := range idx {
 			end := len(body)
 			if k+1 < len(idx) {

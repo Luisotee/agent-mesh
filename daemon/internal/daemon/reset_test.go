@@ -409,3 +409,18 @@ func TestARootCommandCarriesTheContextHintAndNobodyElsesDoes(t *testing.T) {
 		t.Errorf("a worker's hint: %q", h)
 	}
 }
+
+func TestACompactingResetFailsWhenTheCompactionNeverStartsAndTypesNoBootstrap(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{}, func(c *daemon.AgentConfig) { c.Env["FAKECLAUDE_COMPACT"] = "none" })
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	w.size(t, w.agent(lead.Id), 200000, hour, 0)
+	if _, err := asLead.ResetRoot(ctx, connect.NewRequest(&v1.ResetRootRequest{Compact: true})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if after.LastReset.Reason != "the CLI did not start compacting" || strings.Contains(w.typed(), "mesh reset` just") {
+		t.Errorf("reason %q, typed %q", after.LastReset.Reason, w.typed())
+	}
+}

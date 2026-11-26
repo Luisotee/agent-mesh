@@ -308,7 +308,7 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 			return true, d.resumeAfterFailedRelaunch(ctx, a, pr)
 		}
 		if a.State != v1.AgentState_AGENT_STATE_IDLE {
-			if now.Sub(pr.TypedAt.AsTime()) > t.Confirm+resetConfirmWait {
+			if now.Sub(pr.TypedAt.AsTime()) > t.Confirm {
 				return false, d.finishReset(ctx, a.Id, pr, "failed", "the fresh session did not come up at its prompt", a.SessionId)
 			}
 			return true, nil
@@ -333,6 +333,9 @@ func (d *Daemon) resetStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	case "compact":
 		if a.PendingCompaction != nil {
 			return false, nil // the compaction step runs next in this deliver
+		}
+		if pr.Reason != "" { // its compaction did not complete
+			return false, d.finishReset(ctx, a.Id, pr, "failed", pr.Reason, "")
 		}
 		if now.Sub(pr.TypedAt.AsTime()) > t.Confirm+compactTimeout {
 			return false, d.finishReset(ctx, a.Id, pr, "failed", "the compaction did not finish", "")
@@ -431,15 +434,24 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 				return err
 			}
 			cur.PendingReset.Mode, cur.PendingReset.TypedAt = mode, timestamppb.New(now)
-			if cur.Kind != claude.Kind {
-				cur.SessionId = ""
-			}
 			return tx.PutAgent(cur)
 		})
 		if err == nil {
 			if terr := d.typeLine(ctx, a.TerminalId, "/clear"); terr != nil {
 				_ = d.finishReset(ctx, a.Id, pr, "failed", "typing /clear failed: "+terr.Error(), "")
 				return false, nil
+			}
+			if a.Kind != claude.Kind {
+				// agy drops hooks of a conversation other than its own, so the old id goes once the clear is typed: the
+				// next turn's hooks record the new conversation. (A failed clear keeps the id.)
+				err = d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+					cur, err := tx.GetAgent(a.Id)
+					if err != nil || cur.PendingReset == nil || cur.PendingReset.Id != pr.Id {
+						return err
+					}
+					cur.SessionId = ""
+					return tx.PutAgent(cur)
+				})
 			}
 		}
 	}

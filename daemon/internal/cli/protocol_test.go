@@ -44,6 +44,16 @@ func TestSectionsSplitByHeadingOutsideFencesAndRootSteps(t *testing.T) {
 	}
 }
 
+func TestANumberedListInsideARootStepIsNotTheNextStep(t *testing.T) {
+	dir := writeProtocol(t, map[string]string{
+		"ORCHESTRATE.md": "## Root\n\n1. **Start:** go:\n1. a nested item\n2. **Next:** two.\n3. **Last:** three.\n",
+	})
+	_, parts := Sections(dir)
+	if !strings.Contains(parts["root.1"], "a nested item") || strings.Contains(parts["root.2"], "nested") || !strings.HasPrefix(parts["root.2"], "## Root, step 2\n\n2. **Next:**") {
+		t.Errorf("root.1 %q root.2 %q", parts["root.1"], parts["root.2"])
+	}
+}
+
 func TestTheDaemonsProtocolHasTheStepsTheBriefPointsTo(t *testing.T) {
 	_, parts := Sections(filepath.Join("..", "..", "share", "protocol"))
 	// `mesh brief` sends a root to step 6 before approving a plan and to step 8 before checking a done.

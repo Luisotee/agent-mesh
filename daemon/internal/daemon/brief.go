@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -29,11 +30,12 @@ func capText(text string, limit int, more string) string {
 	if len(text) <= limit {
 		return text
 	}
-	cut := strings.LastIndex(text[:limit], "\n")
+	hard := utf8Floor(text, limit) // never inside a character: the response is a proto string
+	cut := strings.LastIndex(text[:hard], "\n")
 	if cut <= limit/2 {
-		cut = limit
+		cut = hard
 	}
-	return fmt.Sprintf("%s\n… %d more characters: %s", strings.TrimRight(text[:cut], " \t\r\n"), len(text)-cut, more)
+	return fmt.Sprintf("%s\n… %d more characters: %s", strings.TrimRight(text[:cut], " \t\r\n"), utf8.RuneCountInString(text[cut:]), more)
 }
 
 func capList(items []string, limit int, more string) []string {
@@ -120,14 +122,14 @@ func (d *Daemon) GetBrief(ctx context.Context, req *connect.Request[v1.GetBriefR
 			me = root
 		}
 	}
-	text, err := d.renderBrief(ctx, r, run, agents, root, me)
+	text, err := d.renderBrief(ctx, r, run, agents, root, me, !IsAgent(actor.Class) || (me != nil && root != nil && me.Id == root.Id))
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.GetBriefResponse{Text: text}), nil
 }
 
-func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, agents []*v1.Agent, root, me *v1.Agent) (string, error) {
+func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, agents []*v1.Agent, root, me *v1.Agent, showNotes bool) (string, error) {
 	folder := d.paths.RunDir(run.Id)
 	isRoot := me != nil && root != nil && me.Id == root.Id
 	title := run.Title
@@ -190,9 +192,13 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			out = append(out, c.text(d.now()))
 		}
 	}
-	for _, f := range []struct{ file, empty string }{
+	files := []struct{ file, empty string }{
 		{"notes.md", "none yet: write the user's standing instructions, decisions and what you do next there"},
-		{"board.md", ""}} {
+		{"board.md", ""}}
+	if !showNotes { // the root's notes hold the user's standing instructions: the root's and a device's to read
+		files = nil
+	}
+	for _, f := range files {
 		path := filepath.Join(folder, f.file)
 		b, err := os.ReadFile(path)
 		switch {

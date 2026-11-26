@@ -398,12 +398,18 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	if pc.Focus != "" {
 		line += " " + pc.Focus
 	}
-	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
+	// Recorded before the line is typed: the CLI's PreCompact can arrive before typeLine returns, and a hook for a
+	// compaction not yet marked typed is ignored.
+	if err := d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) {
+		p.TypedAt, p.TokensBefore = timestamppb.New(d.now()), usage.Tokens
+	}); err != nil {
 		return true, err
 	}
-	return true, d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) {
-		p.TypedAt, p.TokensBefore = timestamppb.New(d.now()), usage.Tokens
-	})
+	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
+		_ = d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) { p.TypedAt = nil })
+		return true, err
+	}
+	return true, nil
 }
 
 // tokensOf is a measured size, 0 when unknown.
@@ -446,6 +452,13 @@ func (d *Daemon) endCompaction(ctx context.Context, a *v1.Agent, pc *v1.PendingC
 			return nil
 		}
 		cur.PendingCompaction = nil
+		if pc.Why == "reset" && outcome != "done" && cur.PendingReset != nil {
+			// A compacting reset needs its compaction done: the reset fails with why, and types no bootstrap.
+			cur.PendingReset.Reason = outcome
+			if outcome == "" {
+				cur.PendingReset.Reason = "the compaction was not done"
+			}
+		}
 		if err := tx.PutAgent(cur); err != nil {
 			return err
 		}
