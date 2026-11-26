@@ -46,6 +46,12 @@ func TestAnAgyThatWantsALoginIsCaughtReportedAndLeftAlone(t *testing.T) {
 		return res.Msg
 	}
 
+	// A run with an agy worker (spawned while agy is not held: `agy models` is held once a login is recorded).
+	if _, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		Repo: gitRepo(t), Slug: "agy-w", Kind: "agy", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})); err != nil {
+		t.Fatal(err)
+	}
+
 	start := time.Now()
 	u := usage()
 	if len(u.Notes) != 1 || !strings.Contains(u.Notes[0], "agy needs `/login`") || len(u.AgyRows) != 0 {
@@ -67,10 +73,6 @@ func TestAnAgyThatWantsALoginIsCaughtReportedAndLeftAlone(t *testing.T) {
 	}
 
 	// The root of a run that uses agy is told once.
-	if _, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-		Repo: gitRepo(t), Slug: "agy-w", Kind: "agy", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})); err != nil {
-		t.Fatal(err)
-	}
 	waitFor(t, "the root told agy needs a login", func() bool { return w.infoTo(t, w.lead, "[mesh alert login agy]") != nil })
 	time.Sleep(time.Second)
 	msgs, _ := w.d.Store().Read(ctx).Inbox(w.lead.Id, true)
