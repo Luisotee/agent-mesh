@@ -423,7 +423,7 @@ func (d *Daemon) ListMCPServers(ctx context.Context, req *connect.Request[v1.Lis
 	viewer := viewerRun(auth.ActorFrom(ctx))
 	repo := strings.TrimSpace(req.Msg.Repo)
 	if repo != "" {
-		if top, err := topOf(ctx, repo); err == nil {
+		if top, err := d.repoTop(ctx, repo); err == nil {
 			repo = top
 		}
 	}

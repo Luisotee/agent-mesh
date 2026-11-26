@@ -32,6 +32,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/repoarg"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
@@ -547,7 +548,7 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		f := fields.Get(i)
 		if isPathField(f) && c.req.Has(f) {
 			val := c.req.Get(f).String()
-			if isRepoNameField(f) && bareRepoName(val) && !localFolder(val, c.env) {
+			if isRepoNameField(f) && repoarg.IsBareName(val) && !localRepo(val, c.env) {
 				continue // a name for the daemon to look up in its `repos.dir` setting
 			}
 			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(val, c.env)))
@@ -587,14 +588,10 @@ func isRepoNameField(f protoreflect.FieldDescriptor) bool {
 	return fopts != nil && proto.HasExtension(fopts, v1.E_RepoName) && proto.GetExtension(fopts, v1.E_RepoName).(bool)
 }
 
-func bareRepoName(s string) bool {
-	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/") && !strings.HasPrefix(s, "~") &&
-		!strings.HasPrefix(s, "-") && !strings.ContainsAny(s, ":@")
-}
-
-// localFolder reports whether a folder of that name is in the working directory: then it is the repo meant, as
-// it was before names existed, and the setting isn't consulted.
-func localFolder(name string, env Env) bool {
+// localRepo reports whether a repo of that name is in the working directory (a folder with its own .git: a
+// plain subfolder of the repo the caller is in is not one): then it is the repo meant, as it was before names
+// existed, and `repos.dir` isn't consulted.
+func localRepo(name string, env Env) bool {
 	getwd := env.Getwd
 	if getwd == nil {
 		getwd = os.Getwd
@@ -603,8 +600,8 @@ func localFolder(name string, env Env) bool {
 	if err != nil || wd == "" {
 		return true
 	}
-	st, err := os.Stat(filepath.Join(wd, name))
-	return err == nil && st.IsDir()
+	_, err = os.Stat(filepath.Join(wd, name, ".git")) // a directory, or a file in a worktree
+	return err == nil
 }
 
 func resolveCLIPath(s string, env Env) string {

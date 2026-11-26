@@ -178,9 +178,13 @@ func TestImportSettingsAppliesOnDemandAndKeepsWhatIsSet(t *testing.T) {
 		t.Error("a set leaf was replaced")
 	}
 	// A retry with the same mutation id replays the first answer, not a fresh (empty) one.
-	if replay := call("one", &v1.ImportSettingsRequest{From: file}); len(replay.Imported) != 5 {
-		t.Errorf("replay: %v", replay.Imported)
+	// ... even when the file is gone by then (the file is read only once the mutation is known to be new), and the
+	// stored answer names the file.
+	os.Rename(file, file+".moved")
+	if replay := call("one", &v1.ImportSettingsRequest{From: file}); len(replay.Imported) != 5 || replay.File != file {
+		t.Errorf("replay: %v %q", replay.Imported, replay.File)
 	}
+	os.Rename(file+".moved", file)
 	if again := call("two", &v1.ImportSettingsRequest{From: file}); len(again.Imported) != 0 {
 		t.Errorf("a second import changed %v", again.Imported)
 	}

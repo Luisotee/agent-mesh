@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -159,4 +160,64 @@ func TestSpawnTakesABareRepoNameFromReposDir(t *testing.T) {
 		t.Fatalf("spawned %v", a)
 	}
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE) // its hooks have landed before the state dir goes
+}
+
+// ResolveModel warms what SpawnAgent warms before it picks, so a cold daemon answers as a spawn would.
+func TestResolveModelSkipsAnAgyModelAtTheReserveOnAColdDaemon(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Env["FAKEAGY_USAGE"] = strings.Join([]string{
+			"Gemini 4 Neon\tNeon\t5%\t1h",
+			"Gemini and Claude models\tShared\t80%\t2h",
+		}, "\n")
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true}
+	})
+	w.set(t, "tiers.agy.strong.model", []any{"neon", "hydrogen"})
+	for _, effort := range []string{"", "low"} { // the tier's own effort, and another one
+		res, err := w.device.Mesh.ResolveModel(context.Background(), connect.NewRequest(&v1.ResolveModelRequest{
+			Kind: "agy", Tier: "strong", Effort: effort}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Msg.Model != "hydrogen" || chainText(res.Msg) != "neon [at the reserve (5% left)],hydrogen" {
+			t.Errorf("effort %q: model %q, chain %q", effort, res.Msg.Model, chainText(res.Msg))
+		}
+	}
+}
+
+func TestResolveModelExpandsOpenCodeFreeOnAColdDaemon(t *testing.T) {
+	w := startReopen(t)
+	w.set(t, "tiers.opencode.mid.model", []any{"free"})
+	res, err := w.device.Mesh.ResolveModel(context.Background(), connect.NewRequest(&v1.ResolveModelRequest{Kind: "opencode", Tier: "mid"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Msg.Model != "opencode/big-pickle" || len(res.Msg.Chain) != 5 {
+		t.Errorf("model %q chain %q", res.Msg.Model, chainText(res.Msg))
+	}
+	named, err := w.device.Mesh.ResolveModel(context.Background(), connect.NewRequest(&v1.ResolveModelRequest{Kind: "opencode", Model: "free"}))
+	if err != nil || named.Msg.Model != "opencode/big-pickle" {
+		t.Errorf("--model free: %v %v", named, err)
+	}
+}
+
+// A mesh tools servers --repo <name> takes a bare name as a spawn does.
+func TestListMCPServersTakesABareRepoName(t *testing.T) {
+	w := startReopen(t)
+	repo := gitRepo(t) // <tmp>/shop-api
+	os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(`{"mcpServers":{"shopsrv":{"command":"x"}}}`), 0o644)
+	os.MkdirAll(filepath.Join(repo, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"enableAllProjectMcpServers":true}`), 0o644)
+	os.WriteFile(filepath.Join(w.home, ".claude.json"), []byte(`{}`), 0o644)
+	w.set(t, "repos.dir", []any{filepath.Dir(repo)})
+	res, err := w.device.Mesh.ListMCPServers(context.Background(), connect.NewRequest(&v1.ListMCPServersRequest{Repo: "shop-api"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, s := range res.Msg.Servers {
+		names = append(names, s.Name)
+	}
+	if !strings.Contains(strings.Join(names, ","), "shopsrv") {
+		t.Errorf("servers %v: the repo's own was not found by its bare name", names)
+	}
 }

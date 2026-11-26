@@ -100,40 +100,40 @@ func (d *Daemon) ImportSettings(ctx context.Context, req *connect.Request[v1.Imp
 	if path == "" {
 		return nil, invalid("no policy file: meshd was started without --policy-file, so give --from <file>")
 	}
-	b, err := readPolicyFile(path)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("reading %s: %v", path, err))
-	}
-	vals, skips, err := settings.ParsePolicy(d.schema, b)
-	if err != nil {
-		return nil, invalid("%s is not a policy file: %v", path, err)
-	}
 	out := &v1.ImportSettingsResponse{}
-	if m.DryRun {
-		err = d.store.Snapshot(ctx, func(r store.Reader) error {
-			var err error
-			out, err = d.applyPolicy(r, nil, vals, skips, m.Overwrite)
+	// What reads and applies the file. A write runs it only after d.write has looked for the mutation, so a retry
+	// replays the first answer even when the file is gone or has changed since; the answer stored is complete.
+	apply := func(r store.Reader, t *store.Tx) error {
+		b, err := readPolicyFile(path)
+		if err != nil {
+			return connect.NewError(connect.CodeNotFound, fmt.Errorf("reading %s: %v", path, err))
+		}
+		vals, skips, err := settings.ParsePolicy(d.schema, b)
+		if err != nil {
+			return invalid("%s is not a policy file: %v", path, err)
+		}
+		res, err := d.applyPolicy(r, t, vals, skips, m.Overwrite)
+		if err != nil {
 			return err
-		})
+		}
+		out.File, out.DryRun, out.Imported, out.Skipped = expandHome(path), m.DryRun, res.Imported, res.Skipped
+		// Applying the file meshd was started with is its import: no "changed since" warning at the next start.
+		if t != nil && d.cfg.PolicyFile != "" && expandHome(path) == expandHome(d.cfg.PolicyFile) {
+			return d.recordPolicyImport(t, expandHome(path), b, res)
+		}
+		return nil
+	}
+	var err error
+	if m.DryRun {
+		err = d.store.Snapshot(ctx, func(r store.Reader) error { return apply(r, nil) })
 	} else {
-		// d.write stores `out` as the mutation's response, so the result goes into it (a retry replays it).
 		_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceImportSettingsProcedure, out, func(t *store.Tx) error {
-			res, err := d.applyPolicy(t.Reader, t, vals, skips, m.Overwrite)
-			if err != nil {
-				return err
-			}
-			out.Imported, out.Skipped = res.Imported, res.Skipped
-			// Applying the file meshd was started with is its import: no "changed since" warning at the next start.
-			if d.cfg.PolicyFile != "" && expandHome(path) == expandHome(d.cfg.PolicyFile) {
-				return d.recordPolicyImport(t, expandHome(path), b, res)
-			}
-			return nil
+			return apply(t.Reader, t)
 		})
 	}
 	if err != nil {
 		return nil, err
 	}
-	out.File, out.DryRun = expandHome(path), m.DryRun
 	return connect.NewResponse(out), nil
 }
 

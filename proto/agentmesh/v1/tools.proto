@@ -43,8 +43,8 @@ message AddToolsResponse {
 }
 
 message ListMCPServersRequest {
-  // Optional git repository whose local and project MCP config is included.
-  string repo = 1 [(path) = true];
+  // Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
+  string repo = 1 [(path) = true, (repo_name) = true];
 }
 
 message MCPServerInfo {

@@ -22,6 +22,7 @@ func (d *Daemon) ResolveModel(ctx context.Context, req *connect.Request[v1.Resol
 		kind = "claude"
 	}
 	out := &v1.ResolveModelResponse{Kind: kind, Tier: m.Tier}
+	d.warmForPick(ctx, kind, m)
 	err := d.store.Snapshot(ctx, func(r store.Reader) error {
 		model, effort, err := d.pick(r, kind, m.Tier, m.Model, m.Effort, "the model a spawn would use")
 		if err != nil {
@@ -49,6 +50,24 @@ func (d *Daemon) ResolveModel(ctx context.Context, req *connect.Request[v1.Resol
 		return nil, err
 	}
 	return connect.NewResponse(out), nil
+}
+
+// warmForPick does what SpawnAgent does before it picks (`warmUsage`, `warmOpenCodeModels`), outside the snapshot,
+// so the answer is the spawn's: agy's usage and display names are read (a model at the reserve is skipped) and
+// OpenCode's `free` family is expanded. warmUsage resolves each agy tier's chain at the tier's own effort, so
+// when another effort is asked for the tier's chain is warmed at that one too.
+func (d *Daemon) warmForPick(ctx context.Context, kind string, m *v1.ResolveModelRequest) {
+	r := d.store.Read(ctx)
+	extra := []agyResolveKey{{model: m.Model, effort: m.Effort}}
+	if m.Tier != "" && m.Effort != "" {
+		if chain, _, err := d.tierChain(r, kind, m.Tier); err == nil {
+			for _, c := range chain {
+				extra = append(extra, agyResolveKey{model: c, effort: m.Effort})
+			}
+		}
+	}
+	d.warmUsage(ctx, r, kind, extra...)
+	d.warmOpenCodeModels(ctx, kind)
 }
 
 // standing is why a spawn would skip a model of a chain: held at a limit, or (agy) at the quota reserve; empty

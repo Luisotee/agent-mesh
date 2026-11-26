@@ -149,7 +149,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.ListAgentsRequest.run_id":                 "Empty means every open run.",
 	"agentmesh.v1.ListAsksRequest.pr":                       "Only the asks of this pull request (URL or number).",
 	"agentmesh.v1.ListAsksRequest.run_id":                   "Empty means the caller's own run (every run for a device).",
-	"agentmesh.v1.ListMCPServersRequest.repo":               "Optional git repository whose local and project MCP config is included.",
+	"agentmesh.v1.ListMCPServersRequest.repo":               "Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.",
 	"agentmesh.v1.ListMessagesRequest.after_id":             "Only messages after this one (the last of the previous page); empty starts at the oldest.",
 	"agentmesh.v1.ListMessagesRequest.limit":                "At most this many; 0 means 500, and more than 2000 is capped to 2000.",
 	"agentmesh.v1.ListMessagesRequest.run_id":               "The run whose messages to list.",

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Luisotee/agent-mesh/daemon/internal/repoarg"
 )
 
 // A repo named bare (`mesh ask --repo agent-mesh`) is a folder of the `repos.dir` setting that is a repo's own
@@ -12,15 +14,10 @@ import (
 // its working directory (the `repo_name` option in options.proto), so a repo in the caller's directory never needs
 // the setting. Anything with a slash, `.`, `..` or a leading `~` is a path, resolved as before.
 
-func isBareRepoName(arg string) bool {
-	return arg != "" && arg != "." && arg != ".." && !strings.Contains(arg, "/") && !strings.HasPrefix(arg, "~") &&
-		!strings.HasPrefix(arg, "-") && !strings.ContainsAny(arg, ":@") // an option or a URL is no name
-}
-
 // repoTop is the top folder of the git repository `arg` names: a path as topOf takes it, or a bare name looked up
 // in `repos.dir`.
 func (d *Daemon) repoTop(ctx context.Context, arg string) (string, error) {
-	if !isBareRepoName(arg) {
+	if !repoarg.IsBareName(arg) {
 		return topOf(ctx, arg)
 	}
 	dirs, err := d.Setting(d.store.Read(ctx), "repos.dir")

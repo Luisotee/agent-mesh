@@ -681,7 +681,8 @@ func TestPathOptionResolvesRelativeAndHomePathsAgainstCallerCwd(t *testing.T) {
 
 func TestRepoNameStaysBareUnlessAFolderOfThatNameIsHere(t *testing.T) {
 	wd := t.TempDir()
-	os.MkdirAll(filepath.Join(wd, "here"), 0o755)
+	os.MkdirAll(filepath.Join(wd, "here", ".git"), 0o755)
+	os.MkdirAll(filepath.Join(wd, "plain"), 0o755)
 	env := Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
 		Getenv: func(string) string { return "" }, Getwd: func() (string, error) { return wd, nil }}
 	repo := func(cmd string, args ...string) string {
@@ -700,6 +701,11 @@ func TestRepoNameStaysBareUnlessAFolderOfThatNameIsHere(t *testing.T) {
 	}
 	if got := repo("ask", "--repo", "agent-mesh", "--tier", "mid", "--body", "x"); got != "agent-mesh" {
 		t.Errorf("ask: %q", got)
+	}
+	// A plain subfolder of the repo the caller is in is no repo of that name (a monorepo's api/): the name goes to
+	// the daemon, which finds the other repo in repos.dir.
+	if got := repo("spawn", "--repo", "plain", "--slug", "x", "--tier", "mid"); got != "plain" {
+		t.Errorf("a plain subfolder = %q: it is no repo, so the daemon looks the name up", got)
 	}
 	if got := repo("spawn", "--repo", "here", "--slug", "x", "--tier", "mid"); got != filepath.Join(wd, "here") {
 		t.Errorf("a folder here wins: %q", got)
