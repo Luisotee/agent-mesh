@@ -319,6 +319,38 @@ public class MeshServiceClient(
 
 
   /**
+   *  Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
+   *  bootstrap text. Acts on the caller's own run's root.
+   */
+  override suspend fun resetRoot(request: ResetRootRequest, headers: Headers): ResponseMessage<ResetRootResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ResetRoot",
+      dev.agentmesh.gen.agentmesh.v1.ResetRootRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ResetRootResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
+   *  headers and the last reset. Marks nothing read.
+   */
+  override suspend fun getBrief(request: GetBriefRequest, headers: Headers): ResponseMessage<GetBriefResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetBrief",
+      dev.agentmesh.gen.agentmesh.v1.GetBriefRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetBriefResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
    */
   override suspend fun reportHook(request: ReportHookRequest, headers: Headers): ResponseMessage<ReportHookResponse> = client.unary(

@@ -22,6 +22,8 @@ public  final class ResumeAgentRequest extends
     effort_ = "";
     why_ = "";
     runId_ = "";
+    compact_ = "";
+    focus_ = "";
     mcp_ = emptyProtobufList();
   }
   private int bitField0_;
@@ -479,7 +481,141 @@ public  final class ResumeAgentRequest extends
 
   }
 
-  public static final int MCP_FIELD_NUMBER = 10;
+  public static final int COMPACT_FIELD_NUMBER = 10;
+  private java.lang.String compact_;
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The compact.
+   */
+  @java.lang.Override
+  public java.lang.String getCompact() {
+    return compact_;
+  }
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The bytes for compact.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getCompactBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(compact_);
+  }
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @param value The compact to set.
+   */
+  private void setCompact(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    compact_ = value;
+  }
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   */
+  private void clearCompact() {
+
+    compact_ = getDefaultInstance().getCompact();
+  }
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @param value The bytes for compact to set.
+   */
+  private void setCompactBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    compact_ = value.toStringUtf8();
+
+  }
+
+  public static final int FOCUS_FIELD_NUMBER = 11;
+  private java.lang.String focus_;
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  @java.lang.Override
+  public java.lang.String getFocus() {
+    return focus_;
+  }
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFocusBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(focus_);
+  }
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @param value The focus to set.
+   */
+  private void setFocus(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    focus_ = value;
+  }
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   */
+  private void clearFocus() {
+
+    focus_ = getDefaultInstance().getFocus();
+  }
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @param value The bytes for focus to set.
+   */
+  private void setFocusBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    focus_ = value.toStringUtf8();
+
+  }
+
+  public static final int MCP_FIELD_NUMBER = 12;
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> mcp_;
   /**
    * <pre>
@@ -487,7 +623,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @return A list containing the mcp.
    */
   @java.lang.Override
@@ -500,7 +636,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @return The count of mcp.
    */
   @java.lang.Override
@@ -513,7 +649,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param index The index of the element to return.
    * @return The mcp at the given index.
    */
@@ -527,7 +663,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param index The index of the value to return.
    * @return The bytes of the mcp at the given index.
    */
@@ -550,7 +686,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param index The index to set the value at.
    * @param value The mcp to set.
    */
@@ -566,7 +702,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param value The mcp to add.
    */
   private void addMcp(
@@ -581,7 +717,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param values The mcp to add.
    */
   private void addAllMcp(
@@ -596,7 +732,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    */
   private void clearMcp() {
     mcp_ = emptyProtobufList();
@@ -607,7 +743,7 @@ public  final class ResumeAgentRequest extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param value The bytes of the mcp to add.
    */
   private void addMcpBytes(
@@ -1186,11 +1322,149 @@ public  final class ResumeAgentRequest extends
 
     /**
      * <pre>
+     * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+     * </pre>
+     *
+     * <code>string compact = 10 [json_name = "compact"];</code>
+     * @return The compact.
+     */
+    @java.lang.Override
+    public java.lang.String getCompact() {
+      return instance.getCompact();
+    }
+    /**
+     * <pre>
+     * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+     * </pre>
+     *
+     * <code>string compact = 10 [json_name = "compact"];</code>
+     * @return The bytes for compact.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getCompactBytes() {
+      return instance.getCompactBytes();
+    }
+    /**
+     * <pre>
+     * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+     * </pre>
+     *
+     * <code>string compact = 10 [json_name = "compact"];</code>
+     * @param value The compact to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCompact(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setCompact(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+     * </pre>
+     *
+     * <code>string compact = 10 [json_name = "compact"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCompact() {
+      copyOnWrite();
+      instance.clearCompact();
+      return this;
+    }
+    /**
+     * <pre>
+     * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+     * </pre>
+     *
+     * <code>string compact = 10 [json_name = "compact"];</code>
+     * @param value The bytes for compact to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCompactBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setCompactBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * What the compaction keeps, instead of the default for the task.
+     * </pre>
+     *
+     * <code>string focus = 11 [json_name = "focus"];</code>
+     * @return The focus.
+     */
+    @java.lang.Override
+    public java.lang.String getFocus() {
+      return instance.getFocus();
+    }
+    /**
+     * <pre>
+     * What the compaction keeps, instead of the default for the task.
+     * </pre>
+     *
+     * <code>string focus = 11 [json_name = "focus"];</code>
+     * @return The bytes for focus.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getFocusBytes() {
+      return instance.getFocusBytes();
+    }
+    /**
+     * <pre>
+     * What the compaction keeps, instead of the default for the task.
+     * </pre>
+     *
+     * <code>string focus = 11 [json_name = "focus"];</code>
+     * @param value The focus to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFocus(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setFocus(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the compaction keeps, instead of the default for the task.
+     * </pre>
+     *
+     * <code>string focus = 11 [json_name = "focus"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFocus() {
+      copyOnWrite();
+      instance.clearFocus();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the compaction keeps, instead of the default for the task.
+     * </pre>
+     *
+     * <code>string focus = 11 [json_name = "focus"];</code>
+     * @param value The bytes for focus to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFocusBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setFocusBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
      * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @return A list containing the mcp.
      */
     @java.lang.Override
@@ -1205,7 +1479,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @return The count of mcp.
      */
     @java.lang.Override
@@ -1218,7 +1492,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param index The index of the element to return.
      * @return The mcp at the given index.
      */
@@ -1232,7 +1506,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param index The index of the value to return.
      * @return The bytes of the mcp at the given index.
      */
@@ -1247,7 +1521,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param index The index to set the value at.
      * @param value The mcp to set.
      * @return This builder for chaining.
@@ -1264,7 +1538,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param value The mcp to add.
      * @return This builder for chaining.
      */
@@ -1280,7 +1554,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param values The mcp to add.
      * @return This builder for chaining.
      */
@@ -1296,7 +1570,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @return This builder for chaining.
      */
     public Builder clearMcp() {
@@ -1310,7 +1584,7 @@ public  final class ResumeAgentRequest extends
      * had, dropping any exclusive server another live agent now holds.
      * </pre>
      *
-     * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+     * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
      * @param value The bytes of the mcp to add.
      * @return This builder for chaining.
      */
@@ -1347,11 +1621,14 @@ public  final class ResumeAgentRequest extends
             "effort_",
             "why_",
             "runId_",
+            "compact_",
+            "focus_",
             "mcp_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0001\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u021a";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0001\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\u0208\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b" +
+              "\u0208\f\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

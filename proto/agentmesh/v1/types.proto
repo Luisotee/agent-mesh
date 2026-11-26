@@ -3,6 +3,7 @@ syntax = "proto3";
 package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
+import "agentmesh/v1/context.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -123,13 +124,21 @@ message Agent {
   // The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
   // (`claude.mcp_keep`); every reopen keeps them.
   repeated string mcp = 31;
+  // A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+  PendingCompaction pending_compaction = 32;
+  // A root's reset asked for and not done yet, and the last one finished (or failed).
+  RootReset pending_reset = 33;
+  RootReset last_reset = 34;
+  // Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+  // 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+  bool last_turn_by_mesh = 35;
   // Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
   // `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
-  repeated string added_tools = 32;
+  repeated string added_tools = 36;
   // True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
-  bool tools_added = 33;
+  bool tools_added = 37;
   // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
-  bool mcp_all = 34;
+  bool mcp_all = 38;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -149,12 +158,15 @@ message Reopen {
   string model = 2;
   string effort = 3;
   bool deny_edits = 4;
-  // "plan approved", "moved", "quota", "resumed".
+  // "plan approved", "moved", "quota", "resumed", "reset".
   string why = 5;
   // The caller's own reason, when it gave one.
   string reason = 6;
   google.protobuf.Timestamp requested_at = 7;
   Actor requested_by = 8;
+  // Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+  // cleared; the new process records its own.
+  bool fresh = 9;
 }
 
 enum MessageType {
@@ -224,6 +236,11 @@ message Event {
     RunStopped run_stopped = 24;
     ReserveChanged reserve_changed = 27;
     AgentRoleChanged agent_role_changed = 28;
+    AgentCompacted agent_compacted = 29;
+    RootResetRequested root_reset_requested = 30;
+    RootResetFinished root_reset_finished = 31;
+    DoorbellFailed doorbell_failed = 32;
+    DoorbellHeld doorbell_held = 33;
   }
 }
 
@@ -248,6 +265,30 @@ message MessageSent {
 
 message MessageDelivered {
   string message_id = 1;
+  // How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+  // worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+  // "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+  string via = 2;
+  // How many times the doorbell was typed or written before one counted.
+  int32 tries = 3;
+}
+
+// A doorbell was typed or written again and again and never got through (the agent's input never took it, or it
+// sat at a dialog the CLI's hooks didn't report). Nothing is typed again until the agent's state next changes; the
+// messages stay unread.
+message DoorbellFailed {
+  repeated string message_ids = 1;
+  int32 tries = 2;
+  string reason = 3;
+}
+
+// A doorbell has waited for a human's draft in the agent's input box to go for a long time (`delivery.draft_hold_alert`).
+// It is never typed into the draft.
+message DoorbellHeld {
+  repeated string message_ids = 1;
+  string reason = 2;
+  // The draft's first characters.
+  string draft = 3;
 }
 
 message AgentExited {

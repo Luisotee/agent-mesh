@@ -13,7 +13,7 @@ mesh dir           # the run's folder: plans/, reports/ and tasks/ go in it
 
 ## Reading messages
 
-A line starting with `📬 [mesh]` in your input is a **doorbell**: the daemon types it into your terminal when you are idle, never while you work and never into what the user is typing. It shows only who sent what; the message is in your mailbox:
+A line starting with `📬 [mesh]` in your input is a **doorbell**: the daemon hands it to you when you are idle (a Claude Code agent takes it as a cross-session message, any other CLI has it typed into its terminal), never while you work and never into what the user is typing. It shows only who sent what, and a `(ref abc123)` that is the daemon's own marker (ignore it); the message is in your mailbox. A doorbell you didn't act on is rung again a few times, so one that repeats is not a new message:
 
 ```bash
 mesh inbox         # prints your unread messages (a header line with type, sender and time, then the body; `--format json` for the whole response) and marks them read

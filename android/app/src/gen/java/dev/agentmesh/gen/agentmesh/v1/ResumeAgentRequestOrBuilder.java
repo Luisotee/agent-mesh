@@ -133,11 +133,51 @@ public interface ResumeAgentRequestOrBuilder extends
 
   /**
    * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The compact.
+   */
+  java.lang.String getCompact();
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The bytes for compact.
+   */
+  com.google.protobuf.ByteString
+      getCompactBytes();
+
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  java.lang.String getFocus();
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  com.google.protobuf.ByteString
+      getFocusBytes();
+
+  /**
+   * <pre>
    * Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @return A list containing the mcp.
    */
   java.util.List<java.lang.String>
@@ -148,7 +188,7 @@ public interface ResumeAgentRequestOrBuilder extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @return The count of mcp.
    */
   int getMcpCount();
@@ -158,7 +198,7 @@ public interface ResumeAgentRequestOrBuilder extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param index The index of the element to return.
    * @return The mcp at the given index.
    */
@@ -169,7 +209,7 @@ public interface ResumeAgentRequestOrBuilder extends
    * had, dropping any exclusive server another live agent now holds.
    * </pre>
    *
-   * <code>repeated string mcp = 10 [json_name = "mcp"];</code>
+   * <code>repeated string mcp = 12 [json_name = "mcp"];</code>
    * @param index The index of the element to return.
    * @return The mcp at the given index.
    */
