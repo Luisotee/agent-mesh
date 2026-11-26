@@ -176,3 +176,6 @@ func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
 		return tx.PutAgent(a)
 	})
 }
+
+// RunDirForTest is a run's dir (reports, plans, notes).
+func (d *Daemon) RunDirForTest(run string) string { return d.paths.RunDir(run) }

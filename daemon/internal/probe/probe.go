@@ -47,6 +47,7 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 		if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 			return nil, err
 		}
+		sweep(s.Dir)
 	}
 	dir, err := os.MkdirTemp(s.Dir, "meshprobe-")
 	if err != nil {
@@ -133,6 +134,23 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 		}
 	}
 	return out.Bytes(), werr
+}
+
+// sweep removes the stub directories of probes that were killed before they could clean up (meshd itself
+// killed): those older than an hour, which no running probe has.
+func sweep(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "meshprobe-") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > time.Hour {
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // capped keeps the first 2 KiB written to it: what a failed probe said, for the error.

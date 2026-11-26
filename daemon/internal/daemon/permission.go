@@ -172,9 +172,9 @@ var deploySubcommands = map[string]map[string]bool{
 
 // neverForward says why a prompt is never passed to the root, or "": the outward actions PROTOCOL's rule 11
 // keeps for the user (a push, a merge or another write to the remote, a deploy or a publish) and a file write
-// outside the agent's worktree. Those prompts stay on the agent's screen for the person there, whatever the
+// outside the agent's worktree (its run's own dir, where its reports, plans and notes go, is not outside). Those prompts stay on the agent's screen for the person there, whatever the
 // root might answer.
-func neverForward(worktree, tool, summary string) string {
+func neverForward(worktree, runDir, tool, summary string) string {
 	switch tool {
 	case "Bash":
 		if pub := shellmatch.MatchPublishCommand(summary); pub != "" {
@@ -198,7 +198,11 @@ func neverForward(worktree, tool, summary string) string {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(worktree, path)
 		}
-		if rel, err := filepath.Rel(filepath.Clean(worktree), filepath.Clean(path)); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		inside := func(dir string) bool {
+			rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+			return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+		}
+		if !inside(worktree) && (runDir == "" || !inside(runDir)) {
 			return "a write outside its worktree"
 		}
 	}
@@ -226,7 +230,7 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		return none, nil
 	}
 	tool := cutLine(req.Msg.Tool, 80)
-	if why := neverForward(a.Worktree, tool, req.Msg.Summary); why != "" {
+	if why := neverForward(a.Worktree, d.paths.RunDir(a.RunId), tool, req.Msg.Summary); why != "" {
 		d.log.Info("permission prompt stays with the person", "agent", a.Name, "tool", tool, "why", why)
 		return none, nil
 	}

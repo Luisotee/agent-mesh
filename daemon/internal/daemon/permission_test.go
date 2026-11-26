@@ -292,7 +292,9 @@ func TestOutwardPromptsAreNeverForwardedToTheRoot(t *testing.T) {
 	if m := w.infoTo(t, w.lead, permissionTag); m != nil {
 		t.Errorf("the root was told of one: %s", m.Body)
 	}
+	runDir := w.d.RunDirForTest(w.run.Id)
 	for _, tc := range []struct{ tool, summary string }{
+		{"Write", filepath.Join(runDir, "reports", wk.Name+".md")}, // a report goes in the run's dir, outside the worktree
 		{"Bash", "go test ./..."},
 		{"Bash", "git status"},
 		{"Edit", "internal/x.go"},

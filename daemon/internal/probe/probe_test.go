@@ -113,3 +113,31 @@ func TestAProbesStubsAreMadeUnderTheDirectoryGivenAndRemoved(t *testing.T) {
 		t.Errorf("stubs were made in the temp dir: %v", left)
 	}
 }
+
+// A stub directory a killed meshd left behind is swept by the next probe; a recent one (a probe running now) is not.
+func TestAProbeSweepsStubDirectoriesLeftByAKilledMeshd(t *testing.T) {
+	base := t.TempDir()
+	old, recent, other := filepath.Join(base, "meshprobe-old"), filepath.Join(base, "meshprobe-new"), filepath.Join(base, "keep-me")
+	for _, d := range []string{old, recent, other} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	for _, d := range []string{old, other} {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Run(context.Background(), Spec{Bin: cli(t, `echo ok`), Dir: base, Timeout: 10 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("an old stub directory was not swept")
+	}
+	for _, d := range []string{recent, other} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("%s was removed", d)
+		}
+	}
+}
