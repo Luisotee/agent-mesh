@@ -195,30 +195,33 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
 	if !d.installed(opencode.Kind) {
 		return false, ""
 	}
-	chain, _, err := d.tierChain(r, opencode.Kind, tier)
-	if err != nil {
-		return false, ""
-	}
-	chain = d.expandChain(opencode.Kind, chain)
 	now := d.now()
 	if allHeld, _, err := r.ModelHold(opencode.Kind, holdAll, now); err == nil && !allHeld.IsZero() {
 		return false, fmt.Sprintf("opencode is at its limit until %s", allHeld.UTC().Format(time.RFC3339))
 	}
-	var latest time.Time
+	if tier == "" {
+		return true, ""
+	}
+	chain, _, err := d.tierChain(r, opencode.Kind, tier)
+	if err != nil {
+		return true, ""
+	}
+	chain = d.expandChain(opencode.Kind, chain)
+	var soonest time.Time
 	for _, m := range chain {
 		if m == opencode.FreeFamily {
 			continue
 		}
 		if held, _, err := r.ModelHold(opencode.Kind, m, now); err == nil && !held.IsZero() {
-			if held.After(latest) {
-				latest = held
+			if soonest.IsZero() || held.Before(soonest) {
+				soonest = held
 			}
 			continue
 		}
 		return true, ""
 	}
-	if !latest.IsZero() {
-		return false, fmt.Sprintf("all opencode %s models are held until %s", tier, latest.UTC().Format(time.RFC3339))
+	if !soonest.IsZero() {
+		return false, fmt.Sprintf("all opencode %s models are held until %s", tier, soonest.UTC().Format(time.RFC3339))
 	}
 	return true, ""
 }
@@ -281,7 +284,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 					missing = append(missing, k)
 					continue
 				}
-				if k == opencode.Kind && tier != "" {
+				if k == opencode.Kind {
 					if ok, why := d.openCodeAvailable(r, tier); !ok {
 						if why != "" {
 							held = append(held, why)
@@ -310,9 +313,18 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 	switch {
 	case mode == "all":
 		for _, k := range d.rt.adapters.Kinds() {
-			if d.installed(k) {
-				add(k)
+			if !d.installed(k) {
+				continue
 			}
+			if k == opencode.Kind {
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+			}
+			add(k)
 		}
 	case mode != "auto" && mode != "":
 		for _, k := range strings.Split(mode, ",") {
@@ -321,6 +333,14 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case k == "":
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
+			case k == opencode.Kind:
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+				add(k)
 			default:
 				add(k)
 			}
@@ -340,6 +360,14 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 				notes = append(notes, fmt.Sprintf("%s reviewed it once and is not asked again (review.re_review.skip)", k))
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
+			case k == opencode.Kind:
+				if ok, why := d.openCodeAvailable(r, tier); !ok {
+					if why != "" {
+						notes = append(notes, why+": not asked")
+					}
+					continue
+				}
+				add(k)
 			default:
 				add(k)
 			}

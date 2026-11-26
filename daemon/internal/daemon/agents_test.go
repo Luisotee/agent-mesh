@@ -64,6 +64,7 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 		TermLaunch: termclient.LaunchDetached, TermBinary: filepath.Join(bins, "mesh-term"),
 		TermArgs: []string{"--max-lifetime", "3m"}, Mesh: filepath.Join(bins, "mesh"),
 		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude"), "agy": filepath.Join(bins, "agy"), "opencode": filepath.Join(bins, "opencode")},
+		LookPath:      func(string) (string, bool) { return "", false },
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
 		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,
 		ReadySettle: 150 * time.Millisecond,

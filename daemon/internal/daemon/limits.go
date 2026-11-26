@@ -100,6 +100,20 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 	return best
 }
 
+// soonestHold returns the earliest active hold expiry among models in `chain`, or zero if none are held.
+func (d *Daemon) soonestHold(r store.Reader, kind string, chain []string) time.Time {
+	now := d.now()
+	var soonest time.Time
+	for _, m := range chain {
+		if until, _, err := r.ModelHold(kind, m, now); err == nil && !until.IsZero() {
+			if soonest.IsZero() || until.Before(soonest) {
+				soonest = until
+			}
+		}
+	}
+	return soonest
+}
+
 // nextFree is the first model after position i of a chain with quota left (not held and not under agy's reserve), or "".
 func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i int) string {
 	now := d.now()

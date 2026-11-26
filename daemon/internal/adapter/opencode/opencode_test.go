@@ -159,6 +159,61 @@ func TestPlanLaunchFreshResumeVariantsAndOrderedPermissions(t *testing.T) {
 	}
 }
 
+func TestPlanLaunchEmptyModelOmitsFlagAndLookup(t *testing.T) {
+	a := New()
+	a.ListModels = func(context.Context, string, map[string]string) (string, error) {
+		t.Fatal("ListModels must not be called when Model is empty")
+		return "", nil
+	}
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		AgentId: "root1", Role: agentmeshv1.AgentRole_AGENT_ROLE_ROOT, Cwd: t.TempDir(),
+		Binary: "/opt/opencode", Model: "", Effort: "",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := AgentName("", namedEffort)
+	wantArgv := []string{"/opt/opencode", "--agent", agent}
+	if strings.Join(res.Msg.Argv, "\x00") != strings.Join(wantArgv, "\x00") {
+		t.Fatalf("argv = %v, want %v", res.Msg.Argv, wantArgv)
+	}
+	var cfg struct {
+		Agent map[string]map[string]any `json:"agent"`
+	}
+	if err := json.Unmarshal([]byte(res.Msg.Env["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	ac := cfg.Agent[agent]
+	if ac["mode"] != "primary" {
+		t.Errorf("agent mode = %v, want primary", ac["mode"])
+	}
+	if _, hasModel := ac["model"]; hasModel {
+		t.Errorf("OPENCODE_CONFIG_CONTENT must omit model when empty: %s", res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
+	}
+	if _, hasVariant := ac["variant"]; hasVariant {
+		t.Errorf("OPENCODE_CONFIG_CONTENT must omit variant when model is empty: %s", res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
+	}
+	if _, hasPerm := res.Msg.Env["OPENCODE_PERMISSION"]; hasPerm {
+		t.Errorf("root launch must not set OPENCODE_PERMISSION")
+	}
+}
+
+func TestAdapterUserHomeInjection(t *testing.T) {
+	home := t.TempDir()
+	a := New()
+	a.UserHome = func() (string, error) { return home, nil }
+
+	wantDB := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+	if got := a.DBPath(map[string]string{}); got != wantDB {
+		t.Fatalf("DBPath(empty env) = %q, want %q", got, wantDB)
+	}
+	cache := a.modelsCachePath("/opt/opencode", map[string]string{})
+	wantPrefix := filepath.Join(home, ".cache", "agent-mesh", "opencode-models-")
+	if !strings.HasPrefix(cache, wantPrefix) {
+		t.Fatalf("modelsCachePath(empty env) = %q, want prefix %q", cache, wantPrefix)
+	}
+}
+
 func seedTestDB(t *testing.T, dbPath string, wal bool, fn func(*sql.DB)) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
@@ -264,6 +319,12 @@ func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {
 		`Note: the usage limit reached. It will reset in 3 hours`,
 		`  The error "Upstream request failed: Model is unavailable." happens sometimes`,
 		`  ┃  Rate limit ` + strings.Repeat("x", 200) + ` [retrying in 2s attempt #3]`,
+		`│ Free limit reached`,
+		`  │  Too Many Requests [retrying in 30s attempt #4]`,
+		`// Free usage exceeded, subscribe to Go [retrying in 4h attempt #1]`,
+		`+ Upstream request failed: Model is unavailable.`,
+		`- Free limit reached`,
+		`Free limit reached`,
 	}
 	for _, line := range nonMatches {
 		if hit, ok := MatchPaneLimit([]string{line}); ok {
@@ -281,6 +342,8 @@ func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {
 		{"  ┃  Free usage exceeded, subscribe to Go [retrying in 4h 12m attempt #1]", false, "4h12m0s"},
 		{"  ┃  Error: Too Many Requests [retrying in 5s attempt #3]", true, "10m0s"},
 		{"  ┃  opencode/kimi-k2 usage limit reached. It will reset in 3 hours.", false, "3h0m0s"},
+		{"  ┃  Kimi K2 (Go) usage limit reached. It will reset in 3 hours.", false, "3h0m0s"},
+		{"  ┃  Free limit reached", false, "5h0m0s"},
 		{"  ┃  Upstream request failed: Model is unavailable.", false, "5h0m0s"},
 	}
 	for _, c := range cases {

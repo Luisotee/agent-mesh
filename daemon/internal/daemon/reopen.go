@@ -549,10 +549,30 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			i := index(chain, was)
 			switch {
 			case i < 0:
-				model = d.firstFree(tx.Reader, a.Kind, effort, chain) // the chain changed since it started: its first unheld model
+				if a.Kind == opencode.Kind {
+					// OpenCode's expanded `free` chain can change while running: take the first unheld model,
+					// or refuse with the soonest reset when every model in the chain is held.
+					if model = d.nextFree(tx.Reader, a.Kind, effort, chain, -1); model == "" {
+						if soonest := d.soonestHold(tx.Reader, a.Kind, chain); !soonest.IsZero() {
+							return failedPrecondition("every model of the %s %s chain (%s) is held; soonest reset at %s",
+								a.Kind, phaseTier, strings.Join(chain, ", "), soonest.UTC().Format(time.RFC3339))
+						}
+						return failedPrecondition("no free model in the %s %s chain (%s) to move %s to",
+							a.Kind, phaseTier, strings.Join(chain, ", "), a.Name)
+					}
+				} else {
+					model = chain[0] // the chain changed since it started: its first model
+				}
 			case i+1 < len(chain):
-				// Never back to one before: they were tried. The first with quota left, else the next one.
+				// Never back to one before: they were tried. The first with quota left, else the next one
+				// (OpenCode refuses instead of reopening onto a held model).
 				if model = d.nextFree(tx.Reader, a.Kind, effort, chain, i); model == "" {
+					if a.Kind == opencode.Kind {
+						if soonest := d.soonestHold(tx.Reader, a.Kind, chain[i+1:]); !soonest.IsZero() {
+							return failedPrecondition("every remaining model of the %s %s chain (%s) is held; soonest reset at %s",
+								a.Kind, phaseTier, strings.Join(chain[i+1:], ", "), soonest.UTC().Format(time.RFC3339))
+						}
+					}
 					model = chain[i+1]
 				}
 			default:

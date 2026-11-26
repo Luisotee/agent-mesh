@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"connectrpc.com/connect"
@@ -39,11 +38,42 @@ type openCodePollState struct {
 	lastMsgStatus string
 }
 
+type openCodeEvidenceKey struct {
+	agentID    string
+	terminalID string
+	model      string
+	evidence   string
+}
+
 type openCodeRuntime struct {
 	mu           sync.Mutex
 	polled       map[string]*openCodePollState
-	seenEvidence map[string]bool
+	seenEvidence map[openCodeEvidenceKey]bool
 	freeModels   []string
+}
+
+func (d *Daemon) opencodeAdapter() *opencode.Adapter {
+	if d == nil || d.rt == nil || d.rt.adapters == nil {
+		return nil
+	}
+	ad, err := d.rt.adapters.Get(opencode.Kind)
+	if err != nil {
+		return nil
+	}
+	oc, _ := ad.(*opencode.Adapter)
+	return oc
+}
+
+func (d *Daemon) opencodeBaseEnv() map[string]string {
+	env := d.cliBaseEnv()
+	for _, k := range opencodeInheritedEnv {
+		if _, set := env[k]; !set {
+			if v, ok := os.LookupEnv(k); ok {
+				env[k] = v
+			}
+		}
+	}
+	return env
 }
 
 func (d *Daemon) opencodeBinary() (string, bool) {
@@ -55,8 +85,8 @@ func (d *Daemon) cliBinary(kind string) (string, bool) {
 		st, err := os.Stat(bin)
 		return bin, err == nil && !st.IsDir() && st.Mode()&0o111 != 0
 	}
-	if testing.Testing() {
-		return "", false
+	if d.rt.cfg.LookPath != nil {
+		return d.rt.cfg.LookPath(kind)
 	}
 	if pathList := d.cliBaseEnv()["PATH"]; pathList != "" {
 		if bin, ok := lookPath(kind, pathList); ok {
@@ -73,19 +103,15 @@ func (d *Daemon) warmOpenCodeModels(ctx context.Context, kind string) {
 	if kind != opencode.Kind {
 		return
 	}
-	ad, err := d.rt.adapters.Get(opencode.Kind)
-	if err != nil {
-		return
-	}
-	oc, ok := ad.(*opencode.Adapter)
-	if !ok {
+	oc := d.opencodeAdapter()
+	if oc == nil {
 		return
 	}
 	bin, have := d.opencodeBinary()
 	if !have && oc.ListModels == nil {
 		return
 	}
-	expanded, err := oc.ExpandChain(ctx, bin, d.cliBaseEnv(), []string{opencode.FreeFamily})
+	expanded, err := oc.ExpandChain(ctx, bin, d.opencodeBaseEnv(), []string{opencode.FreeFamily})
 	if err != nil || len(expanded) == 0 {
 		return
 	}
@@ -127,24 +153,69 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 	return out
 }
 
-func (d *Daemon) seenOpenCodeEvidence(model, evidence string) bool {
+func (d *Daemon) seenOpenCodeEvidence(agentID, terminalID, model, evidence string) bool {
 	if evidence == "" {
 		return false
 	}
 	d.rt.openCode.mu.Lock()
 	defer d.rt.openCode.mu.Unlock()
-	return d.rt.openCode.seenEvidence[model+"|"+evidence]
+	return d.rt.openCode.seenEvidence[openCodeEvidenceKey{
+		agentID:    agentID,
+		terminalID: terminalID,
+		model:      model,
+		evidence:   evidence,
+	}]
 }
 
-func (d *Daemon) markOpenCodeEvidence(model, evidence string) {
+func (d *Daemon) markOpenCodeEvidence(agentID, terminalID, model, evidence string) {
 	if evidence == "" {
 		return
 	}
 	d.rt.openCode.mu.Lock()
 	if d.rt.openCode.seenEvidence == nil {
-		d.rt.openCode.seenEvidence = map[string]bool{}
+		d.rt.openCode.seenEvidence = map[openCodeEvidenceKey]bool{}
 	}
-	d.rt.openCode.seenEvidence[model+"|"+evidence] = true
+	d.rt.openCode.seenEvidence[openCodeEvidenceKey{
+		agentID:    agentID,
+		terminalID: terminalID,
+		model:      model,
+		evidence:   evidence,
+	}] = true
+	d.rt.openCode.mu.Unlock()
+}
+
+func (d *Daemon) clearOpenCodeEvidence(agentID string) {
+	if d == nil || d.rt == nil {
+		return
+	}
+	d.rt.openCode.mu.Lock()
+	d.clearOpenCodeEvidenceLocked(agentID)
+	d.rt.openCode.mu.Unlock()
+}
+
+func (d *Daemon) clearOpenCodeEvidenceLocked(agentID string) {
+	for k := range d.rt.openCode.seenEvidence {
+		if k.agentID == agentID {
+			delete(d.rt.openCode.seenEvidence, k)
+		}
+	}
+}
+
+func (d *Daemon) clearOpenCodeTerminal(terminalID string) {
+	if d == nil || d.rt == nil || terminalID == "" {
+		return
+	}
+	d.rt.openCode.mu.Lock()
+	for id, ps := range d.rt.openCode.polled {
+		if ps.terminalID == terminalID {
+			delete(d.rt.openCode.polled, id)
+		}
+	}
+	for k := range d.rt.openCode.seenEvidence {
+		if k.terminalID == terminalID {
+			delete(d.rt.openCode.seenEvidence, k)
+		}
+	}
 	d.rt.openCode.mu.Unlock()
 }
 
@@ -223,6 +294,7 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 		}
 		ps := d.rt.openCode.polled[a.Id]
 		if ps == nil || ps.terminalID != a.TerminalId {
+			d.clearOpenCodeEvidenceLocked(a.Id)
 			var since time.Time
 			if tm.StartedAt != nil {
 				since = tm.StartedAt.AsTime()
@@ -232,6 +304,8 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			}
 			ps = &openCodePollState{terminalID: a.TerminalId, since: since}
 			d.rt.openCode.polled[a.Id] = ps
+		} else if a.State != v1.AgentState_AGENT_STATE_LIMITED && ps.lastMsgStatus == "limited" {
+			d.clearOpenCodeEvidenceLocked(a.Id)
 		}
 		if !lastOut.After(ps.lastOutput) {
 			d.rt.openCode.mu.Unlock()
@@ -244,7 +318,7 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 		if a.CreatedAt != nil {
 			notBefore = a.CreatedAt.AsTime()
 		}
-		dbPath := opencode.DBPath(d.agentEnv(a, ""))
+		dbPath := d.opencodeAdapter().DBPath(d.agentEnv(a, ""))
 		info, dbErr := opencode.InspectSession(dbPath, a.SessionId, a.Worktree, a.Repo, a.Model, since, notBefore)
 
 		now := d.now()
@@ -260,17 +334,21 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 
 		nextMsgID, nextMsgStatus := prevMsgID, prevMsgStatus
 		paneHit := false
+		var markedEvidence string
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED && (dbErr != nil || info.Status == "" || info.Status == "working") {
 			if raw, serr := d.readScreen(ctx, a.TerminalId); serr == nil {
 				if hit, ok := opencode.MatchPaneLimit(opencode.ScreenLines(raw)); ok {
-					if (dbErr != nil || info.HasModelReply) && !d.seenOpenCodeEvidence(a.Model, hit.Evidence) {
-						d.markOpenCodeEvidence(a.Model, hit.Evidence)
+					if (dbErr != nil || info.HasModelReply) && !d.seenOpenCodeEvidence(a.Id, a.TerminalId, a.Model, hit.Evidence) {
+						markedEvidence = hit.Evidence
 						events = append(events, &adapterv1.AgentEvent{
 							Time: timestamppb.New(now),
 							Kind: &adapterv1.AgentEvent_RateLimited{
 								RateLimited: &adapterv1.RateLimited{Message: hit.Message, ResetIn: hit.ResetIn},
 							},
 						})
+						if dbErr == nil && info.MessageID != "" {
+							nextMsgID = info.MessageID
+						}
 						nextMsgStatus = "limited"
 						paneHit = true
 					}
@@ -281,6 +359,9 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 		if !paneHit && dbErr == nil {
 			switch info.Status {
 			case "working":
+				if a.State == v1.AgentState_AGENT_STATE_LIMITED && info.MessageID == prevMsgID {
+					break
+				}
 				if a.State != v1.AgentState_AGENT_STATE_WORKING {
 					events = append(events, &adapterv1.AgentEvent{
 						Time: timestamppb.New(now),
@@ -308,8 +389,8 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 				}
 				nextMsgID, nextMsgStatus = info.MessageID, "idle"
 			case "limited":
-				if info.MessageID != prevMsgID && !d.seenOpenCodeEvidence(a.Model, info.Evidence) {
-					d.markOpenCodeEvidence(a.Model, info.Evidence)
+				if info.MessageID != prevMsgID && !d.seenOpenCodeEvidence(a.Id, a.TerminalId, a.Model, info.Evidence) {
+					markedEvidence = info.Evidence
 					events = append(events, &adapterv1.AgentEvent{
 						Time: timestamppb.New(now),
 						Kind: &adapterv1.AgentEvent_RateLimited{
@@ -329,21 +410,26 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			}
 		}
 
-		d.rt.openCode.mu.Lock()
-		if curPS := d.rt.openCode.polled[a.Id]; curPS != nil && curPS.terminalID == a.TerminalId {
-			curPS.lastOutput = lastOut
-			curPS.lastMsgID = nextMsgID
-			curPS.lastMsgStatus = nextMsgStatus
-		}
-		d.rt.openCode.mu.Unlock()
-
+		var applyErr error
 		if len(events) > 0 {
-			d.applyOpenCodeEvents(ctx, a.Id, a.TerminalId, events)
+			applyErr = d.applyOpenCodeEvents(ctx, a.Id, a.TerminalId, events)
+		}
+		if applyErr == nil && markedEvidence != "" {
+			d.markOpenCodeEvidence(a.Id, a.TerminalId, a.Model, markedEvidence)
+		}
+		if dbErr == nil && applyErr == nil {
+			d.rt.openCode.mu.Lock()
+			if curPS := d.rt.openCode.polled[a.Id]; curPS != nil && curPS.terminalID == a.TerminalId {
+				curPS.lastOutput = lastOut
+				curPS.lastMsgID = nextMsgID
+				curPS.lastMsgStatus = nextMsgStatus
+			}
+			d.rt.openCode.mu.Unlock()
 		}
 	}
 }
 
-func (d *Daemon) applyOpenCodeEvents(ctx context.Context, agentID, terminalID string, evs []*adapterv1.AgentEvent) {
+func (d *Daemon) applyOpenCodeEvents(ctx context.Context, agentID, terminalID string, evs []*adapterv1.AgentEvent) error {
 	var becameDoorbellReady bool
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(agentID)
@@ -362,9 +448,10 @@ func (d *Daemon) applyOpenCodeEvents(ctx context.Context, agentID, terminalID st
 		if ctx.Err() == nil {
 			d.log.Warn("opencode poll", "agent", agentID, "err", err)
 		}
-		return
+		return err
 	}
 	if becameDoorbellReady {
 		d.deliverSoon(agentID)
 	}
+	return nil
 }

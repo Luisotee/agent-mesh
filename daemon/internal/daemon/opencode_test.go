@@ -469,3 +469,237 @@ func TestOpenCodeAbsentBinaryFallsBackToAgyInReviewAuto(t *testing.T) {
 		t.Errorf("expected missing-binary note for opencode, got %v", res.Notes)
 	}
 }
+
+func TestOpenCodeRootWithNoModelLaunchesWithoutModelFlag(t *testing.T) {
+	argvLog := filepath.Join(t.TempDir(), "oc-root.jsonl")
+	w := startReopen(t, fastPass, func(c *daemon.AgentConfig) { c.Env["FAKEOPENCODE_ARGV_LOG"] = argvLog })
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-default", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: opencode.Kind,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if a.Model != "" {
+		t.Fatalf("root with no tier/model got model %q", a.Model)
+	}
+	launches := readOpenCodeLaunches(t, argvLog)
+	if len(launches) != 1 {
+		t.Fatalf("expected 1 launch, got %d", len(launches))
+	}
+	for _, arg := range launches[0].Argv {
+		if arg == "-m" || arg == "--model" {
+			t.Fatalf("root launch with no model must omit -m: %v", launches[0].Argv)
+		}
+	}
+	if strings.Contains(launches[0].Config, `"model"`) {
+		t.Fatalf("root launch config must omit model key: %s", launches[0].Config)
+	}
+}
+
+func TestOpenCodePaneBannerFiresAgainAfterSwitchBack(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	w.set(t, "limits.auto", "off")
+	run := startRun(t, w.device.Mesh, "")
+
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-back", Kind: opencode.Kind, Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	origModel := a.Model
+
+	// First pane limit hit on origModel -> LIMITED.
+	w.typeInto(a, "/limit-pane\r")
+	a = w.waitState(a.Id, v1.AgentState_AGENT_STATE_LIMITED)
+
+	// Switch to next model, then switch back to origModel.
+	oldTerm := a.TerminalId
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Next: true})); err != nil {
+		t.Fatal(err)
+	}
+	re1 := w.waitReopened(t, a.Id, oldTerm)
+	w.waitInfoDelivered(t, re1.Id, re1.Model)
+
+	oldTerm = re1.TerminalId
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: re1.Id, Model: origModel})); err != nil {
+		t.Fatal(err)
+	}
+	re2 := w.waitReopened(t, re1.Id, oldTerm)
+	w.waitInfoDelivered(t, re2.Id, "now on "+origModel)
+
+	// The exact same pane banner on origModel must fire RateLimited again.
+	w.typeInto(re2, "/limit-pane\r")
+	w.waitState(re2.Id, v1.AgentState_AGENT_STATE_LIMITED)
+}
+
+func TestOpenCodeHeldSkippedInAllExplicitAndReReview(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	w.pr.push(t, "round 1")
+
+	// Round 1 uses opencode (small auto default).
+	r1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if len(r1.Agents) != 1 || r1.Agents[0].Kind != opencode.Kind {
+		t.Fatalf("round 1 picked %v, want opencode", r1.Agents)
+	}
+	w.say(t, r1.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "round 1 ok")
+	waitFor(t, "round 1 finished", func() bool { return len(w.answers(t)) == 1 })
+
+	// Hold every expanded opencode free model in mid tier.
+	soonest := time.Now().Add(45 * time.Minute).Truncate(time.Second)
+	later := time.Now().Add(3 * time.Hour).Truncate(time.Second)
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		for i, m := range []string{
+			"opencode/big-pickle",
+			"opencode/deepseek-v4.1-flash-free",
+			"opencode/flint-40b-free",
+			"opencode/beam-free",
+			"opencode/tidepool-alpha-free",
+		} {
+			u := later
+			if i == 2 {
+				u = soonest
+			}
+			if err := tx.PutModelLimit(opencode.Kind, m, u); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wantReset := soonest.UTC().Format(time.RFC3339)
+
+	// 1. Re-review on a new head skips held opencode with a reset note and falls back to agy.
+	w.pr.push(t, "round 2 fix")
+	r2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if len(r2.Agents) != 1 || r2.Agents[0].Kind != "agy" {
+		t.Fatalf("re-review with held opencode picked %v, want agy (notes=%v)", r2.Agents, r2.Notes)
+	}
+	if !strings.Contains(strings.Join(r2.Notes, "\n"), wantReset) {
+		t.Errorf("re-review notes missing soonest reset %s: %v", wantReset, r2.Notes)
+	}
+
+	// 2. mode == "all" skips held opencode with a note, asking only claude + agy.
+	runAll := startRun(t, w.device.Mesh, "")
+	_, asRootAll := w.root(t, runAll.Id)
+	resAll, err := asRootAll.Ask(ctx, connect.NewRequest(&v1.AskRequest{
+		Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range resAll.Msg.Agents {
+		if a.Kind == opencode.Kind {
+			t.Fatalf("mode=all picked held opencode: %v", resAll.Msg.Agents)
+		}
+	}
+	if !strings.Contains(strings.Join(resAll.Msg.Notes, "\n"), wantReset) {
+		t.Errorf("mode=all notes missing reset %s: %v", wantReset, resAll.Msg.Notes)
+	}
+
+	// 3. Explicit list "opencode,claude" skips held opencode with a note and asks claude; "opencode" alone errors.
+	runExp := startRun(t, w.device.Mesh, "")
+	_, asRootExp := w.root(t, runExp.Id)
+	resExp, err := asRootExp.Ask(ctx, connect.NewRequest(&v1.AskRequest{
+		Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "opencode,claude",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resExp.Msg.Agents) != 1 || resExp.Msg.Agents[0].Kind != "claude" {
+		t.Fatalf("explicit opencode,claude picked %v, want [claude]", resExp.Msg.Agents)
+	}
+	if !strings.Contains(strings.Join(resExp.Msg.Notes, "\n"), wantReset) {
+		t.Errorf("explicit notes missing reset %s: %v", wantReset, resExp.Msg.Notes)
+	}
+
+	_, err = asRootExp.Ask(ctx, connect.NewRequest(&v1.AskRequest{
+		Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "opencode",
+	}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), wantReset) {
+		t.Fatalf("explicit held opencode alone = %v, want FailedPrecondition naming %s", err, wantReset)
+	}
+}
+
+func TestSwitchAgentNextChainChangedAndAllHeld(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	w.set(t, "limits.auto", "off")
+	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2", "free"})
+	run := startRun(t, w.device.Mesh, "")
+
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-allheld", Kind: opencode.Kind, Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	a = w.opencodeTurn(t, a, "learn session")
+	waitFor(t, "session learned", func() bool {
+		a = w.agent(a.Id)
+		return a.SessionId != "" && a.State == v1.AgentState_AGENT_STATE_IDLE
+	})
+
+	// Drop current model openai/gpt-5.2 from the tier chain so SwitchAgent --next hits i < 0.
+	w.set(t, "tiers.opencode.mid.model", []any{"free"})
+	soonest := time.Now().Add(30 * time.Minute).Truncate(time.Second)
+	later := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		for i, m := range []string{
+			"opencode/big-pickle",
+			"opencode/deepseek-v4.1-flash-free",
+			"opencode/flint-40b-free",
+			"opencode/beam-free",
+			"opencode/tidepool-alpha-free",
+		} {
+			u := later
+			if i == 3 {
+				u = soonest
+			}
+			if err := tx.PutModelLimit(opencode.Kind, m, u); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every model in the chain is held: SwitchAgent --next returns an error naming the soonest reset and does not reopen.
+	_, err = w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Next: true}))
+	wantReset := soonest.UTC().Format(time.RFC3339)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), wantReset) {
+		t.Fatalf("all-held SwitchAgent --next = %v, want FailedPrecondition naming %s", err, wantReset)
+	}
+	if cur := w.agent(a.Id); cur.PendingReopen != nil || cur.Model != "openai/gpt-5.2" {
+		t.Fatalf("all-held SwitchAgent --next mutated agent: %+v", cur)
+	}
+
+	// Non-OpenCode kinds with i < 0 keep chain[0] even when held.
+	cl, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "cl-chain", Kind: "claude", Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := w.waitState(cl.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.set(t, "tiers.claude.mid.model", []any{"opus", "haiku"})
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		return tx.PutModelLimit("claude", "opus", later)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	swCl, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: ca.Id, Next: true}))
+	if err != nil || swCl.Msg.Reopen == nil || swCl.Msg.Reopen.Model != "opus" {
+		t.Fatalf("claude SwitchAgent --next with i<0 = %v, %v; want chain[0] (opus)", swCl, err)
+	}
+}

@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 
 	"connectrpc.com/connect"
@@ -65,6 +64,18 @@ type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
 	// ListModels overrides `opencode models --verbose` in tests.
 	ListModels func(ctx context.Context, binary string, env map[string]string) (string, error)
+	// UserHome returns the home directory used when env sets neither HOME nor XDG_*_HOME; nil defaults to
+	// os.UserHomeDir. Tests set it (or pass HOME in env) to stay off the host's real home directory.
+	UserHome func() (string, error)
+}
+
+func (a *Adapter) userHome() string {
+	if a != nil && a.UserHome != nil {
+		home, _ := a.UserHome()
+		return home
+	}
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 // New returns the OpenCode adapter.
@@ -233,7 +244,7 @@ func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]str
 		}
 		return ParseModels(raw), nil
 	}
-	cacheFile := modelsCachePath(bin, env)
+	cacheFile := a.modelsCachePath(bin, env)
 	if cacheFile != "" {
 		if st, err := os.Stat(cacheFile); err == nil && time.Since(st.ModTime()) < modelsCacheTTL {
 			if b, err := os.ReadFile(cacheFile); err == nil {
@@ -277,15 +288,15 @@ func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]str
 	return nil, errors.New("`opencode models --verbose` returned no models")
 }
 
-func modelsCachePath(bin string, env map[string]string) string {
+func (a *Adapter) modelsCachePath(bin string, env map[string]string) string {
 	base := env["XDG_CACHE_HOME"]
 	if base == "" {
-		if home := env["HOME"]; home != "" {
+		home := env["HOME"]
+		if home == "" {
+			home = a.userHome()
+		}
+		if home != "" {
 			base = filepath.Join(home, ".cache")
-		} else if !testing.Testing() {
-			if home, err := os.UserHomeDir(); err == nil && home != "" {
-				base = filepath.Join(home, ".cache")
-			}
 		}
 	}
 	if base == "" {
@@ -411,14 +422,16 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 	}
 	agentName := AgentName(model, effort)
 	agentCfg := map[string]any{
-		"mode":  "primary",
-		"model": model,
+		"mode": "primary",
 	}
-	if model != "" && effort != "" {
-		if listing, err := a.listModels(ctx, bin, env); err == nil {
-			if info, ok := listing[model]; ok {
-				if _, has := info.Variants[effort]; has {
-					agentCfg["variant"] = effort
+	if model != "" {
+		agentCfg["model"] = model
+		if effort != "" {
+			if listing, err := a.listModels(ctx, bin, env); err == nil {
+				if info, ok := listing[model]; ok {
+					if _, has := info.Variants[effort]; has {
+						agentCfg["variant"] = effort
+					}
 				}
 			}
 		}
@@ -439,7 +452,10 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		env["OPENCODE_PERMISSION"] = perm
 	}
 
-	argv := []string{bin, "--agent", agentName, "-m", model}
+	argv := []string{bin, "--agent", agentName}
+	if model != "" {
+		argv = append(argv, "-m", model)
+	}
 	if m.ResumeSessionId != "" {
 		argv = append(argv, "-s", m.ResumeSessionId)
 	}
@@ -456,6 +472,11 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 
 // DBPath returns the OpenCode SQLite database path from `env` (or XDG_DATA_HOME / HOME).
 func DBPath(env map[string]string) string {
+	return (*Adapter)(nil).DBPath(env)
+}
+
+// DBPath returns the OpenCode SQLite database path from `env` (or XDG_DATA_HOME / HOME / UserHome).
+func (a *Adapter) DBPath(env map[string]string) string {
 	if p := env["AGENT_MESH_OPENCODE_DB"]; p != "" {
 		return p
 	}
@@ -465,8 +486,8 @@ func DBPath(env map[string]string) string {
 	base := env["XDG_DATA_HOME"]
 	if base == "" {
 		home := env["HOME"]
-		if home == "" && !testing.Testing() {
-			home, _ = os.UserHomeDir()
+		if home == "" {
+			home = a.userHome()
 		}
 		if home != "" {
 			base = filepath.Join(home, ".local", "share")
@@ -497,7 +518,7 @@ func (a *Adapter) LookupSession(_ context.Context, req *connect.Request[adapterv
 	if m.NotBefore != nil {
 		notBefore = m.NotBefore.AsTime()
 	}
-	db, err := openDB(DBPath(m.Env))
+	db, err := openDB(a.DBPath(m.Env))
 	if err != nil {
 		return connect.NewResponse(&adapterv1.LookupSessionResponse{}), nil
 	}
@@ -688,12 +709,14 @@ type LimitHit struct {
 	Evidence string
 }
 
-const screenStart = `(?im)^[^A-Za-z'"` + "`" + `\x{2018}\x{2019}\x{201c}\x{201d}\n]*`
+// OpenCode renders status, retry and error banners inside a heavy vertical-bar callout (`  ┃  ...`, U+2503).
+// Anchoring on that gutter keeps fixture, comment, diff and thin-box lines (`│ …`, `// …`, `+ …`) from matching.
+const bannerStart = "(?im)^[ \\t]*\u2503[ \\t]+"
 
 var (
 	// FreeUsage/GoUsage/Model unavailable/429 retry lines on the pane (no named RE2 capture needed beyond simple groups).
-	paneFreeLimitRE   = regexp.MustCompile(screenStart + `(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*|(?:(?:[\w./-]+(?::[\w./-]+)?|\(\w[\w ]*\))\s+){0,4}usage limit reached\. It will reset in [^\n]*|Upstream request failed: Model is unavailable[^\n]*)`)
-	paneRateRetryRE   = regexp.MustCompile(screenStart + `(?:(?:\w+ ?)?Error:?\s+)?(?:429(?:\s+Too Many Requests)?\s*|(?:Too Many Requests|Rate limit (?:reached|exceeded))[^\n\[]{0,160}?)\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]`)
+	paneFreeLimitRE   = regexp.MustCompile(bannerStart + `(?:Free usage exceeded[^\n]*|Free limit reached[^\n]*|(?:(?:[\w./-]+(?::[\w./-]+)?|\(\w[\w ]*\))\s+){0,4}usage limit reached\. It will reset in [^\n]*|Upstream request failed: Model is unavailable[^\n]*)`)
+	paneRateRetryRE   = regexp.MustCompile(bannerStart + `(?:(?:\w+ ?)?Error:?\s+)?(?:429(?:\s+Too Many Requests)?\s*|(?:Too Many Requests|Rate limit (?:reached|exceeded))[^\n\[]{0,160}?)\[retrying[^\]]*attempt #(?:[3-9]|[1-9]\d+)\]`)
 	opencodeResetRE   = regexp.MustCompile(`(?i)(?:reset in|Free (?:usage exceeded|limit reached)[^\n]*retrying in) ((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)`)
 	durationPartRE    = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(d|h|m|s)[a-z]*`)
 	modelUnavailRE    = regexp.MustCompile(`(?i)model is unavailable`)

@@ -56,6 +56,9 @@ type AgentConfig struct {
 	Share string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.
 	Binaries map[string]string
+	// LookPath resolves a CLI binary name when Binaries has no entry for its kind; nil defaults to searching
+	// the agent's PATH then exec.LookPath. Tests set it so absent Binaries entries never pick up host CLIs.
+	LookPath func(name string) (string, bool)
 	// Adapters are the CLI adapters; nil means the built-ins.
 	Adapters []adapter.Adapter
 	// Worktrees is where agents' worktrees go; empty means <state>/worktrees.
@@ -109,9 +112,11 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 	"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
 	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION",
-	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
-	"OPENCODE_API_KEY", "AWS_PROFILE", "AWS_REGION",
+	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "AWS_PROFILE", "AWS_REGION",
 	"AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
+
+// Provider API keys passed only to OpenCode agents (never to other CLIs or read-only agents of other kinds).
+var opencodeInheritedEnv = []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"}
 
 type ticket struct {
 	agentID    string
@@ -385,6 +390,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	delete(d.rt.introduced, terminalID)
 	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
+	d.clearOpenCodeTerminal(terminalID)
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		err = nil // the reopen acknowledged it first
@@ -408,7 +414,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -416,7 +422,13 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		for {
 			d.drainSpool(ctx)
 			d.settleStartingAgents(ctx)
-			d.pollOpenCode(ctx)
+			if pollingOpenCode.CompareAndSwap(false, true) {
+				// Off this loop: readScreen waits up to 3 s per agent, and the spool and the doorbells must not.
+				go func() {
+					defer pollingOpenCode.Store(false)
+					d.pollOpenCode(ctx)
+				}()
+			}
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
@@ -588,6 +600,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	if err := tx.PutAgent(a); err != nil {
 		return err
 	}
+	if before.State == v1.AgentState_AGENT_STATE_LIMITED && s.State != v1.AgentState_AGENT_STATE_LIMITED {
+		d.clearOpenCodeEvidence(a.Id)
+	}
 	// The detail alone (the tool now running) changes on every tool call: kept on the agent, not logged.
 	if s.State == before.State && s.NeedsInput == before.NeedsInput {
 		return nil
@@ -710,6 +725,13 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	for _, k := range inheritedEnv {
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
+		}
+	}
+	if a.Kind == opencode.Kind {
+		for _, k := range opencodeInheritedEnv {
+			if v, ok := os.LookupEnv(k); ok {
+				env[k] = v
+			}
 		}
 	}
 	env["TERM"], env["COLORTERM"] = "xterm-256color", "truecolor"
