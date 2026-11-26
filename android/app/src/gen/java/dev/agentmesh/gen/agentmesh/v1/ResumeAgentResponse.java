@@ -15,6 +15,8 @@ public  final class ResumeAgentResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.ResumeAgentResponse)
     ResumeAgentResponseOrBuilder {
   private ResumeAgentResponse() {
+    notes_ = emptyProtobufList();
+    leftPr_ = "";
   }
   private int bitField0_;
   public static final int AGENT_FIELD_NUMBER = 1;
@@ -176,6 +178,202 @@ public  final class ResumeAgentResponse extends
   private void clearReopen() {
     reopen_ = null;
     bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int NOTES_FIELD_NUMBER = 4;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> notes_;
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @return A list containing the notes.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getNotesList() {
+    return notes_;
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @return The count of notes.
+   */
+  @java.lang.Override
+  public int getNotesCount() {
+    return notes_.size();
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getNotes(int index) {
+    return notes_.get(index);
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the notes at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getNotesBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        notes_.get(index));
+  }
+  private void ensureNotesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        notes_;  if (!tmp.isModifiable()) {
+      notes_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param index The index to set the value at.
+   * @param value The notes to set.
+   */
+  private void setNotes(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNotesIsMutable();
+    notes_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param value The notes to add.
+   */
+  private void addNotes(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNotesIsMutable();
+    notes_.add(value);
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param values The notes to add.
+   */
+  private void addAllNotes(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureNotesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, notes_);
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   */
+  private void clearNotes() {
+    notes_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param value The bytes of the notes to add.
+   */
+  private void addNotesBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureNotesIsMutable();
+    notes_.add(value.toStringUtf8());
+  }
+
+  public static final int LEFT_PR_FIELD_NUMBER = 5;
+  private java.lang.String leftPr_;
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @return The leftPr.
+   */
+  @java.lang.Override
+  public java.lang.String getLeftPr() {
+    return leftPr_;
+  }
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @return The bytes for leftPr.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getLeftPrBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(leftPr_);
+  }
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @param value The leftPr to set.
+   */
+  private void setLeftPr(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    leftPr_ = value;
+  }
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   */
+  private void clearLeftPr() {
+
+    leftPr_ = getDefaultInstance().getLeftPr();
+  }
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @param value The bytes for leftPr to set.
+   */
+  private void setLeftPrBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    leftPr_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ResumeAgentResponse parseFrom(
@@ -440,6 +638,203 @@ public  final class ResumeAgentResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @return A list containing the notes.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getNotesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getNotesList());
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @return The count of notes.
+     */
+    @java.lang.Override
+    public int getNotesCount() {
+      return instance.getNotesCount();
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param index The index of the element to return.
+     * @return The notes at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getNotes(int index) {
+      return instance.getNotes(index);
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the notes at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getNotesBytes(int index) {
+      return instance.getNotesBytes(index);
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param index The index to set the value at.
+     * @param value The notes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNotes(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setNotes(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param value The notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addNotes(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addNotes(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param values The notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllNotes(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllNotes(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNotes() {
+      copyOnWrite();
+      instance.clearNotes();
+      return this;
+    }
+    /**
+     * <pre>
+     * Notes about the resume (such as a branch move away from a merged or closed PR).
+     * </pre>
+     *
+     * <code>repeated string notes = 4 [json_name = "notes"];</code>
+     * @param value The bytes of the notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addNotesBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addNotesBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * URL of the merged or closed PR whose branch the resume moved off, if any.
+     * </pre>
+     *
+     * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+     * @return The leftPr.
+     */
+    @java.lang.Override
+    public java.lang.String getLeftPr() {
+      return instance.getLeftPr();
+    }
+    /**
+     * <pre>
+     * URL of the merged or closed PR whose branch the resume moved off, if any.
+     * </pre>
+     *
+     * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+     * @return The bytes for leftPr.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getLeftPrBytes() {
+      return instance.getLeftPrBytes();
+    }
+    /**
+     * <pre>
+     * URL of the merged or closed PR whose branch the resume moved off, if any.
+     * </pre>
+     *
+     * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+     * @param value The leftPr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLeftPr(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setLeftPr(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * URL of the merged or closed PR whose branch the resume moved off, if any.
+     * </pre>
+     *
+     * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLeftPr() {
+      copyOnWrite();
+      instance.clearLeftPr();
+      return this;
+    }
+    /**
+     * <pre>
+     * URL of the merged or closed PR whose branch the resume moved off, if any.
+     * </pre>
+     *
+     * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+     * @param value The bytes for leftPr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLeftPrBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setLeftPrBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ResumeAgentResponse)
   }
   @java.lang.Override
@@ -460,10 +855,12 @@ public  final class ResumeAgentResponse extends
             "agent_",
             "message_",
             "reopen_",
+            "notes_",
+            "leftPr_",
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u1009\u0001\u0003\u1009\u0002";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u1009\u0001\u0003\u1009\u0002\u0004\u021a\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

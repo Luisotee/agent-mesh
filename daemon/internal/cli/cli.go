@@ -501,7 +501,7 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 // `mesh approve <agent> …` read as the commands agents already use. A convention of the schema, not a table of
 // commands: an action added with such a field gets it, and any other field stays a flag.
 func positionalField(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
-	for _, name := range []protoreflect.Name{"to", "agent"} {
+	for _, name := range []protoreflect.Name{"to", "agent", "mode"} {
 		if f := md.Fields().ByName(name); f != nil && f.Kind() == protoreflect.StringKind && !f.IsList() {
 			return f
 		}

@@ -29,6 +29,8 @@ message Run {
   google.protobuf.Timestamp created_at = 4;
   // Who started it.
   Actor created_by = 5;
+  // True when the user let this run go on past the quota reserve (`mesh reserve off`).
+  bool over_reserve = 6;
 }
 
 // AgentRole is an agent's place in its run. It is also its token's actor class.
@@ -112,6 +114,9 @@ message Agent {
   // The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
   // it. StopRun keeps a branch that has moved past it.
   string base_commit = 27;
+  // When resumed from an earlier run, the run and agent id it came from.
+  string resumed_from_run_id = 28;
+  string resumed_from_agent_id = 29;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -204,6 +209,7 @@ message Event {
     DeviceRevoked device_revoked = 26;
     AgentRetired agent_retired = 23;
     RunStopped run_stopped = 24;
+    ReserveChanged reserve_changed = 27;
   }
 }
 
@@ -269,6 +275,11 @@ message AgentRetired {
 
 // A run was stopped: its agents retired and the run closed.
 message RunStopped {}
+
+// A run's quota reserve override changed (`mesh reserve on|off`).
+message ReserveChanged {
+  bool over_reserve = 1;
+}
 
 message AgentPhaseChanged {
   AgentPhase from = 1;

@@ -270,6 +270,44 @@ public  final class Run extends
     bitField0_ = (bitField0_ & ~0x00000002);
   }
 
+  public static final int OVER_RESERVE_FIELD_NUMBER = 6;
+  private boolean overReserve_;
+  /**
+   * <pre>
+   * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+   * </pre>
+   *
+   * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+   * @return The overReserve.
+   */
+  @java.lang.Override
+  public boolean getOverReserve() {
+    return overReserve_;
+  }
+  /**
+   * <pre>
+   * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+   * </pre>
+   *
+   * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+   * @param value The overReserve to set.
+   */
+  private void setOverReserve(boolean value) {
+    
+    overReserve_ = value;
+  }
+  /**
+   * <pre>
+   * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+   * </pre>
+   *
+   * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+   */
+  private void clearOverReserve() {
+
+    overReserve_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Run parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -630,6 +668,46 @@ public  final class Run extends
       return this;
     }
 
+    /**
+     * <pre>
+     * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+     * </pre>
+     *
+     * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+     * @return The overReserve.
+     */
+    @java.lang.Override
+    public boolean getOverReserve() {
+      return instance.getOverReserve();
+    }
+    /**
+     * <pre>
+     * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+     * </pre>
+     *
+     * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+     * @param value The overReserve to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOverReserve(boolean value) {
+      copyOnWrite();
+      instance.setOverReserve(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+     * </pre>
+     *
+     * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOverReserve() {
+      copyOnWrite();
+      instance.clearOverReserve();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Run)
   }
   @java.lang.Override
@@ -652,10 +730,11 @@ public  final class Run extends
             "status_",
             "createdAt_",
             "createdBy_",
+            "overReserve_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

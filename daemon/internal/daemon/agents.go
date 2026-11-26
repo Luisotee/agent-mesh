@@ -91,6 +91,10 @@ type AgentConfig struct {
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
 	NoTerminalWatch bool
+	// Usage overrides external quota/GitHub calls (for tests).
+	Usage *UsageOps
+	// ReserveEvery is how often reserve alerts check open runs (default 15m).
+	ReserveEvery time.Duration
 }
 
 // The environment an agent inherits from the daemon; anything else (other secrets, the caller's own session) is
@@ -130,8 +134,8 @@ type runtime struct {
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
 	guard       guard
-	holds       holds // models at a usage limit (limits.go)
 	cpus        cpuTracker
+	usage       usageState // usage cache / rate_limits (usage.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -391,12 +395,16 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted time.Time
+		var pruned, retired, limited, accounted, reserved time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
 		}
-		var retiring, limiting atomic.Bool
+		reserveEvery := d.rt.cfg.ReserveEvery
+		if reserveEvery == 0 {
+			reserveEvery = reserveAlertEvery
+		}
+		var retiring, limiting, alertRunning atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -423,6 +431,13 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				go func() {
 					defer limiting.Store(false)
 					d.limitPass(ctx)
+				}()
+			}
+			if now := d.now(); now.Sub(reserved) >= reserveEvery && alertRunning.CompareAndSwap(false, true) {
+				reserved = now
+				go func() {
+					defer alertRunning.Store(false)
+					d.reserveAlertPass(ctx)
 				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
@@ -554,7 +569,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 			}
 		}
 		if rl := ev.GetRateLimited(); rl != nil {
-			d.noteLimit(tx.Reader, a, rl, ev.Time.AsTime())
+			if err := d.noteLimit(tx, a, rl, ev.Time.AsTime()); err != nil {
+				return err
+			}
 		}
 		s = reducer.Reduce(s, ev)
 	}
@@ -749,6 +766,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !slugRE.MatchString(m.Slug) {
 		return nil, invalid("slug %q: lowercase letters, digits and dashes", m.Slug)
 	}
+	if role != v1.AgentRole_AGENT_ROLE_ROOT {
+		d.warmUsage(ctx, d.store.Read(ctx), kind)
+	}
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
@@ -800,8 +820,13 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
-	// The cap and memory floor, early, before a worktree is made for nothing; the launch checks both again
-	// where the agent is stored (reserving its memory then).
+	// The reserve, cap and memory floor, early, before a worktree is made for nothing; the launch checks cap and
+	// memory again where the agent is stored (reserving its memory then).
+	if role != v1.AgentRole_AGENT_ROLE_ROOT {
+		if err := d.reserveCheck(r, runID, kind, model, effort, "an agent in "+m.Repo); err != nil {
+			return nil, err
+		}
+	}
 	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
 		return nil, err
 	}

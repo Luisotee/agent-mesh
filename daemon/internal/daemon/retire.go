@@ -406,10 +406,19 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	}
 	wg.Wait()
 	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
-	// removing those worktrees.
+	// removing those worktrees, skipping any worktree actively held by a live agent in another run (e.g. a
+	// worker resumed into a follow-up run).
+	busyWorktrees := map[string]bool{}
+	if all, aerr := d.store.Read(ctx).AllAgents(); aerr == nil {
+		for _, other := range all {
+			if other.RunId != req.Msg.RunId && other.Worktree != "" && hasProcess(other) {
+				busyWorktrees[other.Worktree] = true
+			}
+		}
+	}
 	var sweepAgents []*v1.Agent
 	for _, a := range agents {
-		if notStopped[a.Id] == "" {
+		if notStopped[a.Id] == "" && !busyWorktrees[a.Worktree] {
 			sweepAgents = append(sweepAgents, a)
 		}
 	}
@@ -420,6 +429,11 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		if why, bad := notStopped[a.Id]; bad {
 			out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch,
 				BranchKept: true, Reason: "its process could not be stopped, so its worktree stays: " + firstLine(why)})
+			continue
+		}
+		if busyWorktrees[a.Worktree] {
+			out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{AgentId: a.Id, Worktree: a.Worktree, Branch: a.Branch,
+				BranchKept: true, Reason: "worktree is held by a live agent in another run"})
 			continue
 		}
 		out.Worktrees = append(out.Worktrees, d.removeWorktree(ctx, a))
