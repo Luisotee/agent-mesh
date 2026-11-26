@@ -267,13 +267,28 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 // joins a tailnet.
 type fakeTailnet struct {
 	listenErr error
-	mu        sync.Mutex
-	ln        net.Listener
-	status    *v1.TailnetStatusResponse
-	closed    chan struct{}
+	// listenGate, when set, holds Listen until it is closed, as tsnet's Start can wait.
+	listenGate chan struct{}
+	mu         sync.Mutex
+	ln         net.Listener
+	status     *v1.TailnetStatusResponse
+	closed     chan struct{}
+	listening  bool // inside Listen
+	closedMid  bool // Close ran while Listen was inside
 }
 
 func (f *fakeTailnet) Listen(network, _ string) (net.Listener, error) {
+	f.mu.Lock()
+	f.listening = true
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.listening = false
+		f.mu.Unlock()
+	}()
+	if f.listenGate != nil {
+		<-f.listenGate
+	}
 	if f.listenErr != nil {
 		return nil, f.listenErr
 	}
@@ -299,7 +314,70 @@ func (f *fakeTailnet) setStatus(st *v1.TailnetStatusResponse) {
 	f.status = st
 	f.mu.Unlock()
 }
-func (f *fakeTailnet) Close() error { close(f.closed); return nil }
+func (f *fakeTailnet) inListen() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listening
+}
+func (f *fakeTailnet) Close() error {
+	f.mu.Lock()
+	f.closedMid = f.listening
+	f.mu.Unlock()
+	close(f.closed)
+	return nil
+}
+
+// Shutting down while Listen still starts the node: meshd waits for Listen before it closes the node, and a Listen
+// cut short by the shutdown isn't reported as a failure.
+func TestTailnetCloseWaitsForListen(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), listenGate: make(chan struct{}),
+		listenErr: errors.New("tsnet: server closed")}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn})
+	deadline := time.Now().Add(5 * time.Second)
+	for !tn.inListen() {
+		if time.Now().After(deadline) {
+			t.Fatal("meshd never called Listen")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.cancel()
+	select {
+	case <-tn.closed:
+		t.Fatal("meshd closed the node while Listen was still starting it")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(tn.listenGate)
+	h.stop()
+	select {
+	case <-tn.closed:
+	default:
+		t.Fatal("meshd never closed the node")
+	}
+	tn.mu.Lock()
+	mid := tn.closedMid
+	tn.mu.Unlock()
+	if mid {
+		t.Fatal("Close ran inside Listen")
+	}
+}
+
+func TestTailnetURLPrefersIPv4(t *testing.T) {
+	for _, c := range []struct {
+		addrs []string
+		port  uint16
+		want  string
+	}{
+		{[]string{"fd7a:115c:a1e0::1", "100.64.0.7"}, 443, "https://100.64.0.7"},
+		{[]string{"100.64.0.7"}, 8443, "https://100.64.0.7:8443"},
+		{[]string{"fd7a:115c:a1e0::1"}, 443, "https://[fd7a:115c:a1e0::1]"},
+		{[]string{"bad", "fd7a:115c:a1e0::1"}, 8443, "https://[fd7a:115c:a1e0::1]:8443"},
+		{nil, 443, ""},
+	} {
+		if got := daemon.TailnetURL(c.addrs, c.port); got != c.want {
+			t.Errorf("TailnetURL(%v, %d) = %q, want %q", c.addrs, c.port, got, c.want)
+		}
+	}
+}
 
 func TestTailnetServesPinnedTLSAndPairsOverIt(t *testing.T) {
 	tn := &fakeTailnet{closed: make(chan struct{}), status: &v1.TailnetStatusResponse{
