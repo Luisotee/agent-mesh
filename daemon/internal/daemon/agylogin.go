@@ -38,6 +38,14 @@ func (d *Daemon) agyTokenSig() string {
 	return strconv.FormatInt(st.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(st.Size(), 10)
 }
 
+// agyProbeBlocked reports whether agy must not be run at all: an agy found on PATH (not one the config names, as a
+// test's fake is) whose token file is missing is logged out, and running it opens the login in a browser. A dev
+// or test meshd with a temp HOME that finds the real agy this way is safe because of it (README, "CLI probes").
+// Its age is not looked at: a refresh is the normal path.
+func (d *Daemon) agyProbeBlocked() bool {
+	return d.rt.cfg.Binaries["agy"] == "" && d.agyTokenSig() == ""
+}
+
 // noteAgyLogin records that a probe of agy tried to open a login.
 func (d *Daemon) noteAgyLogin() {
 	path := d.paths.AgyLoginNeeded()

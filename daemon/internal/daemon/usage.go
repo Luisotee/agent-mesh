@@ -476,6 +476,8 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) ([]agy
 		var err error
 		if d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyUsage != nil {
 			text, err = d.rt.cfg.Usage.ReadAgyUsage(ctx)
+		} else if d.agyProbeBlocked() {
+			err = probe.ErrLoginNeeded // no token file: agy is not run (agylogin.go)
 		} else if bin, ok := d.agyBinary(); ok {
 			// A probe: it can't open a login (internal/probe), and says so if it tries.
 			out, cerr := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"-p", "/usage", "--dangerously-skip-permissions"},
