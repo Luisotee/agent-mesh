@@ -16,6 +16,24 @@ export type NewHost =
   /** A host by its pairing link (`agentmesh://pair?...`): main redeems it, and keeps the device token it gets. */
   | { name: string; kind: 'pair'; link: string; deviceName: string }
 
+/** What a scan for a daemon on this machine found. */
+export type LocalState = 'ready' | 'not-installed' | 'not-running' | 'no-listen' | 'unreachable'
+
+/** A fix the app can run for the user, by name: main runs fixed commands for it, never one the renderer wrote. */
+export type LocalFix = 'start' | 'enable-listen'
+
+export interface LocalCandidate {
+  /** `native`, `wsl:<distro>` or `wsl` (no WSL at all). */
+  id: string
+  label: string
+  state: LocalState
+  /** What was found, in a sentence the user can act on. */
+  detail: string
+  fixes: LocalFix[]
+  /** What the user has to run themselves, when the app can't (installing). */
+  commands?: string[]
+}
+
 export interface BridgeRequest {
   method: string
   /** A registry path, such as /agentmesh.v1.MeshService/Hello. */
@@ -101,6 +119,14 @@ export interface DesktopApi {
     take(): Promise<OpenedLink | undefined>
     /** A link that arrives while the app runs; returns how to stop listening. */
     onOpen(cb: (l: OpenedLink) => void): () => void
+  }
+  /** Finding a daemon on this machine (the first-run screen, and "Check this machine"). Never takes a command. */
+  local: {
+    detect(): Promise<LocalCandidate[]>
+    /** Connects to a candidate that was `ready` and saves it as a host. */
+    connect(id: string): Promise<HostInfo>
+    /** Runs one fix on a candidate and returns the scan after it. */
+    fix(id: string, fix: LocalFix): Promise<LocalCandidate[]>
   }
   /** Open an http(s) link in the user's browser. */
   openExternal(url: string): void

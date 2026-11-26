@@ -102,6 +102,15 @@ export function buildCommands(app: AppModel): Command[] {
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
 
   if (selected) {
+    out.push({ id: 'setup', title: 'Set up with the assistant', group: 'Actions', detail: `${selected.info.name} · connect repos, machines, your phone`, run: () => app.openSetup(selected.info.id) })
+    out.push({
+      id: 'remove-host',
+      title: `Remove host ${selected.info.name}`,
+      group: 'Hosts',
+      detail: 'forget this host in the app',
+      confirm: `Remove ${selected.info.name} from the app? Its saved token is deleted; the daemon and its agents are untouched.`,
+      run: () => app.removeHost(selected.info.id),
+    })
     out.push({
       id: 'start-run',
       title: 'Start a run…',

@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { OpenedLink } from '../../shared/api'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
 import { Input, Select, Textarea } from '@/components/ui/input'
 import { useApp } from '@/context'
+import type { HostRuntime } from '@/model'
+import { LocalSetup } from './local-setup'
 
 /** The form for a host: the state dir of a daemon on this machine, or a pairing link from another host's "Pair a device" screen. */
 export function AddHostForm({ onDone, opened }: { onDone?: () => void; opened?: OpenedLink }) {
@@ -70,6 +72,7 @@ export function AddHostForm({ onDone, opened }: { onDone?: () => void; opened?: 
 /** The add-a-host dialog; a link opened from outside (`opened`) opens it filled in, and `onClose` tells the app it was dealt with. */
 export function AddHostDialog({ opened, onClose }: { opened?: OpenedLink; onClose?: () => void }) {
   const [clicked, setClicked] = useState(false)
+  const [looking, setLooking] = useState(false)
   const open = clicked || !!opened
   const setOpen = (o: boolean) => {
     setClicked(o)
@@ -81,7 +84,43 @@ export function AddHostDialog({ opened, onClose }: { opened?: OpenedLink; onClos
         <Plus />
       </DialogTrigger>
       <DialogContent title="Add a host" description="A host is a machine running meshd, the agent-mesh daemon.">
+        {!opened &&
+          (looking ? (
+            <LocalSetup onConnected={() => setOpen(false)} />
+          ) : (
+            <Button variant="outline" onClick={() => setLooking(true)}>Look for a daemon on this machine</Button>
+          ))}
         <AddHostForm key={opened?.link} opened={opened} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Forgets a host on this device (its saved token goes); the daemon, its runs and agents are untouched. */
+export function RemoveHostDialog({ host }: { host: HostRuntime }) {
+  const app = useApp()
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function remove() {
+    setBusy(true)
+    setError('')
+    try {
+      await app.removeHost(host.info.id)
+      setOpen(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button size="icon" variant="ghost" aria-label={`Remove host ${host.info.name}`} title="Remove this host from the app" />}>
+        <Trash2 />
+      </DialogTrigger>
+      <DialogContent title={`Remove ${host.info.name}?`} description="The app forgets this host and the token it saved for it. The daemon, its runs and its agents are not touched, and you can add the host again.">
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        <Button variant="destructive" disabled={busy} onClick={() => void remove()}>Remove host</Button>
       </DialogContent>
     </Dialog>
   )

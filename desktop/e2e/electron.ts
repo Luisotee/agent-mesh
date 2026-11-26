@@ -20,13 +20,15 @@ export interface App {
  * Starts the built app with a state dir for its one host (or none: a host list of its own, to add hosts to) and a user-data dir of its own, and drives it over the
  * Chrome DevTools Protocol. `--no-sandbox` is for the test machine only (WSL has no SUID helper for Chromium).
  */
-export async function launchApp(opts: { state?: string; home: string; /** Arguments after the flags, such as the pairing link that starts the app. */ args?: string[] }): Promise<App> {
+export async function launchApp(opts: { state?: string; home: string; /** Arguments after the flags, such as the pairing link that starts the app. */ args?: string[]; /** More environment for the app (a stand-in `wsl.exe`, say). */ env?: Record<string, string> }): Promise<App> {
   const userData = path.join(opts.home, 'userData')
   const shellLog = path.join(opts.home, 'shell.log')
   mkdirSync(userData, { recursive: true })
   const electron = path.join(desktopDir, 'node_modules/.bin/electron')
+  // Never let a test reach a real daemon: the shell of an agent carries AGENT_MESH_TOKEN and AGENT_MESH_STATE.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^AGENT_MESH_(?!DESKTOP_)/.test(k)))
   const env = {
-    ...process.env,
+    ...inherited,
     HOME: opts.home,
     XDG_CONFIG_HOME: path.join(opts.home, '.config'),
     XDG_CACHE_HOME: path.join(opts.home, '.cache'),
@@ -36,6 +38,7 @@ export async function launchApp(opts: { state?: string; home: string; /** Argume
     AGENT_MESH_DESKTOP_USERDATA: userData,
     AGENT_MESH_DESKTOP_SHELL_LOG: shellLog,
     ELECTRON_ENABLE_LOGGING: '1',
+    ...opts.env,
   }
   const proc = spawn(electron, ['.', '--no-sandbox', '--remote-debugging-port=0', ...(opts.args ?? [])], { cwd: desktopDir, env, stdio: ['ignore', 'pipe', 'pipe'] })
   const ws = await new Promise<string>((resolve, reject) => {

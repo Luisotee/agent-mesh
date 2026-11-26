@@ -1,5 +1,5 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
@@ -104,6 +104,8 @@ export interface HostOptions {
   listen?: string
   relay?: Pick<Relay, 'url' | 'tcp' | 'tokenFile'>
   hostName?: string
+  /** Gives meshd the repo's own `daemon/share` (the protocol and the setup agent's instructions). */
+  share?: boolean
   /** Environment for the fake claude of this host (meshd passes agents no FAKECLAUDE_* of its own): a wrapper script sets it. */
   fakeClaudeEnv?: Record<string, string>
 }
@@ -145,6 +147,7 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
           '--cli', `claude=${claude}`, '--worktrees', worktrees,
           ...(opts.listen ? ['--listen', opts.listen] : []),
           ...(opts.hostName ? ['--host-name', opts.hostName] : []),
+          ...(opts.share ? ['--share', path.join(daemonDir, 'share')] : []),
           ...(opts.relay ? ['--relay-url', opts.relay.url, '--relay-tcp', opts.relay.tcp, '--relay-token-file', opts.relay.tokenFile] : [])],
         { env: { ...baseEnv(), HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }, stdio: ['ignore', 'ignore', 'pipe'] },
       )
@@ -191,4 +194,43 @@ export async function until(what: string, fn: () => boolean | Promise<boolean>, 
     await new Promise((r) => setTimeout(r, 50))
   }
   throw new Error(`timed out waiting for ${what}`)
+}
+
+/**
+ * A stand-in for Windows' `wsl.exe` that runs what the app asks of a distro against `host`, as a distro would: `-l -q`
+ * lists one distro, `Ubuntu`, in UTF-16LE; `-d Ubuntu -e sh -l -s` runs the script on stdin with the test meshd's state dir
+ * where `mesh` looks for it and the test binaries on PATH (`withMesh: false`: a distro that has no agent-mesh). A stub
+ * `systemctl` is first on PATH, so no test can ever reach the user's own services; it only logs its arguments.
+ */
+export function fakeWsl(dir: string, bins: string, host: Host, opts: { withMesh?: boolean } = {}): { exe: string; systemctlLog: string } {
+  mkdirSync(dir, { recursive: true })
+  const xdg = path.join(dir, 'xdg')
+  mkdirSync(xdg, { recursive: true })
+  rmSync(path.join(xdg, 'agent-mesh-daemon'), { force: true })
+  symlinkSync(host.state, path.join(xdg, 'agent-mesh-daemon'))
+  const stubs = path.join(dir, 'stubs')
+  mkdirSync(stubs, { recursive: true })
+  const systemctlLog = path.join(dir, 'systemctl.log')
+  writeFileSync(path.join(stubs, 'systemctl'), `#!/bin/sh\necho "$@" >> '${systemctlLog}'\n`, { mode: 0o755 })
+  const exe = path.join(dir, 'wsl.exe')
+  const meshPath = opts.withMesh === false ? '' : `${bins}:`
+  writeFileSync(
+    exe,
+    `#!/bin/sh
+if [ "$1" = "-l" ]; then
+  printf '\\377\\376U\\000b\\000u\\000n\\000t\\000u\\000\\r\\000\\n\\000'
+  exit 0
+fi
+if [ "$1" = "-d" ] && [ "$2" = "Ubuntu" ] && [ "$3" = "-e" ]; then
+  shift 3
+  for v in $(env | sed -n 's/^\\(AGENT_MESH_[A-Z_]*\\)=.*/\\1/p'); do unset $v; done
+  export HOME='${host.home}' XDG_STATE_HOME='${xdg}' PATH='${stubs}:${meshPath}/usr/bin:/bin'
+  exec "$@"
+fi
+echo "fake wsl.exe: unexpected arguments: $*" >&2
+exit 1
+`,
+    { mode: 0o755 },
+  )
+  return { exe, systemctlLog }
 }

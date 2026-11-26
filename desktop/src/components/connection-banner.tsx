@@ -2,7 +2,24 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useHostState } from '@/context'
 import type { HostRuntime } from '@/model'
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { ConnectionLogDialog } from './connection-log'
+import { LocalSetup } from './local-setup'
+
+/** Whether a host is this machine's daemon: a state dir, or a paired host at a loopback address. */
+export const isLocalHost = (h: HostRuntime['info']) => h.kind === 'state-dir' || (h.kind === 'paired' && /^(127\.0\.0\.1|localhost|\[?::1\]?):/.test(h.target))
+
+/** "Check this machine": looks for the daemon here again and offers the fixes (start it, let Windows reach it). */
+function CheckMachine({ host }: { host: HostRuntime }) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button size="sm" variant="outline" />}>Check this machine</DialogTrigger>
+      <DialogContent title="Check this machine" description="Looks for the agent-mesh daemon here and says what is wrong with it.">
+        <LocalSetup onReady={() => host.connection.retryNow()} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 /** Shown above the content whenever a host isn't connected: what is wrong, when it retries, and the log. */
 export function ConnectionBanner({ host }: { host: HostRuntime }) {
@@ -34,6 +51,7 @@ export function ConnectionBanner({ host }: { host: HostRuntime }) {
       <Button size="sm" variant="outline" onClick={() => host.connection.retryNow()}>
         Retry now
       </Button>
+      {isLocalHost(host.info) && <CheckMachine host={host} />}
       <ConnectionLogDialog host={host} />
     </div>
   )
