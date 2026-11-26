@@ -340,6 +340,49 @@ describe('both routes', () => {
     expect(directTries).toBe(2) // not shut out by the relay's failure
   })
 
+  it('shares one direct attempt between overlapping calls: a hung direct address is waited out once', async () => {
+    const h = await startHost()
+    const relay = await startRelay(() => 'OK', h.server)
+    // A direct address that accepts and never answers, so every attempt runs to the direct timeout.
+    let directTries = 0
+    const hung = net.createServer(() => {
+      directTries++
+    })
+    await new Promise<void>((r) => hung.listen(0, '127.0.0.1', r))
+    closers.push(() => hung.close())
+    const d = new Dialer({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: (hung.address() as net.AddressInfo).port }, relay: { host: '127.0.0.1', port: relay.port, token: 't' } })
+    const t0 = 1_000_000
+    const socks = await Promise.all([d.connect(t0), d.connect(t0), d.connect(t0)])
+    socks.forEach((s) => s.destroy())
+    expect(new Set(socks).size).toBe(3) // one socket each
+    expect(directTries).toBe(1)
+    expect(relay.lines).toHaveLength(3)
+  }, 15_000)
+
+  it('does not keep a failed attempt: the next call tries direct again', async () => {
+    const h = await startHost()
+    let directUp = false
+    let directTries = 0
+    const flaky = net.createServer((s) => {
+      directTries++
+      if (directUp) h.server.emit('connection', s)
+      else s.destroy()
+    })
+    await new Promise<void>((r) => flaky.listen(0, '127.0.0.1', r))
+    closers.push(() => flaky.close())
+    // The relay is down too, so no call ends up remembering that direct failed.
+    const relay = await startRelay(() => 'ERR offline the host is not connected', h.server)
+    const d = new Dialer({ hostId: 'h', fingerprint: pin, direct: { host: '127.0.0.1', port: (flaky.address() as net.AddressInfo).port }, relay: { host: '127.0.0.1', port: relay.port, token: 't' } })
+    const t0 = 1_000_000
+    const failed = await Promise.allSettled([d.connect(t0), d.connect(t0)])
+    expect(failed.map((r) => r.status)).toEqual(['rejected', 'rejected'])
+    expect(directTries).toBe(1) // the second call used the first one's verdict
+    directUp = true
+    const both = await Promise.all([d.connect(t0 + 1_000), d.connect(t0 + 1_000)])
+    both.forEach((s) => s.destroy())
+    expect(directTries).toBe(3) // tried again, and each call dialled direct itself once it was up
+  })
+
   it('does not go to the relay when the direct host showed the wrong certificate', async () => {
     const h = await startHost()
     const relay = await startRelay(() => 'OK', h.server)

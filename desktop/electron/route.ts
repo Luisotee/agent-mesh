@@ -227,36 +227,59 @@ class DialAgent extends http.Agent {
 
 export class Dialer {
   private directFailedAt = 0
+  /**
+   * The direct attempt of the `connect` that is running, shared with the calls that overlap it: it settles to `null` when
+   * direct worked and to its error when not. Cleared when that `connect` ends, so a later call tries direct again.
+   */
+  private directVerdict: Promise<unknown> | undefined
   /** For `http.request`: connections made by this dialer, reused. */
   readonly agent: http.Agent = new DialAgent(this)
 
   constructor(readonly route: Route) {}
 
-  /** A pinned TLS connection to the host: the direct address first, the relay when that can't be reached. */
+  /**
+   * A pinned TLS connection to the host: the direct address first, the relay when that can't be reached. Every call gets
+   * its own socket, but calls that overlap share one direct attempt: while it runs they wait for its verdict rather than
+   * each waiting out the direct timeout, and go straight to the relay once it failed.
+   */
   async connect(now = Date.now()): Promise<tls.TLSSocket> {
     const { route } = this
-    const skipDirect = route.relay && now - this.directFailedAt < DIRECT_RETRY_MS
+    const tryDirect = !!route.direct && !(route.relay && now - this.directFailedAt < DIRECT_RETRY_MS)
     let direct: unknown
-    if (route.direct && !skipDirect) {
-      try {
-        return await pinned(route.fingerprint, route.direct, DIRECT_TIMEOUT_MS)
-      } catch (e) {
-        // A wrong certificate is the host not being who it was paired as: the relay can't fix that.
-        if (e instanceof RouteError && e.code === 'refused') throw e
-        if (!route.relay) throw e
-        direct = e
-      }
+    let owner: ((verdict: unknown) => void) | undefined
+    if (tryDirect) {
+      if (this.directVerdict) direct = await this.directVerdict
+      else this.directVerdict = new Promise((resolve) => (owner = resolve))
     }
-    if (!route.relay) throw direct ?? new RouteError('failed', 'no route to the host')
-    const raw = await throughRelay(route)
     try {
-      const s = await pinned(route.fingerprint, { socket: raw }, RELAY_TIMEOUT_MS)
-      // Skip direct for a while only now the relay has worked: a relay that is down too must not shut direct out.
-      if (direct) this.directFailedAt = now
-      return s
-    } catch (e) {
-      raw.destroy()
-      throw e
+      // The owner dials direct, and so does a call whose wait ended with direct up (each needs a socket of its own).
+      if (tryDirect && (owner || direct === null)) {
+        direct = undefined
+        try {
+          const s = await pinned(route.fingerprint, route.direct!, DIRECT_TIMEOUT_MS)
+          owner?.(null)
+          return s
+        } catch (e) {
+          direct = e
+          owner?.(e)
+        }
+      }
+      // A wrong certificate is the host not being who it was paired as: the relay can't fix that.
+      if (direct instanceof RouteError && direct.code === 'refused') throw direct
+      if (!route.relay) throw direct ?? new RouteError('failed', 'no route to the host')
+      const raw = await throughRelay(route)
+      try {
+        const s = await pinned(route.fingerprint, { socket: raw }, RELAY_TIMEOUT_MS)
+        // Skip direct for a while only now the relay has worked: a relay that is down too must not shut direct out.
+        if (direct) this.directFailedAt = now
+        return s
+      } catch (e) {
+        raw.destroy()
+        throw e
+      }
+    } finally {
+      // Held until the owner's whole connect ends, so calls that overlap its relay dial skip direct as well.
+      if (owner) this.directVerdict = undefined
     }
   }
 }
