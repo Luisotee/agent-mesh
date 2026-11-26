@@ -164,3 +164,33 @@ func TestDeviceEventsFilteredFromNonDeviceSubscribers(t *testing.T) {
 		t.Fatalf("device live subscriber received %d events, want 2", len(devSub.ch))
 	}
 }
+
+func TestSubscribeRunReceivesLiveRunEventsAndUnsubscribesCleanly(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	ch, unsub := bus.SubscribeRun("r1", false)
+	defer unsub()
+	if bus.Subscribers() != 1 {
+		t.Fatalf("subscribers = %d, want 1", bus.Subscribers())
+	}
+	bus.Publish([]*v1.Event{
+		{Seq: 1, RunId: "r2"},
+		{Seq: 2, RunId: "r1"},
+	})
+	select {
+	case ev := <-ch:
+		if ev.Seq != 2 {
+			t.Fatalf("got seq %d, want 2", ev.Seq)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for r1 event")
+	}
+	unsub()
+	if bus.Subscribers() != 0 {
+		t.Fatalf("subscribers after unsub = %d, want 0", bus.Subscribers())
+	}
+}

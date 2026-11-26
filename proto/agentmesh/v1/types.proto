@@ -242,8 +242,24 @@ message Event {
     RootResetFinished root_reset_finished = 31;
     DoorbellFailed doorbell_failed = 32;
     DoorbellHeld doorbell_held = 33;
-    PullRequestChanged pull_request_changed = 34;
+    WorktreeCreated worktree_created = 34;
+    PullRequestChanged pull_request_changed = 35;
   }
+}
+
+message Worktree {
+  string id = 1;
+  string run_id = 2;
+  string slug = 3;
+  string repo = 4;
+  string path = 5;
+  string branch = 6;
+  string base_commit = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message WorktreeCreated {
+  Worktree worktree = 1;
 }
 
 message RunStarted {

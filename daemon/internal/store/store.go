@@ -1147,6 +1147,42 @@ func (r Reader) ListPeerGroups() ([]*v1.PeerGroup, error) {
 	return scanAll(r, `SELECT data FROM peer_groups ORDER BY name`, nil, func() *v1.PeerGroup { return &v1.PeerGroup{} })
 }
 
+// ── worktrees ──
+
+// PutWorktree inserts a standalone run worktree; a duplicate (run_id, slug) or id returns ErrExists.
+func (t *Tx) PutWorktree(w *v1.Worktree) error {
+	b, err := proto.Marshal(w)
+	if err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `INSERT INTO worktrees (id, run_id, slug, created_at, data) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT DO NOTHING`, w.Id, w.RunId, w.Slug, w.CreatedAt.AsTime().UnixNano(), b)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrExists
+	}
+	return nil
+}
+
+// GetWorktree returns one standalone worktree by run_id and slug.
+func (r Reader) GetWorktree(runID, slug string) (*v1.Worktree, error) {
+	return scanOne(r, `SELECT data FROM worktrees WHERE run_id = ? AND slug = ?`, []any{runID, slug}, &v1.Worktree{})
+}
+
+// ListWorktrees returns a run's standalone worktrees, oldest first.
+func (r Reader) ListWorktrees(runID string) ([]*v1.Worktree, error) {
+	return scanAll(r, `SELECT data FROM worktrees WHERE run_id = ? ORDER BY created_at, id`, []any{runID},
+		func() *v1.Worktree { return &v1.Worktree{} })
+}
+
+// DeleteWorktree deletes one standalone worktree record by id.
+func (t *Tx) DeleteWorktree(id string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM worktrees WHERE id = ?`, id)
+	return err
+}
+
 // ── agent pull requests ──
 
 // PutAgentPR inserts or replaces the last state read for a pull request an agent owns.

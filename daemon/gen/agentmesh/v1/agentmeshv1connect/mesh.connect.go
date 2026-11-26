@@ -133,6 +133,15 @@ const (
 	// MeshServiceListMCPServersProcedure is the fully-qualified name of the MeshService's
 	// ListMCPServers RPC.
 	MeshServiceListMCPServersProcedure = "/agentmesh.v1.MeshService/ListMCPServers"
+	// MeshServiceCreateWorktreeProcedure is the fully-qualified name of the MeshService's
+	// CreateWorktree RPC.
+	MeshServiceCreateWorktreeProcedure = "/agentmesh.v1.MeshService/CreateWorktree"
+	// MeshServiceStreamLogProcedure is the fully-qualified name of the MeshService's StreamLog RPC.
+	MeshServiceStreamLogProcedure = "/agentmesh.v1.MeshService/StreamLog"
+	// MeshServiceRingAgentProcedure is the fully-qualified name of the MeshService's RingAgent RPC.
+	MeshServiceRingAgentProcedure = "/agentmesh.v1.MeshService/RingAgent"
+	// MeshServiceOpenAgentProcedure is the fully-qualified name of the MeshService's OpenAgent RPC.
+	MeshServiceOpenAgentProcedure = "/agentmesh.v1.MeshService/OpenAgent"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -242,6 +251,16 @@ type MeshServiceClient interface {
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
+	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
+	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error)
+	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
+	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
+	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -519,6 +538,30 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
 			connect.WithClientOptions(opts...),
 		),
+		createWorktree: connect.NewClient[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse](
+			httpClient,
+			baseURL+MeshServiceCreateWorktreeProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CreateWorktree")),
+			connect.WithClientOptions(opts...),
+		),
+		streamLog: connect.NewClient[v1.StreamLogRequest, v1.StreamLogResponse](
+			httpClient,
+			baseURL+MeshServiceStreamLogProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
+			connect.WithClientOptions(opts...),
+		),
+		ringAgent: connect.NewClient[v1.RingAgentRequest, v1.RingAgentResponse](
+			httpClient,
+			baseURL+MeshServiceRingAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RingAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		openAgent: connect.NewClient[v1.OpenAgentRequest, v1.OpenAgentResponse](
+			httpClient,
+			baseURL+MeshServiceOpenAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenAgent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -568,6 +611,10 @@ type meshServiceClient struct {
 	listTools        *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 	addTools         *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
 	listMCPServers   *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
+	createWorktree   *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
+	streamLog        *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	ringAgent        *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
+	openAgent        *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -790,6 +837,26 @@ func (c *meshServiceClient) ListMCPServers(ctx context.Context, req *connect.Req
 	return c.listMCPServers.CallUnary(ctx, req)
 }
 
+// CreateWorktree calls agentmesh.v1.MeshService.CreateWorktree.
+func (c *meshServiceClient) CreateWorktree(ctx context.Context, req *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error) {
+	return c.createWorktree.CallUnary(ctx, req)
+}
+
+// StreamLog calls agentmesh.v1.MeshService.StreamLog.
+func (c *meshServiceClient) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error) {
+	return c.streamLog.CallServerStream(ctx, req)
+}
+
+// RingAgent calls agentmesh.v1.MeshService.RingAgent.
+func (c *meshServiceClient) RingAgent(ctx context.Context, req *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
+	return c.ringAgent.CallUnary(ctx, req)
+}
+
+// OpenAgent calls agentmesh.v1.MeshService.OpenAgent.
+func (c *meshServiceClient) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error) {
+	return c.openAgent.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -897,6 +964,16 @@ type MeshServiceHandler interface {
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
+	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
+	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error
+	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
+	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
+	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -1170,6 +1247,30 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceCreateWorktreeHandler := connect.NewUnaryHandler(
+		MeshServiceCreateWorktreeProcedure,
+		svc.CreateWorktree,
+		connect.WithSchema(meshServiceMethods.ByName("CreateWorktree")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceStreamLogHandler := connect.NewServerStreamHandler(
+		MeshServiceStreamLogProcedure,
+		svc.StreamLog,
+		connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRingAgentHandler := connect.NewUnaryHandler(
+		MeshServiceRingAgentProcedure,
+		svc.RingAgent,
+		connect.WithSchema(meshServiceMethods.ByName("RingAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenAgentHandler := connect.NewUnaryHandler(
+		MeshServiceOpenAgentProcedure,
+		svc.OpenAgent,
+		connect.WithSchema(meshServiceMethods.ByName("OpenAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -1260,6 +1361,14 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceAddToolsHandler.ServeHTTP(w, r)
 		case MeshServiceListMCPServersProcedure:
 			meshServiceListMCPServersHandler.ServeHTTP(w, r)
+		case MeshServiceCreateWorktreeProcedure:
+			meshServiceCreateWorktreeHandler.ServeHTTP(w, r)
+		case MeshServiceStreamLogProcedure:
+			meshServiceStreamLogHandler.ServeHTTP(w, r)
+		case MeshServiceRingAgentProcedure:
+			meshServiceRingAgentHandler.ServeHTTP(w, r)
+		case MeshServiceOpenAgentProcedure:
+			meshServiceOpenAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1443,4 +1552,20 @@ func (UnimplementedMeshServiceHandler) AddTools(context.Context, *connect.Reques
 
 func (UnimplementedMeshServiceHandler) ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMCPServers is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CreateWorktree is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StreamLog is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RingAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenAgent is not implemented"))
 }

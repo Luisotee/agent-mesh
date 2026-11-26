@@ -374,3 +374,37 @@ func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanLaunchStandalone(t *testing.T) {
+	a := New()
+	a.ListModels = func(context.Context, string, map[string]string) (string, error) { return sampleVerboseListing, nil }
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
+		DenyEdits:       true,
+		Cwd:             t.TempDir(),
+		Repo:            t.TempDir(),
+		Binary:          "/opt/opencode",
+		Model:           "opencode/beam-free",
+		Effort:          "high",
+		ResumeSessionId: "ses_abc",
+		SkipPermissions: true,
+		Standalone:      true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAgent := AgentName("opencode/beam-free", "high")
+	want := "/opt/opencode\x00--agent\x00" + wantAgent + "\x00-m\x00opencode/beam-free\x00-s\x00ses_abc"
+	if got := strings.Join(res.Msg.Argv, "\x00"); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	if _, ok := res.Msg.Env["OPENCODE_PERMISSION"]; ok {
+		t.Errorf("OPENCODE_PERMISSION set on standalone launch: %v", res.Msg.Env)
+	}
+	if res.Msg.Env["OPENCODE_CONFIG_CONTENT"] == "" {
+		t.Errorf("expected OPENCODE_CONFIG_CONTENT in env: %v", res.Msg.Env)
+	}
+	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
+		t.Error("expected error when resume_session_id is empty")
+	}
+}

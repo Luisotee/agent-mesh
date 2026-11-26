@@ -367,12 +367,23 @@ public interface EventOrBuilder extends
   dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld();
 
   /**
-   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 34 [json_name = "pullRequestChanged"];</code>
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   * @return Whether the worktreeCreated field is set.
+   */
+  boolean hasWorktreeCreated();
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   * @return The worktreeCreated.
+   */
+  dev.agentmesh.gen.agentmesh.v1.WorktreeCreated getWorktreeCreated();
+
+  /**
+   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 35 [json_name = "pullRequestChanged"];</code>
    * @return Whether the pullRequestChanged field is set.
    */
   boolean hasPullRequestChanged();
   /**
-   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 34 [json_name = "pullRequestChanged"];</code>
+   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 35 [json_name = "pullRequestChanged"];</code>
    * @return The pullRequestChanged.
    */
   dev.agentmesh.gen.agentmesh.v1.PullRequestChanged getPullRequestChanged();
