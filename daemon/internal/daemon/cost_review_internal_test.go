@@ -16,3 +16,18 @@ func TestReviewTaskPRFromBodyReadsTheDaemonsOwnPrefix(t *testing.T) {
 		}
 	}
 }
+
+// The regex is coupled to the review task's wording: feed it what reviewTask really builds.
+func TestReviewTaskPRFromBodyReadsWhatReviewTaskBuilds(t *testing.T) {
+	pr := &prInfo{Number: 7, URL: "https://github.com/o/repo/pull/7", Head: "abcdef0123456789abcdef0123456789abcdef01", Show: "git diff a..b"}
+	for name, s := range map[string]reviewSpec{
+		"fresh":   {pr: pr},
+		"own at":  {pr: pr, ownBranch: true},
+		"re-ask":  {pr: pr, last: "0123456789abcdef0123456789abcdef01234567", narrow: true, reused: true, stayAt: "x", stayWhy: "y"},
+		"narrowd": {pr: pr, last: "0123456789abcdef0123456789abcdef01234567", narrow: true},
+	} {
+		if got := reviewTaskPRFromBody("/src/repo", reviewTask(s)); got != "repo#7" {
+			t.Errorf("%s: reviewTaskPRFromBody(reviewTask) = %q, want repo#7", name, got)
+		}
+	}
+}

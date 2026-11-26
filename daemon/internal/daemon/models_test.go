@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -242,5 +243,83 @@ func TestModelsAPartialListingKeepsTheFailedKindsBaseline(t *testing.T) {
 	again := check("p3")
 	if got := kindEntry(again, "opencode"); got == nil || !slices.Equal(got.NewFamilies, []string{"opencode/nova-free"}) {
 		t.Fatalf("opencode after the failed listing = %+v", got)
+	}
+}
+
+func TestModelsAckDuringAFailedListingClearsTheCarriedNotice(t *testing.T) {
+	agyList := agyListingBase
+	oc := opencodeListingBase
+	now := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	h := startModelsHarness(t, &agyList, &oc, &now)
+	ctx := context.Background()
+	call := func(id string, check bool, ack ...string) *v1.CheckModelsResponse {
+		t.Helper()
+		res, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta(id), Check: check, Ack: ack}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg
+	}
+	call("a0", true)
+	oc = opencodeListingNew
+	if got := kindEntry(call("a1", true), "opencode"); !slices.Equal(got.NewFamilies, []string{"opencode/nova-free"}) {
+		t.Fatalf("new model not flagged: %+v", got)
+	}
+	// The listing fails, and the user acks the model meanwhile: the carried notice must go.
+	oc = ""
+	res := call("a2", false, "opencode:opencode/nova-free")
+	if got := kindEntry(res, "opencode"); got == nil || len(got.NewFamilies) != 0 || !slices.Equal(got.AckedFamilies, []string{"opencode/nova-free"}) {
+		t.Fatalf("after ack during a failed listing: %+v", got)
+	}
+	if strings.Contains(res.Notice, "opencode") {
+		t.Fatalf("notice = %q", res.Notice)
+	}
+}
+
+func TestModelsAKindWhoseCLIIsGoneIsDroppedAndTheCacheApplies(t *testing.T) {
+	agyList := agyListingBase
+	now := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	script := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncat <<'EOF'\n"+opencodeListingBase+"EOF\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ag := agy.New()
+	ag.ListModels = func(context.Context, string, map[string]string) (string, error) { return agyList, nil }
+	state := filepath.Join(t.TempDir(), "state")
+	d, err := daemon.New(daemon.Config{
+		StateDir: state, TCP: "127.0.0.1:0",
+		Now:    func() time.Time { return now },
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Agents: daemon.AgentConfig{
+			Adapters: []adapter.Adapter{claude.New(), ag, opencode.New()},
+			Binaries: map[string]string{"opencode": script},
+			Env:      map[string]string{"HOME": t.TempDir()},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := serve(t, d, state)
+	ctx := context.Background()
+	first, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta("g1"), Check: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kindEntry(first.Msg, "opencode") == nil {
+		t.Fatalf("opencode not listed while installed: %+v", first.Msg.Kinds)
+	}
+	// Uninstall opencode: its kind is dropped, and the result is cached again (a checked_at is kept).
+	if err := os.Remove(script); err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta("g2"), Check: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kindEntry(second.Msg, "opencode") != nil {
+		t.Fatalf("a kind whose CLI is gone is still carried: %+v", kindEntry(second.Msg, "opencode"))
+	}
+	if second.Msg.CheckedAt == nil {
+		t.Fatal("checked_at unset: the 24h cache would never apply")
 	}
 }

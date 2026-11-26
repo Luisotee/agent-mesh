@@ -117,6 +117,28 @@ func (d *Daemon) hasModelListingBinary(kind string) bool {
 	return ok
 }
 
+// modelKindInstalled says whether a kind's CLI can be listed at all: its binary is found, or a listing hook stands in
+// for it.
+func (d *Daemon) modelKindInstalled(kind string) bool {
+	if d.hasModelListingBinary(kind) {
+		return true
+	}
+	if d == nil || d.rt == nil || d.rt.adapters == nil {
+		return false
+	}
+	ad, err := d.rt.adapters.Get(kind)
+	if err != nil {
+		return false
+	}
+	switch a := ad.(type) {
+	case *agy.Adapter:
+		return a.ListModels != nil || (d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyModels != nil)
+	case *opencode.Adapter:
+		return a.ListModels != nil
+	}
+	return false
+}
+
 func (d *Daemon) listedFamilies(ctx context.Context, fresh bool) map[string][]string {
 	out := map[string][]string{}
 	if d == nil || d.rt == nil || d.rt.adapters == nil {
@@ -254,21 +276,44 @@ func (d *Daemon) computeModelCheck(r store.Reader, listed, acked map[string][]st
 			next.New[kind] = fresh
 		}
 	}
-	// A kind that listed nothing this time (not installed yet, a failed or timed-out listing) keeps what the last
-	// good check found for it: its baseline (OpenCode diffs against it) and its notices. The result then isn't
-	// cached for a day, so the next call looks again rather than trusting a partial listing.
+	// A kind that listed nothing this time but is still installed (a failed or timed-out listing) keeps what the
+	// last good check found for it: its baseline (OpenCode diffs against it) and its notices, the notices minus
+	// what was acked since and with the retired ones recomputed against the current tiers. The result isn't cached
+	// for a day then, so the next call looks again rather than trusting a partial listing. A kind whose CLI is gone
+	// is dropped: nothing to compare, and the cache applies again.
 	carried := len(listed) == 0
-	for kind := range prev.Listed {
+	for kind, prevFams := range prev.Listed {
 		if _, ok := listed[kind]; ok {
 			continue
 		}
-		carried = true
-		next.Listed[kind] = prev.Listed[kind]
-		if v := prev.New[kind]; len(v) > 0 {
-			next.New[kind] = v
+		if !d.modelKindInstalled(kind) {
+			continue
 		}
-		if v := prev.Retired[kind]; len(v) > 0 {
-			next.Retired[kind] = v
+		carried = true
+		next.Listed[kind] = prevFams
+		famSet := toSet(prevFams)
+		ackSet := toSet(acked[kind])
+		tierSet := d.tierFamilies(r, kind)
+		var fresh, gone []string
+		for _, f := range prev.New[kind] {
+			if !ackSet[f] && !(kind != opencode.Kind && tierSet[f]) {
+				fresh = append(fresh, f)
+			}
+		}
+		for tf := range tierSet {
+			if kind == opencode.Kind && !strings.HasPrefix(tf, "opencode/") {
+				continue
+			}
+			if !famSet[tf] {
+				gone = append(gone, tf)
+			}
+		}
+		sort.Strings(gone)
+		if len(fresh) > 0 {
+			next.New[kind] = fresh
+		}
+		if len(gone) > 0 {
+			next.Retired[kind] = gone
 		}
 	}
 	if carried {
