@@ -93,6 +93,57 @@ func TestALeanLaunchDeniesToolsHidesSkillsAndPluginsAndLoadsOnlyTheNamedMCPServe
 	}
 }
 
+// The share folder is loaded with --plugin-dir; a copy of the mesh's own plugin the user installed is turned off
+// for that session, whatever its name (live: of another name it loads beside the inline one and doubles the skills;
+// of the same name the inline one replaces it).
+func TestALaunchWithTheShareTurnsOffTheUsersInstalledCopyOfTheMeshPlugin(t *testing.T) {
+	for _, shareName := range []string{"agent-mesh-daemon", "agent-mesh", "mesh-future"} {
+		t.Run(shareName, func(t *testing.T) {
+			home, share := t.TempDir(), t.TempDir()
+			writeJSON(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{"enabledPlugins": map[string]bool{
+				"agent-mesh@agent-mesh": true, "agent-mesh-daemon@x": true, "mesh-future@x": true, "feature-dev@official": true,
+				"other@official": true, "disabled@official": false}})
+			writeJSON(t, filepath.Join(share, ".claude-plugin", "plugin.json"), map[string]any{"name": shareName})
+			lean := &adapterv1.LeanLaunch{OffPlugins: []string{"feature-dev"}}
+			res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+				Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: t.TempDir(), Repo: t.TempDir(), HookArgv: []string{"mesh", "hook"},
+				Env: map[string]string{"HOME": home, "AGENT_MESH_SHARE": share}, Lean: lean}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := argvAfter(res.Msg.Argv, "--plugin-dir"); len(got) != 1 || got[0] != share {
+				t.Fatalf("--plugin-dir %q", got)
+			}
+			var settings map[string]any
+			if err := json.Unmarshal([]byte(argvAfter(res.Msg.Argv, "--settings")[0]), &settings); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"agent-mesh@agent-mesh": false, "agent-mesh-daemon@x": false, "feature-dev@official": false}
+			if shareName == "mesh-future" {
+				want["mesh-future@x"] = false
+			}
+			if got := settings["enabledPlugins"]; !jsonEq(got, want) {
+				t.Errorf("enabledPlugins %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestALaunchWithoutAnInstalledMeshPluginAddsNoPluginSetting(t *testing.T) {
+	home, share := t.TempDir(), t.TempDir()
+	writeJSON(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{"enabledPlugins": map[string]bool{"other@official": true}})
+	writeJSON(t, filepath.Join(share, ".claude-plugin", "plugin.json"), map[string]any{"name": "agent-mesh"})
+	res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: t.TempDir(), Repo: t.TempDir(), HookArgv: []string{"mesh", "hook"},
+		Env: map[string]string{"HOME": home, "AGENT_MESH_SHARE": share}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(res.Msg.Argv, "\x00"), "enabledPlugins") {
+		t.Errorf("argv %q", res.Msg.Argv)
+	}
+}
+
 func jsonEq(a, b any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)

@@ -107,3 +107,24 @@ func TestOneLineCollapsesWhitespaceAndControlCharacters(t *testing.T) {
 		}
 	}
 }
+
+// A pending reopen that changes only the effort (or only the model) still sets that one for the compaction.
+func TestCompactTargetTakesEachPendingFieldOnItsOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		a             *v1.Agent
+		model, effort string
+	}{
+		{"no reopen", &v1.Agent{Model: "flash", Effort: "low"}, "flash", "low"},
+		{"effort only", &v1.Agent{Effort: "low", PendingReopen: &v1.Reopen{Effort: "high"}}, "", "high"},
+		{"effort only, model kept", &v1.Agent{Model: "flash", Effort: "low", PendingReopen: &v1.Reopen{Effort: "high"}}, "flash", "high"},
+		{"model only", &v1.Agent{Model: "flash", Effort: "low", PendingReopen: &v1.Reopen{Model: "argon"}}, "argon", "low"},
+		{"both", &v1.Agent{Model: "flash", Effort: "low", PendingReopen: &v1.Reopen{Model: "argon", Effort: "high"}}, "argon", "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if m, e := compactTarget(tc.a); m != tc.model || e != tc.effort {
+				t.Fatalf("got %q %q, want %q %q", m, e, tc.model, tc.effort)
+			}
+		})
+	}
+}

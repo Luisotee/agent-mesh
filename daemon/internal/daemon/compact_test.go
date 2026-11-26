@@ -376,6 +376,104 @@ func TestApproveCompactsALivePlannerInItsTerminalBeforeTheReopen(t *testing.T) {
 	waitFor(t, "the approval delivered", func() bool { return w.delivered(t, worker.Id, ap.Msg.Message.Id) })
 }
 
+// approveBig starts a planner whose transcript is big, sends its plan and approves it onto the mid tier.
+func approveBig(t *testing.T, w *compactWorld) (run *v1.Run, before *v1.Agent) {
+	t.Helper()
+	ctx := context.Background()
+	run = startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+		Tier: "strong", Plan: true, Task: "plan the fix"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.size(t, before, 300000, hour, 0)
+	asWorker := w.as(w.token(t, before.Id))
+	readInbox(t, asWorker)
+	if _, err := asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "the plan"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: before.Id, Tier: "mid"})); err != nil {
+		t.Fatal(err)
+	}
+	return run, before
+}
+
+func transcriptEnds(w *compactWorld, a *v1.Agent) string {
+	b, _ := os.ReadFile(claude.TranscriptPath(map[string]string{"HOME": w.home}, a.Worktree, a.SessionId))
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	return lines[len(lines)-1]
+}
+
+// Claude Code fires SessionStart (compact) before the compacted transcript is on disk. The reopen of an approve
+// stops the process, so a compaction reported done at the hook was lost whenever the stop came first: found live,
+// two approves at once both left their workers whole (the "left a worker at 215k tokens" of bin/mesh).
+func TestApproveWaitsForTheCompactedTranscriptBeforeItStopsTheProcess(t *testing.T) {
+	w := startCompact(t, func(c *daemon.AgentConfig) {
+		c.Env["FAKECLAUDE_BOUNDARY_DELAY"] = "700ms"
+		c.CompactSettle = 10 * time.Second
+	})
+	run, before := approveBig(t, w)
+	w.waitReopened(t, before.Id, before.TerminalId)
+	if last := transcriptEnds(w, before); !strings.Contains(last, "compact_boundary") {
+		t.Fatalf("the process was stopped before the compaction reached the transcript; its last line: %s", last)
+	}
+	cs := w.compacted(t, run.Id, before.Id)
+	if len(cs) != 1 || cs[0].Outcome != "done" || cs[0].TokensBefore != 300010 || cs[0].TokensAfter != 0 {
+		t.Fatalf("events %v", cs)
+	}
+}
+
+// A compaction the CLI reports and the transcript never shows is not "done": the agent goes on after the settle
+// time, and the event says so.
+func TestAReportedCompactionThatNeverReachesTheTranscriptIsNotDone(t *testing.T) {
+	w := startCompact(t, func(c *daemon.AgentConfig) {
+		c.Env["FAKECLAUDE_BOUNDARY_DELAY"] = "1h"
+		c.CompactSettle = 700 * time.Millisecond
+	})
+	run, before := approveBig(t, w)
+	w.waitReopened(t, before.Id, before.TerminalId)
+	cs := w.compacted(t, run.Id, before.Id)
+	if len(cs) != 1 || !strings.Contains(cs[0].Outcome, "showed no smaller size") || cs[0].TokensAfter != 300010 {
+		t.Fatalf("events %v", cs)
+	}
+}
+
+// An approve that reopens nothing (a pinned agent, which has no phase and no deny list) asks for no compaction:
+// the compaction is the reopen's, and without a reopen the conversation just goes on with the answer.
+func TestApproveWithoutAReopenCompactsNothing(t *testing.T) {
+	w := startCompact(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "pinned",
+		Model: "opus", Task: "Direct task (no plan): do it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.size(t, pinned, 300000, hour, 0)
+	asWorker := w.as(w.token(t, pinned.Id))
+	readInbox(t, asWorker)
+	if _, err := asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "a plan"})); err != nil {
+		t.Fatal(err)
+	}
+	ap, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: pinned.Id}))
+	if err != nil || ap.Msg.Reopen != nil {
+		t.Fatalf("approving: %v, %v", ap, err)
+	}
+	waitFor(t, "the approval delivered", func() bool { return w.delivered(t, pinned.Id, ap.Msg.Message.Id) })
+	if got := w.agent(pinned.Id); got.PendingCompaction != nil {
+		t.Errorf("a compaction is pending: %v", got.PendingCompaction)
+	}
+	if cs := w.compacted(t, run.Id, pinned.Id); len(cs) != 0 || len(w.compactions()) != 0 {
+		t.Errorf("compacted: %v %v", cs, w.compactions())
+	}
+}
+
 // followUpWorld starts a root and a direct-task worker that has gone idle, with the worker's own client.
 func followUpWorld(t *testing.T, w *compactWorld) (*v1.Run, *v1.Agent, agentmeshv1connect.MeshServiceClient, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
