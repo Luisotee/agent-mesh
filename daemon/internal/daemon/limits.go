@@ -190,7 +190,7 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	moved := false
-	var told *v1.Message
+	var told, settled *v1.Message
 	err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -224,8 +224,12 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		case auto == "switch" && !held.IsZero() && allHeld.IsZero():
 			// The limit is the model's own: the next model of the chain that has quota left.
 			next, err := d.nextOnChain(tx.Reader, a, model, effort)
-			if err != nil || next == "" {
-				return err // no chain, or nothing free after it: wait for the reset
+			if err != nil {
+				return err
+			}
+			if next == "" { // no chain, or nothing free after it: wait for the reset
+				settled, err = d.settleLimitedMember(tx, a, held)
+				return err
 			}
 			why = "quota"
 			body = fmt.Sprintf("Your previous model (%s) hit its usage limit; you are now on %s, in the same "+
@@ -235,8 +239,13 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 			why = "limit reset"
 			body = fmt.Sprintf("Your usage limit has reset; you are back on %s, in the same conversation. "+
 				"Continue exactly where you stopped.", model)
-		default:
-			return nil // the limit isn't over and no other model is free
+		default: // the limit isn't over and no other model is free
+			until := held
+			if allHeld.After(until) {
+				until = allHeld
+			}
+			settled, err = d.settleLimitedMember(tx, a, until)
+			return err
 		}
 		if _, err := storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_INFO, body); err != nil {
 			return err
@@ -253,6 +262,9 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		moved = true
 		return tx.PutAgent(a)
 	})
+	if settled != nil && d.notify != nil {
+		d.notify(settled.ToId)
+	}
 	if err != nil || !moved {
 		return err
 	}
@@ -261,6 +273,20 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	}
 	d.deliverSoon(agentID)
 	return nil
+}
+
+// settleLimitedMember settles an agent stopped at a usage limit that lasts until `until` and that it has no model
+// to leave for, when it is a pending member of its parent's collected ask and `until` is past the ask's deadline:
+// the round would wait out `ask.timeout` for a reviewer that cannot answer. The member's own work is untouched
+// (a later report still reaches its parent as an ordinary one). It returns the message that rings the caller when
+// this was the last member pending.
+func (d *Daemon) settleLimitedMember(tx *store.Tx, a *v1.Agent, until time.Time) (*v1.Message, error) {
+	ask, idx, err := collecting(tx.Reader, a.Id, a.ParentId)
+	if err != nil || ask == nil || ask.Deadline == nil || !until.After(ask.Deadline.AsTime()) {
+		return nil, err
+	}
+	line := fmt.Sprintf("at its usage limit until %s, with no other model to move to", until.UTC().Format(time.RFC3339))
+	return d.settleMember(tx, ask, idx, v1.AskMemberStatus_ASK_MEMBER_STATUS_SETTLED, "limited", line, "")
 }
 
 func limitDetail(a *v1.Agent) string {

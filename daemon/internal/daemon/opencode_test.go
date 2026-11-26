@@ -811,3 +811,89 @@ func TestOpenCodeAbortedTurnBecomesIdleNotError(t *testing.T) {
 		t.Fatalf("post-abort turn state = %v, want IDLE", a.State)
 	}
 }
+
+// OpenCode 1.19.6 retries a free-usage limit inside its own loop: nothing is stored on the reply, and the only
+// sign is a line in the footer under the input box (seen on a live reviewer, which then sat 30 minutes). The
+// daemon must read it, hold the model for the reset the line names, and rotate the agent along its chain; the
+// `┃` callout older versions drew works the same.
+func TestOpenCodeFooterLimitLineRotatesTheAgent(t *testing.T) {
+	for _, tc := range []struct{ name, command, hold string }{
+		{"footer free usage", "/limit-pane-free", "5h"},
+		{"footer 429", "/limit-pane", "10m"},
+		{"gutter 429", "/limit-pane-gutter", "10m"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := startReopen(t, fastPass)
+			ctx := context.Background()
+			w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free", "opencode/flint-40b-free"})
+			run := startRun(t, w.device.Mesh, "")
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+				RunId: run.Id, Repo: gitRepo(t), Slug: "oc-foot", Kind: opencode.Kind, Tier: "mid",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+			if a.Model != "opencode/beam-free" {
+				t.Fatalf("started on %q, want beam-free", a.Model)
+			}
+			oldTerm := a.TerminalId
+			w.typeInto(a, tc.command+"\r")
+			re := w.waitReopened(t, a.Id, oldTerm)
+			if re.Model != "opencode/flint-40b-free" {
+				t.Fatalf("after %s: model=%q, want flint-40b-free", tc.command, re.Model)
+			}
+			until, _, err := w.d.Store().Read(ctx).ModelHold(opencode.Kind, "opencode/beam-free", time.Now())
+			if err != nil || until.IsZero() {
+				t.Fatalf("beam-free is not held after %s: %v, %v", tc.command, until, err)
+			}
+			want, _ := time.ParseDuration(tc.hold)
+			if left := time.Until(until); left < want-2*time.Minute || left > want+31*time.Minute {
+				t.Errorf("held for %s, want about %s", left.Round(time.Second), tc.hold)
+			}
+		})
+	}
+}
+
+// A round's OpenCode reviewer whose model is at a limit that outlasts the ask, with no other model on its tier to
+// move to, settles its member at once: the round ends with what the others answered instead of waiting out
+// `ask.timeout`. A limit that ends before the deadline stays pending (the agent is continued at the reset).
+func TestOpenCodeLimitedReviewerSettlesItsMemberWhenItCannotMove(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		settles       bool
+	}{
+		{"free usage limit outlasts the ask", "/limit-pane-free", true},
+		{"rate limit ends within the ask", "/limit-pane", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := startReviews(t, fastPass)
+			w.set(t, "review.reviewers.small", []any{[]any{"opencode"}})
+			w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free"}) // nothing to move to
+			w.pr.push(t, "round 1")
+			res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+			if len(res.Agents) != 1 || res.Agents[0].Kind != opencode.Kind {
+				t.Fatalf("round picked %v, want one opencode reviewer", res.Agents)
+			}
+			w.quiet(t, res.Agents[0].Id) // its task's doorbell taken and the turn it started over
+			rev := w.agent(res.Agents[0].Id)
+			w.typeInto(rev, tc.command+"\r")
+			w.waitState(rev.Id, v1.AgentState_AGENT_STATE_LIMITED)
+			if tc.settles {
+				waitFor(t, "the limited member settled and the round announced", func() bool { return len(w.answers(t)) == 1 })
+				asks, err := w.d.Store().Read(context.Background()).OpenAsks()
+				if err != nil || len(asks) != 0 {
+					t.Fatalf("the round is still open: %v, %v", asks, err)
+				}
+				if msg := w.answers(t)[0].Body; !strings.Contains(msg, "usage limit until") {
+					t.Errorf("the round's message does not say why the reviewer didn't answer:\n%s", msg)
+				}
+				return
+			}
+			time.Sleep(2 * time.Second) // several passes
+			if n := len(w.answers(t)); n != 0 {
+				t.Fatalf("a limit that ends within the ask settled its member: %d answers", n)
+			}
+		})
+	}
+}

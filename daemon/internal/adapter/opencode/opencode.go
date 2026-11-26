@@ -759,7 +759,11 @@ type LimitHit struct {
 
 // OpenCode renders status, retry and error banners inside a heavy vertical-bar callout (`  ┃  ...`, U+2503).
 // Anchoring on that gutter keeps fixture, comment, diff and thin-box lines (`│ …`, `// …`, `+ …`) from matching.
-const bannerStart = "(?im)^[ \\t]*\u2503[ \\t]+"
+//
+// OpenCode 1.19.6 draws the free-usage and 429 retry lines in the footer under the input box instead: after a
+// spinner of `■` and `⬝` cells (`   ■■⬝⬝⬝⬝⬝⬝ Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]`),
+// so a line may start with either. Both are anchored at the line start.
+const bannerStart = "(?im)^[ \\t]*(?:\u2503|[\u25a0\u2b1d]{2,})[ \\t]+"
 
 var (
 	// FreeUsage/GoUsage/Model unavailable/429 retry lines on the pane (no named RE2 capture needed beyond simple groups).
