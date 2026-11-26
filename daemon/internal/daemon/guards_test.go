@@ -495,30 +495,31 @@ func TestRetireAndStopRunSweepLeftoverProcesses(t *testing.T) {
 	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 		t.Fatal(err)
 	}
-	fs.mu.Lock()
-	gotSignals := append([]sigCall(nil), fs.signals...)
-	reads := fs.tableReads
-	fs.mu.Unlock()
-	if reads != 3 {
-		t.Errorf("expected 3 table reads waiting for own agent, got %d", reads)
-	}
 	wantSignals := []sigCall{
 		{pid: 20811, start: 208110, sig: syscall.SIGTERM},
 		{pid: 20834, start: 208340, sig: syscall.SIGTERM},
 		{pid: 20834, start: 208340, sig: syscall.SIGKILL},
 	}
-	if !slices.Equal(gotSignals, wantSignals) {
-		t.Errorf("retire signals = %+v, want %+v", gotSignals, wantSignals)
-	}
+	waitFor(t, "async retire sweep signals", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return fs.tableReads == 3 && slices.Equal(fs.signals, wantSignals)
+	})
 
 	// A ProcTable error during sweep never fails RetireAgent.
 	c := w.spawnUnder(t, asLead, "errproc", &v1.SpawnAgentRequest{})
+	fs.resetCalls()
 	fs.mu.Lock()
 	fs.tableErr = errors.New("no /proc")
 	fs.mu.Unlock()
 	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: c.Id})); err != nil {
 		t.Fatalf("RetireAgent failed on ProcTable error: %v", err)
 	}
+	waitFor(t, "async error sweep attempted ProcTable", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return fs.tableReads >= 1
+	})
 	fs.mu.Lock()
 	fs.tableErr = nil
 	fs.mu.Unlock()
@@ -750,11 +751,11 @@ func TestRound1ReviewFixes(t *testing.T) {
 	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: agyW.Id})); err != nil {
 		t.Fatal(err)
 	}
-	fs.mu.Lock()
-	if fs.tableReads != 2 || !slices.Equal(fs.signals, []sigCall{{pid: 8001, start: 81, sig: syscall.SIGTERM}}) {
-		t.Errorf("fresh agy sweep: reads=%d signals=%+v", fs.tableReads, fs.signals)
-	}
-	fs.mu.Unlock()
+	waitFor(t, "fresh agy async sweep", func() bool {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return fs.tableReads == 2 && slices.Equal(fs.signals, []sigCall{{pid: 8001, start: 81, sig: syscall.SIGTERM}})
+	})
 
 	// 4. adopt at boot runs finishRetire's sweep asynchronously without blocking daemon startup.
 	w2State := filepath.Join(t.TempDir(), "state2")

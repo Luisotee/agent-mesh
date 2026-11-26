@@ -458,6 +458,7 @@ func listenLoopback(addr string) (net.Listener, error) {
 }
 
 func (d *Daemon) close() {
+	d.stopOnce.Do(func() { close(d.stopping) })
 	d.bgWG.Wait()
 	if d.store != nil {
 		d.store.Close()

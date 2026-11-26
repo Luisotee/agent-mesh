@@ -313,6 +313,7 @@ func (d *Daemon) confineAgent(ctx context.Context, pid int, startTicks uint64, n
 	if len(cpus) > 0 {
 		if pinCPUs(d.rt.sys, tree, cpus) == 0 {
 			d.rt.cpus.drop(pid, startTicks)
+			d.log.Warn("cpu pin failed; leaving agent unpinned", "agent", name, "pid", pid, "cpus", proc.CPUList(cpus))
 		}
 	}
 	if memHighMB > 0 && len(tree) > 0 {

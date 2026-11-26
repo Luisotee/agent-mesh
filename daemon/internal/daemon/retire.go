@@ -84,14 +84,37 @@ func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
 	})
 }
 
-// finishRetire stops a retired agent's process and sweeps any leftover processes it left in its worktree.
+// sweepAsync runs sweepWorktrees in a daemon-tracked goroutine that aborts on daemon shutdown (d.stopping),
+// keeping RetireAgent, autoRetire, and boot adopt off the sweep's poll wait.
+func (d *Daemon) sweepAsync(agents []*v1.Agent) {
+	if len(agents) == 0 {
+		return
+	}
+	d.bgWG.Add(1)
+	go func() {
+		defer d.bgWG.Done()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-d.stopping:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		d.sweepWorktrees(ctx, agents)
+	}()
+}
+
+// finishRetire stops a retired agent's process synchronously and sweeps any leftover processes in its worktree
+// in the background.
 func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
 	ctx = context.WithoutCancel(ctx)
 	if err := d.stopRetiredProcess(ctx, agentID); err != nil {
 		return err
 	}
 	if a, err := d.store.Read(ctx).GetAgent(agentID); err == nil {
-		d.sweepWorktrees(ctx, []*v1.Agent{a})
+		d.sweepAsync([]*v1.Agent{a})
 	}
 	return nil
 }

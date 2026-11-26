@@ -265,13 +265,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 			d.log.Warn("terminal no agent claims; left running", "terminal", t.Id, "pid", t.Pid, "labels", t.Labels)
 		}
 	}
-	if len(adoptSweeps) > 0 {
-		d.bgWG.Add(1)
-		go func() {
-			defer d.bgWG.Done()
-			d.sweepWorktrees(ctx, adoptSweeps)
-		}()
-	}
+	d.sweepAsync(adoptSweeps)
 	return nil
 }
 
