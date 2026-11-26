@@ -411,6 +411,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
 		Leaf{Key: "caps.agents", Type: Int, Default: 16.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
+		Leaf{Key: "push.allow_private_endpoints", Type: Bool, Default: false,
+			Summary: "let a device's push endpoint be on a loopback, private or link-local address (a ntfy on this host or the LAN); off, meshd pushes only to public addresses, so a paired device can't make it POST into this network; only the host's own device may change it"},
 	)
 	return append(ls, AppLeaves()...)
 }
@@ -423,8 +425,9 @@ var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "ex
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
 var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
 
-// AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
-// and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
+// AppLeaves are the apps' own preferences. They live on the host so every device and every agent sees and can
+// change them (docs/apps.md, "Settings are data on the host"). The daemon reads only app.notify.enabled and
+// app.notify.events, to choose what it pushes to phones (internal/daemon/push.go).
 func AppLeaves() []Leaf {
 	events := make([]any, len(DefaultNotifyEvents))
 	for i, e := range DefaultNotifyEvents {
@@ -432,11 +435,11 @@ func AppLeaves() []Leaf {
 	}
 	return []Leaf{
 		{Key: "app.notify.enabled", Type: Bool, Default: true,
-			Summary: "desktop notifications for what happens on this host"},
+			Summary: "notifications for what happens on this host, on the desktop and the phone (its pushes too)"},
 		{Key: "app.notify.sound", Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit"},
+			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; phones' pushes follow it too, all but error and limited for now"},
 		{Key: "app.theme", Type: String, Default: "Dracula",
 			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,

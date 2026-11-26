@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
@@ -148,6 +149,9 @@ func (d *Daemon) SetSetting(ctx context.Context, req *connect.Request[v1.SetSett
 	if err != nil {
 		return nil, err
 	}
+	if err := hostOnly(ctx, l.Key); err != nil {
+		return nil, err
+	}
 	if req.Msg.Value == nil {
 		return nil, invalid("%s: no value given (a JSON null is a value; use unset to reset)", l.Key)
 	}
@@ -170,6 +174,9 @@ func (d *Daemon) ResetSetting(ctx context.Context, req *connect.Request[v1.Reset
 	if err != nil {
 		return nil, err
 	}
+	if err := hostOnly(ctx, l.Key); err != nil {
+		return nil, err
+	}
 	out := &v1.ResetSettingResponse{}
 	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceResetSettingProcedure, out, func(t *store.Tx) error {
 		var err error
@@ -177,4 +184,20 @@ func (d *Daemon) ResetSetting(ctx context.Context, req *connect.Request[v1.Reset
 		return err
 	})
 	return connect.NewResponse(out), err
+}
+
+// hostOnlySettings may be changed only by the host's own device: each guards the host against a paired device (a
+// device could otherwise turn the guard off itself), and an agent has no business changing it either.
+var hostOnlySettings = map[string]bool{
+	"push.allow_private_endpoints": true, // what a device's push endpoint may reach (push.go)
+}
+
+func hostOnly(ctx context.Context, key string) error {
+	if !hostOnlySettings[key] {
+		return nil
+	}
+	if a := auth.ActorFrom(ctx); a == nil || a.Id != localDeviceID {
+		return denied("%s may be changed only from the host itself", key)
+	}
+	return nil
 }
