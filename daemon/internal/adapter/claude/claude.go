@@ -558,7 +558,7 @@ func PermissionSummary(input json.RawMessage) string {
 	if json.Unmarshal(input, &in) != nil {
 		return ""
 	}
-	for _, k := range []string{"command", "new_string", "file_path", "notebook_path", "path", "url", "pattern", "query"} {
+	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url", "pattern", "query"} {
 		var s string
 		if raw, ok := in[k]; ok && json.Unmarshal(raw, &s) == nil && s != "" {
 			return s
