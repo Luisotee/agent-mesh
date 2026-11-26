@@ -944,3 +944,50 @@ func TestAnInCloneFolderThatIsGoneIsSaidSoByAnAsk(t *testing.T) {
 		t.Errorf("ask of a peer whose checkout is gone: %v", err)
 	}
 }
+
+// A peer's agent in a run belongs to whoever asked it last: its report goes to its parent only. Before, an ask
+// by a second caller of the run reused the agent still parented to the first, and its answer was refused
+// ("an agent sends only to its parent or its children; <peer> is neither"), so the second caller got none.
+func TestAPeerAskedByTwoCallersOfOneRunAnswersTheLastOne(t *testing.T) {
+	w := startPeers(t)
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha is for queues"})
+
+	// A worker of the run asks first: the peer's agent is its child.
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first question", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	if peerAgent.ParentId != "a-w2" {
+		t.Fatalf("the peer's agent is parented to %s, want the worker that asked", peerAgent.ParentId)
+	}
+	w.quiet(t, peerAgent.Id)
+
+	// The root asks it while it still owes the worker its answer: it is held for the first caller.
+	_, err = w.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second question", Timeout: 60}))
+	if err == nil || !strings.Contains(err.Error(), "still answering an earlier question") {
+		t.Fatalf("an ask of a peer that owes another caller its answer: %v", err)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != "a-w2" {
+		t.Fatalf("a refused ask moved the peer's agent to %s", got.ParentId)
+	}
+
+	// The worker's answer comes; now the root asks, and the same agent is its child and answers it.
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer to the worker")
+	w.quiet(t, peerAgent.Id)
+	second := w.ask(t, &v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second question", Timeout: 60})
+	if len(second.Agents) != 1 || second.Agents[0].Id != peerAgent.Id {
+		t.Fatalf("the second ask started %v, want the same agent reused", second.Agents)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != w.lead.Id {
+		t.Fatalf("the peer's agent is parented to %s after the root's ask, want the root", got.ParentId)
+	}
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer to the root")
+	waitFor(t, "the root's peers message", func() bool { return len(w.answers(t)) == 1 })
+	if body := w.answers(t)[0].Body; !strings.Contains(body, "1 of 1 peers answered") {
+		t.Errorf("the root's message: %s", body)
+	}
+}

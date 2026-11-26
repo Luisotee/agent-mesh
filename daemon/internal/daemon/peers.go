@@ -880,6 +880,27 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			mine.PendingReopen != nil || open != nil {
 			return fail("it is still answering an earlier question of this run")
 		}
+		// It answers whoever asks it this time: its parent is the caller of the ask that brought it into the run,
+		// and a report to anyone else is refused ("an agent sends only to its parent or its children"). A question
+		// of another caller of this run that it hasn't answered holds it; otherwise it moves to this caller.
+		if mine.ParentId != actor.Id {
+			if held, _, err := collecting(r, mine.Id, mine.ParentId); err != nil {
+				return fail(err.Error())
+			} else if held != nil {
+				return fail(fmt.Sprintf("it is still answering an earlier question of %s", held.CallerName))
+			}
+			if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
+				cur, err := tx.GetAgent(mine.Id)
+				if err != nil {
+					return err
+				}
+				cur.ParentId = actor.Id
+				return tx.PutAgent(cur)
+			}); err != nil {
+				return fail(err.Error())
+			}
+			mine.ParentId = actor.Id
+		}
 	}
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
 		return fail(err.Error())
