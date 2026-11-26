@@ -14,6 +14,8 @@ enum AskKind {
   ASK_KIND_QUESTION = 1;
   // A review of one commit of a pull request: a round of reviewers, or one.
   ASK_KIND_REVIEW = 2;
+  // A question for standing peers (`mesh ask --peers`): one answers file, one message.
+  ASK_KIND_PEERS = 3;
 }
 
 enum AskStatus {
@@ -54,8 +56,12 @@ message AskMember {
   string type = 8;
   string model = 9;
   string tier = 10;
-  // The commit this agent reviewed at (a review).
+  // The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
   string head = 11;
+  // A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+  string peer_repo = 12;
+  int32 upstream_new = 13;
+  string about = 14;
 }
 
 // Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
@@ -109,6 +115,8 @@ message Ask {
   google.protobuf.Timestamp finished_at = 22;
   // The ask is still starting its members: it can't finish yet, however many have answered.
   bool starting = 23;
+  // What the answers file says before the question: the peers' groups' `about`.
+  string context = 24;
 }
 
 message AskRequest {
@@ -136,6 +144,13 @@ message AskRequest {
   string since = 12;
   // Names a fresh agent (<repo>-<slug>); default: from the body.
   string slug = 13;
+  // Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+  // and `body`; collected into one answers file.
+  string peers = 14;
+  // Ask the peers as they are: don't fetch their upstream or move their checkout.
+  bool no_refresh = 15;
+  // Seconds a collected ask waits for its members, instead of `ask.timeout`.
+  int32 timeout = 16;
 }
 
 message AskResponse {
@@ -178,4 +193,109 @@ message ListAsksRequest {
 
 message ListAsksResponse {
   repeated Ask asks = 1;
+}
+
+// ── peers ──
+
+// PeerUpstream is where a peer's project lives on the network.
+message PeerUpstream {
+  string remote = 1;
+  string branch = 2;
+  string url = 3;
+}
+
+// Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
+// asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+message Peer {
+  // `<repo>-research` (the repo part cut to 20 characters), unique on the host.
+  string name = 1;
+  // The clone.
+  string repo = 2;
+  string group = 3;
+  // The CLI it runs on.
+  string kind = 4;
+  // What it is and what to ask it, at most 400 characters.
+  string about = 5;
+  PeerUpstream upstream = 6;
+  // Its own detached worktree of the clone, where its agent works; never removed by StopRun.
+  string worktree = 7;
+  // The commit it last looked at.
+  string seen = 8;
+  // Its conversation, once it has been asked; empty means never briefed.
+  string session_id = 9;
+  google.protobuf.Timestamp added = 10;
+  google.protobuf.Timestamp asked = 11;
+  // The run and agent that last asked it, and the answers file of the last `ask --peers` it answered.
+  string last_run = 12;
+  string last_agent = 13;
+  string last_answers = 14;
+  // The run and agent that hold its conversation running now; empty when none does.
+  string running_run = 15;
+  string running_agent = 16;
+}
+
+message PeerGroup {
+  string name = 1;
+  string about = 2;
+}
+
+message ListPeersRequest {
+  // Only the peers of this group.
+  string group = 1;
+}
+
+message ListPeersResponse {
+  repeated Peer peers = 1;
+  repeated PeerGroup groups = 2;
+}
+
+message AddPeerRequest {
+  RequestMeta meta = 1;
+  // A git URL (cloned into `peers.dir`/<group>/<repo>) or the path of a clone that exists.
+  string source = 2;
+  string group = 3;
+  string about = 4;
+  // Default `<repo>-research`.
+  string name = 5;
+  // The CLI its asker runs on (default claude).
+  string kind = 6;
+}
+
+message AddPeerResponse {
+  Peer peer = 1;
+}
+
+message EditPeerRequest {
+  RequestMeta meta = 1;
+  // A peer's name or a group's: the `about` of that one is replaced.
+  string target = 2;
+  string about = 3;
+}
+
+message EditPeerResponse {
+  Peer peer = 1;
+  PeerGroup group = 2;
+}
+
+message RemovePeerRequest {
+  RequestMeta meta = 1;
+  string name = 2;
+  // Also delete the clone, when the daemon cloned it.
+  bool delete_clone = 3;
+}
+
+message RemovePeerResponse {
+  string worktree = 1;
+}
+
+message ImportPeersRequest {
+  RequestMeta meta = 1;
+  // bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
+  string from = 2;
+}
+
+message ImportPeersResponse {
+  repeated string imported = 1;
+  // Peers and groups left alone, with why.
+  repeated string skipped = 2;
 }

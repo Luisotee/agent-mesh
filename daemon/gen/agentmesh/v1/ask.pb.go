@@ -30,6 +30,8 @@ const (
 	AskKind_ASK_KIND_QUESTION AskKind = 1
 	// A review of one commit of a pull request: a round of reviewers, or one.
 	AskKind_ASK_KIND_REVIEW AskKind = 2
+	// A question for standing peers (`mesh ask --peers`): one answers file, one message.
+	AskKind_ASK_KIND_PEERS AskKind = 3
 )
 
 // Enum value maps for AskKind.
@@ -38,11 +40,13 @@ var (
 		0: "ASK_KIND_UNSPECIFIED",
 		1: "ASK_KIND_QUESTION",
 		2: "ASK_KIND_REVIEW",
+		3: "ASK_KIND_PEERS",
 	}
 	AskKind_value = map[string]int32{
 		"ASK_KIND_UNSPECIFIED": 0,
 		"ASK_KIND_QUESTION":    1,
 		"ASK_KIND_REVIEW":      2,
+		"ASK_KIND_PEERS":       3,
 	}
 )
 
@@ -202,8 +206,12 @@ type AskMember struct {
 	Type  string `protobuf:"bytes,8,opt,name=type,proto3" json:"type,omitempty"`
 	Model string `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
 	Tier  string `protobuf:"bytes,10,opt,name=tier,proto3" json:"tier,omitempty"`
-	// The commit this agent reviewed at (a review).
-	Head          string `protobuf:"bytes,11,opt,name=head,proto3" json:"head,omitempty"`
+	// The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
+	Head string `protobuf:"bytes,11,opt,name=head,proto3" json:"head,omitempty"`
+	// A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+	PeerRepo      string `protobuf:"bytes,12,opt,name=peer_repo,json=peerRepo,proto3" json:"peer_repo,omitempty"`
+	UpstreamNew   int32  `protobuf:"varint,13,opt,name=upstream_new,json=upstreamNew,proto3" json:"upstream_new,omitempty"`
+	About         string `protobuf:"bytes,14,opt,name=about,proto3" json:"about,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -311,6 +319,27 @@ func (x *AskMember) GetTier() string {
 func (x *AskMember) GetHead() string {
 	if x != nil {
 		return x.Head
+	}
+	return ""
+}
+
+func (x *AskMember) GetPeerRepo() string {
+	if x != nil {
+		return x.PeerRepo
+	}
+	return ""
+}
+
+func (x *AskMember) GetUpstreamNew() int32 {
+	if x != nil {
+		return x.UpstreamNew
+	}
+	return 0
+}
+
+func (x *AskMember) GetAbout() string {
+	if x != nil {
+		return x.About
 	}
 	return ""
 }
@@ -462,7 +491,9 @@ type Ask struct {
 	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,22,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 	// The ask is still starting its members: it can't finish yet, however many have answered.
-	Starting      bool `protobuf:"varint,23,opt,name=starting,proto3" json:"starting,omitempty"`
+	Starting bool `protobuf:"varint,23,opt,name=starting,proto3" json:"starting,omitempty"`
+	// What the answers file says before the question: the peers' groups' `about`.
+	Context       string `protobuf:"bytes,24,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -658,6 +689,13 @@ func (x *Ask) GetStarting() bool {
 	return false
 }
 
+func (x *Ask) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
 type AskRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
@@ -683,7 +721,14 @@ type AskRequest struct {
 	// Review only what changed since this commit, the head the last review covered.
 	Since string `protobuf:"bytes,12,opt,name=since,proto3" json:"since,omitempty"`
 	// Names a fresh agent (<repo>-<slug>); default: from the body.
-	Slug          string `protobuf:"bytes,13,opt,name=slug,proto3" json:"slug,omitempty"`
+	Slug string `protobuf:"bytes,13,opt,name=slug,proto3" json:"slug,omitempty"`
+	// Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+	// and `body`; collected into one answers file.
+	Peers string `protobuf:"bytes,14,opt,name=peers,proto3" json:"peers,omitempty"`
+	// Ask the peers as they are: don't fetch their upstream or move their checkout.
+	NoRefresh bool `protobuf:"varint,15,opt,name=no_refresh,json=noRefresh,proto3" json:"no_refresh,omitempty"`
+	// Seconds a collected ask waits for its members, instead of `ask.timeout`.
+	Timeout       int32 `protobuf:"varint,16,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -807,6 +852,27 @@ func (x *AskRequest) GetSlug() string {
 		return x.Slug
 	}
 	return ""
+}
+
+func (x *AskRequest) GetPeers() string {
+	if x != nil {
+		return x.Peers
+	}
+	return ""
+}
+
+func (x *AskRequest) GetNoRefresh() bool {
+	if x != nil {
+		return x.NoRefresh
+	}
+	return false
+}
+
+func (x *AskRequest) GetTimeout() int32 {
+	if x != nil {
+		return x.Timeout
+	}
+	return 0
 }
 
 type AskResponse struct {
@@ -1142,11 +1208,851 @@ func (x *ListAsksResponse) GetAsks() []*Ask {
 	return nil
 }
 
+// PeerUpstream is where a peer's project lives on the network.
+type PeerUpstream struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Remote        string                 `protobuf:"bytes,1,opt,name=remote,proto3" json:"remote,omitempty"`
+	Branch        string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
+	Url           string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerUpstream) Reset() {
+	*x = PeerUpstream{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerUpstream) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerUpstream) ProtoMessage() {}
+
+func (x *PeerUpstream) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerUpstream.ProtoReflect.Descriptor instead.
+func (*PeerUpstream) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PeerUpstream) GetRemote() string {
+	if x != nil {
+		return x.Remote
+	}
+	return ""
+}
+
+func (x *PeerUpstream) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *PeerUpstream) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+// Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
+// asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+type Peer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// `<repo>-research` (the repo part cut to 20 characters), unique on the host.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The clone.
+	Repo  string `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	Group string `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
+	// The CLI it runs on.
+	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	// What it is and what to ask it, at most 400 characters.
+	About    string        `protobuf:"bytes,5,opt,name=about,proto3" json:"about,omitempty"`
+	Upstream *PeerUpstream `protobuf:"bytes,6,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	// Its own detached worktree of the clone, where its agent works; never removed by StopRun.
+	Worktree string `protobuf:"bytes,7,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	// The commit it last looked at.
+	Seen string `protobuf:"bytes,8,opt,name=seen,proto3" json:"seen,omitempty"`
+	// Its conversation, once it has been asked; empty means never briefed.
+	SessionId string                 `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Added     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=added,proto3" json:"added,omitempty"`
+	Asked     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=asked,proto3" json:"asked,omitempty"`
+	// The run and agent that last asked it, and the answers file of the last `ask --peers` it answered.
+	LastRun     string `protobuf:"bytes,12,opt,name=last_run,json=lastRun,proto3" json:"last_run,omitempty"`
+	LastAgent   string `protobuf:"bytes,13,opt,name=last_agent,json=lastAgent,proto3" json:"last_agent,omitempty"`
+	LastAnswers string `protobuf:"bytes,14,opt,name=last_answers,json=lastAnswers,proto3" json:"last_answers,omitempty"`
+	// The run and agent that hold its conversation running now; empty when none does.
+	RunningRun    string `protobuf:"bytes,15,opt,name=running_run,json=runningRun,proto3" json:"running_run,omitempty"`
+	RunningAgent  string `protobuf:"bytes,16,opt,name=running_agent,json=runningAgent,proto3" json:"running_agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Peer) Reset() {
+	*x = Peer{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Peer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Peer) ProtoMessage() {}
+
+func (x *Peer) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Peer.ProtoReflect.Descriptor instead.
+func (*Peer) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *Peer) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Peer) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *Peer) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *Peer) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *Peer) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
+func (x *Peer) GetUpstream() *PeerUpstream {
+	if x != nil {
+		return x.Upstream
+	}
+	return nil
+}
+
+func (x *Peer) GetWorktree() string {
+	if x != nil {
+		return x.Worktree
+	}
+	return ""
+}
+
+func (x *Peer) GetSeen() string {
+	if x != nil {
+		return x.Seen
+	}
+	return ""
+}
+
+func (x *Peer) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *Peer) GetAdded() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Added
+	}
+	return nil
+}
+
+func (x *Peer) GetAsked() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Asked
+	}
+	return nil
+}
+
+func (x *Peer) GetLastRun() string {
+	if x != nil {
+		return x.LastRun
+	}
+	return ""
+}
+
+func (x *Peer) GetLastAgent() string {
+	if x != nil {
+		return x.LastAgent
+	}
+	return ""
+}
+
+func (x *Peer) GetLastAnswers() string {
+	if x != nil {
+		return x.LastAnswers
+	}
+	return ""
+}
+
+func (x *Peer) GetRunningRun() string {
+	if x != nil {
+		return x.RunningRun
+	}
+	return ""
+}
+
+func (x *Peer) GetRunningAgent() string {
+	if x != nil {
+		return x.RunningAgent
+	}
+	return ""
+}
+
+type PeerGroup struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	About         string                 `protobuf:"bytes,2,opt,name=about,proto3" json:"about,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerGroup) Reset() {
+	*x = PeerGroup{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerGroup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerGroup) ProtoMessage() {}
+
+func (x *PeerGroup) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerGroup.ProtoReflect.Descriptor instead.
+func (*PeerGroup) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PeerGroup) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PeerGroup) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
+type ListPeersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Only the peers of this group.
+	Group         string `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPeersRequest) Reset() {
+	*x = ListPeersRequest{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPeersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPeersRequest) ProtoMessage() {}
+
+func (x *ListPeersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPeersRequest.ProtoReflect.Descriptor instead.
+func (*ListPeersRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ListPeersRequest) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+type ListPeersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Peers         []*Peer                `protobuf:"bytes,1,rep,name=peers,proto3" json:"peers,omitempty"`
+	Groups        []*PeerGroup           `protobuf:"bytes,2,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPeersResponse) Reset() {
+	*x = ListPeersResponse{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPeersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPeersResponse) ProtoMessage() {}
+
+func (x *ListPeersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPeersResponse.ProtoReflect.Descriptor instead.
+func (*ListPeersResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListPeersResponse) GetPeers() []*Peer {
+	if x != nil {
+		return x.Peers
+	}
+	return nil
+}
+
+func (x *ListPeersResponse) GetGroups() []*PeerGroup {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+type AddPeerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// A git URL (cloned into `peers.dir`/<group>/<repo>) or the path of a clone that exists.
+	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
+	Group  string `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
+	About  string `protobuf:"bytes,4,opt,name=about,proto3" json:"about,omitempty"`
+	// Default `<repo>-research`.
+	Name string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	// The CLI its asker runs on (default claude).
+	Kind          string `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddPeerRequest) Reset() {
+	*x = AddPeerRequest{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddPeerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddPeerRequest) ProtoMessage() {}
+
+func (x *AddPeerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddPeerRequest.ProtoReflect.Descriptor instead.
+func (*AddPeerRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AddPeerRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *AddPeerRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *AddPeerRequest) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *AddPeerRequest) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
+func (x *AddPeerRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AddPeerRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+type AddPeerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Peer          *Peer                  `protobuf:"bytes,1,opt,name=peer,proto3" json:"peer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddPeerResponse) Reset() {
+	*x = AddPeerResponse{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddPeerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddPeerResponse) ProtoMessage() {}
+
+func (x *AddPeerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddPeerResponse.ProtoReflect.Descriptor instead.
+func (*AddPeerResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AddPeerResponse) GetPeer() *Peer {
+	if x != nil {
+		return x.Peer
+	}
+	return nil
+}
+
+type EditPeerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// A peer's name or a group's: the `about` of that one is replaced.
+	Target        string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	About         string `protobuf:"bytes,3,opt,name=about,proto3" json:"about,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EditPeerRequest) Reset() {
+	*x = EditPeerRequest{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EditPeerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EditPeerRequest) ProtoMessage() {}
+
+func (x *EditPeerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EditPeerRequest.ProtoReflect.Descriptor instead.
+func (*EditPeerRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *EditPeerRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *EditPeerRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *EditPeerRequest) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
+type EditPeerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Peer          *Peer                  `protobuf:"bytes,1,opt,name=peer,proto3" json:"peer,omitempty"`
+	Group         *PeerGroup             `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EditPeerResponse) Reset() {
+	*x = EditPeerResponse{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EditPeerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EditPeerResponse) ProtoMessage() {}
+
+func (x *EditPeerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EditPeerResponse.ProtoReflect.Descriptor instead.
+func (*EditPeerResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *EditPeerResponse) GetPeer() *Peer {
+	if x != nil {
+		return x.Peer
+	}
+	return nil
+}
+
+func (x *EditPeerResponse) GetGroup() *PeerGroup {
+	if x != nil {
+		return x.Group
+	}
+	return nil
+}
+
+type RemovePeerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Also delete the clone, when the daemon cloned it.
+	DeleteClone   bool `protobuf:"varint,3,opt,name=delete_clone,json=deleteClone,proto3" json:"delete_clone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemovePeerRequest) Reset() {
+	*x = RemovePeerRequest{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemovePeerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemovePeerRequest) ProtoMessage() {}
+
+func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemovePeerRequest.ProtoReflect.Descriptor instead.
+func (*RemovePeerRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RemovePeerRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *RemovePeerRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RemovePeerRequest) GetDeleteClone() bool {
+	if x != nil {
+		return x.DeleteClone
+	}
+	return false
+}
+
+type RemovePeerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Worktree      string                 `protobuf:"bytes,1,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemovePeerResponse) Reset() {
+	*x = RemovePeerResponse{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemovePeerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemovePeerResponse) ProtoMessage() {}
+
+func (x *RemovePeerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemovePeerResponse.ProtoReflect.Descriptor instead.
+func (*RemovePeerResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RemovePeerResponse) GetWorktree() string {
+	if x != nil {
+		return x.Worktree
+	}
+	return ""
+}
+
+type ImportPeersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
+	From          string `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportPeersRequest) Reset() {
+	*x = ImportPeersRequest{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportPeersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportPeersRequest) ProtoMessage() {}
+
+func (x *ImportPeersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportPeersRequest.ProtoReflect.Descriptor instead.
+func (*ImportPeersRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ImportPeersRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *ImportPeersRequest) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+type ImportPeersResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Imported []string               `protobuf:"bytes,1,rep,name=imported,proto3" json:"imported,omitempty"`
+	// Peers and groups left alone, with why.
+	Skipped       []string `protobuf:"bytes,2,rep,name=skipped,proto3" json:"skipped,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportPeersResponse) Reset() {
+	*x = ImportPeersResponse{}
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportPeersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportPeersResponse) ProtoMessage() {}
+
+func (x *ImportPeersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_ask_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportPeersResponse.ProtoReflect.Descriptor instead.
+func (*ImportPeersResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_ask_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ImportPeersResponse) GetImported() []string {
+	if x != nil {
+		return x.Imported
+	}
+	return nil
+}
+
+func (x *ImportPeersResponse) GetSkipped() []string {
+	if x != nil {
+		return x.Skipped
+	}
+	return nil
+}
+
 var File_agentmesh_v1_ask_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\n" +
-	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\x02\n" +
+	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x02\n" +
 	"\tAskMember\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -1159,7 +2065,10 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05model\x18\t \x01(\tR\x05model\x12\x12\n" +
 	"\x04tier\x18\n" +
 	" \x01(\tR\x04tier\x12\x12\n" +
-	"\x04head\x18\v \x01(\tR\x04head\"\xf3\x01\n" +
+	"\x04head\x18\v \x01(\tR\x04head\x12\x1b\n" +
+	"\tpeer_repo\x18\f \x01(\tR\bpeerRepo\x12!\n" +
+	"\fupstream_new\x18\r \x01(\x05R\vupstreamNew\x12\x14\n" +
+	"\x05about\x18\x0e \x01(\tR\x05about\"\xf3\x01\n" +
 	"\aVerdict\x12\x1a\n" +
 	"\breviewer\x18\x01 \x01(\tR\breviewer\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -1169,7 +2078,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05other\x18\x06 \x01(\x05R\x05other\x12\x1a\n" +
 	"\bdisagree\x18\a \x01(\x05R\bdisagree\x12\x1a\n" +
 	"\bblocking\x18\b \x01(\x05R\bblocking\x12*\n" +
-	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\xf6\x05\n" +
+	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\x90\x06\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
@@ -1197,7 +2106,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"created_at\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
 	"\vfinished_at\x18\x16 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1a\n" +
-	"\bstarting\x18\x17 \x01(\bR\bstarting\"\xc3\x02\n" +
+	"\bstarting\x18\x17 \x01(\bR\bstarting\x12\x18\n" +
+	"\acontext\x18\x18 \x01(\tR\acontext\"\x92\x03\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
@@ -1213,7 +2123,11 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	" \x01(\tR\x06effort\x12\x1c\n" +
 	"\treviewers\x18\v \x01(\tR\treviewers\x12\x14\n" +
 	"\x05since\x18\f \x01(\tR\x05since\x12\x12\n" +
-	"\x04slug\x18\r \x01(\tR\x04slug\"\xba\x01\n" +
+	"\x04slug\x18\r \x01(\tR\x04slug\x12\x14\n" +
+	"\x05peers\x18\x0e \x01(\tR\x05peers\x12\x1d\n" +
+	"\n" +
+	"no_refresh\x18\x0f \x01(\bR\tnoRefresh\x12\x18\n" +
+	"\atimeout\x18\x10 \x01(\x05R\atimeout\"\xba\x01\n" +
 	"\vAskResponse\x12#\n" +
 	"\x03ask\x18\x01 \x01(\v2\x11.agentmesh.v1.AskR\x03ask\x12+\n" +
 	"\x06agents\x18\x02 \x03(\v2\x13.agentmesh.v1.AgentR\x06agents\x12\x14\n" +
@@ -1236,11 +2150,73 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x02pr\x18\x02 \x01(\tR\x02pr\x12\x1b\n" +
 	"\topen_only\x18\x03 \x01(\bR\bopenOnly\"9\n" +
 	"\x10ListAsksResponse\x12%\n" +
-	"\x04asks\x18\x01 \x03(\v2\x11.agentmesh.v1.AskR\x04asks*O\n" +
+	"\x04asks\x18\x01 \x03(\v2\x11.agentmesh.v1.AskR\x04asks\"P\n" +
+	"\fPeerUpstream\x12\x16\n" +
+	"\x06remote\x18\x01 \x01(\tR\x06remote\x12\x16\n" +
+	"\x06branch\x18\x02 \x01(\tR\x06branch\x12\x10\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\"\xfc\x03\n" +
+	"\x04Peer\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x14\n" +
+	"\x05group\x18\x03 \x01(\tR\x05group\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05about\x18\x05 \x01(\tR\x05about\x126\n" +
+	"\bupstream\x18\x06 \x01(\v2\x1a.agentmesh.v1.PeerUpstreamR\bupstream\x12\x1a\n" +
+	"\bworktree\x18\a \x01(\tR\bworktree\x12\x12\n" +
+	"\x04seen\x18\b \x01(\tR\x04seen\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\t \x01(\tR\tsessionId\x120\n" +
+	"\x05added\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\x05added\x120\n" +
+	"\x05asked\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x05asked\x12\x19\n" +
+	"\blast_run\x18\f \x01(\tR\alastRun\x12\x1d\n" +
+	"\n" +
+	"last_agent\x18\r \x01(\tR\tlastAgent\x12!\n" +
+	"\flast_answers\x18\x0e \x01(\tR\vlastAnswers\x12\x1f\n" +
+	"\vrunning_run\x18\x0f \x01(\tR\n" +
+	"runningRun\x12#\n" +
+	"\rrunning_agent\x18\x10 \x01(\tR\frunningAgent\"5\n" +
+	"\tPeerGroup\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05about\x18\x02 \x01(\tR\x05about\"(\n" +
+	"\x10ListPeersRequest\x12\x14\n" +
+	"\x05group\x18\x01 \x01(\tR\x05group\"n\n" +
+	"\x11ListPeersResponse\x12(\n" +
+	"\x05peers\x18\x01 \x03(\v2\x12.agentmesh.v1.PeerR\x05peers\x12/\n" +
+	"\x06groups\x18\x02 \x03(\v2\x17.agentmesh.v1.PeerGroupR\x06groups\"\xab\x01\n" +
+	"\x0eAddPeerRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x16\n" +
+	"\x06source\x18\x02 \x01(\tR\x06source\x12\x14\n" +
+	"\x05group\x18\x03 \x01(\tR\x05group\x12\x14\n" +
+	"\x05about\x18\x04 \x01(\tR\x05about\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x06 \x01(\tR\x04kind\"9\n" +
+	"\x0fAddPeerResponse\x12&\n" +
+	"\x04peer\x18\x01 \x01(\v2\x12.agentmesh.v1.PeerR\x04peer\"n\n" +
+	"\x0fEditPeerRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x14\n" +
+	"\x05about\x18\x03 \x01(\tR\x05about\"i\n" +
+	"\x10EditPeerResponse\x12&\n" +
+	"\x04peer\x18\x01 \x01(\v2\x12.agentmesh.v1.PeerR\x04peer\x12-\n" +
+	"\x05group\x18\x02 \x01(\v2\x17.agentmesh.v1.PeerGroupR\x05group\"y\n" +
+	"\x11RemovePeerRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
+	"\fdelete_clone\x18\x03 \x01(\bR\vdeleteClone\"0\n" +
+	"\x12RemovePeerResponse\x12\x1a\n" +
+	"\bworktree\x18\x01 \x01(\tR\bworktree\"W\n" +
+	"\x12ImportPeersRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
+	"\x04from\x18\x02 \x01(\tR\x04from\"K\n" +
+	"\x13ImportPeersResponse\x12\x1a\n" +
+	"\bimported\x18\x01 \x03(\tR\bimported\x12\x18\n" +
+	"\askipped\x18\x02 \x03(\tR\askipped*c\n" +
 	"\aAskKind\x12\x18\n" +
 	"\x14ASK_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11ASK_KIND_QUESTION\x10\x01\x12\x13\n" +
-	"\x0fASK_KIND_REVIEW\x10\x02*U\n" +
+	"\x0fASK_KIND_REVIEW\x10\x02\x12\x12\n" +
+	"\x0eASK_KIND_PEERS\x10\x03*U\n" +
 	"\tAskStatus\x12\x1a\n" +
 	"\x16ASK_STATUS_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fASK_STATUS_OPEN\x10\x01\x12\x17\n" +
@@ -1266,7 +2242,7 @@ func file_agentmesh_v1_ask_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_ask_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_agentmesh_v1_ask_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_agentmesh_v1_ask_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_agentmesh_v1_ask_proto_goTypes = []any{
 	(AskKind)(0),                  // 0: agentmesh.v1.AskKind
 	(AskStatus)(0),                // 1: agentmesh.v1.AskStatus
@@ -1280,34 +2256,59 @@ var file_agentmesh_v1_ask_proto_goTypes = []any{
 	(*RecordVerdictResponse)(nil), // 9: agentmesh.v1.RecordVerdictResponse
 	(*ListAsksRequest)(nil),       // 10: agentmesh.v1.ListAsksRequest
 	(*ListAsksResponse)(nil),      // 11: agentmesh.v1.ListAsksResponse
-	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
-	(*RequestMeta)(nil),           // 13: agentmesh.v1.RequestMeta
-	(*Agent)(nil),                 // 14: agentmesh.v1.Agent
-	(*Message)(nil),               // 15: agentmesh.v1.Message
+	(*PeerUpstream)(nil),          // 12: agentmesh.v1.PeerUpstream
+	(*Peer)(nil),                  // 13: agentmesh.v1.Peer
+	(*PeerGroup)(nil),             // 14: agentmesh.v1.PeerGroup
+	(*ListPeersRequest)(nil),      // 15: agentmesh.v1.ListPeersRequest
+	(*ListPeersResponse)(nil),     // 16: agentmesh.v1.ListPeersResponse
+	(*AddPeerRequest)(nil),        // 17: agentmesh.v1.AddPeerRequest
+	(*AddPeerResponse)(nil),       // 18: agentmesh.v1.AddPeerResponse
+	(*EditPeerRequest)(nil),       // 19: agentmesh.v1.EditPeerRequest
+	(*EditPeerResponse)(nil),      // 20: agentmesh.v1.EditPeerResponse
+	(*RemovePeerRequest)(nil),     // 21: agentmesh.v1.RemovePeerRequest
+	(*RemovePeerResponse)(nil),    // 22: agentmesh.v1.RemovePeerResponse
+	(*ImportPeersRequest)(nil),    // 23: agentmesh.v1.ImportPeersRequest
+	(*ImportPeersResponse)(nil),   // 24: agentmesh.v1.ImportPeersResponse
+	(*timestamppb.Timestamp)(nil), // 25: google.protobuf.Timestamp
+	(*RequestMeta)(nil),           // 26: agentmesh.v1.RequestMeta
+	(*Agent)(nil),                 // 27: agentmesh.v1.Agent
+	(*Message)(nil),               // 28: agentmesh.v1.Message
 }
 var file_agentmesh_v1_ask_proto_depIdxs = []int32{
 	2,  // 0: agentmesh.v1.AskMember.status:type_name -> agentmesh.v1.AskMemberStatus
-	12, // 1: agentmesh.v1.Verdict.at:type_name -> google.protobuf.Timestamp
+	25, // 1: agentmesh.v1.Verdict.at:type_name -> google.protobuf.Timestamp
 	0,  // 2: agentmesh.v1.Ask.kind:type_name -> agentmesh.v1.AskKind
 	1,  // 3: agentmesh.v1.Ask.status:type_name -> agentmesh.v1.AskStatus
 	3,  // 4: agentmesh.v1.Ask.members:type_name -> agentmesh.v1.AskMember
 	4,  // 5: agentmesh.v1.Ask.verdicts:type_name -> agentmesh.v1.Verdict
-	12, // 6: agentmesh.v1.Ask.deadline:type_name -> google.protobuf.Timestamp
-	12, // 7: agentmesh.v1.Ask.created_at:type_name -> google.protobuf.Timestamp
-	12, // 8: agentmesh.v1.Ask.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 9: agentmesh.v1.AskRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	25, // 6: agentmesh.v1.Ask.deadline:type_name -> google.protobuf.Timestamp
+	25, // 7: agentmesh.v1.Ask.created_at:type_name -> google.protobuf.Timestamp
+	25, // 8: agentmesh.v1.Ask.finished_at:type_name -> google.protobuf.Timestamp
+	26, // 9: agentmesh.v1.AskRequest.meta:type_name -> agentmesh.v1.RequestMeta
 	5,  // 10: agentmesh.v1.AskResponse.ask:type_name -> agentmesh.v1.Ask
-	14, // 11: agentmesh.v1.AskResponse.agents:type_name -> agentmesh.v1.Agent
-	15, // 12: agentmesh.v1.AskResponse.message:type_name -> agentmesh.v1.Message
-	13, // 13: agentmesh.v1.RecordVerdictRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	27, // 11: agentmesh.v1.AskResponse.agents:type_name -> agentmesh.v1.Agent
+	28, // 12: agentmesh.v1.AskResponse.message:type_name -> agentmesh.v1.Message
+	26, // 13: agentmesh.v1.RecordVerdictRequest.meta:type_name -> agentmesh.v1.RequestMeta
 	5,  // 14: agentmesh.v1.RecordVerdictResponse.ask:type_name -> agentmesh.v1.Ask
 	4,  // 15: agentmesh.v1.RecordVerdictResponse.verdict:type_name -> agentmesh.v1.Verdict
 	5,  // 16: agentmesh.v1.ListAsksResponse.asks:type_name -> agentmesh.v1.Ask
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	12, // 17: agentmesh.v1.Peer.upstream:type_name -> agentmesh.v1.PeerUpstream
+	25, // 18: agentmesh.v1.Peer.added:type_name -> google.protobuf.Timestamp
+	25, // 19: agentmesh.v1.Peer.asked:type_name -> google.protobuf.Timestamp
+	13, // 20: agentmesh.v1.ListPeersResponse.peers:type_name -> agentmesh.v1.Peer
+	14, // 21: agentmesh.v1.ListPeersResponse.groups:type_name -> agentmesh.v1.PeerGroup
+	26, // 22: agentmesh.v1.AddPeerRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	13, // 23: agentmesh.v1.AddPeerResponse.peer:type_name -> agentmesh.v1.Peer
+	26, // 24: agentmesh.v1.EditPeerRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	13, // 25: agentmesh.v1.EditPeerResponse.peer:type_name -> agentmesh.v1.Peer
+	14, // 26: agentmesh.v1.EditPeerResponse.group:type_name -> agentmesh.v1.PeerGroup
+	26, // 27: agentmesh.v1.RemovePeerRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	26, // 28: agentmesh.v1.ImportPeersRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_ask_proto_init() }
@@ -1322,7 +2323,7 @@ func file_agentmesh_v1_ask_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_ask_proto_rawDesc), len(file_agentmesh_v1_ask_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   9,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

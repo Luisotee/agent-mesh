@@ -155,4 +155,29 @@ public interface MeshServiceClientInterface {
    *  List the asks and review rounds of a run.
    */
   public suspend fun listAsks(request: ListAsksRequest, headers: Headers = emptyMap()): ResponseMessage<ListAsksResponse>
+
+  /**
+   *  The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+   */
+  public suspend fun listPeers(request: ListPeersRequest, headers: Headers = emptyMap()): ResponseMessage<ListPeersResponse>
+
+  /**
+   *  Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
+   */
+  public suspend fun addPeer(request: AddPeerRequest, headers: Headers = emptyMap()): ResponseMessage<AddPeerResponse>
+
+  /**
+   *  Change what a peer, or a group of peers, is said to be for.
+   */
+  public suspend fun editPeer(request: EditPeerRequest, headers: Headers = emptyMap()): ResponseMessage<EditPeerResponse>
+
+  /**
+   *  Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
+   */
+  public suspend fun removePeer(request: RemovePeerRequest, headers: Headers = emptyMap()): ResponseMessage<RemovePeerResponse>
+
+  /**
+   *  Register the peers of bin/mesh's peers.json (read only), without their conversations.
+   */
+  public suspend fun importPeers(request: ImportPeersRequest, headers: Headers = emptyMap()): ResponseMessage<ImportPeersResponse>
 }

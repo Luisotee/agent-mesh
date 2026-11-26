@@ -112,6 +112,9 @@ message Agent {
   // The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
   // it. StopRun keeps a branch that has moved past it.
   string base_commit = 27;
+  // A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+  // peer's conversation, and is never given a change task or have its worktree removed.
+  bool peer = 28;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

@@ -439,4 +439,79 @@ public class MeshServiceClient(
     ),
   )
 
+
+  /**
+   *  The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+   */
+  override suspend fun listPeers(request: ListPeersRequest, headers: Headers): ResponseMessage<ListPeersResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListPeers",
+      dev.agentmesh.gen.agentmesh.v1.ListPeersRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListPeersResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
+   */
+  override suspend fun addPeer(request: AddPeerRequest, headers: Headers): ResponseMessage<AddPeerResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/AddPeer",
+      dev.agentmesh.gen.agentmesh.v1.AddPeerRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.AddPeerResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Change what a peer, or a group of peers, is said to be for.
+   */
+  override suspend fun editPeer(request: EditPeerRequest, headers: Headers): ResponseMessage<EditPeerResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/EditPeer",
+      dev.agentmesh.gen.agentmesh.v1.EditPeerRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.EditPeerResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
+   */
+  override suspend fun removePeer(request: RemovePeerRequest, headers: Headers): ResponseMessage<RemovePeerResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RemovePeer",
+      dev.agentmesh.gen.agentmesh.v1.RemovePeerRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RemovePeerResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Register the peers of bin/mesh's peers.json (read only), without their conversations.
+   */
+  override suspend fun importPeers(request: ImportPeersRequest, headers: Headers): ResponseMessage<ImportPeersResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ImportPeers",
+      dev.agentmesh.gen.agentmesh.v1.ImportPeersRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ImportPeersResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

@@ -401,6 +401,74 @@ service MeshService {
       summary: "List the asks and review rounds of a run, with who answered"
     };
   }
+
+  // The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "peers"
+      summary: "List the standing peers by group, with what each is for and when it was last asked"
+    };
+  }
+
+  // Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
+  rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "add-peer"
+      summary: "Register a project as a standing peer (clones a URL under peers.dir)"
+    };
+  }
+
+  // Change what a peer, or a group of peers, is said to be for.
+  rpc EditPeer(EditPeerRequest) returns (EditPeerResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "edit-peer"
+      summary: "Change the about of a peer or of a peer group"
+    };
+  }
+
+  // Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "remove-peer"
+      summary: "Remove a standing peer"
+    };
+  }
+
+  // Register the peers of bin/mesh's peers.json (read only), without their conversations.
+  rpc ImportPeers(ImportPeersRequest) returns (ImportPeersResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "import-peers"
+      summary: "Import the peers of bin/mesh's peers.json (read only), unbriefed"
+    };
+  }
 }
 
 message HelloRequest {

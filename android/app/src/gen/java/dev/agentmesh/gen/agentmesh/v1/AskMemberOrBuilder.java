@@ -173,7 +173,7 @@ public interface AskMemberOrBuilder extends
 
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -182,7 +182,7 @@ public interface AskMemberOrBuilder extends
   java.lang.String getHead();
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -190,4 +190,42 @@ public interface AskMemberOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHeadBytes();
+
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @return The peerRepo.
+   */
+  java.lang.String getPeerRepo();
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @return The bytes for peerRepo.
+   */
+  com.google.protobuf.ByteString
+      getPeerRepoBytes();
+
+  /**
+   * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+   * @return The upstreamNew.
+   */
+  int getUpstreamNew();
+
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
 }

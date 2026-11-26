@@ -435,6 +435,10 @@ func (d *Daemon) removeWorktree(ctx context.Context, a *v1.Agent) *v1.WorktreeOu
 		o.Reason = "no worktree recorded"
 		return o
 	}
+	if a.Peer {
+		o.Reason = "a standing peer's worktree is kept: it is the peer's, not this run's"
+		return o
+	}
 	var status string
 	var err error
 	_, statErr := os.Stat(a.Worktree)

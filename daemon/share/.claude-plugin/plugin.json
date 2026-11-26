@@ -1,4 +1,4 @@
 {
   "name": "agent-mesh-daemon",
-  "description": "agent-mesh's skills for agents run by its daemon: delegating work to agents, reviewing a PR with agents, and a worker's self-review and plan check. Loaded per launch by meshd (--plugin-dir), never installed."
+  "description": "agent-mesh's skills for agents run by its daemon: delegating work to agents, reviewing a PR with agents, finding peer projects and a research round by them, and a worker's self-review and plan check. Loaded per launch by meshd (--plugin-dir), never installed."
 }

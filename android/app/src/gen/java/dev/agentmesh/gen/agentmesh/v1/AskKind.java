@@ -31,6 +31,14 @@ public enum AskKind
    * <code>ASK_KIND_REVIEW = 2;</code>
    */
   ASK_KIND_REVIEW(2),
+  /**
+   * <pre>
+   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * </pre>
+   *
+   * <code>ASK_KIND_PEERS = 3;</code>
+   */
+  ASK_KIND_PEERS(3),
   UNRECOGNIZED(-1),
   ;
 
@@ -54,6 +62,14 @@ public enum AskKind
    * <code>ASK_KIND_REVIEW = 2;</code>
    */
   public static final int ASK_KIND_REVIEW_VALUE = 2;
+  /**
+   * <pre>
+   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * </pre>
+   *
+   * <code>ASK_KIND_PEERS = 3;</code>
+   */
+  public static final int ASK_KIND_PEERS_VALUE = 3;
 
 
   @java.lang.Override
@@ -79,6 +95,7 @@ public enum AskKind
       case 0: return ASK_KIND_UNSPECIFIED;
       case 1: return ASK_KIND_QUESTION;
       case 2: return ASK_KIND_REVIEW;
+      case 3: return ASK_KIND_PEERS;
       default: return null;
     }
   }

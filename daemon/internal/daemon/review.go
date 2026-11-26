@@ -324,8 +324,11 @@ func answered(a *v1.Ask) int {
 // not a quota.
 func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
 	key := sizeKey(a.Size)
+	if key == "" {
+		return ""
+	}
 	max, err := d.settingInt(r, "review.rounds."+key)
-	if err != nil || key == "" {
+	if err != nil {
 		return ""
 	}
 	counted := a.Round

@@ -27,6 +27,7 @@ public  final class AskRequest extends
     reviewers_ = "";
     since_ = "";
     slug_ = "";
+    peers_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -828,6 +829,154 @@ public  final class AskRequest extends
     checkByteStringIsUtf8(value);
     slug_ = value.toStringUtf8();
 
+  }
+
+  public static final int PEERS_FIELD_NUMBER = 14;
+  private java.lang.String peers_;
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @return The peers.
+   */
+  @java.lang.Override
+  public java.lang.String getPeers() {
+    return peers_;
+  }
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @return The bytes for peers.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPeersBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(peers_);
+  }
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @param value The peers to set.
+   */
+  private void setPeers(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    peers_ = value;
+  }
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   */
+  private void clearPeers() {
+
+    peers_ = getDefaultInstance().getPeers();
+  }
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @param value The bytes for peers to set.
+   */
+  private void setPeersBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    peers_ = value.toStringUtf8();
+
+  }
+
+  public static final int NO_REFRESH_FIELD_NUMBER = 15;
+  private boolean noRefresh_;
+  /**
+   * <pre>
+   * Ask the peers as they are: don't fetch their upstream or move their checkout.
+   * </pre>
+   *
+   * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+   * @return The noRefresh.
+   */
+  @java.lang.Override
+  public boolean getNoRefresh() {
+    return noRefresh_;
+  }
+  /**
+   * <pre>
+   * Ask the peers as they are: don't fetch their upstream or move their checkout.
+   * </pre>
+   *
+   * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+   * @param value The noRefresh to set.
+   */
+  private void setNoRefresh(boolean value) {
+    
+    noRefresh_ = value;
+  }
+  /**
+   * <pre>
+   * Ask the peers as they are: don't fetch their upstream or move their checkout.
+   * </pre>
+   *
+   * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+   */
+  private void clearNoRefresh() {
+
+    noRefresh_ = false;
+  }
+
+  public static final int TIMEOUT_FIELD_NUMBER = 16;
+  private int timeout_;
+  /**
+   * <pre>
+   * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+   * </pre>
+   *
+   * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+   * @return The timeout.
+   */
+  @java.lang.Override
+  public int getTimeout() {
+    return timeout_;
+  }
+  /**
+   * <pre>
+   * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+   * </pre>
+   *
+   * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+   * @param value The timeout to set.
+   */
+  private void setTimeout(int value) {
+    
+    timeout_ = value;
+  }
+  /**
+   * <pre>
+   * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+   * </pre>
+   *
+   * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+   */
+  private void clearTimeout() {
+
+    timeout_ = 0;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AskRequest parseFrom(
@@ -1752,6 +1901,160 @@ public  final class AskRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+     * and `body`; collected into one answers file.
+     * </pre>
+     *
+     * <code>string peers = 14 [json_name = "peers"];</code>
+     * @return The peers.
+     */
+    @java.lang.Override
+    public java.lang.String getPeers() {
+      return instance.getPeers();
+    }
+    /**
+     * <pre>
+     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+     * and `body`; collected into one answers file.
+     * </pre>
+     *
+     * <code>string peers = 14 [json_name = "peers"];</code>
+     * @return The bytes for peers.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPeersBytes() {
+      return instance.getPeersBytes();
+    }
+    /**
+     * <pre>
+     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+     * and `body`; collected into one answers file.
+     * </pre>
+     *
+     * <code>string peers = 14 [json_name = "peers"];</code>
+     * @param value The peers to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPeers(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPeers(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+     * and `body`; collected into one answers file.
+     * </pre>
+     *
+     * <code>string peers = 14 [json_name = "peers"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPeers() {
+      copyOnWrite();
+      instance.clearPeers();
+      return this;
+    }
+    /**
+     * <pre>
+     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+     * and `body`; collected into one answers file.
+     * </pre>
+     *
+     * <code>string peers = 14 [json_name = "peers"];</code>
+     * @param value The bytes for peers to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPeersBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPeersBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Ask the peers as they are: don't fetch their upstream or move their checkout.
+     * </pre>
+     *
+     * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+     * @return The noRefresh.
+     */
+    @java.lang.Override
+    public boolean getNoRefresh() {
+      return instance.getNoRefresh();
+    }
+    /**
+     * <pre>
+     * Ask the peers as they are: don't fetch their upstream or move their checkout.
+     * </pre>
+     *
+     * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+     * @param value The noRefresh to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNoRefresh(boolean value) {
+      copyOnWrite();
+      instance.setNoRefresh(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Ask the peers as they are: don't fetch their upstream or move their checkout.
+     * </pre>
+     *
+     * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNoRefresh() {
+      copyOnWrite();
+      instance.clearNoRefresh();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+     * </pre>
+     *
+     * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+     * @return The timeout.
+     */
+    @java.lang.Override
+    public int getTimeout() {
+      return instance.getTimeout();
+    }
+    /**
+     * <pre>
+     * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+     * </pre>
+     *
+     * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+     * @param value The timeout to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTimeout(int value) {
+      copyOnWrite();
+      instance.setTimeout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+     * </pre>
+     *
+     * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTimeout() {
+      copyOnWrite();
+      instance.clearTimeout();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskRequest)
   }
   @java.lang.Override
@@ -1782,11 +2085,14 @@ public  final class AskRequest extends
             "reviewers_",
             "since_",
             "slug_",
+            "peers_",
+            "noRefresh_",
+            "timeout_",
           };
           java.lang.String info =
-              "\u0000\r\u0000\u0001\u0001\r\r\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b" +
-              "\u0208\f\u0208\r\u0208";
+              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208" +
+              "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

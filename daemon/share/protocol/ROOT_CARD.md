@@ -7,6 +7,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 - **A `plan`:** reply once. `mesh approve <worker> --tier <tier> --why "<reason>"` (with `--body` for notes), or `mesh send <worker> --type answer --body "changes: <list>"`.
 - **A `question`:** answer it with `mesh send <worker> --type answer --body "<answer>"`, yourself unless it is a real product decision.
 - **A `done`:** check it against the plan or task, then run its review round (`mesh ask --repo <path> --review <PR> --size <size> --tier <tier> --reviewers auto`: one message when every reviewer has answered; `mesh verdict` after you check them). You decide on the findings.
+- **Peers:** `mesh peers` lists the standing peer askers; ask several at once with `mesh ask --peers <names|group|all> --tier <tier> --body …` and end your turn: one message, one file ("Standing peer askers").
 - **Follow-ups** go to the same worker (`mesh send <worker> --type task`, or `mesh resume <worker>` once retired), never a fresh one.
 - **Messages** to a worker go only by `mesh send` or `mesh approve`. Never type into another agent's terminal. An agent at a prompt (`needs input`) is the user's to answer.
 - **Decide.** Ask the user only a real product decision, missing credentials or a destructive choice. Write a question for the user into `notes.md` before you end a turn on it.
@@ -24,5 +25,6 @@ You are this run's root, and you act on this card every turn, whether or not you
 | Checking a `done`, reviews | "Root" step 8, "Questions and reviews" |
 | A list of tasks | "Task lists" |
 | A follow-up | "Follow-ups" |
+| Asking the peers | "Standing peer askers" |
 | Finishing | "Root" step 11 |
 | Rules every agent follows | `PROTOCOL.md` |

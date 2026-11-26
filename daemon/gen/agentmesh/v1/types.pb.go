@@ -509,7 +509,10 @@ type Agent struct {
 	PendingReopen *Reopen `protobuf:"bytes,26,opt,name=pending_reopen,json=pendingReopen,proto3" json:"pending_reopen,omitempty"`
 	// The commit its branch started at (its worktree's HEAD when it was spawned); empty for an agent that predates
 	// it. StopRun keeps a branch that has moved past it.
-	BaseCommit    string `protobuf:"bytes,27,opt,name=base_commit,json=baseCommit,proto3" json:"base_commit,omitempty"`
+	BaseCommit string `protobuf:"bytes,27,opt,name=base_commit,json=baseCommit,proto3" json:"base_commit,omitempty"`
+	// A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+	// peer's conversation, and is never given a change task or have its worktree removed.
+	Peer          bool `protobuf:"varint,28,opt,name=peer,proto3" json:"peer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -731,6 +734,13 @@ func (x *Agent) GetBaseCommit() string {
 		return x.BaseCommit
 	}
 	return ""
+}
+
+func (x *Agent) GetPeer() bool {
+	if x != nil {
+		return x.Peer
+	}
+	return false
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -2624,7 +2634,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
-	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\"\xa5\a\n" +
+	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\"\xb9\a\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -2659,7 +2669,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"deny_edits\x18\x19 \x01(\bR\tdenyEdits\x12;\n" +
 	"\x0epending_reopen\x18\x1a \x01(\v2\x14.agentmesh.v1.ReopenR\rpendingReopen\x12\x1f\n" +
 	"\vbase_commit\x18\x1b \x01(\tR\n" +
-	"baseCommit\"\x86\x02\n" +
+	"baseCommit\x12\x12\n" +
+	"\x04peer\x18\x1c \x01(\bR\x04peer\"\x86\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
