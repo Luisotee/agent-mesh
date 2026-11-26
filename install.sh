@@ -130,6 +130,7 @@ unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points i
 
 unit_path_dropin() { # a unit's drop-in: the PATH of this shell (systemd's own is too short to find claude or agy)
   local path_value="$PATH"
+  path_value="${path_value//\\/\\\\}"  # backslash and % are escapes inside a unit's Environment=
   path_value="${path_value//%/%%}"
   path_value="${path_value//\"/}"
   printf '[Service]\nEnvironment="PATH=%s"\n' "$path_value"
@@ -152,11 +153,16 @@ daemon_install() {
   for b in "${DAEMON_BINS[@]}"; do
     [[ -x "$stage/bin/$b" ]] || { echo "install.sh: the build made no $b; nothing was changed" >&2; return 1; }
   done
+  # Every fallible copy is made before the first replacement; what follows is renames.
+  [[ ! -d "$REPO/daemon/share" ]] || cp -R "$REPO/daemon/share" "$stage/share" \
+    || { echo "install.sh: copying daemon/share failed; nothing was changed" >&2; return 1; }
   # One rename per file: a running meshd or mesh-term keeps the old inode, so an upgrade never breaks it.
+  local term_changed=0 had_term=0
+  [[ ! -e "$DAEMON_LIB/bin/mesh-term" ]] || had_term=1
+  cmp -s "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
   for b in "${DAEMON_BINS[@]}"; do mv -f "$stage/bin/$b" "$DAEMON_LIB/bin/$b"; done
   echo "installed ${DAEMON_BINS[*]} in $DAEMON_LIB/bin"
   if [[ -d "$REPO/daemon/share" ]]; then
-    cp -R "$REPO/daemon/share" "$stage/share"
     rm -rf "$DAEMON_LIB/share.old"
     [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
     mv "$stage/share" "$DAEMON_LIB/share"
@@ -167,7 +173,11 @@ daemon_install() {
   for unit in "${DAEMON_UNITS[@]}"; do
     cp "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit.tmp" && mv -f "$UNIT_DIR/$unit.tmp" "$UNIT_DIR/$unit"
     mkdir -p "$UNIT_DIR/$unit.d"
-    unit_path_dropin >"$UNIT_DIR/$unit.d/path.conf"
+    unit_path_dropin >"$UNIT_DIR/$unit.d/path.conf.new"
+    if [[ "$unit" == agent-mesh-term.service ]]; then
+      cmp -s "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf" || term_changed=1
+    fi
+    mv -f "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf"
     echo "installed $UNIT_DIR/$unit (and its PATH drop-in)"
   done
   link "$DAEMON_LIB/bin/mesh" "$BIN_DIR/meshctl"
@@ -181,6 +191,10 @@ daemon_install() {
     fi
   else
     echo "note: systemctl is not on PATH: start meshd yourself (meshd --state ~/.local/state/agent-mesh-daemon)" >&2
+  fi
+  if [[ "$term_changed" == 1 && "$had_term" == 1 ]]; then
+    echo "note: the terminal host keeps running with its old binary and PATH, so the agents' terminals survive this upgrade;" \
+      "apply them with 'systemctl --user restart agent-mesh-term.service' (it ends every running agent's terminal)" >&2
   fi
   echo "daemon installed. Re-run \`install.sh --daemon\` to upgrade it or to refresh the PATH its units hold."
 }

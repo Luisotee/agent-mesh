@@ -153,7 +153,8 @@ done
 BASH = shutil.which("bash")
 
 
-def daemon_install(home: Path, *args: str, go_fails: bool = False, with_systemctl: bool = True) -> subprocess.CompletedProcess:
+def daemon_install(home: Path, *args: str, go_fails: bool = False, with_systemctl: bool = True,
+                   repo: Path = ROOT, path: str = "") -> subprocess.CompletedProcess:
     stubs = home / "stub-bin"
     stubs.mkdir(exist_ok=True)
     calls = home / "systemctl.log"
@@ -163,8 +164,8 @@ def daemon_install(home: Path, *args: str, go_fails: bool = False, with_systemct
     if with_systemctl:
         (stubs / "systemctl").write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
         (stubs / "systemctl").chmod(0o755)
-    return subprocess.run([BASH, str(ROOT / "install.sh"), "--daemon", *args], capture_output=True, text=True,
-                          env={"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin"}, timeout=60)
+    return subprocess.run([BASH, str(repo / "install.sh"), "--daemon", *args], capture_output=True, text=True,
+                          env={"HOME": str(home), "PATH": path or f"{stubs}:/usr/bin:/bin"}, timeout=60)
 
 
 def systemctl_calls(home: Path) -> list[str]:
@@ -193,24 +194,49 @@ def test_daemon_install_builds_installs_units_and_links_meshctl(tmp_path):
         assert not (tmp_path / path).exists(), path
 
 
+def copy_of_repo(tmp_path: Path) -> Path:
+    """The parts of the checkout the daemon install reads, so a test can add a daemon/share without touching it."""
+    repo = tmp_path / "repo"
+    (repo / "daemon").mkdir(parents=True)
+    shutil.copy(ROOT / "install.sh", repo / "install.sh")
+    shutil.copytree(ROOT / "daemon" / "cmd", repo / "daemon" / "cmd")
+    shutil.copytree(ROOT / "daemon" / "packaging", repo / "daemon" / "packaging")
+    return repo
+
+
 def test_daemon_install_copies_share_and_is_safe_to_rerun(tmp_path):
-    share = ROOT / "daemon" / "share"
-    existed = share.exists()
-    share.mkdir(exist_ok=True)
-    marker = share / "protocol-test-marker.md"
-    try:
-        marker.write_text("x")
-        assert daemon_install(tmp_path).returncode == 0
-        lib = tmp_path / ".local" / "lib" / "agent-mesh"
-        assert (lib / "share" / "protocol-test-marker.md").read_text() == "x"
-        marker.unlink()
-        assert daemon_install(tmp_path).returncode == 0
-        assert not (lib / "share" / "protocol-test-marker.md").exists() and not (lib / "share.old").exists()
-    finally:
-        marker.unlink(missing_ok=True)
-        if not existed:
-            share.rmdir()
-    assert (tmp_path / ".local" / "bin" / "meshctl").is_symlink()
+    repo, home = copy_of_repo(tmp_path), tmp_path / "home"
+    home.mkdir()
+    (repo / "daemon" / "share").mkdir()
+    (repo / "daemon" / "share" / "marker.md").write_text("x")
+    assert daemon_install(home, repo=repo).returncode == 0
+    lib = home / ".local" / "lib" / "agent-mesh"
+    assert (lib / "share" / "marker.md").read_text() == "x"
+    (repo / "daemon" / "share" / "marker.md").unlink()
+    assert daemon_install(home, repo=repo).returncode == 0
+    assert not (lib / "share" / "marker.md").exists() and not (lib / "share.old").exists()
+    assert (home / ".local" / "bin" / "meshctl").is_symlink()
+
+
+def test_a_changed_path_or_terminal_host_binary_is_noted_but_not_applied(tmp_path):
+    first = daemon_install(tmp_path)
+    assert first.returncode == 0 and "agent-mesh-term.service'" not in first.stderr  # a first install has no host to restart
+    again = daemon_install(tmp_path)
+    assert "restart agent-mesh-term.service" not in again.stderr  # nothing changed
+    stubs = tmp_path / "stub-bin"
+    changed = daemon_install(tmp_path, path=f"{stubs}:/usr/bin:/bin:/opt/more")
+    assert "restart agent-mesh-term.service" in changed.stderr
+    # and the terminal host is never restarted by the installer itself
+    assert not any("agent-mesh-term" in c and "restart" in c for c in systemctl_calls(tmp_path))
+    assert "/opt/more" in (tmp_path / ".config" / "systemd" / "user" / "agent-mesh-term.service.d" / "path.conf").read_text()
+
+
+def test_the_path_dropin_escapes_what_systemd_would_read(tmp_path):
+    stubs = tmp_path / "stub-bin"
+    done = daemon_install(tmp_path, path=f"{stubs}:/usr/bin:/odd%dir:/back\\slash")
+    assert done.returncode == 0, done.stderr
+    dropin = (tmp_path / ".config" / "systemd" / "user" / "agent-mesh.service.d" / "path.conf").read_text()
+    assert "/odd%%dir" in dropin and "/back\\\\slash" in dropin
 
 
 def test_a_failed_build_changes_nothing(tmp_path):
