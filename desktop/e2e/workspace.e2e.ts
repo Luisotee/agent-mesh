@@ -16,7 +16,7 @@ const shots = path.resolve(import.meta.dirname, '../test-results')
 beforeAll(async () => {
   bins = mkdtempSync(path.join(os.tmpdir(), 'amd-bins-'))
   buildBinaries(bins)
-  host = makeHost(bins, { fakeClaudeEnv: { FAKECLAUDE_TRANSCRIPT: '1' } })
+  host = makeHost(bins, { fakeClaudeEnv: { FAKECLAUDE_TRANSCRIPT: '1', FAKECLAUDE_BOX: '1' } })
   await host.start()
   mkdirSync(shots, { recursive: true })
   app = await launchApp({ state: host.state, home: host.home })

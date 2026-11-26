@@ -24,7 +24,9 @@ export function fromTail(res: ReadTranscriptResponse): Transcript {
 
 /** Earlier entries, put before the ones held. */
 export function withEarlier(t: Transcript, res: ReadTranscriptResponse): Transcript {
-  if (res.sessionId !== t.sessionId) return t
+  // A page of another conversation, or one that doesn't end where the held entries begin (the record was rewritten or
+  // reloaded while it was out), would repeat or misplace entries.
+  if (res.sessionId !== t.sessionId || res.endOffset !== t.start) return t
   return { ...t, entries: [...res.entries, ...t.entries], start: res.startOffset, atStart: res.atStart }
 }
 

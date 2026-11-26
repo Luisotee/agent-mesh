@@ -323,6 +323,8 @@ message AgentExited {
 // the daemon found it still running at boot and took it back.
 message AgentAdopted {
   string terminal_id = 1;
+  // The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+  bool launched = 2;
 }
 
 // A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.

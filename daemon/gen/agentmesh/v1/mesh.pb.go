@@ -1452,7 +1452,10 @@ type SubscribeEventsRequest struct {
 	// Resume after this cursor; unset starts from a snapshot.
 	Cursor *Cursor `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	// Only this run's events; empty means all.
-	RunId         string `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunId string `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	// Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+	// state changes only (`mesh events`) would otherwise get a frame per tool call. The apps set it.
+	Activity      bool `protobuf:"varint,3,opt,name=activity,proto3" json:"activity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1499,6 +1502,13 @@ func (x *SubscribeEventsRequest) GetRunId() string {
 		return x.RunId
 	}
 	return ""
+}
+
+func (x *SubscribeEventsRequest) GetActivity() bool {
+	if x != nil {
+		return x.Activity
+	}
+	return false
 }
 
 type SubscribeEventsResponse struct {
@@ -5177,10 +5187,11 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12/\n" +
 	"\amessage\x18\x04 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12\x16\n" +
-	"\x06detail\x18\x05 \x01(\tR\x06detail\"]\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\"y\n" +
 	"\x16SubscribeEventsRequest\x12,\n" +
 	"\x06cursor\x18\x01 \x01(\v2\x14.agentmesh.v1.CursorR\x06cursor\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\x9a\x02\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1a\n" +
+	"\bactivity\x18\x03 \x01(\bR\bactivity\"\x9a\x02\n" +
 	"\x17SubscribeEventsResponse\x124\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x16.agentmesh.v1.SnapshotH\x00R\bsnapshot\x121\n" +
 	"\aresumed\x18\x02 \x01(\v2\x15.agentmesh.v1.ResumedH\x00R\aresumed\x12+\n" +

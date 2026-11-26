@@ -128,7 +128,7 @@ func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, f
 func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents bool, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
-	live := b.subscribe(req.RunId, deviceEvents, true)
+	live := b.subscribe(req.RunId, deviceEvents, req.Activity)
 	defer b.unsubscribe(live)
 
 	gen := b.store.Generation()
@@ -176,6 +176,10 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 		sent = snap.Cursor.Seq
 	}
 
+	// What queued while the backlog or snapshot was sent is older than events the client has just applied.
+	for n := len(live.act); n > 0; n-- {
+		<-live.act
+	}
 	for {
 		// The frames queued now are told before the event after them: they were published first (an activity frame
 		// goes out as its write commits, a state event as the next write does), and select alone picks a ready

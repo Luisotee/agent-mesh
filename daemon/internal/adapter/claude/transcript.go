@@ -54,6 +54,10 @@ var (
 	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
 	// output as <local-command-stdout>, which is dropped).
+	// Bash mode (`! cmd` in the box) is recorded as <bash-input>cmd</bash-input>, its output as <bash-stdout> and
+	// <bash-stderr> in a user line of their own.
+	bashInput   = regexp.MustCompile(`(?s)^<bash-input>\s*(.*?)\s*</bash-input>`)
+	bashOutput  = regexp.MustCompile(`^<bash-(stdout|stderr)>`)
 	localOutput = regexp.MustCompile(`^<local-command-(stdout|stderr|caveat)>`)
 	commandName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>\s*(.*?)\s*</command-args>`)
@@ -153,8 +157,11 @@ func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
 	}
-	if meta || text == "" || localOutput.MatchString(text) {
+	if meta || text == "" || localOutput.MatchString(text) || bashOutput.MatchString(text) {
 		return nil
+	}
+	if m := bashInput.FindStringSubmatch(text); m != nil {
+		text = "! " + m[1]
 	}
 	if m := commandName.FindStringSubmatch(text); m != nil && strings.HasPrefix(text, "<command-") {
 		// A slash command is what the user typed: the command and its arguments, not the tags around them.

@@ -602,6 +602,15 @@ describe('SettingsPanel', () => {
 describe('ShortcutField', () => {
   const setting = (key: string, value: string) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, value), isSet: true, schema: create(SettingSchemaSchema, { type: 'shortcut', summary: `shortcut: ${key}` }) })
 
+  it('on a host that is not the first only shows the keys, saying whose the app follows', () => {
+    const { host, wrap } = fixture()
+    const second = { ...host, info: { ...host.info, id: 'h2', name: 'work' } } as HostRuntime
+    render(wrap(<ShortcutField host={second} id="app.keys.dock" value="Mod+Shift+D" busy={false} save={vi.fn()} />))
+    expect(screen.queryByRole('button', { name: /Record a shortcut/ })).toBeNull()
+    expect(screen.getByText('Ctrl+Shift+D')).toBeInTheDocument()
+    expect(screen.getByText(/uses the keys of home, its first host/)).toBeInTheDocument()
+  })
+
   it('records the pressed chord, unbinds on Backspace, cancels on Escape, and refuses a chord another command has', async () => {
     const { host, wrap } = fixture()
     host.store.setState({ settings: { 'app.keys.dock': setting('app.keys.dock', 'Mod+Shift+D'), 'app.keys.settings': setting('app.keys.settings', 'Mod+,') } })
