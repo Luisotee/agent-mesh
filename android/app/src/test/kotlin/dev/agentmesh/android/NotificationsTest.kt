@@ -287,7 +287,7 @@ class NotificationsTest {
         assertEquals(true, ok)
         assertEquals(listOf(hostId), channel.registered.toList())
         waitFor("RegisterPush") { api.push.toList() == listOf("register https://ntfy.example/upA?up=1") }
-        assertEquals(true, container.pushRegistrar.status.value[hostId]?.ok)
+        waitFor("the status") { container.pushRegistrar.status.value[hostId]?.ok == true }
         // A reconnect registers again (a host that lost it heals).
         rt.onState(ConnState.Reconnecting(1, 0, "gone"))
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
