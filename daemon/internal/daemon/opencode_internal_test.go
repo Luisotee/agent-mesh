@@ -443,3 +443,31 @@ func TestOpenCodePollSkipsWhenAdapterMissing(t *testing.T) {
 	// Must return cleanly without panicking.
 	d.pollOpenCode(context.Background())
 }
+
+// The relay secret and the tailnet auth key never reach an agent of any kind, even if meshd still held them:
+// agents' environments are an allowlist, not meshd's own.
+func TestAgentEnvLeavesOutMeshdSecrets(t *testing.T) {
+	secrets := []string{"AGENT_MESH_RELAY_TOKEN", "AGENT_MESH_RELAY_TOKEN_FILE", "AGENT_MESH_TAILSCALE_AUTH_KEY",
+		"AGENT_MESH_TAILSCALE_AUTH_KEY_FILE"}
+	for _, k := range secrets {
+		t.Setenv(k, "secret-"+k)
+	}
+	rt, err := newRuntime(AgentConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{rt: rt, paths: Paths{Dir: t.TempDir()}}
+	for _, a := range []*v1.Agent{
+		{Id: "a-claude", RunId: "r1", Kind: "claude", Model: "sonnet"},
+		{Id: "a-agy", RunId: "r1", Kind: "agy", Model: "flash"},
+		{Id: "a-oc", RunId: "r1", Kind: opencode.Kind, Model: "openai/gpt-5.2"},
+		{Id: "a-cp", RunId: "r1", Kind: "copilot", Model: "auto"},
+	} {
+		env := d.agentEnv(a, "tok")
+		for k, v := range env {
+			if strings.HasPrefix(v, "secret-") {
+				t.Errorf("%s agent got %s=%s", a.Kind, k, v)
+			}
+		}
+	}
+}

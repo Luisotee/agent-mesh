@@ -120,7 +120,8 @@ public interface CreatePairingResponseOrBuilder extends
 
   /**
    * <pre>
-   * Client relay auth token (`amr_...`) for this host, when relay is configured.
+   * The relay token (`amr_...`) of the device this pairing makes, when a relay is configured. The relay accepts it
+   * while the pairing is open and, once redeemed, until the device is revoked.
    * </pre>
    *
    * <code>string relay_client_token = 8 [json_name = "relayClientToken"];</code>
@@ -129,7 +130,8 @@ public interface CreatePairingResponseOrBuilder extends
   java.lang.String getRelayClientToken();
   /**
    * <pre>
-   * Client relay auth token (`amr_...`) for this host, when relay is configured.
+   * The relay token (`amr_...`) of the device this pairing makes, when a relay is configured. The relay accepts it
+   * while the pairing is open and, once redeemed, until the device is revoked.
    * </pre>
    *
    * <code>string relay_client_token = 8 [json_name = "relayClientToken"];</code>

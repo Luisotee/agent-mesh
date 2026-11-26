@@ -9,10 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
@@ -179,6 +183,20 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 		t.Fatalf("unexpected pairing URI fields: %+v", p)
 	}
 
+	// The relay learns the pairing's token from the daemon's push after CreatePairing: wait until it opens.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		c, err := relay.DialRelayTCP(ctx, p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, "h2")
+		if err == nil {
+			c.Close()
+			break
+		}
+		if !errors.Is(err, relay.ErrAuth) || time.Now().After(deadline) {
+			t.Fatalf("the pairing's relay token = %v, want it accepted", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	relayHC, err := relay.NewTCPHTTPClient(p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, true)
 	if err != nil {
 		t.Fatal(err)
@@ -190,6 +208,13 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 	red, err := pc.RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: p.Token}))
 	if err != nil {
 		t.Fatalf("RedeemPairing over relay: %v", err)
+	}
+	// The link's relay token is the redeemed device's own, and the host-wide one no longer opens the relay.
+	if want := relay.DeviceToken(secret, info.DaemonID, red.Msg.DeviceId); p.RelayClientToken != want {
+		t.Fatalf("link relay token = %q, want the device's %q", p.RelayClientToken, want)
+	}
+	if _, err := relay.DialRelayTCP(ctx, p.RelayTCP, p.HostID, relay.ClientToken(secret, info.DaemonID), p.CertFingerprint, "h2"); !errors.Is(err, relay.ErrAuth) {
+		t.Fatalf("host-wide relay token = %v, want ErrAuth", err)
 	}
 
 	// Call ConnectRPC and SubscribeEvents over the relay.
@@ -237,5 +262,260 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 	}
 	if _, err := rm.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); code(err) != connect.CodeUnauthenticated {
 		t.Fatalf("revoked device over relay = %v, want Unauthenticated", err)
+	}
+	// A new connection of the revoked device is refused at the relay's preamble, before any dial-back.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		_, err := relay.DialRelayTCP(ctx, p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, "h2")
+		if errors.Is(err, relay.ErrAuth) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("revoked device's relay token = %v, want ErrAuth", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// fakeTailnet stands in for the host's Tailscale node: a loopback listener and a canned status, so no test
+// joins a tailnet.
+type fakeTailnet struct {
+	listenErr error
+	// listenGate, when set, holds Listen until it is closed, as tsnet's Start can wait.
+	listenGate chan struct{}
+	mu         sync.Mutex
+	ln         net.Listener
+	status     *v1.TailnetStatusResponse
+	closed     chan struct{}
+	listening  bool // inside Listen
+	closedMid  bool // Close ran while Listen was inside
+}
+
+func (f *fakeTailnet) Listen(network, _ string) (net.Listener, error) {
+	f.mu.Lock()
+	f.listening = true
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.listening = false
+		f.mu.Unlock()
+	}()
+	if f.listenGate != nil {
+		<-f.listenGate
+	}
+	if f.listenErr != nil {
+		return nil, f.listenErr
+	}
+	l, err := net.Listen(network, "127.0.0.1:0")
+	f.mu.Lock()
+	f.ln = l
+	f.mu.Unlock()
+	return l, err
+}
+func (f *fakeTailnet) Port() uint16 { return 8443 }
+func (f *fakeTailnet) Status(context.Context) (*v1.TailnetStatusResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return proto.Clone(f.status).(*v1.TailnetStatusResponse), nil
+}
+func (f *fakeTailnet) listener() net.Listener {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ln
+}
+func (f *fakeTailnet) setStatus(st *v1.TailnetStatusResponse) {
+	f.mu.Lock()
+	f.status = st
+	f.mu.Unlock()
+}
+func (f *fakeTailnet) inListen() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listening
+}
+func (f *fakeTailnet) Close() error {
+	f.mu.Lock()
+	f.closedMid = f.listening
+	f.mu.Unlock()
+	close(f.closed)
+	return nil
+}
+
+// Shutting down while Listen still starts the node: meshd waits for Listen before it closes the node, and a Listen
+// cut short by the shutdown isn't reported as a failure.
+func TestTailnetCloseWaitsForListen(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), listenGate: make(chan struct{}),
+		listenErr: errors.New("tsnet: server closed")}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn})
+	deadline := time.Now().Add(5 * time.Second)
+	for !tn.inListen() {
+		if time.Now().After(deadline) {
+			t.Fatal("meshd never called Listen")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.cancel()
+	select {
+	case <-tn.closed:
+		t.Fatal("meshd closed the node while Listen was still starting it")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(tn.listenGate)
+	h.stop()
+	select {
+	case <-tn.closed:
+	default:
+		t.Fatal("meshd never closed the node")
+	}
+	tn.mu.Lock()
+	mid := tn.closedMid
+	tn.mu.Unlock()
+	if mid {
+		t.Fatal("Close ran inside Listen")
+	}
+}
+
+func TestTailnetURLPrefersIPv4(t *testing.T) {
+	for _, c := range []struct {
+		addrs []string
+		port  uint16
+		want  string
+	}{
+		{[]string{"fd7a:115c:a1e0::1", "100.64.0.7"}, 443, "https://100.64.0.7"},
+		{[]string{"100.64.0.7"}, 8443, "https://100.64.0.7:8443"},
+		{[]string{"fd7a:115c:a1e0::1"}, 443, "https://[fd7a:115c:a1e0::1]"},
+		{[]string{"bad", "fd7a:115c:a1e0::1"}, 8443, "https://[fd7a:115c:a1e0::1]:8443"},
+		{nil, 443, ""},
+	} {
+		if got := daemon.TailnetURL(c.addrs, c.port); got != c.want {
+			t.Errorf("TailnetURL(%v, %d) = %q, want %q", c.addrs, c.port, got, c.want)
+		}
+	}
+}
+
+func TestTailnetServesPinnedTLSAndPairsOverIt(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), status: &v1.TailnetStatusResponse{
+		State: "Running", Hostname: "mesh-box", DnsName: "mesh-box.tail-scale.ts.net.",
+		Addresses: []string{"fd7a:115c:a1e0::1", "100.64.0.7"},
+	}}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn})
+	info, _ := daemon.ReadInfo(h.state)
+	ctx := context.Background()
+
+	hello, err := h.device.Mesh.Hello(ctx, connect.NewRequest(&v1.HelloRequest{}))
+	if err != nil || !slices.Contains(hello.Msg.Capabilities, "tailscale") {
+		t.Fatalf("Hello capabilities = %v, %v", hello.Msg.GetCapabilities(), err)
+	}
+	st, err := h.device.Mesh.TailnetStatus(ctx, connect.NewRequest(&v1.TailnetStatusRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Msg.Enabled || st.Msg.DirectUrl != "https://100.64.0.7:8443" || st.Msg.Hostname != "mesh-box" {
+		t.Fatalf("TailnetStatus = %v", st.Msg)
+	}
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-pair"), Name: "phone"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp.Msg.DirectUrl != "https://100.64.0.7:8443" {
+		t.Fatalf("pairing DirectUrl = %q, want the tailnet address", cp.Msg.DirectUrl)
+	}
+
+	// The tailnet listener is the pinned TLS API: pair over it, then a device token is needed for the rest.
+	deadline := time.Now().Add(5 * time.Second)
+	for tn.listener() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("meshd never listened on the tailnet")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	base := "https://" + tn.listener().Addr().String()
+	hc, err := relay.NewDirectHTTPClient(info.CertFingerprint, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anon := agentmeshv1connect.NewMeshServiceClient(hc, base)
+	if _, err := anon.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); code(err) != connect.CodeUnauthenticated {
+		t.Fatalf("Hello on the tailnet without a token = %v, want Unauthenticated", err)
+	}
+	red, err := agentmeshv1connect.NewPairingServiceClient(hc, base).RedeemPairing(ctx,
+		connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
+	if err != nil {
+		t.Fatalf("RedeemPairing on the tailnet: %v", err)
+	}
+	dev := agentmeshv1connect.NewMeshServiceClient(hc, base, connect.WithInterceptors(auth.ClientToken(red.Msg.DeviceToken)))
+	if _, err := dev.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); err != nil {
+		t.Fatalf("Hello on the tailnet with the device token: %v", err)
+	}
+	// A paired device may not read the login URL.
+	if _, err := dev.TailnetStatus(ctx, connect.NewRequest(&v1.TailnetStatusRequest{})); code(err) != connect.CodePermissionDenied {
+		t.Fatalf("TailnetStatus from a paired device = %v, want PermissionDenied", err)
+	}
+
+	// A node that needs login: no tailnet address in links, and the URL for the host's device.
+	tn.setStatus(&v1.TailnetStatusResponse{State: "NeedsLogin", AuthUrl: "https://login.example/a/1"})
+	st, err = h.device.Mesh.TailnetStatus(ctx, connect.NewRequest(&v1.TailnetStatusRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Msg.AuthUrl != "https://login.example/a/1" || st.Msg.DirectUrl != "" {
+		t.Fatalf("TailnetStatus needing login = %v", st.Msg)
+	}
+	cp, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-pair-2")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp.Msg.DirectUrl != "" {
+		t.Fatalf("pairing while the node needs login: DirectUrl %q", cp.Msg.DirectUrl)
+	}
+
+	h.stop()
+	select {
+	case <-tn.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("meshd didn't close the tailnet node when it stopped")
+	}
+}
+
+// A node meshd can't serve on says why, and links don't send devices to it.
+func TestTailnetListenFailureIsReported(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), listenErr: errors.New("port in use"),
+		status: &v1.TailnetStatusResponse{State: "Running", Addresses: []string{"100.64.0.9"}}}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn})
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st, err := h.device.Mesh.TailnetStatus(ctx, connect.NewRequest(&v1.TailnetStatusRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(st.Msg.Problems) > 0 {
+			if !strings.Contains(st.Msg.Problems[0], "port in use") || st.Msg.DirectUrl != "" {
+				t.Fatalf("TailnetStatus = %v", st.Msg)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the Listen failure never showed in TailnetStatus")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-fail")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp.Msg.DirectUrl != "" {
+		t.Fatalf("pairing DirectUrl = %q with no tailnet listener", cp.Msg.DirectUrl)
+	}
+}
+
+func TestTailnetStatusWithoutTailnet(t *testing.T) {
+	h := startWithConfig(t, daemon.Config{})
+	st, err := h.device.Mesh.TailnetStatus(context.Background(), connect.NewRequest(&v1.TailnetStatusRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Msg.Enabled {
+		t.Fatalf("TailnetStatus = %v", st.Msg)
 	}
 }

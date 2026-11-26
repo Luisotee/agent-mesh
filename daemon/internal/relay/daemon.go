@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -36,6 +37,12 @@ type ConnectorConfig struct {
 	HeartbeatInterval time.Duration
 	// HeartbeatTimeout is how long to wait for a Pong ack (default 10s).
 	HeartbeatTimeout time.Duration
+	// ClientTokens, when set, lists the client tokens the relay may accept for this host (by hash), read at
+	// every registration and after every TokensChanged. The relay then accepts no other token, the host-wide
+	// one included. Nil keeps the host-wide token (ClientToken). An error fails that registration (it is
+	// retried) or delays that update (read again, 1 s doubling to 30 s): the relay never gets an empty set by
+	// mistake.
+	ClientTokens func() ([]*relayv1.ClientToken, error)
 }
 
 // Connector maintains the daemon's outbound control connection to the relay and yields dialed-back
@@ -46,6 +53,10 @@ type Connector struct {
 	hc       *http.Client
 	wsBase   string
 	listener *chanListener
+	// tokensChanged holds one pending "send the relay the client tokens again".
+	tokensChanged chan struct{}
+	// tokenRetry is the first wait after a failed read of the client tokens; it doubles up to tokenRetryMax.
+	tokenRetry time.Duration
 
 	online atomic.Bool
 }
@@ -83,16 +94,39 @@ func NewConnector(cfg ConnectorConfig) (*Connector, error) {
 		cfg.HeartbeatTimeout = 10 * time.Second
 	}
 	return &Connector{
-		cfg:      cfg,
-		log:      cfg.Logger,
-		hc:       hc,
-		wsBase:   wsBase,
-		listener: newChanListener(wsAddr("relay:" + cfg.HostID)),
+		cfg:           cfg,
+		log:           cfg.Logger,
+		hc:            hc,
+		wsBase:        wsBase,
+		listener:      newChanListener(wsAddr("relay:" + cfg.HostID)),
+		tokensChanged: make(chan struct{}, 1),
+		tokenRetry:    time.Second,
 	}, nil
 }
 
 // Listener returns the net.Listener that accepts dialed-back streams from the relay.
 func (c *Connector) Listener() net.Listener { return c.listener }
+
+// TokensChanged tells the connector the set of client tokens changed: the live control connection sends it again
+// (a later registration reads it anyway). It never blocks.
+func (c *Connector) TokensChanged() {
+	select {
+	case c.tokensChanged <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Connector) clientTokens() ([]*relayv1.ClientToken, error) {
+	list, err := c.cfg.ClientTokens()
+	if err != nil {
+		return nil, err
+	}
+	if len(list) > MaxClientTokens {
+		c.log.Error("too many client relay tokens; the relay gets the first ones", "tokens", len(list), "max", MaxClientTokens)
+		list = list[:MaxClientTokens]
+	}
+	return list, nil
+}
 
 // Online reports whether the control connection is registered and healthy.
 func (c *Connector) Online() bool { return c.online.Load() }
@@ -133,6 +167,56 @@ func (c *Connector) Run(ctx context.Context) error {
 	}
 }
 
+// tokenRetryMax caps the wait between reads of the client tokens after a failure.
+const tokenRetryMax = 30 * time.Second
+
+// pushClientTokens sends the relay the client token set on each TokensChanged, for as long as connCtx lasts. A
+// failed read retries, 1 s doubling to 30 s, until it reads and sends (a new change restarts the wait at 1 s):
+// a revoke or a redeemed pairing must not stay unsent on a healthy link. A change it took but didn't send rings
+// again as it leaves, for the next connection.
+func (c *Connector) pushClientTokens(connCtx context.Context, ws *websocket.Conn, writeMu *sync.Mutex, done chan<- struct{}) {
+	defer close(done)
+	pending := false
+	defer func() {
+		if pending {
+			c.TokensChanged()
+		}
+	}()
+	var retry <-chan time.Time
+	wait := c.tokenRetry
+	for {
+		select {
+		case <-connCtx.Done():
+			return
+		case <-c.tokensChanged:
+			wait = c.tokenRetry
+		case <-retry:
+		}
+		pending, retry = true, nil
+		if connCtx.Err() != nil {
+			return
+		}
+		list, err := c.clientTokens()
+		if err != nil {
+			c.log.Error("listing the client relay tokens; the relay keeps its last set until a retry reads them",
+				"err", err, "retry", wait)
+			retry = time.After(wait)
+			wait = min(wait*2, tokenRetryMax)
+			continue
+		}
+		writeMu.Lock()
+		err = writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
+			Frame: &relayv1.ControlFrame_ClientTokens{ClientTokens: &relayv1.ClientTokens{Tokens: list}},
+		})
+		writeMu.Unlock()
+		if err != nil {
+			// The connection is going; the next registration carries the set (pending rings for it).
+			return
+		}
+		pending = false
+	}
+}
+
 func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err error) {
 	hdr := http.Header{"Authorization": {"Bearer " + c.cfg.Secret}}
 	ws, resp, err := websocket.Dial(ctx, c.wsBase+"/v1/daemon/control", &websocket.DialOptions{
@@ -148,14 +232,26 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 	ws.SetReadLimit(64 * 1024)
 	defer ws.CloseNow()
 
+	reg := &relayv1.Register{
+		HostId:        c.cfg.HostID,
+		HostName:      c.cfg.HostName,
+		DaemonVersion: c.cfg.DaemonVersion,
+	}
+	if c.cfg.ClientTokens != nil {
+		// Drain first: a change after this read rings again and is sent once registered.
+		select {
+		case <-c.tokensChanged:
+		default:
+		}
+		list, err := c.clientTokens()
+		if err != nil {
+			return false, fmt.Errorf("listing the client relay tokens: %w", err)
+		}
+		reg.DeviceTokens = true
+		reg.ClientTokens = list
+	}
 	if err := writeControlFrame(ctx, ws, &relayv1.ControlFrame{
-		Frame: &relayv1.ControlFrame_Register{
-			Register: &relayv1.Register{
-				HostId:        c.cfg.HostID,
-				HostName:      c.cfg.HostName,
-				DaemonVersion: c.cfg.DaemonVersion,
-			},
-		},
+		Frame: &relayv1.ControlFrame_Register{Register: reg},
 	}); err != nil {
 		return false, err
 	}
@@ -186,6 +282,13 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 		return writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
 			Frame: &relayv1.ControlFrame_Ping{Ping: &relayv1.Ping{Seq: seq}},
 		})
+	}
+
+	if c.cfg.ClientTokens != nil {
+		tokensDone := make(chan struct{})
+		go c.pushClientTokens(connCtx, ws, &writeMu, tokensDone)
+		// The pusher is gone before the next connection drains the signal, so it can't take one meant for it.
+		defer func() { cancel(); <-tokensDone }()
 	}
 
 	pongCh := make(chan int64, 8)

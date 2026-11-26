@@ -136,3 +136,6 @@ func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, do
 
 // OnSendPlanned sets SendMessage's test seam: called after its preparation, before the write that stores the message.
 func OnSendPlanned(f func()) { sendPlannedHook = f }
+
+// TailnetURL is the URL a pairing link carries for a tailnet node with these addresses.
+func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addresses, port) }
