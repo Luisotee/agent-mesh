@@ -177,8 +177,18 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
 
   // A prompt from the composer reaches the agent's CLI, and its turn shows up in the conversation.
   const box = panel.getByRole('textbox', { name: 'Prompt' })
+  // The host types only into an empty input box, so a send right after the agent started may be refused (the text
+  // stays in the composer): send again until it is taken.
+  const send = () =>
+    expect
+      .poll(async () => {
+        await box.press('Enter')
+        await page.waitForTimeout(400)
+        return box.inputValue()
+      }, { timeout: 20_000 })
+      .toBe('')
   await box.fill('fix the typo')
-  await box.press('Enter')
+  await send()
   const list = panel.getByRole('list', { name: 'Conversation' })
   await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('fix the typo')
   await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Done: fix the typo')
@@ -197,7 +207,7 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
   await box.fill('first line')
   await box.press('Shift+Enter')
   await box.type('second line')
-  await box.press('Enter')
+  await send()
   await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Done: first line')
   expect(await list.innerText()).toContain('second line')
 

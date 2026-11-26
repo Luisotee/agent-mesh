@@ -80,13 +80,17 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 )
 
 type settings struct {
@@ -122,6 +126,24 @@ func envInt(name string) int {
 
 func main() {
 	args := os.Args[1:]
+	if box {
+		// A resize redraws the box where the bottom of the screen now is, unless a dialog is on it.
+		winch := make(chan os.Signal, 1)
+		signal.Notify(winch, syscall.SIGWINCH)
+		go func() {
+			for range winch {
+				// Twice: the host resizes its own screen after the terminal, and what was drawn before that is lost.
+				for i := 0; i < 2; i++ {
+					turnMu.Lock()
+					if !dialog {
+						drawBox()
+					}
+					turnMu.Unlock()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}
+		}()
+	}
 	if log := os.Getenv("FAKECLAUDE_ARGV_LOG"); log != "" {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			line, _ := json.Marshal(args)
@@ -399,7 +421,24 @@ func say(format string, args ...any) {
 	}
 }
 
-const boxTop = 30 // the row of the box's top rule in box mode (the terminal is 40 rows)
+// boxTopRow is the row of the box's top rule in box mode: ten rows above the bottom of the terminal as it is now
+// (30 when it can't be read: the 40 rows meshd starts agents with). An app attached at another size changes it, and the
+// real CLI redraws for that, so the fake does too (SIGWINCH, in main).
+func boxTopRow() int {
+	if ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ); err == nil && ws.Row >= 12 {
+		return int(ws.Row) - 10
+	}
+	return 30
+}
+
+// ruleWidth is the width of the box's rules: 100, or the terminal's when it is narrower (a rule that wraps is two
+// lines, and no box reads right then).
+func ruleWidth() int {
+	if ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ); err == nil && ws.Col > 0 && int(ws.Col) < 100 {
+		return int(ws.Col)
+	}
+	return 100
+}
 
 // drawDialog replaces the screen with a dialog: no input box.
 func drawDialog() {
@@ -424,7 +463,8 @@ func prompt() {
 // room to wrap, a footer), the cursor on the prompt line after any text left in it. The tty echoes what is typed
 // there.
 func drawBox() {
-	rule := strings.Repeat("─", 100)
+	rule := strings.Repeat("─", ruleWidth())
+	boxTop := boxTopRow()
 	fmt.Print("\x1b[?25l\x1b[m\x1b[2J\x1b[H")
 	shown := transcript
 	if len(shown) > boxTop-3 {
