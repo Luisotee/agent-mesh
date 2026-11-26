@@ -473,16 +473,22 @@ func TestStopAgentGivesBackTheReservationOfAResumeItEnds(t *testing.T) {
 		if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 			t.Fatal(err)
 		}
-		w.putAgent(t, a.Id, func(a *v1.Agent) {
-			a.PendingReopen = &v1.Reopen{Id: "o-" + name, Model: "opus", Why: "resumed"}
-			if dead { // its process died while the resume was waiting: the exit was left to the reopen
-				a.State, a.TerminalId = v1.AgentState_AGENT_STATE_IDLE, ""
-			}
+		// Inject the unlaunched resume and its reservation while StopAgent holds the agent's lock so the background
+		// retry loop can't launch it before StopAgent cancels it.
+		daemon.OnStopAgentLocked(func() {
+			w.putAgent(t, a.Id, func(a *v1.Agent) {
+				a.PendingReopen = &v1.Reopen{Id: "o-" + name, Model: "opus", Why: "resumed"}
+				if dead { // its process died while the resume was waiting: the exit was left to the reopen
+					a.State, a.TerminalId = v1.AgentState_AGENT_STATE_IDLE, ""
+				}
+			})
+			w.d.Reserve(a.Id)
 		})
-		w.d.Reserve(a.Id)
+		t.Cleanup(func() { daemon.OnStopAgentLocked(nil) })
 		if _, err := w.device.Mesh.StopAgent(ctx, connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+		daemon.OnStopAgentLocked(nil)
 		if w.d.Reserved(a.Id) {
 			t.Errorf("%s: the reservation of the resume it ended is still held", name)
 		}

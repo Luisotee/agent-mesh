@@ -85,7 +85,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
         <SendForm host={host} agent={agent} />
       </div>
       <div id={`${agent.id}-panel-messages`} role="tabpanel" aria-labelledby={`${agent.id}-tab-messages`} hidden={shown !== 'messages'}>
-        <MessagesPanel host={host} agentId={agent.id} />
+        <MessagesPanel host={host} agentId={agent.id} active={shown === 'messages'} />
       </div>
       {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} panelId={`${agent.id}-panel-terminal`} tabId={`${agent.id}-tab-terminal`} />}
     </article>

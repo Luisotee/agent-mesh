@@ -22,6 +22,7 @@ import (
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
@@ -115,6 +116,8 @@ type AgentConfig struct {
 	// RunCLI runs a CLI command to its end with exactly the environment given (a headless compaction); nil runs it
 	// for real. Tests set it so no real CLI runs.
 	RunCLI func(ctx context.Context, argv []string, env map[string]string, cwd string) (string, error)
+	// WrapTermAPI wraps the terminal host client before adopt and watchTerminals start (for tests).
+	WrapTermAPI func(termv1connect.TermHostServiceClient) termv1connect.TermHostServiceClient
 }
 
 // The environment an agent inherits from the daemon; anything else (other secrets, the caller's own session) is
@@ -223,6 +226,9 @@ func (d *Daemon) startTerminals(ctx context.Context) error {
 		Binary: d.rt.cfg.TermBinary, Args: d.rt.cfg.TermArgs, Unit: d.rt.cfg.TermUnit})
 	if err != nil {
 		return fmt.Errorf("terminal host: %w", err)
+	}
+	if d.rt.cfg.WrapTermAPI != nil {
+		c.API = d.rt.cfg.WrapTermAPI(c.API)
 	}
 	d.rt.term, d.rt.hello = c, hello
 	d.capabilities = append(d.capabilities, "terminals")
@@ -1186,6 +1192,9 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	mu := d.agentLock(a.Id)
 	mu.Lock()
 	defer mu.Unlock()
+	if stopAgentLockedHook != nil {
+		stopAgentLockedHook()
+	}
 	out := &v1.StopAgentResponse{}
 	dropped := false
 	var alert *v1.Message

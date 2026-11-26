@@ -3095,8 +3095,11 @@ func (x *Device) GetRevokedAt() *timestamppb.Timestamp {
 }
 
 type DevicePaired struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Device        *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Device *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
+	// The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+	// from. Events from before this field have it empty.
+	PairingId     string `protobuf:"bytes,2,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3136,6 +3139,13 @@ func (x *DevicePaired) GetDevice() *Device {
 		return x.Device
 	}
 	return nil
+}
+
+func (x *DevicePaired) GetPairingId() string {
+	if x != nil {
+		return x.PairingId
+	}
+	return ""
 }
 
 type DeviceRevoked struct {
@@ -3434,9 +3444,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\"<\n" +
+	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\"[\n" +
 	"\fDevicePaired\x12,\n" +
-	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\"@\n" +
+	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\x12\x1d\n" +
+	"\n" +
+	"pairing_id\x18\x02 \x01(\tR\tpairingId\"@\n" +
 	"\rDeviceRevoked\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name*S\n" +

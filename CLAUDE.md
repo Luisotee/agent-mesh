@@ -70,4 +70,4 @@ The repo runs no hosted CI: run the part's check script before you report a chan
 
 ## Tests
 
-The Go suites run the fakes (`daemon/internal/testutil/fakeclaude`, `fakeagy`) in an isolated HOME, never a real CLI, the live state dirs or a real herdr (`daemon/CLAUDE.md`). The Python suite in `tests/` uses temp HOMEs and stubs for `go`, `systemctl` and `herdr`; nothing in it reaches the machine's own install.
+The Go suites run the fakes (`daemon/internal/testutil/fakeclaude`, `fakeagy`) in an isolated HOME, never a real CLI or the live state dirs (`daemon/CLAUDE.md`). The Python suite in `tests/` uses temp HOMEs and stubs for `go`, `systemctl` and `herdr`; nothing in it reaches the machine's own install.

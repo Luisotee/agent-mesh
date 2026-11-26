@@ -20,6 +20,8 @@ export interface HostRuntime {
   connection: HostConnection
   /** Stops the host's timers and calls (its connection is stopped separately). */
   stop(): void
+  /** Loads a run's stored messages (once; `retry` after a failure) for its Messages tab: they are read lazily, not at connect. */
+  loadMessages(runId: string, retry?: boolean): void
   /** A terminal's stream, by the path `OpenTerminal` gave. */
   openSocket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
 }
@@ -52,7 +54,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
         }
       }
       if (f.case === 'snapshot') {
-        void loader.load(f.value.runs)
+        void loader.resync(f.value.runs)
         const mine = ++settingsLoad
         pendingSettings = []
         void listSettings(client)
@@ -68,7 +70,18 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
   })
   connection.start()
   refresher.start()
-  return { info, store, client, connection, stop: () => refresher.stop(), openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent) }
+  return {
+    info,
+    store,
+    client,
+    connection,
+    stop: () => {
+      refresher.stop()
+      loader.stop()
+    },
+    loadMessages: (runId, retry) => void (retry ? loader.retry(runId) : loader.ensure(runId)),
+    openSocket: (path, onEvent) => api.openSocket(info.id, path, onEvent),
+  }
 }
 
 export interface AppState {

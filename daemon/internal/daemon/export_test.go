@@ -18,10 +18,11 @@ import (
 // OnLaunched sets reopen's test seam (nil clears it).
 func OnLaunched(f func(agentID string, die func() bool)) { launchedHook = f }
 
-// OnSpawn* and OnStopRunLocked set SpawnAgent's and StopRun's test seams (nil clears them).
+// OnSpawn*, OnStopRunLocked, and OnStopAgentLocked set test seams (nil clears them).
 func OnSpawnPlanned(f func())         { spawnPlannedHook = f }
 func OnSpawnCommitted(f func(string)) { spawnCommittedHook = f }
 func OnStopRunLocked(f func())        { stopRunLockedHook = f }
+func OnStopAgentLocked(f func())      { stopAgentLockedHook = f }
 
 // Reserve and Reserved put and read an agent's memory reservation, as a resume that passed the guard leaves it.
 func (d *Daemon) Reserve(agentID string) {
@@ -98,9 +99,18 @@ func (f *flakyTerm) ListTerminals(ctx context.Context, req *connect.Request[term
 	return f.TermHostServiceClient.ListTerminals(ctx, req)
 }
 
-// FlakyTerminalList makes the daemon's terminal host fail ListTerminals while fail is set. Call it before any agent runs.
-func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
-	d.rt.term.API = &flakyTerm{d.rt.term.API, fail}
+// FlakyTerminalList returns an AgentConfig option that makes the daemon's terminal host fail ListTerminals while
+// fail is set.
+func FlakyTerminalList(fail *atomic.Bool) func(*AgentConfig) {
+	return func(c *AgentConfig) {
+		prev := c.WrapTermAPI
+		c.WrapTermAPI = func(api termv1connect.TermHostServiceClient) termv1connect.TermHostServiceClient {
+			if prev != nil {
+				api = prev(api)
+			}
+			return &flakyTerm{api, fail}
+		}
+	}
 }
 
 // RepoTop is repoTop for the tests.
