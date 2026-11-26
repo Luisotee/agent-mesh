@@ -880,26 +880,13 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			mine.PendingReopen != nil || open != nil {
 			return fail("it is still answering an earlier question of this run")
 		}
-		// It answers whoever asks it this time: its parent is the caller of the ask that brought it into the run,
-		// and a report to anyone else is refused ("an agent sends only to its parent or its children"). A question
-		// of another caller of this run that it hasn't answered holds it; otherwise it moves to this caller.
+		// Another caller of this run that it hasn't answered yet holds it (its report goes to its parent only).
 		if mine.ParentId != actor.Id {
 			if held, _, err := collecting(r, mine.Id, mine.ParentId); err != nil {
 				return fail(err.Error())
 			} else if held != nil {
 				return fail(fmt.Sprintf("it is still answering an earlier question of %s", held.CallerName))
 			}
-			if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
-				cur, err := tx.GetAgent(mine.Id)
-				if err != nil {
-					return err
-				}
-				cur.ParentId = actor.Id
-				return tx.PutAgent(cur)
-			}); err != nil {
-				return fail(err.Error())
-			}
-			mine.ParentId = actor.Id
 		}
 	}
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
@@ -910,12 +897,37 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	task := askPrefix + "\n\n" + note + "\n\n" + body
 	var agent *v1.Agent
 	if mine != nil {
+		// It answers whoever asks it this time: its parent is the caller of the ask that brought it into the run,
+		// and a report to anyone else is refused ("an agent sends only to its parent or its children"). Moved only
+		// now that the ask goes ahead, and back if the task can't be given.
+		prevParent := mine.ParentId
+		setParent := func(id string) error {
+			return d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
+				cur, err := tx.GetAgent(mine.Id)
+				if err != nil {
+					return err
+				}
+				cur.ParentId = id
+				return tx.PutAgent(cur)
+			})
+		}
+		if prevParent != actor.Id {
+			if err := setParent(actor.Id); err != nil {
+				return fail(err.Error())
+			}
+		}
 		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(m.Meta, "send-"+p.Name), To: mine.Id,
 			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task}))
 		if err != nil {
+			if prevParent != actor.Id {
+				setParent(prevParent)
+			}
 			return fail(err.Error())
 		}
 		if res.Msg.ResumeError != "" {
+			if prevParent != actor.Id {
+				setParent(prevParent)
+			}
 			// The task was stored with the refusal: it is not for the next resume, which brings the peer back for
 			// a later question, so it is marked read.
 			d.dropStoredTask(ctx, actor, mine.Id, res.Msg.Message.GetId())

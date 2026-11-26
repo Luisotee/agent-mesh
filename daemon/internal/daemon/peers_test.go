@@ -1000,3 +1000,33 @@ func TestAPeerAskedByTwoCallersOfOneRunAnswersTheLastOne(t *testing.T) {
 		t.Errorf("the root's message: %s", body)
 	}
 }
+
+// An ask that can't go ahead leaves a peer's agent with the caller it had: it is moved to the new caller only
+// when the task is given.
+func TestARefusedAskLeavesAPeersAgentWithItsCaller(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer")
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: peerAgent.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(peerAgent.Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	w.set(t, "caps.agents", 1) // the root alone fills it: the retired peer cannot be resumed
+	_, err = w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60}))
+	if err == nil || !strings.Contains(err.Error(), "caps.agents 1") {
+		t.Fatalf("an ask of a peer that cannot be resumed: %v", err)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != "a-w2" {
+		t.Fatalf("a refused ask left the peer's agent parented to %s, want the worker", got.ParentId)
+	}
+}
