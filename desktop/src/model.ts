@@ -13,7 +13,7 @@ import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, forgetHost, noteSpawned, tabKey, type TabRef, type WorkspaceState } from './workspace'
+import { activate, cycleTab, closeTab, emptyWorkspace, forgetHost, noteSpawned, pruneDismissed, tabKey, type TabRef, type WorkspaceState } from './workspace'
 import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -170,6 +170,12 @@ export function createAppModel(api: DesktopApi): AppModel {
       rt.info.id,
       rt.store.subscribe((s, prev) => {
         if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
+        if (s.agents !== prev.agents) {
+          // A dismissed tile that came back when its agent's state changed stays back.
+          const held = store.getState().dismissed
+          const kept = pruneDismissed(held, rt.info.id, s.agents)
+          if (kept !== held) set({ dismissed: kept })
+        }
         if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
       }),
     )

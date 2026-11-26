@@ -53,6 +53,12 @@ describe('buildCommands', () => {
     expect(titles).not.toContain('Move app-w1 to its next model')
     expect(titles).toContain('Approve the plan of app-w1')
     expect(titles).not.toContain('Approve the plan of app-w2')
+    // A question waits on an answer, not an approval (ApproveAgent refuses it).
+    const asked = fixture()
+    asked.hosts[0]!.store.setState({ waiting: [create(WaitingSchema, { kind: WaitingKind.QUESTION, runId: 'r1', agentId: 'w1', message: create(MessageSchema, { id: 'm2', runId: 'r1', type: MessageType.QUESTION, toId: 'lead', body: 'which?' }) })] })
+    const askedTitles = buildCommands(asked.model).map((c) => c.title)
+    expect(askedTitles).toContain('app-w1 asked a question')
+    expect(askedTitles).not.toContain('Approve the plan of app-w1')
     // No host switcher with one host; with two, each is named.
     expect(titles.some((t) => t.startsWith('Go to host'))).toBe(false)
     expect(buildCommands(fixture(['h1', 'h2']).model).map((c) => c.title)).toEqual(expect.arrayContaining(['Go to host host-h1', 'Go to host host-h2', 'Ring app-w1 (host-h2)']))

@@ -42,6 +42,9 @@ export function parseChord(text: string, mac = isMac): Chord | undefined {
 export function keyOf(e: Pick<KeyboardEvent, 'key' | 'code' | 'shiftKey'>): string {
   if (e.key === ' ') return 'Space'
   if (e.key === '+') return 'Plus'
+  // A letter key that doesn't type a Latin letter (Option+K types ˚ on a Mac, a Russian layout types Cyrillic, a dead key
+  // types nothing): it is still that physical key.
+  if (/^Key[A-Z]$/.test(e.code) && (e.key.length === 1 || e.key === 'Dead' || e.key === 'Unidentified') && !/^[a-z]$/i.test(e.key)) return e.code.slice(3)
   if (e.key.length === 1) {
     if (/[a-z]/i.test(e.key)) return e.key.toUpperCase()
     // Shift changes what a symbol or digit key types: name the key by what it is without it.

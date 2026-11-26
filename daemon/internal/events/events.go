@@ -177,6 +177,16 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 	}
 
 	for {
+		// A frame is told before the event after it: it was published first (an activity frame goes out as its write
+		// commits, a state event as the next write does), and select alone picks a ready channel at random.
+		select {
+		case a := <-live.act:
+			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_Activity{Activity: a}}); err != nil {
+				return err
+			}
+			continue
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

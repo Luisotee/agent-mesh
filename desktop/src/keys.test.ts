@@ -33,6 +33,12 @@ describe('matching events', () => {
   it('names a key by what it is with Shift down, and special keys by name', () => {
     expect(keyOf(ev('<', { shiftKey: true, code: 'Comma' }))).toBe(',')
     expect(keyOf(ev('!', { shiftKey: true, code: 'Digit1' }))).toBe('1')
+    // A letter key that types something else (Option on a Mac, another alphabet, a dead key) is still its letter.
+    expect(keyOf(ev('˚', { altKey: true, code: 'KeyK' }))).toBe('K')
+    expect(keyOf(ev('з', { code: 'KeyP' }))).toBe('P')
+    expect(keyOf(ev('Dead', { altKey: true, code: 'KeyE' }))).toBe('E')
+    expect(keyOf(ev('p', { code: 'KeyL' }))).toBe('P') // the layout's own letter wins where it is Latin (Dvorak)
+    expect(matches(ev('˚', { altKey: true, code: 'KeyK' }), parseChord('Alt+K', true)!)).toBe(true)
     expect(keyOf(ev(' '))).toBe('Space')
     expect(keyOf(ev('+', { shiftKey: true }))).toBe('Plus')
     expect(matches(ev('Tab', { ctrlKey: true }), parseChord('Ctrl+Tab', false)!)).toBe(true)

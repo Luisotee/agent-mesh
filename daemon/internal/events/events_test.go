@@ -219,3 +219,51 @@ func TestActivityFramesAreLiveOnlyScopedAndNeverDropASubscriber(t *testing.T) {
 		t.Errorf("%d subscribers, want 3", bus.Subscribers())
 	}
 }
+
+// An activity frame that was published before a state event is told before it: with both ready, select would pick
+// either, and a frame after the state event that followed it shows a tool that has stopped running.
+func TestAnActivityFrameIsToldBeforeTheEventPublishedAfterIt(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	s.OnCommit = bus.Publish
+	for round := 0; round < 30; round++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		first, release := make(chan struct{}), make(chan struct{})
+		got := make(chan string, 8)
+		done := make(chan error, 1)
+		go func() {
+			n := 0
+			done <- bus.Serve(ctx, &v1.SubscribeEventsRequest{}, true, nil, func(f *v1.SubscribeEventsResponse) error {
+				if n++; n == 1 {
+					close(first)
+					<-release // both are ready when the stream looks again
+					return nil
+				}
+				if f.GetActivity() != nil {
+					got <- "activity"
+				} else {
+					got <- "event"
+				}
+				return nil
+			})
+		}()
+		<-first
+		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "Bash"})
+		if err := s.Write(ctx, nil, "", func(tx *store.Tx) error {
+			_, err := tx.AppendEvent(&v1.Event{RunId: "r1", Payload: &v1.Event_RunStarted{RunStarted: &v1.RunStarted{}}})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		close(release)
+		if a, b := <-got, <-got; a != "activity" || b != "event" {
+			t.Fatalf("round %d: told %s then %s", round, a, b)
+		}
+		cancel()
+		<-done
+	}
+}

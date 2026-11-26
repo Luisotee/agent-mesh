@@ -646,3 +646,21 @@ func TestWorktreesRoundTripAndRejectDuplicates(t *testing.T) {
 		t.Fatalf("ListWorktrees after delete = %+v, %v", list, err)
 	}
 }
+
+func TestAfterCommitRunsOnlyForATransactionThatCommitted(t *testing.T) {
+	s := open(t)
+	var ran []string
+	err := s.Write(context.Background(), nil, "", func(tx *Tx) error {
+		tx.AfterCommit(func() { ran = append(ran, "rolled back") })
+		return errors.New("no")
+	})
+	if err == nil || len(ran) != 0 {
+		t.Fatalf("a failed write: %v, ran %v", err, ran)
+	}
+	if err := s.Write(context.Background(), nil, "", func(tx *Tx) error {
+		tx.AfterCommit(func() { ran = append(ran, "committed") })
+		return nil
+	}); err != nil || len(ran) != 1 || ran[0] != "committed" {
+		t.Fatalf("a write that committed: %v, ran %v", err, ran)
+	}
+}

@@ -1,6 +1,6 @@
 import { approveAgent, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
 import { canPair } from './components/pair-panel'
-import { joinWaiting, ROLE_LABEL, statusSentence } from './derive'
+import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 import type { AgentTab, AppModel, HostRuntime } from './model'
 import { DEFAULT_KEYS, appKeys, type KeyedCommand } from './prefs'
@@ -30,12 +30,13 @@ export interface Command {
 const alive = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 
 /** What waits on the user across every host, as places to go: a plan or question opens its messages, a prompt its terminal. */
-export function waitingTargets(app: AppModel): Array<{ hostId: string; agentId: string; tab: AgentTab; text: string }> {
+export function waitingTargets(app: AppModel): Array<{ hostId: string; agentId: string; kind: Waiting['kind']; tab: AgentTab; text: string }> {
   return app.store.getState().hosts.flatMap((h) => {
     const s = h.store.getState()
     return joinWaiting(s.waiting, s.runs, s.agents).map((w) => ({
       hostId: h.info.id,
       agentId: w.agent.id,
+      kind: w.kind,
       tab: (w.kind === 'input' ? 'terminal' : 'messages') as AgentTab,
       text: w.kind === 'plan' ? `${w.agent.name} sent a plan` : w.kind === 'question' ? `${w.agent.name} asked a question` : `${w.agent.name} is waiting in its terminal`,
     }))
@@ -132,13 +133,13 @@ export function buildCommands(app: AppModel): Command[] {
       })
     }
     for (const a of Object.values(hs.agents).sort((x, y) => x.name.localeCompare(y.name))) {
-      out.push(...agentCommands(app, h, a, many, hs.runs[a.runId]?.title ?? '', waiting.some((w) => w.hostId === h.info.id && w.agentId === a.id && w.tab === 'messages')))
+      out.push(...agentCommands(app, h, a, many, hs.runs[a.runId]?.title ?? '', waiting.some((w) => w.hostId === h.info.id && w.agentId === a.id && w.kind === 'plan')))
     }
   }
   return out
 }
 
-function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, runTitle: string, hasPlanOrQuestion: boolean): Command[] {
+function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, runTitle: string, hasPlan: boolean): Command[] {
   const detail = [ROLE_LABEL[a.role], statusSentence(a), runTitle, a.repo.split('/').pop(), many ? h.info.name : ''].filter(Boolean).join(' · ')
   const cmds: Command[] = [{ id: `agent:${h.info.id}/${a.id}`, title: `Go to ${a.name}`, group: 'Agents', detail, run: () => app.selectAgent(h.info.id, a.id) }]
   if (!alive(a)) return cmds
@@ -155,7 +156,7 @@ function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, r
   cmds.push(act('Retire', retireAgent, { confirm: `Retire ${a.name}? Its process stops and its conversation is kept; a message brings it back.` }))
   cmds.push(act('Stop', stopAgent, { confirm: `Stop ${a.name}? Its process ends.` }))
   if (a.state === AgentState.LIMITED) cmds.push(act('Switch', switchToNextModel, { title: `Move ${a.name} to its next model${on}` }))
-  if (hasPlanOrQuestion) cmds.push(act('Approve', approveAgent, { title: `Approve the plan of ${a.name}${on}`, confirm: `Approve ${a.name}'s plan? It goes on at its execution tier.` }))
+  if (hasPlan) cmds.push(act('Approve', approveAgent, { title: `Approve the plan of ${a.name}${on}`, confirm: `Approve ${a.name}'s plan? It goes on at its execution tier.` }))
   return cmds
 }
 
