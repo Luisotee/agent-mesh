@@ -76,6 +76,13 @@ export interface ShellApi {
   onNotificationClick(cb: (n: NoticeClick) => void): () => void
 }
 
+/** A pairing link the operating system opened the app with (`agentmesh://pair?...`), already read and checked by main. */
+export interface OpenedLink {
+  link: string
+  /** The host's own name, as the link says it. */
+  hostName: string
+}
+
 export interface DesktopApi {
   hosts: {
     list(): Promise<HostInfo[]>
@@ -88,6 +95,13 @@ export interface DesktopApi {
   request(hostId: string, req: BridgeRequest, onEvent: (e: BridgeEvent) => void): () => void
   /** Open a terminal's WebSocket (a path from OpenTerminal, ticket included). Events end with `close` or `error`. */
   openSocket(hostId: string, path: string, onEvent: (e: SocketEvent) => void): SocketHandle
+  /** Pairing links opened from outside the app. They never act on their own: the renderer shows them for the user to confirm. */
+  links: {
+    /** The link that arrived before anyone asked (one that started the app), once. */
+    take(): Promise<OpenedLink | undefined>
+    /** A link that arrives while the app runs; returns how to stop listening. */
+    onOpen(cb: (l: OpenedLink) => void): () => void
+  }
   /** Open an http(s) link in the user's browser. */
   openExternal(url: string): void
   shell: ShellApi

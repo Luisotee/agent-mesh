@@ -279,7 +279,11 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 		if when == nil {
 			when = lr.RequestedAt
 		}
-		out = append(out, "", fmt.Sprintf("## last reset (%s, %s)", when.AsTime().UTC().Format(time.RFC3339), orDash(lr.Outcome)))
+		via := ""
+		if lr.Via != "" {
+			via = ", via " + lr.Via
+		}
+		out = append(out, "", fmt.Sprintf("## last reset (%s, %s%s)", when.AsTime().UTC().Format(time.RFC3339), orDash(lr.Outcome), via))
 		if lr.Next != "" {
 			out = append(out, "next, as you said then: "+lr.Next)
 		}

@@ -418,13 +418,22 @@ func TestABootstrapHeldBackByUserTypingIsGivenUpAndSaidSo(t *testing.T) {
 func TestTheKeeperResetsABigIdleRootAndNotASmallOneOrOneWithMail(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{Every: 100 * time.Millisecond, Quiet: 300 * time.Millisecond, UserQuiet: 600 * time.Millisecond, Backoff: time.Hour})
 	ctx := context.Background()
+	spawnLive := func(asRoot agentmeshv1connect.MeshServiceClient) {
+		res, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	}
 
 	small := startRun(t, w.device.Mesh, "")
-	smallLead, _ := w.root(t, small.Id)
+	smallLead, asSmall := w.root(t, small.Id)
+	spawnLive(asSmall)
 	w.size(t, w.agent(smallLead.Id), 100000, hour, 0)
 
 	mailed := startRun(t, w.device.Mesh, "")
-	mailedLead, _ := w.root(t, mailed.Id)
+	mailedLead, asMailed := w.root(t, mailed.Id)
+	spawnLive(asMailed)
 	w.size(t, w.agent(mailedLead.Id), 200000, hour, 0)
 	// An unread message holds the keeper (it acts without the root's say).
 	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: mailedLead.Id,
@@ -433,7 +442,8 @@ func TestTheKeeperResetsABigIdleRootAndNotASmallOneOrOneWithMail(t *testing.T) {
 	}
 
 	big := startRun(t, w.device.Mesh, "")
-	bigLead, _ := w.root(t, big.Id)
+	bigLead, asBig := w.root(t, big.Id)
+	spawnLive(asBig)
 	w.size(t, w.agent(bigLead.Id), 200000, hour, 0)
 	started := time.Now()
 	after := w.waitReset(t, bigLead.Id, "done")
@@ -455,6 +465,52 @@ func TestTheKeeperResetsABigIdleRootAndNotASmallOneOrOneWithMail(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 	if got := strings.Join(w.resetEvents(t, big.Id, bigLead.Id), ","); got != "requested,done" {
 		t.Errorf("events %s", got)
+	}
+}
+
+func TestTheKeeperSkipsARunWithNoLiveWorkers(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{Every: 100 * time.Millisecond, Quiet: 200 * time.Millisecond, UserQuiet: 300 * time.Millisecond, Backoff: time.Hour})
+	ctx := context.Background()
+
+	bare := startRun(t, w.device.Mesh, "")
+	bareLead, _ := w.root(t, bare.Id)
+	w.size(t, w.agent(bareLead.Id), 200000, hour, 0)
+
+	retired := startRun(t, w.device.Mesh, "")
+	retiredLead, asRetired := w.root(t, retired.Id)
+	res, err := asRetired.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := asRetired.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: worker.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.size(t, w.agent(retiredLead.Id), 200000, hour, 0)
+
+	time.Sleep(700 * time.Millisecond)
+	if got := w.resetEvents(t, bare.Id, bareLead.Id); len(got) != 0 {
+		t.Errorf("a run with no workers was reset: %v", got)
+	}
+	if got := w.resetEvents(t, retired.Id, retiredLead.Id); len(got) != 0 {
+		t.Errorf("a run whose workers are retired was reset: %v", got)
+	}
+
+	// Once a live worker is running again, the keeper resets the root and labels it via keeper.
+	if _, err := asRetired.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: worker.Id, Task: "Direct task (no plan): carry on"})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	after := w.waitReset(t, retiredLead.Id, "done")
+	if after.LastReset.Via != "keeper" {
+		t.Errorf("via %q, want keeper", after.LastReset.Via)
+	}
+	brief, err := w.as(w.token(t, retiredLead.Id)).GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(brief.Msg.Text, ", done, via keeper)") {
+		t.Errorf("the brief does not label the keeper's reset:\n%s", brief.Msg.Text)
 	}
 }
 
@@ -481,7 +537,12 @@ func TestTheKeeperWaitsLessAfterATurnMeshStarted(t *testing.T) {
 	w.size(t, w.agent(wokenLead.Id), 200000, hour, 0)
 
 	typed := startRun(t, w.device.Mesh, "")
-	typedLead, _ := w.root(t, typed.Id)
+	typedLead, asTyped := w.root(t, typed.Id)
+	tres, err := asTyped.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(tres.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(w.agent(typedLead.Id), "what is the state?\r") // the user's turn
 	waitFor(t, "the user's turn", func() bool {
 		a := w.agent(typedLead.Id)
@@ -631,8 +692,7 @@ func TestAResetCapturesTheOldSessionWhenItBegins(t *testing.T) {
 
 func TestAResetWaitsOnATerminalHostThatKeepsFailingAndThenGivesUp(t *testing.T) {
 	var down atomic.Bool
-	w := startReset(t, daemon.ResetTimings{})
-	w.d.FlakyTerminalList(&down)
+	w := startReset(t, daemon.ResetTimings{}, daemon.FlakyTerminalList(&down))
 	w.setSetting(t, "root_reset.wait", 1.0)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)

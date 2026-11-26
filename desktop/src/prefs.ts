@@ -21,7 +21,7 @@ export function jsonOf(s: Setting | undefined): unknown {
 export const DEFAULT_PREFS: AppPrefs = {
   notifyEnabled: true,
   notifySound: true,
-  notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed']),
+  notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error']),
   closeToTray: false,
 }
 

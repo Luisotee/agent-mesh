@@ -453,6 +453,9 @@ message PushRegistration {
 
 message DevicePaired {
   Device device = 1;
+  // The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+  // from. Events from before this field have it empty.
+  string pairing_id = 2;
 }
 
 message DeviceRevoked {

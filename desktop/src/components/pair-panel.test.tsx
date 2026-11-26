@@ -26,7 +26,7 @@ function fixture(caps: string[] = ['tls'], actorId = 'device-local') {
     revokeDevice: vi.fn(async (_req: unknown) => ({})),
   }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client } as unknown as HostRuntime
-  const model = createAppModel({ hosts: { list: async () => [], fixed: false }, shell: { setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi)
+  const model = createAppModel({ hosts: { list: async () => [], fixed: false }, links: { take: async () => undefined, onOpen: vi.fn(() => () => {}) }, shell: { setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi)
   const wrap = (ui: React.ReactNode) => <AppContext.Provider value={model}>{ui}</AppContext.Provider>
   return { host, client, store, wrap }
 }
@@ -49,14 +49,73 @@ describe('PairPanel', () => {
     expect(screen.getByLabelText('Pairing link')).toHaveValue(URI)
 
     // The device redeems it: the host announces DevicePaired, and the screen says so instead of showing the link.
-    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq: 1n, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device('d2', 'Tablet', ActorClass.READ_ONLY_DEVICE) } } }) }))
+    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq: 1n, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device('d2', 'Tablet', ActorClass.READ_ONLY_DEVICE), pairingId: '' } } }) }))
     expect(await screen.findByRole('status')).toHaveTextContent('Paired: Tablet')
     expect(screen.queryByRole('img', { name: 'Pairing QR code' })).toBeNull()
     expect(within(screen.getByRole('list', { name: 'Paired devices' })).getByText('read-only')).toBeInTheDocument()
   })
 
-  const paired = (store: ReturnType<typeof fixture>['store'], seq: bigint, id: string, name: string) =>
-    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device(id, name) } } }) }))
+  const paired = (store: ReturnType<typeof fixture>['store'], seq: bigint, id: string, name: string, pairingId = '') =>
+    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq, generation: 'g', payload: { case: 'devicePaired', value: { $typeName: 'agentmesh.v1.DevicePaired', device: device(id, name), pairingId } } }) }))
+
+  it('matches the device that used this link by the pairing id, whatever it calls itself or what else appeared', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { pairingId: 'p-mine', uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.type(await screen.findByLabelText('Name of the device'), 'Tablet')
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    // Another link's device appears first, one that is even named like ours; ours comes under another name.
+    paired(store, 1n, 'd7', 'Tablet', 'p-other')
+    expect(await screen.findByRole('note')).toHaveTextContent('Tablet paired meanwhile')
+    expect(screen.queryByRole('status')).toBeNull()
+    paired(store, 2n, 'd8', 'Galaxy', 'p-mine')
+    expect(await screen.findByRole('status')).toHaveTextContent('Paired: Galaxy')
+    expect(screen.queryByRole('img', { name: 'Pairing QR code' })).toBeNull()
+  })
+
+  it('never takes another link\'s only new device for its own, even with no name given', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { pairingId: 'p-mine', uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    paired(store, 1n, 'd7', 'Phone', 'p-other')
+    expect(await screen.findByRole('note')).toHaveTextContent('Phone paired meanwhile')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+  })
+
+  it('goes by name or the only new device when the host sends no pairing id (an older host)', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { pairingId: 'p-mine', uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    paired(store, 1n, 'd9', 'Pixel 9') // no pairing id on the event
+    expect(await screen.findByRole('status')).toHaveTextContent('Paired: Pixel 9')
+  })
+
+  it('still goes by name for a device the host said nothing about, when another link\'s device was seen', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { pairingId: 'p-mine', uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.type(await screen.findByLabelText('Name of the device'), 'Tablet')
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    paired(store, 1n, 'd7', 'Phone', 'p-other')
+    // Ours arrived while the stream was down: it is in the list, with no event behind it.
+    store.setState((s) => ({ devices: [...s.devices, device('d8', 'Tablet')] }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Paired: Tablet')
+  })
+
+  it('forgets which link a revoked device came through', () => {
+    const store = createHostStore()
+    paired(store, 1n, 'd9', 'Pixel 9', 'p1')
+    expect(store.getState().pairedVia).toEqual({ d9: 'p1' })
+    store.setState((s) => applyFrame(s, { case: 'event', value: create(EventSchema, { seq: 2n, generation: 'g', payload: { case: 'deviceRevoked', value: { $typeName: 'agentmesh.v1.DeviceRevoked', deviceId: 'd9', name: 'Pixel 9' } } }) }))
+    expect(store.getState().pairedVia).toEqual({})
+  })
 
   it('with no name given, the one device that appears is the link\'s, whatever it calls itself', async () => {
     const { host, store, wrap } = fixture()

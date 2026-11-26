@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
@@ -17,6 +17,8 @@ import { createAppModel, type HostRuntime } from './model'
 import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { createHostStore } from './store'
 
+const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
+
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
 const agent = (id: string, o: AgentInit = {}) => create(AgentSchema, { id, name: id, runId: 'r1', repo: '/p/app', kind: 'claude', createdAt: timestampFromMs(1000), state: AgentState.IDLE, ...o })
 
@@ -31,11 +33,12 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     synced: true,
     runs: { r1: create(RunSchema, { id: 'r1', title: 'ship it', status: RunStatus.OPEN }) },
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
+    messageLoad: { r1: 'loaded' },
   })
   const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
-  const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection } as unknown as HostRuntime
-  const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+  const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection, loadMessages: vi.fn() } as unknown as HostRuntime
+  const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
   const model = createAppModel(api)
   model.store.setState({ loaded: true, hosts: [host], hostId: 'h1' })
   const wrap = (ui: React.ReactNode) => <AppContext.Provider value={model}>{ui}</AppContext.Provider>
@@ -166,7 +169,7 @@ describe('ConnectionBanner', () => {
 describe('App', () => {
   it('asks for a host when there is none, and adds one', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'home', kind: 'state-dir' as const, target: '/s/state' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: '/s/state' } })
@@ -177,7 +180,7 @@ describe('App', () => {
 
   it('adds a host by pairing link, with the name this device gives itself', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'Home', kind: 'paired' as const, target: '10.0.0.2:9443' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     await userEvent.selectOptions(await screen.findByLabelText('How to reach it'), 'pair')
     // The host's own name is optional here, and there is no field for a pasted token.
@@ -190,11 +193,53 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: /Host Home/ })).toBeInTheDocument()
   })
 
+  const OPENED = { link: 'agentmesh://pair?v=1&h=h_1&t=amp_one', hostName: 'Home server' }
+
+  it('opened by a pairing link with no host yet, fills the form in and adds nothing until the user does', async () => {
+    const add = vi.fn(async () => ({ id: 'x', name: 'Home server', kind: 'paired' as const, target: '10.0.0.2:9443' }))
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: { take: async () => OPENED, onOpen: vi.fn(() => () => {}) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    render(<App api={api} />)
+    expect(await screen.findByLabelText('Pairing link')).toHaveValue(OPENED.link)
+    expect(screen.getByLabelText('Name')).toHaveValue('Home server')
+    expect(screen.getByRole('note')).toHaveTextContent('opened by a pairing link for Home server')
+    expect(add).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Add host' }))
+    expect(add).toHaveBeenCalledWith({ name: 'Home server', kind: 'pair', link: OPENED.link, deviceName: 'Desktop' })
+  })
+
+  it('opened by a pairing link while running, opens the add-a-host dialog filled in; closing it drops the link', async () => {
+    let open!: (l: typeof OPENED) => void
+    const host = { id: 'h', name: 'home', kind: 'state-dir' as const, target: '/s' }
+    const api = { hosts: { list: async () => [host], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), openSocket: vi.fn(), links: { take: async () => undefined, onOpen: vi.fn((cb: typeof open) => ((open = cb), () => {})) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    render(<App api={api} />)
+    await screen.findByRole('button', { name: /Host home/ })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => open(OPENED))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Pairing link')).toHaveValue(OPENED.link)
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await userEvent.click(screen.getByRole('button', { name: 'Add a host' }))
+    const fresh = within(await screen.findByRole('dialog'))
+    expect(fresh.queryByLabelText('Pairing link')).toBeNull() // a fresh form: a state dir, not the dropped link
+    expect(fresh.getByLabelText('Name')).toHaveValue('')
+  })
+
+  it('ignores a link when the host list is fixed by the environment', async () => {
+    const take = vi.fn(async () => OPENED)
+    const host = { id: 'h', name: 'home', kind: 'state-dir' as const, target: '/s' }
+    const api = { hosts: { list: async () => [host], add: vi.fn(), remove: vi.fn(), fixed: true }, request: vi.fn(() => () => {}), openSocket: vi.fn(), links: { take, onOpen: vi.fn(() => () => {}) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    render(<App api={api} />)
+    await screen.findByRole('button', { name: /Host home/ })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(take).not.toHaveBeenCalled() // the link stays where main keeps it: nothing here could use it
+  })
+
   it('shows why a host was refused', async () => {
     const add = vi.fn(async () => {
       throw new Error("Error invoking remote method 'hosts:add': Error: the state dir must be an absolute path")
     })
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(), shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: 'rel' } })
@@ -340,6 +385,24 @@ describe('MessagesPanel', () => {
     const failed = screen.getByRole('article', { name: 'Failed from w1' })
     await userEvent.click(within(failed).getByRole('button', { name: /Show all/ }))
     expect(within(failed).getByRole('button', { name: /Show less/ })).toBeInTheDocument()
+  })
+
+  it('asks for the run\'s messages when shown, and shows Loading until they are there, then a retry if they failed', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState({ messageLoad: {} })
+    const { rerender } = render(wrap(<MessagesPanel host={host} agentId="w1" active={false} />))
+    expect(host.loadMessages).not.toHaveBeenCalled() // a tab nobody opened loads nothing
+    expect(screen.getByRole('status')).toHaveTextContent('Loading messages')
+    rerender(wrap(<MessagesPanel host={host} agentId="w1" active />))
+    expect(host.loadMessages).toHaveBeenCalledWith('r1')
+    putMessages(host, msg('p1', MessageType.DONE, 'w1', 'lead', 1000, 'a report an event brought'))
+    expect(screen.queryByRole('article')).toBeNull() // some of the history isn't all of it
+    host.store.setState({ messageLoad: { r1: 'failed' } })
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load")
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(host.loadMessages).toHaveBeenLastCalledWith('r1', true)
+    host.store.setState({ messageLoad: { r1: 'loaded' } })
+    expect(await screen.findByRole('article', { name: 'Report from w1' })).toBeInTheDocument()
   })
 
   it('says so when there are no messages', () => {
