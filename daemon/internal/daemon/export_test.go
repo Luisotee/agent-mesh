@@ -156,3 +156,17 @@ func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addr
 func (d *Daemon) ReminderText(ctx context.Context, a *v1.Agent, source string) string {
 	return d.reminderText(ctx, a, source)
 }
+
+// RecordStopped records an agent's exit as StopAgent does for one whose process is already gone.
+func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
+	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(agentID)
+		if err != nil {
+			return err
+		}
+		if _, err := d.recordStopped(tx, a); err != nil {
+			return err
+		}
+		return tx.PutAgent(a)
+	})
+}

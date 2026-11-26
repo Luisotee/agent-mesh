@@ -9,6 +9,8 @@ import { useHostState } from '@/context'
 import { knownRepos } from '@/derive'
 import { AgentRole } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
+import { vendorOfKind } from '@/vendor'
+import { VendorIcon } from './vendor-icon'
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -138,7 +140,10 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
               </Select>
             </Field>
             <Field label="CLI">
-              <Input required value={kind} onChange={(e) => setKind(e.target.value)} />
+              <div className="flex items-center gap-2">
+                <VendorIcon vendor={vendorOfKind(kind)} kind={kind} />
+                <Input required value={kind} onChange={(e) => setKind(e.target.value)} />
+              </div>
             </Field>
             <Field label="Tier" hint="What the host runs it on: each tier is a model and effort in the host's settings.">
               <Select value={tier} onChange={(e) => setChosen(e.target.value)}>

@@ -11,6 +11,12 @@ import { ChatView } from './components/chat-view'
 import { SettingsPanel } from './components/settings-panel'
 import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
+import { Panes } from './components/panes'
+import { SidePanel } from './components/side-panel'
+import { WatchAll } from './components/watch-all'
+import { ModelControl } from './components/model-control'
+import { VendorIcon } from './components/vendor-icon'
+import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
@@ -19,7 +25,7 @@ import { RunSidebar } from './components/run-sidebar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -27,6 +33,10 @@ import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
+import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
+import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
+import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } from './gen/agentmesh/v1/report_pb'
+import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 const noLocal = { detect: async () => [], connect: vi.fn(), fix: vi.fn() }
@@ -34,6 +44,12 @@ const manually = async () => userEvent.click(await screen.findByRole('button', {
 
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
 const agent = (id: string, o: AgentInit = {}) => create(AgentSchema, { id, name: id, runId: 'r1', repo: '/p/app', kind: 'claude', createdAt: timestampFromMs(1000), state: AgentState.IDLE, ...o })
+
+const noTiers = vi.hoisted(() => ({ on: false }))
+vi.mock('./components/spawn-dialogs', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./components/spawn-dialogs')>()
+  return { ...m, tiersOf: (settings: Record<string, unknown>, kind: string) => (noTiers.on ? [] : m.tiersOf(settings, kind)) }
+})
 
 function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentmesh.v1.HelloResponse', daemonId: 'd', instanceId: 'i', version: 'v', capabilities: [], protocolVersion: 1 } as never }) {
   const store = createHostStore()
@@ -48,7 +64,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
     messageLoad: { r1: 'loaded' },
   })
-  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})) }
+  const client = { startRun: vi.fn(async (_req: unknown): Promise<unknown> => ({})), setSetting: vi.fn(async (_req: unknown) => ({})), holdPullRequest: vi.fn(async (_req: unknown) => ({})), listProjects: vi.fn(async (_req: unknown) => create(ListProjectsResponseSchema)), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})), getCost: vi.fn(async (_req: unknown) => create(GetCostResponseSchema)), getUsage: vi.fn(async (_req: unknown) => create(GetUsageResponseSchema)) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection, loadMessages: vi.fn() } as unknown as HostRuntime
   const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
@@ -73,6 +89,37 @@ describe('RunSidebar', () => {
     expect(lead.closest('li')).toContainElement(fix)
     await userEvent.click(fix)
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
+  })
+
+  it('groups the agents by project or by status bucket, with Done folded, and a worker with an open PR is ready to review', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      agents: {
+        ...s.agents,
+        w2: agent('w2', { role: AgentRole.WORKER, name: 'web-docs', repo: '/p/web', parentId: 'lead', state: AgentState.IDLE }),
+        w3: agent('w3', { role: AgentRole.WORKER, name: 'web-old', repo: '/p/web', parentId: 'lead', state: AgentState.RETIRED }),
+      },
+      pullRequests: { w2: create(AgentPullRequestsSchema, { agentId: 'w2', pullRequests: [create(PullRequestSchema, { agentId: 'w2', number: 4, url: 'u', state: 'open' })] }) },
+    }))
+    render(wrap(<RunSidebar host={host} />))
+    const group = screen.getByRole('group', { name: 'Group the agents by' })
+    expect(within(group).getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(within(group).getByRole('button', { name: 'Projects' }))
+    expect(model.store.getState().sidebarGroup).toBe('project')
+    const app = screen.getByRole('region', { name: 'app' })
+    expect(within(app).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('app-fix'), expect.stringContaining('app-lead')])
+    expect(app).toHaveTextContent('1 needs you')
+    expect(screen.getByRole('region', { name: 'web' })).toHaveTextContent('1 ready to review')
+
+    await userEvent.click(within(group).getByRole('button', { name: 'Status' }))
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Needs you', 'Ready to review', 'Idle', 'Done'])
+    expect(within(screen.getByRole('region', { name: 'Ready to review' })).getByRole('button', { name: /web-docs/ })).toHaveTextContent('web · ship it')
+    // Done is folded until asked for.
+    const done = screen.getByRole('region', { name: 'Done' })
+    expect(within(done).queryByRole('button', { name: /web-old/ })).toBeNull()
+    await userEvent.click(within(done).getByRole('button', { name: /Show 1/ }))
+    expect(within(done).getByRole('button', { name: /web-old/ })).toBeInTheDocument()
   })
 
   it('invites starting a run when there are none', () => {
@@ -518,6 +565,453 @@ describe('Dock and TabBar', () => {
     expect(screen.getByRole('status')).toHaveTextContent('2 started')
     await userEvent.click(screen.getByRole('button', { name: 'Show the live dock' }))
     expect(model.store.getState().dockBadge).toBe(0)
+  })
+})
+
+describe('Splits', () => {
+  it('shows an agent beside the open one from its tab or the dock, stacks and unstacks, swaps and closes a pane', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState({ daemon: { capabilities: [] } as never })
+    model.store.setState({ hostId: 'h1' })
+    model.selectAgent('h1', 'lead')
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<><TabBar /><Panes host={host} agentId="lead" /><Dock /></>))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Show app-fix beside' }))
+    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'overview' }])
+    // The tab says it is beside, and has no split button now.
+    expect(within(tabs).queryByRole('button', { name: 'Show app-fix beside' })).toBeNull()
+    const split = screen.getByRole('region', { name: 'Split pane' })
+    expect(within(split).getByRole('article', { name: 'app-fix' })).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Main pane' })).getByRole('article', { name: 'app-lead' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Panes' }).className).toContain('flex-row')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stack the panes' }))
+    expect(screen.getByRole('group', { name: 'Panes' }).className).toContain('flex-col')
+
+    // A pane has its own view.
+    await userEvent.click(within(split).getByRole('tab', { name: 'messages' }))
+    expect(model.store.getState().side[0]!.tab).toBe('messages')
+    expect(model.store.getState().tab).toBe('overview')
+
+    await userEvent.click(within(split).getByRole('button', { name: 'Make this the main pane' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages', side: [{ agentId: 'lead', tab: 'overview' }] })
+
+    await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: 'Close this pane' }))
+    expect(model.store.getState().side).toEqual([])
+    expect(model.store.getState().tabs).toHaveLength(2)
+
+    // From the dock.
+    await userEvent.click(screen.getByRole('button', { name: 'Pin app-lead as a split' }))
+    expect(model.store.getState().side.map((p) => p.agentId)).toEqual(['lead'])
+  })
+})
+
+describe('WatchAll tiles follow the host\'s store', () => {
+  it('moves a tile to needing the user when a plan arrives for it', async () => {
+    const { host, client, wrap } = fixture()
+    Object.assign(client, { readTranscript: vi.fn(async () => create(ReadTranscriptResponseSchema, { supported: true })) })
+    host.store.setState((s) => ({ agents: { ...s.agents, w2: agent('w2', { name: 'app-w2', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.IDLE }) } }))
+    render(wrap(<WatchAll />))
+    const tile = await screen.findByRole('listitem', { name: 'app-w2 in the grid' })
+    expect(tile).toHaveTextContent('idle')
+    act(() => host.store.setState({ waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w2', message: create(MessageSchema, { id: 'm9', type: MessageType.PLAN, runId: 'r1' }) })] }))
+    expect(screen.getByRole('listitem', { name: 'app-w2 in the grid' })).toHaveTextContent('needs you')
+  })
+})
+
+describe('SidePanel', () => {
+  const costResp = create(GetCostResponseSchema, { usd: 7.5, agents: [create(AgentCostSchema, { name: 'app-fix', usd: 2 }), create(AgentCostSchema, { name: 'app-lead', usd: 5.5 })] })
+  const usageResp = create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: 'weekly window', used: 95 })], atReserve: ['weekly window'] }) })
+
+  function panelFixture() {
+    const f = fixture()
+    Object.assign(f.client, { getCost: vi.fn(async () => costResp), getUsage: vi.fn(async () => usageResp) })
+    f.host.store.setState((s) => ({
+      waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w1', message: create(MessageSchema, { id: 'm1', type: MessageType.PLAN, runId: 'r1', toId: 'lead' }) })],
+      pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [create(PullRequestSchema, { agentId: 'w1', number: 12, url: 'https://github.com/o/r/pull/12', state: 'open', checks: 'failing' })] }) },
+      agents: { ...s.agents },
+    }))
+    return f
+  }
+
+  it('shows a lead\'s whole run: total and per-agent cost, what waits, its PRs and quota', async () => {
+    const { host, client, wrap } = panelFixture()
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    expect(await screen.findByTestId('cost-total')).toHaveTextContent('$7.50')
+    expect(client.getCost).toHaveBeenCalledWith({ agents: true, runId: 'r1', since: '' })
+    const per = screen.getByRole('list', { name: 'Cost per agent' })
+    expect(within(per).getAllByRole('listitem').map((l) => l.textContent)).toEqual(['app-lead$5.50', 'app-fix$2.00'])
+    const waiting = screen.getByRole('region', { name: 'Waiting in this run' })
+    expect(waiting).toHaveTextContent('app-fix sent a plan')
+    const prs = screen.getByRole('region', { name: 'Pull requests' })
+    expect(prs).toHaveTextContent('#12')
+    expect(prs).toHaveTextContent('checks failing')
+    expect(prs).toHaveTextContent('app-fix')
+    const bar = await screen.findByRole('progressbar', { name: 'Claude weekly window' })
+    expect(bar).toHaveAttribute('aria-valuenow', '95')
+  })
+
+  it('shows another agent\'s place, model, share of the cost and its own PRs, and a click on a waiting row opens it', async () => {
+    const { host, wrap, model } = panelFixture()
+    const open = vi.fn()
+    ;(window as unknown as { desktop: unknown }).desktop = { openExternal: open }
+    render(wrap(<SidePanel host={host} agentId="w1" />))
+    const where = screen.getByRole('region', { name: 'Where' })
+    expect(where).toHaveTextContent('app')
+    expect(where).toHaveTextContent('home')
+    expect(await screen.findByTestId('cost-total')).toHaveTextContent('$2.00')
+    expect(screen.getByRole('region', { name: 'Cost' })).toHaveTextContent('of $7.50 for the run')
+    // No waiting list for a worker; its PR opens in the browser.
+    expect(screen.queryByRole('region', { name: 'Waiting in this run' })).toBeNull()
+    await userEvent.click(within(screen.getByRole('region', { name: 'Pull requests' })).getByRole('button', { name: /^#12/ }))
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/12')
+    await userEvent.click(screen.getByRole('button', { name: 'Hide the side panel' }))
+    expect(model.store.getState().panelOpen).toBe(false)
+    delete (window as unknown as { desktop?: unknown }).desktop
+  })
+
+  it('sends a comment on an open PR to the agent that wrote it, as a task, and shows a refusal', async () => {
+    const { host, client, wrap } = panelFixture()
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Comment on #12' }))
+    const box = screen.getByLabelText('Comment on #12 for app-fix')
+    expect(screen.getByRole('button', { name: 'Send to app-fix' })).toBeDisabled()
+    await userEvent.type(box, 'rename the helper')
+    client.sendMessage.mockRejectedValueOnce(new Error('[failed_precondition] agent has exited'))
+    await userEvent.click(screen.getByRole('button', { name: 'Send to app-fix' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('agent has exited')
+    await userEvent.click(screen.getByRole('button', { name: 'Send to app-fix' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(2))
+    expect(client.sendMessage.mock.calls[1]![0]).toMatchObject({ to: 'w1', type: MessageType.TASK, body: 'Comment on https://github.com/o/r/pull/12:\n\nrename the helper' })
+    await waitFor(() => expect(screen.queryByLabelText('Comment on #12 for app-fix')).toBeNull())
+  })
+
+  it('holds and releases a PR\'s merge, and shows it held', async () => {
+    const { host, client, wrap } = panelFixture()
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Hold the merge of #12' }))
+    expect(client.holdPullRequest.mock.calls[0]![0]).toMatchObject({ url: 'https://github.com/o/r/pull/12', release: false })
+    // The host's event says it is held: the button offers the release and a badge says so.
+    act(() => host.store.setState((s) => ({ pullRequests: { ...s.pullRequests, w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [create(PullRequestSchema, { agentId: 'w1', number: 12, url: 'https://github.com/o/r/pull/12', state: 'open', held: true })] }) } })))
+    expect(within(screen.getByRole('region', { name: 'Pull requests' })).getByText('held')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Release the merge of #12' }))
+    expect(client.holdPullRequest.mock.calls[1]![0]).toMatchObject({ release: true })
+  })
+
+  it('sets the autonomy level of the agent\'s project in the host\'s two lists, only when the host has them', async () => {
+    const { host, client, wrap } = panelFixture()
+    const { unmount } = render(wrap(<SidePanel host={host} agentId="lead" />))
+    expect(screen.queryByLabelText('Autonomy for app')).toBeNull()
+    unmount()
+    const list = (key: string, v: string[]) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, v) })
+    host.store.setState({ settings: { 'repos.user_merges': list('repos.user_merges', ['/p/shop']), 'repos.user_approves_plans': list('repos.user_approves_plans', []) } })
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    const select = screen.getByLabelText('Autonomy for app')
+    expect(select).toHaveValue('default')
+    await userEvent.selectOptions(select, 'plans')
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
+    expect(client.setSetting.mock.calls[0]![0]).toMatchObject({ key: 'repos.user_approves_plans', value: { kind: { case: 'listValue' } } })
+  })
+
+  it('puts the first autonomy write back when the second fails, so a repo is never left in neither list', async () => {
+    const { host, client, wrap } = panelFixture()
+    const list = (key: string, v: string[]) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, v) })
+    host.store.setState({ settings: { 'repos.user_merges': list('repos.user_merges', ['/p/shop']), 'repos.user_approves_plans': list('repos.user_approves_plans', ['/p/other']) } })
+    // The lead's repo is /p/app: put it in the plans list, then fail the merges write that follows... it has none to change, so move it from merges.
+    host.store.setState((s) => ({ agents: { ...s.agents, lead: { ...s.agents.lead!, repo: '/p/shop' } } }))
+    client.setSetting.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('[invalid_argument] no'))
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    await userEvent.selectOptions(screen.getByLabelText('Autonomy for shop'), 'plans')
+    expect(await screen.findByRole('alert')).toHaveTextContent('no')
+    const calls = client.setSetting.mock.calls.map((c) => c[0] as { key: string; value: { kind: { value: { values: Array<{ kind: { value: string } }> } } } })
+    // merges written (without /p/shop), plans failed, then merges put back as it was.
+    expect(calls.map((c) => c.key)).toEqual(['repos.user_merges', 'repos.user_approves_plans', 'repos.user_merges'])
+    expect(calls[2]!.value.kind.value.values.map((v) => v.kind.value)).toEqual(['/p/shop'])
+  })
+
+  it('says so when the cost can\'t be read, and when no agent is open', async () => {
+    const { host, client, wrap } = panelFixture()
+    client.getCost.mockRejectedValue(new Error('no cost data'))
+    const { unmount } = render(wrap(<SidePanel host={host} agentId="lead" />))
+    expect(await screen.findByText(/Couldn't read the cost: no cost data/)).toBeInTheDocument()
+    unmount()
+    render(wrap(<SidePanel host={host} />))
+    expect(screen.getByText(/Open an agent to see/)).toBeInTheDocument()
+  })
+})
+
+describe('WatchAll', () => {
+  it('shows a tile per live agent with its recent conversation, needing-you first, and a click opens it', async () => {
+    const { host, client, wrap, model } = fixture()
+    Object.assign(client, {
+      readTranscript: vi.fn(async (req: { agent: string }) =>
+        create(ReadTranscriptResponseSchema, { supported: true, sessionId: 's', entries: [create(TranscriptEntrySchema, { id: `${req.agent}-1`, kind: TranscriptKind.ASSISTANT, text: `hello from ${req.agent}` })] }),
+      ),
+    })
+    model.store.setState({ watchOpen: true })
+    render(wrap(<WatchAll />))
+    const grid = screen.getByRole('list', { name: 'Agents' })
+    const tiles = within(grid).getAllByRole('listitem', { name: /in the grid/ })
+    // The worker at a prompt comes before the idle lead.
+    expect(tiles.map((t) => t.getAttribute('aria-label'))).toEqual(['app-fix in the grid', 'app-lead in the grid'])
+    expect(await within(tiles[0]!).findByText(/hello from w1/)).toBeInTheDocument()
+    expect(tiles[0]).toHaveTextContent('Needs you: Bash')
+    await userEvent.click(within(tiles[0]!).getByRole('button', { name: 'Open app-fix' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', watchOpen: false })
+  })
+
+  it('pins a tile as a split, and says so when there is nobody to watch', async () => {
+    const { host, client, wrap, model } = fixture()
+    Object.assign(client, { readTranscript: vi.fn(async () => create(ReadTranscriptResponseSchema, { supported: false })) })
+    model.selectAgent('h1', 'lead')
+    model.store.setState({ watchOpen: true })
+    render(wrap(<WatchAll />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Pin app-fix as a split' }))
+    expect(model.store.getState().side.map((p) => p.agentId)).toEqual(['w1'])
+    expect(await screen.findAllByText('No conversation record for this CLI.')).toHaveLength(2)
+    act(() => host.store.setState({ agents: {} }))
+    expect(screen.getByText('No live agents in the open runs.')).toBeInTheDocument()
+  })
+})
+
+describe('NewWorkspaceDialog', () => {
+  const projects = [create(ProjectSchema, { path: '/p/shop', name: 'shop', defaultBranch: 'main' }), create(ProjectSchema, { path: '/p/api', name: 'api' })]
+  const detail = create(ProjectSchema, {
+    path: '/p/shop',
+    name: 'shop',
+    defaultBranch: 'main',
+    branches: ['main', 'origin/main', 'feature-x'],
+    pullRequests: [create(ProjectPullRequestSchema, { number: 7, title: 'Fix the cart', headRef: 'mesh/r/fix-cart', url: 'u7' })],
+  })
+
+  function dialog() {
+    const f = fixture()
+    f.client.listProjects.mockImplementation(async (req: unknown) => create(ListProjectsResponseSchema, { projects: (req as { repo: string }).repo ? [detail] : projects }))
+    f.client.startRun.mockImplementation(async () => ({ run: { id: 'r9' } }))
+    f.client.spawnAgent.mockImplementation(async () => ({ agent: { id: 'new1' } }))
+    f.model.store.setState({ workspaceOpen: true })
+    return f
+  }
+
+  it('starts a new run with a lead in a worktree of the project, from a pull request\'s branch, and opens its terminal', async () => {
+    const { host, client, wrap, model } = dialog()
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    const project = await screen.findByLabelText('Project')
+    await userEvent.type(project, '/p/shop')
+    await userEvent.tab()
+    expect(client.listProjects).toHaveBeenLastCalledWith({ repo: '/p/shop' })
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'pr')
+    await userEvent.selectOptions(screen.getByLabelText('Pull request'), 'mesh/r/fix-cart')
+    await userEvent.type(screen.getByLabelText('Name'), 'fix-cart')
+    await userEvent.type(screen.getByLabelText('First message'), 'start with the cart')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
+    expect(client.startRun.mock.calls[0]![0]).toMatchObject({ title: 'fix-cart' })
+    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r9', repo: '/p/shop', slug: 'fix-cart', role: AgentRole.ROOT, kind: 'claude', base: 'origin/mesh/r/fix-cart', task: 'start with the cart' })
+    await waitFor(() => expect(model.store.getState()).toMatchObject({ workspaceOpen: false, agentId: 'new1', tab: 'terminal' }))
+  })
+
+  it('starts from a branch, joins an open run as a worker, and needs a choice before it starts', async () => {
+    const { host, client, wrap } = dialog()
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    await userEvent.type(await screen.findByLabelText('Project'), '/p/shop')
+    await userEvent.tab()
+    await screen.findByText('Default branch: main')
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'branch')
+    await userEvent.type(screen.getByLabelText('Name'), 'try-it')
+    expect(screen.getByRole('button', { name: 'Start workspace' })).toBeDisabled()
+    await userEvent.selectOptions(screen.getByLabelText('Branch'), 'feature-x')
+    await userEvent.selectOptions(screen.getByLabelText('Run'), 'r1')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
+    expect(client.startRun).not.toHaveBeenCalled()
+    expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', role: AgentRole.WORKER, base: 'feature-x' })
+  })
+
+  it('joins the run it started when a retry follows a failed start, and ignores a start choice made for another project', async () => {
+    const { host, client, wrap } = dialog()
+    client.spawnAgent.mockRejectedValueOnce(new Error('[failed_precondition] no such ref')).mockResolvedValue({ agent: { id: 'new1' } })
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    await userEvent.type(await screen.findByLabelText('Project'), '/p/shop')
+    await userEvent.tab()
+    await screen.findByText('Default branch: main')
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'branch')
+    await userEvent.selectOptions(screen.getByLabelText('Branch'), 'feature-x')
+    await userEvent.type(screen.getByLabelText('Name'), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('no such ref')
+    // Another project typed over it and sent: the old branch is not carried over, and the run is not started twice.
+    await userEvent.clear(screen.getByLabelText('Project'))
+    await userEvent.type(screen.getByLabelText('Project'), '/p/api')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(2))
+    expect(client.startRun).toHaveBeenCalledTimes(1)
+    expect(client.spawnAgent.mock.calls[1]![0]).toMatchObject({ runId: 'r9', repo: '/p/api', base: '' })
+  })
+
+  it('reads a project again after a failed read of the same path, and offers a fork\'s pull request only as unavailable, one option for each branch', async () => {
+    const { host, client, wrap } = dialog()
+    const withForks = create(ProjectSchema, {
+      path: '/p/shop',
+      name: 'shop',
+      defaultBranch: 'main',
+      branches: ['main'],
+      pullRequests: [
+        create(ProjectPullRequestSchema, { number: 7, title: 'Fix', headRef: 'mesh/r/fix', url: 'u7' }),
+        create(ProjectPullRequestSchema, { number: 8, title: 'Fix again', headRef: 'mesh/r/fix', url: 'u8' }),
+        create(ProjectPullRequestSchema, { number: 9, title: 'From a fork', headRef: 'main', url: 'u9', crossRepository: true }),
+      ],
+    })
+    let reads = 0
+    client.listProjects.mockImplementation(async (req: unknown) => {
+      if (!(req as { repo: string }).repo) return create(ListProjectsResponseSchema, { projects })
+      if (++reads === 1) throw new Error('[unavailable] fetch timed out')
+      return create(ListProjectsResponseSchema, { projects: [withForks] })
+    })
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    const project = await screen.findByLabelText('Project')
+    await userEvent.type(project, '/p/new') // not listed: only leaving the field reads it
+    await userEvent.tab()
+    expect(await screen.findByText('fetch timed out')).toBeInTheDocument()
+    expect(screen.getByLabelText('Start from', { selector: 'select' })).toBeDisabled()
+    // Leaving the field again asks again.
+    await userEvent.click(project)
+    await userEvent.tab()
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument()
+    expect(reads).toBe(2)
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'pr')
+    const options = within(screen.getByLabelText('Pull request')).getAllByRole('option').slice(1)
+    expect(options.map((o) => [o.textContent, (o as HTMLOptionElement).value, (o as HTMLOptionElement).disabled])).toEqual([
+      ['#7 Fix', 'mesh/r/fix', false],
+      ['#9 From a fork (from a fork: not available)', '', true],
+    ])
+  })
+
+  it('does not invite a choice when every open pull request is from a fork', async () => {
+    const { host, client, wrap } = dialog()
+    const forks = create(ProjectSchema, { path: '/p/shop', name: 'shop', defaultBranch: 'main', pullRequests: [create(ProjectPullRequestSchema, { number: 9, title: 'From a fork', headRef: 'main', url: 'u9', crossRepository: true })] })
+    client.listProjects.mockImplementation(async (req: unknown) => create(ListProjectsResponseSchema, { projects: (req as { repo: string }).repo ? [forks] : projects }))
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    await userEvent.type(await screen.findByLabelText('Project'), '/p/shop')
+    await userEvent.tab()
+    await screen.findByText('Default branch: main')
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'pr')
+    expect(within(screen.getByLabelText('Pull request')).getAllByRole('option')[0]).toHaveTextContent('No open pull requests')
+  })
+
+  it('does not start a worker on no tier when the host lists none for the CLI', async () => {
+    const { host, client, wrap } = dialog()
+    noTiers.on = true
+    try {
+      render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+      await userEvent.type(await screen.findByLabelText('Name'), 'w')
+      await userEvent.type(screen.getByLabelText('Project'), '/p/shop')
+      await userEvent.selectOptions(screen.getByLabelText('Run'), 'r1') // r1 has a lead: this one is a worker
+      expect(screen.getByRole('button', { name: 'Start workspace' })).toBeDisabled()
+      expect(client.spawnAgent).not.toHaveBeenCalled()
+    } finally {
+      noTiers.on = false
+    }
+  })
+
+  it('offers a path to type when the host lists no projects, and shows why a start failed', async () => {
+    const { host, client, wrap } = dialog()
+    client.listProjects.mockRejectedValue(new Error('[unimplemented] no such action'))
+    client.spawnAgent.mockRejectedValue(new Error('[invalid_argument] /nope is not a git repository'))
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    expect(await screen.findByText(/project list isn't available \(no such action\)/)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Project'), '/nope')
+    await userEvent.type(screen.getByLabelText('Name'), 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('/nope is not a git repository')
+  })
+})
+
+describe('ModelControl and vendor icons', () => {
+  const kinds = create(CheckModelsResponseSchema, { kinds: [create(KindModelsSchema, { kind: 'claude', listed: [create(ModelFamilyEntrySchema, { family: 'opus' }), create(ModelFamilyEntrySchema, { family: 'sonnet' })] })] })
+
+  function control(o: Parameters<typeof create<typeof AgentSchema>>[1] = {}) {
+    const f = fixture()
+    Object.assign(f.client, { switchAgent: vi.fn(async (_req: unknown) => ({})), checkModels: vi.fn(async (_req: unknown) => kinds) })
+    const a = agent('c1', { name: 'app-c', kind: 'claude', model: 'sonnet', effort: 'high', tier: 'mid', ...o })
+    f.host.store.setState((s) => ({ agents: { ...s.agents, c1: a } }))
+    return { ...f, a, client: f.client as typeof f.client & { switchAgent: ReturnType<typeof vi.fn>; checkModels: ReturnType<typeof vi.fn> } }
+  }
+
+  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way', () => {
+    const { host, a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
+    render(wrap(<ModelControl host={host} agent={a} />))
+    expect(screen.getByTestId('runs-on')).toHaveTextContent('claude · sonnet · high')
+    expect(screen.getByRole('img', { name: 'Anthropic Claude' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Switching to opus (moved)…')
+  })
+
+  it('does not switch to a tier when the host lists none for the CLI', async () => {
+    const { host, a, wrap, client } = control()
+    noTiers.on = true
+    try {
+      render(wrap(<ModelControl host={host} agent={a} />))
+      await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+      expect(screen.getByLabelText('Tier')).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
+      expect(client.switchAgent).not.toHaveBeenCalled()
+    } finally {
+      noTiers.on = false
+    }
+  })
+
+  it('switches to a tier, to a model of the host\'s list with an effort, or the effort alone', async () => {
+    const { host, a, wrap, client } = control()
+    render(wrap(<ModelControl host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    // To a tier (the host's tiers for the kind, or the usual four).
+    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
+    expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: 'strong', model: '', effort: '', next: false })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'model')
+    expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
+    await waitFor(() => expect(client.checkModels).toHaveBeenCalled())
+    await userEvent.type(screen.getByLabelText('Model'), 'opus')
+    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'max')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(2))
+    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: 'max' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'effort')
+    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'low')
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(3))
+    expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
+  })
+
+  it('shows the host\'s refusal in its own words and keeps the dialog open', async () => {
+    const { host, a, wrap, client } = control()
+    client.switchAgent.mockRejectedValue(new Error('[failed_precondition] app-c already runs on sonnet at high effort'))
+    render(wrap(<ModelControl host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('app-c already runs on sonnet at high effort')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('draws a mark for each known vendor and a letter badge for the rest', () => {
+    render(<>
+      <VendorIcon kind="agy" /><VendorIcon kind="opencode" /><VendorIcon kind="copilot" /><VendorIcon kind="codex" /><VendorIcon kind="zed" />
+    </>)
+    expect(screen.getByRole('img', { name: 'Google Gemini' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'OpenCode' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'GitHub Copilot' }).tagName.toLowerCase()).toBe('svg')
+    expect(screen.getByRole('img', { name: 'OpenAI' })).toHaveTextContent('O')
+    expect(screen.getByRole('img', { name: 'zed' })).toHaveTextContent('Z')
   })
 })
 

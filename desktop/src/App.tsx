@@ -1,4 +1,4 @@
-import { Gauge, QrCode, Search, Settings } from 'lucide-react'
+import { Gauge, PanelRight, QrCode, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -8,6 +8,9 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
+import { Panes } from '@/components/panes'
+import { SidePanel } from '@/components/side-panel'
+import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
 import { AddHostDialog, AddHostForm, RemoveHostDialog } from '@/components/host-dialogs'
 import { LocalSetup } from '@/components/local-setup'
@@ -75,11 +78,19 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
             <MainPane host={host} />
             <Dock />
           </main>
+          <PanelSlot host={host} />
           <CommandPalette />
         </>
       )}
     </div>
   )
+}
+
+/** The side panel beside the open agent, when it is shown. */
+function PanelSlot({ host }: { host: HostRuntime }) {
+  const open = useAppState((s) => s.panelOpen)
+  const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
+  return open ? <SidePanel host={host} agentId={agentId} /> : null
 }
 
 /** The look follows the selected host's `app.theme` (Dracula until it says, or when it names a theme this build lacks). */
@@ -174,6 +185,7 @@ function HostHeader({ host }: { host: HostRuntime }) {
   const conn = useHostState(host, (s) => s.conn)
   const open = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const panelOpen = useAppState((s) => s.panelOpen)
   const usageOpen = useAppState((s) => s.usageOpen)
   // Only the host's own device may pair devices, so only there is the screen offered.
   const mayPair = useHostState(host, () => canPair(host.store))
@@ -194,6 +206,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
           <QrCode />
         </Button>
       )}
+      <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} title="Cost, pull requests and quota of the open agent's run" onClick={() => app.setPanel(!panelOpen)}>
+        <PanelRight />
+      </Button>
       <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
         <Gauge />
       </Button>
@@ -209,9 +224,13 @@ function MainPane({ host }: { host: HostRuntime }) {
   const pairOpen = useAppState((s) => s.pairOpen)
   const usageOpen = useAppState((s) => s.usageOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
+  const side = useAppState((s) => s.side)
+  const watchOpen = useAppState((s) => s.watchOpen)
   if (settingsOpen) return <SettingsPanel host={host} />
   if (pairOpen) return <PairPanel key={host.info.id} host={host} />
   if (usageOpen) return <UsagePanel host={host} />
+  if (watchOpen) return <WatchAll />
+  if (side.length > 0) return <Panes host={host} agentId={agentId} />
   if (!agentId) return <EmptyPane host={host} />
   return <AgentPanel key={agentId} host={host} agentId={agentId} />
 }

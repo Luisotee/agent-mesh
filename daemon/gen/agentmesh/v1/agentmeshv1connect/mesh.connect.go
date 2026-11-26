@@ -91,6 +91,12 @@ const (
 	// MeshServiceListPullRequestsProcedure is the fully-qualified name of the MeshService's
 	// ListPullRequests RPC.
 	MeshServiceListPullRequestsProcedure = "/agentmesh.v1.MeshService/ListPullRequests"
+	// MeshServiceHoldPullRequestProcedure is the fully-qualified name of the MeshService's
+	// HoldPullRequest RPC.
+	MeshServiceHoldPullRequestProcedure = "/agentmesh.v1.MeshService/HoldPullRequest"
+	// MeshServiceListProjectsProcedure is the fully-qualified name of the MeshService's ListProjects
+	// RPC.
+	MeshServiceListProjectsProcedure = "/agentmesh.v1.MeshService/ListProjects"
 	// MeshServiceGetBriefProcedure is the fully-qualified name of the MeshService's GetBrief RPC.
 	MeshServiceGetBriefProcedure = "/agentmesh.v1.MeshService/GetBrief"
 	// MeshServiceReportHookProcedure is the fully-qualified name of the MeshService's ReportHook RPC.
@@ -246,6 +252,14 @@ type MeshServiceClient interface {
 	// Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
 	// the work evidence (commits, pushed, dirty) of a worker with none.
 	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
+	// Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
+	// brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+	// ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
+	HoldPullRequest(context.Context, *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error)
+	// The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
+	// an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open
+	// pull requests (read from GitHub) too.
+	ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
@@ -501,6 +515,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ListPullRequests")),
 			connect.WithClientOptions(opts...),
 		),
+		holdPullRequest: connect.NewClient[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse](
+			httpClient,
+			baseURL+MeshServiceHoldPullRequestProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("HoldPullRequest")),
+			connect.WithClientOptions(opts...),
+		),
+		listProjects: connect.NewClient[v1.ListProjectsRequest, v1.ListProjectsResponse](
+			httpClient,
+			baseURL+MeshServiceListProjectsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListProjects")),
+			connect.WithClientOptions(opts...),
+		),
 		getBrief: connect.NewClient[v1.GetBriefRequest, v1.GetBriefResponse](
 			httpClient,
 			baseURL+MeshServiceGetBriefProcedure,
@@ -741,6 +767,8 @@ type meshServiceClient struct {
 	resetSetting     *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
 	resetRoot        *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
 	listPullRequests *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
+	holdPullRequest  *connect.Client[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse]
+	listProjects     *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
 	getBrief         *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
 	reportHook       *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
@@ -901,6 +929,16 @@ func (c *meshServiceClient) ResetRoot(ctx context.Context, req *connect.Request[
 // ListPullRequests calls agentmesh.v1.MeshService.ListPullRequests.
 func (c *meshServiceClient) ListPullRequests(ctx context.Context, req *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error) {
 	return c.listPullRequests.CallUnary(ctx, req)
+}
+
+// HoldPullRequest calls agentmesh.v1.MeshService.HoldPullRequest.
+func (c *meshServiceClient) HoldPullRequest(ctx context.Context, req *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error) {
+	return c.holdPullRequest.CallUnary(ctx, req)
+}
+
+// ListProjects calls agentmesh.v1.MeshService.ListProjects.
+func (c *meshServiceClient) ListProjects(ctx context.Context, req *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error) {
+	return c.listProjects.CallUnary(ctx, req)
 }
 
 // GetBrief calls agentmesh.v1.MeshService.GetBrief.
@@ -1149,6 +1187,14 @@ type MeshServiceHandler interface {
 	// Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
 	// the work evidence (commits, pushed, dirty) of a worker with none.
 	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
+	// Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
+	// brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+	// ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
+	HoldPullRequest(context.Context, *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error)
+	// The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
+	// an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open
+	// pull requests (read from GitHub) too.
+	ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
@@ -1398,6 +1444,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceListPullRequestsProcedure,
 		svc.ListPullRequests,
 		connect.WithSchema(meshServiceMethods.ByName("ListPullRequests")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceHoldPullRequestHandler := connect.NewUnaryHandler(
+		MeshServiceHoldPullRequestProcedure,
+		svc.HoldPullRequest,
+		connect.WithSchema(meshServiceMethods.ByName("HoldPullRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListProjectsHandler := connect.NewUnaryHandler(
+		MeshServiceListProjectsProcedure,
+		svc.ListProjects,
+		connect.WithSchema(meshServiceMethods.ByName("ListProjects")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceGetBriefHandler := connect.NewUnaryHandler(
@@ -1662,6 +1720,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceResetRootHandler.ServeHTTP(w, r)
 		case MeshServiceListPullRequestsProcedure:
 			meshServiceListPullRequestsHandler.ServeHTTP(w, r)
+		case MeshServiceHoldPullRequestProcedure:
+			meshServiceHoldPullRequestHandler.ServeHTTP(w, r)
+		case MeshServiceListProjectsProcedure:
+			meshServiceListProjectsHandler.ServeHTTP(w, r)
 		case MeshServiceGetBriefProcedure:
 			meshServiceGetBriefHandler.ServeHTTP(w, r)
 		case MeshServiceReportHookProcedure:
@@ -1839,6 +1901,14 @@ func (UnimplementedMeshServiceHandler) ResetRoot(context.Context, *connect.Reque
 
 func (UnimplementedMeshServiceHandler) ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPullRequests is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) HoldPullRequest(context.Context, *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.HoldPullRequest is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListProjects is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error) {

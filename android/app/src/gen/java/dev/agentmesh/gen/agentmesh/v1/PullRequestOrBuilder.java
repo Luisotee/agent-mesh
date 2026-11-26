@@ -142,4 +142,14 @@ public interface PullRequestOrBuilder extends
    * @return The stale.
    */
   boolean getStale();
+
+  /**
+   * <pre>
+   * The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+   * </pre>
+   *
+   * <code>bool held = 10 [json_name = "held"];</code>
+   * @return The held.
+   */
+  boolean getHeld();
 }

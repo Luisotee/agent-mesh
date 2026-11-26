@@ -384,6 +384,36 @@ service MeshService {
     };
   }
 
+  // Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
+  // brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+  // ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
+  rpc HoldPullRequest(HoldPullRequestRequest) returns (HoldPullRequestResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "hold-pr"
+      summary: "Hold a pull request's merge (or release it): a root never merges a held one"
+    };
+  }
+
+  // The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
+  // an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open
+  // pull requests (read from GitHub) too.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "projects"
+      summary: "List the repos this host can start work in, with their default branch and open pull requests"
+    };
+  }
+
   // What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
   // headers and the last reset. Marks nothing read.
   rpc GetBrief(GetBriefRequest) returns (GetBriefResponse) {
@@ -1556,4 +1586,59 @@ message SetReserveResponse {
   bool over_reserve = 2;
   int32 quota_stop = 3;
   string summary = 4;
+}
+
+message HoldPullRequestRequest {
+  RequestMeta meta = 1;
+  // The PR's url, as ListPullRequests gives it.
+  string url = 2;
+  // Release the hold instead of placing it (refused for a root).
+  bool release = 3;
+}
+
+message HoldPullRequestResponse {
+  // The PR as recorded now, once for each agent that owns it.
+  repeated PullRequest pull_requests = 1;
+}
+
+message ListProjectsRequest {
+  // Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+  // pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none. A read-only
+  // device may name only a repo the full list has, and gets the refs last fetched and no pull requests.
+  string repo = 1 [(path) = true, (repo_name) = true];
+}
+
+// A pull request a workspace can start from: the branch to start the worktree on.
+message ProjectPullRequest {
+  int32 number = 1;
+  string title = 2;
+  // The PR's head branch, as `base` of SpawnAgent takes it (a ref of the repo's remote).
+  string head_ref = 3;
+  string url = 4;
+  bool draft = 5;
+  // The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+  // started from by it.
+  bool cross_repository = 6;
+}
+
+message Project {
+  // The repo's top folder on the host: what SpawnAgent's `repo` takes.
+  string path = 1;
+  // Its folder's name.
+  string name = 2;
+  // Its default branch (the remote's HEAD), empty when it can't be told.
+  string default_branch = 3;
+  // Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+  // its name, the remote's as origin/<name>.
+  repeated string branches = 4;
+  // Only when ListProjects was asked for this one repo.
+  repeated ProjectPullRequest pull_requests = 5;
+  // Found in a `repos.dir` folder (false: only seen as an agent's repo).
+  bool in_repos_dir = 6;
+  // When an agent last worked in it, if one did.
+  google.protobuf.Timestamp last_used = 7;
+}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
 }

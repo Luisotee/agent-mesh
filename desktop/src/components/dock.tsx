@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns2, Eye, X } from 'lucide-react'
 import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { ROLE_LABEL, repoName, statusSentence } from '@/derive'
 import { useHostViews, useNow } from '@/hooks'
 import { cn } from '@/lib/utils'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 
 /**
  * The live dock: a tile per live agent of the open runs, on every host, with what it is doing now. A worker that
@@ -38,6 +39,9 @@ export function Dock() {
         {needs > 0 && <Badge className="border-state-needs text-state-needs">{needs} need you</Badge>}
         {fresh > 0 && <Badge className="border-primary text-primary">{fresh} new</Badge>}
         {!open && badge > 0 && <Badge role="status" className="border-primary text-primary">{badge} started</Badge>}
+        <Button size="sm" variant="ghost" className="ml-auto h-6 gap-1 px-1.5 text-xs" onClick={() => app.openWatch(true)}>
+          <Eye className="size-3.5" /> Watch all
+        </Button>
       </header>
       {open && (
         <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pb-2.5">
@@ -69,6 +73,7 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
         <span className="flex items-center gap-1.5 pr-5">
           <StateIcon agent={a} />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>
+          <VendorIcon kind={a.kind} model={a.model} className="text-muted-foreground" />
           {tile.isNew && <Badge className="border-primary text-primary">new</Badge>}
         </span>
         <span className="truncate text-xs text-muted-foreground">
@@ -79,6 +84,15 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
         <span className="truncate text-[11px] text-muted-foreground">
           {[tile.lastSent ? sentLabel(tile.lastSent) : '', when].filter(Boolean).join(' · ') || ' '}
         </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Pin ${a.name} as a split`}
+        title="Show beside the open agent"
+        onClick={() => app.pinSplit(tile.hostId, a.id)}
+        className="absolute top-1 right-7 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+      >
+        <Columns2 className="size-3" />
       </button>
       <button
         type="button"
