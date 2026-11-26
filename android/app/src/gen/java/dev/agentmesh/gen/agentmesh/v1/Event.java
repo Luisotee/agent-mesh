@@ -54,6 +54,7 @@ public  final class Event extends
     ROOT_RESET_FINISHED(31),
     DOORBELL_FAILED(32),
     DOORBELL_HELD(33),
+    WORKTREE_CREATED(34),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -93,6 +94,7 @@ public  final class Event extends
         case 31: return ROOT_RESET_FINISHED;
         case 32: return DOORBELL_FAILED;
         case 33: return DOORBELL_HELD;
+        case 34: return WORKTREE_CREATED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1657,6 +1659,56 @@ public  final class Event extends
    */
   private void clearDoorbellHeld() {
     if (payloadCase_ == 33) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int WORKTREE_CREATED_FIELD_NUMBER = 34;
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWorktreeCreated() {
+    return payloadCase_ == 34;
+  }
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.WorktreeCreated getWorktreeCreated() {
+    if (payloadCase_ == 34) {
+       return (dev.agentmesh.gen.agentmesh.v1.WorktreeCreated) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   */
+  private void setWorktreeCreated(dev.agentmesh.gen.agentmesh.v1.WorktreeCreated value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 34;
+  }
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   */
+  private void mergeWorktreeCreated(dev.agentmesh.gen.agentmesh.v1.WorktreeCreated value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 34 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.newBuilder((dev.agentmesh.gen.agentmesh.v1.WorktreeCreated) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 34;
+  }
+  /**
+   * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+   */
+  private void clearWorktreeCreated() {
+    if (payloadCase_ == 34) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3290,6 +3342,54 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWorktreeCreated() {
+      return instance.hasWorktreeCreated();
+    }
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.WorktreeCreated getWorktreeCreated() {
+      return instance.getWorktreeCreated();
+    }
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    public Builder setWorktreeCreated(dev.agentmesh.gen.agentmesh.v1.WorktreeCreated value) {
+      copyOnWrite();
+      instance.setWorktreeCreated(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    public Builder setWorktreeCreated(
+        dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWorktreeCreated(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    public Builder mergeWorktreeCreated(dev.agentmesh.gen.agentmesh.v1.WorktreeCreated value) {
+      copyOnWrite();
+      instance.mergeWorktreeCreated(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.WorktreeCreated worktree_created = 34 [json_name = "worktreeCreated"];</code>
+     */
+    public Builder clearWorktreeCreated() {
+      copyOnWrite();
+      instance.clearWorktreeCreated();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -3340,14 +3440,15 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.RootResetFinished.class,
             dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.class,
             dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.class,
+            dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.class,
           };
           java.lang.String info =
-              "\u0000\u001f\u0001\u0001\u0001!\u001f\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003" +
-              "\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b" +
-              "<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012" +
-              "<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000" +
-              "\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f" +
-              "<\u0000 <\u0000!<\u0000";
+              "\u0000 \u0001\u0001\u0001\" \u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
+              "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
+              "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
+              "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
+              " <\u0000!<\u0000\"<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

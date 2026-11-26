@@ -669,4 +669,65 @@ public class MeshServiceClient(
     ),
   )
 
+
+  /**
+   *  Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+   */
+  override suspend fun createWorktree(request: CreateWorktreeRequest, headers: Headers): ResponseMessage<CreateWorktreeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CreateWorktree",
+      dev.agentmesh.gen.agentmesh.v1.CreateWorktreeRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CreateWorktreeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+   */
+  override suspend fun streamLog(headers: Headers): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse> = client.serverStream(
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/StreamLog",
+      dev.agentmesh.gen.agentmesh.v1.StreamLogRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.StreamLogResponse::class,
+      StreamType.SERVER,
+    ),
+  )
+
+
+  /**
+   *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+   */
+  override suspend fun ringAgent(request: RingAgentRequest, headers: Headers): ResponseMessage<RingAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RingAgent",
+      dev.agentmesh.gen.agentmesh.v1.RingAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RingAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+   *  Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+   *  mutations, and standalone worktree preparation before exec is idempotent.
+   */
+  override suspend fun openAgent(request: OpenAgentRequest, headers: Headers): ResponseMessage<OpenAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenAgent",
+      dev.agentmesh.gen.agentmesh.v1.OpenAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

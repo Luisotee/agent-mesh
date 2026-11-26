@@ -477,6 +477,17 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 	}
 	env["OPENCODE_CONFIG_CONTENT"] = string(cfgBytes)
 	env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+	if m.Standalone {
+		if m.ResumeSessionId == "" {
+			return nil, errors.New("standalone launch requires resume_session_id")
+		}
+		argv := []string{bin, "--agent", agentName}
+		if model != "" {
+			argv = append(argv, "-m", model)
+		}
+		argv = append(argv, "-s", m.ResumeSessionId)
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env}), nil
+	}
 	if adapter.ReadOnly(m.Role) || m.DenyEdits {
 		perm, err := PermissionJSON(m.Cwd, m.Repo)
 		if err != nil {

@@ -4,6 +4,7 @@ package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/ask.proto";
+import "agentmesh/v1/commands.proto";
 import "agentmesh/v1/context.proto";
 import "agentmesh/v1/options.proto";
 import "agentmesh/v1/report.proto";
@@ -627,6 +628,60 @@ service MeshService {
       ]
       cli: "tools-servers"
       summary: "List the user's MCP servers and exclusive holders"
+    };
+  }
+
+  // Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+  rpc CreateWorktree(CreateWorktreeRequest) returns (CreateWorktreeResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "worktree"
+      summary: "Create a run worktree with no agent in it, e.g. for integration"
+    };
+  }
+
+  // The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+  rpc StreamLog(StreamLogRequest) returns (stream StreamLogResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "log"
+      summary: "Show the run's events as a timeline (sends, nudges, alerts, swaps...)"
+    };
+  }
+
+  // Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+  rpc RingAgent(RingAgentRequest) returns (RingAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "ring"
+      summary: "Re-ring an agent that has unread messages"
+    };
+  }
+
+  // Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+  // Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+  // mutations, and standalone worktree preparation before exec is idempotent.
+  rpc OpenAgent(OpenAgentRequest) returns (OpenAgentResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      cli: "open"
+      summary: "Attach to a running agent, or reopen a past agent's conversation in this terminal"
     };
   }
 }
