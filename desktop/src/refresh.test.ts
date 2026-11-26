@@ -1,7 +1,8 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ListAgentsResponseSchema, ListWaitingResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
-import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, type Event } from './gen/agentmesh/v1/types_pb'
+import { ListPullRequestsResponseSchema, AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
+import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import { hostRefresher } from './refresh'
 import { createHostStore } from './store'
 
@@ -20,7 +21,7 @@ function gate<T>() {
 function setup() {
   const store = createHostStore()
   store.setState({ conn: { kind: 'ready', hello: {} as never }, synced: true })
-  const client = { listWaiting: vi.fn(), listAgents: vi.fn() }
+  const client = { listWaiting: vi.fn(), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)) }
   const log = vi.fn()
   const r = hostRefresher(client as never, store, log, undefined, { debounceMs: 200, agentsEveryMs: 30_000 })
   return { store, client, log, r }
@@ -197,5 +198,55 @@ describe('agents that went quiet', () => {
     r.start()
     await vi.advanceTimersByTimeAsync(31_000)
     expect(client.listAgents).not.toHaveBeenCalled()
+  })
+})
+
+describe('the pull requests', () => {
+  const run = (id: string, status = RunStatus.OPEN) => create(RunSchema, { id, status })
+  const rows = (runId: string, agentId: string, n: number) =>
+    create(ListPullRequestsResponseSchema, { agents: [create(AgentPullRequestsSchema, { agentId, pullRequests: [create(PullRequestSchema, { agentId, number: n, url: `u${n}`, state: 'open' })] })] })
+
+  it('are read for each open run at connect and every minute (a device names the run), and a failure is said once', async () => {
+    const { store, client, log, r } = setup()
+    store.setState({ runs: { r1: run('r1'), r2: run('r2'), old: run('old', RunStatus.CLOSED) }, agents: { w1: agent('w1', AgentState.IDLE), w2: { ...agent('w2', AgentState.IDLE), runId: 'r2' } } })
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listPullRequests.mockImplementation(async (req: { runId: string }) => rows(req.runId, req.runId === 'r1' ? 'w1' : 'w2', req.runId === 'r1' ? 7 : 8))
+    r.start()
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.listPullRequests.mock.calls.map((c) => c[0])).toEqual([{ runId: 'r1', refresh: false }, { runId: 'r2', refresh: false }])
+    expect(Object.keys(store.getState().pullRequests).sort()).toEqual(['w1', 'w2'])
+
+    // r2 fails: what is known of its agent stays, r1's is replaced, and the failure is logged once.
+    client.listPullRequests.mockImplementation(async (req: { runId: string }) => {
+      if (req.runId === 'r2') throw new Error('gh missing')
+      return rows('r1', 'w1', 9)
+    })
+    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(store.getState().pullRequests.w1?.pullRequests[0]?.number).toBe(9)
+    expect(store.getState().pullRequests.w2?.pullRequests[0]?.number).toBe(8)
+    expect(log.mock.calls.filter(([l]) => /pull requests/.test(l as string))).toHaveLength(1)
+    r.stop()
+  })
+
+  it('does not let a read that was under way undo a PR event that came meanwhile, and asks again', async () => {
+    const { store, client, r } = setup()
+    store.setState({ runs: { r1: run('r1') }, agents: { w1: agent('w1', AgentState.IDLE) } })
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    let release!: (v: unknown) => void
+    client.listPullRequests.mockImplementationOnce(() => new Promise((res) => (release = res)))
+    client.listPullRequests.mockResolvedValue(rows('r1', 'w1', 12))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    // A hold arrives while the first call is on its way; the call then answers with the older state.
+    store.setState({ pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [create(PullRequestSchema, { agentId: 'w1', number: 12, url: 'u12', state: 'open', held: true })] }) } })
+    r.event(create(EventSchema, { payload: { case: 'pullRequestChanged', value: { $typeName: 'agentmesh.v1.PullRequestChanged', fromState: 'open', fromChecks: '' } } }))
+    release(rows('r1', 'w1', 12))
+    await vi.advanceTimersByTimeAsync(0)
+    // The older answer was dropped, and a second read was made.
+    expect(client.listPullRequests).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().pullRequests.w1?.pullRequests[0]?.number).toBe(12)
   })
 })

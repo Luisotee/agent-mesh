@@ -8,6 +8,7 @@ import { ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
+import { ModelControl } from './model-control'
 import { ChatView } from './chat-view'
 import { MessagesPanel } from './messages-panel'
 import { TerminalView } from './terminal-view'
@@ -23,14 +24,17 @@ function when(t: Agent['lastActivity']): string {
 }
 
 /** One agent: where it is, what it is doing, and the actions a person has on it (message it, stop it). */
-export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: string }) {
+export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId: string; /** The view and how to change it, for a pane beside the main one (the main pane's is the app's). */ view?: { tab: AgentTab; setTab(t: AgentTab): void } }) {
   const agent = useHostState(host, (s) => s.agents[agentId])
+  const synced = useHostState(host, (s) => s.synced)
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const app = useApp()
-  const tab = useAppState((s) => s.tab)
+  const mainTab = useAppState((s) => s.tab)
+  const tab = view?.tab ?? mainTab
   const open = useHostState(host, (s) => s.waiting.filter((w) => w.message && (w.agentId === agentId || w.message.toId === agentId)).length)
   const parent = useHostState(host, (s) => (agent?.parentId ? s.agents[agent.parentId] : undefined))
-  if (!agent) return <Empty>That agent isn't on this host any more.</Empty>
+  // A restored tab shows before the host's first snapshot: its agent is not missing, only not here yet.
+  if (!agent) return <Empty>{synced ? "That agent isn't on this host any more." : 'Connecting to the host…'}</Empty>
   const facts: Array<[string, string]> = [
     ['Repository', agent.repo],
     ['Worktree', agent.worktree],
@@ -55,6 +59,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
             {agent.name} <Badge>{ROLE_LABEL[agent.role]}</Badge>
           </h1>
           <p className="text-sm text-muted-foreground" data-testid="agent-status">{statusSentence(agent)}</p>
+          <ModelControl host={host} agent={agent} className="mt-0.5" />
         </div>
         <StopButton host={host} agent={agent} />
       </header>
@@ -67,7 +72,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
             role="tab"
             aria-selected={shown === t}
             aria-controls={`${agent.id}-panel-${t}`}
-            onClick={() => app.setTab(t)}
+            onClick={() => (view ? view.setTab(t) : app.setTab(t))}
             className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
           >
             {t}

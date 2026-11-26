@@ -24,6 +24,8 @@ message PullRequest {
   google.protobuf.Timestamp checked_at = 8;
   // The last read failed: state and checks are the last ones seen.
   bool stale = 9;
+  // The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+  bool held = 10;
 }
 
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.

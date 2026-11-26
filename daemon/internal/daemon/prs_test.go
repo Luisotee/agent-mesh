@@ -32,6 +32,7 @@ type prWorld struct {
 
 	mu      sync.Mutex
 	list    []map[string]any // `gh pr list --head`
+	raw     []byte           // when set, the answer to any list call (gh pr list --state open)
 	views   map[string]map[string]any
 	fail    error
 	gate    chan struct{} // while set, a gh call waits for it to close
@@ -70,6 +71,9 @@ func startPR(t *testing.T) *prWorld {
 						return nil, errors.New("not found")
 					}
 					return json.Marshal(v)
+				}
+				if w.raw != nil {
+					return w.raw, nil
 				}
 				return json.Marshal(w.list)
 			}}}})
@@ -116,6 +120,8 @@ func (w *prWorld) edit(id string, f func(*v1.Agent)) {
 		w.t.Fatal(err)
 	}
 }
+
+func (w *prWorld) setRaw(b []byte) { w.mu.Lock(); w.raw = b; w.mu.Unlock() }
 
 func (w *prWorld) setList(prs ...map[string]any) { w.mu.Lock(); w.list = prs; w.mu.Unlock() }
 

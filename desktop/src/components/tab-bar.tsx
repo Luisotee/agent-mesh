@@ -1,7 +1,7 @@
-import { X } from 'lucide-react'
+import { Columns2, Rows2, X } from 'lucide-react'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
-import { tabKey } from '@/workspace'
+import { MAX_SIDE_PANES, tabKey } from '@/workspace'
 import { useHostViews } from '@/hooks'
 import { StateIcon } from './state-icon'
 
@@ -12,15 +12,19 @@ export function TabBar() {
   const hosts = useAppState((s) => s.hosts)
   const hostId = useAppState((s) => s.hostId)
   const agentId = useAppState((s) => s.agentId)
+  const side = useAppState((s) => s.side)
+  const dir = useAppState((s) => s.splitDir)
   const views = useHostViews(hosts)
   if (tabs.length === 0) return null
   const many = hosts.length > 1
   return (
-    <div role="tablist" aria-label="Open agents" className="flex shrink-0 gap-px overflow-x-auto border-b bg-surface px-1 pt-1">
+    <div className="flex shrink-0 items-end border-b bg-surface px-1 pt-1">
+    <div role="tablist" aria-label="Open agents" className="flex min-w-0 flex-1 gap-px overflow-x-auto">
       {tabs.map((t) => {
         const view = views.find((v) => v.hostId === t.hostId)
         const agent = view?.agents[t.agentId]
         const active = t.hostId === hostId && t.agentId === agentId
+        const beside = side.some((p) => p.hostId === t.hostId && p.agentId === t.agentId)
         const label = agent?.name ?? t.agentId
         return (
           <div
@@ -31,6 +35,7 @@ export function TabBar() {
               type="button"
               role="tab"
               aria-selected={active}
+              data-beside={beside ? 'true' : undefined}
               title={many && view ? `${label} on ${view.hostName}` : label}
               onClick={() => app.selectAgent(t.hostId, t.agentId)}
               className="flex min-w-0 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -39,6 +44,17 @@ export function TabBar() {
               <span className="truncate">{label}</span>
               {many && view && <span className="shrink-0 text-[10px] text-muted-foreground">{view.hostName}</span>}
             </button>
+            {!active && !beside && side.length < MAX_SIDE_PANES && (
+              <button
+                type="button"
+                aria-label={`Show ${label} beside`}
+                title="Show beside the open agent"
+                onClick={() => app.pinSplit(t.hostId, t.agentId)}
+                className="hidden size-5 shrink-0 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+              >
+                <Columns2 className="size-3" />
+              </button>
+            )}
             <button
               type="button"
               aria-label={`Close ${label}`}
@@ -50,6 +66,18 @@ export function TabBar() {
           </div>
         )
       })}
+    </div>
+    {side.length > 0 && (
+      <button
+        type="button"
+        aria-label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}
+        title={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}
+        onClick={() => app.setSplitDir(dir === 'row' ? 'column' : 'row')}
+        className="mb-1 ml-1 grid size-6 shrink-0 place-items-center rounded hover:bg-muted"
+      >
+        {dir === 'row' ? <Rows2 className="size-3.5" /> : <Columns2 className="size-3.5" />}
+      </button>
+    )}
     </div>
   )
 }

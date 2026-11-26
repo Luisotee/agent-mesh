@@ -1,5 +1,6 @@
 import { CircleAlert, CircleCheck, CircleDashed, CircleHelp, Gauge, LoaderCircle, Moon, OctagonAlert, OctagonX, Pause, Square } from 'lucide-react'
 import { AgentState, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import { exitKind } from '@/derive'
 import { cn } from '@/lib/utils'
 
 /**
@@ -20,13 +21,14 @@ export function StateIcon({ agent, className }: { agent: Agent; className?: stri
     case AgentState.NEEDS_INPUT:
       return <CircleAlert aria-label="needs you" className={cn(c, 'text-state-needs')} />
     case AgentState.EXITED:
-      // A process ended by a signal has exit code -1 (Go's ExitCode), and the reason is gone once the host reloads it.
-      if (agent.stateDetail === 'killed' || agent.exitCode < 0) return <Square aria-label="stopped" className={cn(c, 'text-state-idle')} />
-      return agent.exitCode === 0 && agent.stateDetail !== 'lost' ? (
-        <CircleCheck aria-label="done" className={cn(c, 'text-state-done')} />
-      ) : (
-        <OctagonX aria-label="failed" className={cn(c, 'text-state-failed')} />
-      )
+      switch (exitKind(agent)) {
+        case 'stopped':
+          return <Square aria-label="stopped" className={cn(c, 'text-state-idle')} />
+        case 'finished':
+          return <CircleCheck aria-label="done" className={cn(c, 'text-state-done')} />
+        default:
+          return <OctagonX aria-label="failed" className={cn(c, 'text-state-failed')} />
+      }
     case AgentState.RETIRED:
       return <Moon aria-label="retired" className={cn(c, 'text-state-idle')} />
     case AgentState.LIMITED:

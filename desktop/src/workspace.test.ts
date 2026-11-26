@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activate, closeTab, cycleTab, emptyWorkspace, forgetHost, noteSpawned, openInBackground, pruneDismissed, type WorkspaceState } from './workspace'
+import { MAX_SIDE_PANES, activate, closeTab, cycleTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, openInBackground, pinSplit, pruneDismissed, setPaneTab, unsplit, type WorkspaceState } from './workspace'
 import type { AgentTab } from './model'
 import { AgentState, type Agent } from './gen/agentmesh/v1/types_pb'
 
@@ -80,7 +80,7 @@ describe('pruneDismissed', () => {
 describe('forgetHost and noteSpawned', () => {
   it('drops a removed host\'s tabs and marks', () => {
     const s = base({ tabs: [{ hostId: 'h', agentId: 'a' }, { hostId: 'g', agentId: 'a' }], views: { 'h/a': 'terminal', 'g/a': 'messages' }, newTiles: { 'h/a': 1 }, dismissed: { 'h/a': 1 } })
-    expect(forgetHost(s, 'h')).toEqual({ tabs: [{ hostId: 'g', agentId: 'a' }], views: { 'g/a': 'messages' }, newTiles: {}, dismissed: {} })
+    expect(forgetHost(s, 'h')).toEqual({ tabs: [{ hostId: 'g', agentId: 'a' }], side: [], views: { 'g/a': 'messages' }, newTiles: {}, dismissed: {} })
   })
 
   it('does what the setting says, and never focuses', () => {
@@ -92,5 +92,68 @@ describe('forgetHost and noteSpawned', () => {
     expect(noteSpawned(base(), ref, 'none', 7)).toEqual({})
     // A tab that is already open stays one.
     expect(openInBackground(base({ tabs: [ref] }), ref)).toEqual({})
+  })
+})
+
+describe('splits', () => {
+  const ref = (agentId: string) => ({ hostId: 'h', agentId })
+  const open = (...ids: string[]): S => base({ tabs: ids.map(ref), hostId: 'h', agentId: ids[0], tab: 'chat', views: { 'h/b': 'terminal' } })
+
+  it('pins an agent beside the main one, opening its tab, on the view it was last on', () => {
+    let s = apply(open('a'), pinSplit(open('a'), ref('b')))
+    expect(s.side).toEqual([{ ...ref('b'), tab: 'terminal' }])
+    expect(s.tabs).toEqual([ref('a'), ref('b')])
+    s = apply(s, pinSplit(s, ref('c'), 'messages'))
+    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['b', 'terminal'], ['c', 'messages']])
+  })
+
+  it('does not pin the main agent, one already beside, or more than the limit', () => {
+    let s = open('a')
+    expect(pinSplit(s, ref('a'))).toEqual({})
+    s = apply(s, pinSplit(s, ref('b')))
+    expect(pinSplit(s, ref('b'))).toEqual({})
+    for (const id of ['c', 'd', 'e', 'f']) s = apply(s, pinSplit(s, ref(id)))
+    expect(s.side).toHaveLength(MAX_SIDE_PANES)
+  })
+
+  it('takes a pane away without closing its tab, and changes the view of one', () => {
+    let s = apply(open('a'), pinSplit(open('a'), ref('b')))
+    s = apply(s, setPaneTab(s, ref('b'), 'messages'))
+    expect(s.side[0]!.tab).toBe('messages')
+    expect(setPaneTab(s, ref('b'), 'messages')).toEqual({})
+    s = apply(s, unsplit(s, ref('b')))
+    expect(s.side).toEqual([])
+    expect(s.tabs).toHaveLength(2)
+  })
+
+  it('swaps a pane with the main one, and the main one takes its place', () => {
+    let s = apply(open('a'), pinSplit(open('a'), ref('b')))
+    s = apply(s, pinSplit(s, ref('c')))
+    s = apply(s, focusPane(s, ref('b')))
+    expect(s).toMatchObject({ agentId: 'b', tab: 'terminal' })
+    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['a', 'chat'], ['c', 'overview']])
+    expect(s.views['h/b']).toBe('terminal')
+  })
+
+  it('shows a pane as the main one when its agent is activated, never twice', () => {
+    let s = apply(open('a'), pinSplit(open('a'), ref('b')))
+    s = apply(s, activate(s, 'h', 'b'))
+    expect(s).toMatchObject({ agentId: 'b', side: [] })
+  })
+
+  it('closing the main agent brings the first pane over; closing a pane\'s tab closes the pane', () => {
+    let s = apply(open('a'), pinSplit(open('a'), ref('b')))
+    s = apply(s, pinSplit(s, ref('c')))
+    const closedMain = apply(s, closeTab(s, ref('a')))
+    expect(closedMain).toMatchObject({ agentId: 'b', tab: 'terminal' })
+    expect(closedMain.side.map((p) => p.agentId)).toEqual(['c'])
+    const closedPane = apply(s, closeTab(s, ref('b')))
+    expect(closedPane.agentId).toBe('a')
+    expect(closedPane.side.map((p) => p.agentId)).toEqual(['c'])
+  })
+
+  it('forgets the panes of a removed host', () => {
+    const s = base({ tabs: [{ hostId: 'x', agentId: 'a' }], side: [{ hostId: 'x', agentId: 'a', tab: 'chat' }, { hostId: 'y', agentId: 'b', tab: 'chat' }] })
+    expect(forgetHost(s, 'x').side).toEqual([{ hostId: 'y', agentId: 'b', tab: 'chat' }])
   })
 })
