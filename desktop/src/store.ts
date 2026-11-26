@@ -28,6 +28,8 @@ export interface HostState {
   waiting: WaitingRow[]
   /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
   devices: Device[]
+  /** The pairing each device came through (a `DevicePaired` event's `pairingId`), by device id; a device with no entry is one whose event we didn't see, or from a host before the field. */
+  pairedVia: Record<string, string>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -35,7 +37,7 @@ export interface HostState {
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], devices: [], clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -149,10 +151,14 @@ function applyEvent(s: HostState, e: Event): HostState {
     }
     case 'devicePaired': {
       const d = p.value.device
-      return d && !s.devices.some((x) => x.id === d.id) ? { ...next, devices: [...s.devices, d] } : next
+      if (!d) return next
+      const via = p.value.pairingId ? { ...s.pairedVia, [d.id]: p.value.pairingId } : s.pairedVia
+      return { ...next, pairedVia: via, devices: s.devices.some((x) => x.id === d.id) ? s.devices : [...s.devices, d] }
     }
-    case 'deviceRevoked':
-      return { ...next, devices: s.devices.filter((x) => x.id !== p.value.deviceId) }
+    case 'deviceRevoked': {
+      const { [p.value.deviceId]: _gone, ...pairedVia } = s.pairedVia
+      return { ...next, pairedVia, devices: s.devices.filter((x) => x.id !== p.value.deviceId) }
+    }
     default:
       return next
   }

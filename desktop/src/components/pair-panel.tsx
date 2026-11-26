@@ -31,6 +31,10 @@ export function canPair(host: HostRuntime['store']): boolean {
 }
 
 const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+/** Which of the new devices used a link, when the host doesn't say: the one that has its name, or with no name the only one. */
+function guess(fresh: Device[], name: string): Device | undefined {
+  return name ? fresh.find((d) => d.name === name) : fresh.length === 1 ? fresh[0] : undefined
+}
 const when = (d: Device) => (d.createdAt ? new Date(Number(d.createdAt.seconds) * 1000).toLocaleString() : '')
 
 /**
@@ -68,11 +72,15 @@ export function PairPanel({ host }: { host: HostRuntime }) {
     }
   }, [host])
 
-  // The host keeps no link on a device, so a new device is matched to this link by what is known: the name the link was
-  // made with (the device may give its own instead), or, with no name, the only device that appeared since. Anything
-  // else is left open: the link stays, and the note says who appeared, not whether the link was used.
+  // The host says which link a device came through (`DevicePaired.pairingId`), so the new device is the one whose link
+  // is this one. A host from before the field says nothing: then the name the link was made with (the device may give
+  // its own instead), or, with no name, the only device that appeared since, is what there is to go by. Anything else
+  // is left open: the link stays, and the note says who appeared, not whether the link was used.
+  const pairedVia = useHostState(host, (s) => s.pairedVia)
   const fresh = made ? devices.filter((d) => !made.known.has(d.id)) : []
-  const paired = made?.name ? fresh.find((d) => d.name === made.name) : fresh.length === 1 ? fresh[0] : undefined
+  const exact = made?.res.pairingId ? fresh.find((d) => pairedVia[d.id] === made.res.pairingId) : undefined
+  const hostSaysWhich = fresh.some((d) => pairedVia[d.id])
+  const paired = made ? exact ?? (hostSaysWhich ? undefined : guess(fresh, made.name)) : undefined
   const others = fresh.filter((d) => d !== paired)
   const skew = useHostState(host, (s) => s.clockSkewMs)
   const expired = useExpired(made?.res.expiresAt, skew)

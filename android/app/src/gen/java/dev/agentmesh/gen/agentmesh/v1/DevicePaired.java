@@ -15,6 +15,7 @@ public  final class DevicePaired extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.DevicePaired)
     DevicePairedOrBuilder {
   private DevicePaired() {
+    pairingId_ = "";
   }
   private int bitField0_;
   public static final int DEVICE_FIELD_NUMBER = 1;
@@ -62,6 +63,78 @@ public  final class DevicePaired extends
   private void clearDevice() {
     device_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int PAIRING_ID_FIELD_NUMBER = 2;
+  private java.lang.String pairingId_;
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @return The pairingId.
+   */
+  @java.lang.Override
+  public java.lang.String getPairingId() {
+    return pairingId_;
+  }
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @return The bytes for pairingId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPairingIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(pairingId_);
+  }
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @param value The pairingId to set.
+   */
+  private void setPairingId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    pairingId_ = value;
+  }
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   */
+  private void clearPairingId() {
+
+    pairingId_ = getDefaultInstance().getPairingId();
+  }
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @param value The bytes for pairingId to set.
+   */
+  private void setPairingIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    pairingId_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.DevicePaired parseFrom(
@@ -208,6 +281,80 @@ public  final class DevicePaired extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+     * from. Events from before this field have it empty.
+     * </pre>
+     *
+     * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+     * @return The pairingId.
+     */
+    @java.lang.Override
+    public java.lang.String getPairingId() {
+      return instance.getPairingId();
+    }
+    /**
+     * <pre>
+     * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+     * from. Events from before this field have it empty.
+     * </pre>
+     *
+     * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+     * @return The bytes for pairingId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPairingIdBytes() {
+      return instance.getPairingIdBytes();
+    }
+    /**
+     * <pre>
+     * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+     * from. Events from before this field have it empty.
+     * </pre>
+     *
+     * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+     * @param value The pairingId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPairingId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPairingId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+     * from. Events from before this field have it empty.
+     * </pre>
+     *
+     * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPairingId() {
+      copyOnWrite();
+      instance.clearPairingId();
+      return this;
+    }
+    /**
+     * <pre>
+     * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+     * from. Events from before this field have it empty.
+     * </pre>
+     *
+     * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+     * @param value The bytes for pairingId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPairingIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPairingIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.DevicePaired)
   }
   @java.lang.Override
@@ -226,9 +373,11 @@ public  final class DevicePaired extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "device_",
+            "pairingId_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
