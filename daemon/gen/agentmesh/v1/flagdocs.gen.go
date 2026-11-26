@@ -123,6 +123,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.CreateWorktreeRequest.run_id":             "Defaults to the caller's own run for a root; required for a device.",
 	"agentmesh.v1.CreateWorktreeRequest.slug":               "Names the branch (mesh/<run>/<slug>) and the worktree directory (<repo>-<slug>).",
 	"agentmesh.v1.Device.revoked_at":                        "Set once revoked.",
+	"agentmesh.v1.DevicePaired.pairing_id":                  "The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came from. Events from before this field have it empty.",
 	"agentmesh.v1.DoorbellHeld.draft":                       "The draft's first characters.",
 	"agentmesh.v1.EditPeerRequest.target":                   "A peer's name or a group's: the `about` of that one is replaced.",
 	"agentmesh.v1.Event.actor":                              "Who caused it: the actor of the action, or the agent whose hook reported it.",

@@ -46,6 +46,14 @@ func TestTheAppRowsAreInTheTable(t *testing.T) {
 	if _, err := Check(l, []any{"plan", "failed"}); err != nil {
 		t.Error(err)
 	}
+	if _, err := Check(l, []any{"limited", "error"}); err != nil {
+		t.Error(err)
+	}
+	// An agent in error notifies out of the box; one at its usage limit (the daemon usually moves it on) doesn't.
+	def := strings.Join(DefaultNotifyEvents, ",")
+	if !strings.Contains(","+def+",", ",error,") || strings.Contains(","+def+",", ",limited,") {
+		t.Errorf("default notify events %v", DefaultNotifyEvents)
+	}
 	if _, err := Check(l, []any{"claude"}); err == nil {
 		t.Error("an event outside the choices was accepted")
 	}

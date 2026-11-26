@@ -1,9 +1,9 @@
 import { QrCode, Settings } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { createAppModel, type HostRuntime } from '@/model'
-import type { DesktopApi } from '../shared/api'
+import type { DesktopApi, OpenedLink } from '../shared/api'
 import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
@@ -18,24 +18,33 @@ export function App({ api }: { api: DesktopApi }) {
   useEffect(() => {
     void model.load()
   }, [model])
+  // A pairing link the operating system opened the app with: shown in the add-a-host form, never acted on. With the
+  // host list fixed by the environment no host can be added, so there is nothing to show it in.
+  const [opened, setOpened] = useState<OpenedLink>()
+  useEffect(() => {
+    if (api.hosts.fixed) return
+    // The link is handed over once: a result is kept even if this effect ran again meanwhile (React's strict mode runs it twice).
+    void api.links.take().then((l) => l && setOpened(l))
+    return api.links.onOpen(setOpened)
+  }, [api])
   return (
     <AppContext.Provider value={model}>
-      <Shell />
+      <Shell opened={opened} onOpenedDone={() => setOpened(undefined)} />
     </AppContext.Provider>
   )
 }
 
-function Shell() {
+function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: () => void }) {
   const loaded = useAppState((s) => s.loaded)
   const error = useAppState((s) => s.error)
   const hosts = useAppState((s) => s.hosts)
   const host = useSelectedHost()
   if (!loaded) return <div className="grid h-screen place-items-center text-muted-foreground">Loading…</div>
   if (error) return <div role="alert" className="grid h-screen place-items-center text-destructive">{error}</div>
-  if (hosts.length === 0) return <Welcome />
+  if (hosts.length === 0) return <Welcome opened={opened} onDone={onOpenedDone} />
   return (
     <div className="flex h-screen">
-      <HostRail />
+      <HostRail opened={opened} onOpenedDone={onOpenedDone} />
       {host && (
         <>
           <aside className="flex w-80 shrink-0 flex-col border-r bg-surface">
@@ -52,7 +61,7 @@ function Shell() {
   )
 }
 
-function Welcome() {
+function Welcome({ opened, onDone }: { opened?: OpenedLink; onDone: () => void }) {
   const app = useApp()
   return (
     <div className="grid h-screen place-items-center p-6">
@@ -63,13 +72,13 @@ function Welcome() {
             agent-mesh runs on a daemon on your machine or a server. Point the app at one.
           </p>
         </div>
-        {app.api.hosts.fixed ? <p role="alert" className="text-xs text-destructive">The host is set by the environment but isn't available.</p> : <AddHostForm />}
+        {app.api.hosts.fixed ? <p role="alert" className="text-xs text-destructive">The host is set by the environment but isn't available.</p> : <AddHostForm key={opened?.link} opened={opened} onDone={onDone} />}
       </div>
     </div>
   )
 }
 
-function HostRail() {
+function HostRail({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: () => void }) {
   const app = useApp()
   const hosts = useAppState((s) => s.hosts)
   const selected = useAppState((s) => s.hostId)
@@ -78,7 +87,7 @@ function HostRail() {
       {hosts.map((h) => (
         <RailItem key={h.info.id} host={h} selected={h.info.id === selected} onSelect={() => app.selectHost(h.info.id)} />
       ))}
-      {!app.api.hosts.fixed && <AddHostDialog />}
+      {!app.api.hosts.fixed && <AddHostDialog opened={opened} onClose={onOpenedDone} />}
     </nav>
   )
 }

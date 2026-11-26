@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronDown, ChevronUp, ClipboardList, FileText, MessageCircleQuestion, XCircle } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { answer } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,12 +20,31 @@ function stamp(m: Message): string {
   return m.createdAt ? new Date(Number(m.createdAt.seconds) * 1000).toLocaleString() : ''
 }
 
-/** The conversation of one agent: what it sent and was sent, with plans and questions awaiting the user answerable in place. */
-export function MessagesPanel({ host, agentId }: { host: HostRuntime; agentId: string }) {
+/**
+ * The conversation of one agent: what it sent and was sent, with plans and questions awaiting the user answerable in
+ * place. The run's stored messages are read from the host when the tab is first shown (`active`), not at connect.
+ */
+export function MessagesPanel({ host, agentId, active = true }: { host: HostRuntime; agentId: string; active?: boolean }) {
   const messages = useHostState(host, (s) => s.messages)
   const waiting = useHostState(host, (s) => s.waiting)
+  const runId = useHostState(host, (s) => s.agents[agentId]?.runId)
+  const load = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
   const mine = useMemo(() => messagesOf(messages, agentId), [messages, agentId])
   const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
+  useEffect(() => {
+    if (active && runId) host.loadMessages(runId)
+  }, [active, runId, host])
+  // Events add messages of a run that isn't loaded too, so having some doesn't mean having them all.
+  if (runId && load !== 'loaded') {
+    return load === 'failed' ? (
+      <div role="alert" className="flex flex-col items-start gap-2 py-6 text-xs text-destructive">
+        <p>Couldn't load this run's messages.</p>
+        <Button size="sm" variant="outline" onClick={() => host.loadMessages(runId, true)}>Try again</Button>
+      </div>
+    ) : (
+      <p role="status" className="py-6 text-center text-xs text-muted-foreground">Loading messages…</p>
+    )
+  }
   if (mine.length === 0) {
     return <p className="py-6 text-center text-xs text-muted-foreground">No messages yet. Plans, questions and reports of this agent appear here.</p>
   }

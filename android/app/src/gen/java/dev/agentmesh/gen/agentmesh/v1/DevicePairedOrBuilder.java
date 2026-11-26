@@ -20,4 +20,26 @@ public interface DevicePairedOrBuilder extends
    * @return The device.
    */
   dev.agentmesh.gen.agentmesh.v1.Device getDevice();
+
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @return The pairingId.
+   */
+  java.lang.String getPairingId();
+  /**
+   * <pre>
+   * The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came
+   * from. Events from before this field have it empty.
+   * </pre>
+   *
+   * <code>string pairing_id = 2 [json_name = "pairingId"];</code>
+   * @return The bytes for pairingId.
+   */
+  com.google.protobuf.ByteString
+      getPairingIdBytes();
 }
