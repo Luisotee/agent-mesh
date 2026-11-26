@@ -67,8 +67,11 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
 
 /** The look follows the selected host's `app.theme` (Dracula until it says, or when it names a theme this build lacks). */
 function ThemeSync({ host }: { host: HostRuntime }) {
-  const name = useHostState(host, (s) => appPrefs(s.settings).theme)
-  useEffect(() => applyTheme(themeByName(name)), [name])
+  // Until the host's settings arrive its theme isn't known: keep the look as it is rather than flash Dracula.
+  const name = useHostState(host, (s) => (Object.keys(s.settings).length > 0 ? appPrefs(s.settings).theme : undefined))
+  useEffect(() => {
+    if (name !== undefined) applyTheme(themeByName(name))
+  }, [name])
   return null
 }
 

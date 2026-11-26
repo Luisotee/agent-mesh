@@ -106,5 +106,6 @@ describe('tokens', () => {
   it('writes k and M', () => {
     expect(tokens(340_000n)).toBe('340k')
     expect(tokens(1_250_000)).toBe('1.3M')
+    expect(tokens(300n)).toBe('300')
   })
 })

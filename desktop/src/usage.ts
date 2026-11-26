@@ -76,6 +76,7 @@ export const usd = (v: number) => `$${v.toFixed(2)}`
 /** Token counts the way `mesh cost` writes them: 1.2M, 340k. */
 export function tokens(n: bigint | number): string {
   const v = Number(n)
+  if (v < 1000) return String(v)
   return v >= 1_000_000 ? `${(v / 1e6).toFixed(1)}M` : `${Math.round(v / 1e3)}k`
 }
 

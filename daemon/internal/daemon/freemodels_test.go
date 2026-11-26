@@ -108,3 +108,50 @@ func TestFreeModelsOffKeepsOpenCodeOutOfAReviewRound(t *testing.T) {
 		t.Fatalf("a paid model should give the slot back to OpenCode, got %v (notes %v)", res2.Msg.Agents, res2.Msg.Notes)
 	}
 }
+
+// A running OpenCode agent in a repo that gets listed afterwards can't be switched onto a free model, by name, by
+// the `free` family or by walking its chain.
+func TestFreeModelsOffRefusesASwitchOntoAFreeModel(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2", "free"})
+	run := startRun(t, w.device.Mesh, "")
+	repo := gitRepo(t)
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "oc-sw", Kind: opencode.Kind, Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	a = w.opencodeTurn(t, a, "hello") // a turn, so the conversation has an id to reopen
+	if a.Model != "openai/gpt-5.2" {
+		t.Fatalf("started on %q", a.Model)
+	}
+	w.set(t, "repos.no_free_models", []any{repo})
+
+	switchTo := func(req *v1.SwitchAgentRequest) error {
+		req.Agent = a.Id
+		_, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(req))
+		return err
+	}
+	for name, req := range map[string]*v1.SwitchAgentRequest{
+		"a free model by name": {Model: "opencode/beam-free"},
+		"the free family":      {Model: opencode.FreeFamily},
+	} {
+		if err := switchTo(req); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "repos.no_free_models") {
+			t.Errorf("%s: want InvalidArgument naming repos.no_free_models, got %v", name, err)
+		}
+	}
+	// The chain is [paid, free...]: for this repo it ends at the paid model, so there is nothing to walk to.
+	if err := switchTo(&v1.SwitchAgentRequest{Next: true}); err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "last model") {
+		t.Errorf("--next: want the end of the chain, got %v", err)
+	}
+	if got := w.agent(a.Id); got.Model != "openai/gpt-5.2" {
+		t.Errorf("the agent moved to %q", got.Model)
+	}
+	// Another paid model is fine.
+	if err := switchTo(&v1.SwitchAgentRequest{Model: "openai/gpt-5.3"}); err != nil {
+		t.Errorf("a paid model: %v", err)
+	}
+}

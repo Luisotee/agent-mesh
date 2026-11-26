@@ -545,6 +545,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			}
 		case m.Model != "":
 			model = m.Model
+			// A repo set against free models (freemodels.go) is moved onto none, named or by the `free` family.
+			if off := d.freeOffFor(tx.Reader, a.Kind, a.Repo); off != "" {
+				if err := d.checkNotFree(a.Repo, off, model); err != nil {
+					return err
+				}
+			}
 			if a.Kind == opencode.Kind && model == opencode.FreeFamily {
 				if m.Effort != "" {
 					effort = m.Effort
@@ -578,6 +584,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			chain = d.expandChain(a.Kind, chain)
 			if len(chain) == 0 {
 				return failedPrecondition("%s", d.openCodeNoFreeError())
+			}
+			// A repo set against free models (freemodels.go) walks only the paid part of the chain.
+			if off := d.freeOffFor(tx.Reader, a.Kind, a.Repo); off != "" {
+				if chain, err = d.dropFree(a.Repo, off, chain); err != nil {
+					return err
+				}
 			}
 			if m.Effort != "" {
 				effort = m.Effort
