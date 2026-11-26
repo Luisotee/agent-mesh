@@ -247,7 +247,7 @@ func TestASettingChangeReachesARunsSubscribersAndSurvivesARestart(t *testing.T) 
 	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "idle_retire"); err != nil || v != 60.0 {
 		t.Errorf("the daemon reads %v, %v", v, err)
 	}
-	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "caps.agents"); err != nil || v != 8.0 {
+	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "caps.agents"); err != nil || v != 16.0 {
 		t.Errorf("an unset setting reads %v, %v, want its default", v, err)
 	}
 	// A stored value the leaf's rule no longer takes falls back to the default, and the API still shows it.

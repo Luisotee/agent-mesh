@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/relay/v1/relay.proto.
  */
 export const file_agentmesh_relay_v1_relay: GenFile = /*@__PURE__*/
-  fileDesc("Ch5hZ2VudG1lc2gvcmVsYXkvdjEvcmVsYXkucHJvdG8SEmFnZW50bWVzaC5yZWxheS52MSKGAgoMQ29udHJvbEZyYW1lEjAKCHJlZ2lzdGVyGAEgASgLMhwuYWdlbnRtZXNoLnJlbGF5LnYxLlJlZ2lzdGVySAASMQoJZGlhbF9iYWNrGAIgASgLMhwuYWdlbnRtZXNoLnJlbGF5LnYxLkRpYWxCYWNrSAASKAoEcGluZxgDIAEoCzIYLmFnZW50bWVzaC5yZWxheS52MS5QaW5nSAASNAoKcmVnaXN0ZXJlZBgKIAEoCzIeLmFnZW50bWVzaC5yZWxheS52MS5SZWdpc3RlcmVkSAASKAoEcG9uZxgLIAEoCzIYLmFnZW50bWVzaC5yZWxheS52MS5Qb25nSABCBwoFZnJhbWUiRgoIUmVnaXN0ZXISDwoHaG9zdF9pZBgBIAEoCRIRCglob3N0X25hbWUYAiABKAkSFgoOZGFlbW9uX3ZlcnNpb24YAyABKAkiHQoKUmVnaXN0ZXJlZBIPCgdob3N0X2lkGAEgASgJIi0KCERpYWxCYWNrEg4KBnRpY2tldBgBIAEoCRIRCglzdHJlYW1faWQYAiABKAkiEwoEUGluZxILCgNzZXEYASABKAMiEwoEUG9uZxILCgNzZXEYASABKANiBnByb3RvMw");
+  fileDesc("Ch5hZ2VudG1lc2gvcmVsYXkvdjEvcmVsYXkucHJvdG8SEmFnZW50bWVzaC5yZWxheS52MSLBAgoMQ29udHJvbEZyYW1lEjAKCHJlZ2lzdGVyGAEgASgLMhwuYWdlbnRtZXNoLnJlbGF5LnYxLlJlZ2lzdGVySAASMQoJZGlhbF9iYWNrGAIgASgLMhwuYWdlbnRtZXNoLnJlbGF5LnYxLkRpYWxCYWNrSAASKAoEcGluZxgDIAEoCzIYLmFnZW50bWVzaC5yZWxheS52MS5QaW5nSAASOQoNY2xpZW50X3Rva2VucxgEIAEoCzIgLmFnZW50bWVzaC5yZWxheS52MS5DbGllbnRUb2tlbnNIABI0CgpyZWdpc3RlcmVkGAogASgLMh4uYWdlbnRtZXNoLnJlbGF5LnYxLlJlZ2lzdGVyZWRIABIoCgRwb25nGAsgASgLMhguYWdlbnRtZXNoLnJlbGF5LnYxLlBvbmdIAEIHCgVmcmFtZSKVAQoIUmVnaXN0ZXISDwoHaG9zdF9pZBgBIAEoCRIRCglob3N0X25hbWUYAiABKAkSFgoOZGFlbW9uX3ZlcnNpb24YAyABKAkSFQoNZGV2aWNlX3Rva2VucxgEIAEoCBI2Cg1jbGllbnRfdG9rZW5zGAUgAygLMh8uYWdlbnRtZXNoLnJlbGF5LnYxLkNsaWVudFRva2VuIj8KDENsaWVudFRva2VucxIvCgZ0b2tlbnMYASADKAsyHy5hZ2VudG1lc2gucmVsYXkudjEuQ2xpZW50VG9rZW4iMgoLQ2xpZW50VG9rZW4SDgoGc2hhMjU2GAEgASgMEhMKC3R0bF9zZWNvbmRzGAIgASgDIh0KClJlZ2lzdGVyZWQSDwoHaG9zdF9pZBgBIAEoCSItCghEaWFsQmFjaxIOCgZ0aWNrZXQYASABKAkSEQoJc3RyZWFtX2lkGAIgASgJIhMKBFBpbmcSCwoDc2VxGAEgASgDIhMKBFBvbmcSCwoDc2VxGAEgASgDYgZwcm90bzM");
 
 /**
  * ControlFrame is one binary WebSocket message on the daemon-to-relay control connection
@@ -43,6 +43,12 @@ export type ControlFrame = Message<"agentmesh.relay.v1.ControlFrame"> & {
      */
     value: Ping;
     case: "ping";
+  } | {
+    /**
+     * @generated from field: agentmesh.relay.v1.ClientTokens client_tokens = 4;
+     */
+    value: ClientTokens;
+    case: "clientTokens";
   } | {
     /**
      * Relay to daemon.
@@ -85,6 +91,19 @@ export type Register = Message<"agentmesh.relay.v1.Register"> & {
    * @generated from field: string daemon_version = 3;
    */
   daemonVersion: string;
+
+  /**
+   * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+   * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+   *
+   * @generated from field: bool device_tokens = 4;
+   */
+  deviceTokens: boolean;
+
+  /**
+   * @generated from field: repeated agentmesh.relay.v1.ClientToken client_tokens = 5;
+   */
+  clientTokens: ClientToken[];
 };
 
 /**
@@ -93,6 +112,55 @@ export type Register = Message<"agentmesh.relay.v1.Register"> & {
  */
 export const RegisterSchema: GenMessage<Register> = /*@__PURE__*/
   messageDesc(file_agentmesh_relay_v1_relay, 1);
+
+/**
+ * ClientTokens replaces the set of client tokens the relay accepts for this host (daemon to relay, after
+ * Registered), sent whenever a pairing is made or redeemed or a device is revoked.
+ *
+ * @generated from message agentmesh.relay.v1.ClientTokens
+ */
+export type ClientTokens = Message<"agentmesh.relay.v1.ClientTokens"> & {
+  /**
+   * @generated from field: repeated agentmesh.relay.v1.ClientToken tokens = 1;
+   */
+  tokens: ClientToken[];
+};
+
+/**
+ * Describes the message agentmesh.relay.v1.ClientTokens.
+ * Use `create(ClientTokensSchema)` to create a new message.
+ */
+export const ClientTokensSchema: GenMessage<ClientTokens> = /*@__PURE__*/
+  messageDesc(file_agentmesh_relay_v1_relay, 2);
+
+/**
+ * ClientToken is one client relay token the relay accepts, by its hash: the relay never holds the token.
+ *
+ * @generated from message agentmesh.relay.v1.ClientToken
+ */
+export type ClientToken = Message<"agentmesh.relay.v1.ClientToken"> & {
+  /**
+   * SHA-256 of the token as the client sends it in its preamble.
+   *
+   * @generated from field: bytes sha256 = 1;
+   */
+  sha256: Uint8Array;
+
+  /**
+   * Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+   * Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
+   *
+   * @generated from field: int64 ttl_seconds = 2;
+   */
+  ttlSeconds: bigint;
+};
+
+/**
+ * Describes the message agentmesh.relay.v1.ClientToken.
+ * Use `create(ClientTokenSchema)` to create a new message.
+ */
+export const ClientTokenSchema: GenMessage<ClientToken> = /*@__PURE__*/
+  messageDesc(file_agentmesh_relay_v1_relay, 3);
 
 /**
  * @generated from message agentmesh.relay.v1.Registered
@@ -109,7 +177,7 @@ export type Registered = Message<"agentmesh.relay.v1.Registered"> & {
  * Use `create(RegisteredSchema)` to create a new message.
  */
 export const RegisteredSchema: GenMessage<Registered> = /*@__PURE__*/
-  messageDesc(file_agentmesh_relay_v1_relay, 2);
+  messageDesc(file_agentmesh_relay_v1_relay, 4);
 
 /**
  * DialBack asks the daemon to open a WebSocket to `/v1/daemon/stream?ticket=<ticket>` for a waiting app
@@ -134,7 +202,7 @@ export type DialBack = Message<"agentmesh.relay.v1.DialBack"> & {
  * Use `create(DialBackSchema)` to create a new message.
  */
 export const DialBackSchema: GenMessage<DialBack> = /*@__PURE__*/
-  messageDesc(file_agentmesh_relay_v1_relay, 3);
+  messageDesc(file_agentmesh_relay_v1_relay, 5);
 
 /**
  * @generated from message agentmesh.relay.v1.Ping
@@ -151,7 +219,7 @@ export type Ping = Message<"agentmesh.relay.v1.Ping"> & {
  * Use `create(PingSchema)` to create a new message.
  */
 export const PingSchema: GenMessage<Ping> = /*@__PURE__*/
-  messageDesc(file_agentmesh_relay_v1_relay, 4);
+  messageDesc(file_agentmesh_relay_v1_relay, 6);
 
 /**
  * @generated from message agentmesh.relay.v1.Pong
@@ -168,5 +236,5 @@ export type Pong = Message<"agentmesh.relay.v1.Pong"> & {
  * Use `create(PongSchema)` to create a new message.
  */
 export const PongSchema: GenMessage<Pong> = /*@__PURE__*/
-  messageDesc(file_agentmesh_relay_v1_relay, 5);
+  messageDesc(file_agentmesh_relay_v1_relay, 7);
 

@@ -11,6 +11,7 @@ message ControlFrame {
     Register register = 1;
     DialBack dial_back = 2;
     Ping ping = 3;
+    ClientTokens client_tokens = 4;
     // Relay to daemon.
     Registered registered = 10;
     Pong pong = 11;
@@ -21,6 +22,25 @@ message Register {
   string host_id = 1;
   string host_name = 2;
   string daemon_version = 3;
+  // The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+  // client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+  bool device_tokens = 4;
+  repeated ClientToken client_tokens = 5;
+}
+
+// ClientTokens replaces the set of client tokens the relay accepts for this host (daemon to relay, after
+// Registered), sent whenever a pairing is made or redeemed or a device is revoked.
+message ClientTokens {
+  repeated ClientToken tokens = 1;
+}
+
+// ClientToken is one client relay token the relay accepts, by its hash: the relay never holds the token.
+message ClientToken {
+  // SHA-256 of the token as the client sends it in its preamble.
+  bytes sha256 = 1;
+  // Seconds from when the relay receives it until it refuses it (a pairing not yet redeemed); 0 is no expiry.
+  // Relative, so a relay whose clock is off from the host's still keeps the pairing's lifetime.
+  int64 ttl_seconds = 2;
 }
 
 message Registered {

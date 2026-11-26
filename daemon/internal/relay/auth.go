@@ -26,6 +26,18 @@ func ClientToken(relaySecret, hostID string) string {
 	return SecretPrefix + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+// DeviceToken derives the relay token of one paired device from the relay secret. The daemon puts it in the
+// device's pairing link and tells the relay its hash while the device may connect (ClientTokens), so the relay
+// refuses a revoked device at the preamble, before it asks the daemon to dial back.
+func DeviceToken(relaySecret, hostID, deviceID string) string {
+	mac := hmac.New(sha256.New, []byte(relaySecret))
+	mac.Write([]byte("agentmesh-device-v1:" + hostID + ":" + deviceID))
+	return SecretPrefix + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// TokenHash is the SHA-256 of a client relay token, the form the relay keeps it in.
+func TokenHash(token string) [sha256.Size]byte { return sha256.Sum256([]byte(token)) }
+
 // ValidSecret reports whether got matches the relay secret in constant time.
 func ValidSecret(want, got string) bool {
 	if want == "" || got == "" {
