@@ -1244,6 +1244,44 @@ public  final class Ask extends
     bitField0_ = (bitField0_ & ~0x00000004);
   }
 
+  public static final int STARTING_FIELD_NUMBER = 23;
+  private boolean starting_;
+  /**
+   * <pre>
+   * The ask is still starting its members: it can't finish yet, however many have answered.
+   * </pre>
+   *
+   * <code>bool starting = 23 [json_name = "starting"];</code>
+   * @return The starting.
+   */
+  @java.lang.Override
+  public boolean getStarting() {
+    return starting_;
+  }
+  /**
+   * <pre>
+   * The ask is still starting its members: it can't finish yet, however many have answered.
+   * </pre>
+   *
+   * <code>bool starting = 23 [json_name = "starting"];</code>
+   * @param value The starting to set.
+   */
+  private void setStarting(boolean value) {
+    
+    starting_ = value;
+  }
+  /**
+   * <pre>
+   * The ask is still starting its members: it can't finish yet, however many have answered.
+   * </pre>
+   *
+   * <code>bool starting = 23 [json_name = "starting"];</code>
+   */
+  private void clearStarting() {
+
+    starting_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Ask parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2612,6 +2650,46 @@ public  final class Ask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The ask is still starting its members: it can't finish yet, however many have answered.
+     * </pre>
+     *
+     * <code>bool starting = 23 [json_name = "starting"];</code>
+     * @return The starting.
+     */
+    @java.lang.Override
+    public boolean getStarting() {
+      return instance.getStarting();
+    }
+    /**
+     * <pre>
+     * The ask is still starting its members: it can't finish yet, however many have answered.
+     * </pre>
+     *
+     * <code>bool starting = 23 [json_name = "starting"];</code>
+     * @param value The starting to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStarting(boolean value) {
+      copyOnWrite();
+      instance.setStarting(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The ask is still starting its members: it can't finish yet, however many have answered.
+     * </pre>
+     *
+     * <code>bool starting = 23 [json_name = "starting"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStarting() {
+      copyOnWrite();
+      instance.clearStarting();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Ask)
   }
   @java.lang.Override
@@ -2653,12 +2731,13 @@ public  final class Ask extends
             "deadline_",
             "createdAt_",
             "finishedAt_",
+            "starting_",
           };
           java.lang.String info =
-              "\u0000\u0016\u0000\u0001\u0001\u0016\u0016\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0017\u0000\u0001\u0001\u0017\u0017\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\f\u0006\f\u0007\u0208\b\u0004\t\u0208\n\u0208\u000b" +
               "\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u001b\u0010\u0007\u0011\u0208\u0012\u0004" +
-              "\u0013\u001b\u0014\u1009\u0000\u0015\u1009\u0001\u0016\u1009\u0002";
+              "\u0013\u001b\u0014\u1009\u0000\u0015\u1009\u0001\u0016\u1009\u0002\u0017\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

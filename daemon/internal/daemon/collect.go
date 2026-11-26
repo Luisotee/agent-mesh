@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -60,6 +61,9 @@ func (d *Daemon) settleMember(tx *store.Tx, a *v1.Ask, idx int, status v1.AskMem
 // finishIfDone stores the ask and, with no member pending, finishes it: the answers file, one message to the
 // caller.
 func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
+	if a.Starting {
+		return nil, tx.PutAsk(a) // members are still being started: their answers wait for the rest
+	}
 	for _, m := range a.Members {
 		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING {
 			return nil, tx.PutAsk(a)
@@ -67,20 +71,28 @@ func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
 	}
 	a.Status = v1.AskStatus_ASK_STATUS_FINISHED
 	a.FinishedAt = timestamppb.New(tx.Now())
-	if err := writeAnswers(a); err != nil {
-		return nil, fmt.Errorf("writing the answers of %s: %w", a.Id, err)
+	// A file that can't be written must not fail the member's report this runs in: the answers stay in the ask
+	// (`mesh asks`) and the message says so.
+	fileErr := writeAnswers(a)
+	if fileErr != nil {
+		d.log.Warn("writing an ask's answers", "ask", a.Id, "err", fileErr)
+		a.AnswersPath = ""
 	}
 	if err := tx.PutAsk(a); err != nil {
 		return nil, err
 	}
 	caller, err := tx.GetAgent(a.CallerId)
 	if err != nil {
-		if err == store.ErrNotFound {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil // the caller is gone from the store: the file is all there is
 		}
 		return nil, err
 	}
-	return tellTx(tx, caller, d.summary(tx.Reader, a))
+	text := d.summary(tx.Reader, a)
+	if fileErr != nil {
+		text += "\n(the answers file could not be written: " + fileErr.Error() + "; read the answers with `mesh asks`)"
+	}
+	return tellTx(tx, caller, text)
 }
 
 // alertAsMember is alertParentTx for an agent that is a pending member of its parent's collected ask: an exit
@@ -120,16 +132,19 @@ func (d *Daemon) settleOverdueAsks(ctx context.Context) {
 			}
 			due := cur.Deadline != nil && !now.Before(cur.Deadline.AsTime())
 			changed := false
+			if due && cur.Starting {
+				cur.Starting, changed = false, true // its starter is gone: settle what it left
+			}
 			for _, m := range cur.Members {
 				if m.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING {
 					continue
 				}
 				member, err := tx.GetAgent(m.AgentId)
-				if err != nil && err != store.ErrNotFound {
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
 					return err
 				}
 				switch {
-				case member == nil || stopped(member):
+				case member == nil || stopped(member) && member.PendingReopen == nil:
 					if member != nil {
 						if rep, err := lastReport(tx.Reader, member); err != nil || rep != nil {
 							// It reported (an answer held, or a question): the report settles it, not this pass.

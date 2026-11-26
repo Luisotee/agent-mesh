@@ -107,6 +107,8 @@ message Ask {
   google.protobuf.Timestamp deadline = 20;
   google.protobuf.Timestamp created_at = 21;
   google.protobuf.Timestamp finished_at = 22;
+  // The ask is still starting its members: it can't finish yet, however many have answered.
+  bool starting = 23;
 }
 
 message AskRequest {

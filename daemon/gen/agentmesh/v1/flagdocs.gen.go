@@ -44,6 +44,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.Ask.pr":                                   "A review: the pull request's URL and number, its repo (the checkout's top level), the commit under review and, for a re-review, the commit the last review covered.",
 	"agentmesh.v1.Ask.round":                                "Which round of this PR this is (1 for the first), counted across runs.",
 	"agentmesh.v1.Ask.size":                                 "trivial, small or large: picks the slots, the /code-review level and the round ceiling.",
+	"agentmesh.v1.Ask.starting":                             "The ask is still starting its members: it can't finish yet, however many have answered.",
 	"agentmesh.v1.AskMember.head":                           "The commit this agent reviewed at (a review).",
 	"agentmesh.v1.AskMember.how":                            "\"fresh\" (started for this ask), \"asked\" (a live agent of this run given a new task) or \"resumed\" (a retired one brought back).",
 	"agentmesh.v1.AskMember.kind":                           "The CLI kind (\"claude\", \"agy\").",

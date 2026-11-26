@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +47,12 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 		}
 	}
 	body := strings.TrimSpace(m.Body)
+	if strings.HasPrefix(m.Review, "-") {
+		return nil, invalid("review %q looks like an option: give the PR's number or URL", m.Review)
+	}
+	if m.Since != "" && !commitRE.MatchString(m.Since) {
+		return nil, invalid("since %q: a commit id (hex, 7 to 40 characters)", m.Since)
+	}
 	switch {
 	case m.Agent != "":
 		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" {
@@ -70,6 +78,17 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	}
 	return d.reviewOne(ctx, actor, m, body)
 }
+
+// subMeta is a mutation id for one step of an ask (a spawn, a task), derived from the ask's own, so a retry of
+// the whole ask replays each step instead of starting a second reviewer.
+func subMeta(m *v1.RequestMeta, step string) *v1.RequestMeta {
+	if m.GetMutationId() == "" {
+		return nil
+	}
+	return &v1.RequestMeta{MutationId: m.MutationId + "/" + step}
+}
+
+var commitRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // topOf is a repo's top level.
 func topOf(ctx context.Context, repo string) (string, error) {
@@ -131,11 +150,14 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	task := askPrefix + "\n\n" + body
 	switch {
 	case m.Review != "":
+		if _, ok := sizes[m.Size]; !ok {
+			return nil, invalid("size %q: trivial, small or large (it picks the /code-review level)", m.Size)
+		}
 		pr, err := d.resolvePR(ctx, a.Repo, m.Review)
 		if err != nil {
 			return nil, err
 		}
-		level, err := d.settingString(r, "review.level."+orSmall(m.Size))
+		level, err := d.settingString(r, "review.level."+m.Size)
 		if err != nil {
 			return nil, err
 		}
@@ -168,13 +190,6 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 		out.Notes = append(out.Notes, a.Name+" could not be resumed: "+res.Msg.ResumeError+" (the task is stored for when it is)")
 	}
 	return connect.NewResponse(out), nil
-}
-
-func orSmall(size string) string {
-	if size == "" {
-		return "small"
-	}
-	return size
 }
 
 // reviewOne starts one fresh reviewer, at the PR's head. Its own `done` is the answer: no collecting, but the
@@ -210,7 +225,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	if err := d.quotaReserveGuard(ctx, actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
 		return nil, err
 	}
-	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: top, Slug: slug,
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(m.Meta, "spawn"), Repo: top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task}))
 	if err != nil {
 		return nil, err
@@ -297,35 +312,69 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		Deadline: timestamppb.New(now.Add(time.Duration(timeout.(float64) * float64(time.Second))))}
 	out := &v1.AskResponse{Ask: ask, Notes: notes}
 	narrow := narrowSince(ctx, top, since, pr.Head)
+	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
+	reuseFrom := last
+	if last != nil && last.Head == pr.Head {
+		reuseFrom = nil
+	}
+	// The ask exists before its members do, so a report that comes while the others are still starting is
+	// collected; it can't finish until all are started (starting).
+	ask.Starting = true
+	if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(ask) }); err != nil {
+		return nil, err
+	}
+	started := 0
 	for _, kind := range kinds {
 		member, agent, note := d.startReviewer(ctx, actor, reviewJob{kind: kind, pr: pr, top: top, level: level, effort: effort,
-			tier: m.Tier, body: body, since: since, narrow: narrow, last: last})
+			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 		if note != "" {
 			out.Notes = append(out.Notes, note)
 		}
-		ask.Members = append(ask.Members, member)
 		if agent != nil {
 			out.Agents = append(out.Agents, agent)
-		}
-	}
-	started := 0
-	for _, mem := range ask.Members {
-		if mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING {
 			started++
+		}
+		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
+			cur, err := tx.GetAsk(ask.Id)
+			if err != nil {
+				return err
+			}
+			cur.Members = append(cur.Members, member)
+			return tx.PutAsk(cur)
+		}); err != nil {
+			return nil, err
 		}
 	}
 	if started == 0 {
+		cur, err := d.store.Read(ctx).GetAsk(ask.Id)
+		if err != nil {
+			return nil, err
+		}
 		var why []string
-		for _, mem := range ask.Members {
+		for _, mem := range cur.Members {
 			why = append(why, mem.Name+": "+mem.Line)
 		}
+		cur.Starting, cur.Status, cur.FinishedAt = false, v1.AskStatus_ASK_STATUS_FINISHED, timestamppb.New(d.now())
+		d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(cur) })
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no reviewer could be started (%s)", strings.Join(why, "; ")))
 	}
-	out.Hint = d.roundsHint(r, ask, false)
+	var ring *v1.Message
 	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
-		return tx.PutAsk(ask)
+		cur, err := tx.GetAsk(ask.Id)
+		if err != nil {
+			return err
+		}
+		cur.Starting = false
+		out.Ask = cur
+		// Members that answered or settled while the others started finish it now.
+		ring, err = d.finishIfDone(tx, cur)
+		out.Hint = d.roundsHint(tx.Reader, cur, false)
+		return err
 	}); err != nil {
 		return nil, err
+	}
+	if ring != nil && d.notify != nil {
+		d.notify(ring.ToId)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -336,6 +385,7 @@ type reviewJob struct {
 	pr                                          *prInfo
 	narrow                                      bool
 	last                                        *v1.Ask
+	meta                                        *v1.RequestMeta
 }
 
 // startReviewer brings one reviewer of a round into it: the earlier round's own agent when this run has one
@@ -378,7 +428,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			}
 			note = fmt.Sprintf("%s's worktree stays at %s: %s", reuse.Name, short(spec.stayAt), why)
 		}
-		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: reuse.Id,
+		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(j.meta, "send-"+j.kind), To: reuse.Id,
 			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: reviewTask(spec)}))
 		if err != nil {
 			return fail(reuse.Name, err.Error())
@@ -406,7 +456,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		return fail(member.Name, err.Error())
 	}
 	task := reviewTask(reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow})
-	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: j.top, Slug: slug,
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(j.meta, "spawn-"+j.kind), Repo: j.top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: j.effort, Tier: j.tier, Base: j.pr.Head, Task: task}))
 	if err != nil {
 		var ce *connect.Error
@@ -436,10 +486,20 @@ func asksOf(r store.Reader, actor *v1.Actor, pr string) ([]*v1.Ask, error) {
 	}
 	own := runScope(actor)
 	var out []*v1.Ask
+	prs := map[string]bool{}
 	for _, a := range asks {
 		if own == "" || a.RunId == own {
 			out = append(out, a)
+			prs[a.Pr] = true
 		}
+	}
+	if len(prs) > 1 {
+		var urls []string
+		for u := range prs {
+			urls = append(urls, u)
+		}
+		sort.Strings(urls)
+		return nil, invalid("%s is the number of several pull requests (%s): give the URL", pr, strings.Join(urls, ", "))
 	}
 	return out, nil
 }

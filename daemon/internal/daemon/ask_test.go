@@ -509,6 +509,8 @@ func TestAReviewNeedsASizeATierAndAPRGhCanRead(t *testing.T) {
 	for name, req := range map[string]*v1.AskRequest{
 		"no size":           {Repo: w.pr.repo, Review: "7", Tier: "mid", Reviewers: "all"},
 		"no tier":           {Repo: w.pr.repo, Review: "7", Size: "small", Reviewers: "all"},
+		"an option as PR":   {Repo: w.pr.repo, Review: "--web", Size: "small", Tier: "mid", Reviewers: "all"},
+		"since not a hash":  {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Since: "--all"},
 		"a model and round": {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Model: "opus"},
 	} {
 		if _, err := w.asRoot.Ask(ctx, connect.NewRequest(req)); code(err) != connect.CodeInvalidArgument {
@@ -628,5 +630,70 @@ func TestAReusedReviewersWorktreeThatCantMoveStaysAndSaysSo(t *testing.T) {
 	}
 	if wt, _ := exec.Command("git", "-C", rev.Worktree, "rev-parse", "HEAD").Output(); strings.TrimSpace(string(wt)) != head1 {
 		t.Errorf("the worktree moved to %s", wt)
+	}
+}
+
+func TestARoundAskedTwiceWithTheSameMutationIdStartsReviewersOnce(t *testing.T) {
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	req := func() *v1.AskRequest {
+		return &v1.AskRequest{Meta: meta("ask-1"), Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}
+	}
+	first := w.ask(t, req())
+	second := w.ask(t, req())
+	if first.Ask.Id != second.Ask.Id || len(second.Agents) != 0 && len(second.Agents) != 2 {
+		t.Fatalf("first %v, second %v", first.Ask.Id, second.Ask)
+	}
+	agents, _ := w.asRoot.ListAgents(context.Background(), connect.NewRequest(&v1.ListAgentsRequest{}))
+	n := 0
+	for _, a := range agents.Msg.Agents {
+		if a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d reviewers after a retried ask", n)
+	}
+}
+
+func TestARoundOnTheSameHeadAgainStartsFreshReviewers(t *testing.T) {
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	round1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "mid", Reviewers: "claude,agy"})
+	for _, a := range round1.Agents {
+		w.quiet(t, a.Id)
+		w.say(t, a.Id, v1.MessageType_MESSAGE_TYPE_DONE, "finding")
+	}
+	waitFor(t, "round 1's message", func() bool { return len(w.answers(t)) == 1 })
+	round2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "mid", Reviewers: "auto"})
+	if round2.Ask.Round != 2 || round2.Ask.Since != "" || len(round2.Agents) == 0 {
+		t.Fatalf("round 2 %v", round2.Ask)
+	}
+	for _, m := range round2.Ask.Members {
+		if m.How != "fresh" || !strings.HasSuffix(m.Name, "-2") {
+			t.Errorf("member %v: the same head again is a round of fresh reviewers", m)
+		}
+	}
+}
+
+func TestAnAnswersFileThatCantBeWrittenDoesNotFailTheReviewersReport(t *testing.T) {
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
+	// reports/ is a file: nothing can be written under it.
+	dir := filepath.Dir(res.Ask.AnswersPath)
+	os.RemoveAll(dir)
+	if err := os.WriteFile(dir, []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "the finding")
+	waitFor(t, "the round's message", func() bool { return len(w.answers(t)) == 1 })
+	body := w.answers(t)[0].Body
+	if !strings.Contains(body, "1 of 1 reviewers answered") || !strings.Contains(body, "the answers file could not be written") || strings.Contains(body, "answers: /") {
+		t.Errorf("message %s", body)
+	}
+	list, _ := w.asRoot.ListAsks(context.Background(), connect.NewRequest(&v1.ListAsksRequest{}))
+	if len(list.Msg.Asks) != 1 || list.Msg.Asks[0].Members[0].Text != "the finding" {
+		t.Errorf("the answer is not in the ask: %v", list.Msg.Asks)
 	}
 }

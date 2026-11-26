@@ -397,7 +397,9 @@ func (d *Daemon) summary(r store.Reader, a *v1.Ask) string {
 			fmt.Fprintf(&b, "- %s (%s): no answer: %s\n", m.Name, m.Kind, m.Line)
 		}
 	}
-	fmt.Fprintf(&b, "answers: %s", a.AnswersPath)
+	if a.AnswersPath != "" {
+		fmt.Fprintf(&b, "answers: %s", a.AnswersPath)
+	}
 	if h := d.roundsHint(r, a, true); h != "" {
 		b.WriteString("\n" + h)
 	}

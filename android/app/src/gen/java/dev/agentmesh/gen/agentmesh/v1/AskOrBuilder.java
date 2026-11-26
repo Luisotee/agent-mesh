@@ -313,4 +313,14 @@ public interface AskOrBuilder extends
    * @return The finishedAt.
    */
   com.google.protobuf.Timestamp getFinishedAt();
+
+  /**
+   * <pre>
+   * The ask is still starting its members: it can't finish yet, however many have answered.
+   * </pre>
+   *
+   * <code>bool starting = 23 [json_name = "starting"];</code>
+   * @return The starting.
+   */
+  boolean getStarting();
 }

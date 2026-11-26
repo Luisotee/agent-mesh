@@ -458,9 +458,11 @@ type Ask struct {
 	Round    int32      `protobuf:"varint,18,opt,name=round,proto3" json:"round,omitempty"`
 	Verdicts []*Verdict `protobuf:"bytes,19,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
 	// After it, members still pending are settled as not answered.
-	Deadline      *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=deadline,proto3" json:"deadline,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	FinishedAt    *timestamppb.Timestamp `protobuf:"bytes,22,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	Deadline   *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=deadline,proto3" json:"deadline,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,22,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	// The ask is still starting its members: it can't finish yet, however many have answered.
+	Starting      bool `protobuf:"varint,23,opt,name=starting,proto3" json:"starting,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -647,6 +649,13 @@ func (x *Ask) GetFinishedAt() *timestamppb.Timestamp {
 		return x.FinishedAt
 	}
 	return nil
+}
+
+func (x *Ask) GetStarting() bool {
+	if x != nil {
+		return x.Starting
+	}
+	return false
 }
 
 type AskRequest struct {
@@ -1160,7 +1169,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05other\x18\x06 \x01(\x05R\x05other\x12\x1a\n" +
 	"\bdisagree\x18\a \x01(\x05R\bdisagree\x12\x1a\n" +
 	"\bblocking\x18\b \x01(\x05R\bblocking\x12*\n" +
-	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\xda\x05\n" +
+	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\xf6\x05\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
@@ -1187,7 +1196,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
 	"\vfinished_at\x18\x16 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"\xc3\x02\n" +
+	"finishedAt\x12\x1a\n" +
+	"\bstarting\x18\x17 \x01(\bR\bstarting\"\xc3\x02\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
