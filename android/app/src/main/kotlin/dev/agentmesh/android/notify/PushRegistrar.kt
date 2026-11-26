@@ -95,6 +95,8 @@ class PushRegistrar(
     private suspend fun register(rt: HostRuntime) {
         val e = store.get(rt.hostId) ?: return set(rt.hostId, PushStatus("Waiting for the distributor", ok = false))
         val api = rt.api() ?: return
+        // Push was just off: the host's UnregisterPush goes first, or it would delete the new endpoint.
+        synchronized(unregistering) { unregistering[rt.hostId] }?.join()
         try {
             api.registerPush(e.url, e.p256dh, e.auth)
             set(rt.hostId, PushStatus("Registered with the host", ok = true))
@@ -123,8 +125,19 @@ class PushRegistrar(
         }
     }
 
-    /** Tells the host to stop pushing here, if it can be reached now (else it learns when the endpoint is gone). */
-    suspend fun unregisterAt(hostId: String) {
-        runCatching { runtimes.value[hostId]?.api()?.unregisterPush() }
+    private val unregistering = HashMap<String, Job>()
+
+    /**
+     * Tells each host to stop pushing here, all at once in the background, if it can be reached now (else it learns
+     * when the endpoint is gone). A registration with that host waits for its call to end.
+     */
+    fun unregisterAt(hostIds: List<String>) = synchronized(unregistering) {
+        for (id in hostIds) {
+            val before = unregistering[id]
+            unregistering[id] = scope.launch {
+                before?.join()
+                runCatching { runtimes.value[id]?.api()?.unregisterPush() }
+            }
+        }
     }
 }

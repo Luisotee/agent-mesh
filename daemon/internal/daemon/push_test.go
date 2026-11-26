@@ -446,3 +446,29 @@ func TestTestPushSendsNothingForAnExpiredOrReusedRequest(t *testing.T) {
 		t.Fatalf("%d pushes sent", n)
 	}
 }
+
+func TestAReplayedRegisterPushLeavesTheCurrentSenderAlone(t *testing.T) {
+	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{300 * time.Millisecond} })
+	ctx := context.Background()
+	old, cur := newFakePush(t), newFakePush(t, http.StatusServiceUnavailable)
+	ph := pairPhone(t, h, "pixel", false)
+	reg := func(mid, endpoint string) {
+		t.Helper()
+		if _, err := ph.c.RegisterPush(ctx, connect.NewRequest(&v1.RegisterPushRequest{Meta: meta(mid), Endpoint: endpoint,
+			P256Dh: base64.RawURLEncoding.EncodeToString(ph.key.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(ph.auth)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg("r-1", old.URL+"/up")
+	reg("r-2", cur.URL+"/up")
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, "rp-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w := h.seedAgent(run.Id, "rp-w1", "fix", "rp-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	readInbox(t, h.as(w))
+	if _, err := h.as(w).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "p"})); err != nil {
+		t.Fatal(err)
+	}
+	<-cur.arrived             // the 503; the retry waits 300 ms
+	reg("r-1", old.URL+"/up") // a late retry of the first call: a replay, which changes nothing
+	waitFor(t, "the retried push", func() bool { return cur.delivered() == 1 })
+}

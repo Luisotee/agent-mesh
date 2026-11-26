@@ -329,14 +329,16 @@ class NotificationsTest {
         container.disablePush()
         assertEquals(listOf(hostId), channel.unregistered.toList())
         assertNull(container.pushRegistrar.status.value[hostId])
-        // On again before the host answered: the new endpoint registers, and the old call, once answered, undoes nothing.
+        // On again before the host answered: the new endpoint waits for that call, so the host can't delete it after.
         container.enablePush(activity) {}
         container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
-        waitFor("RegisterPush of the new endpoint") { "register https://ntfy.example/upB?up=1" in api.push }
+        Thread.sleep(100)
+        assertTrue("register https://ntfy.example/upB?up=1" !in api.push)
         gate.complete(Unit)
-        Thread.sleep(200)
+        waitFor("RegisterPush of the new endpoint") { "register https://ntfy.example/upB?up=1" in api.push }
+        assertEquals(listOf("register https://ntfy.example/upA?up=1", "unregister", "register https://ntfy.example/upB?up=1"), api.push.toList().distinct())
         assertEquals(listOf(hostId), channel.unregistered.toList())
-        assertEquals(true, container.pushRegistrar.status.value[hostId]?.ok)
+        waitFor("the status") { container.pushRegistrar.status.value[hostId]?.ok == true }
     }
 
     @Test fun `with push on, a host not connected yet whose endpoint is kept waits for the host`() {

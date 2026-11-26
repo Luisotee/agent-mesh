@@ -298,6 +298,16 @@ func (p *pusher) sender(ctx context.Context, k senderKey, s *pushSender) {
 			delete(p.senders, k)
 		}
 		p.mu.Unlock()
+		// Out of the map, nothing more is queued here; what came in while this one was finishing goes to a new
+		// sender, whose first check drops it unless its endpoint is current again.
+		for {
+			select {
+			case j := <-s.ch:
+				p.queue(k.device, j)
+			default:
+				return
+			}
+		}
 	}
 	for {
 		select {
@@ -429,7 +439,7 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 		return nil, invalid("%v", err)
 	}
 	out := &v1.RegisterPushResponse{}
-	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRegisterPushProcedure, out, func(t *store.Tx) error {
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRegisterPushProcedure, out, func(t *store.Tx) error {
 		if err := t.PutPush(device, endpoint, pub, secret); err != nil {
 			return err
 		}
@@ -439,10 +449,14 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 		}
 		out.Registration = reg.Proto()
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	d.push.stop(device, endpoint)
+	// A replay changed nothing (it may be an old endpoint's): the senders stay.
+	if !replayed {
+		d.push.stop(device, endpoint)
+	}
 	return connect.NewResponse(out), nil
 }
 
@@ -453,13 +467,17 @@ func (d *Daemon) UnregisterPush(ctx context.Context, req *connect.Request[v1.Unr
 		return nil, err
 	}
 	out := &v1.UnregisterPushResponse{}
-	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceUnregisterPushProcedure, out, func(t *store.Tx) error {
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceUnregisterPushProcedure, out, func(t *store.Tx) error {
+		var err error
 		out.Removed, err = t.DeletePush(device, "")
 		return err
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	d.push.stop(device, "")
+	if !replayed {
+		d.push.stop(device, "")
+	}
 	return connect.NewResponse(out), nil
 }
 
@@ -506,6 +524,10 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 	}
 	res := webpush.Post(ctx, d.push.client, reg.Endpoint, m)
 	if err := ctx.Err(); err != nil {
+		// The caller went away. What the push service answered still counts; a post we cut short says nothing.
+		if res.Status != 0 {
+			d.push.settle(context.WithoutCancel(ctx), device, reg.Endpoint, res)
+		}
 		return nil, connect.NewError(connect.CodeCanceled, err)
 	}
 	d.push.settle(ctx, device, reg.Endpoint, res)
