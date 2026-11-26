@@ -18,6 +18,7 @@ public  final class Register extends
     hostId_ = "";
     hostName_ = "";
     daemonVersion_ = "";
+    clientTokens_ = emptyProtobufList();
   }
   public static final int HOST_ID_FIELD_NUMBER = 1;
   private java.lang.String hostId_;
@@ -158,6 +159,141 @@ public  final class Register extends
     checkByteStringIsUtf8(value);
     daemonVersion_ = value.toStringUtf8();
 
+  }
+
+  public static final int DEVICE_TOKENS_FIELD_NUMBER = 4;
+  private boolean deviceTokens_;
+  /**
+   * <pre>
+   * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+   * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+   * </pre>
+   *
+   * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+   * @return The deviceTokens.
+   */
+  @java.lang.Override
+  public boolean getDeviceTokens() {
+    return deviceTokens_;
+  }
+  /**
+   * <pre>
+   * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+   * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+   * </pre>
+   *
+   * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+   * @param value The deviceTokens to set.
+   */
+  private void setDeviceTokens(boolean value) {
+    
+    deviceTokens_ = value;
+  }
+  /**
+   * <pre>
+   * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+   * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+   * </pre>
+   *
+   * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+   */
+  private void clearDeviceTokens() {
+
+    deviceTokens_ = false;
+  }
+
+  public static final int CLIENT_TOKENS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> clientTokens_;
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> getClientTokensList() {
+    return clientTokens_;
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.relay.v1.ClientTokenOrBuilder> 
+      getClientTokensOrBuilderList() {
+    return clientTokens_;
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  @java.lang.Override
+  public int getClientTokensCount() {
+    return clientTokens_.size();
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.relay.v1.ClientToken getClientTokens(int index) {
+    return clientTokens_.get(index);
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.relay.v1.ClientTokenOrBuilder getClientTokensOrBuilder(
+      int index) {
+    return clientTokens_.get(index);
+  }
+  private void ensureClientTokensIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> tmp = clientTokens_;
+    if (!tmp.isModifiable()) {
+      clientTokens_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void setClientTokens(
+      int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClientTokensIsMutable();
+    clientTokens_.set(index, value);
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void addClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClientTokensIsMutable();
+    clientTokens_.add(value);
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void addClientTokens(
+      int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClientTokensIsMutable();
+    clientTokens_.add(index, value);
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void addAllClientTokens(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> values) {
+    ensureClientTokensIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, clientTokens_);
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void clearClientTokens() {
+    clientTokens_ = emptyProtobufList();
+  }
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  private void removeClientTokens(int index) {
+    ensureClientTokensIsMutable();
+    clientTokens_.remove(index);
   }
 
   public static dev.agentmesh.gen.agentmesh.relay.v1.Register parseFrom(
@@ -404,6 +540,151 @@ public  final class Register extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+     * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+     * </pre>
+     *
+     * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+     * @return The deviceTokens.
+     */
+    @java.lang.Override
+    public boolean getDeviceTokens() {
+      return instance.getDeviceTokens();
+    }
+    /**
+     * <pre>
+     * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+     * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+     * </pre>
+     *
+     * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+     * @param value The deviceTokens to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeviceTokens(boolean value) {
+      copyOnWrite();
+      instance.setDeviceTokens(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+     * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+     * </pre>
+     *
+     * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDeviceTokens() {
+      copyOnWrite();
+      instance.clearDeviceTokens();
+      return this;
+    }
+
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> getClientTokensList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getClientTokensList());
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    @java.lang.Override
+    public int getClientTokensCount() {
+      return instance.getClientTokensCount();
+    }/**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.relay.v1.ClientToken getClientTokens(int index) {
+      return instance.getClientTokens(index);
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder setClientTokens(
+        int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+      copyOnWrite();
+      instance.setClientTokens(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder setClientTokens(
+        int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken.Builder builderForValue) {
+      copyOnWrite();
+      instance.setClientTokens(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder addClientTokens(dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+      copyOnWrite();
+      instance.addClientTokens(value);
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder addClientTokens(
+        int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken value) {
+      copyOnWrite();
+      instance.addClientTokens(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder addClientTokens(
+        dev.agentmesh.gen.agentmesh.relay.v1.ClientToken.Builder builderForValue) {
+      copyOnWrite();
+      instance.addClientTokens(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder addClientTokens(
+        int index, dev.agentmesh.gen.agentmesh.relay.v1.ClientToken.Builder builderForValue) {
+      copyOnWrite();
+      instance.addClientTokens(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder addAllClientTokens(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> values) {
+      copyOnWrite();
+      instance.addAllClientTokens(values);
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder clearClientTokens() {
+      copyOnWrite();
+      instance.clearClientTokens();
+      return this;
+    }
+    /**
+     * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+     */
+    public Builder removeClientTokens(int index) {
+      copyOnWrite();
+      instance.removeClientTokens(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.relay.v1.Register)
   }
   @java.lang.Override
@@ -423,10 +704,13 @@ public  final class Register extends
             "hostId_",
             "hostName_",
             "daemonVersion_",
+            "deviceTokens_",
+            "clientTokens_",
+            dev.agentmesh.gen.agentmesh.relay.v1.ClientToken.class,
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0007\u0005\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -523,15 +523,20 @@ const (
 
 func (d *Daemon) pruneMutations(ctx context.Context) {
 	now := d.now()
+	var pruned int64
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		if _, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention)); err != nil {
 			return err
 		}
-		_, err := tx.PrunePairings(now)
+		n, err := tx.PrunePairings(now)
+		pruned = n
 		return err
 	})
 	if err != nil && ctx.Err() == nil {
 		d.log.Warn("pruning the mutation records", "err", err)
+	}
+	if err == nil && pruned > 0 {
+		d.relayTokensChanged()
 	}
 }
 
