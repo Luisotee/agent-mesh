@@ -78,6 +78,13 @@ public interface MeshServiceClientInterface {
   public suspend fun readInbox(request: ReadInboxRequest, headers: Headers = emptyMap()): ResponseMessage<ReadInboxResponse>
 
   /**
+   *  A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+   *  pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+   *  root otherwise fetches, diffs and lists by hand.
+   */
+  public suspend fun checkAgent(request: CheckAgentRequest, headers: Headers = emptyMap()): ResponseMessage<CheckAgentResponse>
+
+  /**
    *  The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
    *  mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
    *  the next page's `after_id`.

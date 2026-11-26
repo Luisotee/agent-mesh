@@ -22,7 +22,7 @@ Run an **agent-mesh** for the user's request: `$ARGUMENTS` when the user typed t
 
    ```bash
    mesh spawn --role root --run-id <run id> --kind <claude|agy> --repo <path> --slug lead \
-     --task "You are this run's root. The user's request is in <run folder>/tasks/request.md: read it, then follow ORCHESTRATE.md (Root) from step 1."
+     --task "You are this run's root. The user's request is in <run folder>/tasks/request.md: read it, then follow ORCHESTRATE.md (Root) from step 1 (`mesh protocol root.1`, and so on: the card says how)."
    ```
 
    A root runs on the CLI's own default model; add `--tier` or `--model` only if the user named one. The root is `<repo>-lead`.

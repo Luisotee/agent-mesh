@@ -624,6 +624,11 @@ func (r Reader) Inbox(agentID string, all bool) ([]*v1.Message, error) {
 	return scanAll(r, query, []any{agentID}, func() *v1.Message { return &v1.Message{} })
 }
 
+// Message returns one message addressed to an agent, whatever its read state; ErrNotFound for another's.
+func (r Reader) Message(toID, id string) (*v1.Message, error) {
+	return scanOne(r, `SELECT data FROM messages WHERE id = ? AND to_id = ?`, []any{id, toID}, &v1.Message{})
+}
+
 // RunMessages returns a run's messages, oldest first, up to limit, after the message `after` (its id; empty
 // starts at the oldest). An unknown `after` is ErrNotFound.
 func (r Reader) RunMessages(runID, after string, limit int) ([]*v1.Message, error) {

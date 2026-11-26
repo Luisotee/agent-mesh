@@ -33,6 +33,7 @@ var renderers = map[string]struct {
 	"brief":           {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
 	"reset":           {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 	"ring":            {func() proto.Message { return &v1.RingAgentResponse{} }, renderRing},
+	"check":           {func() proto.Message { return &v1.CheckAgentResponse{} }, renderCheck},
 	"pair":            {func() proto.Message { return &v1.CreatePairingResponse{} }, renderPair},
 }
 
@@ -599,4 +600,9 @@ func renderPair(m proto.Message, w io.Writer) {
 	if p.ExpiresAt != nil {
 		fmt.Fprintf(w, "expires: %s\n", p.ExpiresAt.AsTime().UTC().Format("2006-01-02T15:04:05Z"))
 	}
+}
+
+// renderCheck prints a worker's check report as it is.
+func renderCheck(m proto.Message, w io.Writer) {
+	fmt.Fprintln(w, strings.TrimRight(m.(*v1.CheckAgentResponse).Text, "\n"))
 }

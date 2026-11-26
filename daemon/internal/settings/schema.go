@@ -417,6 +417,9 @@ func DefaultLeaves() []Leaf {
 				"limit is over; off leaves it to the root or the user"},
 		Leaf{Key: "limits.hold", Type: Seconds, Default: 1800.0,
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
+		Leaf{Key: "inbox.summary_over", Type: Int, Default: 2000.0,
+			Summary: "characters above which a root's `mesh inbox` shows a plan or a `done` as a summary (its key parts, its file, and " +
+				"`mesh inbox --id <id>` for the whole text) instead of the whole body; 0 always prints whole bodies"},
 		Leaf{Key: "caps.agents", Type: IntOrAuto, Default: "auto",
 			Summary: `live agent processes this host runs at once (agents still starting count); "auto" sizes it from this host's memory and ` +
 				"cores and what an agent measured holds (`mesh brief` prints the number); 0 means no cap"},
