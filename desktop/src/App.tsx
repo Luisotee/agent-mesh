@@ -1,4 +1,4 @@
-import { QrCode, Settings } from 'lucide-react'
+import { Gauge, QrCode, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -10,7 +10,10 @@ import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
+import { UsagePanel } from '@/components/usage-panel'
 import { joinWaiting } from '@/derive'
+import { appPrefs } from '@/prefs'
+import { applyTheme, themeByName } from '@/theme'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -47,6 +50,7 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
       <HostRail opened={opened} onOpenedDone={onOpenedDone} />
       {host && (
         <>
+          <ThemeSync host={host} />
           <aside className="flex w-80 shrink-0 flex-col border-r bg-surface">
             <HostHeader host={host} />
             <RunSidebar host={host} />
@@ -59,6 +63,16 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
       )}
     </div>
   )
+}
+
+/** The look follows the selected host's `app.theme` (Dracula until it says, or when it names a theme this build lacks). */
+function ThemeSync({ host }: { host: HostRuntime }) {
+  // Until the host's settings arrive its theme isn't known: keep the look as it is rather than flash Dracula.
+  const name = useHostState(host, (s) => (Object.keys(s.settings).length > 0 ? appPrefs(s.settings).theme : undefined))
+  useEffect(() => {
+    if (name !== undefined) applyTheme(themeByName(name))
+  }, [name])
+  return null
 }
 
 function Welcome({ opened, onDone }: { opened?: OpenedLink; onDone: () => void }) {
@@ -118,6 +132,7 @@ function HostHeader({ host }: { host: HostRuntime }) {
   const conn = useHostState(host, (s) => s.conn)
   const open = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const usageOpen = useAppState((s) => s.usageOpen)
   // Only the host's own device may pair devices, so only there is the screen offered.
   const mayPair = useHostState(host, () => canPair(host.store))
   return (
@@ -133,6 +148,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
           <QrCode />
         </Button>
       )}
+      <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
+        <Gauge />
+      </Button>
       <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
         <Settings />
       </Button>
@@ -143,9 +161,11 @@ function HostHeader({ host }: { host: HostRuntime }) {
 function MainPane({ host }: { host: HostRuntime }) {
   const settingsOpen = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const usageOpen = useAppState((s) => s.usageOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
   if (settingsOpen) return <SettingsPanel host={host} />
   if (pairOpen) return <PairPanel key={host.info.id} host={host} />
+  if (usageOpen) return <UsagePanel host={host} />
   if (!agentId) {
     return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">Pick an agent in a run to see it here.</div>
   }

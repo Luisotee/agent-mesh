@@ -51,7 +51,7 @@ class MessagesTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val tmp = TemporaryFolder()
 
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
     private val api = RecordingApi()
 
     private val lead = agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead")

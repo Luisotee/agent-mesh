@@ -98,6 +98,8 @@ export interface AppState {
   settingsOpen: boolean
   /** The main pane shows the host's pairing screen. */
   pairOpen: boolean
+  /** The main pane shows the host's quota usage and spend. */
+  usageOpen: boolean
 }
 
 export type AgentTab = 'overview' | 'messages' | 'terminal'
@@ -113,11 +115,12 @@ export interface AppModel {
   setTab(tab: AgentTab): void
   openSettings(open: boolean): void
   openPairing(open: boolean): void
+  openUsage(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, usageOpen: false }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -144,7 +147,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     )
   api.shell.onNotificationClick((c) => {
     // A click on a notification of a host that has since been removed goes nowhere.
-    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) store.setState({ hostId: c.hostId, agentId: c.agentId, tab: c.tab, settingsOpen: false, pairOpen: false })
+    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) store.setState({ hostId: c.hostId, agentId: c.agentId, tab: c.tab, settingsOpen: false, pairOpen: false, usageOpen: false })
   })
   let loading: Promise<void> | undefined
   async function loadHosts() {
@@ -186,10 +189,11 @@ export function createAppModel(api: DesktopApi): AppModel {
       recount()
       configure()
     },
-    selectHost: (id) => set({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false }),
-    selectAgent: (hostId, agentId, tab = 'overview') => set({ hostId, agentId, tab, settingsOpen: false, pairOpen: false }),
-    openSettings: (open) => set({ settingsOpen: open, pairOpen: false }),
-    openPairing: (open) => set({ pairOpen: open, settingsOpen: false }),
+    selectHost: (id) => set({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, usageOpen: false }),
+    selectAgent: (hostId, agentId, tab = 'overview') => set({ hostId, agentId, tab, settingsOpen: false, pairOpen: false, usageOpen: false }),
+    openSettings: (open) => set({ settingsOpen: open, pairOpen: false, usageOpen: false }),
+    openPairing: (open) => set({ pairOpen: open, settingsOpen: false, usageOpen: false }),
+    openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false }),
     setTab: (tab) => set({ tab }),
   }
 }

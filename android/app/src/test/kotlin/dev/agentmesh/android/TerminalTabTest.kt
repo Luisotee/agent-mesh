@@ -47,7 +47,7 @@ class TerminalTabTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val tmp = TemporaryFolder()
 
-    private val spec = Themes.parse(File("src/main/assets/themes/dracula.json").readText())
+    private val spec = Themes.parse(File("../../shared/themes/dracula.json").readText())
     private val theme = Themes.resolve(spec)
     private val api = RecordingApi()
 
