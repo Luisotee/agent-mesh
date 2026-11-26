@@ -110,7 +110,8 @@ func (c *rootCtx) text(now time.Time) string {
 
 // ── asking for a reset ──
 
-// runRootAndWorkers returns a run's root agent and whether the run has any live non-root agent.
+// runRootAndWorkers returns a run's root agent and whether any non-root agent (worker, asker or reviewer) has
+// a live process: a live asker or reviewer is still work the root waits on, so autoReset holds off for it too.
 func (d *Daemon) runRootAndWorkers(r store.Reader, runID string) (*v1.Agent, bool, error) {
 	agents, err := r.ListAgents(runID)
 	if err != nil {

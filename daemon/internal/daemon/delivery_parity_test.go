@@ -381,7 +381,7 @@ func TestABusySessionIsGivenLongerBeforeItsFrameIsTakenForLost(t *testing.T) {
 	sent := time.Now()
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
-	if waited := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); waited < 1500*time.Millisecond {
+	if waited := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); waited < 1700*time.Millisecond {
 		t.Errorf("the frame was taken for lost after %s, while the session was drawing", waited)
 	}
 	if got := lines(t, log); len(got) != 2 || !strings.HasPrefix(got[0], "frame:") || !strings.HasPrefix(got[1], "📬") {
