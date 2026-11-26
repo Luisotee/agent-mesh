@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -186,12 +187,24 @@ type MCPServer struct {
 // KnownMCPServers are the servers the user's Claude config defines for a repo, by name. A later scope wins a
 // name, as in Claude Code.
 func KnownMCPServers(env map[string]string, repo string) map[string]MCPServer {
+	return KnownMCPServersCached(env, repo, nil)
+}
+
+// KnownMCPServersCached is KnownMCPServers reading the global config once per file into cache (nil: every call
+// reads it), for a caller that asks about many agents in a row.
+func KnownMCPServersCached(env map[string]string, repo string, cache map[string]map[string]any) map[string]MCPServer {
 	found := map[string]MCPServer{}
 	cfg, err := configFile(env)
 	if err != nil || cfg == "" {
 		return found
 	}
-	state := readObject(cfg)
+	state, ok := cache[cfg]
+	if !ok {
+		state = readObject(cfg)
+		if cache != nil {
+			cache[cfg] = state
+		}
+	}
 	add := func(servers any, scope string, allow func(string) bool) {
 		for n, c := range object(servers) {
 			if cm, ok := c.(map[string]any); ok && allow(n) {
@@ -232,13 +245,14 @@ func approvedProject(repo string, project map[string]any) (every bool, yes, no m
 
 // LeanMCPConfig is the `--mcp-config` file of a lean agent: with mode `repo` the repo's own servers (`local` and
 // approved `project` ones), then, in any mode, the servers of `keep` and `extra` the user's config defines. A
-// name the config doesn't define is skipped. The second result is the names asked for but not defined.
-func LeanMCPConfig(env map[string]string, repo, mode string, keep, extra []string) ([]byte, []string, error) {
+// name the config doesn't define is skipped. The second result is the names asked for but not defined. The repo's
+// own servers named in except are left out (another agent holds them).
+func LeanMCPConfig(env map[string]string, repo, mode string, keep, extra, except []string) ([]byte, []string, error) {
 	known := KnownMCPServers(env, repo)
 	want := map[string]any{}
 	if mode == MCPRepo {
 		for n, s := range known {
-			if s.Scope != "user" {
+			if s.Scope != "user" && !slices.Contains(except, n) {
 				want[n] = s.Config
 			}
 		}

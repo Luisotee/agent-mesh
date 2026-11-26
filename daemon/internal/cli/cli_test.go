@@ -53,7 +53,7 @@ func TestEveryActionIsACommandWithItsFieldsAsFlags(t *testing.T) {
 	var help bytes.Buffer
 	usage(&help, reg, nil)
 	for _, a := range reg.Actions() {
-		if !strings.Contains(help.String(), "  "+a.CLI+" ") {
+		if !strings.Contains(help.String(), "  "+spoken(a.CLI)+" ") {
 			t.Errorf("%s missing from help", a.CLI)
 		}
 		cmd := newCommand(a, Env{Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }}, "")
@@ -683,8 +683,18 @@ func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
 	// Dispatch two-word subcommands: tools add <names...> and tools servers.
 	var helpOut, helpErr bytes.Buffer
 	env := Env{Stdin: strings.NewReader(""), Stdout: &helpOut, Stderr: &helpErr, Getenv: func(string) string { return "" }}
-	if code := Main([]string{"help", "tools", "add"}, env, nil); code != ExitOK || !strings.Contains(helpOut.String(), "tools-add") {
+	if code := Main([]string{"help", "tools", "add"}, env, nil); code != ExitOK || !strings.Contains(helpOut.String(), "usage: mesh tools add ") {
 		t.Errorf("help tools add: %d out=%q err=%q", code, helpOut.String(), helpErr.String())
+	}
+	// The listing speaks the group form too.
+	helpOut.Reset()
+	if code := Main([]string{"help"}, env, nil); code != ExitOK || !strings.Contains(helpOut.String(), "tools servers") || strings.Contains(helpOut.String(), "tools-servers") {
+		t.Errorf("help: %d out=%q", code, helpOut.String())
+	}
+	// A short plain word after a group that is no subcommand is a typo, not an agent.
+	helpErr.Reset()
+	if code := Main([]string{"tools", "ad", "x"}, env, nil); code != ExitUsage || !strings.Contains(helpErr.String(), `unknown subcommand "ad"`) || !strings.Contains(helpErr.String(), "add, servers") {
+		t.Errorf("tools ad: %d err=%q", code, helpErr.String())
 	}
 
 	// Only a group joins its words: `mesh stop run` keeps `run` as an argument of `stop`, not `stop-run`.

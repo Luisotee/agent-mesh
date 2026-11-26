@@ -1017,6 +1017,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 				return err
 			}
 		}
+		// A server its repo loads that another agent holds stayed out of its MCP file (leanLaunch): tell it.
+		if _, err := d.noteHeldUnnamed(tx, agent); err != nil {
+			return err
+		}
 		out.Agent = agent
 		return nil
 	})
