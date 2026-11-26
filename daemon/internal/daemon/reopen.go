@@ -184,32 +184,33 @@ var readOnlyStartRe = regexp.MustCompile(`^(?:Question|Review) \(read-only\)`)
 func isReadOnlyTask(body string) bool { return readOnlyStartRe.MatchString(strings.TrimSpace(body)) }
 
 // becomesWorker reports whether a task with this body, sent to this agent, gives an asker or reviewer a change
-// to make: any task that is not a read-only one.
-func becomesWorker(a *v1.Agent, body string) bool {
-	return adapter.ReadOnly(a.Role) && !isReadOnlyTask(body)
+// to make: any task that is not a read-only one, unless a worker started the agent. A worker never gets a change
+// worker (mayStart), so a plain task to its asker stays a read-only follow-up, as it was before roles changed.
+func (d *Daemon) becomesWorker(r store.Reader, a *v1.Agent, body string) bool {
+	if !adapter.ReadOnly(a.Role) || isReadOnlyTask(body) {
+		return false
+	}
+	parent := v1.ActorClass_ACTOR_CLASS_DEVICE // started by a device: no parent agent
+	if a.ParentId != "" {
+		p, err := d.getAgent(r, a.ParentId)
+		if err != nil {
+			return false
+		}
+		parent = ClassOf(p.Role)
+	}
+	return mayStart(parent, v1.AgentRole_AGENT_ROLE_WORKER)
 }
 
 // takeChange turns an asker or reviewer that was given a change task into a worker, in the same conversation
 // (bin/mesh does the same: the role is the agent's, not its start): its role and its live tokens' class change,
 // and a planned task puts it in the plan phase, still under the planning deny list its read-only start gave it
 // (approve then reopens it without, on the execution tier; a direct task lifts it through directTask or
-// revive). It is refused for an agent whose parent is a worker, since a worker never gets a change worker
-// (mayStart). It stores the agent. A task that is read-only, or sent to any other role, changes nothing.
+// revive). It stores the agent. A task that is read-only, one sent to any other role, and one to an agent a
+// worker started change nothing. On a stopped agent whose resume is then refused, the conversion stays with the
+// stored task: the next resume brings it back as the worker the task is for.
 func (d *Daemon) takeChange(tx *store.Tx, a *v1.Agent, body string, planned bool) error {
-	if !becomesWorker(a, body) {
+	if !d.becomesWorker(tx.Reader, a, body) {
 		return nil
-	}
-	parent := v1.ActorClass_ACTOR_CLASS_DEVICE // started by a device: no parent agent
-	if a.ParentId != "" {
-		p, err := tx.GetAgent(a.ParentId)
-		if err != nil {
-			return err
-		}
-		parent = ClassOf(p.Role)
-	}
-	if !mayStart(parent, v1.AgentRole_AGENT_ROLE_WORKER) {
-		return failedPrecondition("%s is a %s of a worker, and a worker never gets a change worker: ask the root to start one for the change, "+
-			"or send %s a read-only question", a.Name, roleName(a.Role), a.Name)
 	}
 	from := a.Role
 	why := "change task"
@@ -232,10 +233,6 @@ func (d *Daemon) takeChange(tx *store.Tx, a *v1.Agent, body string, planned bool
 		}
 	}
 	return tx.PutAgent(a)
-}
-
-func roleName(r v1.AgentRole) string {
-	return strings.ToLower(strings.TrimPrefix(r.String(), "AGENT_ROLE_"))
 }
 
 // directTask applies a direct task sent to an agent outside resume: the plan phase it was in ends, and the

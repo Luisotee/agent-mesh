@@ -149,8 +149,10 @@ func TestADirectChangeTaskLiftsAnAskersListByAReopenAndAStoppedOneResumesWithout
 
 	// A retired one: the task resumes it, without the list.
 	gone := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_REVIEWER, "gone")
-	w.typeInto(gone, "/exit\r")
-	w.waitState(gone.Id, v1.AgentState_AGENT_STATE_EXITED)
+	if _, err := asLead.RetireAgent(context.Background(), connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: gone.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(gone.Id, v1.AgentState_AGENT_STATE_RETIRED)
 	res := sendTask(t, asLead, gone.Id, "Direct task: make the change.")
 	if res.Resumed == nil || res.Resumed.DenyEdits {
 		t.Fatalf("resumed %v (%s)", res.Resumed, res.ResumeError)
@@ -165,13 +167,13 @@ func TestADirectChangeTaskLiftsAnAskersListByAReopenAndAStoppedOneResumesWithout
 	}
 }
 
-func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerIsNeverGivenAChange(t *testing.T) {
+func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerNeverChangesRole(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 
-	// A worker's own asker: a question is fine, a change is refused and leaves everything as it was.
+	// A worker's own asker: a worker never gets a change worker, so nothing it sends changes the role.
 	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "wk", Tier: "mid",
 		Task: "Direct task (no plan): do it."}))
 	if err != nil {
@@ -186,22 +188,18 @@ func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerIsNeverGivenAChange(t
 	}
 	asker := w.waitState(sub.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	sendTask(t, asWorker, asker.Id, "Question (read-only): and there?")
-	_, err = asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: asker.Id,
-		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task: change it."}))
-	if code(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("a change for a worker's asker: %v", err)
-	}
-	if got := w.agent(asker.Id); got.Role != v1.AgentRole_AGENT_ROLE_ASKER || !got.DenyEdits || got.PendingReopen != nil {
-		t.Errorf("after the refusal %v", got)
+	// A plain task, even a direct one, is a follow-up for it: it stays read-only, its message stored and unrefused.
+	msg := sendTask(t, asWorker, asker.Id, "Direct task: change it.")
+	if got := w.agent(asker.Id); got.Role != v1.AgentRole_AGENT_ROLE_ASKER || !got.DenyEdits || got.PendingReopen != nil ||
+		got.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED {
+		t.Errorf("after the task %v", got)
 	}
 	if c := classOf(t, w, asker.Id); c != v1.ActorClass_ACTOR_CLASS_ASKER {
 		t.Errorf("class %v", c)
 	}
-	msgs, _ := w.d.Store().Read(ctx).Inbox(asker.Id, true)
-	for _, m := range msgs {
-		if m.Body == "Direct task: change it." {
-			t.Errorf("the refused task was stored: %v", m)
-		}
+	waitFor(t, "the task delivered", func() bool { return w.delivered(t, asker.Id, msg.Message.Id) })
+	if evs := roleEvents(t, w, run.Id, asker.Id); len(evs) != 0 {
+		t.Errorf("role events %v", evs)
 	}
 	// A worker is a worker whatever it is told: a question to it changes no role.
 	sendTask(t, asLead, worker.Id, "Question (read-only): and you?")

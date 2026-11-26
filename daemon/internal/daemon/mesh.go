@@ -234,7 +234,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return false
 		}
 		_, _, deny := target(to)
-		return deny && (!adapter.ReadOnly(to.Role) || becomesWorker(to, req.Msg.Body))
+		return deny && (!adapter.ReadOnly(to.Role) || d.becomesWorker(d.store.Read(ctx), to, req.Msg.Body))
 	})
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
