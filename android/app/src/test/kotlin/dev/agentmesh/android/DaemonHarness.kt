@@ -92,7 +92,7 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
 
     /** A pairing link from `mesh pair`, as the host's own device makes it (the QR code and link carry this text). */
     fun pairingLink(name: String = "test phone", vararg extra: String): String =
-        ctl("pair", "--name", name, *extra).getValue("uri").jsonPrimitive.content
+        ctl("pair", "--name", name, "--format", "json", *extra).getValue("uri").jsonPrimitive.content
 
     /** Stops meshd alone (the relay stays up): the host is then offline at the relay. */
     fun stopDaemon() { meshd?.let { it.destroy(); it.waitFor(10, TimeUnit.SECONDS) } }

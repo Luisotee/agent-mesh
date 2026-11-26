@@ -180,6 +180,76 @@ func TestPairingRedeemListAndRevoke(t *testing.T) {
 	}
 }
 
+// A paired device, full-access or read-only, unpairs itself with RevokeSelf; the host's own device can't.
+func TestRevokeSelf(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	pc := pairingClient(h.state, "")
+	pair := func(name string, readOnly bool) *v1.RedeemPairingResponse {
+		t.Helper()
+		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-" + name), Name: name, ReadOnly: readOnly, TtlSeconds: 600}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		red, err := pc.RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token, DeviceName: name}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return red.Msg
+	}
+	phone, viewer, other := pair("phone", false), pair("viewer", true), pair("other", false)
+
+	// The host's own device can't revoke itself.
+	if _, err := h.device.Mesh.RevokeSelf(ctx, connect.NewRequest(&v1.RevokeSelfRequest{Meta: meta("self-local")})); code(err) != connect.CodeInvalidArgument {
+		t.Fatalf("device-local RevokeSelf = %v, want InvalidArgument", err)
+	}
+
+	phoneClient := h.as(phone.DeviceToken)
+	stream, err := phoneClient.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if recv(t, stream).GetSnapshot() == nil {
+		t.Fatal("expected initial snapshot")
+	}
+	res, err := phoneClient.RevokeSelf(ctx, connect.NewRequest(&v1.RevokeSelfRequest{Meta: meta("self-1")}))
+	if err != nil || res.Msg.Device.GetId() != phone.DeviceId || res.Msg.Device.RevokedAt == nil {
+		t.Fatalf("RevokeSelf = %+v, %v", res, err)
+	}
+	// Its own stream closes and its token is dead.
+	closed := make(chan error, 1)
+	go func() {
+		for stream.Receive() {
+		}
+		closed <- stream.Err()
+	}()
+	select {
+	case err := <-closed:
+		if err == nil {
+			t.Fatal("the device's stream closed without error")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the device's own stream was not closed")
+	}
+	if _, err := phoneClient.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); code(err) != connect.CodeUnauthenticated {
+		t.Fatalf("Hello after RevokeSelf = %v, want Unauthenticated", err)
+	}
+
+	// A read-only device may unpair itself too.
+	if _, err := h.as(viewer.DeviceToken).RevokeSelf(ctx, connect.NewRequest(&v1.RevokeSelfRequest{Meta: meta("self-2")})); err != nil {
+		t.Fatalf("read-only RevokeSelf = %v", err)
+	}
+	// It reached no other device: the third still works, and the host lists exactly it as active.
+	if _, err := h.as(other.DeviceToken).Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); err != nil {
+		t.Fatalf("the other device after two RevokeSelf = %v", err)
+	}
+	active, err := h.device.Mesh.ListDevices(ctx, connect.NewRequest(&v1.ListDevicesRequest{}))
+	if err != nil || len(active.Msg.Devices) != 1 || active.Msg.Devices[0].Id != other.DeviceId {
+		t.Fatalf("active devices = %+v, %v", active, err)
+	}
+}
+
 func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	state := t.TempDir() + "/state"

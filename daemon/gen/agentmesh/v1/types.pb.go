@@ -542,9 +542,17 @@ type Agent struct {
 	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
 	ToolsAdded bool `protobuf:"varint,37,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
 	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
-	McpAll        bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	McpAll bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	// Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+	// a relay for a risky PR). Empty means the `review.by` setting.
+	ReviewBy string `protobuf:"bytes,39,opt,name=review_by,json=reviewBy,proto3" json:"review_by,omitempty"`
+	// A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+	// clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+	// daemon's, and the daemon never signals it.
+	AdoptedPid      int32  `protobuf:"varint,40,opt,name=adopted_pid,json=adoptedPid,proto3" json:"adopted_pid,omitempty"`
+	AdoptedPidStart uint64 `protobuf:"varint,41,opt,name=adopted_pid_start,json=adoptedPidStart,proto3" json:"adopted_pid_start,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -841,6 +849,27 @@ func (x *Agent) GetMcpAll() bool {
 		return x.McpAll
 	}
 	return false
+}
+
+func (x *Agent) GetReviewBy() string {
+	if x != nil {
+		return x.ReviewBy
+	}
+	return ""
+}
+
+func (x *Agent) GetAdoptedPid() int32 {
+	if x != nil {
+		return x.AdoptedPid
+	}
+	return 0
+}
+
+func (x *Agent) GetAdoptedPidStart() uint64 {
+	if x != nil {
+		return x.AdoptedPidStart
+	}
+	return 0
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -2256,8 +2285,10 @@ func (x *AgentExited) GetReason() string {
 // The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
 // the daemon found it still running at boot and took it back.
 type AgentAdopted struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+	Launched      bool `protobuf:"varint,2,opt,name=launched,proto3" json:"launched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2297,6 +2328,13 @@ func (x *AgentAdopted) GetTerminalId() string {
 		return x.TerminalId
 	}
 	return ""
+}
+
+func (x *AgentAdopted) GetLaunched() bool {
+	if x != nil {
+		return x.Launched
+	}
+	return false
 }
 
 // A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
@@ -2839,7 +2877,7 @@ func (x *SettingChanged) GetToDefault() bool {
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 type SettingSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
 	//   string      a non-empty string
 	//   strings     a list of strings
 	//   int         a whole number, 0 or more
@@ -2851,6 +2889,7 @@ type SettingSchema struct {
 	//   slots       a list of slots, each a non-empty list of choices (agent kinds)
 	//   kinds       a list of choices (agent kinds)
 	//   mb_or_auto  "auto" or a whole number of MB, 0 or more
+	//   int_or_auto "auto" or a whole number, 0 or more
 	//   json        any JSON value
 	Type    string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	Summary string `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
@@ -3025,7 +3064,9 @@ type Device struct {
 	Class     ActorClass             `protobuf:"varint,3,opt,name=class,proto3,enum=agentmesh.v1.ActorClass" json:"class,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Set once revoked.
-	RevokedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	RevokedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	// The device's push endpoint, when it registered one.
+	Push          *PushRegistration `protobuf:"bytes,6,opt,name=push,proto3" json:"push,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3095,6 +3136,102 @@ func (x *Device) GetRevokedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Device) GetPush() *PushRegistration {
+	if x != nil {
+		return x.Push
+	}
+	return nil
+}
+
+// A device's push endpoint, as `mesh devices` shows it. The endpoint's URL is a capability (whoever holds it can
+// push to the phone), so only its host is shown.
+type PushRegistration struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId     string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	EndpointHost string                 `protobuf:"bytes,2,opt,name=endpoint_host,json=endpointHost,proto3" json:"endpoint_host,omitempty"`
+	RegisteredAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=registered_at,json=registeredAt,proto3" json:"registered_at,omitempty"`
+	// The last push the push service accepted.
+	LastOkAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_ok_at,json=lastOkAt,proto3" json:"last_ok_at,omitempty"`
+	// The last failure, cleared by the next success.
+	LastError string `protobuf:"bytes,5,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	// Since when every push has failed; unset while pushes go through.
+	FailingSince  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=failing_since,json=failingSince,proto3" json:"failing_since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushRegistration) Reset() {
+	*x = PushRegistration{}
+	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushRegistration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushRegistration) ProtoMessage() {}
+
+func (x *PushRegistration) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushRegistration.ProtoReflect.Descriptor instead.
+func (*PushRegistration) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *PushRegistration) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *PushRegistration) GetEndpointHost() string {
+	if x != nil {
+		return x.EndpointHost
+	}
+	return ""
+}
+
+func (x *PushRegistration) GetRegisteredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RegisteredAt
+	}
+	return nil
+}
+
+func (x *PushRegistration) GetLastOkAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastOkAt
+	}
+	return nil
+}
+
+func (x *PushRegistration) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *PushRegistration) GetFailingSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FailingSince
+	}
+	return nil
+}
+
 type DevicePaired struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Device *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
@@ -3107,7 +3244,7 @@ type DevicePaired struct {
 
 func (x *DevicePaired) Reset() {
 	*x = DevicePaired{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3119,7 +3256,7 @@ func (x *DevicePaired) String() string {
 func (*DevicePaired) ProtoMessage() {}
 
 func (x *DevicePaired) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3132,7 +3269,7 @@ func (x *DevicePaired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DevicePaired.ProtoReflect.Descriptor instead.
 func (*DevicePaired) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{31}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DevicePaired) GetDevice() *Device {
@@ -3159,7 +3296,7 @@ type DeviceRevoked struct {
 
 func (x *DeviceRevoked) Reset() {
 	*x = DeviceRevoked{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3171,7 +3308,7 @@ func (x *DeviceRevoked) String() string {
 func (*DeviceRevoked) ProtoMessage() {}
 
 func (x *DeviceRevoked) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3184,7 +3321,7 @@ func (x *DeviceRevoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceRevoked.ProtoReflect.Descriptor instead.
 func (*DeviceRevoked) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{32}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DeviceRevoked) GetDeviceId() string {
@@ -3219,8 +3356,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xf9\n" +
-	"\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xe3\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -3269,7 +3405,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"addedTools\x12\x1f\n" +
 	"\vtools_added\x18% \x01(\bR\n" +
 	"toolsAdded\x12\x17\n" +
-	"\amcp_all\x18& \x01(\bR\x06mcpAll\"\x9c\x02\n" +
+	"\amcp_all\x18& \x01(\bR\x06mcpAll\x12\x1b\n" +
+	"\treview_by\x18' \x01(\tR\breviewBy\x12\x1f\n" +
+	"\vadopted_pid\x18( \x01(\x05R\n" +
+	"adoptedPid\x12*\n" +
+	"\x11adopted_pid_start\x18) \x01(\x04R\x0fadoptedPidStart\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
@@ -3384,10 +3524,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\vAgentExited\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06signal\x18\x02 \x01(\x05R\x06signal\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"/\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"K\n" +
 	"\fAgentAdopted\x12\x1f\n" +
 	"\vterminal_id\x18\x01 \x01(\tR\n" +
-	"terminalId\"D\n" +
+	"terminalId\x12\x1a\n" +
+	"\blaunched\x18\x02 \x01(\bR\blaunched\"D\n" +
 	"\x14AgentReopenRequested\x12,\n" +
 	"\x06reopen\x18\x01 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen\"}\n" +
 	"\rAgentReopened\x12,\n" +
@@ -3437,7 +3578,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x122\n" +
 	"\n" +
-	"updated_by\x18\a \x01(\v2\x13.agentmesh.v1.ActorR\tupdatedBy\"\xd2\x01\n" +
+	"updated_by\x18\a \x01(\v2\x13.agentmesh.v1.ActorR\tupdatedBy\"\x86\x02\n" +
 	"\x06Device\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12.\n" +
@@ -3445,7 +3586,17 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\"[\n" +
+	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x122\n" +
+	"\x04push\x18\x06 \x01(\v2\x1e.agentmesh.v1.PushRegistrationR\x04push\"\xaf\x02\n" +
+	"\x10PushRegistration\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12#\n" +
+	"\rendpoint_host\x18\x02 \x01(\tR\fendpointHost\x12?\n" +
+	"\rregistered_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fregisteredAt\x128\n" +
+	"\n" +
+	"last_ok_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\blastOkAt\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\x05 \x01(\tR\tlastError\x12?\n" +
+	"\rfailing_since\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ffailingSince\"[\n" +
 	"\fDevicePaired\x12,\n" +
 	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\x12\x1d\n" +
 	"\n" +
@@ -3506,7 +3657,7 @@ func file_agentmesh_v1_types_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_types_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_agentmesh_v1_types_proto_goTypes = []any{
 	(RunStatus)(0),                // 0: agentmesh.v1.RunStatus
 	(AgentRole)(0),                // 1: agentmesh.v1.AgentRole
@@ -3544,43 +3695,44 @@ var file_agentmesh_v1_types_proto_goTypes = []any{
 	(*SettingSchema)(nil),         // 33: agentmesh.v1.SettingSchema
 	(*Setting)(nil),               // 34: agentmesh.v1.Setting
 	(*Device)(nil),                // 35: agentmesh.v1.Device
-	(*DevicePaired)(nil),          // 36: agentmesh.v1.DevicePaired
-	(*DeviceRevoked)(nil),         // 37: agentmesh.v1.DeviceRevoked
-	(*timestamppb.Timestamp)(nil), // 38: google.protobuf.Timestamp
-	(*Actor)(nil),                 // 39: agentmesh.v1.Actor
-	(*PendingCompaction)(nil),     // 40: agentmesh.v1.PendingCompaction
-	(*RootReset)(nil),             // 41: agentmesh.v1.RootReset
-	(*AgentCompacted)(nil),        // 42: agentmesh.v1.AgentCompacted
-	(*RootResetRequested)(nil),    // 43: agentmesh.v1.RootResetRequested
-	(*RootResetFinished)(nil),     // 44: agentmesh.v1.RootResetFinished
-	(*PullRequestChanged)(nil),    // 45: agentmesh.v1.PullRequestChanged
-	(*structpb.Value)(nil),        // 46: google.protobuf.Value
-	(ActorClass)(0),               // 47: agentmesh.v1.ActorClass
+	(*PushRegistration)(nil),      // 36: agentmesh.v1.PushRegistration
+	(*DevicePaired)(nil),          // 37: agentmesh.v1.DevicePaired
+	(*DeviceRevoked)(nil),         // 38: agentmesh.v1.DeviceRevoked
+	(*timestamppb.Timestamp)(nil), // 39: google.protobuf.Timestamp
+	(*Actor)(nil),                 // 40: agentmesh.v1.Actor
+	(*PendingCompaction)(nil),     // 41: agentmesh.v1.PendingCompaction
+	(*RootReset)(nil),             // 42: agentmesh.v1.RootReset
+	(*AgentCompacted)(nil),        // 43: agentmesh.v1.AgentCompacted
+	(*RootResetRequested)(nil),    // 44: agentmesh.v1.RootResetRequested
+	(*RootResetFinished)(nil),     // 45: agentmesh.v1.RootResetFinished
+	(*PullRequestChanged)(nil),    // 46: agentmesh.v1.PullRequestChanged
+	(*structpb.Value)(nil),        // 47: google.protobuf.Value
+	(ActorClass)(0),               // 48: agentmesh.v1.ActorClass
 }
 var file_agentmesh_v1_types_proto_depIdxs = []int32{
-	38, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
+	39, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.Run.status:type_name -> agentmesh.v1.RunStatus
-	38, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	39, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
+	39, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	40, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
 	1,  // 4: agentmesh.v1.Agent.role:type_name -> agentmesh.v1.AgentRole
 	2,  // 5: agentmesh.v1.Agent.state:type_name -> agentmesh.v1.AgentState
-	38, // 6: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
-	38, // 7: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
+	39, // 6: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
+	39, // 7: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 8: agentmesh.v1.Agent.state_before_compact:type_name -> agentmesh.v1.AgentState
 	3,  // 9: agentmesh.v1.Agent.phase:type_name -> agentmesh.v1.AgentPhase
 	8,  // 10: agentmesh.v1.Agent.pending_reopen:type_name -> agentmesh.v1.Reopen
-	40, // 11: agentmesh.v1.Agent.pending_compaction:type_name -> agentmesh.v1.PendingCompaction
-	41, // 12: agentmesh.v1.Agent.pending_reset:type_name -> agentmesh.v1.RootReset
-	41, // 13: agentmesh.v1.Agent.last_reset:type_name -> agentmesh.v1.RootReset
-	38, // 14: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
-	39, // 15: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
-	39, // 16: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
+	41, // 11: agentmesh.v1.Agent.pending_compaction:type_name -> agentmesh.v1.PendingCompaction
+	42, // 12: agentmesh.v1.Agent.pending_reset:type_name -> agentmesh.v1.RootReset
+	42, // 13: agentmesh.v1.Agent.last_reset:type_name -> agentmesh.v1.RootReset
+	39, // 14: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
+	40, // 15: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
+	40, // 16: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
 	4,  // 17: agentmesh.v1.Message.type:type_name -> agentmesh.v1.MessageType
-	38, // 18: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	38, // 19: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
-	38, // 20: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
-	38, // 21: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
-	39, // 22: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
+	39, // 18: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	39, // 19: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
+	39, // 20: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
+	39, // 21: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
+	40, // 22: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
 	14, // 23: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
 	15, // 24: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
 	16, // 25: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
@@ -3594,20 +3746,20 @@ var file_agentmesh_v1_types_proto_depIdxs = []int32{
 	24, // 33: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
 	29, // 34: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
 	25, // 35: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
-	36, // 36: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
-	37, // 37: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
+	37, // 36: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
+	38, // 37: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
 	26, // 38: agentmesh.v1.Event.agent_retired:type_name -> agentmesh.v1.AgentRetired
 	27, // 39: agentmesh.v1.Event.run_stopped:type_name -> agentmesh.v1.RunStopped
 	28, // 40: agentmesh.v1.Event.reserve_changed:type_name -> agentmesh.v1.ReserveChanged
 	30, // 41: agentmesh.v1.Event.agent_role_changed:type_name -> agentmesh.v1.AgentRoleChanged
-	42, // 42: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
-	43, // 43: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
-	44, // 44: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
+	43, // 42: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
+	44, // 43: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
+	45, // 44: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
 	19, // 45: agentmesh.v1.Event.doorbell_failed:type_name -> agentmesh.v1.DoorbellFailed
 	20, // 46: agentmesh.v1.Event.doorbell_held:type_name -> agentmesh.v1.DoorbellHeld
 	13, // 47: agentmesh.v1.Event.worktree_created:type_name -> agentmesh.v1.WorktreeCreated
-	45, // 48: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
-	38, // 49: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
+	46, // 48: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
+	39, // 49: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
 	12, // 50: agentmesh.v1.WorktreeCreated.worktree:type_name -> agentmesh.v1.Worktree
 	6,  // 51: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
 	7,  // 52: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
@@ -3621,22 +3773,26 @@ var file_agentmesh_v1_types_proto_depIdxs = []int32{
 	3,  // 60: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
 	1,  // 61: agentmesh.v1.AgentRoleChanged.from:type_name -> agentmesh.v1.AgentRole
 	1,  // 62: agentmesh.v1.AgentRoleChanged.to:type_name -> agentmesh.v1.AgentRole
-	46, // 63: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
-	46, // 64: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
-	46, // 65: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
-	46, // 66: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
+	47, // 63: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
+	47, // 64: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
+	47, // 65: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
+	47, // 66: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
 	33, // 67: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
-	38, // 68: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
-	39, // 69: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
-	47, // 70: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
-	38, // 71: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
-	38, // 72: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
-	35, // 73: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
-	74, // [74:74] is the sub-list for method output_type
-	74, // [74:74] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	39, // 68: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
+	40, // 69: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
+	48, // 70: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
+	39, // 71: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
+	39, // 72: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
+	36, // 73: agentmesh.v1.Device.push:type_name -> agentmesh.v1.PushRegistration
+	39, // 74: agentmesh.v1.PushRegistration.registered_at:type_name -> google.protobuf.Timestamp
+	39, // 75: agentmesh.v1.PushRegistration.last_ok_at:type_name -> google.protobuf.Timestamp
+	39, // 76: agentmesh.v1.PushRegistration.failing_since:type_name -> google.protobuf.Timestamp
+	35, // 77: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
+	78, // [78:78] is the sub-list for method output_type
+	78, // [78:78] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_types_proto_init() }
@@ -3681,7 +3837,7 @@ func file_agentmesh_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_types_proto_rawDesc), len(file_agentmesh_v1_types_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   33,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

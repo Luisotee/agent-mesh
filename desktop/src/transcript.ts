@@ -24,18 +24,24 @@ export function fromTail(res: ReadTranscriptResponse): Transcript {
 
 /** Earlier entries, put before the ones held. */
 export function withEarlier(t: Transcript, res: ReadTranscriptResponse): Transcript {
-  if (res.sessionId !== t.sessionId) return t
+  // A page of another conversation, or one that doesn't end where the held entries begin (the record was rewritten or
+  // reloaded while it was out), would repeat or misplace entries.
+  if (res.sessionId !== t.sessionId || res.endOffset !== t.start) return t
   return { ...t, entries: [...res.entries, ...t.entries], start: res.startOffset, atStart: res.atStart }
 }
 
 export type Followed = { kind: 'more'; transcript: Transcript } | { kind: 'same' } | { kind: 'reload' }
 
 /**
- * Entries after the ones held. A record that is another conversation now (a reopen, `/clear`) or that ends before where
- * we had read (it was rewritten) can't be followed: the view reads the tail again.
+ * Entries after the ones held, from a read that began at `from` (what the transcript held when it was asked: earlier
+ * entries may have come in above since, so `t` is what is held now). A record that is another conversation now (a
+ * reopen, `/clear`) or that ends before where we had read (it was rewritten) can't be followed: the view reads the tail
+ * again. A read that began somewhere other than where the transcript ends now is not appended: it is `same`, and the
+ * next read starts from the right place.
  */
-export function withLater(t: Transcript, res: ReadTranscriptResponse): Followed {
+export function withLater(t: Transcript, res: ReadTranscriptResponse, from: bigint = t.end): Followed {
   if (res.sessionId !== t.sessionId || res.endOffset < t.end) return { kind: 'reload' }
+  if (from !== t.end) return { kind: 'same' }
   if (res.entries.length === 0 && res.endOffset === t.end) return { kind: 'same' }
   return { kind: 'more', transcript: { ...t, entries: [...t.entries, ...res.entries], end: res.endOffset } }
 }

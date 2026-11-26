@@ -95,7 +95,7 @@ func TestExecOpenPrintsBannerStripsEnvAndRunsExec(t *testing.T) {
 			return nil
 		},
 	}
-	if err := runOpen(t.Context(), nil, res, env); err != nil {
+	if err := runOpen(t.Context(), nil, res, env, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(gotArgv, res.Argv) || gotDir != "/tmp/wt" {
@@ -123,7 +123,7 @@ func TestAttachOpenRequiresTTY(t *testing.T) {
 		Stdin:  strings.NewReader(""),
 		Stdout: &bytes.Buffer{},
 		Stderr: &bytes.Buffer{},
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Errorf("expected terminal error, got %v", err)
 	}

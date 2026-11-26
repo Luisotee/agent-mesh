@@ -8,6 +8,7 @@ import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
 import { ChatView } from './components/chat-view'
+import { SettingsPanel } from './components/settings-panel'
 import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
 import { Panes } from './components/panes'
@@ -1071,8 +1072,38 @@ describe('the command palette and shortcuts', () => {
   })
 })
 
+describe('SettingsPanel', () => {
+  const setting = (key: string, type: string) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, type === 'bool' ? true : 'x'), isSet: false, schema: create(SettingSchemaSchema, { type, summary: `about ${key}` }) })
+
+  it('is filtered by the palette while it is already open, and by what is typed in it', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState({ settings: { 'app.keys.dock': setting('app.keys.dock', 'string'), 'repos.dir': setting('repos.dir', 'string') } })
+    render(wrap(<SettingsPanel host={host} />))
+    expect(screen.getByText('repos.dir')).toBeInTheDocument()
+    act(() => model.openSettings(true, 'app.keys'))
+    expect(screen.getByRole('textbox', { name: 'Filter settings' })).toHaveValue('app.keys')
+    expect(screen.queryByText('repos.dir')).toBeNull()
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Filter settings' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Filter settings' }), 'repos')
+    expect(screen.getByText('repos.dir')).toBeInTheDocument()
+    expect(model.store.getState().settingsQuery).toBe('repos')
+    // Asked for again after the user changed the filter: it is the palette's again.
+    act(() => model.openSettings(true, 'app.keys'))
+    expect(screen.getByRole('textbox', { name: 'Filter settings' })).toHaveValue('app.keys')
+  })
+})
+
 describe('ShortcutField', () => {
   const setting = (key: string, value: string) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, value), isSet: true, schema: create(SettingSchemaSchema, { type: 'shortcut', summary: `shortcut: ${key}` }) })
+
+  it('on a host that is not the first only shows the keys, saying whose the app follows', () => {
+    const { host, wrap } = fixture()
+    const second = { ...host, info: { ...host.info, id: 'h2', name: 'work' } } as HostRuntime
+    render(wrap(<ShortcutField host={second} id="app.keys.dock" value="Mod+Shift+D" busy={false} save={vi.fn()} />))
+    expect(screen.queryByRole('button', { name: /Record a shortcut/ })).toBeNull()
+    expect(screen.getByText('Ctrl+Shift+D')).toBeInTheDocument()
+    expect(screen.getByText(/uses the keys of home, its first host/)).toBeInTheDocument()
+  })
 
   it('records the pressed chord, unbinds on Backspace, cancels on Escape, and refuses a chord another command has', async () => {
     const { host, wrap } = fixture()
@@ -1154,6 +1185,16 @@ describe('ChatView', () => {
     expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
   })
 
+  it('reads the tail again when an earlier page does not join what is held', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('x', TranscriptKind.USER, { text: 'from elsewhere' })], { startOffset: 0n, endOffset: 40n, atStart: true }) : res(tail)))
+    const { ui } = chat({ read })
+    render(ui)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    await waitFor(() => expect(read.mock.calls.filter(([r]) => r.backward && r.offset === -1n)).toHaveLength(2))
+    expect(await screen.findByRole('list', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByText('from elsewhere')).toBeNull()
+  })
+
   it('follows the conversation when the agent does something, from where it stopped', async () => {
     const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward ? res(tail) : res([entry('n', TranscriptKind.ASSISTANT, { text: 'a new reply' })], { startOffset: 100n, endOffset: 150n })))
     const { ui, host } = chat({ read })
@@ -1164,6 +1205,31 @@ describe('ChatView', () => {
     expect(await screen.findByText('a new reply')).toBeInTheDocument()
     expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100n, backward: false }))
     expect(screen.getByTestId('chat-status')).toHaveTextContent('Working: Bash')
+  })
+
+  it('a forward read that was out while earlier entries came in adds to them instead of undoing them', async () => {
+    const pending: Array<{ req: { offset: bigint; backward: boolean }; done: (r: ReturnType<typeof res>) => void }> = []
+    let first = true // the tail is answered at once; every read after it waits to be answered
+    const read = vi.fn((req: { offset: bigint; backward: boolean }) => {
+      if (first) {
+        first = false
+        return Promise.resolve(res(tail))
+      }
+      return new Promise<ReturnType<typeof res>>((done) => pending.push({ req, done }))
+    })
+    const { ui, host } = chat({ read })
+    render(ui)
+    await screen.findByRole('list', { name: 'Conversation' })
+    await userEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING, stateDetail: 'Bash' } } })))
+    await waitFor(() => expect(pending).toHaveLength(2))
+    const [earlier, later] = [pending.find((p) => p.req.backward)!, pending.find((p) => !p.req.backward)!]
+    // The earlier page lands first, then the forward read that began before it did.
+    await act(async () => earlier.done(res([entry('old', TranscriptKind.USER, { text: 'the very first prompt' })], { startOffset: 0n, endOffset: 10n, atStart: true })))
+    await act(async () => later.done(res([entry('n', TranscriptKind.ASSISTANT, { text: 'a new reply' })], { startOffset: 100n, endOffset: 150n })))
+    expect(await screen.findByText('a new reply')).toBeInTheDocument()
+    expect(screen.getByText('the very first prompt')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
   })
 
   it('starts over when the conversation changes', async () => {

@@ -369,6 +369,9 @@ func logEntryFromEvent(ev *v1.Event, agentNames map[string]string, filterID, fil
 			return nil, false
 		}
 		entry.Kind = "adopted"
+		if p.AgentAdopted.Launched {
+			entry.Kind = "launched"
+		}
 		entry.Who = nameOf(ev.AgentId)
 		entry.Detail = "terminal=" + p.AgentAdopted.TerminalId
 	case *v1.Event_AgentCompacted:

@@ -53,6 +53,12 @@ describe('buildCommands', () => {
     expect(titles).not.toContain('Move app-w1 to its next model')
     expect(titles).toContain('Approve the plan of app-w1')
     expect(titles).not.toContain('Approve the plan of app-w2')
+    // A question waits on an answer, not an approval (ApproveAgent refuses it).
+    const asked = fixture()
+    asked.hosts[0]!.store.setState({ waiting: [create(WaitingSchema, { kind: WaitingKind.QUESTION, runId: 'r1', agentId: 'w1', message: create(MessageSchema, { id: 'm2', runId: 'r1', type: MessageType.QUESTION, toId: 'lead', body: 'which?' }) })] })
+    const askedTitles = buildCommands(asked.model).map((c) => c.title)
+    expect(askedTitles).toContain('app-w1 asked a question')
+    expect(askedTitles).not.toContain('Approve the plan of app-w1')
     // No host switcher with one host; with two, each is named.
     expect(titles.some((t) => t.startsWith('Go to host'))).toBe(false)
     expect(buildCommands(fixture(['h1', 'h2']).model).map((c) => c.title)).toEqual(expect.arrayContaining(['Go to host host-h1', 'Go to host host-h2', 'Ring app-w1 (host-h2)']))
@@ -142,5 +148,28 @@ describe('filterCommands', () => {
     const first = filterCommands(cmds, 'dock')[0]!
     expect(first.title).toMatch(/dock/)
     expect(filterCommands(cmds, '').length).toBeGreaterThan(10)
+  })
+
+  it('switches chat and terminal only where the agent has a terminal', () => {
+    const { model, hosts } = fixture()
+    const run = keyedCommands(model)
+    const host = hosts[0]!
+    // An agent with a terminal on a host with terminals goes both ways.
+    host.store.setState((s) => ({ daemon: { capabilities: ['terminals'] } as never, agents: { ...s.agents, w1: { ...s.agents.w1!, terminalId: 't1' } } }))
+    model.selectAgent('h1', 'w1', 'chat')
+    expect(buildCommands(model).map((c) => c.title)).toContain('Switch the open agent between chat and terminal')
+    run.chat_toggle()
+    expect(model.store.getState().tab).toBe('terminal')
+    run.chat_toggle()
+    expect(model.store.getState().tab).toBe('chat')
+    // One without (exited, or the host has none) stays in the chat instead of bouncing to the overview and back.
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, terminalId: '' } } }))
+    run.chat_toggle()
+    expect(model.store.getState().tab).toBe('chat')
+    expect(buildCommands(model).map((c) => c.title)).not.toContain('Switch the open agent between chat and terminal')
+    // The chat is still one press away from the other tabs.
+    model.setTab('overview')
+    run.chat_toggle()
+    expect(model.store.getState().tab).toBe('chat')
   })
 })

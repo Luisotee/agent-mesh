@@ -223,6 +223,42 @@ public class MeshServiceClient(
 
 
   /**
+   *  Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+   *  calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+   *  id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+   *  accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+   *  it runs in.
+   */
+  override suspend fun adoptSession(request: AdoptSessionRequest, headers: Headers): ResponseMessage<AdoptSessionResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/AdoptSession",
+      dev.agentmesh.gen.agentmesh.v1.AdoptSessionRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.AdoptSessionResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+   *  pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+   *  root otherwise fetches, diffs and lists by hand.
+   */
+  override suspend fun checkAgent(request: CheckAgentRequest, headers: Headers): ResponseMessage<CheckAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CheckAgent",
+      dev.agentmesh.gen.agentmesh.v1.CheckAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CheckAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
    *  mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
    *  the next page's `after_id`.
@@ -527,6 +563,70 @@ public class MeshServiceClient(
 
 
   /**
+   *  Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+   *  device can't be revoked.
+   */
+  override suspend fun revokeSelf(request: RevokeSelfRequest, headers: Headers): ResponseMessage<RevokeSelfResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RevokeSelf",
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+   *  closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+   *  A device registers only itself; revoking the device deletes it.
+   */
+  override suspend fun registerPush(request: RegisterPushRequest, headers: Headers): ResponseMessage<RegisterPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RegisterPush",
+      dev.agentmesh.gen.agentmesh.v1.RegisterPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RegisterPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+   */
+  override suspend fun unregisterPush(request: UnregisterPushRequest, headers: Headers): ResponseMessage<UnregisterPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/UnregisterPush",
+      dev.agentmesh.gen.agentmesh.v1.UnregisterPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.UnregisterPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+   *  another device's. Answers once the push service took it, or with its error.
+   */
+  override suspend fun testPush(request: TestPushRequest, headers: Headers): ResponseMessage<TestPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/TestPush",
+      dev.agentmesh.gen.agentmesh.v1.TestPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.TestPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
    *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
    *  tailnet opens it.
@@ -590,7 +690,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  Record the root's verdict on one reviewer's findings of a round.
+   *  Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+   *  own newest round, never one the root asked) or the root's (which replaces it).
    */
   override suspend fun recordVerdict(request: RecordVerdictRequest, headers: Headers): ResponseMessage<RecordVerdictResponse> = client.unary(
     request,
@@ -696,7 +797,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  Spend per agent, kind and phase from session files, plus reviewer verdicts.
+   *  Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+   *  The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
    */
   override suspend fun getCost(request: GetCostRequest, headers: Headers): ResponseMessage<GetCostResponse> = client.unary(
     request,

@@ -638,8 +638,12 @@ func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
 	run := startRun(t, h.device.Mesh, "")
-	stream, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id}))
+	stream, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id, Activity: true}))
 	defer stream.Close()
+	// One that doesn't ask for activity (`mesh events`) is told state changes only.
+	quiet, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id}))
+	defer quiet.Close()
+	recv(t, quiet) // snapshot
 	gen := recv(t, stream).GetSnapshot().Cursor.Generation
 	a := h.spawn(run.Id, gitRepo(t), "tool", "do a thing")
 
@@ -654,9 +658,11 @@ func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
 		t.Errorf("activity %v", got)
 	}
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	for !recvIdle(t, quiet) {
+	}
 
 	// A subscriber that resumes from the start sees the state events, and no activity frame.
-	again, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id, Cursor: &v1.Cursor{Generation: gen, Seq: 0}}))
+	again, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id, Activity: true, Cursor: &v1.Cursor{Generation: gen, Seq: 0}}))
 	defer again.Close()
 	for i := 0; i < 5; i++ {
 		if recv(t, again).GetActivity() != nil {
@@ -683,9 +689,24 @@ func TestALaunchTellsTheStreamWhichTerminalTheAgentGot(t *testing.T) {
 		ev := recv(t, stream).GetEvent()
 		if ad := ev.GetAgentAdopted(); ad != nil && ev.AgentId == a.Id {
 			got = ad.TerminalId
+			if !ad.Launched {
+				t.Error("a launch's event doesn't say it was a launch")
+			}
 		}
 	}
 	if want := h.agent(a.Id).TerminalId; got == "" || got != want {
 		t.Errorf("the stream said terminal %q, the agent has %q", got, want)
 	}
+}
+
+// recvIdle reads a frame of a stream that wants no activity: it must not be one, and it reports whether the frame
+// was the agent's move to IDLE.
+func recvIdle(t *testing.T, stream *connect.ServerStreamForClient[v1.SubscribeEventsResponse]) bool {
+	t.Helper()
+	f := recv(t, stream)
+	if f.GetActivity() != nil {
+		t.Fatal("a stream that didn't ask for activity got a frame")
+	}
+	sc := f.GetEvent().GetAgentStateChanged()
+	return sc != nil && sc.To == v1.AgentState_AGENT_STATE_IDLE
 }

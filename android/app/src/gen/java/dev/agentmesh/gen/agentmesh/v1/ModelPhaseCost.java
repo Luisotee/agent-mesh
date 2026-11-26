@@ -216,6 +216,174 @@ public  final class ModelPhaseCost extends
     outPerCall_ = 0L;
   }
 
+  public static final int INPUT_FIELD_NUMBER = 7;
+  private long input_;
+  /**
+   * <code>int64 input = 7 [json_name = "input"];</code>
+   * @return The input.
+   */
+  @java.lang.Override
+  public long getInput() {
+    return input_;
+  }
+  /**
+   * <code>int64 input = 7 [json_name = "input"];</code>
+   * @param value The input to set.
+   */
+  private void setInput(long value) {
+    
+    input_ = value;
+  }
+  /**
+   * <code>int64 input = 7 [json_name = "input"];</code>
+   */
+  private void clearInput() {
+
+    input_ = 0L;
+  }
+
+  public static final int W1_FIELD_NUMBER = 8;
+  private long w1_;
+  /**
+   * <code>int64 w1 = 8 [json_name = "w1"];</code>
+   * @return The w1.
+   */
+  @java.lang.Override
+  public long getW1() {
+    return w1_;
+  }
+  /**
+   * <code>int64 w1 = 8 [json_name = "w1"];</code>
+   * @param value The w1 to set.
+   */
+  private void setW1(long value) {
+    
+    w1_ = value;
+  }
+  /**
+   * <code>int64 w1 = 8 [json_name = "w1"];</code>
+   */
+  private void clearW1() {
+
+    w1_ = 0L;
+  }
+
+  public static final int W5_FIELD_NUMBER = 9;
+  private long w5_;
+  /**
+   * <code>int64 w5 = 9 [json_name = "w5"];</code>
+   * @return The w5.
+   */
+  @java.lang.Override
+  public long getW5() {
+    return w5_;
+  }
+  /**
+   * <code>int64 w5 = 9 [json_name = "w5"];</code>
+   * @param value The w5 to set.
+   */
+  private void setW5(long value) {
+    
+    w5_ = value;
+  }
+  /**
+   * <code>int64 w5 = 9 [json_name = "w5"];</code>
+   */
+  private void clearW5() {
+
+    w5_ = 0L;
+  }
+
+  public static final int READ_FIELD_NUMBER = 10;
+  private long read_;
+  /**
+   * <code>int64 read = 10 [json_name = "read"];</code>
+   * @return The read.
+   */
+  @java.lang.Override
+  public long getRead() {
+    return read_;
+  }
+  /**
+   * <code>int64 read = 10 [json_name = "read"];</code>
+   * @param value The read to set.
+   */
+  private void setRead(long value) {
+    
+    read_ = value;
+  }
+  /**
+   * <code>int64 read = 10 [json_name = "read"];</code>
+   */
+  private void clearRead() {
+
+    read_ = 0L;
+  }
+
+  public static final int OUTPUT_FIELD_NUMBER = 11;
+  private long output_;
+  /**
+   * <code>int64 output = 11 [json_name = "output"];</code>
+   * @return The output.
+   */
+  @java.lang.Override
+  public long getOutput() {
+    return output_;
+  }
+  /**
+   * <code>int64 output = 11 [json_name = "output"];</code>
+   * @param value The output to set.
+   */
+  private void setOutput(long value) {
+    
+    output_ = value;
+  }
+  /**
+   * <code>int64 output = 11 [json_name = "output"];</code>
+   */
+  private void clearOutput() {
+
+    output_ = 0L;
+  }
+
+  public static final int TOTAL_FIELD_NUMBER = 12;
+  private long total_;
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 12 [json_name = "total"];</code>
+   * @return The total.
+   */
+  @java.lang.Override
+  public long getTotal() {
+    return total_;
+  }
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 12 [json_name = "total"];</code>
+   * @param value The total to set.
+   */
+  private void setTotal(long value) {
+    
+    total_ = value;
+  }
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 12 [json_name = "total"];</code>
+   */
+  private void clearTotal() {
+
+    total_ = 0L;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.ModelPhaseCost parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -523,6 +691,186 @@ public  final class ModelPhaseCost extends
       return this;
     }
 
+    /**
+     * <code>int64 input = 7 [json_name = "input"];</code>
+     * @return The input.
+     */
+    @java.lang.Override
+    public long getInput() {
+      return instance.getInput();
+    }
+    /**
+     * <code>int64 input = 7 [json_name = "input"];</code>
+     * @param value The input to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInput(long value) {
+      copyOnWrite();
+      instance.setInput(value);
+      return this;
+    }
+    /**
+     * <code>int64 input = 7 [json_name = "input"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInput() {
+      copyOnWrite();
+      instance.clearInput();
+      return this;
+    }
+
+    /**
+     * <code>int64 w1 = 8 [json_name = "w1"];</code>
+     * @return The w1.
+     */
+    @java.lang.Override
+    public long getW1() {
+      return instance.getW1();
+    }
+    /**
+     * <code>int64 w1 = 8 [json_name = "w1"];</code>
+     * @param value The w1 to set.
+     * @return This builder for chaining.
+     */
+    public Builder setW1(long value) {
+      copyOnWrite();
+      instance.setW1(value);
+      return this;
+    }
+    /**
+     * <code>int64 w1 = 8 [json_name = "w1"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearW1() {
+      copyOnWrite();
+      instance.clearW1();
+      return this;
+    }
+
+    /**
+     * <code>int64 w5 = 9 [json_name = "w5"];</code>
+     * @return The w5.
+     */
+    @java.lang.Override
+    public long getW5() {
+      return instance.getW5();
+    }
+    /**
+     * <code>int64 w5 = 9 [json_name = "w5"];</code>
+     * @param value The w5 to set.
+     * @return This builder for chaining.
+     */
+    public Builder setW5(long value) {
+      copyOnWrite();
+      instance.setW5(value);
+      return this;
+    }
+    /**
+     * <code>int64 w5 = 9 [json_name = "w5"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearW5() {
+      copyOnWrite();
+      instance.clearW5();
+      return this;
+    }
+
+    /**
+     * <code>int64 read = 10 [json_name = "read"];</code>
+     * @return The read.
+     */
+    @java.lang.Override
+    public long getRead() {
+      return instance.getRead();
+    }
+    /**
+     * <code>int64 read = 10 [json_name = "read"];</code>
+     * @param value The read to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRead(long value) {
+      copyOnWrite();
+      instance.setRead(value);
+      return this;
+    }
+    /**
+     * <code>int64 read = 10 [json_name = "read"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRead() {
+      copyOnWrite();
+      instance.clearRead();
+      return this;
+    }
+
+    /**
+     * <code>int64 output = 11 [json_name = "output"];</code>
+     * @return The output.
+     */
+    @java.lang.Override
+    public long getOutput() {
+      return instance.getOutput();
+    }
+    /**
+     * <code>int64 output = 11 [json_name = "output"];</code>
+     * @param value The output to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOutput(long value) {
+      copyOnWrite();
+      instance.setOutput(value);
+      return this;
+    }
+    /**
+     * <code>int64 output = 11 [json_name = "output"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOutput() {
+      copyOnWrite();
+      instance.clearOutput();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 12 [json_name = "total"];</code>
+     * @return The total.
+     */
+    @java.lang.Override
+    public long getTotal() {
+      return instance.getTotal();
+    }
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 12 [json_name = "total"];</code>
+     * @param value The total to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTotal(long value) {
+      copyOnWrite();
+      instance.setTotal(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 12 [json_name = "total"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTotal() {
+      copyOnWrite();
+      instance.clearTotal();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ModelPhaseCost)
   }
   @java.lang.Override
@@ -545,10 +893,17 @@ public  final class ModelPhaseCost extends
             "usd_",
             "ctxPerCall_",
             "outPerCall_",
+            "input_",
+            "w1_",
+            "w5_",
+            "read_",
+            "output_",
+            "total_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0002\u0004\u0000\u0005\u0002\u0006\u0002";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0002" +
+              "\u0004\u0000\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u0002\u000b\u0002" +
+              "\f\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

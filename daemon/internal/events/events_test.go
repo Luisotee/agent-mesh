@@ -219,3 +219,115 @@ func TestActivityFramesAreLiveOnlyScopedAndNeverDropASubscriber(t *testing.T) {
 		t.Errorf("%d subscribers, want 3", bus.Subscribers())
 	}
 }
+
+// An activity frame that was published before a state event is told before it: with both ready, select would pick
+// either, and a frame after the state event that followed it shows a tool that has stopped running.
+func TestAnActivityFrameIsToldBeforeTheEventPublishedAfterIt(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	s.OnCommit = bus.Publish
+	write := func(ctx context.Context) {
+		t.Helper()
+		if err := s.Write(ctx, nil, "", func(tx *store.Tx) error {
+			_, err := tx.AppendEvent(&v1.Event{RunId: "r1", Payload: &v1.Event_RunStarted{RunStarted: &v1.RunStarted{}}})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for round := 0; round < 30; round++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		held, release := make(chan struct{}), make(chan struct{})
+		got := make(chan string, 16)
+		done := make(chan error, 1)
+		go func() {
+			n := 0
+			done <- bus.Serve(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, nil, func(f *v1.SubscribeEventsResponse) error {
+				switch {
+				case f.GetActivity() != nil:
+					got <- "activity"
+				case f.GetEvent() != nil:
+					got <- "event"
+					if n++; n == 1 {
+						close(held)
+						<-release // both are ready when the stream looks again
+					}
+				}
+				return nil
+			})
+		}()
+		// Past the snapshot the stream is live: an event takes it into its send, where it waits.
+		for ready := false; !ready; {
+			write(ctx)
+			select {
+			case <-held:
+				ready = true
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+		for len(got) > 0 {
+			<-got
+		}
+		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "Bash"})
+		write(ctx)
+		close(release)
+		for _, want := range []string{"activity", "event"} {
+			select {
+			case x := <-got:
+				if x != want {
+					t.Fatalf("round %d: told %s, want %s", round, x, want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("round %d: %s never told", round, want)
+			}
+		}
+		cancel()
+		<-done
+	}
+}
+
+// Frames that queued while the snapshot or backlog was being sent are older than the events just sent: they are dropped.
+func TestActivityFramesQueuedDuringTheSnapshotAreDropped(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	s.OnCommit = bus.Publish
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	held, release := make(chan struct{}), make(chan struct{})
+	got := make(chan string, 64)
+	go bus.Serve(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, nil, func(f *v1.SubscribeEventsResponse) error {
+		if f.GetSnapshot() != nil {
+			close(held)
+			<-release
+			return nil
+		}
+		if a := f.GetActivity(); a != nil {
+			got <- a.Detail
+		}
+		return nil
+	})
+	<-held
+	bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "old"})
+	close(release)
+	// Live frames after the snapshot are told (published until one is, as the stream may not have looked yet), and the
+	// one queued during the snapshot is not among them.
+	for told := false; !told; {
+		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "new"})
+		select {
+		case d := <-got:
+			if d != "new" {
+				t.Fatalf("told the frame queued during the snapshot: %s", d)
+			}
+			told = true
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}

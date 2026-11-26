@@ -79,6 +79,10 @@ func OpenAt(path string, now func() time.Time) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
+	if err := s.backfillWaiting(); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -227,7 +231,11 @@ type Tx struct {
 	Actor      *v1.Actor
 	MutationID string
 	events     []*v1.Event
+	after      []func()
 }
+
+// AfterCommit runs fn once the transaction has committed (never if it rolls back), after its events are published.
+func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
 
 // Now is the transaction's clock reading: every record it writes shares it.
 func (t *Tx) Now() time.Time { return t.now }
@@ -251,6 +259,9 @@ func (s *Store) Write(ctx context.Context, actor *v1.Actor, mutationID string, f
 	}
 	if s.OnCommit != nil && len(t.events) > 0 {
 		s.OnCommit(t.events)
+	}
+	for _, fn := range t.after {
+		fn()
 	}
 	return nil
 }
@@ -528,12 +539,70 @@ func (t *Tx) PutMessage(m *v1.Message) error {
 	if m.ReadAt != nil {
 		read = sql.NullInt64{Int64: m.ReadAt.AsTime().UnixNano(), Valid: true}
 	}
+	var exists int
+	if err := t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*) FROM messages WHERE id = ?`, m.Id).Scan(&exists); err != nil {
+		return err
+	}
 	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO messages (id, run_id, to_id, created_at, delivered_at, read_at, data)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET delivered_at = excluded.delivered_at, read_at = excluded.read_at,
 		data = excluded.data`,
 		m.Id, m.RunId, m.ToId, m.CreatedAt.AsTime().UnixNano(), delivered, read, b)
-	return err
+	if err != nil || exists > 0 {
+		return err // a re-put (read, delivered) changes no waiting item
+	}
+	return t.trackWaiting(m)
+}
+
+// trackWaiting keeps the `waiting` table in step with a newly stored message: a plan or question waits on its
+// recipient until an answer to its author comes after it; an answer clears what its recipient had waiting
+// before it. (Order is the store's: time to the nanosecond, then id.)
+func (t *Tx) trackWaiting(m *v1.Message) error {
+	created := m.CreatedAt.AsTime().UnixNano()
+	switch m.Type {
+	case v1.MessageType_MESSAGE_TYPE_PLAN, v1.MessageType_MESSAGE_TYPE_QUESTION:
+		_, err := t.tx.ExecContext(t.ctx, `INSERT OR IGNORE INTO waiting (message_id, to_id, from_id, created_at)
+			VALUES (?, ?, ?, ?)`, m.Id, m.ToId, m.From.GetId(), created)
+		return err
+	case v1.MessageType_MESSAGE_TYPE_ANSWER:
+		_, err := t.tx.ExecContext(t.ctx, `DELETE FROM waiting WHERE from_id = ? AND (created_at, message_id) < (?, ?)`,
+			m.ToId, created, m.Id)
+		return err
+	}
+	return nil
+}
+
+// Waiting returns the plans and questions sent to an agent that no answer to their author has followed, oldest
+// first.
+func (r Reader) Waiting(toID string) ([]*v1.Message, error) {
+	return scanAll(r, `SELECT m.data FROM waiting w JOIN messages m ON m.id = w.message_id WHERE w.to_id = ?
+		ORDER BY w.created_at, w.message_id`, []any{toID}, func() *v1.Message { return &v1.Message{} })
+}
+
+// waitingBackfillKey marks that the `waiting` table was filled from the messages stored before it existed.
+const waitingBackfillKey = "waiting_backfill"
+
+// backfillWaiting fills the `waiting` table once from the stored messages (a database from before migration 11).
+func (s *Store) backfillWaiting() error {
+	ctx := context.Background()
+	if _, err := s.Read(ctx).Meta(waitingBackfillKey); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return s.Write(ctx, nil, "", func(t *Tx) error {
+		msgs, err := scanAll(t.Reader, `SELECT data FROM messages ORDER BY created_at, id`, nil,
+			func() *v1.Message { return &v1.Message{} })
+		if err != nil {
+			return err
+		}
+		for _, m := range msgs {
+			if err := t.trackWaiting(m); err != nil {
+				return err
+			}
+		}
+		return t.PutMeta(waitingBackfillKey, "done")
+	})
 }
 
 // MarkDelivered records that a message's doorbell reached its agent, on the row as it is now: a read time set
@@ -560,6 +629,11 @@ func (r Reader) Inbox(agentID string, all bool) ([]*v1.Message, error) {
 		query = `SELECT data FROM messages WHERE to_id = ? ORDER BY created_at, id`
 	}
 	return scanAll(r, query, []any{agentID}, func() *v1.Message { return &v1.Message{} })
+}
+
+// Message returns one message addressed to an agent, whatever its read state; ErrNotFound for another's.
+func (r Reader) Message(toID, id string) (*v1.Message, error) {
+	return scanOne(r, `SELECT data FROM messages WHERE id = ? AND to_id = ?`, []any{id, toID}, &v1.Message{})
 }
 
 // RunMessages returns a run's messages, oldest first, up to limit, after the message `after` (its id; empty

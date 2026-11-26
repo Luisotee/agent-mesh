@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useHostState } from '@/context'
+import { useAppState, useHostState } from '@/context'
 import { jsonOf } from '@/prefs'
 import { chordFromEvent, displayChord, parseChord, sameChord } from '@/keys'
 import type { HostRuntime } from '@/model'
@@ -8,10 +8,12 @@ import type { HostRuntime } from '@/model'
 /**
  * A shortcut setting: press the keys to set it. Escape cancels, Backspace unbinds. The host checks what is saved;
  * a chord another command already has is refused here, since two commands on one chord would leave the second
- * dead (the first, in the host's order, wins).
+ * dead (the first, in the host's order, wins). The app follows the first host's keys only, so another host's rows are
+ * shown, not recorded: a rebinding there would save and do nothing.
  */
 export function ShortcutField({ host, id, value, busy, save }: { host: HostRuntime; id: string; value: string; busy: boolean; save: (v: unknown) => Promise<void> }) {
   const settings = useHostState(host, (s) => s.settings)
+  const first = useAppState((s) => s.hosts[0])
   const [recording, setRecording] = useState(false)
   const [clash, setClash] = useState('')
   const taken = (chord: string): string | undefined => {
@@ -42,10 +44,19 @@ export function ShortcutField({ host, id, value, busy, save }: { host: HostRunti
     setRecording(false)
     void save(chord)
   }
+  const shown = value ? <kbd className="rounded border px-1.5 py-0.5 font-mono text-xs">{displayChord(value)}</kbd> : <span className="text-xs text-muted-foreground">Not bound</span>
+  if (first && first !== host) {
+    return (
+      <div className="flex flex-col gap-1">
+        {shown}
+        <p className="text-xs text-muted-foreground">The app uses the keys of {first.info.name}, its first host: change them there.</p>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        {value ? <kbd className="rounded border px-1.5 py-0.5 font-mono text-xs">{displayChord(value)}</kbd> : <span className="text-xs text-muted-foreground">Not bound</span>}
+        {shown}
         <Button
           size="sm"
           variant={recording ? 'secondary' : 'outline'}

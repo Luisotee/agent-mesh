@@ -190,6 +190,36 @@ func FreeModels(listing map[string]ModelInfo) []string {
 	return out
 }
 
+// Cost classes of a model in OpenCode's own listing (`opencode models --verbose`, the cost fields).
+const (
+	// CostPaid: both token prices are listed and one is above zero.
+	CostPaid = "paid"
+	// CostZero: both token prices are listed and are zero, whatever the provider, status or tool support.
+	CostZero = "zero"
+)
+
+// CostClasses classes every model of the listing by the cost OpenCode itself reports: CostZero or CostPaid. A model
+// with a missing or unreadable cost (or one that is not listed) is left out: its cost is unknown.
+func CostClasses(listing map[string]ModelInfo) map[string]string {
+	out := make(map[string]string, len(listing))
+	for model, info := range listing {
+		in, o := info.Cost.Input, info.Cost.Output
+		switch {
+		case in == nil || o == nil:
+		case *in == 0 && *o == 0:
+			out[model] = CostZero
+		default:
+			out[model] = CostPaid
+		}
+	}
+	return out
+}
+
+// Listing returns OpenCode's model listing (the cached one while it is fresh).
+func (a *Adapter) Listing(ctx context.Context, bin string, env map[string]string) (map[string]ModelInfo, error) {
+	return a.listModels(ctx, bin, env)
+}
+
 // ExpandChain expands any `free` family entry in `chain` to OpenCode's free models (newest first), deduplicating.
 func (a *Adapter) ExpandChain(ctx context.Context, bin string, env map[string]string, chain []string) ([]string, error) {
 	needListing := false
@@ -759,7 +789,11 @@ type LimitHit struct {
 
 // OpenCode renders status, retry and error banners inside a heavy vertical-bar callout (`  ┃  ...`, U+2503).
 // Anchoring on that gutter keeps fixture, comment, diff and thin-box lines (`│ …`, `// …`, `+ …`) from matching.
-const bannerStart = "(?im)^[ \\t]*\u2503[ \\t]+"
+//
+// OpenCode 1.19.6 draws the free-usage and 429 retry lines in the footer under the input box instead: after a
+// spinner of `■` and `⬝` cells (`   ■■⬝⬝⬝⬝⬝⬝ Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]`),
+// so a line may start with either. Both are anchored at the line start.
+const bannerStart = "(?im)^[ \\t]*(?:\u2503|[\u25a0\u2b1d]{2,})[ \\t]+"
 
 var (
 	// FreeUsage/GoUsage/Model unavailable/429 retry lines on the pane (no named RE2 capture needed beyond simple groups).
@@ -934,6 +968,7 @@ type SessionCall struct {
 	Time   time.Time
 	Model  string
 	Input  int64
+	Write  int64 // cache writes
 	Read   int64
 	Output int64
 	USD    float64
@@ -953,7 +988,8 @@ type opencodeUsageMessage struct {
 		Output    int64 `json:"output"`
 		Reasoning int64 `json:"reasoning"`
 		Cache     struct {
-			Read int64 `json:"read"`
+			Read  int64 `json:"read"`
+			Write int64 `json:"write"`
 		} `json:"cache"`
 	} `json:"tokens"`
 }
@@ -1022,6 +1058,7 @@ func SessionCalls(dbPath, session string) []SessionCall {
 			Time:   time.UnixMilli(m.Time.Created),
 			Model:  model,
 			Input:  m.Tokens.Input,
+			Write:  m.Tokens.Cache.Write,
 			Read:   m.Tokens.Cache.Read,
 			Output: m.Tokens.Output + m.Tokens.Reasoning,
 			USD:    m.Cost,

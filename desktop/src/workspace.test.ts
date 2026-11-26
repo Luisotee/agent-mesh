@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_SIDE_PANES, activate, closeTab, cycleTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, openInBackground, pinSplit, setPaneTab, unsplit, type WorkspaceState } from './workspace'
+import { MAX_SIDE_PANES, activate, closeTab, cycleTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, openInBackground, pinSplit, pruneDismissed, setPaneTab, unsplit, type WorkspaceState } from './workspace'
 import type { AgentTab } from './model'
+import { AgentState, type Agent } from './gen/agentmesh/v1/types_pb'
 
 type S = WorkspaceState & { hostId?: string; agentId?: string; tab: AgentTab }
 const base = (o: Partial<S> = {}): S => ({ ...emptyWorkspace(), tab: 'overview', ...o })
@@ -61,6 +62,18 @@ describe('cycleTab', () => {
     expect(cycleTab({ ...s, agentId: undefined }, 1)?.agentId).toBe('a')
     expect(cycleTab({ ...s, agentId: undefined }, -1)?.agentId).toBe('c')
     expect(cycleTab(base(), 1)).toBeUndefined()
+  })
+})
+
+describe('pruneDismissed', () => {
+  const agents = { a: { state: AgentState.IDLE }, b: { state: AgentState.WORKING } } as unknown as Record<string, Agent>
+  it('forgets a dismissal once the agent left the state it was dismissed in, only on its host, and keeps one of an agent not listed (a reload)', () => {
+    const held = { 'h/a': AgentState.IDLE, 'h/b': AgentState.IDLE, 'h/gone': AgentState.IDLE, 'g/a': AgentState.NEEDS_INPUT }
+    expect(pruneDismissed(held, 'h', agents)).toEqual({ 'h/a': AgentState.IDLE, 'h/gone': AgentState.IDLE, 'g/a': AgentState.NEEDS_INPUT })
+  })
+  it('is the same object when nothing changed', () => {
+    const held = { 'h/a': AgentState.IDLE }
+    expect(pruneDismissed(held, 'h', agents)).toBe(held)
   })
 })
 

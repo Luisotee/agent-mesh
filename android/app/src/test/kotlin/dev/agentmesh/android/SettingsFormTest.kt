@@ -34,6 +34,8 @@ class SettingsFormTest {
         assertEquals("75", toText(Control.Number(true, 0.0), JsonPrimitive(75.0)))
         assertEquals(JsonPrimitive(2048L), (fromText("mb_or_auto", Control.Text, "2048") as Parsed.Ok).value)
         assertEquals(JsonPrimitive("auto"), (fromText("mb_or_auto", Control.Text, " auto ") as Parsed.Ok).value)
+        assertEquals(JsonPrimitive(12L), (fromText("int_or_auto", Control.Text, "12") as Parsed.Ok).value)
+        assertEquals(JsonPrimitive("auto"), (fromText("int_or_auto", Control.Text, "auto") as Parsed.Ok).value)
     }
 
     @Test fun `switches and sets read as words in a list row`() {

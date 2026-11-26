@@ -3,6 +3,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
   /agentmesh.v1.MeshService/CreateWorktree
@@ -64,6 +65,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
+  /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/ResumeAgent
@@ -120,7 +122,9 @@ ACTOR_CLASS_REVIEWER
 ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AddPeer
   /agentmesh.v1.MeshService/AddTools
+  /agentmesh.v1.MeshService/AdoptSession
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
   /agentmesh.v1.MeshService/CreatePairing
@@ -151,6 +155,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/PromptAgent
   /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
+  /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/RemovePeer
   /agentmesh.v1.MeshService/ResetRoot
   /agentmesh.v1.MeshService/ResetSetting
@@ -158,6 +163,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RevokeDevice
+  /agentmesh.v1.MeshService/RevokeSelf
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetReserve
@@ -170,8 +176,11 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
   /agentmesh.v1.MeshService/TailnetStatus
+  /agentmesh.v1.MeshService/TestPush
+  /agentmesh.v1.MeshService/UnregisterPush
   permission terminal.input
 ACTOR_CLASS_READ_ONLY_DEVICE
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
@@ -191,6 +200,10 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadTranscript
+  /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/ResolveModel
+  /agentmesh.v1.MeshService/RevokeSelf
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
+  /agentmesh.v1.MeshService/TestPush
+  /agentmesh.v1.MeshService/UnregisterPush

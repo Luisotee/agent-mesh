@@ -193,10 +193,10 @@ func (d *Daemon) installed(kind string) bool {
 
 // kindAvailable is whether a kind with limits of its own can take a review slot now: OpenCode by its tier's models,
 // Copilot by the kind-wide hold a 402 or a policy refusal leaves. Other kinds are always available.
-func (d *Daemon) kindAvailable(r store.Reader, kind, tier string) (bool, string) {
+func (d *Daemon) kindAvailable(r store.Reader, kind, tier, top, freeOff string) (bool, string) {
 	switch kind {
 	case opencode.Kind:
-		return d.openCodeAvailable(r, tier)
+		return d.openCodeAvailable(r, tier, top, freeOff)
 	case copilot.Kind:
 		return d.copilotAvailable(r, tier)
 	}
@@ -221,7 +221,7 @@ func (d *Daemon) copilotAvailable(r store.Reader, tier string) (bool, string) {
 	return true, ""
 }
 
-func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
+func (d *Daemon) openCodeAvailable(r store.Reader, tier, top, freeOff string) (bool, string) {
 	if !d.installed(opencode.Kind) {
 		return false, ""
 	}
@@ -239,6 +239,13 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
 	chain = d.expandChain(opencode.Kind, chain)
 	if len(chain) == 0 {
 		return false, d.openCodeNoFreeError()
+	}
+	if freeOff != "" {
+		kept, err := d.dropFree(top, freeOff, chain)
+		if err != nil {
+			return false, freeModelsNote(top)
+		}
+		chain = kept
 	}
 	var soonest time.Time
 	for _, m := range chain {
@@ -317,8 +324,10 @@ func authorLast(chain []string, author string) []string {
 // otherwise a comma list. A re-review asks the kinds of the last round again, except those in
 // `review.re_review.skip` (a size's `keep` list brings one back). It also returns what was left out, one
 // line each.
-func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, earlier []string) (kinds, notes []string, err error) {
+func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, earlier []string, top string) (kinds, notes []string, err error) {
 	key := sizeKey(size)
+	// A repo set against free models (freemodels.go) gets OpenCode only through a paid model of its tier.
+	off := d.freeModelsOff(r, top)
 	has := func(l []string, k string) bool {
 		for _, x := range l {
 			if x == k {
@@ -352,7 +361,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 					continue
 				}
 				if k == opencode.Kind || k == copilot.Kind {
-					if ok, why := d.kindAvailable(r, k, tier); !ok {
+					if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 						if why != "" {
 							held = append(held, why)
 						}
@@ -384,7 +393,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 				continue
 			}
 			if k == opencode.Kind || k == copilot.Kind {
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -401,7 +410,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
 			case k == opencode.Kind || k == copilot.Kind:
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -428,7 +437,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
 			case k == opencode.Kind || k == copilot.Kind:
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -471,7 +480,7 @@ func roundsOf(r store.Reader, pr string) ([]*v1.Ask, error) {
 	}
 	var out []*v1.Ask
 	for _, a := range all {
-		if a.Kind == v1.AskKind_ASK_KIND_REVIEW && a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 {
+		if a.Kind == v1.AskKind_ASK_KIND_REVIEW && a.RelayStep == 0 && a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 {
 			out = append(out, a)
 		}
 	}
@@ -491,6 +500,9 @@ func answered(a *v1.Ask) int {
 // roundsHint is the line under a round's result: where it stands against `review.rounds.<size>`, a ceiling and
 // not a quota.
 func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
+	if a.RelayStep > 0 {
+		return relayHint(a, finished)
+	}
 	key := sizeKey(a.Size)
 	if key == "" {
 		return ""
@@ -501,6 +513,9 @@ func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
 	}
 	counted := a.Round
 	limit := fmt.Sprintf("%d of at most %d for a %s PR (`review.rounds.%s`)", a.Round, max, a.Size, key)
+	if callerIsWorker(r, a) {
+		return d.workerHint(r, a, finished, max)
+	}
 	switch {
 	case finished && answered(a) == 0:
 		return fmt.Sprintf("(this round didn't count: no reviewer answered; run it again. Rounds so far: %d of at most %d for a %s PR "+
@@ -514,6 +529,31 @@ func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
 	}
 	return fmt.Sprintf("(round %s: findings that need no fix, none you agree with or only advisory ones you decline, end its reviews. "+
 		"Only a fix you ask for gets a re-review: run this round again once it's pushed. Ask one reviewer again: `mesh ask <name> --body …`)", limit)
+}
+
+// workerHint is the line under a round the PR's author asked: it judges the findings itself ("PROTOCOL.md" rule 8),
+// records its verdicts, fixes what it agrees with, and reports once; the root checks what it declined.
+func (d *Daemon) workerHint(r store.Reader, a *v1.Ask, finished bool, max int) string {
+	// What counts against the ceiling: the answered rounds (this one too, once it answered) and the single
+	// reviewers the worker asked, which a round's own number does not show.
+	used, err := workerRoundsUsed(r, a.CallerId, a.Pr, a.Id)
+	if err != nil {
+		used = int(a.Round) - 1
+	}
+	if !finished || answered(a) > 0 {
+		used++
+	}
+	limit := fmt.Sprintf("%d of at most %d for a %s PR (`review.rounds.%s`)", used, max, a.Size, sizeKey(a.Size))
+	verdict := "record `mesh verdict --pr " + a.Pr + " --reviewer <name> --agree <n> --other <n> --disagree <n> --blocking <n>` for each reviewer"
+	switch {
+	case finished && answered(a) == 0:
+		return fmt.Sprintf("(this round didn't count: no reviewer answered; run it again. Rounds so far: %s)", limit)
+	case used >= max:
+		return fmt.Sprintf("(round %s, its last: judge each finding, fix what you agree with, push, %s, and report `done` with each finding fixed or declined with your reason "+
+			"(declined ones first); no re-review: name the fix commits `git diff %s..<new head>` as not re-reviewed)", limit, verdict, short(a.Head))
+	}
+	return fmt.Sprintf("(round %s: judge each finding, fix what you agree with and push; %s. Findings that need no fix, or only advisory ones you decline, end the reviews: "+
+		"report `done` with each declined one and your reason. After a fix, run this round again: its reviewers read only the fix commits)", limit, verdict)
 }
 
 // stamp is a file name's time: UTC, with microseconds, as bin/mesh's `%Y%m%dT%H%M%S%fZ`.

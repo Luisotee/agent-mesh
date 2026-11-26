@@ -826,9 +826,9 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	for i, p := range peers {
 		names[i] = p.Name
 	}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, names, func(i int) (*v1.AskMember, *v1.Agent, string) {
+	return d.collectRound(ctx, actor, m.Meta, ask, out, names, false, nil, func(_ context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startPeer(ctx, actor, peers[i], m, body)
-	}, func(store.Reader, *v1.Ask) string { return "" })
+	}, func(store.Reader, *v1.Ask) string { return "" }, nil)
 }
 
 // startPeer asks one peer: its agent in this run if it has one (given the question, resumed if retired), else a
@@ -880,21 +880,45 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			mine.PendingReopen != nil || open != nil {
 			return fail("it is still answering an earlier question of this run")
 		}
+		// Another caller of this run that it still owes an answer, or whose answer it waits for, holds it (its
+		// report goes to its parent only, and the parent can answer only its own child).
+		if mine.ParentId != actor.Id {
+			if why, err := peerHeldBy(r, mine); err != nil {
+				return fail(err.Error())
+			} else if why != "" {
+				return fail(why)
+			}
+		}
 	}
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
 		return fail(err.Error())
 	}
+	before, _ := git(ctx, p.Worktree, "rev-parse", "HEAD")
 	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh)
 	member.Head, member.UpstreamNew = at, newCommits
+	// An ask refused after the checkout moved puts it back: the peer may be working for its caller on it.
+	restore := func() {
+		if before == "" || at == before || p.InClone {
+			return
+		}
+		if now, err := git(ctx, p.Worktree, "rev-parse", "HEAD"); err == nil && now == at { // not moved again meanwhile
+			git(ctx, p.Worktree, "checkout", "--quiet", "--detach", before)
+		}
+	}
 	task := askPrefix + "\n\n" + note + "\n\n" + body
 	var agent *v1.Agent
 	if mine != nil {
-		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(m.Meta, "send-"+p.Name), To: mine.Id,
+		// It answers whoever asks it this time: its parent is the caller of the ask that brought it into the run,
+		// and a report to anyone else is refused ("an agent sends only to its parent or its children"). SendMessage
+		// moves the parent in the write that stores the task, so a refused or failed ask leaves it where it was.
+		res, err := d.SendMessage(withReparent(ctx, actor.Id), connect.NewRequest(&v1.SendMessageRequest{Meta: subMeta(m.Meta, "send-"+p.Name), To: mine.Id,
 			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task}))
 		if err != nil {
+			restore()
 			return fail(err.Error())
 		}
 		if res.Msg.ResumeError != "" {
+			restore()
 			// The task was stored with the refusal: it is not for the next resume, which brings the peer back for
 			// a later question, so it is marked read.
 			d.dropStoredTask(ctx, actor, mine.Id, res.Msg.Message.GetId())
@@ -913,6 +937,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	} else {
 		a, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
 		if err != nil {
+			restore()
 			var ce *connect.Error
 			msg := err.Error()
 			if errors.As(err, &ce) {
@@ -976,7 +1001,7 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	}
 	d.warmOpenCodeModels(ctx, p.Kind)
 	r := d.store.Read(ctx)
-	model, effort, err := d.pick(r, p.Kind, tier, "", "", "the peer")
+	model, effort, err := d.pickIn(r, p.Repo, d.freeOffFor(r, p.Kind, p.Repo), p.Kind, tier, "", "", "the peer")
 	if err != nil {
 		return nil, err
 	}
@@ -1147,4 +1172,83 @@ func recordPeerAnswers(tx *store.Tx, a *v1.Ask) error {
 		}
 	}
 	return nil
+}
+
+type reparentKey struct{}
+
+// withReparent marks a send to a peer's agent as the ask of a new caller: SendMessage makes the caller its parent
+// in the write that stores the task.
+func withReparent(ctx context.Context, callerID string) context.Context {
+	return context.WithValue(ctx, reparentKey{}, callerID)
+}
+
+// reparentTo is the caller a send under ctx moves a peer's agent to ("" for any other send).
+func reparentTo(ctx context.Context) string {
+	id, _ := ctx.Value(reparentKey{}).(string)
+	return id
+}
+
+// peerHeldBy says why a peer's agent can't be moved to another caller: it is answering its parent's ask, has a
+// task or answer of its parent it hasn't read, or sent its parent a question or plan and waits for the answer.
+// Empty when it is free.
+func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
+	parent, err := r.GetAgent(mine.ParentId)
+	name := mine.ParentId
+	if err != nil {
+		parent = nil
+	} else {
+		name = parent.Name
+	}
+	if mine.State == v1.AgentState_AGENT_STATE_WORKING || mine.State == v1.AgentState_AGENT_STATE_STARTING || mine.PendingReopen != nil {
+		return fmt.Sprintf("it is still answering an earlier question of %s", name), nil
+	}
+	if held, _, err := collecting(r, mine.Id, mine.ParentId); err != nil {
+		return "", err
+	} else if held != nil {
+		return fmt.Sprintf("it is still answering an earlier question of %s", held.CallerName), nil
+	}
+	// Mail it has not read only holds a peer that can still read it: a stopped one (retired, or gone without
+	// reading) would otherwise stay with its caller for good.
+	var unread []*v1.Message
+	if !stopped(mine) {
+		var err error
+		if unread, err = r.Inbox(mine.Id, false); err != nil {
+			return "", err
+		}
+	}
+	for _, m := range unread {
+		if m.From.GetId() == mine.ParentId && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER) {
+			return fmt.Sprintf("it has not yet read a message of %s", name), nil
+		}
+	}
+	// A task or answer of its parent that it has read and not yet reported on (as reportOwed reads it): the
+	// parent waits for that report, from a peer that can still give it.
+	if parent != nil && hasProcess(parent) && !stopped(mine) {
+		msgs, err := r.RunMessages(mine.RunId, "", -1) // -1: no limit
+		if err != nil {
+			return "", err
+		}
+		owes := false
+		for _, m := range msgs {
+			switch {
+			case m.ToId == mine.Id && m.From.GetId() == mine.ParentId && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
+				owes = true
+			case m.From.GetId() == mine.Id && m.ToId == mine.ParentId && isReport(m.Type):
+				owes = false
+			}
+		}
+		if owes {
+			return fmt.Sprintf("it still owes %s a report on its task", name), nil
+		}
+	}
+	last, err := lastReport(r, mine)
+	if err != nil {
+		return "", err
+	}
+	// Its caller can answer only while both are alive: a stopped peer, or one whose caller is stopped, is let go
+	// (retiring a peer is the way out of a question nobody answers).
+	if parent != nil && hasProcess(parent) && !stopped(mine) && last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || last.Type == v1.MessageType_MESSAGE_TYPE_PLAN) {
+		return fmt.Sprintf("it is waiting for the answer of %s to its %s", name, strings.ToLower(strings.TrimPrefix(last.Type.String(), "MESSAGE_TYPE_"))), nil
+	}
+	return "", nil
 }

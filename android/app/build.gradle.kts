@@ -30,6 +30,8 @@ android {
         getByName("main") {
             java.directories.add("src/gen/java")
             kotlin.directories.add("src/gen/kotlin")
+            // The theme files both apps share (../shared/themes/*.json, read as assets/themes/*.json).
+            assets.directories.add("../../shared")
         }
     }
     testOptions {
@@ -72,6 +74,8 @@ dependencies {
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
     implementation(libs.zxing.core)
+    // UnifiedPush (docs/apps.md, "Push"): the distributor (ntfy) hands pushes to the app; the library decrypts them.
+    implementation(libs.unifiedpush.connector)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
@@ -80,6 +84,16 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.okhttp.tls)
     testImplementation(libs.robolectric)
+    // The UnifiedPush library's own WebPush decryptor, in DaemonE2ETest: meshd's encryption against what the phone runs.
+    testImplementation(libs.tink.android)
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
+}
+
+// The UnifiedPush connector depends on Google Tink's JVM artifact, which brings protobuf-java beside this app's
+// protobuf-javalite; its docs ask an Android app to use tink-android (the same API, built for Android) instead.
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("com.google.crypto.tink:tink")).using(module("com.google.crypto.tink:tink-android:${libs.versions.tink.get()}"))
+    }
 }

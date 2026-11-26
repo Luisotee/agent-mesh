@@ -152,6 +152,47 @@ public  final class SubscribeEventsRequest extends
 
   }
 
+  public static final int ACTIVITY_FIELD_NUMBER = 3;
+  private boolean activity_;
+  /**
+   * <pre>
+   * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+   * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+   * </pre>
+   *
+   * <code>bool activity = 3 [json_name = "activity"];</code>
+   * @return The activity.
+   */
+  @java.lang.Override
+  public boolean getActivity() {
+    return activity_;
+  }
+  /**
+   * <pre>
+   * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+   * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+   * </pre>
+   *
+   * <code>bool activity = 3 [json_name = "activity"];</code>
+   * @param value The activity to set.
+   */
+  private void setActivity(boolean value) {
+    
+    activity_ = value;
+  }
+  /**
+   * <pre>
+   * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+   * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+   * </pre>
+   *
+   * <code>bool activity = 3 [json_name = "activity"];</code>
+   */
+  private void clearActivity() {
+
+    activity_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.SubscribeEventsRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -389,6 +430,49 @@ public  final class SubscribeEventsRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+     * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+     * </pre>
+     *
+     * <code>bool activity = 3 [json_name = "activity"];</code>
+     * @return The activity.
+     */
+    @java.lang.Override
+    public boolean getActivity() {
+      return instance.getActivity();
+    }
+    /**
+     * <pre>
+     * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+     * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+     * </pre>
+     *
+     * <code>bool activity = 3 [json_name = "activity"];</code>
+     * @param value The activity to set.
+     * @return This builder for chaining.
+     */
+    public Builder setActivity(boolean value) {
+      copyOnWrite();
+      instance.setActivity(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+     * state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+     * </pre>
+     *
+     * <code>bool activity = 3 [json_name = "activity"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearActivity() {
+      copyOnWrite();
+      instance.clearActivity();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SubscribeEventsRequest)
   }
   @java.lang.Override
@@ -408,10 +492,11 @@ public  final class SubscribeEventsRequest extends
             "bitField0_",
             "cursor_",
             "runId_",
+            "activity_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208";
+              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

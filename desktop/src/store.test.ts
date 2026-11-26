@@ -47,7 +47,7 @@ describe('applyFrame', () => {
     const s = run([
       snapshot([]),
       ev(6, { case: 'agentSpawned', value: { $typeName: 'agentmesh.v1.AgentSpawned', agent: agent('a1') } }),
-      ev(7, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 'term-1' } }),
+      ev(7, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 'term-1', launched: false } }),
     ])
     expect(s.agents.a1).toMatchObject({ id: 'a1', terminalId: 'term-1' })
   })
@@ -90,7 +90,7 @@ describe('applyFrame', () => {
   })
 
   it('an adoption records the terminal', () => {
-    const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9' } })])
+    const s = run([snapshot(), ev(6, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't9', launched: false } })])
     expect(s.agents.a1?.terminalId).toBe('t9')
   })
 

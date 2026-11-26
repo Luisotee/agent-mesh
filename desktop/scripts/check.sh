@@ -5,7 +5,8 @@
 #   desktop/scripts/check.sh              # everything
 #   SKIP_E2E=1 desktop/scripts/check.sh   # without the end-to-end tests
 #
-# The e2e tests open a real Electron window, so they need a display (WSLg has one). They build meshd,
+# The e2e tests open a real Electron window: on a virtual display when xvfb-run is installed, so nothing pops
+# up on your screen (E2E_VISIBLE=1 shows them), else on DISPLAY (scripts/e2e.sh). They build meshd,
 # mesh-term, mesh and the fake claude from daemon/ into a temp dir and give every run a state dir, HOME and
 # user-data dir of its own under the temp dir: nothing of the user's is read or written.
 set -euo pipefail
@@ -41,16 +42,7 @@ pnpm build
 
 if [ -z "${SKIP_E2E:-}" ]; then
   step "end-to-end tests"
-  if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-    if command -v xvfb-run >/dev/null 2>&1; then
-      xvfb-run -a pnpm e2e
-    else
-      echo "no display for Electron: set DISPLAY, install xvfb, or SKIP_E2E=1" >&2
-      exit 1
-    fi
-  else
-    pnpm e2e
-  fi
+  pnpm e2e
 fi
 
 echo

@@ -13,7 +13,7 @@ import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, setPaneTab, tabKey, unsplit, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
+import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, tabKey, unsplit, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import type { DockNewAgents } from './prefs'
 
@@ -126,6 +126,8 @@ export interface AppState extends WorkspaceState {
   workspaceOpen: boolean
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
+  /** The main pane shows the host's quota usage and spend. */
+  usageOpen: boolean
 }
 
 /** How the sidebar groups the agents: by run (each as a tree from its lead), by repo, or by status bucket. */
@@ -167,11 +169,12 @@ export interface AppModel {
   openPairing(open: boolean): void
   /** Shows or hides the grid of every live agent. */
   openWatch(open: boolean): void
+  openUsage(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -222,12 +225,18 @@ export function createAppModel(api: DesktopApi): AppModel {
           if (patch) set(patch)
         }
         if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
+        if (s.agents !== prev.agents) {
+          // A dismissed tile that came back when its agent's state changed stays back.
+          const held = store.getState().dismissed
+          const kept = pruneDismissed(held, rt.info.id, s.agents)
+          if (kept !== held) set({ dismissed: kept })
+        }
         if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
       }),
     )
   api.shell.onNotificationClick((c) => {
     // A click on a notification of a host that has since been removed goes nowhere.
-    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false, watchOpen: false }))
+    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
   })
   let loading: Promise<void> | undefined
   async function loadHosts() {
@@ -279,21 +288,22 @@ export function createAppModel(api: DesktopApi): AppModel {
       configure()
     },
     selectHost: (id) =>
-      set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, watchOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
+      set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
     selectAgent: (hostId, agentId, tab) =>
-      set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, watchOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, watchOpen: false })),
-    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, watchOpen: false, settingsQuery: open ? query : '' }),
+      set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false })),
+    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, watchOpen: false, usageOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
     setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
     setPanel: (panelOpen) => set({ panelOpen }),
     openWorkspace: (workspaceOpen) => set({ workspaceOpen }),
-    openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false }),
-    openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false }),
+    openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
+    openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
+    openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
     setTab: (tab) => set({ tab }),
     closeTab: (ref) => set((s) => closeTab(s, ref)),
     cycleTab: (by) => {
       const next = cycleTab(store.getState(), by)
-      if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false, watchOpen: false }))
+      if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
     },
     setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),
     pinSplit: (hostId, agentId) => set((s) => pinSplit(s, { hostId, agentId })),

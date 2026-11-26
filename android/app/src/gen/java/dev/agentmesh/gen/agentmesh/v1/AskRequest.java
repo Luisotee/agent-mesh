@@ -155,6 +155,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -167,6 +168,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -180,6 +182,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -194,6 +197,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -205,6 +209,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -421,6 +426,10 @@ public  final class AskRequest extends
   public static final int TIER_FIELD_NUMBER = 7;
   private java.lang.String tier_;
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The tier.
    */
@@ -429,6 +438,10 @@ public  final class AskRequest extends
     return tier_;
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The bytes for tier.
    */
@@ -438,6 +451,10 @@ public  final class AskRequest extends
     return com.google.protobuf.ByteString.copyFromUtf8(tier_);
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @param value The tier to set.
    */
@@ -448,6 +465,10 @@ public  final class AskRequest extends
     tier_ = value;
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    */
   private void clearTier() {
@@ -455,6 +476,10 @@ public  final class AskRequest extends
     tier_ = getDefaultInstance().getTier();
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @param value The bytes for tier to set.
    */
@@ -1109,6 +1134,56 @@ public  final class AskRequest extends
     mcp_.add(value.toStringUtf8());
   }
 
+  public static final int RELAY_FIELD_NUMBER = 18;
+  private boolean relay_;
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @return The relay.
+   */
+  @java.lang.Override
+  public boolean getRelay() {
+    return relay_;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @param value The relay to set.
+   */
+  private void setRelay(boolean value) {
+    
+    relay_ = value;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   */
+  private void clearRelay() {
+
+    relay_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.AskRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1330,6 +1405,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1342,6 +1418,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1355,6 +1432,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1370,6 +1448,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1383,6 +1462,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1604,6 +1684,10 @@ public  final class AskRequest extends
     }
 
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return The tier.
      */
@@ -1612,6 +1696,10 @@ public  final class AskRequest extends
       return instance.getTier();
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return The bytes for tier.
      */
@@ -1621,6 +1709,10 @@ public  final class AskRequest extends
       return instance.getTierBytes();
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @param value The tier to set.
      * @return This builder for chaining.
@@ -1632,6 +1724,10 @@ public  final class AskRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return This builder for chaining.
      */
@@ -1641,6 +1737,10 @@ public  final class AskRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @param value The bytes for tier to set.
      * @return This builder for chaining.
@@ -2313,6 +2413,58 @@ public  final class AskRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @return The relay.
+     */
+    @java.lang.Override
+    public boolean getRelay() {
+      return instance.getRelay();
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @param value The relay to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRelay(boolean value) {
+      copyOnWrite();
+      instance.setRelay(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRelay() {
+      copyOnWrite();
+      instance.clearRelay();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskRequest)
   }
   @java.lang.Override
@@ -2347,12 +2499,13 @@ public  final class AskRequest extends
             "noRefresh_",
             "timeout_",
             "mcp_",
+            "relay_",
           };
           java.lang.String info =
-              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0012\u0000\u0001\u0001\u0012\u0012\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208" +
               "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004\u0011\u021a" +
-              "";
+              "\u0012\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

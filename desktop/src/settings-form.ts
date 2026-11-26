@@ -37,6 +37,7 @@ export function controlFor(type: string, choices: string[]): Control {
       // A string with choices is one of them (the host refuses any other).
       return choices.length ? { kind: 'select', choices } : { kind: 'text' }
     case 'mb_or_auto':
+    case 'int_or_auto':
       return { kind: 'text' }
     case 'shortcut':
       return { kind: 'shortcut' }
@@ -85,12 +86,17 @@ export function fromText(type: string, c: Control, text: string): Parsed {
         return { ok: false, error: `not valid JSON: ${e instanceof Error ? e.message : String(e)}` }
       }
     case 'text':
-      // mb_or_auto is "auto" or a whole number of MB.
-      if (type === 'mb_or_auto' && text.trim() !== '' && text.trim() !== 'auto' && Number.isFinite(Number(text))) return { ok: true, value: Number(text) }
-      return { ok: true, value: type === 'mb_or_auto' ? text.trim() : text }
+      // mb_or_auto and int_or_auto are "auto" or a whole number.
+      if (autoOrNumber(type) && text.trim() !== '' && text.trim() !== 'auto' && Number.isFinite(Number(text))) return { ok: true, value: Number(text) }
+      return { ok: true, value: autoOrNumber(type) ? text.trim() : text }
     default:
       return { ok: true, value: text }
   }
+}
+
+/** A type whose value is "auto" or a number. */
+function autoOrNumber(type: string): boolean {
+  return type === 'mb_or_auto' || type === 'int_or_auto'
 }
 
 /** The group a key is shown under: its first segment (`tiers`, `review`, `app`), or "general" for a lone word. */

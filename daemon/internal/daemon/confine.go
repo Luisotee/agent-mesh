@@ -33,6 +33,7 @@ type SystemOps struct {
 	SetAffinity func(tid int, cpus []int) error
 	SignalProc  func(pid int, startTicks uint64, sig syscall.Signal) error
 	ProcAlive   func(pid int, startTicks uint64) bool
+	ProcUsage   func(pid int) (rssKB, cpuTicks uint64, err error)
 	RunScope    func(ctx context.Context, argv []string) error
 	Sleep       func(time.Duration)
 }
@@ -46,6 +47,7 @@ func resolveSystemOps(in *SystemOps) *SystemOps {
 		SetAffinity: proc.SetAffinity,
 		SignalProc:  proc.Signal,
 		ProcAlive:   proc.Same,
+		ProcUsage:   proc.Usage,
 		RunScope:    runBusctlScope,
 		Sleep:       time.Sleep,
 	}
@@ -72,6 +74,9 @@ func resolveSystemOps(in *SystemOps) *SystemOps {
 	}
 	if in.ProcAlive != nil {
 		out.ProcAlive = in.ProcAlive
+	}
+	if in.ProcUsage != nil {
+		out.ProcUsage = in.ProcUsage
 	}
 	if in.RunScope != nil {
 		out.RunScope = in.RunScope

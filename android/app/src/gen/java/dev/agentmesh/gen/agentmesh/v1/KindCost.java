@@ -506,6 +506,82 @@ public  final class KindCost extends
     coldUsd_ = 0D;
   }
 
+  public static final int TOTAL_FIELD_NUMBER = 19;
+  private long total_;
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 19 [json_name = "total"];</code>
+   * @return The total.
+   */
+  @java.lang.Override
+  public long getTotal() {
+    return total_;
+  }
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 19 [json_name = "total"];</code>
+   * @param value The total to set.
+   */
+  private void setTotal(long value) {
+    
+    total_ = value;
+  }
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 19 [json_name = "total"];</code>
+   */
+  private void clearTotal() {
+
+    total_ = 0L;
+  }
+
+  public static final int TOKEN_SHARE_FIELD_NUMBER = 20;
+  private double tokenShare_;
+  /**
+   * <pre>
+   * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+   * </pre>
+   *
+   * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+   * @return The tokenShare.
+   */
+  @java.lang.Override
+  public double getTokenShare() {
+    return tokenShare_;
+  }
+  /**
+   * <pre>
+   * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+   * </pre>
+   *
+   * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+   * @param value The tokenShare to set.
+   */
+  private void setTokenShare(double value) {
+    
+    tokenShare_ = value;
+  }
+  /**
+   * <pre>
+   * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+   * </pre>
+   *
+   * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+   */
+  private void clearTokenShare() {
+
+    tokenShare_ = 0D;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.KindCost parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1128,6 +1204,86 @@ public  final class KindCost extends
       return this;
     }
 
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 19 [json_name = "total"];</code>
+     * @return The total.
+     */
+    @java.lang.Override
+    public long getTotal() {
+      return instance.getTotal();
+    }
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 19 [json_name = "total"];</code>
+     * @param value The total to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTotal(long value) {
+      copyOnWrite();
+      instance.setTotal(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * input + w1 + w5 + output, as AgentCost.total.
+     * </pre>
+     *
+     * <code>int64 total = 19 [json_name = "total"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTotal() {
+      copyOnWrite();
+      instance.clearTotal();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+     * </pre>
+     *
+     * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+     * @return The tokenShare.
+     */
+    @java.lang.Override
+    public double getTokenShare() {
+      return instance.getTokenShare();
+    }
+    /**
+     * <pre>
+     * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+     * </pre>
+     *
+     * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+     * @param value The tokenShare to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTokenShare(double value) {
+      copyOnWrite();
+      instance.setTokenShare(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+     * </pre>
+     *
+     * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTokenShare() {
+      copyOnWrite();
+      instance.clearTokenShare();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.KindCost)
   }
   @java.lang.Override
@@ -1162,12 +1318,14 @@ public  final class KindCost extends
             "hasFirstCtxMedian_",
             "cold_",
             "coldUsd_",
+            "total_",
+            "tokenShare_",
           };
           java.lang.String info =
-              "\u0000\u0012\u0000\u0000\u0001\u0012\u0012\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0000\u0014\u0000\u0000\u0001\u0014\u0014\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
               "\u0003\u0002\u0004\u0000\u0005\u0000\u0006\u0000\u0007\u0002\b\u0002\t\u0002\n\u0002" +
               "\u000b\u0002\f\u0002\r\u0002\u000e\u0000\u000f\u0002\u0010\u0007\u0011\u0002\u0012" +
-              "\u0000";
+              "\u0000\u0013\u0002\u0014\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

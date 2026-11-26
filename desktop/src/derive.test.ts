@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { buildTrees, knownRepos, messagesOf, repoName, statusSentence, joinWaiting } from './derive'
+import { buildTrees, knownRepos, messagesOf, repoName, sameRepo, statusSentence, joinWaiting } from './derive'
 import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 
@@ -73,6 +73,27 @@ describe('repos', () => {
   })
   it('lists known repos most recent first', () => {
     expect(knownRepos(byId([a('1', { repo: '/a', createdAt: timestampFromMs(1000) }), a('2', { repo: '/b', createdAt: timestampFromMs(2000) }), a('3', { repo: '/a', createdAt: timestampFromMs(500) })]))).toEqual(['/b', '/a'])
+  })
+})
+
+describe('sameRepo', () => {
+  it('reads a listed folder as the host does: a trailing slash and a leading ~ are the same folder', () => {
+    expect(sameRepo('/home/u/projects/shop/', '/home/u/projects/shop')).toBe(true)
+    expect(sameRepo('~/projects/shop', '/home/u/projects/shop')).toBe(true)
+    expect(sameRepo('~/projects/shop/', '/Users/u/projects/shop')).toBe(true)
+    expect(sameRepo('~/projects/shop', '/root/projects/shop')).toBe(true)
+  })
+  it('matches a ~ spelling on either side, and keeps "/" a slash', () => {
+    expect(sameRepo('/home/u/projects/shop', '~/projects/shop')).toBe(true)
+    expect(sameRepo('~/projects/shop', '~/projects/shop/')).toBe(true)
+    expect(sameRepo('///', '/')).toBe(true)
+    expect(sameRepo('///', '/home/u')).toBe(false)
+  })
+  it('keeps different folders apart', () => {
+    expect(sameRepo('~/projects/shop', '/home/u/projects/shop-api')).toBe(false)
+    expect(sameRepo('~/projects/shop', '/srv/x/projects/shop')).toBe(false)
+    expect(sameRepo('~/projects/shop', '/home/u/v/projects/shop')).toBe(false)
+    expect(sameRepo('projects/shop', '/home/u/projects/shop')).toBe(false) // a relative entry matches nothing
   })
 })
 

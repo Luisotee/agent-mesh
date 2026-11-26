@@ -9,6 +9,10 @@ import com.connectrpc.simpleTimeouts
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
+import dev.agentmesh.gen.agentmesh.v1.PushRegistration
+import dev.agentmesh.gen.agentmesh.v1.RegisterPushRequest
+import dev.agentmesh.gen.agentmesh.v1.TestPushRequest
+import dev.agentmesh.gen.agentmesh.v1.UnregisterPushRequest
 import dev.agentmesh.gen.agentmesh.v1.ApproveAgentRequest
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import dev.agentmesh.gen.agentmesh.v1.Cursor
@@ -27,6 +31,7 @@ import dev.agentmesh.gen.agentmesh.v1.RedeemPairingRequest
 import dev.agentmesh.gen.agentmesh.v1.MeshServiceClient
 import dev.agentmesh.gen.agentmesh.v1.RequestMeta
 import dev.agentmesh.gen.agentmesh.v1.ResetSettingRequest
+import dev.agentmesh.gen.agentmesh.v1.RevokeSelfRequest
 import dev.agentmesh.gen.agentmesh.v1.SetSettingRequest
 import dev.agentmesh.gen.agentmesh.v1.Setting
 import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsRequest
@@ -52,7 +57,10 @@ class ApiException(val code: Code, message: String, cause: Throwable? = null) : 
  * action a device may call (proto/agentmesh/v1/mesh.proto): the app can do nothing an agent can't do through the
  * same registry.
  */
-val UI_ACTIONS = listOf("hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal")
+val UI_ACTIONS = listOf(
+    "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
+    "registerPush", "unregisterPush", "testPush", "revokeSelf",
+)
 
 /** What a terminal stream delivers: frames, then how it ended. */
 sealed interface TermEvent {
@@ -93,9 +101,21 @@ interface MeshApi {
     /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
     fun connectTerminal(path: String): TerminalSocket
 
+    /** Revokes this device's own pairing on the host: its token stops working there, and its streams are closed. */
+    suspend fun revokeSelf()
+
     suspend fun listSettings(prefix: String = ""): List<Setting>
     suspend fun setSetting(key: String, value: Value): Setting
     suspend fun resetSetting(key: String): Setting
+
+    /** Gives the host this device's UnifiedPush endpoint and its WebPush keys (base64url), so it pushes here. */
+    suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration
+
+    /** Tells the host to stop pushing to this device. Returns whether it had an endpoint. */
+    suspend fun unregisterPush(): Boolean
+
+    /** Has the host send this device a test push now; throws with the push service's error when it fails. */
+    suspend fun testPush(): PushRegistration
 }
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
@@ -160,6 +180,10 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
 
+    override suspend fun revokeSelf() {
+        service.revokeSelf(RevokeSelfRequest.newBuilder().setMeta(newMeta()).build()).ok()
+    }
+
     override suspend fun listSettings(prefix: String): List<Setting> =
         service.listSettings(ListSettingsRequest.newBuilder().setPrefix(prefix).build()).ok().settingsList
 
@@ -168,6 +192,15 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun resetSetting(key: String): Setting =
         service.resetSetting(ResetSettingRequest.newBuilder().setMeta(newMeta()).setKey(key).build()).ok().setting
+
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration =
+        service.registerPush(RegisterPushRequest.newBuilder().setMeta(newMeta()).setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()).ok().registration
+
+    override suspend fun unregisterPush(): Boolean =
+        service.unregisterPush(UnregisterPushRequest.newBuilder().setMeta(newMeta()).build()).ok().removed
+
+    override suspend fun testPush(): PushRegistration =
+        service.testPush(TestPushRequest.newBuilder().setMeta(newMeta()).build()).ok().registration
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

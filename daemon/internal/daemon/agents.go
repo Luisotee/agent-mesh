@@ -85,6 +85,10 @@ type AgentConfig struct {
 	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
 	// /proc/pressure/memory); tests point them at files.
 	MeminfoPath, PressurePath string
+	// Cores overrides the machine's core count in the auto sizing of `caps.working` (tests); 0 reads it.
+	Cores int
+	// CapacityEvery is how often the agents' memory and CPU are measured (default 30 s).
+	CapacityEvery time.Duration
 	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
 	RetireEvery time.Duration
 	// AccountEvery is how often the accountability pass runs (default 5 s).
@@ -166,6 +170,7 @@ type runtime struct {
 	nativeOff     map[string]time.Time   // terminal id → a frame written to its inbox socket wasn't taken: type until then
 	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
 	guard         guard
+	sampler       capSampler // what the agents measured (capacity.go)
 	cpus          cpuTracker
 	usage         usageState      // usage cache / rate_limits (usage.go)
 	openCode      openCodeRuntime // OpenCode polling and model cache (opencode.go)
@@ -352,6 +357,11 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return err
 		}
 		claimed, owner = true, a.Id
+		if isAdopted(a) {
+			// The terminal of the root an adopted session took the row over from: its process was stopped on
+			// purpose, and the row is a session the daemon never ran. Only the terminal is forgotten.
+			return nil
+		}
 		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
 			// Stopped on purpose: nothing to record, only the terminal to forget.
 			if a.TerminalId == terminalID {
@@ -445,7 +455,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted, reserved, contextTick time.Time
+		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
@@ -454,7 +464,8 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling atomic.Bool
+		sampled = d.now() // the first capacity pass is one interval after start, not at once
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -491,6 +502,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(accounted) >= accountEvery {
 				accounted = now
 				d.accountability(ctx)
+				d.adoptedPass(ctx)
 			}
 			if now := d.now(); now.Sub(limited) >= retireEvery && limiting.CompareAndSwap(false, true) {
 				limited = now
@@ -505,6 +517,14 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				go func() {
 					defer alertRunning.Store(false)
 					d.reserveAlertPass(ctx)
+				}()
+			}
+			if now := d.now(); now.Sub(sampled) >= orDuration(d.rt.cfg.CapacityEvery, capacityEvery) && sampling.CompareAndSwap(false, true) {
+				sampled = now
+				// Off this loop: it reads /proc for every agent's process tree.
+				go func() {
+					defer sampling.Store(false)
+					d.sampleCapacity(ctx)
 				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
@@ -664,7 +684,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	if s.State == before.State && s.NeedsInput == before.NeedsInput {
 		for _, ev := range evs {
 			if ev.GetActivity() != nil {
-				d.bus.PublishActivity(&v1.AgentActivity{RunId: a.RunId, AgentId: a.Id, Detail: s.Detail, Time: timestamppb.New(s.LastActivity)})
+				// Told once the write has committed: a rolled-back one changed nothing.
+				frame := &v1.AgentActivity{RunId: a.RunId, AgentId: a.Id, Detail: s.Detail, Time: timestamppb.New(s.LastActivity)}
+				tx.AfterCommit(func() { d.bus.PublishActivity(frame) })
 				break
 			}
 		}
@@ -854,6 +876,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !mayStart(actor.Class, role) {
 		return nil, denied("%s may not start a %s", actor.Class, role)
 	}
+	if err := checkReviewBy(m.Reviews); err != nil {
+		return nil, err
+	}
 	if d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
 	}
@@ -901,17 +926,32 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		d.warmUsage(ctx, r, kind, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
 	d.warmOpenCodeModels(ctx, kind)
+	// A repo set against free models (freemodels.go) gets no free OpenCode model; an unresolvable repo is the
+	// error repoTop gives below.
+	var freeOff, freeRepo string
+	if kind == opencode.Kind && strings.TrimSpace(m.Repo) != "" {
+		if t, err := d.repoTop(ctx, m.Repo); err == nil {
+			freeRepo, freeOff = t, d.freeModelsOff(r, t)
+		}
+	}
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
+	if freeOff != "" && role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" && m.Effort == "" {
+		// Nothing named, so the CLI's default model, which may be a free one: a root here names a paid model.
+		return nil, freeRootRefusal(freeRepo, freeOff)
+	}
 	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
 		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
+			if freeOff != "" {
+				return nil, freeRootRefusal(freeRepo, freeOff) // the CLI's default model may be a free one
+			}
 			// An effort alone: the CLI's default model at that effort.
 			if !validEffort(m.Effort) {
 				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 			}
 			effort = m.Effort
-		} else if model, effort, err = d.pick(r, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
+		} else if model, effort, err = d.pickIn(r, freeRepo, freeOff, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
 			return nil, err
 		}
 	}
@@ -930,7 +970,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return nil, err
 		}
 	}
-	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+	if err := d.capGuard(r, "an agent in "+m.Repo, "", capShared(ctx)...); err != nil {
 		return nil, err
 	}
 	if err := d.checkMemoryGuard(r, "an agent in "+m.Repo); err != nil {
@@ -990,7 +1030,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames,
+		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames, ReviewBy: m.Reviews,
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -1025,7 +1065,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", runID)
 		}
-		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
+		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id, capShared(ctx)...); err != nil {
 			return err
 		}
 		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id, tx.Actor); err != nil {
@@ -1079,7 +1119,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	// Its first hooks may have come before its terminal was recorded: ring for its task now.
 	d.deliverSoon(agent.Id)
-	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched)}), nil
+	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched), Capacity: d.capacityLine(ctx)}), nil
 }
 
 // planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of
@@ -1160,7 +1200,7 @@ func (d *Daemon) launch(ctx context.Context, a *v1.Agent, token string, plan *ad
 		// Tell the apps which terminal it is: AgentSpawned was written before it existed, and without this they learn
 		// it only when they list the agents again (their Terminal tab would be missing for the first half minute).
 		_, err = tx.AppendEvent(&v1.Event{RunId: cur.RunId, AgentId: cur.Id,
-			Payload: &v1.Event_AgentAdopted{AgentAdopted: &v1.AgentAdopted{TerminalId: tid}}})
+			Payload: &v1.Event_AgentAdopted{AgentAdopted: &v1.AgentAdopted{TerminalId: tid, Launched: true}}})
 		return err
 	})
 	if err != nil {
@@ -1207,6 +1247,9 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	}
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {
 		return nil, denied("an agent stops only its own children")
+	}
+	if isAdopted(a) {
+		return nil, failedPrecondition("%s is your own Claude Code session (process %d): mesh never stops it; `mesh retire` takes it out of the run", a.Name, a.AdoptedPid)
 	}
 	// Held against a reopen in progress: a stop must not be undone by the relaunch.
 	mu := d.agentLock(a.Id)
