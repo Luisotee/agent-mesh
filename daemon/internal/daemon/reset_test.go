@@ -10,9 +10,9 @@ import (
 
 	"connectrpc.com/connect"
 
+	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
-	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
