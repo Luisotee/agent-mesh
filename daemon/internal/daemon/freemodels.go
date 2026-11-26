@@ -66,6 +66,13 @@ func freeRefusal(repo, listed string) error {
 		"another kind, or take the repo off the list", repo, listed)
 }
 
+// freeRootRefusal is the error for an OpenCode root in a repo set against free models that names no tier or model: it
+// would run on the CLI's default model, which may be a free one.
+func freeRootRefusal(repo, listed string) error {
+	return invalid("%s is set to keep its code from free models (`repos.no_free_models` lists %s), and a root that names no tier or "+
+		"model runs on OpenCode's default model, which may be a free one: name a paid model, or take the repo off the list", repo, listed)
+}
+
 // freeUnknown is the error when a repo set against free models names a model the daemon can't tell is paid: no
 // listing was read, or the listing gives no cost for it (model is "" for the first).
 func (d *Daemon) freeUnknown(repo, listed, model string) error {
@@ -143,7 +150,7 @@ func (d *Daemon) checkKept(r store.Reader, a *v1.Agent, model string) error {
 	}
 	var err error
 	if model == "" {
-		err = freeRefusal(a.Repo, off)
+		err = freeRootRefusal(a.Repo, off)
 	} else {
 		err = d.checkNotFree(a.Repo, off, model)
 	}

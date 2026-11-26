@@ -901,12 +901,12 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	var model, effort string
 	if freeOff != "" && role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" && m.Effort == "" {
 		// Nothing named, so the CLI's default model, which may be a free one: a root here names a paid model.
-		return nil, freeRefusal(freeRepo, freeOff)
+		return nil, freeRootRefusal(freeRepo, freeOff)
 	}
 	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
 		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
 			if freeOff != "" {
-				return nil, freeRefusal(freeRepo, freeOff) // the CLI's default model may be a free one
+				return nil, freeRootRefusal(freeRepo, freeOff) // the CLI's default model may be a free one
 			}
 			// An effort alone: the CLI's default model at that effort.
 			if !validEffort(m.Effort) {

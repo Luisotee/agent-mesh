@@ -538,7 +538,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	// An OpenCode reviewer that ran on a zero-cost model before the repo was set against them (freemodels.go) is not
 	// sent the new head: a fresh one starts on a model the tier allows, or is refused.
 	var freshNote string
-	if reuse != nil && reuse.Kind == opencode.Kind {
+	if reuse != nil && d.freeOffFor(r, reuse.Kind, reuse.Repo) != "" {
 		d.warmOpenCodeModels(ctx, opencode.Kind)
 		at, _, _ := target(reuse) // where it will run, when a reopen is pending
 		if err := d.checkKept(r, reuse, at); err != nil {
