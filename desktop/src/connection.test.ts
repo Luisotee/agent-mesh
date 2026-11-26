@@ -42,6 +42,7 @@ function setup(opts: { hello?: () => Promise<ReturnType<typeof hello>> } = {}) {
       return helloImpl()
     },
     subscribeEvents: (req) => {
+      expect(req.activity).toBe(true) // the dock shows the tool an agent runs now
       subscribedFrom.push(req.cursor)
       const p = pipe()
       streams.push(p)

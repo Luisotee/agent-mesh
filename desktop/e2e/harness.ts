@@ -108,6 +108,8 @@ export interface HostOptions {
   listen?: string
   relay?: Pick<Relay, 'url' | 'tcp' | 'tokenFile'>
   hostName?: string
+  /** Environment for the fake claude of this host (meshd passes agents no FAKECLAUDE_* of its own): a wrapper script sets it. */
+  fakeClaudeEnv?: Record<string, string>
 }
 
 export function makeHost(bins: string, opts: HostOptions = {}): Host {
@@ -125,6 +127,13 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
   git('add', '.')
   git('commit', '-q', '-m', 'init')
 
+  // The fake claude, or a wrapper that sets its environment first.
+  let claude = path.join(bins, 'claude')
+  if (opts.fakeClaudeEnv) {
+    claude = path.join(base, 'claude-env')
+    const exports = Object.entries(opts.fakeClaudeEnv).map(([k, v]) => `export ${k}='${v.replace(/'/g, `'\\''`)}'`).join('\n')
+    writeFileSync(claude, `#!/bin/sh\n${exports}\nexec '${path.join(bins, 'claude')}' "$@"\n`, { mode: 0o755 })
+  }
   let daemon: ChildProcess | undefined
   const info = path.join(state, 'meshd.json')
   const host: Host = {
@@ -137,7 +146,7 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
         path.join(bins, 'meshd'),
         ['--state', state, '--tcp', '127.0.0.1:0', '--max-lifetime', '10m', '--term-launch', 'detached',
           '--term-binary', path.join(bins, 'mesh-term'), '--mesh', path.join(bins, 'mesh'),
-          '--cli', `claude=${path.join(bins, 'claude')}`, '--cli', `agy=${path.join(bins, 'agy')}`,
+          '--cli', `claude=${claude}`, '--cli', `agy=${path.join(bins, 'agy')}`,
           // What `agy -p /usage` prints, so the usage screen has rows and never runs a real agy.
           '--agent-env', `FAKEAGY_USAGE=${AGY_USAGE}`, '--worktrees', worktrees,
           ...(opts.listen ? ['--listen', opts.listen] : []),

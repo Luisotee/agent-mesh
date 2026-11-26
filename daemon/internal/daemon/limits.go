@@ -14,6 +14,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -141,6 +142,15 @@ func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i
 
 // limitsAuto is the `limits.auto` policy: "off", "continue" or "switch"; anything else counts as off.
 func (d *Daemon) limitsAuto(r store.Reader) string {
+	// A value stored before `Choices` were enforced and outside them (a host that wrote "none") is off, as it always
+	// was, not the default: Setting would answer "switch" and start moving limited agents.
+	if rec, err := r.Setting("limits.auto"); err == nil {
+		var s string
+		if json.Unmarshal([]byte(rec.Value), &s) == nil && (s == "continue" || s == "switch") {
+			return s
+		}
+		return "off"
+	}
 	v, err := d.Setting(r, "limits.auto")
 	if err != nil {
 		return "off"

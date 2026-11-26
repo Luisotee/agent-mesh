@@ -609,3 +609,84 @@ func adoptAcknowledgesAnExitedTerminal(t *testing.T, tweak ...func(*daemon.Agent
 		return len(l.Msg.Terminals) == 0
 	})
 }
+
+// The tool an agent's hooks report changes no state, so it writes no event; a live subscriber gets it as an
+// ephemeral frame, and a resumed one gets no replay of it.
+func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir())
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	stream, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id, Activity: true}))
+	defer stream.Close()
+	// One that doesn't ask for activity (`mesh events`) is told state changes only.
+	quiet, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id}))
+	defer quiet.Close()
+	recv(t, quiet) // snapshot
+	gen := recv(t, stream).GetSnapshot().Cursor.Generation
+	a := h.spawn(run.Id, gitRepo(t), "tool", "do a thing")
+
+	var got *v1.AgentActivity
+	for got == nil {
+		f := recv(t, stream)
+		if act := f.GetActivity(); act != nil && act.AgentId == a.Id {
+			got = act
+		}
+	}
+	if got.RunId != run.Id || got.Detail != "Bash" || got.Time == nil {
+		t.Errorf("activity %v", got)
+	}
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	for !recvIdle(t, quiet) {
+	}
+
+	// A subscriber that resumes from the start sees the state events, and no activity frame.
+	again, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id, Activity: true, Cursor: &v1.Cursor{Generation: gen, Seq: 0}}))
+	defer again.Close()
+	for i := 0; i < 5; i++ {
+		if recv(t, again).GetActivity() != nil {
+			t.Fatal("a resumed stream replayed an activity frame")
+		}
+	}
+}
+
+// AgentSpawned is written before the terminal exists, so the stream says which terminal it is once the launch recorded
+// it: an app learns it from the event, not from the next listing of the agents.
+func TestALaunchTellsTheStreamWhichTerminalTheAgentGot(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir())
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	stream, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id}))
+	defer stream.Close()
+	recv(t, stream) // snapshot
+	a := h.spawn(run.Id, gitRepo(t), "term", "")
+
+	var got string
+	for got == "" {
+		ev := recv(t, stream).GetEvent()
+		if ad := ev.GetAgentAdopted(); ad != nil && ev.AgentId == a.Id {
+			got = ad.TerminalId
+			if !ad.Launched {
+				t.Error("a launch's event doesn't say it was a launch")
+			}
+		}
+	}
+	if want := h.agent(a.Id).TerminalId; got == "" || got != want {
+		t.Errorf("the stream said terminal %q, the agent has %q", got, want)
+	}
+}
+
+// recvIdle reads a frame of a stream that wants no activity: it must not be one, and it reports whether the frame
+// was the agent's move to IDLE.
+func recvIdle(t *testing.T, stream *connect.ServerStreamForClient[v1.SubscribeEventsResponse]) bool {
+	t.Helper()
+	f := recv(t, stream)
+	if f.GetActivity() != nil {
+		t.Fatal("a stream that didn't ask for activity got a frame")
+	}
+	sc := f.GetEvent().GetAgentStateChanged()
+	return sc != nil && sc.To == v1.AgentState_AGENT_STATE_IDLE
+}

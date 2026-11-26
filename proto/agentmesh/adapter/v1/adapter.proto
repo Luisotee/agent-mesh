@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package agentmesh.adapter.v1;
 
+import "agentmesh/v1/chat.proto";
 import "agentmesh/v1/context.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/timestamp.proto";
@@ -26,6 +27,9 @@ service CliAdapterService {
   // MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
   // compacts itself) is never compacted by mesh.
   rpc MeasureContext(MeasureContextRequest) returns (MeasureContextResponse);
+  // ReadTranscript reads a page of a conversation from the CLI's own record, for the chat view. An adapter without
+  // it has no chat view (the daemon answers `supported: false`).
+  rpc ReadTranscript(ReadTranscriptRequest) returns (ReadTranscriptResponse);
   // PlanCompact says how to compact a stopped conversation headless, before it is reopened.
   rpc PlanCompact(PlanCompactRequest) returns (PlanCompactResponse);
 }
@@ -198,6 +202,24 @@ message MeasureContextRequest {
 
 message MeasureContextResponse {
   agentmesh.v1.ContextUsage usage = 1;
+}
+
+message ReadTranscriptRequest {
+  string session_id = 1;
+  string cwd = 2;
+  // The environment the CLI's records are found by (HOME, its config dir).
+  map<string, string> env = 3;
+  // As agentmesh.v1.ReadTranscriptRequest.
+  int64 offset = 4;
+  bool backward = 5;
+  int64 max_bytes = 6;
+}
+
+message ReadTranscriptResponse {
+  repeated agentmesh.v1.TranscriptEntry entries = 1;
+  int64 start_offset = 2;
+  int64 end_offset = 3;
+  bool at_start = 4;
 }
 
 message PlanCompactRequest {

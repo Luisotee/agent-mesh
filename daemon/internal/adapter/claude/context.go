@@ -244,3 +244,17 @@ func (a *Adapter) PlanCompact(_ context.Context, req *connect.Request[adapterv1.
 	}
 	return connect.NewResponse(&adapterv1.PlanCompactResponse{Argv: argv, Env: env}), nil
 }
+
+// ReadTranscript reads a page of a session's conversation for the chat view (transcript.go).
+func (a *Adapter) ReadTranscript(_ context.Context, req *connect.Request[adapterv1.ReadTranscriptRequest]) (*connect.Response[adapterv1.ReadTranscriptResponse], error) {
+	m := req.Msg
+	path := TranscriptPath(m.Env, m.Cwd, m.SessionId)
+	if path == "" {
+		return connect.NewResponse(&adapterv1.ReadTranscriptResponse{AtStart: true}), nil
+	}
+	entries, start, end, atStart, err := ReadTranscript(path, m.Offset, m.Backward, m.MaxBytes)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&adapterv1.ReadTranscriptResponse{Entries: entries, StartOffset: start, EndOffset: end, AtStart: atStart}), nil
+}

@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// The chat view of an agent: its CLI's own record of the conversation, read for display (`mesh transcript`), and a
+// prompt typed into the running CLI as the user would (`mesh prompt`).
+
+enum TranscriptKind {
+  TRANSCRIPT_KIND_UNSPECIFIED = 0;
+  // What the user typed (or pasted).
+  TRANSCRIPT_KIND_USER = 1;
+  // What the model said, as Markdown.
+  TRANSCRIPT_KIND_ASSISTANT = 2;
+  // A tool the model called.
+  TRANSCRIPT_KIND_TOOL_CALL = 3;
+  // What the tool answered.
+  TRANSCRIPT_KIND_TOOL_RESULT = 4;
+  // A mesh doorbell or another agent's message: not the user's words.
+  TRANSCRIPT_KIND_MESH = 5;
+}
+
+// One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
+// bookkeeping are left out.
+message TranscriptEntry {
+  // Stable for the entry across reads: its line's id with the block's index, else its offset.
+  string id = 1;
+  google.protobuf.Timestamp time = 2;
+  TranscriptKind kind = 3;
+  // The prompt, the reply (Markdown), the tool's answer, or the doorbell's first line.
+  string text = 4;
+  // For a tool call: the tool's name, and a one-line summary of what it was asked (a command, a path, a pattern).
+  string tool = 5;
+  string tool_input = 6;
+  // Ties a call to its result.
+  string tool_use_id = 7;
+  bool is_error = 8;
+  // `text` was cut to fit.
+  bool truncated = 9;
+  // Where the entry's line starts in the CLI's record.
+  int64 offset = 10;
+}
+
+message ReadTranscriptRequest {
+  // Agent id or name.
+  string agent = 1;
+  // A position in the record, from a previous answer (`start_offset` or `end_offset`); -1 is the end.
+  int64 offset = 2;
+  // Read the entries before `offset` (the earlier part of the conversation) instead of after it.
+  bool backward = 3;
+  // About how many bytes of the record to read (the host bounds it); 0 is the host's default.
+  int64 max_bytes = 4;
+}
+
+message ReadTranscriptResponse {
+  // False when the agent's CLI has no readable record (the app shows the terminal only).
+  bool supported = 1;
+  // The conversation the entries belong to; it changes when the CLI starts a new one (a reopen, `/clear`).
+  string session_id = 2;
+  repeated TranscriptEntry entries = 3;
+  // Where the entries begin and end in the record: `end_offset` for reading on, `start_offset` for reading back.
+  int64 start_offset = 4;
+  int64 end_offset = 5;
+  // Nothing earlier than `start_offset`.
+  bool at_start = 6;
+}
+
+message PromptAgentRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // What to type; several lines are pasted as one prompt. Control characters other than newline and tab are
+  // dropped, so a prompt can't carry keystrokes.
+  string text = 3;
+}
+
+message PromptAgentResponse {}

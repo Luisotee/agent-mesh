@@ -18,7 +18,7 @@ export type Frame = NonNullable<SubscribeEventsResponse['frame']>
 /** The two calls a connection makes; the generated client satisfies it, and so does a test's fake. */
 export interface ConnClient {
   hello(req: { client: string; protocolVersion: number }, opts?: { signal?: AbortSignal }): Promise<HelloResponse>
-  subscribeEvents(req: { cursor?: Cursor }, opts?: { signal?: AbortSignal }): AsyncIterable<SubscribeEventsResponse>
+  subscribeEvents(req: { cursor?: Cursor; activity?: boolean }, opts?: { signal?: AbortSignal }): AsyncIterable<SubscribeEventsResponse>
 }
 
 export interface Timers {
@@ -175,7 +175,7 @@ export class HostConnection {
 
   private async follow(gen: number, ctl: AbortController): Promise<void> {
     try {
-      for await (const msg of this.o.client.subscribeEvents({ cursor: this.o.cursor() }, { signal: ctl.signal })) {
+      for await (const msg of this.o.client.subscribeEvents({ cursor: this.o.cursor(), activity: true }, { signal: ctl.signal })) {
         if (gen !== this.gen) return
         const frame = msg.frame
         if (!frame) continue

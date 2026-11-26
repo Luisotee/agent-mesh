@@ -26,6 +26,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadInbox
+  /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RemovePeer
   /agentmesh.v1.MeshService/ReportHook
@@ -147,6 +148,8 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenAgent
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/PromptAgent
+  /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/RemovePeer
@@ -191,6 +194,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/RevokeSelf

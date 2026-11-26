@@ -166,6 +166,19 @@ public interface MeshServiceClientInterface {
   public suspend fun openTerminal(request: OpenTerminalRequest, headers: Headers = emptyMap()): ResponseMessage<OpenTerminalResponse>
 
   /**
+   *  An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
+   *  a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
+   */
+  public suspend fun readTranscript(request: ReadTranscriptRequest, headers: Headers = emptyMap()): ResponseMessage<ReadTranscriptResponse>
+
+  /**
+   *  Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
+   *  a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
+   *  with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+   */
+  public suspend fun promptAgent(request: PromptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<PromptAgentResponse>
+
+  /**
    *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
    *  may call this.
    */

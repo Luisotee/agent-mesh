@@ -98,6 +98,11 @@ const (
 	// MeshServiceOpenTerminalProcedure is the fully-qualified name of the MeshService's OpenTerminal
 	// RPC.
 	MeshServiceOpenTerminalProcedure = "/agentmesh.v1.MeshService/OpenTerminal"
+	// MeshServiceReadTranscriptProcedure is the fully-qualified name of the MeshService's
+	// ReadTranscript RPC.
+	MeshServiceReadTranscriptProcedure = "/agentmesh.v1.MeshService/ReadTranscript"
+	// MeshServicePromptAgentProcedure is the fully-qualified name of the MeshService's PromptAgent RPC.
+	MeshServicePromptAgentProcedure = "/agentmesh.v1.MeshService/PromptAgent"
 	// MeshServiceCreatePairingProcedure is the fully-qualified name of the MeshService's CreatePairing
 	// RPC.
 	MeshServiceCreatePairingProcedure = "/agentmesh.v1.MeshService/CreatePairing"
@@ -246,6 +251,13 @@ type MeshServiceClient interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
+	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
+	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
+	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
+	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
+	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
 	// may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -501,6 +513,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
 			connect.WithClientOptions(opts...),
 		),
+		readTranscript: connect.NewClient[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse](
+			httpClient,
+			baseURL+MeshServiceReadTranscriptProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ReadTranscript")),
+			connect.WithClientOptions(opts...),
+		),
+		promptAgent: connect.NewClient[v1.PromptAgentRequest, v1.PromptAgentResponse](
+			httpClient,
+			baseURL+MeshServicePromptAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
+			connect.WithClientOptions(opts...),
+		),
 		createPairing: connect.NewClient[v1.CreatePairingRequest, v1.CreatePairingResponse](
 			httpClient,
 			baseURL+MeshServiceCreatePairingProcedure,
@@ -708,6 +732,8 @@ type meshServiceClient struct {
 	getBrief         *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
 	reportHook       *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	readTranscript   *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
+	promptAgent      *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
 	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
@@ -877,6 +903,16 @@ func (c *meshServiceClient) ReportHook(ctx context.Context, req *connect.Request
 // OpenTerminal calls agentmesh.v1.MeshService.OpenTerminal.
 func (c *meshServiceClient) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return c.openTerminal.CallUnary(ctx, req)
+}
+
+// ReadTranscript calls agentmesh.v1.MeshService.ReadTranscript.
+func (c *meshServiceClient) ReadTranscript(ctx context.Context, req *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
+	return c.readTranscript.CallUnary(ctx, req)
+}
+
+// PromptAgent calls agentmesh.v1.MeshService.PromptAgent.
+func (c *meshServiceClient) PromptAgent(ctx context.Context, req *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
+	return c.promptAgent.CallUnary(ctx, req)
 }
 
 // CreatePairing calls agentmesh.v1.MeshService.CreatePairing.
@@ -1102,6 +1138,13 @@ type MeshServiceHandler interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
+	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
+	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
+	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
+	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
+	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
 	// may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -1353,6 +1396,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceReadTranscriptHandler := connect.NewUnaryHandler(
+		MeshServiceReadTranscriptProcedure,
+		svc.ReadTranscript,
+		connect.WithSchema(meshServiceMethods.ByName("ReadTranscript")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServicePromptAgentHandler := connect.NewUnaryHandler(
+		MeshServicePromptAgentProcedure,
+		svc.PromptAgent,
+		connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceCreatePairingHandler := connect.NewUnaryHandler(
 		MeshServiceCreatePairingProcedure,
 		svc.CreatePairing,
@@ -1585,6 +1640,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReportHookHandler.ServeHTTP(w, r)
 		case MeshServiceOpenTerminalProcedure:
 			meshServiceOpenTerminalHandler.ServeHTTP(w, r)
+		case MeshServiceReadTranscriptProcedure:
+			meshServiceReadTranscriptHandler.ServeHTTP(w, r)
+		case MeshServicePromptAgentProcedure:
+			meshServicePromptAgentHandler.ServeHTTP(w, r)
 		case MeshServiceCreatePairingProcedure:
 			meshServiceCreatePairingHandler.ServeHTTP(w, r)
 		case MeshServiceListDevicesProcedure:
@@ -1762,6 +1821,14 @@ func (UnimplementedMeshServiceHandler) ReportHook(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenTerminal is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ReadTranscript is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.PromptAgent is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {

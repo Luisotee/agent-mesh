@@ -8,6 +8,7 @@ import { ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
+import { ChatView } from './chat-view'
 import { MessagesPanel } from './messages-panel'
 import { TerminalView } from './terminal-view'
 
@@ -41,7 +42,8 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
     ['Id', agent.id],
   ]
   const hasTerminal = canTerminal && !!agent.terminalId
-  const tabs: AgentTab[] = hasTerminal ? ['overview', 'messages', 'terminal'] : ['overview', 'messages']
+  // The chat reads the CLI's record, so it is there for a stopped agent too; typing needs the terminal.
+  const tabs: AgentTab[] = hasTerminal ? ['overview', 'messages', 'chat', 'terminal'] : ['overview', 'messages', 'chat']
   // A tab the agent doesn't have (its terminal went away) falls back to the overview.
   const shown = tabs.includes(tab) ? tab : 'overview'
   return (
@@ -87,6 +89,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
       <div id={`${agent.id}-panel-messages`} role="tabpanel" aria-labelledby={`${agent.id}-tab-messages`} hidden={shown !== 'messages'}>
         <MessagesPanel host={host} agentId={agent.id} active={shown === 'messages'} />
       </div>
+      <ChatView host={host} agentId={agent.id} active={shown === 'chat'} panelId={`${agent.id}-panel-chat`} tabId={`${agent.id}-tab-chat`} />
       {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} panelId={`${agent.id}-panel-terminal`} tabId={`${agent.id}-tab-terminal`} />}
     </article>
   )

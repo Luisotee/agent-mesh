@@ -5,12 +5,16 @@ import { createMeshClient, type MeshClient } from './actions'
 import { HostConnection } from './connection'
 import { messageLoader } from './messages'
 import { hostRefresher } from './refresh'
-import { noticeFor } from './notify'
+import { isLive, noticeFor } from './notify'
 import { appPrefs } from './prefs'
 import { listSettings } from './actions'
 import { applyFrame, createHostStore, setSettings, storeSink, type HostStore } from './store'
 import type { Frame } from './connection'
 import { hostTransport } from './transport'
+import { ActorClass } from './gen/agentmesh/v1/actor_pb'
+import type { Agent } from './gen/agentmesh/v1/types_pb'
+import { activate, cycleTab, closeTab, emptyWorkspace, forgetHost, noteSpawned, pruneDismissed, tabKey, type TabRef, type WorkspaceState } from './workspace'
+import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
 export interface HostRuntime {
@@ -26,7 +30,13 @@ export interface HostRuntime {
   openSocket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
 }
 
-export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'shell'>, info: HostInfo): HostRuntime {
+/** What a host tells the app about, beyond its own state. */
+export interface HostHooks {
+  /** A worker started while the app was open (not one the user started, not history replayed): what the host's `app.dock.new_agents` says to do. */
+  spawned(hostId: string, agent: Agent, mode: DockNewAgents): void
+}
+
+export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'shell'>, info: HostInfo, hooks?: HostHooks): HostRuntime {
   const store = createHostStore()
   const client = createMeshClient(hostTransport(api, info.id))
   const sink = storeSink(store)
@@ -46,8 +56,13 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
       if (f.case === 'event') refresher.event(f.value)
       else if (f.case === 'snapshot' || f.case === 'resumed') refresher.synced()
       if (f.case === 'event') {
-        // The host's own preferences say whether and what to notify about its events.
         const prefs = appPrefs(before.settings)
+        const p = f.value.payload
+        // A new agent the user didn't start themselves, seen as it happens: the dock's to show (and never to focus).
+        if (p.case === 'agentSpawned' && p.value.agent && !before.agents[p.value.agent.id] && f.value.actor?.class !== ActorClass.DEVICE && isLive(f.value, Date.now(), before.clockSkewMs)) {
+          hooks?.spawned(info.id, p.value.agent, prefs.dockNewAgents)
+        }
+        // The host's own preferences say whether and what to notify about its events.
         const n = prefs.notifyEnabled ? noticeFor(f.value, before.agents, Date.now(), before.clockSkewMs) : undefined
         if (n && prefs.notifyEvents.has(n.kind)) {
           api.shell.notify({ tag: `${info.id}:${n.tag}`, title: n.title, body: n.body, sound: prefs.notifySound, hostId: info.id, agentId: n.agentId, tab: n.tab })
@@ -84,7 +99,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
   }
 }
 
-export interface AppState {
+export interface AppState extends WorkspaceState {
   loaded: boolean
   error?: string
   hosts: HostRuntime[]
@@ -98,11 +113,15 @@ export interface AppState {
   settingsOpen: boolean
   /** The main pane shows the host's pairing screen. */
   pairOpen: boolean
+  /** The command palette is open. */
+  paletteOpen: boolean
+  /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
+  settingsQuery: string
   /** The main pane shows the host's quota usage and spend. */
   usageOpen: boolean
 }
 
-export type AgentTab = 'overview' | 'messages' | 'terminal'
+export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
 
 export interface AppModel {
   store: StoreApi<AppState>
@@ -113,14 +132,23 @@ export interface AppModel {
   selectHost(id: string): void
   selectAgent(hostId: string, agentId: string | undefined, tab?: AgentTab): void
   setTab(tab: AgentTab): void
-  openSettings(open: boolean): void
+  /** Closes an agent's tab; when it was the open one, the next to its right shows. */
+  closeTab(ref: TabRef): void
+  /** The tab after (1) or before (-1) the open one. */
+  cycleTab(by: 1 | -1): void
+  /** Shows or hides the live dock; showing it clears its count. */
+  setDock(open: boolean): void
+  /** Takes a tile off the dock until its agent's state changes. */
+  dismissTile(hostId: string, agentId: string): void
+  openSettings(open: boolean, query?: string): void
+  openPalette(open: boolean): void
   openPairing(open: boolean): void
   openUsage(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, usageOpen: false }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, usageOpen: false, paletteOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -136,24 +164,33 @@ export function createAppModel(api: DesktopApi): AppModel {
     const first = store.getState().hosts[0]
     api.shell.configure({ closeToTray: appPrefs(first?.store.getState().settings ?? {}).closeToTray })
   }
+  const hooks: HostHooks = {
+    spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
+  }
   const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
     unwatch.set(
       rt.info.id,
       rt.store.subscribe((s, prev) => {
         if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
+        if (s.agents !== prev.agents) {
+          // A dismissed tile that came back when its agent's state changed stays back.
+          const held = store.getState().dismissed
+          const kept = pruneDismissed(held, rt.info.id, s.agents)
+          if (kept !== held) set({ dismissed: kept })
+        }
         if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
       }),
     )
   api.shell.onNotificationClick((c) => {
     // A click on a notification of a host that has since been removed goes nowhere.
-    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) store.setState({ hostId: c.hostId, agentId: c.agentId, tab: c.tab, settingsOpen: false, pairOpen: false, usageOpen: false })
+    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false, usageOpen: false }))
   })
   let loading: Promise<void> | undefined
   async function loadHosts() {
     try {
       const infos = await api.hosts.list()
-      const hosts = infos.map((i) => connectHost(api, i))
+      const hosts = infos.map((i) => connectHost(api, i, hooks))
       hosts.forEach(watch)
       set({ loaded: true, hosts, hostId: hosts[0]?.info.id, error: undefined })
       recount()
@@ -169,7 +206,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     load: () => (loading ??= loadHosts()),
     async addHost(h) {
       const info = await api.hosts.add(h)
-      const rt = connectHost(api, info)
+      const rt = connectHost(api, info, hooks)
       watch(rt)
       set((s) => ({ hosts: [...s.hosts, rt], hostId: info.id, agentId: undefined }))
       recount()
@@ -184,16 +221,31 @@ export function createAppModel(api: DesktopApi): AppModel {
       unwatch.delete(id)
       set((s) => {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
-        return { hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
+        return { ...forgetHost(s, id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
       })
       recount()
       configure()
     },
-    selectHost: (id) => set({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, usageOpen: false }),
-    selectAgent: (hostId, agentId, tab = 'overview') => set({ hostId, agentId, tab, settingsOpen: false, pairOpen: false, usageOpen: false }),
-    openSettings: (open) => set({ settingsOpen: open, pairOpen: false, usageOpen: false }),
+    selectHost: (id) =>
+      set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, usageOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
+    selectAgent: (hostId, agentId, tab) =>
+      set((s) =>
+        agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, usageOpen: false },
+      ),
+    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, usageOpen: false, settingsQuery: open ? query : '' }),
+    openPalette: (open) => set({ paletteOpen: open }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false }),
     setTab: (tab) => set({ tab }),
+    closeTab: (ref) => set((s) => closeTab(s, ref)),
+    cycleTab: (by) => {
+      const next = cycleTab(store.getState(), by)
+      if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false }))
+    },
+    setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),
+    dismissTile: (hostId, agentId) => {
+      const state = store.getState().hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.state
+      if (state !== undefined) set((s) => ({ dismissed: { ...s.dismissed, [tabKey({ hostId, agentId })]: state } }))
+    },
   }
 }

@@ -43,6 +43,9 @@
 // With $FAKECLAUDE_TRUST_DIALOG set it draws the folder-trust dialog and fires no hook until a line is typed,
 // unless $HOME/.claude.json trusts the folder or a parent (`projects[<path>].hasTrustDialogAccepted`).
 //
+// With $FAKECLAUDE_TRANSCRIPT set each plain prompt's turn is written to the session's transcript under
+// $HOME/.claude/projects, in the shapes Claude Code writes: the chat view's source.
+//
 // With $FAKECLAUDE_PLACEHOLDER set it draws Claude Code's empty-box placeholder after its prompt, as the real one
 // does at a fresh pane: text that looks like a draft to anything reading the screen.
 //
@@ -77,13 +80,17 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 )
 
 type settings struct {
@@ -119,6 +126,24 @@ func envInt(name string) int {
 
 func main() {
 	args := os.Args[1:]
+	if box {
+		// A resize redraws the box where the bottom of the screen now is, unless a dialog is on it.
+		winch := make(chan os.Signal, 1)
+		signal.Notify(winch, syscall.SIGWINCH)
+		go func() {
+			for range winch {
+				// Twice: the host resizes its own screen after the terminal, and what was drawn before that is lost.
+				for i := 0; i < 2; i++ {
+					turnMu.Lock()
+					if !dialog {
+						drawBox()
+					}
+					turnMu.Unlock()
+					time.Sleep(200 * time.Millisecond)
+				}
+			}
+		}()
+	}
 	if log := os.Getenv("FAKECLAUDE_ARGV_LOG"); log != "" {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			line, _ := json.Marshal(args)
@@ -193,7 +218,12 @@ func main() {
 	go func() {
 		in := bufio.NewScanner(os.Stdin)
 		for in.Scan() {
-			lines <- in.Text()
+			l := in.Text()
+			// A bracketed paste of several lines is one prompt, as the real CLI takes it.
+			for strings.Contains(l, "\x1b[200~") && !strings.Contains(l, "\x1b[201~") && in.Scan() {
+				l += "\n" + in.Text()
+			}
+			lines <- l
 		}
 		close(lines)
 	}()
@@ -373,6 +403,7 @@ func run(line string, next func() string) {
 		hook("PreToolUse", map[string]any{"tool_name": "Bash"})
 		hook("PostToolUse", map[string]any{"tool_name": "Bash"})
 		say("done: %s\r\n", line)
+		recordTurn(line)
 		hook("Stop", map[string]any{"stop_hook_active": false})
 	}
 	prompt()
@@ -390,7 +421,24 @@ func say(format string, args ...any) {
 	}
 }
 
-const boxTop = 30 // the row of the box's top rule in box mode (the terminal is 40 rows)
+// boxTopRow is the row of the box's top rule in box mode: ten rows above the bottom of the terminal as it is now
+// (30 when it can't be read: the 40 rows meshd starts agents with). An app attached at another size changes it, and the
+// real CLI redraws for that, so the fake does too (SIGWINCH, in main).
+func boxTopRow() int {
+	if ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ); err == nil && ws.Row >= 12 {
+		return int(ws.Row) - 10
+	}
+	return 30
+}
+
+// ruleWidth is the width of the box's rules: 100, or the terminal's when it is narrower (a rule that wraps is two
+// lines, and no box reads right then).
+func ruleWidth() int {
+	if ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ); err == nil && ws.Col > 0 && int(ws.Col) < 100 {
+		return int(ws.Col)
+	}
+	return 100
+}
 
 // drawDialog replaces the screen with a dialog: no input box.
 func drawDialog() {
@@ -415,7 +463,8 @@ func prompt() {
 // room to wrap, a footer), the cursor on the prompt line after any text left in it. The tty echoes what is typed
 // there.
 func drawBox() {
-	rule := strings.Repeat("─", 100)
+	rule := strings.Repeat("─", ruleWidth())
+	boxTop := boxTopRow()
 	fmt.Print("\x1b[?25l\x1b[m\x1b[2J\x1b[H")
 	shown := transcript
 	if len(shown) > boxTop-3 {
@@ -589,4 +638,39 @@ func boundary() {
 	}
 	defer f.Close()
 	f.WriteString(`{"type":"system","subtype":"compact_boundary"}` + "\n")
+}
+
+var recorded int
+
+// recordTurn appends a turn to the session's transcript, in the shapes Claude Code writes (a user line, an assistant
+// line with text and a tool call, the tool's result, the closing text), when $FAKECLAUDE_TRANSCRIPT is set: the file
+// the chat view reads. Off by default, as a transcript that exists changes what compaction tests see (`boundary`).
+func recordTurn(prompt string) {
+	home := os.Getenv("HOME")
+	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	recorded++
+	id := fmt.Sprintf("%s-%d", session, recorded)
+	now := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+	line := func(kind, uuid string, content any) {
+		b, _ := json.Marshal(map[string]any{"type": kind, "uuid": uuid, "timestamp": now(), "sessionId": session, "isSidechain": false,
+			"message": map[string]any{"role": kind, "content": content}})
+		f.Write(append(b, '\n'))
+	}
+	line("user", id+"-u", prompt)
+	line("assistant", id+"-a1", []map[string]any{
+		{"type": "text", "text": "Working on: " + prompt},
+		{"type": "tool_use", "id": "toolu_" + id, "name": "Bash", "input": map[string]any{"command": "echo " + prompt, "description": "say it"}}})
+	line("user", id+"-r", []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_" + id, "content": prompt}})
+	line("assistant", id+"-a2", []map[string]any{{"type": "text", "text": "Done: " + prompt}})
 }

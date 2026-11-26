@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Type names a value's rule. They are `bin/mesh`'s POLICY_CHECKS names, plus json.
@@ -31,6 +34,8 @@ const (
 	// IntOrAuto is "auto" (the daemon works it out from the host) or a whole number, 0 or more.
 	IntOrAuto Type = "int_or_auto"
 	JSON      Type = "json"
+	// Shortcut is a key chord such as "Mod+Shift+P", or "" for none (ParseShortcut).
+	Shortcut Type = "shortcut"
 )
 
 // Efforts are the levels an effort takes, lowest first.
@@ -129,6 +134,8 @@ func (l Leaf) rule() string {
 		return `"auto" or a whole number, 0 or more`
 	case JSON:
 		return "any JSON value"
+	case Shortcut:
+		return `a key chord such as Mod+Shift+P (modifiers ` + strings.Join(shortcutModifiers, ", ") + `, then one key; at least one modifier besides Shift unless it is a function key), or "" for none`
 	}
 	return "a valid value"
 }
@@ -232,6 +239,10 @@ func Check(l Leaf, v any) (any, error) {
 			}
 		}
 	case JSON:
+	case Shortcut:
+		if s, ok := v.(string); !ok || (s != "" && !ValidShortcut(s)) {
+			return bad()
+		}
 	default:
 		return nil, fmt.Errorf("%s has unknown type %q", l.Key, l.Type)
 	}
@@ -451,6 +462,55 @@ var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "ex
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
 var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
 
+// shortcutModifiers are the modifiers a chord may hold; Mod is Ctrl on Linux and Windows and Cmd on macOS.
+var shortcutModifiers = []string{"Mod", "Ctrl", "Alt", "Shift", "Meta"}
+
+var shortcutNamedKeys = map[string]bool{
+	"Enter": true, "Tab": true, "Space": true, "Escape": true, "Backspace": true, "Delete": true, "Insert": true,
+	"Home": true, "End": true, "PageUp": true, "PageDown": true, "ArrowUp": true, "ArrowDown": true,
+	"ArrowLeft": true, "ArrowRight": true, "Plus": true,
+}
+
+// ValidShortcut reports whether s is a key chord: modifiers (Mod, Ctrl, Alt, Shift, Meta, none twice) joined
+// by "+" and then one key, a single printable character other than "+" (letters in any case), a named key
+// (Enter, Tab, Space, Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown, an arrow, Plus) or F1 to
+// F24. A chord needs a modifier other than Shift unless its key is a function key: a bare or shifted letter would fire
+// while typing.
+func ValidShortcut(s string) bool {
+	parts := strings.Split(s, "+")
+	key := parts[len(parts)-1]
+	if key == "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, m := range parts[:len(parts)-1] {
+		ok := false
+		for _, known := range shortcutModifiers {
+			ok = ok || m == known
+		}
+		if !ok || seen[m] {
+			return false
+		}
+		seen[m] = true
+	}
+	function := false
+	if rest, ok := strings.CutPrefix(key, "F"); ok {
+		n, err := strconv.Atoi(rest)
+		function = err == nil && n >= 1 && n <= 24 && strconv.Itoa(n) == rest
+	}
+	switch {
+	case function, shortcutNamedKeys[key]:
+	case utf8.RuneCountInString(key) == 1 && key != "+" && unicode.IsPrint([]rune(key)[0]) && key != " ":
+	default:
+		return false
+	}
+	// Shift alone doesn't count: Shift+P is just a capital P.
+	return len(seen) > 1 || (len(seen) == 1 && !seen["Shift"]) || function
+}
+
+// DockNewAgents are the choices of app.dock.new_agents.
+var DockNewAgents = []string{"dock", "badge", "tab", "none"}
+
 // AppLeaves are the apps' own preferences. They live on the host so every device and every agent sees and can
 // change them (docs/apps.md, "Settings are data on the host"). The daemon reads only app.notify.enabled and
 // app.notify.events, to choose what it pushes to phones (internal/daemon/push.go).
@@ -468,6 +528,16 @@ func AppLeaves() []Leaf {
 			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; phones' pushes follow it too, all but error and limited for now"},
 		{Key: "app.theme", Type: String, Default: "Dracula",
 			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
+		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
+			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
+		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},
+		{Key: "app.keys.settings", Type: Shortcut, Default: "Mod+,", Summary: "shortcut: open or close the host's settings"},
+		{Key: "app.keys.chat_toggle", Type: Shortcut, Default: "Mod+Shift+J", Summary: "shortcut: switch the open agent between its chat and its terminal"},
+		{Key: "app.keys.dock", Type: Shortcut, Default: "Mod+Shift+D", Summary: "shortcut: show or hide the live dock"},
+		{Key: "app.keys.tab_next", Type: Shortcut, Default: "Ctrl+Tab", Summary: "shortcut: the next open agent tab"},
+		{Key: "app.keys.tab_prev", Type: Shortcut, Default: "Ctrl+Shift+Tab", Summary: "shortcut: the previous open agent tab"},
+		{Key: "app.keys.tab_close", Type: Shortcut, Default: "Mod+Shift+W", Summary: "shortcut: close the open agent tab"},
+		{Key: "app.keys.waiting_next", Type: Shortcut, Default: "Mod+Shift+A", Summary: "shortcut: go to the next plan, question or agent that waits on you"},
 		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,
 			Summary: "closing the desktop window keeps the app running in the tray (off by default: a desktop with no tray would leave no way back to the window)"},
 	}
