@@ -161,7 +161,9 @@ type AgentCost struct {
 	Cold    int64                  `protobuf:"varint,14,opt,name=cold,proto3" json:"cold,omitempty"`
 	ColdUsd float64                `protobuf:"fixed64,15,opt,name=cold_usd,json=coldUsd,proto3" json:"cold_usd,omitempty"`
 	// input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
-	// most of a Claude session's tokens but cost a plan far less.
+	// most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+	// include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+	// (a subagent's dollars are sub_usd).
 	Total         int64 `protobuf:"varint,16,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -508,6 +510,8 @@ func (x *KindCost) GetTokenShare() float64 {
 }
 
 // Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
+//
+// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
 type TokenKindCost struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Kind     string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -735,6 +739,8 @@ func (x *ModelPhaseCost) GetTotal() int64 {
 }
 
 // Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
+//
+// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
 type TokenModelPhaseCost struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
@@ -1188,11 +1194,13 @@ type GetCostResponse struct {
 	PricesAsOf string                 `protobuf:"bytes,2,opt,name=prices_as_of,json=pricesAsOf,proto3" json:"prices_as_of,omitempty"`
 	// What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
 	// measure. Every row's usd is Claude's too; agy and OpenCode have no price here (see CliCost.usd).
-	Usd           float64                `protobuf:"fixed64,3,opt,name=usd,proto3" json:"usd,omitempty"`
-	Agents        []*AgentCost           `protobuf:"bytes,4,rep,name=agents,proto3" json:"agents,omitempty"`
-	Kinds         []*KindCost            `protobuf:"bytes,5,rep,name=kinds,proto3" json:"kinds,omitempty"`
-	TokenKinds    []*TokenKindCost       `protobuf:"bytes,6,rep,name=token_kinds,json=tokenKinds,proto3" json:"token_kinds,omitempty"`
-	ByModel       []*ModelPhaseCost      `protobuf:"bytes,7,rep,name=by_model,json=byModel,proto3" json:"by_model,omitempty"`
+	Usd    float64      `protobuf:"fixed64,3,opt,name=usd,proto3" json:"usd,omitempty"`
+	Agents []*AgentCost `protobuf:"bytes,4,rep,name=agents,proto3" json:"agents,omitempty"`
+	Kinds  []*KindCost  `protobuf:"bytes,5,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
+	TokenKinds []*TokenKindCost  `protobuf:"bytes,6,rep,name=token_kinds,json=tokenKinds,proto3" json:"token_kinds,omitempty"`
+	ByModel    []*ModelPhaseCost `protobuf:"bytes,7,rep,name=by_model,json=byModel,proto3" json:"by_model,omitempty"`
+	// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
 	TokensByModel []*TokenModelPhaseCost `protobuf:"bytes,8,rep,name=tokens_by_model,json=tokensByModel,proto3" json:"tokens_by_model,omitempty"`
 	Reviews       *ReviewCostSummary     `protobuf:"bytes,9,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	Verdicts      []*VerdictCostSummary  `protobuf:"bytes,10,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
@@ -1271,6 +1279,7 @@ func (x *GetCostResponse) GetKinds() []*KindCost {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
 func (x *GetCostResponse) GetTokenKinds() []*TokenKindCost {
 	if x != nil {
 		return x.TokenKinds
@@ -1285,6 +1294,7 @@ func (x *GetCostResponse) GetByModel() []*ModelPhaseCost {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in agentmesh/v1/report.proto.
 func (x *GetCostResponse) GetTokensByModel() []*TokenModelPhaseCost {
 	if x != nil {
 		return x.TokensByModel
@@ -2030,7 +2040,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\bcold_usd\x18\x12 \x01(\x01R\acoldUsd\x12\x14\n" +
 	"\x05total\x18\x13 \x01(\x03R\x05total\x12\x1f\n" +
 	"\vtoken_share\x18\x14 \x01(\x01R\n" +
-	"tokenShare\"\xa9\x01\n" +
+	"tokenShare\"\xad\x01\n" +
 	"\rTokenKindCost\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1a\n" +
 	"\bsessions\x18\x02 \x01(\x03R\bsessions\x12\x14\n" +
@@ -2038,7 +2048,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x05input\x18\x04 \x01(\x03R\x05input\x12\x12\n" +
 	"\x04read\x18\x05 \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\x06 \x01(\x03R\x06output\x12\x10\n" +
-	"\x03usd\x18\a \x01(\x01R\x03usd\"\xa0\x02\n" +
+	"\x03usd\x18\a \x01(\x01R\x03usd:\x02\x18\x01\"\xa0\x02\n" +
 	"\x0eModelPhaseCost\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x14\n" +
@@ -2054,7 +2064,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x04read\x18\n" +
 	" \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\v \x01(\x03R\x06output\x12\x14\n" +
-	"\x05total\x18\f \x01(\x03R\x05total\"\xab\x01\n" +
+	"\x05total\x18\f \x01(\x03R\x05total\"\xaf\x01\n" +
 	"\x13TokenModelPhaseCost\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x14\n" +
@@ -2062,7 +2072,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x05input\x18\x04 \x01(\x03R\x05input\x12\x12\n" +
 	"\x04read\x18\x05 \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\x06 \x01(\x03R\x06output\x12\x10\n" +
-	"\x03usd\x18\a \x01(\x01R\x03usd\"\xf5\x02\n" +
+	"\x03usd\x18\a \x01(\x01R\x03usd:\x02\x18\x01\"\xf5\x02\n" +
 	"\x11ReviewCostSummary\x12\x10\n" +
 	"\x03prs\x18\x01 \x01(\x03R\x03prs\x12\x10\n" +
 	"\x03usd\x18\x02 \x01(\x01R\x03usd\x12\x1c\n" +
@@ -2103,18 +2113,18 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x05total\x18\b \x01(\x03R\x05total\x12\x14\n" +
 	"\x05basis\x18\t \x01(\tR\x05basis\x12\x10\n" +
 	"\x03usd\x18\n" +
-	" \x01(\x01R\x03usd\"\xfa\x04\n" +
+	" \x01(\x01R\x03usd\"\x82\x05\n" +
 	"\x0fGetCostResponse\x12\x14\n" +
 	"\x05scope\x18\x01 \x01(\tR\x05scope\x12 \n" +
 	"\fprices_as_of\x18\x02 \x01(\tR\n" +
 	"pricesAsOf\x12\x10\n" +
 	"\x03usd\x18\x03 \x01(\x01R\x03usd\x12/\n" +
 	"\x06agents\x18\x04 \x03(\v2\x17.agentmesh.v1.AgentCostR\x06agents\x12,\n" +
-	"\x05kinds\x18\x05 \x03(\v2\x16.agentmesh.v1.KindCostR\x05kinds\x12<\n" +
-	"\vtoken_kinds\x18\x06 \x03(\v2\x1b.agentmesh.v1.TokenKindCostR\n" +
+	"\x05kinds\x18\x05 \x03(\v2\x16.agentmesh.v1.KindCostR\x05kinds\x12@\n" +
+	"\vtoken_kinds\x18\x06 \x03(\v2\x1b.agentmesh.v1.TokenKindCostB\x02\x18\x01R\n" +
 	"tokenKinds\x127\n" +
-	"\bby_model\x18\a \x03(\v2\x1c.agentmesh.v1.ModelPhaseCostR\abyModel\x12I\n" +
-	"\x0ftokens_by_model\x18\b \x03(\v2!.agentmesh.v1.TokenModelPhaseCostR\rtokensByModel\x129\n" +
+	"\bby_model\x18\a \x03(\v2\x1c.agentmesh.v1.ModelPhaseCostR\abyModel\x12M\n" +
+	"\x0ftokens_by_model\x18\b \x03(\v2!.agentmesh.v1.TokenModelPhaseCostB\x02\x18\x01R\rtokensByModel\x129\n" +
 	"\areviews\x18\t \x01(\v2\x1f.agentmesh.v1.ReviewCostSummaryR\areviews\x12<\n" +
 	"\bverdicts\x18\n" +
 	" \x03(\v2 .agentmesh.v1.VerdictCostSummaryR\bverdicts\x12\x16\n" +

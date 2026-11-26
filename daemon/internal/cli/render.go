@@ -246,10 +246,11 @@ func tokensText(n int64) string {
 		return fmt.Sprint(n)
 	}
 	// The unit is chosen after rounding: 999_600 is 1.0M, not 1000k.
+	// Half rounds up, as the desktop's Math.round and toFixed do (Go's %.0f rounds half to even: 2500 would be 2k).
 	if math.Round(float64(n)/1e3) >= 1000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+		return fmt.Sprintf("%.1fM", math.Round(float64(n)/1e5)/10)
 	}
-	return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	return fmt.Sprintf("%.0fk", math.Round(float64(n)/1e3))
 }
 
 func trimRound2(v float64) string {

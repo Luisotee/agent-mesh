@@ -36,7 +36,9 @@ message AgentCost {
   int64 cold = 14;
   double cold_usd = 15;
   // input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
-  // most of a Claude session's tokens but cost a plan far less.
+  // most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+  // include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+  // (a subagent's dollars are sub_usd).
   int64 total = 16;
 }
 
@@ -67,6 +69,7 @@ message KindCost {
 
 // Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
 message TokenKindCost {
+  option deprecated = true;
   string kind = 1;
   int64 sessions = 2;
   int64 calls = 3;
@@ -95,6 +98,7 @@ message ModelPhaseCost {
 
 // Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
 message TokenModelPhaseCost {
+  option deprecated = true;
   string model = 1;
   string phase = 2;
   int64 calls = 3;
@@ -158,9 +162,9 @@ message GetCostResponse {
   double usd = 3;
   repeated AgentCost agents = 4;
   repeated KindCost kinds = 5;
-  repeated TokenKindCost token_kinds = 6;
+  repeated TokenKindCost token_kinds = 6 [deprecated = true];
   repeated ModelPhaseCost by_model = 7;
-  repeated TokenModelPhaseCost tokens_by_model = 8;
+  repeated TokenModelPhaseCost tokens_by_model = 8 [deprecated = true];
   ReviewCostSummary reviews = 9;
   repeated VerdictCostSummary verdicts = 10;
   int32 resets = 11;

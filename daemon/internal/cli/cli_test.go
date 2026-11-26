@@ -576,6 +576,15 @@ func TestReservePositionalAndUsageRenderer(t *testing.T) {
 	}
 }
 
+// The CLI rounds token counts as the desktop does (half up), so the two screens never differ by one.
+func TestTokensTextRoundsHalfUpLikeTheDesktop(t *testing.T) {
+	for n, want := range map[int64]string{300: "300", 999: "999", 1000: "1k", 2500: "3k", 2499: "2k", 340_000: "340k", 999_400: "999k", 999_600: "1.0M", 1_250_000: "1.3M", 1_240_000: "1.2M", 12_345_678: "12.3M"} {
+		if got := tokensText(n); got != want {
+			t.Errorf("tokensText(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
 func TestCostModelsAndConflictsRenderers(t *testing.T) {
 	var out bytes.Buffer
 	renderCost(&v1.GetCostResponse{

@@ -45,7 +45,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.Agent.tools_added":                        "True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.",
 	"agentmesh.v1.AgentCompacted.outcome":                   "\"done\", or why it was skipped or failed; the agent went on as it was.",
 	"agentmesh.v1.AgentCompacted.via":                       "\"live\" (typed into its terminal) or \"headless\" (before its reopen).",
-	"agentmesh.v1.AgentCost.total":                          "input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are most of a Claude session's tokens but cost a plan far less.",
+	"agentmesh.v1.AgentCost.total":                          "input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total) include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not (a subagent's dollars are sub_usd).",
 	"agentmesh.v1.AgentExited.reason":                       "\"exited\", \"killed\", or \"lost\" (its terminal was gone when the daemon looked).",
 	"agentmesh.v1.AgentPhaseChanged.why":                    "\"planned task\", \"plan sent\", \"plan approved\", \"direct task\".",
 	"agentmesh.v1.AgentPullRequests.read_failed":            "GitHub could not be read for this agent the last time: an empty list means unknown, not none.",

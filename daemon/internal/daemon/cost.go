@@ -937,6 +937,8 @@ type tallyBucket struct {
 	w1       int64
 	read     int64
 	output   int64
+	cw5      int64 // Claude's cache writes by TTL: the 5m share is theirs alone (OpenCode's sit in w5 with no TTL)
+	cw1      int64
 	usd      float64
 	ctx      int64
 	plan     float64
@@ -1013,6 +1015,13 @@ func (ct *costTally) add(session string, call costCall, kind string, ag agentKey
 	targets := []*tallyBucket{kb, mb, cb}
 	if sub {
 		ab.subUSD += usd
+		// The subagent's tokens are the agent's work: they count in its total, so agent rows add up to total_tokens.
+		// Its calls, context and cold flags stay out of the agent's row, as its dollars do (sub $).
+		ab.input += call.input
+		ab.w5 += call.w5
+		ab.w1 += call.w1
+		ab.read += call.read
+		ab.output += call.output
 	} else {
 		targets = append(targets, ab)
 	}
@@ -1027,6 +1036,10 @@ func (ct *costTally) add(session string, call costCall, kind string, ag agentKey
 		b.w1 += call.w1
 		b.read += call.read
 		b.output += call.output
+		if call.cli == "" {
+			b.cw5 += call.w5
+			b.cw1 += call.w1
+		}
 		if phase == "plan" {
 			b.plan += usd
 		} else if phase == "exec" {
@@ -1483,6 +1496,8 @@ func (b *tallyBucket) merge(o *tallyBucket) {
 	b.w1 += o.w1
 	b.read += o.read
 	b.output += o.output
+	b.cw5 += o.cw5
+	b.cw1 += o.cw1
 	b.usd += o.usd
 	b.ctx += o.ctx
 	b.plan += o.plan
@@ -1588,7 +1603,7 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		if strings.HasPrefix(kind, "reviewer") {
 			reviewUSD += b.usd
 		}
-		writes := b.w5 + b.w1
+		writes := b.cw5 + b.cw1 // Claude's only: no other CLI splits its writes by TTL
 		var share, tokenShare, usdPerCall, write5mShare float64
 		var ctxPerCall, outPerCall int64
 		if kindUSD > 0 {
@@ -1603,7 +1618,7 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 			outPerCall = b.output / b.calls
 		}
 		if writes > 0 {
-			write5mShare = round1(100 * float64(b.w5) / float64(writes))
+			write5mShare = round1(100 * float64(b.cw5) / float64(writes))
 		}
 		var firstMed int64
 		hasMed := len(b.firsts) > 0

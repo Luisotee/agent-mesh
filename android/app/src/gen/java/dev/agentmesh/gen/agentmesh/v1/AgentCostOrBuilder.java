@@ -121,7 +121,9 @@ public interface AgentCostOrBuilder extends
   /**
    * <pre>
    * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
-   * most of a Claude session's tokens but cost a plan far less.
+   * most of a Claude session's tokens but cost a plan far less. The token fields (input, w1, w5, read, output, total)
+   * include the agent's subagents, so the agents add up to the response's total_tokens; calls, usd and cold do not
+   * (a subagent's dollars are sub_usd).
    * </pre>
    *
    * <code>int64 total = 16 [json_name = "total"];</code>

@@ -502,6 +502,33 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	if a := byAgent["repo-review-7-opencode"]; a == nil || a.Total != 1750 || a.Usd != 0 {
 		t.Fatalf("repo-review-7-opencode = %+v", a)
 	}
+	// A subagent's tokens are its agent's work: repo-fix's own output 4000 plus its subagent's 10_000 cache write, and the
+	// agent rows add up to the response's total (the agents are what the total is sorted and read by).
+	if a := byAgent["repo-fix"]; a == nil || a.Total != 14_000 || a.W5 != 10_000 || a.Output != 4000 || a.Calls != 2 {
+		t.Fatalf("repo-fix = %+v", a)
+	}
+	var agentTokens int64
+	for _, a := range r1.Agents {
+		agentTokens += a.Total
+	}
+	if agentTokens != r1.TotalTokens {
+		t.Fatalf("agent rows add to %d tokens, total_tokens is %d", agentTokens, r1.TotalTokens)
+	}
+	// The 5m share of cache writes is Claude's: OpenCode's writes have no TTL and sit in w5, and agy has none.
+	for _, k := range r1.Kinds {
+		if (strings.HasPrefix(k.Kind, "opencode") || strings.HasPrefix(k.Kind, "agy")) && k.Write_5MShare != 0 {
+			t.Fatalf("%s 5m share = %v, want 0 for a CLI with no TTL split", k.Kind, k.Write_5MShare)
+		}
+	}
+	var ocKind *v1.KindCost
+	for _, k := range r1.Kinds {
+		if strings.HasPrefix(k.Kind, "opencode") && k.W5 > 0 {
+			ocKind = k
+		}
+	}
+	if ocKind == nil {
+		t.Fatalf("no opencode kind with cache writes in %+v", r1.Kinds)
+	}
 	for i := 1; i < len(r1.Agents); i++ {
 		if r1.Agents[i-1].Total < r1.Agents[i].Total {
 			t.Fatalf("agents are not sorted by tokens: %+v", r1.Agents)

@@ -352,37 +352,37 @@ public  final class GetCostResponse extends
   public static final int TOKEN_KINDS_FIELD_NUMBER = 6;
   private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> tokenKinds_;
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   @java.lang.Override
-  public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> getTokenKindsList() {
+  @java.lang.Deprecated public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> getTokenKindsList() {
     return tokenKinds_;
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.TokenKindCostOrBuilder> 
+  @java.lang.Deprecated public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.TokenKindCostOrBuilder> 
       getTokenKindsOrBuilderList() {
     return tokenKinds_;
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   @java.lang.Override
-  public int getTokenKindsCount() {
+  @java.lang.Deprecated public int getTokenKindsCount() {
     return tokenKinds_.size();
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   @java.lang.Override
-  public dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index) {
+  @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index) {
     return tokenKinds_.get(index);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  public dev.agentmesh.gen.agentmesh.v1.TokenKindCostOrBuilder getTokenKindsOrBuilder(
+  @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenKindCostOrBuilder getTokenKindsOrBuilder(
       int index) {
     return tokenKinds_.get(index);
   }
@@ -395,7 +395,7 @@ public  final class GetCostResponse extends
   }
 
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void setTokenKinds(
       int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
@@ -404,7 +404,7 @@ public  final class GetCostResponse extends
     tokenKinds_.set(index, value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void addTokenKinds(dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
     java.util.Objects.requireNonNull(value);
@@ -412,7 +412,7 @@ public  final class GetCostResponse extends
     tokenKinds_.add(value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void addTokenKinds(
       int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
@@ -421,7 +421,7 @@ public  final class GetCostResponse extends
     tokenKinds_.add(index, value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void addAllTokenKinds(
       java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.TokenKindCost> values) {
@@ -430,13 +430,13 @@ public  final class GetCostResponse extends
         values, tokenKinds_);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void clearTokenKinds() {
     tokenKinds_ = emptyProtobufList();
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
   private void removeTokenKinds(int index) {
     ensureTokenKindsIsMutable();
@@ -540,37 +540,37 @@ public  final class GetCostResponse extends
   public static final int TOKENS_BY_MODEL_FIELD_NUMBER = 8;
   private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> tokensByModel_;
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   @java.lang.Override
-  public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> getTokensByModelList() {
+  @java.lang.Deprecated public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> getTokensByModelList() {
     return tokensByModel_;
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCostOrBuilder> 
+  @java.lang.Deprecated public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCostOrBuilder> 
       getTokensByModelOrBuilderList() {
     return tokensByModel_;
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   @java.lang.Override
-  public int getTokensByModelCount() {
+  @java.lang.Deprecated public int getTokensByModelCount() {
     return tokensByModel_.size();
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   @java.lang.Override
-  public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index) {
+  @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index) {
     return tokensByModel_.get(index);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCostOrBuilder getTokensByModelOrBuilder(
+  @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCostOrBuilder getTokensByModelOrBuilder(
       int index) {
     return tokensByModel_.get(index);
   }
@@ -583,7 +583,7 @@ public  final class GetCostResponse extends
   }
 
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void setTokensByModel(
       int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
@@ -592,7 +592,7 @@ public  final class GetCostResponse extends
     tokensByModel_.set(index, value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void addTokensByModel(dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
     java.util.Objects.requireNonNull(value);
@@ -600,7 +600,7 @@ public  final class GetCostResponse extends
     tokensByModel_.add(value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void addTokensByModel(
       int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
@@ -609,7 +609,7 @@ public  final class GetCostResponse extends
     tokensByModel_.add(index, value);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void addAllTokensByModel(
       java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> values) {
@@ -618,13 +618,13 @@ public  final class GetCostResponse extends
         values, tokensByModel_);
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void clearTokensByModel() {
     tokensByModel_ = emptyProtobufList();
   }
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
   private void removeTokensByModel(int index) {
     ensureTokensByModelIsMutable();
@@ -1443,39 +1443,39 @@ public  final class GetCostResponse extends
     }
 
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
     @java.lang.Override
-    public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> getTokenKindsList() {
+    @java.lang.Deprecated public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> getTokenKindsList() {
       return java.util.Collections.unmodifiableList(
           instance.getTokenKindsList());
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
     @java.lang.Override
-    public int getTokenKindsCount() {
+    @java.lang.Deprecated public int getTokenKindsCount() {
       return instance.getTokenKindsCount();
     }/**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
     @java.lang.Override
-    public dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index) {
+    @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index) {
       return instance.getTokenKinds(index);
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder setTokenKinds(
+    @java.lang.Deprecated public Builder setTokenKinds(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
       copyOnWrite();
       instance.setTokenKinds(index, value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder setTokenKinds(
+    @java.lang.Deprecated public Builder setTokenKinds(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost.Builder builderForValue) {
       copyOnWrite();
       instance.setTokenKinds(index,
@@ -1483,35 +1483,35 @@ public  final class GetCostResponse extends
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder addTokenKinds(dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
+    @java.lang.Deprecated public Builder addTokenKinds(dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
       copyOnWrite();
       instance.addTokenKinds(value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder addTokenKinds(
+    @java.lang.Deprecated public Builder addTokenKinds(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost value) {
       copyOnWrite();
       instance.addTokenKinds(index, value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder addTokenKinds(
+    @java.lang.Deprecated public Builder addTokenKinds(
         dev.agentmesh.gen.agentmesh.v1.TokenKindCost.Builder builderForValue) {
       copyOnWrite();
       instance.addTokenKinds(builderForValue.build());
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder addTokenKinds(
+    @java.lang.Deprecated public Builder addTokenKinds(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenKindCost.Builder builderForValue) {
       copyOnWrite();
       instance.addTokenKinds(index,
@@ -1519,26 +1519,26 @@ public  final class GetCostResponse extends
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder addAllTokenKinds(
+    @java.lang.Deprecated public Builder addAllTokenKinds(
         java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.TokenKindCost> values) {
       copyOnWrite();
       instance.addAllTokenKinds(values);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder clearTokenKinds() {
+    @java.lang.Deprecated public Builder clearTokenKinds() {
       copyOnWrite();
       instance.clearTokenKinds();
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+     * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
      */
-    public Builder removeTokenKinds(int index) {
+    @java.lang.Deprecated public Builder removeTokenKinds(int index) {
       copyOnWrite();
       instance.removeTokenKinds(index);
       return this;
@@ -1647,39 +1647,39 @@ public  final class GetCostResponse extends
     }
 
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
     @java.lang.Override
-    public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> getTokensByModelList() {
+    @java.lang.Deprecated public java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> getTokensByModelList() {
       return java.util.Collections.unmodifiableList(
           instance.getTokensByModelList());
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
     @java.lang.Override
-    public int getTokensByModelCount() {
+    @java.lang.Deprecated public int getTokensByModelCount() {
       return instance.getTokensByModelCount();
     }/**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
     @java.lang.Override
-    public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index) {
+    @java.lang.Deprecated public dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index) {
       return instance.getTokensByModel(index);
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder setTokensByModel(
+    @java.lang.Deprecated public Builder setTokensByModel(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
       copyOnWrite();
       instance.setTokensByModel(index, value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder setTokensByModel(
+    @java.lang.Deprecated public Builder setTokensByModel(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost.Builder builderForValue) {
       copyOnWrite();
       instance.setTokensByModel(index,
@@ -1687,35 +1687,35 @@ public  final class GetCostResponse extends
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder addTokensByModel(dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
+    @java.lang.Deprecated public Builder addTokensByModel(dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
       copyOnWrite();
       instance.addTokensByModel(value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder addTokensByModel(
+    @java.lang.Deprecated public Builder addTokensByModel(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost value) {
       copyOnWrite();
       instance.addTokensByModel(index, value);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder addTokensByModel(
+    @java.lang.Deprecated public Builder addTokensByModel(
         dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost.Builder builderForValue) {
       copyOnWrite();
       instance.addTokensByModel(builderForValue.build());
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder addTokensByModel(
+    @java.lang.Deprecated public Builder addTokensByModel(
         int index, dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost.Builder builderForValue) {
       copyOnWrite();
       instance.addTokensByModel(index,
@@ -1723,26 +1723,26 @@ public  final class GetCostResponse extends
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder addAllTokensByModel(
+    @java.lang.Deprecated public Builder addAllTokensByModel(
         java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> values) {
       copyOnWrite();
       instance.addAllTokensByModel(values);
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder clearTokensByModel() {
+    @java.lang.Deprecated public Builder clearTokensByModel() {
       copyOnWrite();
       instance.clearTokensByModel();
       return this;
     }
     /**
-     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+     * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
      */
-    public Builder removeTokensByModel(int index) {
+    @java.lang.Deprecated public Builder removeTokensByModel(int index) {
       copyOnWrite();
       instance.removeTokensByModel(index);
       return this;

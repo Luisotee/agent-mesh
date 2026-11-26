@@ -74,18 +74,18 @@ public interface GetCostResponseOrBuilder extends
   int getKindsCount();
 
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> 
+  @java.lang.Deprecated java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenKindCost> 
       getTokenKindsList();
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index);
+  @java.lang.Deprecated dev.agentmesh.gen.agentmesh.v1.TokenKindCost getTokenKinds(int index);
   /**
-   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds"];</code>
+   * <code>repeated .agentmesh.v1.TokenKindCost token_kinds = 6 [json_name = "tokenKinds", deprecated = true];</code>
    */
-  int getTokenKindsCount();
+  @java.lang.Deprecated int getTokenKindsCount();
 
   /**
    * <code>repeated .agentmesh.v1.ModelPhaseCost by_model = 7 [json_name = "byModel"];</code>
@@ -102,18 +102,18 @@ public interface GetCostResponseOrBuilder extends
   int getByModelCount();
 
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> 
+  @java.lang.Deprecated java.util.List<dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost> 
       getTokensByModelList();
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index);
+  @java.lang.Deprecated dev.agentmesh.gen.agentmesh.v1.TokenModelPhaseCost getTokensByModel(int index);
   /**
-   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel"];</code>
+   * <code>repeated .agentmesh.v1.TokenModelPhaseCost tokens_by_model = 8 [json_name = "tokensByModel", deprecated = true];</code>
    */
-  int getTokensByModelCount();
+  @java.lang.Deprecated int getTokensByModelCount();
 
   /**
    * <code>.agentmesh.v1.ReviewCostSummary reviews = 9 [json_name = "reviews"];</code>

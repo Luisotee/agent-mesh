@@ -13,7 +13,7 @@ package dev.agentmesh.gen.agentmesh.v1;
  * Protobuf type {@code agentmesh.v1.TokenModelPhaseCost}
  */
 @com.google.protobuf.Generated
-public  final class TokenModelPhaseCost extends
+@java.lang.Deprecated public  final class TokenModelPhaseCost extends
     com.google.protobuf.GeneratedMessageLite<
         TokenModelPhaseCost, TokenModelPhaseCost.Builder> implements
     // @@protoc_insertion_point(message_implements:agentmesh.v1.TokenModelPhaseCost)
