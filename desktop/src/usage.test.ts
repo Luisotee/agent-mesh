@@ -83,25 +83,36 @@ describe('costView', () => {
     scope: 'since 7d',
     usd: 12.345,
     pricesAsOf: '2026-11',
-    kinds: [{ kind: 'claude', sessions: 4n, calls: 120n, usd: 12.3, share: 99.5, usdPerCall: 0.1031, ctxPerCall: 150_000n, outPerCall: 800n }],
-    byModel: [{ model: 'sonnet', phase: '', calls: 100n, usd: 8, ctxPerCall: 2_400_000n, outPerCall: 700n }],
-    tokenKinds: [{ kind: 'opencode', sessions: 1n, calls: 5n, input: 10_000n, read: 0n, output: 2000n, usd: 0 }],
+    totalTokens: 3_400_000n,
+    totalRead: 80_000_000n,
+    clis: [
+      { cli: 'claude', calls: 120n, input: 2_000_000n, w1: 500_000n, w5: 100_000n, output: 790_000n, total: 3_390_000n, read: 79_000_000n, basis: 'exact: the API usage' },
+      { cli: 'opencode', calls: 5n, input: 8000n, output: 2000n, total: 10_000n, read: 1_000_000n, usd: 0.05, basis: 'exact as the provider reports it' },
+    ],
+    kinds: [{ kind: 'claude', sessions: 4n, calls: 120n, usd: 12.3, share: 99.5, tokenShare: 70.5, total: 3_390_000n, input: 2_000_000n, w1: 500_000n, w5: 100_000n, output: 790_000n, read: 79_000_000n, usdPerCall: 0.1031, ctxPerCall: 150_000n, outPerCall: 800n }],
+    byModel: [{ model: 'sonnet', phase: '', calls: 100n, usd: 8, input: 1000n, output: 2000n, total: 3000n, read: 5000n, ctxPerCall: 2_400_000n, outPerCall: 700n }],
     verdicts: [{ kind: 'agy', model: 'neon', tier: 'strong', reviews: 3n, findings: 5n, agreedPct: 60, hasAgreedPct: true, blocking: 1n }],
     reviews: { reviewedPrs: 3n, reviewersPerPr: 1.5, byCli: { agy: 2, claude: 1 }, prs: 2n, usd: 3, usdPerPr: 1.5 },
     resets: 2,
   })
 
-  it('writes the tables the CLI prints, with its number formats', () => {
+  it('leads with tokens and writes the tables the CLI prints, with its number formats', () => {
     const v = costView(r)
-    expect(v.usd).toBe('$12.35')
+    expect(v.tokens).toBe('3.4M tokens')
+    expect(v.breakdown).toBe('input 2.0M, cache write 600k, output 792k; cache reads 80.0M apart')
+    // The dollars are Claude's at API prices, beside the tokens.
+    expect(v.usd).toBe('≈ $12.35')
     expect(v.scope).toBe('since 7d')
-    expect(v.tables.map((t) => t.title)).toEqual(['By CLI', 'By model and phase', 'agy and OpenCode (tokens)', "Review findings by the root's verdict"])
-    expect(v.tables[0]!.rows[0]).toEqual(['claude', '4', '120', '12.30', '99.5', '0.103', '150k', '800'])
-    expect(v.tables[1]!.rows[0]).toEqual(['sonnet', '-', '100', '8.00', '2.4M', '700'])
-    // The token table has no $ column unless some row reports one.
-    expect(v.tables[2]!.headers).not.toContain('$')
+    expect(v.bases[0]).toEqual({ cli: 'claude', basis: 'exact: the API usage' })
+    expect(v.tables.map((t) => t.title)).toEqual(['By CLI', 'By kind', 'By model and phase', "Review findings by the root's verdict"])
+    expect(v.tables[0]!.headers).toEqual(['cli', 'calls', 'input', 'cache write', 'output', 'total', 'cache read', '≈ $'])
+    expect(v.tables[0]!.rows[1]).toEqual(['opencode', '5', '8k', '0', '2k', '10k', '1.0M', '0.05'])
+    expect(v.tables[1]!.rows[0]).toEqual(['claude', '4', '120', '2.0M', '600k', '790k', '3.4M', '79.0M', '70.5', '12.30', '150k', '800'])
+    expect(v.tables[2]!.rows[0]).toEqual(['sonnet', '-', '100', '1k', '0', '2k', '3k', '5k', '8.00', '2.4M', '700'])
+    // The dollars come after the tokens in a table.
+    expect(v.tables[1]!.headers.indexOf('≈ $')).toBeGreaterThan(v.tables[1]!.headers.indexOf('total'))
     expect(v.tables[3]!.rows[0]).toEqual(['agy', 'neon', 'strong', '3', '5', '60%', '1'])
-    expect(v.notes).toEqual(['Reviews: 3 PRs, 1.5 reviewers per PR (agy 2, claude 1)', 'Claude reviews: 2 PRs, $3.00 ($1.50 per PR)', 'Root resets: 2'])
+    expect(v.notes).toEqual(['Reviews: 3 PRs, 1.5 reviewers per PR (agy 2, claude 1)', 'Claude reviews: 2 PRs, ≈ $3.00 at API prices (≈ $1.50 per PR)', 'Root resets: 2'])
   })
 
   it('has no tables for an empty scope', () => {
