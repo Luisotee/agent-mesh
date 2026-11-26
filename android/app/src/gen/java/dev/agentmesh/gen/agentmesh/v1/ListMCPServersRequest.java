@@ -21,10 +21,10 @@ public  final class ListMCPServersRequest extends
   private java.lang.String repo_;
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The repo.
    */
   @java.lang.Override
@@ -33,10 +33,10 @@ public  final class ListMCPServersRequest extends
   }
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The bytes for repo.
    */
   @java.lang.Override
@@ -46,10 +46,10 @@ public  final class ListMCPServersRequest extends
   }
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @param value The repo to set.
    */
   private void setRepo(
@@ -60,10 +60,10 @@ public  final class ListMCPServersRequest extends
   }
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    */
   private void clearRepo() {
 
@@ -71,10 +71,10 @@ public  final class ListMCPServersRequest extends
   }
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @param value The bytes for repo to set.
    */
   private void setRepoBytes(
@@ -183,10 +183,10 @@ public  final class ListMCPServersRequest extends
 
     /**
      * <pre>
-     * Optional git repository whose local and project MCP config is included.
+     * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return The repo.
      */
     @java.lang.Override
@@ -195,10 +195,10 @@ public  final class ListMCPServersRequest extends
     }
     /**
      * <pre>
-     * Optional git repository whose local and project MCP config is included.
+     * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return The bytes for repo.
      */
     @java.lang.Override
@@ -208,10 +208,10 @@ public  final class ListMCPServersRequest extends
     }
     /**
      * <pre>
-     * Optional git repository whose local and project MCP config is included.
+     * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @param value The repo to set.
      * @return This builder for chaining.
      */
@@ -223,10 +223,10 @@ public  final class ListMCPServersRequest extends
     }
     /**
      * <pre>
-     * Optional git repository whose local and project MCP config is included.
+     * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearRepo() {
@@ -236,10 +236,10 @@ public  final class ListMCPServersRequest extends
     }
     /**
      * <pre>
-     * Optional git repository whose local and project MCP config is included.
+     * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
      * </pre>
      *
-     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+     * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
      * @param value The bytes for repo to set.
      * @return This builder for chaining.
      */

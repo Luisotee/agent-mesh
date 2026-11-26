@@ -155,6 +155,33 @@ message CheckModelsResponse {
   string notice = 3;
 }
 
+message ResolveModelRequest {
+  // The CLI adapter; default claude.
+  string kind = 1;
+  // The tier (tiers.<kind>.<tier>): required unless a model is named.
+  string tier = 2;
+  // A model the user named, used as it is.
+  string model = 3;
+  // Overrides the tier's effort (a named model defaults to its own, else the tier's, else high).
+  string effort = 4;
+}
+
+message ChainModel {
+  string model = 1;
+  // Empty when it has quota; else why a spawn would skip it: "held until 17:40", "at the reserve (6% left)".
+  string standing = 2;
+}
+
+message ResolveModelResponse {
+  string kind = 1;
+  string tier = 2;
+  // What a spawn would launch on.
+  string model = 3;
+  string effort = 4;
+  // The tier's chain, first choice first (OpenCode's `free` expanded); empty for a named model.
+  repeated ChainModel chain = 5;
+}
+
 message CheckConflictsRequest {
   // Run id to check (defaults to the caller's own run; required for a device).
   string run_id = 1;

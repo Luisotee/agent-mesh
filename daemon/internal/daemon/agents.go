@@ -104,6 +104,9 @@ type AgentConfig struct {
 	// stop typing, for the CLI to begin compacting after `/compact` was typed, and for it to finish (defaults 60 s,
 	// 60 s and 15 min).
 	CompactQuietWait, CompactStartWait, CompactTimeout time.Duration
+	// CompactSettle is how long a live compaction the CLI reported done waits for its transcript to show it before
+	// the agent goes on (default 20 s).
+	CompactSettle time.Duration
 	// Reset overrides the root reset's timings (reset.go); zero values are the defaults.
 	Reset ResetTimings
 	// ContextEvery is how often agents with a compaction or a root reset still to carry out are looked at (default
@@ -912,13 +915,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if strings.TrimSpace(m.Repo) == "" {
 		return nil, invalid("no repo given")
 	}
-	repoArg, err := filepath.Abs(m.Repo)
+	top, err := d.repoTop(ctx, m.Repo)
 	if err != nil {
-		return nil, invalid("repo: %v", err)
-	}
-	top, err := git(ctx, repoArg, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return nil, invalid("%s is not a git repository: %v", m.Repo, err)
+		return nil, err
 	}
 	mcpNames, _, err := parseMCPArg(m.Mcp)
 	if err != nil {
@@ -1262,9 +1261,14 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 	if a.TerminalId == "" || d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s has no terminal", a.Name))
 	}
-	input := req.Msg.Input && d.reg.Has("terminal.input", actor.Class)
-	tk := ids.Secret("tkt_")
-	exp := d.now().Add(TicketTTL)
+	path, tk, input, exp := d.issueTerminalTicket(actor, a, req.Msg.Input)
+	return connect.NewResponse(&v1.OpenTerminalResponse{Path: path, Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
+}
+
+func (d *Daemon) issueTerminalTicket(actor *v1.Actor, a *v1.Agent, askInput bool) (path, tk string, input bool, exp time.Time) {
+	input = askInput && d.reg.Has("terminal.input", actor.Class)
+	tk = ids.Secret("tkt_")
+	exp = d.now().Add(TicketTTL)
 	d.rt.mu.Lock()
 	for k, t := range d.rt.tickets {
 		if d.now().After(t.expires) {
@@ -1273,8 +1277,7 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 	}
 	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, actorID: actor.Id, input: input, expires: exp}
 	d.rt.mu.Unlock()
-	return connect.NewResponse(&v1.OpenTerminalResponse{Path: "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk),
-		Ticket: tk, Input: input, ExpiresAt: timestamppb.New(exp)}), nil
+	return "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk), tk, input, exp
 }
 
 // serveTerminal checks a ticket and splices the client's WebSocket to the host's stream for that terminal.

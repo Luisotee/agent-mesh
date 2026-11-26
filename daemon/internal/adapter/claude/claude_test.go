@@ -211,3 +211,42 @@ func TestSettingsEmitsStatusLineWhenStateFlagPresent(t *testing.T) {
 		t.Errorf("statusLine emitted without --state: %s", bNoState)
 	}
 }
+
+func TestPlanLaunchStandalone(t *testing.T) {
+	a := New()
+	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
+		DenyEdits:       true,
+		Cwd:             t.TempDir(),
+		Repo:            t.TempDir(),
+		Binary:          "/opt/claude",
+		Model:           "claude-sonnet-4-6",
+		Effort:          "high",
+		ResumeSessionId: "sess-42",
+		SkipPermissions: true,
+		HookArgv:        []string{"mesh", "hook", "--state", "/tmp/st"},
+		Lean:            &adapterv1.LeanLaunch{DenyTools: []string{"Agent"}},
+		Env: map[string]string{
+			"HOME":        "/tmp/h",
+			"CLAUDECODE":  "1",
+			"ANTHROPIC_K": "v",
+		},
+		Standalone: true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/opt/claude\x00--resume\x00sess-42\x00--model\x00claude-sonnet-4-6\x00--effort\x00high"
+	if got := strings.Join(res.Msg.Argv, "\x00"); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	if _, ok := res.Msg.Env["CLAUDECODE"]; ok {
+		t.Errorf("CLAUDECODE kept in standalone env: %v", res.Msg.Env)
+	}
+	if res.Msg.Env["HOME"] != "/tmp/h" {
+		t.Errorf("HOME lost: %v", res.Msg.Env)
+	}
+	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
+		t.Error("expected error when resume_session_id is empty")
+	}
+}

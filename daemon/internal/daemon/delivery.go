@@ -201,7 +201,8 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if !takesDoorbell(a.State) {
 		return nil
 	}
-	return d.ringAgent(ctx, a, msgs, rg, reading)
+	_, err = d.ringAgent(ctx, a, msgs, rg, reading)
+	return err
 }
 
 // settle checks the doorbell in flight against what the agent did since. It returns the messages still to
@@ -369,9 +370,15 @@ func (d *Daemon) markDelivered(ctx context.Context, msgs []*v1.Message, via stri
 	})
 }
 
+type ringOutcome struct {
+	rung  bool
+	via   string // "socket" or "pty"
+	error string // "human_draft", "user_typing", "no_input_box", or ""
+}
+
 // ringAgent rings for msgs: into the agent's inbox socket where it takes one, else typed into its terminal,
 // unless a user is typing or a draft is in its box. prev is the ring a retry continues, nil for a first try.
-func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message, prev *ring, reading *adapterv1.ReadInputBoxResponse) error {
+func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message, prev *ring, reading *adapterv1.ReadInputBoxResponse) (ringOutcome, error) {
 	rg := &ring{terminalID: a.TerminalId, token: ringToken(), lane: "pty"}
 	if prev != nil {
 		rg.attempts, rg.typed = prev.attempts, prev.typed
@@ -396,7 +403,7 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 			rg.attempts++
 			d.setRing(a.Id, rg)
 			d.clearHold(a.Id)
-			return nil
+			return ringOutcome{rung: true, via: "socket"}, nil
 		} else if reason != "" {
 			d.log.Debug("doorbell not written to the inbox socket", "agent", a.Name, "reason", reason)
 		}
@@ -404,8 +411,10 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 
 	// Never type into what a user is typing: while a client that can type has typed lately, the doorbell waits
 	// (retryDoorbells rings it once they pause).
-	if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
-		return err
+	if typing, err := d.userTyping(ctx, a.TerminalId); err != nil {
+		return ringOutcome{}, err
+	} else if typing {
+		return ringOutcome{error: "user_typing"}, nil
 	}
 	if reading == nil {
 		reading = d.readInputBox(ctx, a, rg.token)
@@ -417,12 +426,12 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 	case reading.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED && !strings.HasPrefix(text, inputbox.DoorbellPrefix):
 		// A human's draft: positively seen, so the doorbell waits for it to go.
 		d.noteHold(ctx, a, msgs, text)
-		return nil
+		return ringOutcome{error: "human_draft"}, nil
 	case reading.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED:
 		// Our own doorbell, typed and not submitted: Enter submits it, typing another after it would fuse two.
 		d.clearHold(a.Id)
 		if err := d.pressEnter(ctx, a.TerminalId); err != nil {
-			return err
+			return ringOutcome{}, err
 		}
 		// The text submitted is an earlier try's (or an earlier daemon's): its token is the one to look for.
 		if m := refInText.FindStringSubmatch(text); m != nil {
@@ -437,17 +446,17 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 		rg.at = prev.at                             // nothing was typed: activity after the doorbell typed still confirms it
 		rg.attempts++
 		d.setRing(a.Id, rg)
-		return nil
+		return ringOutcome{error: "no_input_box"}, nil
 	default:
 		d.clearHold(a.Id)
 		if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
-			return err
+			return ringOutcome{}, err
 		}
 	}
 	rg.attempts++
 	rg.typed = true
 	d.setRing(a.Id, rg)
-	return nil
+	return ringOutcome{rung: true, via: "pty"}, nil
 }
 
 var refInText = regexp.MustCompile(`\(ref ([0-9a-f]{6})\b`)

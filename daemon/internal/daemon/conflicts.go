@@ -48,32 +48,42 @@ func (d *Daemon) CheckConflicts(ctx context.Context, req *connect.Request[v1.Che
 	if err != nil {
 		return nil, err
 	}
+	wts, err := r.ListWorktrees(runID)
+	if err != nil {
+		return nil, err
+	}
 
 	byRepo := map[string]map[string]conflictBranch{}
-	for _, a := range agents {
-		if a.Branch == "" || a.Repo == "" {
-			continue // e.g. a peer in a detached worktree
+	addBranch := func(repo, worktree, branch, base string) {
+		if branch == "" || repo == "" {
+			return // e.g. a peer in a detached worktree
 		}
-		tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+a.Branch)
+		tip, err := gitRO(ctx, repo, "rev-parse", "--verify", "refs/heads/"+branch)
 		if err != nil {
-			continue // deleted
+			return // deleted
 		}
-		seen := byRepo[a.Repo]
+		seen := byRepo[repo]
 		if seen == nil {
 			seen = map[string]conflictBranch{}
-			byRepo[a.Repo] = seen
+			byRepo[repo] = seen
 		}
-		prev, exists := seen[a.Branch]
-		if !exists || (!isDir(prev.worktree) && isDir(a.Worktree)) {
-			seen[a.Branch] = conflictBranch{
-				repo:      a.Repo,
-				worktree:  a.Worktree,
-				branch:    a.Branch,
-				base:      a.BaseCommit,
+		prev, exists := seen[branch]
+		if !exists || (!isDir(prev.worktree) && isDir(worktree)) {
+			seen[branch] = conflictBranch{
+				repo:      repo,
+				worktree:  worktree,
+				branch:    branch,
+				base:      base,
 				tip:       tip,
-				committed: tip != a.BaseCommit,
+				committed: tip != base,
 			}
 		}
+	}
+	for _, a := range agents {
+		addBranch(a.Repo, a.Worktree, a.Branch, a.BaseCommit)
+	}
+	for _, wt := range wts {
+		addBranch(wt.Repo, wt.Path, wt.Branch, wt.BaseCommit)
 	}
 
 	repos := make([]string, 0, len(byRepo))

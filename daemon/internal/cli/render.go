@@ -19,20 +19,58 @@ var renderers = map[string]struct {
 	into func() proto.Message
 	text func(proto.Message, io.Writer)
 }{
-	"inbox":         {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
-	"settings":      {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
-	"usage":         {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
-	"cost":          {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
-	"models":        {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
-	"conflicts":     {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
-	"tools":         {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
-	"tools-servers": {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
-	"brief":         {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
-	"reset":         {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
+	"inbox":           {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
+	"settings":        {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
+	"usage":           {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
+	"cost":            {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
+	"models":          {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
+	"model":           {func() proto.Message { return &v1.ResolveModelResponse{} }, renderModel},
+	"import-settings": {func() proto.Message { return &v1.ImportSettingsResponse{} }, renderImportSettings},
+	"conflicts":       {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
+	"tools":           {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
+	"tools-servers":   {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
+	"brief":           {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
+	"reset":           {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
+	"ring":            {func() proto.Message { return &v1.RingAgentResponse{} }, renderRing},
+}
+
+type streamState struct {
+	lastDay string
+}
+
+var streamRenderers = map[string]struct {
+	into func() proto.Message
+	text func(proto.Message, io.Writer, *streamState)
+}{
+	"log": {func() proto.Message { return &v1.StreamLogResponse{} }, renderLog},
 }
 
 // hasText reports whether a command has a text form (and so a --format flag).
-func hasText(cli string) bool { _, ok := renderers[cli]; return ok }
+func hasText(cli string) bool {
+	if cli == "open" {
+		return true
+	}
+	if _, ok := renderers[cli]; ok {
+		return true
+	}
+	_, ok := streamRenderers[cli]
+	return ok
+}
+
+// renderStream prints one streamed dynamic response in its command's text form.
+func renderStream(cli string, res proto.Message, w io.Writer, st *streamState) error {
+	r := streamRenderers[cli]
+	raw, err := proto.Marshal(res)
+	if err != nil {
+		return err
+	}
+	typed := r.into()
+	if err := proto.Unmarshal(raw, typed); err != nil {
+		return err
+	}
+	r.text(typed, w, st)
+	return nil
+}
 
 // renderText prints res, a dynamic response, in its command's text form.
 func renderText(cli string, res proto.Message, w io.Writer) error {
@@ -382,6 +420,37 @@ func renderModels(m proto.Message, w io.Writer) {
 	}
 }
 
+func renderModel(m proto.Message, w io.Writer) {
+	r := m.(*v1.ResolveModelResponse)
+	fmt.Fprintf(w, "%s %s\n", r.Model, r.Effort)
+	for _, c := range r.Chain {
+		line := "  " + c.Model
+		if c.Standing != "" {
+			line += "   (" + c.Standing + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+}
+
+func renderImportSettings(m proto.Message, w io.Writer) {
+	r := m.(*v1.ImportSettingsResponse)
+	verb := "imported"
+	if r.DryRun {
+		verb = "would import"
+	}
+	fmt.Fprintf(w, "%s: %s %d setting(s)\n", r.File, verb, len(r.Imported))
+	for _, s := range r.Imported {
+		line := "  " + s.Key + " = " + jsonOf(s.Value)
+		if s.From != "" {
+			line += "   (from " + s.From + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+	for _, s := range r.Skipped {
+		fmt.Fprintln(w, "  left alone: "+s)
+	}
+}
+
 func renderConflicts(m proto.Message, w io.Writer) {
 	r := m.(*v1.CheckConflictsResponse)
 	for _, warn := range r.Warnings {
@@ -462,5 +531,49 @@ func renderToolsServers(m proto.Message, w io.Writer) {
 			line += "  held by " + s.HeldBy
 		}
 		fmt.Fprintln(w, line)
+	}
+}
+
+func renderLog(m proto.Message, w io.Writer, st *streamState) {
+	e := m.(*v1.StreamLogResponse).Entry
+	if e == nil {
+		return
+	}
+	when := "--:--:--"
+	if e.Time != nil && e.Time.IsValid() {
+		local := e.Time.AsTime().Local()
+		day := local.Format("2006-01-02")
+		if day != st.lastDay {
+			st.lastDay = day
+			fmt.Fprintf(w, "── %s ──\n", day)
+		}
+		when = local.Format("15:04:05")
+	}
+	var parts []string
+	parts = append(parts, when, fmt.Sprintf("%-15s", e.Kind))
+	if e.Who != "" {
+		parts = append(parts, e.Who)
+	}
+	if e.Detail != "" {
+		parts = append(parts, e.Detail)
+	}
+	fmt.Fprintln(w, strings.TrimRight(strings.Join(parts, "  "), " "))
+}
+
+func renderRing(m proto.Message, w io.Writer) {
+	r := m.(*v1.RingAgentResponse)
+	name := r.Agent.GetName()
+	if name == "" {
+		name = r.Agent.GetId()
+	}
+	switch {
+	case r.Unread == 0:
+		fmt.Fprintf(w, "%s has no unread messages.\n", name)
+	case r.Rung:
+		fmt.Fprintf(w, "rung %s (%d unread via %s)\n", name, r.Unread, r.Via)
+	case r.Error != "":
+		fmt.Fprintf(w, "not rung %s (%d unread): %s\n", name, r.Unread, r.Error)
+	default:
+		fmt.Fprintf(w, "not rung %s (%d unread)\n", name, r.Unread)
 	}
 }

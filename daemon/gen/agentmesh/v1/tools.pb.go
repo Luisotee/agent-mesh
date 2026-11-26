@@ -318,7 +318,7 @@ func (x *AddToolsResponse) GetAdded() []string {
 
 type ListMCPServersRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional git repository whose local and project MCP config is included.
+	// Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
 	Repo          string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -517,9 +517,9 @@ const file_agentmesh_v1_tools_proto_rawDesc = "" +
 	"\x10AddToolsResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\x12,\n" +
 	"\x06reopen\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen\x12\x14\n" +
-	"\x05added\x18\x03 \x03(\tR\x05added\"1\n" +
-	"\x15ListMCPServersRequest\x12\x18\n" +
-	"\x04repo\x18\x01 \x01(\tB\x04\x98\xb5\x18\x01R\x04repo\"\x9e\x01\n" +
+	"\x05added\x18\x03 \x03(\tR\x05added\"5\n" +
+	"\x15ListMCPServersRequest\x12\x1c\n" +
+	"\x04repo\x18\x01 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\"\x9e\x01\n" +
 	"\rMCPServerInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05scope\x18\x02 \x01(\tR\x05scope\x12\x14\n" +

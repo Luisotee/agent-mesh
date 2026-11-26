@@ -102,3 +102,6 @@ func (f *flakyTerm) ListTerminals(ctx context.Context, req *connect.Request[term
 func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
 	d.rt.term.API = &flakyTerm{d.rt.term.API, fail}
 }
+
+// RepoTop is repoTop for the tests.
+func (d *Daemon) RepoTop(ctx context.Context, arg string) (string, error) { return d.repoTop(ctx, arg) }

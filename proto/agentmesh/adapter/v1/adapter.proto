@@ -66,6 +66,9 @@ message PlanLaunchRequest {
   bool deny_edits = 14;
   // A lean session (Claude only): what it starts without. Unset, the CLI loads the user's full set.
   LeanLaunch lean = 15;
+  // Open outside any run for the user's own terminal: resume the conversation without hooks, deny rules,
+  // lean cuts, or skip-permissions flags.
+  bool standalone = 16;
 }
 
 // LeanLaunch is the policy of a lean Claude session (design §11 of docs/design.md): tools, skills and plugins

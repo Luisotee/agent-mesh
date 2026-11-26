@@ -86,6 +86,18 @@ func TestMeasureContextZeroAfterCompactBoundary(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.332 records what a compaction kept (live, a 64,879-token planner): the boundary's size is that.
+func TestMeasureContextAfterACompactBoundaryIsWhatItKept(t *testing.T) {
+	home := t.TempDir()
+	writeTranscript(t, home, "/w", "s1",
+		reply(10, 64869, 0, ""),
+		`{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":64879,"postTokens":6904,"durationMs":10610}}`)
+	u := measure(t, home, "/w", "s1").Usage
+	if !u.Measured || u.Tokens != 6904 {
+		t.Fatalf("usage %+v", u)
+	}
+}
+
 func TestMeasureContextTTLFromEarlierReplyAndFiveMinutes(t *testing.T) {
 	home := t.TempDir()
 	writeTranscript(t, home, "/w", "s1",

@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/options.proto.
  */
 export const file_agentmesh_v1_options: GenFile = /*@__PURE__*/
-  fileDesc("ChphZ2VudG1lc2gvdjEvb3B0aW9ucy5wcm90bxIMYWdlbnRtZXNoLnYxImYKDUFjdGlvbk9wdGlvbnMSKAoGYWN0b3JzGAEgAygOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSDQoFd3JpdGUYAiABKAgSCwoDY2xpGAMgASgJEg8KB3N1bW1hcnkYBCABKAkiSwoRUGVybWlzc2lvbk9wdGlvbnMSDAoEbmFtZRgBIAEoCRIoCgZhY3RvcnMYAiADKA4yGC5hZ2VudG1lc2gudjEuQWN0b3JDbGFzczpVCgZhY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxjRhgMgASgLMhsuYWdlbnRtZXNoLnYxLkFjdGlvbk9wdGlvbnNSBmFjdGlvbjpkCgtwZXJtaXNzaW9ucxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxjShgMgAygLMh8uYWdlbnRtZXNoLnYxLlBlcm1pc3Npb25PcHRpb25zUgtwZXJtaXNzaW9uczozCgRwYXRoEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxjThgMgASgIUgRwYXRoYgZwcm90bzM", [file_agentmesh_v1_actor, file_google_protobuf_descriptor]);
+  fileDesc("ChphZ2VudG1lc2gvdjEvb3B0aW9ucy5wcm90bxIMYWdlbnRtZXNoLnYxImYKDUFjdGlvbk9wdGlvbnMSKAoGYWN0b3JzGAEgAygOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSDQoFd3JpdGUYAiABKAgSCwoDY2xpGAMgASgJEg8KB3N1bW1hcnkYBCABKAkiSwoRUGVybWlzc2lvbk9wdGlvbnMSDAoEbmFtZRgBIAEoCRIoCgZhY3RvcnMYAiADKA4yGC5hZ2VudG1lc2gudjEuQWN0b3JDbGFzczpVCgZhY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxjRhgMgASgLMhsuYWdlbnRtZXNoLnYxLkFjdGlvbk9wdGlvbnNSBmFjdGlvbjpkCgtwZXJtaXNzaW9ucxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxjShgMgAygLMh8uYWdlbnRtZXNoLnYxLlBlcm1pc3Npb25PcHRpb25zUgtwZXJtaXNzaW9uczozCgRwYXRoEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxjThgMgASgIUgRwYXRoOjwKCXJlcG9fbmFtZRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMY1IYDIAEoCFIIcmVwb05hbWViBnByb3RvMw", [file_agentmesh_v1_actor, file_google_protobuf_descriptor]);
 
 /**
  * ActionOptions makes an RPC an action of the registry. Every RPC of a registry service must carry one: the
@@ -102,4 +102,14 @@ export const permissions: GenExtension<ServiceOptions, PermissionOptions[]> = /*
  */
 export const path: GenExtension<FieldOptions, boolean> = /*@__PURE__*/
   extDesc(file_agentmesh_v1_options, 2);
+
+/**
+ * On a `path` field that names a git repository: a bare name (no slash, not `.`, `..` or `~…`) is left as it is
+ * when no folder of that name is in the caller's working directory, for the daemon to look up in its `repos.dir`
+ * setting. Anything else is resolved as a `path` is.
+ *
+ * @generated from extension: bool repo_name = 50004;
+ */
+export const repo_name: GenExtension<FieldOptions, boolean> = /*@__PURE__*/
+  extDesc(file_agentmesh_v1_options, 3);
 

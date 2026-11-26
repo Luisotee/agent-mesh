@@ -189,10 +189,50 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if bin == "" {
 		bin = "claude"
 	}
+	env := map[string]string{}
+	for k, v := range m.Env {
+		env[k] = v
+	}
+	for _, k := range SessionVars {
+		delete(env, k)
+	}
+	if m.Standalone {
+		if m.ResumeSessionId == "" {
+			return nil, fmt.Errorf("standalone launch requires resume_session_id")
+		}
+		argv := []string{bin, "--resume", m.ResumeSessionId}
+		if m.Model != "" {
+			argv = append(argv, "--model", m.Model)
+		}
+		if m.Effort != "" {
+			argv = append(argv, "--effort", m.Effort)
+		}
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: m.ResumeSessionId}), nil
+	}
 	deny := ReadOnly(m.Role) || m.DenyEdits
-	var extra map[string]any
+	extra := map[string]any{}
 	if m.Lean != nil {
 		extra = leanSettings(m.Env, m.Lean)
+	}
+	share := ""
+	if s := m.Env["AGENT_MESH_SHARE"]; s != "" {
+		if _, err := os.Stat(filepath.Join(s, ".claude-plugin", "plugin.json")); err == nil {
+			share = s
+		}
+	}
+	if share != "" {
+		if off := shadowedPlugins(m.Env, share); len(off) > 0 {
+			merged := map[string]any{}
+			if cur, ok := extra["enabledPlugins"].(map[string]bool); ok {
+				for k, v := range cur {
+					merged[k] = v
+				}
+			}
+			for k, v := range off {
+				merged[k] = v
+			}
+			extra["enabledPlugins"] = merged
+		}
 	}
 	settings, err := settingsWith(m.HookArgv, deny, extra)
 	if err != nil {
@@ -230,20 +270,11 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	argv = append(argv, "--settings", settings)
 	// The daemon's skills, loaded for this session only (never installed into the user's own): the share folder
 	// is a Claude plugin (`.claude-plugin/plugin.json`, `skills/`).
-	if share := m.Env["AGENT_MESH_SHARE"]; share != "" {
-		if _, err := os.Stat(filepath.Join(share, ".claude-plugin", "plugin.json")); err == nil {
-			argv = append(argv, "--plugin-dir", share)
-		}
+	if share != "" {
+		argv = append(argv, "--plugin-dir", share)
 	}
 	if m.SkipPermissions {
 		argv = append(argv, "--dangerously-skip-permissions")
-	}
-	env := map[string]string{}
-	for k, v := range m.Env {
-		env[k] = v
-	}
-	for _, k := range SessionVars {
-		delete(env, k)
 	}
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
 }

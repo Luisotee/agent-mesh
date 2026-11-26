@@ -110,6 +110,13 @@ public interface MeshServiceClientInterface {
   public suspend fun setSetting(request: SetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<SetSettingResponse>
 
   /**
+   *  Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+   *  maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+   *  `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+   */
+  public suspend fun importSettings(request: ImportSettingsRequest, headers: Headers = emptyMap()): ResponseMessage<ImportSettingsResponse>
+
+  /**
    *  Put a setting back to its default.
    */
   public suspend fun resetSetting(request: ResetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<ResetSettingResponse>
@@ -215,6 +222,12 @@ public interface MeshServiceClientInterface {
   public suspend fun checkModels(request: CheckModelsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckModelsResponse>
 
   /**
+   *  What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+   *  standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+   */
+  public suspend fun resolveModel(request: ResolveModelRequest, headers: Headers = emptyMap()): ResponseMessage<ResolveModelResponse>
+
+  /**
    *  Find which run branches with commits conflict with their base or each other, and which workers share files.
    */
   public suspend fun checkConflicts(request: CheckConflictsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckConflictsResponse>
@@ -235,4 +248,26 @@ public interface MeshServiceClientInterface {
    *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
    */
   public suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers = emptyMap()): ResponseMessage<ListMCPServersResponse>
+
+  /**
+   *  Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+   */
+  public suspend fun createWorktree(request: CreateWorktreeRequest, headers: Headers = emptyMap()): ResponseMessage<CreateWorktreeResponse>
+
+  /**
+   *  The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+   */
+  public suspend fun streamLog(headers: Headers = emptyMap()): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse>
+
+  /**
+   *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+   */
+  public suspend fun ringAgent(request: RingAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RingAgentResponse>
+
+  /**
+   *  Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+   *  Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+   *  mutations, and standalone worktree preparation before exec is idempotent.
+   */
+  public suspend fun openAgent(request: OpenAgentRequest, headers: Headers = emptyMap()): ResponseMessage<OpenAgentResponse>
 }

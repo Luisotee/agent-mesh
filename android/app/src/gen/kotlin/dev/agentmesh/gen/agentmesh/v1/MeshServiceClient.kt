@@ -304,6 +304,23 @@ public class MeshServiceClient(
 
 
   /**
+   *  Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+   *  maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+   *  `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+   */
+  override suspend fun importSettings(request: ImportSettingsRequest, headers: Headers): ResponseMessage<ImportSettingsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ImportSettings",
+      dev.agentmesh.gen.agentmesh.v1.ImportSettingsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ImportSettingsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Put a setting back to its default.
    */
   override suspend fun resetSetting(request: ResetSettingRequest, headers: Headers): ResponseMessage<ResetSettingResponse> = client.unary(
@@ -609,6 +626,22 @@ public class MeshServiceClient(
 
 
   /**
+   *  What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+   *  standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+   */
+  override suspend fun resolveModel(request: ResolveModelRequest, headers: Headers): ResponseMessage<ResolveModelResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ResolveModel",
+      dev.agentmesh.gen.agentmesh.v1.ResolveModelRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ResolveModelResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Find which run branches with commits conflict with their base or each other, and which workers share files.
    */
   override suspend fun checkConflicts(request: CheckConflictsRequest, headers: Headers): ResponseMessage<CheckConflictsResponse> = client.unary(
@@ -665,6 +698,67 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/ListMCPServers",
       dev.agentmesh.gen.agentmesh.v1.ListMCPServersRequest::class,
       dev.agentmesh.gen.agentmesh.v1.ListMCPServersResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+   */
+  override suspend fun createWorktree(request: CreateWorktreeRequest, headers: Headers): ResponseMessage<CreateWorktreeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CreateWorktree",
+      dev.agentmesh.gen.agentmesh.v1.CreateWorktreeRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CreateWorktreeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+   */
+  override suspend fun streamLog(headers: Headers): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse> = client.serverStream(
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/StreamLog",
+      dev.agentmesh.gen.agentmesh.v1.StreamLogRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.StreamLogResponse::class,
+      StreamType.SERVER,
+    ),
+  )
+
+
+  /**
+   *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+   */
+  override suspend fun ringAgent(request: RingAgentRequest, headers: Headers): ResponseMessage<RingAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RingAgent",
+      dev.agentmesh.gen.agentmesh.v1.RingAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RingAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+   *  Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+   *  mutations, and standalone worktree preparation before exec is idempotent.
+   */
+  override suspend fun openAgent(request: OpenAgentRequest, headers: Headers): ResponseMessage<OpenAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenAgent",
+      dev.agentmesh.gen.agentmesh.v1.OpenAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenAgentResponse::class,
       StreamType.UNARY,
     ),
   )

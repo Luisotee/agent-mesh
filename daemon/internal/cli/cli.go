@@ -32,16 +32,19 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/repoarg"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
 // Env is what the CLI reads from its environment and files; tests replace it.
 type Env struct {
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-	Getenv func(string) string
-	Getwd  func() (string, error)
+	Stdin   io.Reader
+	Stdout  io.Writer
+	Stderr  io.Writer
+	Getenv  func(string) string
+	Getwd   func() (string, error)
+	Environ func() []string
+	Exec    func(argv, env []string, dir string) error
 }
 
 // OSEnv is the process's own environment.
@@ -223,7 +226,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
 	}
-	if err := call(context.Background(), conn, a, req, env.Stdout, env.Stderr, cmd.format == "text"); err != nil {
+	if err := call(context.Background(), conn, env, a, req, cmd.format == "text"); err != nil {
 		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", spoken(a.CLI), err)
 		return ExitError
 	}
@@ -347,6 +350,9 @@ func (c *command) usage(w io.Writer) {
 		} else {
 			arg = " [<" + string(f.Name()) + ">]"
 		}
+	}
+	if extra := extraArgsField(c.action.Method.Input()); extra != nil {
+		arg += " [-- <" + string(extra.Name()) + ">...]"
 	}
 	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", spoken(c.action.CLI), arg, c.action.Summary)
 	fmt.Fprintln(w, "  A text flag's value starting with @ reads a file (@- stdin); @@ starts it with a literal @.")
@@ -511,7 +517,8 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	// stands among the flags: `mesh send parent --type done`, `mesh approve --tier mid <agent>`. For repeated
 	// positional fields (such as `mesh tools add <names...>`), every non-flag argument appends to the list.
 	pos := positionalField(c.action.Method.Input())
-	var words []string
+	extraField := extraArgsField(c.action.Method.Input())
+	var words, extraArgs []string
 	for {
 		if err := c.flags.Parse(args); err != nil {
 			return nil, err
@@ -519,10 +526,23 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		if c.flags.NArg() == 0 {
 			break
 		}
+		parsedN := len(args) - c.flags.NArg()
+		if extraField != nil && parsedN > 0 && args[parsedN-1] == "--" {
+			extraArgs = append(extraArgs, c.flags.Args()...)
+			break
+		}
 		if pos == nil || (!pos.IsList() && len(words) > 0) {
 			return nil, fmt.Errorf("unexpected argument %q: every field is a flag (mesh help %s)", c.flags.Arg(0), c.action.CLI)
 		}
 		words, args = append(words, c.flags.Arg(0)), c.flags.Args()[1:]
+	}
+	if len(extraArgs) > 0 {
+		c.given[extraField.Number()] = true
+		c.pending = append(c.pending, func() {
+			for _, ea := range extraArgs {
+				c.set(extraField, protoreflect.ValueOfString(ea))
+			}
+		})
 	}
 	if len(words) > 0 {
 		if c.given[pos.Number()] && !pos.IsList() {
@@ -546,7 +566,11 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Get(i)
 		if isPathField(f) && c.req.Has(f) {
-			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(c.req.Get(f).String(), c.env)))
+			val := c.req.Get(f).String()
+			if isRepoNameField(f) && repoarg.IsBareName(val) && !localRepo(val, c.env) {
+				continue // a name for the daemon to look up in its `repos.dir` setting
+			}
+			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(val, c.env)))
 		}
 	}
 	if c.action.Write {
@@ -575,6 +599,28 @@ func isPathField(f protoreflect.FieldDescriptor) bool {
 	}
 	fopts, _ := f.Options().(*descriptorpb.FieldOptions)
 	return fopts != nil && proto.HasExtension(fopts, v1.E_Path) && proto.GetExtension(fopts, v1.E_Path).(bool)
+}
+
+// isRepoNameField marks a path field that may hold a bare repo name (`(agentmesh.v1.repo_name)`).
+func isRepoNameField(f protoreflect.FieldDescriptor) bool {
+	fopts, _ := f.Options().(*descriptorpb.FieldOptions)
+	return fopts != nil && proto.HasExtension(fopts, v1.E_RepoName) && proto.GetExtension(fopts, v1.E_RepoName).(bool)
+}
+
+// localRepo reports whether a repo of that name is in the working directory (a folder with its own .git: a
+// plain subfolder of the repo the caller is in is not one): then it is the repo meant, as it was before names
+// existed, and `repos.dir` isn't consulted.
+func localRepo(name string, env Env) bool {
+	getwd := env.Getwd
+	if getwd == nil {
+		getwd = os.Getwd
+	}
+	wd, err := getwd()
+	if err != nil || wd == "" {
+		return true
+	}
+	_, err = os.Stat(filepath.Join(wd, name, ".git")) // a directory, or a file in a worktree
+	return err == nil
 }
 
 func resolveCLIPath(s string, env Env) string {
@@ -619,6 +665,14 @@ func positionalField(md protoreflect.MessageDescriptor) protoreflect.FieldDescri
 	return nil
 }
 
+// extraArgsField returns the repeated string `extra_args` field when present, populated from arguments after `--`.
+func extraArgsField(md protoreflect.MessageDescriptor) protoreflect.FieldDescriptor {
+	if f := md.Fields().ByName("extra_args"); f != nil && f.Kind() == protoreflect.StringKind && f.IsList() {
+		return f
+	}
+	return nil
+}
+
 // initDynamic makes connect allocate dynamic messages of the method's types.
 func initDynamic(spec connect.Spec, msg any) error {
 	m, ok := msg.(*dynamicpb.Message)
@@ -644,7 +698,8 @@ var (
 
 // call runs the action. A unary response is printed as indented JSON (or in its short text form, when text is set); a stream prints one JSON object per
 // line as it arrives, until the daemon ends it.
-func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out, errOut io.Writer, text bool) error {
+func call(ctx context.Context, conn *client.Conn, env Env, a *registry.Action, req *dynamicpb.Message, text bool) error {
+	out, errOut := env.Stdout, env.Stderr
 	c := connect.NewClient[dynamicpb.Message, dynamicpb.Message](conn.HTTP, client.BaseURL+a.Procedure,
 		connect.WithSchema(a.Method), connect.WithResponseInitializer(initDynamic),
 		connect.WithInterceptors(auth.ClientToken(conn.Token)))
@@ -654,7 +709,14 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 			return err
 		}
 		defer stream.Close()
+		var st streamState
 		for stream.Receive() {
+			if text {
+				if err := renderStream(a.CLI, stream.Msg(), out, &st); err != nil {
+					return err
+				}
+				continue
+			}
 			b, err := compact.Marshal(stream.Msg())
 			if err != nil {
 				return err
@@ -673,6 +735,17 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 		fmt.Fprintf(errOut, "mesh: %s (see ORCHESTRATE.md, \"Notes and your own context\")\n", hint)
 	}
 	if text {
+		if a.CLI == "open" {
+			raw, err := proto.Marshal(res.Msg)
+			if err != nil {
+				return err
+			}
+			var openRes v1.OpenAgentResponse
+			if err := proto.Unmarshal(raw, &openRes); err != nil {
+				return err
+			}
+			return runOpen(ctx, conn, &openRes, env)
+		}
 		return renderText(a.CLI, res.Msg, out)
 	}
 	b, err := pretty.Marshal(res.Msg)

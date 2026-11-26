@@ -457,7 +457,7 @@ func TestHelpDescribesEachFlagFromTheSchemasComments(t *testing.T) {
 	if code := Main([]string{"help", "spawn"}, env, nil); code != ExitOK {
 		t.Fatalf("%d %s", code, errb.String())
 	}
-	for _, want := range []string{"The branch or commit to start the worktree from", "Path to the git repository.",
+	for _, want := range []string{"The branch or commit to start the worktree from", "The git repository: a path, or a bare name of a folder of the repos.dir setting.",
 		"The task has a plan phase", "A text flag's value starting with @"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help spawn lacks %q:\n%s", want, out.String())
@@ -679,6 +679,62 @@ func TestPathOptionResolvesRelativeAndHomePathsAgainstCallerCwd(t *testing.T) {
 	}
 }
 
+func TestRepoNameStaysBareUnlessAFolderOfThatNameIsHere(t *testing.T) {
+	wd := t.TempDir()
+	os.MkdirAll(filepath.Join(wd, "here", ".git"), 0o755)
+	os.MkdirAll(filepath.Join(wd, "plain"), 0o755)
+	env := Env{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard,
+		Getenv: func(string) string { return "" }, Getwd: func() (string, error) { return wd, nil }}
+	repo := func(cmd string, args ...string) string {
+		t.Helper()
+		m, err := newCommand(action(t, cmd), env, "").parse(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cmd == "ask" {
+			return as(t, m, &v1.AskRequest{}).Repo
+		}
+		return as(t, m, &v1.SpawnAgentRequest{}).Repo
+	}
+	if got := repo("spawn", "--repo", "agent-mesh", "--slug", "x", "--tier", "mid"); got != "agent-mesh" {
+		t.Errorf("a name with no folder here = %q: it goes to the daemon as it is", got)
+	}
+	if got := repo("ask", "--repo", "agent-mesh", "--tier", "mid", "--body", "x"); got != "agent-mesh" {
+		t.Errorf("ask: %q", got)
+	}
+	// A plain subfolder of the repo the caller is in is no repo of that name (a monorepo's api/): the name goes to
+	// the daemon, which finds the other repo in repos.dir.
+	if got := repo("spawn", "--repo", "plain", "--slug", "x", "--tier", "mid"); got != "plain" {
+		t.Errorf("a plain subfolder = %q: it is no repo, so the daemon looks the name up", got)
+	}
+	if got := repo("spawn", "--repo", "here", "--slug", "x", "--tier", "mid"); got != filepath.Join(wd, "here") {
+		t.Errorf("a folder here wins: %q", got)
+	}
+	if got := repo("spawn", "--repo", "./agent-mesh", "--slug", "x", "--tier", "mid"); got != filepath.Join(wd, "agent-mesh") {
+		t.Errorf("a path is a path: %q", got)
+	}
+}
+
+func TestModelAndImportSettingsHaveTextForms(t *testing.T) {
+	var out bytes.Buffer
+	renderModel(&v1.ResolveModelResponse{Model: "hydrogen", Effort: "high", Chain: []*v1.ChainModel{
+		{Model: "neon", Standing: "at the reserve (6% left)"}, {Model: "hydrogen"}}}, &out)
+	if got := out.String(); got != "hydrogen high\n  neon   (at the reserve (6% left))\n  hydrogen\n" {
+		t.Errorf("model: %q", got)
+	}
+	out.Reset()
+	renderImportSettings(&v1.ImportSettingsResponse{File: "/f.json", DryRun: true, Imported: []*v1.ImportedSetting{
+		{Key: "repos.dir", Value: func() *structpb.Value { v, _ := structpb.NewValue([]any{"~/p"}); return v }(), From: "repos_dir"}}, Skipped: []string{"hang_after: not used by the daemon"}}, &out)
+	for _, want := range []string{"/f.json: would import 1 setting(s)", `repos.dir = ["~/p"]   (from repos_dir)`, "left alone: hang_after"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("import-settings lacks %q: %s", want, out.String())
+		}
+	}
+	if !hasText("model") || !hasText("import-settings") {
+		t.Error("no text renderer")
+	}
+}
+
 func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
 	// Dispatch two-word subcommands: tools add <names...> and tools servers.
 	var helpOut, helpErr bytes.Buffer
@@ -737,6 +793,49 @@ func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
 	for _, want := range []string{"context7    stdio ctx  [always loaded]", "playwright  stdio pw  [exclusive]  held by repo-ui (run r1)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("renderToolsServers missing %q in:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRenderLogAndRing(t *testing.T) {
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.Local)
+	t2 := time.Date(2026, 5, 1, 10, 5, 0, 0, time.Local)
+	t3 := time.Date(2026, 5, 2, 9, 0, 0, 0, time.Local)
+
+	var out bytes.Buffer
+	var st streamState
+	for _, entry := range []*v1.LogEntry{
+		{Time: timestamppb.New(t1), Kind: "run_start"},
+		{Time: timestamppb.New(t2), Kind: "message/plan", Who: "w1 → lead", Detail: "ready"},
+		{Time: timestamppb.New(t3), Kind: "run_stop"},
+	} {
+		renderLog(&v1.StreamLogResponse{Entry: entry}, &out, &st)
+	}
+	gotLog := out.String()
+	for _, want := range []string{
+		"── 2026-05-01 ──\n",
+		"10:00:00  run_start\n",
+		"10:05:00  message/plan     w1 → lead  ready\n",
+		"── 2026-05-02 ──\n",
+		"09:00:00  run_stop\n",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Errorf("renderLog missing %q in:\n%s", want, gotLog)
+		}
+	}
+
+	out.Reset()
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 0}, &out)
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 2, Rung: true, Via: "socket"}, &out)
+	renderRing(&v1.RingAgentResponse{Agent: &v1.Agent{Name: "w1"}, Unread: 1, Error: "human_draft"}, &out)
+	gotRing := out.String()
+	for _, want := range []string{
+		"w1 has no unread messages.\n",
+		"rung w1 (2 unread via socket)\n",
+		"not rung w1 (1 unread): human_draft\n",
+	} {
+		if !strings.Contains(gotRing, want) {
+			t.Errorf("renderRing missing %q in:\n%s", want, gotRing)
 		}
 	}
 }

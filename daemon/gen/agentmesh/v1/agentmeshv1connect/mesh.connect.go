@@ -75,6 +75,9 @@ const (
 	MeshServiceListSettingsProcedure = "/agentmesh.v1.MeshService/ListSettings"
 	// MeshServiceSetSettingProcedure is the fully-qualified name of the MeshService's SetSetting RPC.
 	MeshServiceSetSettingProcedure = "/agentmesh.v1.MeshService/SetSetting"
+	// MeshServiceImportSettingsProcedure is the fully-qualified name of the MeshService's
+	// ImportSettings RPC.
+	MeshServiceImportSettingsProcedure = "/agentmesh.v1.MeshService/ImportSettings"
 	// MeshServiceResetSettingProcedure is the fully-qualified name of the MeshService's ResetSetting
 	// RPC.
 	MeshServiceResetSettingProcedure = "/agentmesh.v1.MeshService/ResetSetting"
@@ -120,6 +123,9 @@ const (
 	MeshServiceGetCostProcedure = "/agentmesh.v1.MeshService/GetCost"
 	// MeshServiceCheckModelsProcedure is the fully-qualified name of the MeshService's CheckModels RPC.
 	MeshServiceCheckModelsProcedure = "/agentmesh.v1.MeshService/CheckModels"
+	// MeshServiceResolveModelProcedure is the fully-qualified name of the MeshService's ResolveModel
+	// RPC.
+	MeshServiceResolveModelProcedure = "/agentmesh.v1.MeshService/ResolveModel"
 	// MeshServiceCheckConflictsProcedure is the fully-qualified name of the MeshService's
 	// CheckConflicts RPC.
 	MeshServiceCheckConflictsProcedure = "/agentmesh.v1.MeshService/CheckConflicts"
@@ -130,6 +136,15 @@ const (
 	// MeshServiceListMCPServersProcedure is the fully-qualified name of the MeshService's
 	// ListMCPServers RPC.
 	MeshServiceListMCPServersProcedure = "/agentmesh.v1.MeshService/ListMCPServers"
+	// MeshServiceCreateWorktreeProcedure is the fully-qualified name of the MeshService's
+	// CreateWorktree RPC.
+	MeshServiceCreateWorktreeProcedure = "/agentmesh.v1.MeshService/CreateWorktree"
+	// MeshServiceStreamLogProcedure is the fully-qualified name of the MeshService's StreamLog RPC.
+	MeshServiceStreamLogProcedure = "/agentmesh.v1.MeshService/StreamLog"
+	// MeshServiceRingAgentProcedure is the fully-qualified name of the MeshService's RingAgent RPC.
+	MeshServiceRingAgentProcedure = "/agentmesh.v1.MeshService/RingAgent"
+	// MeshServiceOpenAgentProcedure is the fully-qualified name of the MeshService's OpenAgent RPC.
+	MeshServiceOpenAgentProcedure = "/agentmesh.v1.MeshService/OpenAgent"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -181,6 +196,10 @@ type MeshServiceClient interface {
 	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
 	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+	// maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+	// `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+	ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
@@ -226,6 +245,9 @@ type MeshServiceClient interface {
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+	// standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+	ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
@@ -236,6 +258,16 @@ type MeshServiceClient interface {
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
+	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
+	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error)
+	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
+	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
+	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -363,6 +395,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
 			connect.WithClientOptions(opts...),
 		),
+		importSettings: connect.NewClient[v1.ImportSettingsRequest, v1.ImportSettingsResponse](
+			httpClient,
+			baseURL+MeshServiceImportSettingsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ImportSettings")),
+			connect.WithClientOptions(opts...),
+		),
 		resetSetting: connect.NewClient[v1.ResetSettingRequest, v1.ResetSettingResponse](
 			httpClient,
 			baseURL+MeshServiceResetSettingProcedure,
@@ -483,6 +521,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
 			connect.WithClientOptions(opts...),
 		),
+		resolveModel: connect.NewClient[v1.ResolveModelRequest, v1.ResolveModelResponse](
+			httpClient,
+			baseURL+MeshServiceResolveModelProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ResolveModel")),
+			connect.WithClientOptions(opts...),
+		),
 		checkConflicts: connect.NewClient[v1.CheckConflictsRequest, v1.CheckConflictsResponse](
 			httpClient,
 			baseURL+MeshServiceCheckConflictsProcedure,
@@ -505,6 +549,30 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceListMCPServersProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
+			connect.WithClientOptions(opts...),
+		),
+		createWorktree: connect.NewClient[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse](
+			httpClient,
+			baseURL+MeshServiceCreateWorktreeProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CreateWorktree")),
+			connect.WithClientOptions(opts...),
+		),
+		streamLog: connect.NewClient[v1.StreamLogRequest, v1.StreamLogResponse](
+			httpClient,
+			baseURL+MeshServiceStreamLogProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
+			connect.WithClientOptions(opts...),
+		),
+		ringAgent: connect.NewClient[v1.RingAgentRequest, v1.RingAgentResponse](
+			httpClient,
+			baseURL+MeshServiceRingAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RingAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		openAgent: connect.NewClient[v1.OpenAgentRequest, v1.OpenAgentResponse](
+			httpClient,
+			baseURL+MeshServiceOpenAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenAgent")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -531,6 +599,7 @@ type meshServiceClient struct {
 	subscribeEvents *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
 	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
 	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	importSettings  *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
 	resetSetting    *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
 	resetRoot       *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
 	getBrief        *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
@@ -551,10 +620,15 @@ type meshServiceClient struct {
 	importPeers     *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
 	getCost         *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
 	checkModels     *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	resolveModel    *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
 	checkConflicts  *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
 	listTools       *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 	addTools        *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
 	listMCPServers  *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
+	createWorktree  *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
+	streamLog       *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	ringAgent       *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
+	openAgent       *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -650,6 +724,11 @@ func (c *meshServiceClient) ListSettings(ctx context.Context, req *connect.Reque
 // SetSetting calls agentmesh.v1.MeshService.SetSetting.
 func (c *meshServiceClient) SetSetting(ctx context.Context, req *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error) {
 	return c.setSetting.CallUnary(ctx, req)
+}
+
+// ImportSettings calls agentmesh.v1.MeshService.ImportSettings.
+func (c *meshServiceClient) ImportSettings(ctx context.Context, req *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error) {
+	return c.importSettings.CallUnary(ctx, req)
 }
 
 // ResetSetting calls agentmesh.v1.MeshService.ResetSetting.
@@ -752,6 +831,11 @@ func (c *meshServiceClient) CheckModels(ctx context.Context, req *connect.Reques
 	return c.checkModels.CallUnary(ctx, req)
 }
 
+// ResolveModel calls agentmesh.v1.MeshService.ResolveModel.
+func (c *meshServiceClient) ResolveModel(ctx context.Context, req *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error) {
+	return c.resolveModel.CallUnary(ctx, req)
+}
+
 // CheckConflicts calls agentmesh.v1.MeshService.CheckConflicts.
 func (c *meshServiceClient) CheckConflicts(ctx context.Context, req *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
 	return c.checkConflicts.CallUnary(ctx, req)
@@ -770,6 +854,26 @@ func (c *meshServiceClient) AddTools(ctx context.Context, req *connect.Request[v
 // ListMCPServers calls agentmesh.v1.MeshService.ListMCPServers.
 func (c *meshServiceClient) ListMCPServers(ctx context.Context, req *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
 	return c.listMCPServers.CallUnary(ctx, req)
+}
+
+// CreateWorktree calls agentmesh.v1.MeshService.CreateWorktree.
+func (c *meshServiceClient) CreateWorktree(ctx context.Context, req *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error) {
+	return c.createWorktree.CallUnary(ctx, req)
+}
+
+// StreamLog calls agentmesh.v1.MeshService.StreamLog.
+func (c *meshServiceClient) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error) {
+	return c.streamLog.CallServerStream(ctx, req)
+}
+
+// RingAgent calls agentmesh.v1.MeshService.RingAgent.
+func (c *meshServiceClient) RingAgent(ctx context.Context, req *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
+	return c.ringAgent.CallUnary(ctx, req)
+}
+
+// OpenAgent calls agentmesh.v1.MeshService.OpenAgent.
+func (c *meshServiceClient) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error) {
+	return c.openAgent.CallUnary(ctx, req)
 }
 
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
@@ -821,6 +925,10 @@ type MeshServiceHandler interface {
 	ListSettings(context.Context, *connect.Request[v1.ListSettingsRequest]) (*connect.Response[v1.ListSettingsResponse], error)
 	// Set a setting. The value must fit its schema; a key no setting has is NotFound.
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
+	// Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+	// maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+	// `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+	ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
@@ -866,6 +974,9 @@ type MeshServiceHandler interface {
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
+	// What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+	// standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+	ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error)
 	// Find which run branches with commits conflict with their base or each other, and which workers share files.
 	CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error)
 	// List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
@@ -876,6 +987,16 @@ type MeshServiceHandler interface {
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
+	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
+	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
+	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
+	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error
+	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
+	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
+	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
+	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -999,6 +1120,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("SetSetting")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceImportSettingsHandler := connect.NewUnaryHandler(
+		MeshServiceImportSettingsProcedure,
+		svc.ImportSettings,
+		connect.WithSchema(meshServiceMethods.ByName("ImportSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceResetSettingHandler := connect.NewUnaryHandler(
 		MeshServiceResetSettingProcedure,
 		svc.ResetSetting,
@@ -1119,6 +1246,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("CheckModels")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceResolveModelHandler := connect.NewUnaryHandler(
+		MeshServiceResolveModelProcedure,
+		svc.ResolveModel,
+		connect.WithSchema(meshServiceMethods.ByName("ResolveModel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceCheckConflictsHandler := connect.NewUnaryHandler(
 		MeshServiceCheckConflictsProcedure,
 		svc.CheckConflicts,
@@ -1141,6 +1274,30 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceListMCPServersProcedure,
 		svc.ListMCPServers,
 		connect.WithSchema(meshServiceMethods.ByName("ListMCPServers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCreateWorktreeHandler := connect.NewUnaryHandler(
+		MeshServiceCreateWorktreeProcedure,
+		svc.CreateWorktree,
+		connect.WithSchema(meshServiceMethods.ByName("CreateWorktree")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceStreamLogHandler := connect.NewServerStreamHandler(
+		MeshServiceStreamLogProcedure,
+		svc.StreamLog,
+		connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRingAgentHandler := connect.NewUnaryHandler(
+		MeshServiceRingAgentProcedure,
+		svc.RingAgent,
+		connect.WithSchema(meshServiceMethods.ByName("RingAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenAgentHandler := connect.NewUnaryHandler(
+		MeshServiceOpenAgentProcedure,
+		svc.OpenAgent,
+		connect.WithSchema(meshServiceMethods.ByName("OpenAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1183,6 +1340,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListSettingsHandler.ServeHTTP(w, r)
 		case MeshServiceSetSettingProcedure:
 			meshServiceSetSettingHandler.ServeHTTP(w, r)
+		case MeshServiceImportSettingsProcedure:
+			meshServiceImportSettingsHandler.ServeHTTP(w, r)
 		case MeshServiceResetSettingProcedure:
 			meshServiceResetSettingHandler.ServeHTTP(w, r)
 		case MeshServiceResetRootProcedure:
@@ -1223,6 +1382,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceGetCostHandler.ServeHTTP(w, r)
 		case MeshServiceCheckModelsProcedure:
 			meshServiceCheckModelsHandler.ServeHTTP(w, r)
+		case MeshServiceResolveModelProcedure:
+			meshServiceResolveModelHandler.ServeHTTP(w, r)
 		case MeshServiceCheckConflictsProcedure:
 			meshServiceCheckConflictsHandler.ServeHTTP(w, r)
 		case MeshServiceListToolsProcedure:
@@ -1231,6 +1392,14 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceAddToolsHandler.ServeHTTP(w, r)
 		case MeshServiceListMCPServersProcedure:
 			meshServiceListMCPServersHandler.ServeHTTP(w, r)
+		case MeshServiceCreateWorktreeProcedure:
+			meshServiceCreateWorktreeHandler.ServeHTTP(w, r)
+		case MeshServiceStreamLogProcedure:
+			meshServiceStreamLogHandler.ServeHTTP(w, r)
+		case MeshServiceRingAgentProcedure:
+			meshServiceRingAgentHandler.ServeHTTP(w, r)
+		case MeshServiceOpenAgentProcedure:
+			meshServiceOpenAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1316,6 +1485,10 @@ func (UnimplementedMeshServiceHandler) SetSetting(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetSetting is not implemented"))
 }
 
+func (UnimplementedMeshServiceHandler) ImportSettings(context.Context, *connect.Request[v1.ImportSettingsRequest]) (*connect.Response[v1.ImportSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ImportSettings is not implemented"))
+}
+
 func (UnimplementedMeshServiceHandler) ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetSetting is not implemented"))
 }
@@ -1396,6 +1569,10 @@ func (UnimplementedMeshServiceHandler) CheckModels(context.Context, *connect.Req
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckModels is not implemented"))
 }
 
+func (UnimplementedMeshServiceHandler) ResolveModel(context.Context, *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResolveModel is not implemented"))
+}
+
 func (UnimplementedMeshServiceHandler) CheckConflicts(context.Context, *connect.Request[v1.CheckConflictsRequest]) (*connect.Response[v1.CheckConflictsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckConflicts is not implemented"))
 }
@@ -1410,4 +1587,20 @@ func (UnimplementedMeshServiceHandler) AddTools(context.Context, *connect.Reques
 
 func (UnimplementedMeshServiceHandler) ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMCPServers is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CreateWorktree is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StreamLog is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RingAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenAgent is not implemented"))
 }

@@ -9,9 +9,11 @@
 //	              PostToolUse and Stop
 //	/clear        SessionEnd (clear), then SessionStart (clear) under a new session id
 //	/compact <focus>
-//	              PreCompact, SubagentStop, then SessionStart (compact) under the same session id, and a
-//	              compact_boundary line appended to the session's transcript under $HOME/.claude/projects; with
-//	              $FAKECLAUDE_COMPACT=none it only prints "Not enough messages" and fires nothing
+//	              PreCompact, SubagentStop, then SessionStart (compact) under the same session id, and then a
+//	              compact_boundary line appended to the session's transcript under $HOME/.claude/projects, as the
+//	              real one writes it (after its hook; $FAKECLAUDE_BOUNDARY_DELAY, a duration, delays the write: a
+//	              process stopped before it never writes it); with $FAKECLAUDE_COMPACT=none it only prints "Not
+//	              enough messages" and fires nothing
 //	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
 //	              Stop
 //	/exit         SessionEnd, then exits 0
@@ -560,9 +562,14 @@ func compact(focus string) {
 		}
 	}
 	hook("PreCompact", map[string]any{"trigger": "manual"})
-	boundary()
 	hook("SubagentStop", map[string]any{})
 	hook("SessionStart", map[string]any{"source": "compact"})
+	// Claude Code 2.1.332 fires SessionStart (compact) before the compacted transcript is on disk (live: the
+	// boundary landed 1 to 2 s later, and a process stopped in between left the conversation whole).
+	if d, err := time.ParseDuration(os.Getenv("FAKECLAUDE_BOUNDARY_DELAY")); err == nil {
+		time.Sleep(d)
+	}
+	boundary()
 }
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)

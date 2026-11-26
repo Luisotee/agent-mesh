@@ -12,19 +12,19 @@ public interface ListMCPServersRequestOrBuilder extends
 
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The repo.
    */
   java.lang.String getRepo();
   /**
    * <pre>
-   * Optional git repository whose local and project MCP config is included.
+   * Optional git repository whose local and project MCP config is included: a path, or a bare name of a folder of the repos.dir setting.
    * </pre>
    *
-   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
+   * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The bytes for repo.
    */
   com.google.protobuf.ByteString
