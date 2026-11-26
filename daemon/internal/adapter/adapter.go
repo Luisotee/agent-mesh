@@ -14,6 +14,7 @@ import (
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 )
 
 // ReadOnly reports whether a role may not change code: an asker or a reviewer.
@@ -111,4 +112,21 @@ func ShellQuote(argv ...string) string {
 		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 	}
 	return strings.Join(out, " ")
+}
+
+// ReadInputBox answers a ReadInputBoxRequest from a CLI's input-box profile: what the adapters share.
+func ReadInputBox(req *adapterv1.ReadInputBoxRequest, p inputbox.Profile) *adapterv1.ReadInputBoxResponse {
+	r := inputbox.Read(req.Screen, p, req.Token)
+	out := &adapterv1.ReadInputBoxResponse{Text: r.Text, TokenAbove: int32(r.TokenAbove)}
+	switch r.State {
+	case inputbox.Empty:
+		out.Box = adapterv1.InputBox_INPUT_BOX_EMPTY
+	case inputbox.Typed:
+		out.Box = adapterv1.InputBox_INPUT_BOX_TYPED
+	case inputbox.NoBox:
+		out.Box = adapterv1.InputBox_INPUT_BOX_NONE
+	default:
+		out.Box = adapterv1.InputBox_INPUT_BOX_UNCLEAR
+	}
+	return out
 }

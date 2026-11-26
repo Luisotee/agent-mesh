@@ -21,6 +21,7 @@ func main() {
 		"statusline": runStatusLine,
 		"whoami":     cli.Whoami,
 		"dir":        cli.Dir,
+		"protocol":   cli.Protocol,
 		"version":    func(cli.Env, []string) int { fmt.Println("mesh", Version); return 0 },
 	}))
 }

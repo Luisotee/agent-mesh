@@ -51,7 +51,7 @@ describe('what waits on the user', () => {
     client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
     r.event(sent(MessageType.DONE))
     r.event(sent(MessageType.INFO))
-    r.event(create(EventSchema, { payload: { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'x' } } }))
+    r.event(create(EventSchema, { payload: { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'x', via: '', tries: 0 } } }))
     await vi.advanceTimersByTimeAsync(1000)
     expect(client.listWaiting).not.toHaveBeenCalled()
   })

@@ -512,11 +512,71 @@ public interface AgentOrBuilder extends
 
   /**
    * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   * @return Whether the pendingCompaction field is set.
+   */
+  boolean hasPendingCompaction();
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   * @return The pendingCompaction.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction();
+
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   * @return Whether the pendingReset field is set.
+   */
+  boolean hasPendingReset();
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   * @return The pendingReset.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset();
+
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   * @return Whether the lastReset field is set.
+   */
+  boolean hasLastReset();
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   * @return The lastReset.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset();
+
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @return The lastTurnByMesh.
+   */
+  boolean getLastTurnByMesh();
+
+  /**
+   * <pre>
    * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @return A list containing the addedTools.
    */
   java.util.List<java.lang.String>
@@ -527,7 +587,7 @@ public interface AgentOrBuilder extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @return The count of addedTools.
    */
   int getAddedToolsCount();
@@ -537,7 +597,7 @@ public interface AgentOrBuilder extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param index The index of the element to return.
    * @return The addedTools at the given index.
    */
@@ -548,7 +608,7 @@ public interface AgentOrBuilder extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param index The index of the element to return.
    * @return The addedTools at the given index.
    */
@@ -560,7 +620,7 @@ public interface AgentOrBuilder extends
    * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
    * </pre>
    *
-   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
    * @return The toolsAdded.
    */
   boolean getToolsAdded();
@@ -570,7 +630,7 @@ public interface AgentOrBuilder extends
    * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
    * </pre>
    *
-   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
    * @return The mcpAll.
    */
   boolean getMcpAll();

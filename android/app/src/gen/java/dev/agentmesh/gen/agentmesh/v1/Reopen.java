@@ -223,7 +223,7 @@ public  final class Reopen extends
   private java.lang.String why_;
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -235,7 +235,7 @@ public  final class Reopen extends
   }
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -248,7 +248,7 @@ public  final class Reopen extends
   }
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -262,7 +262,7 @@ public  final class Reopen extends
   }
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -273,7 +273,7 @@ public  final class Reopen extends
   }
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -445,6 +445,47 @@ public  final class Reopen extends
   private void clearRequestedBy() {
     requestedBy_ = null;
     bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int FRESH_FIELD_NUMBER = 9;
+  private boolean fresh_;
+  /**
+   * <pre>
+   * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+   * cleared; the new process records its own.
+   * </pre>
+   *
+   * <code>bool fresh = 9 [json_name = "fresh"];</code>
+   * @return The fresh.
+   */
+  @java.lang.Override
+  public boolean getFresh() {
+    return fresh_;
+  }
+  /**
+   * <pre>
+   * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+   * cleared; the new process records its own.
+   * </pre>
+   *
+   * <code>bool fresh = 9 [json_name = "fresh"];</code>
+   * @param value The fresh to set.
+   */
+  private void setFresh(boolean value) {
+    
+    fresh_ = value;
+  }
+  /**
+   * <pre>
+   * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+   * cleared; the new process records its own.
+   * </pre>
+   *
+   * <code>bool fresh = 9 [json_name = "fresh"];</code>
+   */
+  private void clearFresh() {
+
+    fresh_ = false;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Reopen parseFrom(
@@ -751,7 +792,7 @@ public  final class Reopen extends
 
     /**
      * <pre>
-     * "plan approved", "moved", "quota", "resumed".
+     * "plan approved", "moved", "quota", "resumed", "reset".
      * </pre>
      *
      * <code>string why = 5 [json_name = "why"];</code>
@@ -763,7 +804,7 @@ public  final class Reopen extends
     }
     /**
      * <pre>
-     * "plan approved", "moved", "quota", "resumed".
+     * "plan approved", "moved", "quota", "resumed", "reset".
      * </pre>
      *
      * <code>string why = 5 [json_name = "why"];</code>
@@ -776,7 +817,7 @@ public  final class Reopen extends
     }
     /**
      * <pre>
-     * "plan approved", "moved", "quota", "resumed".
+     * "plan approved", "moved", "quota", "resumed", "reset".
      * </pre>
      *
      * <code>string why = 5 [json_name = "why"];</code>
@@ -791,7 +832,7 @@ public  final class Reopen extends
     }
     /**
      * <pre>
-     * "plan approved", "moved", "quota", "resumed".
+     * "plan approved", "moved", "quota", "resumed", "reset".
      * </pre>
      *
      * <code>string why = 5 [json_name = "why"];</code>
@@ -804,7 +845,7 @@ public  final class Reopen extends
     }
     /**
      * <pre>
-     * "plan approved", "moved", "quota", "resumed".
+     * "plan approved", "moved", "quota", "resumed", "reset".
      * </pre>
      *
      * <code>string why = 5 [json_name = "why"];</code>
@@ -981,6 +1022,49 @@ public  final class Reopen extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+     * cleared; the new process records its own.
+     * </pre>
+     *
+     * <code>bool fresh = 9 [json_name = "fresh"];</code>
+     * @return The fresh.
+     */
+    @java.lang.Override
+    public boolean getFresh() {
+      return instance.getFresh();
+    }
+    /**
+     * <pre>
+     * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+     * cleared; the new process records its own.
+     * </pre>
+     *
+     * <code>bool fresh = 9 [json_name = "fresh"];</code>
+     * @param value The fresh to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFresh(boolean value) {
+      copyOnWrite();
+      instance.setFresh(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+     * cleared; the new process records its own.
+     * </pre>
+     *
+     * <code>bool fresh = 9 [json_name = "fresh"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFresh() {
+      copyOnWrite();
+      instance.clearFresh();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Reopen)
   }
   @java.lang.Override
@@ -1006,10 +1090,11 @@ public  final class Reopen extends
             "reason_",
             "requestedAt_",
             "requestedBy_",
+            "fresh_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u1009\u0000\b\u1009\u0001";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u1009\u0000\b\u1009\u0001\t\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
