@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -93,16 +94,34 @@ func TestMeshdWithNoPolicyFileOrABrokenOneStartsAnyway(t *testing.T) {
 	}
 }
 
+// syncBuffer is a log sink the daemon's goroutines write while the test reads.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
 func TestMeshdLogsAChangedPolicyFile(t *testing.T) {
 	file := writePolicy(t, `{"compact": {"agy": 5}}`)
 	state := filepath.Join(t.TempDir(), "state")
 	startWith(t, state, withPolicy(file)).stop()
 	os.WriteFile(file, []byte(`{"compact": {"agy": 6}}`), 0o644)
-	var logs bytes.Buffer
+	logs := &syncBuffer{}
 	startWith(t, state, func(c *daemon.Config) {
 		c.PolicyFile = file
-		c.Logger = slog.New(slog.NewTextHandler(&logs, nil))
-	})
+		c.Logger = slog.New(slog.NewTextHandler(logs, nil))
+	}).stop()
 	if !strings.Contains(logs.String(), "policy file changed since its import") {
 		t.Errorf("log: %s", logs.String())
 	}
