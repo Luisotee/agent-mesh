@@ -407,6 +407,7 @@ func TestOpenCodeLimitsHoldModelsAndRotateInSameSession(t *testing.T) {
 
 func TestOpenCodeReviewRoundAndHeldModelFallback(t *testing.T) {
 	w := startReviews(t)
+	w.set(t, "review.reviewers.small", []any{[]any{"opencode", "agy"}}) // these tests are about OpenCode taking the slot first
 	ctx := context.Background()
 	w.pr.push(t, "the feature")
 
@@ -460,6 +461,7 @@ func TestOpenCodeAbsentBinaryFallsBackToAgyInReviewAuto(t *testing.T) {
 	w := startReviews(t, func(c *daemon.AgentConfig) {
 		delete(c.Binaries, opencode.Kind)
 	})
+	w.set(t, "review.reviewers.small", []any{[]any{"opencode", "agy"}})
 	w.pr.push(t, "the feature")
 	res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
 	if len(res.Agents) != 1 || res.Agents[0].Kind != "agy" {
@@ -504,6 +506,7 @@ func TestOpenCodePaneBannerFiresAgainAfterSwitchBack(t *testing.T) {
 	w := startReopen(t, fastPass)
 	ctx := context.Background()
 	w.set(t, "limits.auto", "off")
+	w.set(t, "tiers.opencode.mid.model", []any{"opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"}) // a long chain, to rotate through
 	run := startRun(t, w.device.Mesh, "")
 
 	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
@@ -541,6 +544,8 @@ func TestOpenCodePaneBannerFiresAgainAfterSwitchBack(t *testing.T) {
 
 func TestOpenCodeHeldSkippedInAllExplicitAndReReview(t *testing.T) {
 	w := startReviews(t)
+	w.set(t, "review.reviewers.small", []any{[]any{"opencode", "agy"}})                                                                       // these tests are about OpenCode taking the slot first
+	w.set(t, "tiers.opencode.mid.model", []any{"opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"}) // a long chain, to rotate through
 	ctx := context.Background()
 	w.pr.push(t, "round 1")
 
@@ -709,6 +714,7 @@ func TestOpenCodeEmptyFreeModelsNeverLaunchAsLiteralFree(t *testing.T) {
 		// Force `opencode models --verbose` to output zero active free models.
 		c.Env["FAKEOPENCODE_MODELS"] = "openai/gpt-5.2\n{\"id\":\"gpt-5.2\",\"providerID\":\"openai\",\"status\":\"active\",\"cost\":{\"input\":5,\"output\":15},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-20\"}\n"
 	})
+	w.set(t, "tiers.opencode.light.model", []any{"free"})
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 
