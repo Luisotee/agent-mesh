@@ -866,6 +866,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				Tier:               a.Tier,
 				ExecTier:           a.ExecTier,
 				Phase:              a.Phase,
+				Peer:               a.Peer, // a peer stays a peer in the new run: read-only, its worktree kept
 				Pinned:             a.Pinned,
 				DenyEdits:          a.DenyEdits,
 				State:              a.State,

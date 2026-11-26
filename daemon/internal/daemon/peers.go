@@ -76,11 +76,14 @@ func (d *Daemon) ensurePeerWorktree(ctx context.Context, p *v1.Peer) error {
 	if err := os.MkdirAll(filepath.Dir(p.Worktree), 0o700); err != nil {
 		return err
 	}
-	// Something else is where the worktree goes: an empty folder is replaced, anything else is the user's.
-	if _, err := os.Stat(p.Worktree); err == nil {
-		if err := os.Remove(p.Worktree); err != nil {
+	// Something else is where the worktree goes: an empty folder is replaced (and put back if the worktree can't
+	// be made), anything else is the user's.
+	var emptied os.FileMode
+	if fi, err := os.Stat(p.Worktree); err == nil {
+		if !fi.IsDir() || os.Remove(p.Worktree) != nil {
 			return fmt.Errorf("%s exists and is not a worktree of %s: move it away", p.Worktree, p.Repo)
 		}
+		emptied = fi.Mode().Perm() | 0o700
 	}
 	git(ctx, p.Repo, "worktree", "prune")
 	at := p.Seen
@@ -88,6 +91,9 @@ func (d *Daemon) ensurePeerWorktree(ctx context.Context, p *v1.Peer) error {
 		at = "HEAD"
 	}
 	if _, err := git(ctx, p.Repo, "worktree", "add", "--detach", "--force", p.Worktree, at); err != nil {
+		if emptied != 0 {
+			os.Mkdir(p.Worktree, emptied)
+		}
 		return fmt.Errorf("making %s's worktree: %w", p.Name, err)
 	}
 	return nil
@@ -112,7 +118,7 @@ func (d *Daemon) ListPeers(ctx context.Context, req *connect.Request[v1.ListPeer
 	}
 	for _, p := range peers {
 		for _, a := range agents {
-			if a.Peer && a.Name == p.Name && !stopped(a) {
+			if a.Peer && a.Name == p.Name && hasProcess(a) {
 				p.RunningRun, p.RunningAgent = a.RunId, a.Id
 			}
 		}
@@ -229,7 +235,7 @@ func (d *Daemon) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerReq
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(cctx, "git", "clone", "--quiet", "--", src, clone)
-		cmd.Env = append(os.Environ(), "GIT_ALLOW_PROTOCOL=https:http:ssh:git:file", "GIT_TERMINAL_PROMPT=0")
+		cmd.Env = append(os.Environ(), "GIT_ALLOW_PROTOCOL=https:http:ssh:git:file", "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			os.RemoveAll(clone)
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("cloning %s: %v: %s", src, err, strings.TrimSpace(string(out))))
@@ -317,6 +323,10 @@ func (d *Daemon) EditPeer(ctx context.Context, req *connect.Request[v1.EditPeerR
 // RemovePeer removes a peer from the registry and its worktree, refusing while its agent runs.
 func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error) {
 	m := req.Msg
+	// Under the lock an ask of this peer takes, so the check that nothing runs holds until it is removed.
+	lock := d.agentLock("peer:" + m.Name)
+	lock.Lock()
+	defer lock.Unlock()
 	r := d.store.Read(ctx)
 	p, err := r.GetPeer(m.Name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -348,7 +358,15 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	}); err != nil {
 		return nil, err
 	}
-	git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree)
+	// The peer is gone from the registry either way; a worktree git won't remove is the daemon's own folder, so
+	// it is deleted, and one that still stands is said.
+	if _, err := git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree); err != nil {
+		os.RemoveAll(p.Worktree)
+		git(ctx, p.Repo, "worktree", "prune")
+		if _, serr := os.Stat(p.Worktree); serr == nil {
+			return nil, fmt.Errorf("%s is removed from the registry, but its worktree %s could not be: %w", p.Name, p.Worktree, err)
+		}
+	}
 	if m.DeleteClone {
 		if err := os.RemoveAll(p.Repo); err != nil {
 			return nil, err
@@ -702,6 +720,10 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	// Re-read: another ask of this run may have moved it.
 	if cur, err := r.GetPeer(p.Name); err == nil {
 		p = cur
+	} else if errors.Is(err, store.ErrNotFound) {
+		return fail("it was removed from the registry meanwhile")
+	} else {
+		return fail(err.Error())
 	}
 	if other := peerRunning(r, p.Name, actor.RunId); other != nil {
 		return fail(fmt.Sprintf("it is running in run %s (%s): one process per conversation; retire it there, or wait for its answer", other.RunId, other.Id))
@@ -827,6 +849,9 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	if err != nil {
 		return nil, err
 	}
+	if err := d.reserveCheck(r, actor.RunId, p.Kind, model, effort, "asking "+p.Name); err != nil {
+		return nil, err
+	}
 	if err := d.capGuard(r, "peer "+p.Name, ""); err != nil {
 		return nil, err
 	}
@@ -860,6 +885,10 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 		}
 		if other := peerRunning(tx.Reader, p.Name, actor.RunId); other != nil {
 			return failedPrecondition("%s is running in run %s (%s): one process per conversation", p.Name, other.RunId, other.Id)
+		}
+		// A process of another name on its conversation or worktree (a resumed copy of it, say) counts too.
+		if err := d.hasProcessOnSessionOrWorktree(tx.Reader, agent); err != nil {
+			return err
 		}
 		if same, err := tx.Reader.AgentsNamed(actor.RunId, p.Name); err != nil {
 			return err
@@ -960,7 +989,7 @@ func peerSummary(a *v1.Ask) string {
 		fmt.Fprintf(&b, "answers: %s", a.AnswersPath)
 	}
 	if answered(a) < len(a.Members) {
-		b.WriteString("\n(A peer that didn't answer keeps its conversation: ask it again with `mesh ask <name> --tier <tier> --body …`; one that was settled as running elsewhere can be asked once that run retires it.)")
+		b.WriteString("\n(A peer that didn't answer keeps its conversation: ask it again with `mesh ask --peers <name> --tier <tier> --body …`; one that was settled as running elsewhere can be asked once that run retires it.)")
 	}
 	return b.String()
 }
