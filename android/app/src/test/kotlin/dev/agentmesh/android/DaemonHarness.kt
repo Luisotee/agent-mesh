@@ -57,12 +57,12 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
 
     /**
      * Starts meshd. [tls] adds `--listen` (a TLS listener on a loopback port, with the daemon's persistent certificate)
-     * and [relay] connects it to a relay, so `meshctl pair` writes links with both routes.
+     * and [relay] connects it to a relay, so `mesh pair` writes links with both routes.
      */
     fun start(tls: Boolean = false, relay: Relay? = null) {
         val cmd = mutableListOf(
             bin("meshd").path, "--state", state.path, "--tcp", "127.0.0.1:0", "--term-launch", "detached", "--max-lifetime", "5m",
-            "--term-binary", bin("mesh-term").path, "--meshctl", bin("meshctl").path, "--cli", "claude=${bin("claude").path}",
+            "--term-binary", bin("mesh-term").path, "--mesh", bin("mesh").path, "--cli", "claude=${bin("claude").path}",
             "--agent-env", "HOME=${home.path}", "--agent-env", "PATH=${System.getenv("PATH").orEmpty()}",
         )
         if (tls) cmd += listOf("--listen", "127.0.0.1:0")
@@ -90,21 +90,21 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
     val token: String get() = File(state, "device.token").readText().trim()
     val daemonId: String get() = info()!!["daemon_id"]!!.jsonPrimitive.content
 
-    /** A pairing link from `meshctl pair`, as the host's own device makes it (the QR code and link carry this text). */
+    /** A pairing link from `mesh pair`, as the host's own device makes it (the QR code and link carry this text). */
     fun pairingLink(name: String = "test phone", vararg extra: String): String =
         ctl("pair", "--name", name, *extra).getValue("uri").jsonPrimitive.content
 
     /** Stops meshd alone (the relay stays up): the host is then offline at the relay. */
     fun stopDaemon() { meshd?.let { it.destroy(); it.waitFor(10, TimeUnit.SECONDS) } }
 
-    /** Runs `meshctl <args>` as the host's own device and returns its JSON output. */
+    /** Runs `mesh <args>` as the host's own device and returns its JSON output. */
     fun ctl(vararg args: String): JsonObject {
-        val pb = ProcessBuilder(listOf(bin("meshctl").path) + args).redirectErrorStream(false)
+        val pb = ProcessBuilder(listOf(bin("mesh").path) + args).redirectErrorStream(false)
         pb.environment().clear(); pb.environment().putAll(env())
         val p = pb.start()
         val out = p.inputStream.bufferedReader().readText()
         val err = p.errorStream.bufferedReader().readText()
-        check(p.waitFor(30, TimeUnit.SECONDS) && p.exitValue() == 0) { "meshctl ${args.joinToString(" ")}: $err" }
+        check(p.waitFor(30, TimeUnit.SECONDS) && p.exitValue() == 0) { "mesh ${args.joinToString(" ")}: $err" }
         return Json.parseToJsonElement(out).jsonObject
     }
 
@@ -143,7 +143,7 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
         private val bins: File by lazy {
             val out = File(System.getProperty("user.dir"), "build/e2e-bin").also { it.mkdirs() }
             val daemon = File(repoRoot, "daemon")
-            for ((name, pkg) in mapOf("meshd" to "./cmd/meshd", "mesh-term" to "./cmd/mesh-term", "meshctl" to "./cmd/meshctl", "mesh-relay" to "./cmd/mesh-relay", "claude" to "./internal/testutil/fakeclaude")) {
+            for ((name, pkg) in mapOf("meshd" to "./cmd/meshd", "mesh-term" to "./cmd/mesh-term", "mesh" to "./cmd/mesh", "mesh-relay" to "./cmd/mesh-relay", "claude" to "./internal/testutil/fakeclaude")) {
                 val pb = ProcessBuilder(goBin!!.path, "build", "-o", File(out, name).path, pkg).directory(daemon).redirectErrorStream(true)
                 pb.environment()["CGO_ENABLED"] = "0"
                 val p = pb.start()

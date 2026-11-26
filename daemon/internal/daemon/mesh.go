@@ -161,6 +161,9 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 				return err
 			}
 		}
+		if err := d.ensureRunDir(run.Id); err != nil {
+			return err
+		}
 		if _, err := t.AppendEvent(&v1.Event{RunId: run.Id,
 			Payload: &v1.Event_RunStarted{RunStarted: &v1.RunStarted{Run: run}}}); err != nil {
 			return err

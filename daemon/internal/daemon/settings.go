@@ -80,7 +80,7 @@ func (d *Daemon) readSetting(r store.Reader, l settings.Leaf) (*v1.Setting, erro
 func (d *Daemon) leaf(key string) (settings.Leaf, error) {
 	l, ok := d.schema.Lookup(key)
 	if !ok {
-		return l, notFound("no setting %q (meshctl settings lists them)", key)
+		return l, notFound("no setting %q (mesh settings lists them)", key)
 	}
 	return l, nil
 }

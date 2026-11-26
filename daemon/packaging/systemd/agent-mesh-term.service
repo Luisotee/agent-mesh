@@ -6,7 +6,7 @@
 Description=agent-mesh terminal host (mesh-term)
 
 [Service]
-ExecStart=%h/.local/lib/agent-mesh/mesh-term --dir %S/agent-mesh-daemon/term
+ExecStart=%h/.local/lib/agent-mesh/bin/mesh-term --dir %S/agent-mesh-daemon/term
 Restart=on-failure
 RestartSec=2
 KillMode=control-group

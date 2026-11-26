@@ -25,13 +25,13 @@ const baseEnv = (): NodeJS.ProcessEnv => {
   return env
 }
 
-/** Builds meshd, mesh-term, meshctl, mesh-relay and the fake claude into `dir`. */
+/** Builds meshd, mesh-term, mesh, mesh-relay and the fake claude into `dir`. */
 export function buildBinaries(dir: string): void {
   mkdirSync(dir, { recursive: true })
   const targets: Record<string, string> = {
     meshd: './cmd/meshd',
     'mesh-term': './cmd/mesh-term',
-    meshctl: './cmd/meshctl',
+    mesh: './cmd/mesh',
     'mesh-relay': './cmd/mesh-relay',
     claude: './internal/testutil/fakeclaude',
   }
@@ -132,7 +132,7 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
       daemon = spawn(
         path.join(bins, 'meshd'),
         ['--state', state, '--tcp', '127.0.0.1:0', '--max-lifetime', '10m', '--term-launch', 'detached',
-          '--term-binary', path.join(bins, 'mesh-term'), '--meshctl', path.join(bins, 'meshctl'),
+          '--term-binary', path.join(bins, 'mesh-term'), '--mesh', path.join(bins, 'mesh'),
           '--cli', `claude=${path.join(bins, 'claude')}`, '--worktrees', worktrees,
           ...(opts.listen ? ['--listen', opts.listen] : []),
           ...(opts.hostName ? ['--host-name', opts.hostName] : []),

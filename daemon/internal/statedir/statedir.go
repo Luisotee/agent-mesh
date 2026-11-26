@@ -28,6 +28,13 @@ func (p Paths) Term() string { return filepath.Join(p.Dir, "term") }
 // Worktrees is where agents' worktrees go unless the daemon is told otherwise.
 func (p Paths) Worktrees() string { return filepath.Join(p.Dir, "worktrees") }
 
+// RunDir is a run's own folder, where its agents write plans, reports and tasks (and the root its notes): the
+// protocol's `$(mesh dir)`. The daemon makes it with the run, and names it to every agent in $AGENT_MESH_RUN_DIR.
+func (p Paths) RunDir(run string) string { return filepath.Join(p.Dir, "runs", run) }
+
+// RunFolders are the folders every run's dir holds.
+var RunFolders = []string{"plans", "reports", "tasks"}
+
 // Agent is an agent's own dir: its token for the hook command.
 func (p Paths) Agent(id string) string      { return filepath.Join(p.Dir, "agents", id) }
 func (p Paths) AgentToken(id string) string { return filepath.Join(p.Agent(id), "token") }

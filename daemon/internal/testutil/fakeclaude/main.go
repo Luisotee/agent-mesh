@@ -1,5 +1,6 @@
 // Command fakeclaude stands in for Claude Code in tests. It takes the flags the Claude adapter passes (and, when
-// $FAKECLAUDE_ARGV_LOG is set, appends its argv there as one JSON line per launch), runs the
+// $FAKECLAUDE_ARGV_LOG is set, appends its argv there as one JSON line per launch, and likewise its environment
+// to $FAKECLAUDE_ENV_LOG), runs the
 // hooks from its --settings the way Claude Code does (a shell command with the event's JSON on stdin), and acts
 // out turns from lines typed into its terminal:
 //
@@ -47,6 +48,13 @@ func main() {
 	if log := os.Getenv("FAKECLAUDE_ARGV_LOG"); log != "" {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			line, _ := json.Marshal(args)
+			f.Write(append(line, '\n'))
+			f.Close()
+		}
+	}
+	if log := os.Getenv("FAKECLAUDE_ENV_LOG"); log != "" {
+		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			line, _ := json.Marshal(os.Environ())
 			f.Write(append(line, '\n'))
 			f.Close()
 		}

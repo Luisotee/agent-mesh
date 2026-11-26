@@ -1,4 +1,4 @@
-// Package e2e runs the real binaries together: meshd, mesh-term and meshctl, with a fake claude in the PTY.
+// Package e2e runs the real binaries together: meshd, mesh-term and mesh, with a fake claude in the PTY.
 // It is the milestone's done-when: spawn, hooks, state through the CLI and the event stream, and a daemon
 // SIGKILLed and restarted with the terminal intact.
 package e2e
@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for out, pkg := range map[string]string{"meshd": "./cmd/meshd", "mesh-term": "./cmd/mesh-term",
-		"meshctl": "./cmd/meshctl", "mesh-relay": "./cmd/mesh-relay", "claude": "./internal/testutil/fakeclaude",
+		"mesh": "./cmd/mesh", "mesh-relay": "./cmd/mesh-relay", "claude": "./internal/testutil/fakeclaude",
 		"agy": "./internal/testutil/fakeagy"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = ".."
@@ -100,10 +100,18 @@ func (l *lockedBuffer) String() string {
 func (w *world) startMeshd() {
 	w.t.Helper()
 	w.log = &lockedBuffer{}
+	// A `mesh` that is not ours, first on the PATH meshd is told to give agents (as a login shell's would put the
+	// live bin/mesh): the agent must still get ours, which meshd puts ahead.
+	decoy := filepath.Join(w.home, "decoy")
+	os.MkdirAll(decoy, 0o755)
+	if err := os.WriteFile(filepath.Join(decoy, "mesh"), []byte("#!/bin/sh\necho the wrong mesh >&2\nexit 99\n"), 0o755); err != nil {
+		w.t.Fatal(err)
+	}
 	cmd := exec.Command(filepath.Join(bins, "meshd"), "--state", w.state, "--term-launch", "detached",
 		"--max-lifetime", "3m", "--cli", "claude="+filepath.Join(bins, "claude"),
 		"--cli", "agy="+filepath.Join(bins, "agy"),
-		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+os.Getenv("PATH"))
+		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+decoy+":"+os.Getenv("PATH"),
+		"--agent-env", "FAKECLAUDE_ENV_LOG="+filepath.Join(w.home, "claude-env.log"))
 	cmd.Env = w.env()
 	cmd.Stdout, cmd.Stderr = w.log, w.log
 	if err := cmd.Start(); err != nil {
@@ -148,20 +156,20 @@ func (w *world) waitFor(what string, cond func() bool) {
 	}
 }
 
-// ctl runs meshctl and decodes its JSON output.
+// ctl runs mesh and decodes its JSON output.
 func (w *world) ctl(args ...string) map[string]any {
 	w.t.Helper()
-	cmd := exec.Command(filepath.Join(bins, "meshctl"), args...)
+	cmd := exec.Command(filepath.Join(bins, "mesh"), args...)
 	cmd.Env = w.env()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		w.t.Fatalf("meshctl %s: %v\n%s", strings.Join(args, " "), err, stderr.String())
+		w.t.Fatalf("mesh %s: %v\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
-		w.t.Fatalf("meshctl %s printed %q: %v", strings.Join(args, " "), out, err)
+		w.t.Fatalf("mesh %s printed %q: %v", strings.Join(args, " "), out, err)
 	}
 	return m
 }
@@ -186,7 +194,7 @@ func (w *world) agentState(id string) string {
 	return str(w.ctl("agent", "--agent", id), "agent", "state")
 }
 
-// follower runs `meshctl events` and collects its lines.
+// follower runs `mesh events` and collects its lines.
 type follower struct {
 	cmd   *exec.Cmd
 	mu    sync.Mutex
@@ -197,7 +205,7 @@ type follower struct {
 func (w *world) follow(args ...string) *follower {
 	w.t.Helper()
 	f := &follower{done: make(chan struct{})}
-	f.cmd = exec.Command(filepath.Join(bins, "meshctl"), append([]string{"events"}, args...)...)
+	f.cmd = exec.Command(filepath.Join(bins, "mesh"), append([]string{"events"}, args...)...)
 	f.cmd.Env = w.env()
 	out, _ := f.cmd.StdoutPipe()
 	f.cmd.Stderr = io.Discard
@@ -320,7 +328,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("worktree %s on %q, %v", worktree, out, err)
 	}
 	// Its SessionStart hook makes it idle, as the CLI's list shows.
-	w.waitFor("idle in `meshctl agents`", func() bool {
+	w.waitFor("idle in `mesh agents`", func() bool {
 		for _, a := range get(w.ctl("agents", "--run-id", run), "agents").([]any) {
 			if str(a, "id") == agent && str(a, "state") == "AGENT_STATE_IDLE" {
 				return true
@@ -436,11 +444,56 @@ func TestEndToEnd(t *testing.T) {
 
 	// The agent reads its message as itself.
 	agentTok, _ := os.ReadFile(statedir.Paths{Dir: w.state}.AgentToken(agent))
-	cmd := exec.Command(filepath.Join(bins, "meshctl"), "inbox")
+	cmd := exec.Command(filepath.Join(bins, "mesh"), "inbox")
 	cmd.Env = append(w.env(), client.TokenEnv+"="+strings.TrimSpace(string(agentTok)))
 	out, err := cmd.Output()
 	if err != nil || !strings.Contains(string(out), "fix the typo") {
 		t.Errorf("inbox %s, %v", out, err)
+	}
+
+	// In the agent's own environment (the fake claude logged it at launch) a bare `mesh` is ours, not the decoy
+	// ahead of it in the PATH meshd was given, and it knows who it is, its run folder, and its parent.
+	agentEnv := lastEnvLine(t, filepath.Join(w.home, "claude-env.log"))
+	meshBin := lookPath(agentEnv, "mesh")
+	if meshBin != filepath.Join(bins, "mesh") {
+		t.Errorf("a bare `mesh` in the agent resolves to %q, want %q (PATH %s)", meshBin, filepath.Join(bins, "mesh"), envOf(agentEnv, "PATH"))
+	}
+	if got := envOf(agentEnv, "AGENT_MESH_CLI"); got != meshBin {
+		t.Errorf("AGENT_MESH_CLI = %q, want %q (the live bin/mesh hands over to it)", got, meshBin)
+	}
+	asAgent := func(args ...string) []byte {
+		cmd := exec.Command(meshBin, args...)
+		cmd.Env = agentEnv
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("mesh %v as the agent: %v\n%s", args, err, out)
+		}
+		return out
+	}
+	runDir := statedir.Paths{Dir: w.state}.RunDir(run)
+	if got := strings.TrimSpace(string(asAgent("dir"))); got != runDir {
+		t.Errorf("mesh dir = %q, want %q", got, runDir)
+	}
+	for _, f := range statedir.RunFolders {
+		if st, err := os.Stat(filepath.Join(runDir, f)); err != nil || !st.IsDir() {
+			t.Errorf("run folder %s: %v", f, err)
+		}
+	}
+	var who map[string]any
+	if err := json.Unmarshal(asAgent("whoami"), &who); err != nil {
+		t.Fatal(err)
+	}
+	if str(who, "role") != "worker" || str(who, "name") != "shop-api-fix" || str(who, "run") != run || str(who, "run_dir") != runDir {
+		t.Errorf("whoami %v", who)
+	}
+	// It writes under its run folder and reports with `mesh send parent`, the positional form. A device started
+	// this agent, so it has no parent: that refusal is the daemon reading `parent` as the recipient.
+	report := filepath.Join(runDir, "reports", "shop-api-fix.md")
+	os.WriteFile(report, []byte("done"), 0o600)
+	send := exec.Command(meshBin, "send", "parent", "--type", "info", "--body", "@"+report)
+	send.Env = agentEnv
+	if out, err := send.CombinedOutput(); err == nil || !strings.Contains(string(out), "no parent agent") {
+		t.Errorf("mesh send parent: %v\n%s", err, out)
 	}
 
 	// A model change reopens the same conversation: a switch to another tier, then a stop and a resume for a
@@ -622,7 +675,7 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 		return err == nil && info.PID == cmd.Process.Pid && info.Listen != "" && info.CertFingerprint != ""
 	})
 
-	// Create a pairing via real meshctl pair.
+	// Create a pairing via real mesh pair.
 	pairOut := w.ctl("pair", "--name", "e2e-phone")
 	p, err := pairing.ParseURI(str(pairOut, "uri"))
 	if err != nil {
@@ -698,9 +751,44 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 		t.Fatalf("direct TLS Hello: %v", err)
 	}
 
-	// Revoke via meshctl revoke-device and verify remote client loses access.
+	// Revoke via mesh revoke-device and verify remote client loses access.
 	w.ctl("revoke-device", "--device-id", red.Msg.DeviceId)
 	if _, err := dm.Hello(ctx, connect.NewRequest(&v1.HelloRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("revoked device Hello = %v, want Unauthenticated", err)
 	}
+}
+
+// lastEnvLine is the environment the fake claude logged at its newest launch.
+func lastEnvLine(t *testing.T, path string) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	var env []string
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &env); err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func envOf(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// lookPath finds a command the way the agent's shell would: by that environment's PATH, not the test's.
+func lookPath(env []string, name string) string {
+	for _, dir := range filepath.SplitList(envOf(env, "PATH")) {
+		p := filepath.Join(dir, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
 }
