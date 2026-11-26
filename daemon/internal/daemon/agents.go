@@ -900,6 +900,8 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	cleanup := func() {
 		git(context.Background(), top, "worktree", "remove", "--force", worktree)
 		git(context.Background(), top, "branch", "-D", branch)
+		// The lean launch's MCP file (planLaunch writes it) may hold servers' secrets.
+		os.RemoveAll(d.paths.Agent(agent.Id))
 	}
 	// The launch is planned before the agent is stored, so its conversation id is known before its first hook.
 	plan, err := d.planLaunch(ctx, ad, agent, token, "")
