@@ -201,7 +201,7 @@ func TestImportingPeersReadsBinMeshsFileWithoutWritingItAndSkipsWhatItCant(t *te
 	if got := strings.Join(res.Msg.Imported, ","); got != "group orchestrators,paseo-research" {
 		t.Errorf("imported %q", got)
 	}
-	if len(res.Msg.Skipped) != 2 || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "gone-research: its clone") || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "codex-research: its kind copilot has no adapter") {
+	if len(res.Msg.Skipped) != 2 || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "gone-research: its clone") || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "codex-research: its kind codex has no adapter") {
 		t.Errorf("skipped %v", res.Msg.Skipped)
 	}
 	p := w.peer(t, "paseo-research")
