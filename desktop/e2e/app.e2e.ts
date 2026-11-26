@@ -107,7 +107,7 @@ async function agentId(name: string): Promise<string> {
 
 test('a terminal streams the agent, takes typing, and carries on across a daemon restart', async () => {
   const { page } = app
-  await page.getByRole('button', { name: /repo-lead/ }).click()
+  await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
   // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.

@@ -72,7 +72,7 @@ func TestOtherRunsDoNotFillAFilteredSubscriber(t *testing.T) {
 	}
 	defer s.Close()
 	bus := New(s)
-	sub := bus.subscribe("r1", false)
+	sub := bus.subscribe("r1", false, false)
 	evs := make([]*v1.Event, LiveBuffer+10)
 	for i := range evs {
 		evs[i] = &v1.Event{Seq: int64(i + 1), RunId: "r2"}
@@ -151,8 +151,8 @@ func TestDeviceEventsFilteredFromNonDeviceSubscribers(t *testing.T) {
 	}
 
 	// Live publishing also drops device events for non-device subscribers.
-	nonDevSub := bus.subscribe("r1", false)
-	devSub := bus.subscribe("r1", true)
+	nonDevSub := bus.subscribe("r1", false, false)
+	devSub := bus.subscribe("r1", true, false)
 	bus.Publish([]*v1.Event{
 		{Seq: 100, Payload: &v1.Event_DevicePaired{DevicePaired: &v1.DevicePaired{Device: &v1.Device{Id: "dev2"}}}},
 		{Seq: 101, Payload: &v1.Event_DeviceRevoked{DeviceRevoked: &v1.DeviceRevoked{DeviceId: "dev2"}}},
@@ -192,5 +192,30 @@ func TestSubscribeRunReceivesLiveRunEventsAndUnsubscribesCleanly(t *testing.T) {
 	unsub()
 	if bus.Subscribers() != 0 {
 		t.Fatalf("subscribers after unsub = %d, want 0", bus.Subscribers())
+	}
+}
+
+func TestActivityFramesAreLiveOnlyScopedAndNeverDropASubscriber(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	mine := bus.subscribe("r1", false, true)
+	other := bus.subscribe("r2", false, true)
+	none := bus.subscribe("", false, false)
+	// Past the buffer: the frames are skipped and the subscriber stays.
+	for i := 0; i < ActivityBuffer+10; i++ {
+		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "Bash"})
+	}
+	if mine.dropped || len(mine.act) != ActivityBuffer {
+		t.Errorf("dropped %v, %d queued, want %d", mine.dropped, len(mine.act), ActivityBuffer)
+	}
+	if len(other.act) != 0 || none.act != nil {
+		t.Errorf("another run's subscriber got %d frames, one that wants none has a channel: %v", len(other.act), none.act)
+	}
+	if bus.Subscribers() != 3 {
+		t.Errorf("%d subscribers, want 3", bus.Subscribers())
 	}
 }

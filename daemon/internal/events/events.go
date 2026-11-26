@@ -17,6 +17,9 @@ import (
 // LiveBuffer is how many live events a subscriber may be behind before it is dropped.
 const LiveBuffer = 1024
 
+// ActivityBuffer is how many activity frames a subscriber may be behind before newer ones are skipped.
+const ActivityBuffer = 256
+
 const backlogPage = 500
 
 // ErrSlow ends the stream of a subscriber that fell behind; it resumes from its cursor.
@@ -36,6 +39,8 @@ type sub struct {
 	runID        string // only this run's events, when set
 	deviceEvents bool   // whether host device-management events are delivered
 	dropped      bool
+	// act carries ephemeral activity frames, for a subscriber served by Serve (nil: it wants none).
+	act chan *v1.AgentActivity
 }
 
 // New returns a bus over a store. Wire Publish to store.OnCommit.
@@ -66,8 +71,28 @@ func (b *Bus) Publish(evs []*v1.Event) {
 	}
 }
 
-func (b *Bus) subscribe(runID string, deviceEvents bool) *sub {
+// PublishActivity hands an ephemeral activity frame to the live subscribers of its run, without blocking. It is
+// never stored or replayed, and a subscriber whose buffer is full misses it: a lost frame is not worth dropping
+// the stream for, and the next one (or the next state event) says it again.
+func (b *Bus) PublishActivity(a *v1.AgentActivity) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for s := range b.subs {
+		if s.act == nil || !(s.runID == "" || a.RunId == s.runID) {
+			continue
+		}
+		select {
+		case s.act <- a:
+		default:
+		}
+	}
+}
+
+func (b *Bus) subscribe(runID string, deviceEvents, activity bool) *sub {
 	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID, deviceEvents: deviceEvents}
+	if activity {
+		s.act = make(chan *v1.AgentActivity, ActivityBuffer)
+	}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
 	b.mu.Unlock()
@@ -93,7 +118,7 @@ func (b *Bus) Subscribers() int {
 // SubscribeRun returns a channel receiving live events for runID (or all runs when empty) and an unsubscribe
 // function. If the subscriber falls behind LiveBuffer, the channel closes.
 func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, func()) {
-	s := b.subscribe(runID, deviceEvents)
+	s := b.subscribe(runID, deviceEvents, false)
 	return s.ch, func() { b.unsubscribe(s) }
 }
 
@@ -103,7 +128,7 @@ func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, f
 func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents bool, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
-	live := b.subscribe(req.RunId, deviceEvents)
+	live := b.subscribe(req.RunId, deviceEvents, true)
 	defer b.unsubscribe(live)
 
 	gen := b.store.Generation()
@@ -158,6 +183,10 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 		case <-stopping:
 			return send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_End{
 				End: &v1.End{Reason: "daemon shutting down"}}})
+		case a := <-live.act:
+			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_Activity{Activity: a}}); err != nil {
+				return err
+			}
 		case ev, ok := <-live.ch:
 			if !ok {
 				return connect.NewError(connect.CodeResourceExhausted, ErrSlow)

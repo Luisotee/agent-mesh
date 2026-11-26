@@ -6,6 +6,8 @@ import { createAppModel, type HostRuntime } from '@/model'
 import type { DesktopApi, OpenedLink } from '../shared/api'
 import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
+import { Dock } from '@/components/dock'
+import { TabBar } from '@/components/tab-bar'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
@@ -53,7 +55,9 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
           </aside>
           <main className="flex min-w-0 flex-1 flex-col">
             <ConnectionBanner host={host} />
+            <TabBar />
             <MainPane host={host} />
+            <Dock />
           </main>
         </>
       )}

@@ -19,6 +19,12 @@ export const LIVE_WITHIN_MS = 60_000
 
 const MAX_BODY = 200
 
+/** Whether an event just happened, by the host's clock (`clockSkewMs`: how far it is ahead of ours): history replayed after a reconnect isn't live. */
+export function isLive(e: Event, now: number, clockSkewMs = 0): boolean {
+  const at = e.time ? Number(e.time.seconds) * 1000 + Math.floor(e.time.nanos / 1e6) : 0
+  return now + clockSkewMs - at <= LIVE_WITHIN_MS
+}
+
 function brief(text: string): string {
   // A notification is plain text: drop the Markdown's own marks (headings, bullets, emphasis, code ticks).
   const flat = text
@@ -38,9 +44,8 @@ function brief(text: string): string {
  * far the host's clock is ahead of ours.
  */
 export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, clockSkewMs = 0): Notice | undefined {
-  const at = e.time ? Number(e.time.seconds) * 1000 + Math.floor(e.time.nanos / 1e6) : 0
   // The event's time is the host's: compare it with the host's clock now, not ours.
-  if (now + clockSkewMs - at > LIVE_WITHIN_MS) return undefined
+  if (!isLive(e, now, clockSkewMs)) return undefined
   const p = e.payload
   switch (p.case) {
     case 'agentStateChanged': {

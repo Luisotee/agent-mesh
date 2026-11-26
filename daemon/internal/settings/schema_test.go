@@ -35,7 +35,7 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 func TestTheAppRowsAreInTheTable(t *testing.T) {
 	s := Default()
 	got := s.Keys("app.")
-	want := []string{"app.notify.enabled", "app.notify.events", "app.notify.sound", "app.tray.close_to_tray"}
+	want := []string{"app.dock.new_agents", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.tray.close_to_tray"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("app rows %v, want %v", got, want)
 	}
@@ -103,6 +103,26 @@ func TestAKindsLeafTakesItsOwnChoices(t *testing.T) {
 	}
 	if _, err := Check(l, []any{"claude"}); err == nil || !strings.Contains(err.Error(), "a list of a, b") {
 		t.Errorf("a kind outside the choices: %v", err)
+	}
+}
+
+func TestAStringLeafWithChoicesTakesOnlyThem(t *testing.T) {
+	l, _ := Default().Lookup("app.dock.new_agents")
+	for _, v := range []string{"dock", "badge", "tab", "none"} {
+		if _, err := Check(l, v); err != nil {
+			t.Errorf("%q refused: %v", v, err)
+		}
+	}
+	if _, err := Check(l, "popup"); err == nil || !strings.Contains(err.Error(), "one of dock, badge, tab, none") {
+		t.Errorf("a string outside the choices: %v", err)
+	}
+	// The other string with choices keeps working, and is checked now too.
+	mcp, _ := Default().Lookup("claude.mcp")
+	if _, err := Check(mcp, "inherit"); err != nil {
+		t.Error(err)
+	}
+	if _, err := Check(mcp, "everything"); err == nil {
+		t.Error("claude.mcp took a value outside its choices")
 	}
 }
 

@@ -32,6 +32,8 @@ export function controlFor(type: string, choices: string[]): Control {
     case 'chain':
       return { kind: 'lines' }
     case 'string':
+      // A string with choices is one of them (the host refuses any other).
+      return choices.length ? { kind: 'select', choices } : { kind: 'text' }
     case 'mb_or_auto':
       return { kind: 'text' }
     default:

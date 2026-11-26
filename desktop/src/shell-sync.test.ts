@@ -31,6 +31,8 @@ const msg = (id: string, type: MessageType, from: string, to: string, body: stri
   create(MessageSchema, { id, runId: 'r1', type, body, toId: to, createdAt: timestampFromMs(NOW()), from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: ActorClass.WORKER, runId: 'r1' } })
 const event = (seq: number, payload: Event['payload'], age = 100, agentId = 'w1') => create(EventSchema, { seq: BigInt(seq), generation: 'g', runId: 'r1', agentId, time: timestampFromMs(NOW() - age), payload })
 const sentEvent = (seq: number, m: ReturnType<typeof msg>, age = 100) => event(seq, { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: m } }, age)
+const spawned = (seq: number, a: ReturnType<typeof agent>, age = 100, cls = ActorClass.WORKER) =>
+  create(EventSchema, { seq: BigInt(seq), generation: 'g', runId: 'r1', agentId: a.id, time: timestampFromMs(NOW() - age), actor: { $typeName: 'agentmesh.v1.Actor', id: 'x', name: 'x', class: cls, runId: 'r1' }, payload: { case: 'agentSpawned', value: { $typeName: 'agentmesh.v1.AgentSpawned', agent: a } } })
 const waiting = (kind: WaitingKind, agentId: string, message?: ReturnType<typeof msg>) => create(WaitingSchema, { kind, runId: 'r1', agentId, message })
 const settingOf = (key: string, type: string, def: unknown) =>
   create(SettingDescriptor, { key, value: settings[key] ?? fromJson(ValueSchema, def as never), default: fromJson(ValueSchema, def as never), isSet: key in settings, schema: create(SettingSchemaSchema, { type, summary: key }) })
@@ -63,7 +65,7 @@ beforeEach(async () => {
           listSettings: async () => {
             await settingsGate
             return create(ListSettingsResponseSchema, {
-              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed', 'error']), settingOf('app.tray.close_to_tray', 'bool', false)],
+              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed', 'error']), settingOf('app.tray.close_to_tray', 'bool', false), settingOf('app.dock.new_agents', 'string', 'dock')],
             })
           },
           async *subscribeEvents() {
@@ -106,7 +108,7 @@ async function boot() {
   } as unknown as DesktopApi
   const model = createAppModel(api)
   await model.load()
-  await vi.waitFor(() => expect(Object.keys(model.store.getState().hosts[0]!.store.getState().settings)).toHaveLength(4))
+  await vi.waitFor(() => expect(Object.keys(model.store.getState().hosts[0]!.store.getState().settings)).toHaveLength(5))
   return { model, shell, hostStore: model.store.getState().hosts[0]!.store }
 }
 
@@ -186,6 +188,41 @@ it('a setting changed while the list is on its way is not lost to it', async () 
   push(event(1, { case: 'settingChanged', value: { $typeName: 'agentmesh.v1.SettingChanged', key: 'app.notify.enabled', value: fromJson(ValueSchema, false), toDefault: false } }))
   await vi.waitFor(() => expect(hostStore.getState().cursor?.seq).toBe(1n))
   open()
-  await vi.waitFor(() => expect(Object.keys(hostStore.getState().settings)).toHaveLength(4))
+  await vi.waitFor(() => expect(Object.keys(hostStore.getState().settings)).toHaveLength(5))
   expect(toJson(ValueSchema, hostStore.getState().settings['app.notify.enabled']!.value!)).toBe(false)
+})
+
+it('marks a worker that starts while the app is open as new in the dock, without moving focus, and only that worker', async () => {
+  const { model, hostStore } = await boot()
+  model.selectAgent('h', 'lead')
+  // Live and started by an agent: marked new. History (an hour old) and the user's own spawn aren't.
+  push(spawned(1, agent('w2', 'app-new', AgentRole.WORKER, 'lead')))
+  push(spawned(2, agent('w3', 'app-old', AgentRole.WORKER, 'lead'), 3_600_000))
+  push(spawned(3, agent('w4', 'app-mine', AgentRole.WORKER, 'lead'), 100, ActorClass.DEVICE))
+  await vi.waitFor(() => expect(Object.keys(hostStore.getState().agents)).toContain('w4'))
+  const s = model.store.getState()
+  expect(Object.keys(s.newTiles)).toEqual(['h/w2'])
+  expect(s).toMatchObject({ agentId: 'lead', tabs: [{ hostId: 'h', agentId: 'lead' }], dockBadge: 0 })
+  // Looking at it clears the mark.
+  model.selectAgent('h', 'w2')
+  expect(model.store.getState().newTiles).toEqual({})
+})
+
+it('opens a new worker as a background tab when the host says tab', async () => {
+  settings['app.dock.new_agents'] = fromJson(ValueSchema, 'tab')
+  const { model, hostStore } = await boot()
+  model.selectAgent('h', 'lead')
+  push(spawned(1, agent('w2', 'app-new', AgentRole.WORKER, 'lead')))
+  await vi.waitFor(() => expect(Object.keys(hostStore.getState().agents)).toContain('w2'))
+  expect(model.store.getState()).toMatchObject({ agentId: 'lead', tabs: [{ agentId: 'lead' }, { agentId: 'w2' }], newTiles: {} })
+})
+
+it('counts a new worker on the dock\'s toggle while the dock is hidden, and clears the count when it is shown', async () => {
+  const { model, hostStore } = await boot()
+  model.setDock(false)
+  push(spawned(1, agent('w5', 'app-late', AgentRole.WORKER, 'lead')))
+  await vi.waitFor(() => expect(Object.keys(hostStore.getState().agents)).toContain('w5'))
+  expect(model.store.getState()).toMatchObject({ dockBadge: 1, dockOpen: false })
+  model.setDock(true)
+  expect(model.store.getState().dockBadge).toBe(0)
 })

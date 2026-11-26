@@ -7,6 +7,8 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { Dock } from './components/dock'
+import { TabBar } from './components/tab-bar'
 import { MessagesPanel } from './components/messages-panel'
 import { RunSidebar } from './components/run-sidebar'
 import { WaitingList } from './components/waiting-list'
@@ -454,5 +456,53 @@ describe('WaitingList', () => {
     host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { role: AgentRole.WORKER, parentId: 'lead' }) } }))
     render(wrap(<WaitingList host={host} />))
     expect(screen.queryByRole('region', { name: 'Waiting on you' })).toBeNull()
+  })
+})
+
+describe('Dock and TabBar', () => {
+  it('shows a tile per live agent with what it does, opens one as a tab on click, and closes tabs', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, lead: { ...s.agents.lead!, state: AgentState.WORKING, stateDetail: 'Edit' } } }))
+    render(wrap(<><TabBar /><Dock /></>))
+    const dock = screen.getByRole('region', { name: 'Live dock' })
+    expect(dock).toHaveTextContent('2 agents')
+    expect(dock).toHaveTextContent('1 need you')
+    const tiles = within(dock).getAllByRole('listitem')
+    // The one that needs the user comes first; the other shows its tool.
+    expect(tiles[0]).toHaveTextContent('app-fix')
+    expect(tiles[1]).toHaveTextContent('Working: Edit')
+    expect(screen.queryByRole('tablist', { name: 'Open agents' })).toBeNull()
+
+    await userEvent.click(within(tiles[1]!).getByRole('button', { name: /Working: Edit/ }))
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'lead', tabs: [{ agentId: 'lead' }] })
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).getByRole('tab', { name: /app-lead/ })).toHaveAttribute('aria-selected', 'true')
+
+    await userEvent.click(within(dock).getByRole('button', { name: /Needs you/ }))
+    expect(within(tabs).getAllByRole('tab')).toHaveLength(2)
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Close app-fix' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'lead', tabs: [{ agentId: 'lead' }] })
+  })
+
+  it('marks a new worker, hides a dismissed tile, and folds away', async () => {
+    const { host, wrap, model } = fixture()
+    model.store.setState({ newTiles: { 'h1/w1': Date.now() } })
+    render(wrap(<Dock />))
+    const dock = screen.getByRole('region', { name: 'Live dock' })
+    expect(dock).toHaveTextContent('1 new')
+    expect(within(screen.getByRole('listitem', { name: 'app-fix in the dock' })).getByText('new')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss app-fix from the dock' }))
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+    // It comes back when the agent's state changes.
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } })))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hide the live dock' }))
+    expect(screen.queryByRole('listitem', { name: /in the dock/ })).toBeNull()
+    act(() => model.store.setState({ dockBadge: 2 }))
+    expect(screen.getByRole('status')).toHaveTextContent('2 started')
+    await userEvent.click(screen.getByRole('button', { name: 'Show the live dock' }))
+    expect(model.store.getState().dockBadge).toBe(0)
   })
 })

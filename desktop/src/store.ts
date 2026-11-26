@@ -49,7 +49,7 @@ const MAX_LOG = 200
 
 /**
  * Applies one frame of the event stream. A snapshot replaces runs and agents (a resync); a resume keeps them;
- * an event changes one thing. Pure, so the stream and its replay can be checked to give the same state.
+ * an event changes one thing; an activity frame updates what a working agent is running. Pure, so the stream and its replay can be checked to give the same state.
  */
 export function applyFrame(s: HostState, frame: Frame): HostState {
   switch (frame.case) {
@@ -65,6 +65,11 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
     }
     case 'resumed':
       return { ...s, synced: true }
+    // The tool an agent is running, live only: kept where the agent's own state detail is, with the time of it.
+    case 'activity': {
+      const { agentId, detail, time } = frame.value
+      return withAgent(s, agentId, (a) => (a.state === AgentState.WORKING ? { ...a, stateDetail: detail, lastActivity: time ?? a.lastActivity } : a))
+    }
     case 'event':
       return applyEvent(s, frame.value)
     default:

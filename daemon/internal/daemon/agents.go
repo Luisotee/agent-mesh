@@ -648,8 +648,15 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	if before.State == v1.AgentState_AGENT_STATE_LIMITED && s.State != v1.AgentState_AGENT_STATE_LIMITED {
 		d.clearOpenCodeEvidence(a.Id)
 	}
-	// The detail alone (the tool now running) changes on every tool call: kept on the agent, not logged.
+	// The detail alone (the tool now running) changes on every tool call: kept on the agent, not logged, but told to
+	// the live subscribers as an ephemeral frame (what the apps' dock shows).
 	if s.State == before.State && s.NeedsInput == before.NeedsInput {
+		for _, ev := range evs {
+			if ev.GetActivity() != nil {
+				d.bus.PublishActivity(&v1.AgentActivity{RunId: a.RunId, AgentId: a.Id, Detail: s.Detail, Time: timestamppb.New(s.LastActivity)})
+				break
+			}
+		}
 		return nil
 	}
 	_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentStateChanged{

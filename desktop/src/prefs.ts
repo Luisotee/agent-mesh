@@ -8,7 +8,12 @@ export interface AppPrefs {
   notifySound: boolean
   notifyEvents: ReadonlySet<string>
   closeToTray: boolean
+  /** What a worker that starts while the app is open does (`app.dock.new_agents`). */
+  dockNewAgents: DockNewAgents
 }
+
+export type DockNewAgents = 'dock' | 'badge' | 'tab' | 'none'
+const DOCK_MODES: readonly string[] = ['dock', 'badge', 'tab', 'none']
 
 export function jsonOf(s: Setting | undefined): unknown {
   return s?.value ? toJson(ValueSchema, s.value) : undefined
@@ -23,6 +28,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   notifySound: true,
   notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error']),
   closeToTray: false,
+  dockNewAgents: 'dock',
 }
 
 export function appPrefs(settings: Record<string, Setting>): AppPrefs {
@@ -31,10 +37,12 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
     return typeof v === 'boolean' ? v : d
   }
   const events = jsonOf(settings['app.notify.events'])
+  const dock = jsonOf(settings['app.dock.new_agents'])
   return {
     notifyEnabled: bool('app.notify.enabled', DEFAULT_PREFS.notifyEnabled),
     notifySound: bool('app.notify.sound', DEFAULT_PREFS.notifySound),
     notifyEvents: Array.isArray(events) ? new Set(events.filter((e): e is string => typeof e === 'string')) : DEFAULT_PREFS.notifyEvents,
     closeToTray: bool('app.tray.close_to_tray', DEFAULT_PREFS.closeToTray),
+    dockNewAgents: DOCK_MODES.includes(dock as string) ? (dock as DockNewAgents) : DEFAULT_PREFS.dockNewAgents,
   }
 }

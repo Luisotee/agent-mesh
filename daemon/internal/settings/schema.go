@@ -99,6 +99,9 @@ func (s *Schema) Keys(prefix string) []string {
 func (l Leaf) rule() string {
 	switch l.Type {
 	case String:
+		if len(l.Choices) > 0 {
+			return "one of " + strings.Join(l.Choices, ", ")
+		}
 		return "a non-empty string"
 	case Strings:
 		return "a list of non-empty strings"
@@ -169,7 +172,7 @@ func Check(l Leaf, v any) (any, error) {
 	}
 	switch l.Type {
 	case String:
-		if !text(v) {
+		if !text(v) || (len(l.Choices) > 0 && !oneOf(v, l.Choices)) {
 			return bad()
 		}
 	case Strings:
@@ -421,6 +424,9 @@ var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "ex
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
 var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
 
+// DockNewAgents are the choices of app.dock.new_agents.
+var DockNewAgents = []string{"dock", "badge", "tab", "none"}
+
 // AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
 // and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
 func AppLeaves() []Leaf {
@@ -435,6 +441,8 @@ func AppLeaves() []Leaf {
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
 			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit"},
+		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
+			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
 		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,
 			Summary: "closing the desktop window keeps the app running in the tray (off by default: a desktop with no tray would leave no way back to the window)"},
 	}
