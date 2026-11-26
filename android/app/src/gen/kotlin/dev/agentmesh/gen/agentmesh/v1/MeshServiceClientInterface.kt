@@ -199,7 +199,8 @@ public interface MeshServiceClientInterface {
   public suspend fun removePeer(request: RemovePeerRequest, headers: Headers = emptyMap()): ResponseMessage<RemovePeerResponse>
 
   /**
-   *  Register the peers of bin/mesh's peers.json (read only), without their conversations.
+   *  Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
+   *  that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
    */
   public suspend fun importPeers(request: ImportPeersRequest, headers: Headers = emptyMap()): ResponseMessage<ImportPeersResponse>
 
