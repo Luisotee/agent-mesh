@@ -207,6 +207,9 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
 		return true, ""
 	}
 	chain = d.expandChain(opencode.Kind, chain)
+	if len(chain) == 0 {
+		return false, d.openCodeNoFreeError()
+	}
 	var soonest time.Time
 	for _, m := range chain {
 		if m == opencode.FreeFamily {

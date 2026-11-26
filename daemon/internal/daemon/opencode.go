@@ -45,11 +45,22 @@ type openCodeEvidenceKey struct {
 	evidence   string
 }
 
+const openCodeWarmRetryAfter = 60 * time.Second
+
 type openCodeRuntime struct {
 	mu           sync.Mutex
 	polled       map[string]*openCodePollState
 	seenEvidence map[openCodeEvidenceKey]bool
 	freeModels   []string
+	lastWarmFail time.Time
+	lastWarmErr  string
+}
+
+func (d *Daemon) nowTime() time.Time {
+	if d != nil && d.now != nil {
+		return d.now()
+	}
+	return time.Now()
 }
 
 func (d *Daemon) opencodeAdapter() *opencode.Adapter {
@@ -98,7 +109,8 @@ func (d *Daemon) cliBinary(kind string) (string, bool) {
 }
 
 // warmOpenCodeModels resolves OpenCode's `free` family outside any store.Write transaction so pick() and
-// nextOnChain() can expand tier chains in memory without shelling out under SQLite's writer lock.
+// nextOnChain() can expand tier chains in memory without shelling out under SQLite's writer lock. Failed
+// listings are remembered for openCodeWarmRetryAfter so repeated sends do not each wait on the failure.
 func (d *Daemon) warmOpenCodeModels(ctx context.Context, kind string) {
 	if kind != opencode.Kind {
 		return
@@ -111,17 +123,44 @@ func (d *Daemon) warmOpenCodeModels(ctx context.Context, kind string) {
 	if !have && oc.ListModels == nil {
 		return
 	}
-	expanded, err := oc.ExpandChain(ctx, bin, d.opencodeBaseEnv(), []string{opencode.FreeFamily})
-	if err != nil || len(expanded) == 0 {
+	now := d.nowTime()
+	d.rt.openCode.mu.Lock()
+	if !d.rt.openCode.lastWarmFail.IsZero() && now.Sub(d.rt.openCode.lastWarmFail) < openCodeWarmRetryAfter {
+		d.rt.openCode.mu.Unlock()
 		return
 	}
-	d.rt.openCode.mu.Lock()
-	d.rt.openCode.freeModels = expanded
 	d.rt.openCode.mu.Unlock()
+
+	expanded, err := oc.ExpandChain(ctx, bin, d.opencodeBaseEnv(), []string{opencode.FreeFamily})
+	d.rt.openCode.mu.Lock()
+	defer d.rt.openCode.mu.Unlock()
+	if err != nil || len(expanded) == 0 {
+		d.rt.openCode.lastWarmFail = d.nowTime()
+		if err != nil {
+			d.rt.openCode.lastWarmErr = err.Error()
+		} else {
+			d.rt.openCode.lastWarmErr = "no free models returned"
+		}
+		return
+	}
+	d.rt.openCode.freeModels = expanded
+	d.rt.openCode.lastWarmFail = time.Time{}
+	d.rt.openCode.lastWarmErr = ""
+}
+
+func (d *Daemon) openCodeNoFreeError() string {
+	d.rt.openCode.mu.Lock()
+	warmErr := d.rt.openCode.lastWarmErr
+	d.rt.openCode.mu.Unlock()
+	if warmErr != "" {
+		return fmt.Sprintf("no active zero-cost %s models available (%s)", opencode.Kind, warmErr)
+	}
+	return fmt.Sprintf("no active zero-cost %s models found (`opencode models opencode`)", opencode.Kind)
 }
 
 // expandChain replaces any `free` entry in an OpenCode tier chain with the cached expanded `opencode/*` free
-// models, deduplicating while preserving order. Non-OpenCode chains are returned unchanged.
+// models, deduplicating while preserving order. When the cache is empty, `free` is dropped rather than
+// returning the literal family name so no agent ever launches on `"free"`.
 func (d *Daemon) expandChain(kind string, chain []string) []string {
 	if kind != opencode.Kind {
 		return chain
@@ -129,9 +168,6 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 	d.rt.openCode.mu.Lock()
 	free := append([]string(nil), d.rt.openCode.freeModels...)
 	d.rt.openCode.mu.Unlock()
-	if len(free) == 0 {
-		return chain
-	}
 	var out []string
 	seen := map[string]bool{}
 	for _, item := range chain {
@@ -146,9 +182,6 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 			seen[m] = true
 			out = append(out, m)
 		}
-	}
-	if len(out) == 0 {
-		return chain
 	}
 	return out
 }
@@ -253,7 +286,8 @@ func (d *Daemon) readScreen(ctx context.Context, terminalID string) ([]byte, err
 // their session IDs, drives WORKING / IDLE / ERROR / LIMITED transitions via the reducer, and records model
 // limit holds from `opencode.db` and in-flight retry banners.
 func (d *Daemon) pollOpenCode(ctx context.Context) {
-	if d.rt.term == nil {
+	oc := d.opencodeAdapter()
+	if d.rt == nil || d.rt.term == nil || oc == nil {
 		return
 	}
 	agents, err := d.store.Read(ctx).ListAgents("")
@@ -318,7 +352,7 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 		if a.CreatedAt != nil {
 			notBefore = a.CreatedAt.AsTime()
 		}
-		dbPath := d.opencodeAdapter().DBPath(d.agentEnv(a, ""))
+		dbPath := oc.DBPath(d.agentEnv(a, ""))
 		info, dbErr := opencode.InspectSession(dbPath, a.SessionId, a.Worktree, a.Repo, a.Model, since, notBefore)
 
 		now := d.now()

@@ -115,7 +115,8 @@ var inheritedEnv = []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "LANG", 
 	"GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "AWS_PROFILE", "AWS_REGION",
 	"AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
-// Provider API keys passed only to OpenCode agents (never to other CLIs or read-only agents of other kinds).
+// Provider API keys passed only to OpenCode agents whose model isn't an `opencode/*` free/built-in model,
+// so read-only free reviewers of an untrusted PR never receive third-party provider secrets.
 var opencodeInheritedEnv = []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"}
 
 type ticket struct {
@@ -727,7 +728,7 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 			env[k] = v
 		}
 	}
-	if a.Kind == opencode.Kind {
+	if a.Kind == opencode.Kind && !strings.HasPrefix(a.Model, "opencode/") {
 		for _, k := range opencodeInheritedEnv {
 			if v, ok := os.LookupEnv(k); ok {
 				env[k] = v

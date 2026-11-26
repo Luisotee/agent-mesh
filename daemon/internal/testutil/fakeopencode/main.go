@@ -6,6 +6,7 @@
 //
 //	any text       inserts user + completed assistant message in opencode.db
 //	/hold          inserts user + open assistant message, waits for a line, then completes
+//	/abort         writes MessageAbortedError assistant message (Esc abort)
 //	/edit          creates blocked.txt unless OPENCODE_PERMISSION denies edits
 //	/push          prints "pushed" unless OPENCODE_PERMISSION denies git push
 //	/limit-free    writes FreeUsageLimitError reply and prints retry banner
@@ -203,8 +204,23 @@ func main() {
 		case "/hold":
 			fmt.Print("holding\r\n")
 			in.Scan()
-			writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "stop", nil)
-			fmt.Print("resumed\r\n")
+			nextLine := strings.TrimSpace(strings.NewReplacer("\x1b[200~", "", "\x1b[201~", "").Replace(in.Text()))
+			if nextLine == "/abort" {
+				writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "", map[string]any{
+					"name": "MessageAbortedError",
+					"data": map[string]any{"message": "Aborted"},
+				})
+				fmt.Print("aborted\r\n")
+			} else {
+				writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "stop", nil)
+				fmt.Print("resumed\r\n")
+			}
+		case "/abort":
+			writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "", map[string]any{
+				"name": "MessageAbortedError",
+				"data": map[string]any{"message": "Aborted"},
+			})
+			fmt.Print("aborted\r\n")
 		case "/edit":
 			if editDenied() {
 				fmt.Print("edit denied\r\n")

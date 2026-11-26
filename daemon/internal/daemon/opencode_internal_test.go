@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +21,10 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
@@ -104,17 +109,29 @@ func TestOpenCodeAPIKeysOnlyInheritedByOpenCodeAgents(t *testing.T) {
 	}
 	d := &Daemon{rt: rt, paths: Paths{Dir: t.TempDir()}}
 
-	ocEnv := d.agentEnv(&v1.Agent{Id: "a-oc", RunId: "r1", Kind: opencode.Kind}, "tok")
-	for _, k := range opencodeInheritedEnv {
-		if ocEnv[k] == "" {
-			t.Errorf("opencode agentEnv missing %s", k)
+	// Non-opencode/* OpenCode models (paid providers) and default-model root receive provider keys.
+	for _, a := range []*v1.Agent{
+		{Id: "a-paid", RunId: "r1", Kind: opencode.Kind, Model: "openai/gpt-5.2", Role: v1.AgentRole_AGENT_ROLE_WORKER},
+		{Id: "a-root", RunId: "r1", Kind: opencode.Kind, Model: "", Role: v1.AgentRole_AGENT_ROLE_ROOT},
+	} {
+		ocEnv := d.agentEnv(a, "tok")
+		for _, k := range opencodeInheritedEnv {
+			if ocEnv[k] == "" {
+				t.Errorf("opencode %q agentEnv missing %s", a.Model, k)
+			}
 		}
 	}
-	for _, kind := range []string{"claude", "agy"} {
-		otherEnv := d.agentEnv(&v1.Agent{Id: "a-" + kind, RunId: "r1", Kind: kind}, "tok")
+	// opencode/* free models and non-opencode kinds must not receive provider keys.
+	for _, a := range []*v1.Agent{
+		{Id: "a-free-rev", RunId: "r1", Kind: opencode.Kind, Model: "opencode/big-pickle", Role: v1.AgentRole_AGENT_ROLE_REVIEWER},
+		{Id: "a-free-wrk", RunId: "r1", Kind: opencode.Kind, Model: "opencode/deepseek-v4.1-flash-free", Role: v1.AgentRole_AGENT_ROLE_WORKER},
+		{Id: "a-claude", RunId: "r1", Kind: "claude", Model: "sonnet"},
+		{Id: "a-agy", RunId: "r1", Kind: "agy", Model: "flash"},
+	} {
+		otherEnv := d.agentEnv(a, "tok")
 		for _, k := range opencodeInheritedEnv {
 			if _, has := otherEnv[k]; has {
-				t.Errorf("%s agentEnv must not inherit %s", kind, k)
+				t.Errorf("%s (%s) agentEnv must not inherit %s", a.Kind, a.Model, k)
 			}
 		}
 	}
@@ -292,4 +309,131 @@ func TestOpenCodePollOnlyAdvancesLastOutputOnSuccess(t *testing.T) {
 	if !gotLast.Equal(outTime) {
 		t.Fatalf("lastOutput = %v, want %v after successful poll", gotLast, outTime)
 	}
+}
+
+func TestOpenCodeFreeFamilyNeverReturnedWhenExpansionEmpty(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	rt, err := newRuntime(AgentConfig{LookPath: func(string) (string, bool) { return "", false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{store: st, rt: rt, paths: Paths{Dir: dir}, schema: settings.Default(), now: time.Now}
+	r := st.Read(context.Background())
+
+	if exp := d.expandChain(opencode.Kind, []string{opencode.FreeFamily}); len(exp) != 0 {
+		t.Fatalf("expandChain with empty cache = %v, want empty", exp)
+	}
+	if exp := d.expandChain(opencode.Kind, []string{"openai/gpt-5.2", opencode.FreeFamily}); len(exp) != 1 || exp[0] != "openai/gpt-5.2" {
+		t.Fatalf("expandChain mixed = %v, want [openai/gpt-5.2]", exp)
+	}
+	if got := d.firstFree(r, opencode.Kind, "low", nil); got != "" {
+		t.Fatalf("firstFree(nil) = %q, want empty", got)
+	}
+	if got := d.firstFree(r, opencode.Kind, "low", []string{opencode.FreeFamily}); got != "" {
+		t.Fatalf("firstFree([free]) = %q, want empty", got)
+	}
+	if got := d.nextFree(r, opencode.Kind, "low", []string{"a", opencode.FreeFamily}, 0); got != "" {
+		t.Fatalf("nextFree([a, free], 0) = %q, want empty", got)
+	}
+	if _, _, perr := d.pick(r, opencode.Kind, "light", "", "", "worker"); perr == nil {
+		t.Fatal("pick(tier=light) succeeded with empty free expansion")
+	}
+	if _, _, perr := d.pick(r, opencode.Kind, "", opencode.FreeFamily, "", "worker"); perr == nil {
+		t.Fatal("pick(model=free) succeeded with empty free expansion")
+	}
+}
+
+func TestOpenCodeWarmNegativeCacheSkipsRetryWithinWindow(t *testing.T) {
+	oc := opencode.New()
+	calls := 0
+	failErr := errors.New("exit status 1: upstream unreachable")
+	shouldFail := true
+	oc.ListModels = func(context.Context, string, map[string]string) (string, error) {
+		calls++
+		if shouldFail {
+			return "", failErr
+		}
+		return "opencode/big-pickle\n{\"id\":\"big-pickle\",\"providerID\":\"opencode\",\"status\":\"active\",\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-20\"}\n", nil
+	}
+	rt, err := newRuntime(AgentConfig{
+		Adapters: []adapter.Adapter{oc},
+		LookPath: func(string) (string, bool) { return "", false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	d := &Daemon{rt: rt, now: func() time.Time { return now }}
+
+	d.warmOpenCodeModels(context.Background(), opencode.Kind)
+	d.warmOpenCodeModels(context.Background(), opencode.Kind)
+	now = now.Add(30 * time.Second)
+	d.warmOpenCodeModels(context.Background(), opencode.Kind)
+	if calls != 1 {
+		t.Fatalf("ListModels called %d times within negative-cache window, want 1", calls)
+	}
+	if msg := d.openCodeNoFreeError(); !strings.Contains(msg, failErr.Error()) {
+		t.Fatalf("openCodeNoFreeError = %q, want %q", msg, failErr.Error())
+	}
+
+	// Once openCodeWarmRetryAfter lapses, warm retries and clears lastWarmFail on success.
+	now = now.Add(openCodeWarmRetryAfter)
+	shouldFail = false
+	d.warmOpenCodeModels(context.Background(), opencode.Kind)
+	if calls != 2 {
+		t.Fatalf("ListModels called %d times after retry window, want 2", calls)
+	}
+	if exp := d.expandChain(opencode.Kind, []string{opencode.FreeFamily}); len(exp) != 1 || exp[0] != "opencode/big-pickle" {
+		t.Fatalf("expanded after recovery = %v, want [opencode/big-pickle]", exp)
+	}
+	if !d.rt.openCode.lastWarmFail.IsZero() || d.rt.openCode.lastWarmErr != "" {
+		t.Fatalf("warm failure state not cleared on success: lastWarmFail=%v lastWarmErr=%q", d.rt.openCode.lastWarmFail, d.rt.openCode.lastWarmErr)
+	}
+}
+
+func TestOpenCodePollSkipsWhenAdapterMissing(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now()
+	rt, err := newRuntime(AgentConfig{
+		Adapters: []adapter.Adapter{claude.New()}, // no opencode adapter registered
+		LookPath: func(string) (string, bool) { return "", false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.term = &termclient.Client{
+		API: &stubListTerm{terminals: []*termv1.Terminal{{
+			Id: "t1", StartedAt: timestamppb.New(now), LastOutput: timestamppb.New(now.Add(time.Second)),
+		}}},
+	}
+	d := &Daemon{
+		store: st, paths: Paths{Dir: dir}, rt: rt,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: time.Now,
+	}
+	if err := st.Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		if err := tx.PutRun(&v1.Run{Id: "r1", Status: v1.RunStatus_RUN_STATUS_OPEN, CreatedAt: timestamppb.New(now)}); err != nil {
+			return err
+		}
+		return tx.PutAgent(&v1.Agent{
+			Id: "a1", RunId: "r1", Name: "repo-oc", Kind: opencode.Kind, Role: v1.AgentRole_AGENT_ROLE_WORKER,
+			Model: "opencode/big-pickle", Worktree: dir, TerminalId: "t1",
+			State: v1.AgentState_AGENT_STATE_IDLE, CreatedAt: timestamppb.New(now),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Must return cleanly without panicking.
+	d.pollOpenCode(context.Background())
 }

@@ -308,6 +308,23 @@ func TestLookupSessionAndInspectSessionWAL(t *testing.T) {
 	if info2.Status != "" || info2.HasModelReply {
 		t.Fatalf("switched model should ignore old model reply: %+v", info2)
 	}
+
+	// MessageAbortedError (Esc abort) is treated as an idle turn end, not a failure.
+	seedTestDB(t, dbPath, true, func(db *sql.DB) {
+		aborted, _ := json.Marshal(map[string]any{
+			"role": "assistant", "providerID": "opencode", "modelID": "beam-free",
+			"time":  map[string]any{"created": now.Add(3 * time.Second).UnixMilli(), "completed": now.Add(4 * time.Second).UnixMilli()},
+			"error": map[string]any{"name": "MessageAbortedError", "data": map[string]any{"message": "Aborted"}},
+		})
+		db.Exec(`INSERT INTO message VALUES ('m_abort', 'ses_new', ?, ?, ?)`, now.Add(3*time.Second).UnixMilli(), now.Add(4*time.Second).UnixMilli(), string(aborted))
+	})
+	info3, err := InspectSession(dbPath, "ses_new", wt, repo, "opencode/beam-free", now.Add(2500*time.Millisecond), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info3.Status != "idle" || info3.ErrorText != "" {
+		t.Fatalf("InspectSession on MessageAbortedError = %+v, want status=idle", info3)
+	}
 }
 
 func TestMatchPaneLimitAndQuotedNonMatches(t *testing.T) {

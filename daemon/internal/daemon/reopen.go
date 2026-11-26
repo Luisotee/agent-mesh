@@ -95,17 +95,7 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		return "", "", invalid("effort %q: one of %s", effort, strings.Join(settings.Efforts, ", "))
 	}
 	if model != "" {
-		if kind == opencode.Kind && model == opencode.FreeFamily {
-			expanded := d.expandChain(kind, []string{model})
-			if len(expanded) == 0 {
-				return "", "", invalid("no active zero-cost %s models found for %q", kind, model)
-			}
-			if effort == "" {
-				effort = namedEffort
-			}
-			return d.firstFree(r, kind, effort, expanded), effort, nil
-		}
-		if effort == "" {
+		if effort == "" && !(kind == opencode.Kind && model == opencode.FreeFamily) {
 			effort = d.rt.adapters.ModelEffort(context.Background(), kind, model)
 		}
 		if tier != "" {
@@ -119,6 +109,14 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		}
 		if effort == "" {
 			effort = namedEffort
+		}
+		if kind == opencode.Kind && model == opencode.FreeFamily {
+			expanded := d.expandChain(kind, []string{model})
+			chosen := d.firstFree(r, kind, effort, expanded)
+			if chosen == "" {
+				return "", "", invalid("%s", d.openCodeNoFreeError())
+			}
+			return chosen, effort, nil
 		}
 		return model, effort, nil
 	}
@@ -134,7 +132,11 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 	if effort == "" {
 		effort = e
 	}
-	return d.firstFree(r, kind, effort, chain), effort, nil
+	chosen := d.firstFree(r, kind, effort, chain)
+	if chosen == "" {
+		return "", "", invalid("%s", d.openCodeNoFreeError())
+	}
+	return chosen, effort, nil
 }
 
 func validEffort(e string) bool {
@@ -515,14 +517,16 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		case m.Model != "":
 			model = m.Model
 			if a.Kind == opencode.Kind && model == opencode.FreeFamily {
-				expanded := d.expandChain(a.Kind, []string{model})
-				if len(expanded) == 0 {
-					return failedPrecondition("no active zero-cost %s models found for %q", a.Kind, model)
-				}
 				if m.Effort != "" {
 					effort = m.Effort
+				} else if effort == "" {
+					effort = namedEffort
 				}
+				expanded := d.expandChain(a.Kind, []string{model})
 				model = d.firstFree(tx.Reader, a.Kind, effort, expanded)
+				if model == "" {
+					return failedPrecondition("%s", d.openCodeNoFreeError())
+				}
 			} else if m.Effort != "" {
 				effort = m.Effort
 			} else if own := d.rt.adapters.ModelEffort(ctx, a.Kind, model); own != "" {
@@ -543,6 +547,9 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 				return err
 			}
 			chain = d.expandChain(a.Kind, chain)
+			if len(chain) == 0 {
+				return failedPrecondition("%s", d.openCodeNoFreeError())
+			}
 			if m.Effort != "" {
 				effort = m.Effort
 			}

@@ -703,3 +703,105 @@ func TestSwitchAgentNextChainChangedAndAllHeld(t *testing.T) {
 		t.Fatalf("claude SwitchAgent --next with i<0 = %v, %v; want chain[0] (opus)", swCl, err)
 	}
 }
+
+func TestOpenCodeEmptyFreeModelsNeverLaunchAsLiteralFree(t *testing.T) {
+	w := startReopen(t, fastPass, func(c *daemon.AgentConfig) {
+		// Force `opencode models --verbose` to output zero active free models.
+		c.Env["FAKEOPENCODE_MODELS"] = "openai/gpt-5.2\n{\"id\":\"gpt-5.2\",\"providerID\":\"openai\",\"status\":\"active\",\"cost\":{\"input\":5,\"output\":15},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-20\"}\n"
+	})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+
+	_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "no-free", Kind: opencode.Kind, Tier: "light",
+	}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "zero-cost") {
+		t.Fatalf("SpawnAgent with no free models = %v, want InvalidArgument naming missing free models", err)
+	}
+}
+
+func TestOpenCodeFreeModelUsesTierEffortAndSwitchEffortFallback(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+
+	// --model free --tier light picks light's effort ("low"), not namedEffort ("high").
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "free-tier", Kind: opencode.Kind, Tier: "light", Model: opencode.FreeFamily,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := sp.Msg.Agent
+	if a.Model == opencode.FreeFamily || !strings.HasPrefix(a.Model, "opencode/") || a.Effort != "low" {
+		t.Fatalf("free + tier=light got model=%q effort=%q, want opencode/* at low", a.Model, a.Effort)
+	}
+
+	// Explicit effort wins over tier effort.
+	sp2, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "free-exp", Kind: opencode.Kind, Tier: "light", Model: opencode.FreeFamily, Effort: "medium",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp2.Msg.Agent.Effort != "medium" {
+		t.Fatalf("free + tier=light + effort=medium got %q", sp2.Msg.Agent.Effort)
+	}
+
+	// --model free with no tier uses namedEffort ("high").
+	sp3, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "free-notier", Kind: opencode.Kind, Model: opencode.FreeFamily,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp3.Msg.Agent.Effort != "high" {
+		t.Fatalf("free without tier got effort=%q, want high", sp3.Msg.Agent.Effort)
+	}
+
+	// Root launched with empty model/effort switching to "free" without --effort falls back to namedEffort ("high").
+	rtSp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-root", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: opencode.Kind,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := w.waitState(rtSp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	root = w.opencodeTurn(t, root, "learn root session")
+	waitFor(t, "root session recorded", func() bool {
+		root = w.agent(root.Id)
+		return root.SessionId != "" && root.State == v1.AgentState_AGENT_STATE_IDLE
+	})
+	sw, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: root.Id, Model: opencode.FreeFamily}))
+	if err != nil || sw.Msg.Reopen == nil || sw.Msg.Reopen.Effort != "high" || !strings.HasPrefix(sw.Msg.Reopen.Model, "opencode/") {
+		t.Fatalf("SwitchAgent root to free = %v, %v; want opencode/* at high effort", sw, err)
+	}
+}
+
+func TestOpenCodeAbortedTurnBecomesIdleNotError(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-abort", Kind: opencode.Kind, Tier: "light",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	// Start a working turn, then simulate Esc abort (MessageAbortedError in opencode.db).
+	w.typeInto(a, "/hold\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_WORKING)
+	w.typeInto(a, "/abort\r")
+	a = w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if a.State != v1.AgentState_AGENT_STATE_IDLE {
+		t.Fatalf("aborted turn state = %v, want IDLE", a.State)
+	}
+
+	// Agent can still complete another turn cleanly after an abort.
+	a = w.opencodeTurn(t, a, "after abort")
+	if a.State != v1.AgentState_AGENT_STATE_IDLE {
+		t.Fatalf("post-abort turn state = %v, want IDLE", a.State)
+	}
+}

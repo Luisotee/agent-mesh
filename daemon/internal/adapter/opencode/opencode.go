@@ -675,6 +675,10 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 		if model != "" && msgModel != "/" && msgModel != model {
 			return out, nil
 		}
+		if lastMsg.Error.Name == "MessageAbortedError" {
+			out.Status = "idle"
+			return out, nil
+		}
 		if hit, ok := ClassifyReplyError(lastID, lastMsg.Error.Name, lastMsg.Error.Data.Message, lastMsg.Error.Data.ResponseBody, lastMsg.Error.Data.StatusCode); ok {
 			out.Status = "limited"
 			out.LimitMessage = hit.Message

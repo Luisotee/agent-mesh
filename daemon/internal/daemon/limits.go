@@ -62,16 +62,21 @@ func (d *Daemon) noteLimit(tx *store.Tx, a *v1.Agent, rl *adapterv1.RateLimited,
 }
 
 // firstFree is the first model of a chain with quota left (not held in SQLite and not under agy's reserve); with
-// every one held or spent, the one freed first (or with the most quota left).
+// every one held or spent, the one freed first (or with the most quota left). Returns "" when no launchable
+// model is in `chain` (never the literal unexpanded `free` family).
 func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) string {
-	now := d.now()
-	best, bestAt := chain[0], time.Time{}
+	now := d.nowTime()
+	var best string
+	var bestAt time.Time
 	var agySpent *struct {
 		left  int
 		model string
 	}
 	stop := d.quotaStop(r)
-	for i, m := range chain {
+	for _, m := range chain {
+		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
+			continue
+		}
 		until, _, err := r.ModelHold(kind, m, now)
 		if err != nil {
 			continue
@@ -90,7 +95,7 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 			}
 			return m
 		}
-		if i == 0 || until.Before(bestAt) {
+		if best == "" || until.Before(bestAt) {
 			best, bestAt = m, until
 		}
 	}
@@ -119,6 +124,9 @@ func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i
 	now := d.now()
 	stop := d.quotaStop(r)
 	for _, m := range chain[i+1:] {
+		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
+			continue
+		}
 		until, _, err := r.ModelHold(kind, m, now)
 		if err != nil || !until.IsZero() {
 			continue
@@ -267,6 +275,9 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
 	chain = d.expandChain(a.Kind, chain)
+	if len(chain) == 0 {
+		return "", nil
+	}
 	if effort == "" {
 		effort = tierEffort
 	}
