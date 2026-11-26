@@ -77,6 +77,10 @@ type AgentConfig struct {
 	MeminfoPath, PressurePath string
 	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
 	RetireEvery time.Duration
+	// SweepAgentPoll and SweepKillPoll override the process-sweep poll intervals (defaults 500 ms and 300 ms).
+	SweepAgentPoll, SweepKillPoll time.Duration
+	// Sys overrides OS process, affinity, signal, and systemd scope calls (for tests).
+	Sys *SystemOps
 	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
@@ -110,6 +114,7 @@ type runtime struct {
 	adapters *adapter.Registry
 	term     *termclient.Client
 	hello    *termv1.HelloResponse
+	sys      *SystemOps
 
 	mu          sync.Mutex
 	lastOutput  map[string]time.Time // terminal id → newest output mark
@@ -118,6 +123,7 @@ type runtime struct {
 	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 	guard       guard
+	cpus        cpuTracker
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -143,7 +149,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
+	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
@@ -201,6 +207,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var adoptSweeps []*v1.Agent
 	for _, a := range agents {
 		if claimed[a.TerminalId] {
 			continue
@@ -208,10 +215,12 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
 		if a.State == v1.AgentState_AGENT_STATE_RETIRED && ok && !t.Exited {
-			// A crash between marking it retired and stopping its process: finish the stop.
-			if err := d.finishRetire(ctx, a.Id); err != nil {
+			// A crash between marking it retired and stopping its process: finish the stop, and sweep leftovers
+			// off the startup path so a slow process exit doesn't hold up daemon boot.
+			if err := d.stopRetiredProcess(ctx, a.Id); err != nil {
 				return err
 			}
+			adoptSweeps = append(adoptSweeps, a)
 			continue
 		}
 		if a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED {
@@ -242,6 +251,12 @@ func (d *Daemon) adopt(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if t.StartedAt != nil {
+				d.rt.guard.seed(a.Id, t.StartedAt.AsTime(), d.now())
+			}
+			if t.Pid > 0 {
+				d.adoptCPUHolder(ctx, a, int(t.Pid), t.PidStartTicks)
+			}
 			d.log.Info("adopted terminal", "agent", a.Name, "terminal", t.Id, "pid", t.Pid)
 		}
 	}
@@ -250,6 +265,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 			d.log.Warn("terminal no agent claims; left running", "terminal", t.Id, "pid", t.Pid, "labels", t.Labels)
 		}
 	}
+	d.sweepAsync(adoptSweeps)
 	return nil
 }
 
@@ -708,8 +724,12 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return connect.NewResponse(out), nil
 		}
 	}
-	// The cap, early, before a worktree is made for nothing; the launch checks it again where it is stored.
+	// The cap and memory floor, early, before a worktree is made for nothing; the launch checks both again
+	// where the agent is stored (reserving its memory then).
 	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+		return nil, err
+	}
+	if err := d.checkMemoryGuard(r, "an agent in "+m.Repo); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(m.Repo) == "" {
@@ -885,6 +905,9 @@ func (d *Daemon) startTerminal(ctx context.Context, a *v1.Agent, token string, p
 		Argv: plan.Argv, Env: plan.Env, Cwd: a.Worktree, Cols: 120, Rows: 40, Labels: labels}))
 	if err != nil {
 		return "", err
+	}
+	if a.Role != v1.AgentRole_AGENT_ROLE_ROOT && term.Msg.Terminal.Pid > 0 {
+		d.confineAgent(ctx, int(term.Msg.Terminal.Pid), term.Msg.Terminal.PidStartTicks, a.Name)
 	}
 	return term.Msg.Terminal.Id, nil
 }
