@@ -213,7 +213,8 @@ public interface MeshServiceClientInterface {
   public suspend fun ask(request: AskRequest, headers: Headers = emptyMap()): ResponseMessage<AskResponse>
 
   /**
-   *  Record the root's verdict on one reviewer's findings of a round.
+   *  Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+   *  own newest round, never one the root asked) or the root's (which replaces it).
    */
   public suspend fun recordVerdict(request: RecordVerdictRequest, headers: Headers = emptyMap()): ResponseMessage<RecordVerdictResponse>
 

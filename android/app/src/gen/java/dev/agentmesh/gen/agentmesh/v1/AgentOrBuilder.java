@@ -634,4 +634,26 @@ public interface AgentOrBuilder extends
    * @return The mcpAll.
    */
   boolean getMcpAll();
+
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The reviewBy.
+   */
+  java.lang.String getReviewBy();
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The bytes for reviewBy.
+   */
+  com.google.protobuf.ByteString
+      getReviewByBytes();
 }

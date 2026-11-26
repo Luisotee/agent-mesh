@@ -344,7 +344,7 @@ func (x *AskMember) GetAbout() string {
 	return ""
 }
 
-// Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
+// Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
 type Verdict struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Reviewer string                 `protobuf:"bytes,1,opt,name=reviewer,proto3" json:"reviewer,omitempty"`
@@ -356,8 +356,10 @@ type Verdict struct {
 	Other    int32  `protobuf:"varint,6,opt,name=other,proto3" json:"other,omitempty"`
 	Disagree int32  `protobuf:"varint,7,opt,name=disagree,proto3" json:"disagree,omitempty"`
 	// Of the findings agreed with or otherwise useful, how many were blocking.
-	Blocking      int32                  `protobuf:"varint,8,opt,name=blocking,proto3" json:"blocking,omitempty"`
-	At            *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=at,proto3" json:"at,omitempty"`
+	Blocking int32                  `protobuf:"varint,8,opt,name=blocking,proto3" json:"blocking,omitempty"`
+	At       *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=at,proto3" json:"at,omitempty"`
+	// Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+	Judge         string `protobuf:"bytes,10,opt,name=judge,proto3" json:"judge,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -453,6 +455,13 @@ func (x *Verdict) GetAt() *timestamppb.Timestamp {
 		return x.At
 	}
 	return nil
+}
+
+func (x *Verdict) GetJudge() string {
+	if x != nil {
+		return x.Judge
+	}
+	return ""
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.
@@ -703,6 +712,7 @@ type AskRequest struct {
 	// fresh agent is started in `repo`.
 	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
 	// The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+	// A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
 	Repo string `protobuf:"bytes,3,opt,name=repo,proto3" json:"repo,omitempty"`
 	// The question, or the notes to the reviewers; `@file` reads it from a file.
 	Body string `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
@@ -710,6 +720,7 @@ type AskRequest struct {
 	Review string `protobuf:"bytes,5,opt,name=review,proto3" json:"review,omitempty"`
 	// trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
 	Size string `protobuf:"bytes,6,opt,name=size,proto3" json:"size,omitempty"`
+	// The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`.
 	Tier string `protobuf:"bytes,7,opt,name=tier,proto3" json:"tier,omitempty"`
 	// The CLI of a fresh agent; a round chooses its own.
 	Kind   string `protobuf:"bytes,8,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -2116,7 +2127,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x04head\x18\v \x01(\tR\x04head\x12\x1b\n" +
 	"\tpeer_repo\x18\f \x01(\tR\bpeerRepo\x12!\n" +
 	"\fupstream_new\x18\r \x01(\x05R\vupstreamNew\x12\x14\n" +
-	"\x05about\x18\x0e \x01(\tR\x05about\"\xf3\x01\n" +
+	"\x05about\x18\x0e \x01(\tR\x05about\"\x89\x02\n" +
 	"\aVerdict\x12\x1a\n" +
 	"\breviewer\x18\x01 \x01(\tR\breviewer\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -2126,7 +2137,9 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05other\x18\x06 \x01(\x05R\x05other\x12\x1a\n" +
 	"\bdisagree\x18\a \x01(\x05R\bdisagree\x12\x1a\n" +
 	"\bblocking\x18\b \x01(\x05R\bblocking\x12*\n" +
-	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\x90\x06\n" +
+	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12\x14\n" +
+	"\x05judge\x18\n" +
+	" \x01(\tR\x05judge\"\x90\x06\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
