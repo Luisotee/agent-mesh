@@ -10,6 +10,8 @@ export interface AppPrefs {
   closeToTray: boolean
   /** What a worker that starts while the app is open does (`app.dock.new_agents`). */
   dockNewAgents: DockNewAgents
+  /** The host's choice of theme (a name from `shared/themes`; an unknown one falls back to the default). */
+  theme: string
 }
 
 export type DockNewAgents = 'dock' | 'badge' | 'tab' | 'none'
@@ -29,6 +31,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error']),
   closeToTray: false,
   dockNewAgents: 'dock',
+  theme: 'Dracula',
 }
 
 export function appPrefs(settings: Record<string, Setting>): AppPrefs {
@@ -44,6 +47,7 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
     notifyEvents: Array.isArray(events) ? new Set(events.filter((e): e is string => typeof e === 'string')) : DEFAULT_PREFS.notifyEvents,
     closeToTray: bool('app.tray.close_to_tray', DEFAULT_PREFS.closeToTray),
     dockNewAgents: DOCK_MODES.includes(dock as string) ? (dock as DockNewAgents) : DEFAULT_PREFS.dockNewAgents,
+    theme: typeof jsonOf(settings['app.theme']) === 'string' ? (jsonOf(settings['app.theme']) as string) : DEFAULT_PREFS.theme,
   }
 }
 

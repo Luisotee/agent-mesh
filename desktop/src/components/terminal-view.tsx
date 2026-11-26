@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { HostRuntime } from '@/model'
 import { TerminalSession, type TermState } from '@/terminal/session'
-import { activeTheme } from '@/theme'
+import { activeTheme, monoStack, onThemeChange } from '@/theme'
 
 const encoder = new TextEncoder()
 
@@ -48,7 +48,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     const el = box.current
     if (!el) return
     const t = new Terminal({
-      fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace",
+      fontFamily: monoStack(activeTheme),
       fontSize: 13,
       cursorBlink: true,
       scrollback: 10_000,
@@ -88,7 +88,14 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     session.start()
     const ro = new ResizeObserver(refit)
     ro.observe(el)
+    // Another theme repaints this terminal in its colours and font.
+    const offTheme = onThemeChange((th) => {
+      t.options.theme = th.terminal
+      t.options.fontFamily = monoStack(th)
+      refit()
+    })
     return () => {
+      offTheme()
       ro.disconnect()
       session.dispose()
       t.dispose()

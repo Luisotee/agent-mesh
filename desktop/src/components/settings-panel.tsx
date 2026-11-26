@@ -1,7 +1,7 @@
 import { toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { RotateCcw } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { resetSetting, setSetting } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,9 @@ import { useApp, useAppState, useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { ShortcutField } from './shortcut-field'
+import { cleanPath, knownRepos, repoName, sameRepo } from '@/derive'
 import { controlFor, fromText, groupOf, toText, type Control } from '@/settings-form'
+import { themeNames } from '@/theme'
 
 const json = (v: Setting['value']): unknown => (v ? toJson(ValueSchema, v) : undefined)
 const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
@@ -38,6 +40,7 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
     return [...by.entries()]
   }, [settings, query, changed])
   const total = Object.keys(settings).length
+  const agents = useHostState(host, (s) => s.agents)
   return (
     <section aria-label="Settings" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
       <header className="flex flex-col gap-1">
@@ -50,6 +53,7 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
           <input type="checkbox" checked={changed} onChange={(e) => setChanged(e.target.checked)} /> Only the ones I set
         </label>
       </div>
+      {settings[FREE_KEY] && <FreeModels host={host} setting={settings[FREE_KEY]} repos={knownRepos(agents)} />}
       {total === 0 && <p className="text-xs text-muted-foreground">The host hasn't sent its settings yet.</p>}
       {total > 0 && groups.length === 0 && <p className="text-xs text-muted-foreground">No setting matches.</p>}
       {groups.map(([group, list]) => (
@@ -70,10 +74,91 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
   )
 }
 
+const FREE_KEY = 'repos.no_free_models'
+/** How long a written list is built on while the host's change event has not arrived (then the host's list is). */
+const WRITE_GRACE_MS = 5000
+
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i])
+
+/**
+ * Which repos' code may go to OpenCode's free models (some of their providers keep prompts or train on them). The
+ * setting is a list of the repos kept away from them; here each repo the host knows is a switch on that list, and
+ * a listed folder no agent works in is shown too, so it can be taken off.
+ */
+function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Setting; repos: string[] }) {
+  const listed = useMemo(() => {
+    const v = json(setting.value)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  }, [setting.value])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  // The list as last written: the host's change event reaches `listed` a moment after the write answers, and a toggle
+  // in between must build on what was written, not on the older list (which would undo the first toggle).
+  const written = useRef<{ list: string[]; at: number } | undefined>(undefined)
+  useEffect(() => {
+    const w = written.current
+    if (w && sameList(w.list, listed)) written.current = undefined
+  }, [listed])
+  // Each repo once, then the listed folders no repo here is: a `~` or trailing-slash spelling is the repo it names.
+  const all = [...repos]
+  for (const l of listed) if (!all.some((r) => sameRepo(l, r))) all.push(cleanPath(l))
+  async function toggle(repo: string, mayUse: boolean) {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    const w = written.current
+    const base = w && Date.now() - w.at < WRITE_GRACE_MS ? w.list : listed
+    const next = mayUse ? base.filter((l) => !sameRepo(l, repo)) : [...base, repo]
+    try {
+      await setSetting(host.client, FREE_KEY, next as never)
+      written.current = { list: next, at: Date.now() }
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section aria-label="Free models by repo" className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
+      <h2 className="text-[13px] font-semibold">Free models by repo</h2>
+      <p className="text-xs text-muted-foreground">
+        Some of OpenCode's free models are served by providers that keep prompts or train on them. Switch a repo off to keep its code from them: nothing there is started on, switched to or picked as a reviewer on a zero-cost model. A paid OpenCode model stays allowed, and agents already running keep their model. Every repo may by default.
+      </p>
+      {all.length === 0 && <p className="text-xs text-muted-foreground">No repo yet: the ones agents work in show up here.</p>}
+      <ul className="flex flex-col divide-y">
+        {all.map((repo) => {
+          const mayUse = !listed.some((l) => sameRepo(l, repo))
+          return (
+            <li key={repo} className="flex items-center gap-3 py-1.5">
+              <label className="flex flex-1 items-center gap-2 text-[13px]" title={repo}>
+                <input type="checkbox" aria-label={`May use free models: ${repoName(repo)}`} checked={mayUse} disabled={busy} onChange={(e) => void toggle(repo, e.target.checked)} />
+                <span className="font-medium">{repoName(repo)}</span>
+                <span className="truncate font-mono text-[11px] text-muted-foreground">{repo}</span>
+              </label>
+              <span className="text-xs text-muted-foreground">{mayUse ? 'free models allowed' : 'kept from free models'}</span>
+            </li>
+          )
+        })}
+      </ul>
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+    </section>
+  )
+}
+
+/**
+ * `app.theme` is a plain string on the host (a host can name a theme this build lacks, and themes may come from
+ * files later), so the desktop offers the themes it has, plus whatever the host has set.
+ */
+function controlOf(key: string, type: string, choices: string[], current: unknown): Control {
+  if (key !== 'app.theme') return controlFor(type, choices)
+  const names = themeNames()
+  return { kind: 'select', choices: typeof current === 'string' && !names.includes(current) ? [current, ...names] : names }
+}
+
 function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting }) {
   const type = s.schema?.type ?? 'json'
-  const control = controlFor(type, s.schema?.choices ?? [])
   const current = json(s.value)
+  const control = controlOf(s.key, type, s.schema?.choices ?? [], current)
   const [draft, setDraft] = useState(() => toText(control, current))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)

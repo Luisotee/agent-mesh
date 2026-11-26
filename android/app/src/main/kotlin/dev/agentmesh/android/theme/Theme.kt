@@ -5,6 +5,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import dev.agentmesh.android.net.toJson
+import dev.agentmesh.android.store.HostState
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -19,9 +22,15 @@ data class ThemeSpec(
     val name: String,
     val dark: Boolean,
     val tokens: Map<String, String>,
-    /** background, foreground, cursor, selection, and red green yellow blue magenta cyan; the rest is derived. */
+    /** background, foreground, cursor, selection, the eight colours and their `bright` ones (`brightRed`…); what is left out is derived. */
     val terminal: Map<String, String> = emptyMap(),
+    /** The desktop's fonts and density (the files are shared); Android keeps its own type and spacing. */
+    val font: ThemeFont = ThemeFont(),
+    val density: String = "compact",
 )
+
+@Serializable
+data class ThemeFont(val sans: String = "Inter", val mono: String = "JetBrains Mono")
 
 /** The agent states' colours, which Material's scheme has no place for. */
 data class StateColors(
@@ -110,7 +119,9 @@ object Themes {
         val tBg = tc("background", surface)
         val tFg = tc("foreground", foreground)
         val normal = listOf(tc("black", tBg), red, green, yellow, blue, magenta, cyan, tc("white", tFg))
-        val bright = listOf(tc("brightBlack", states.idle)) + normal.drop(1).map { lighten(it, 0.2f) }
+        // A theme's own bright colours when it lists them (the desktop reads the same keys), else the normal one lightened.
+        val names = listOf("Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White")
+        val bright = names.mapIndexed { i, n -> tc("bright$n", if (i == 0) states.idle else lighten(normal[i], 0.2f)) }
         val terminal = TerminalColors(tBg, tFg, tc("cursor", tFg), tc("selection", border), normal + bright)
         return MeshTheme(spec.name, spec.dark, scheme, states, terminal)
     }
@@ -118,3 +129,13 @@ object Themes {
     /** Whether a theme is dark, judged by its background, for a file that doesn't say. */
     fun isDark(background: Color) = background.luminance() < 0.5f
 }
+
+/**
+ * The theme a host names with its `app.theme` setting, when it has set one itself: a setting's value is the effective
+ * one, so a host that never set it reports its default ("Dracula"), which is not a choice to follow.
+ */
+fun hostTheme(s: HostState): String? =
+    s.settings["app.theme"]?.takeIf { it.isSet }?.value?.toJson()?.let { it as? JsonPrimitive }?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+
+/** The theme the phone follows with several hosts: the first host, in the list's order, that has set one. */
+fun followedTheme(states: List<HostState>): String? = states.firstNotNullOfOrNull { hostTheme(it) }

@@ -119,6 +119,31 @@ export function knownRepos(agents: Record<string, Agent>): string[] {
   return [...seen.entries()].filter(([r]) => r).sort((a, b) => b[1] - a[1]).map(([r]) => r)
 }
 
+/** A folder as one spelling: no repeated or trailing slashes ("/" stays "/"). */
+export const cleanPath = (p: string) => {
+  const c = p.replace(/\/{2,}/g, '/').replace(/\/+$/, '')
+  return c === '' && p.startsWith('/') ? '/' : c
+}
+
+/** Whether `tilde` is `~/x` and `abs` is `x` under a home folder (`/home/<user>`, `/Users/<user>`, `/root`). */
+function tildeOf(tilde: string, abs: string): boolean {
+  if (!tilde.startsWith('~/')) return false
+  const rest = tilde.slice(1)
+  return abs.endsWith(rest) && /^(\/home\/[^/]+|\/Users\/[^/]+|\/root)$/.test(abs.slice(0, abs.length - rest.length))
+}
+
+/**
+ * Whether two spellings of a folder (`~/projects/shop`, `/home/u/projects/shop/`) name the same folder, in either
+ * order: a setting's entry and a repo's folder. The host decides this itself (it expands `~` and resolves
+ * symlinks); the app has no home folder to expand with, so a `~/x` is taken to match `x` under a home folder
+ * (`/home/<user>`, `/Users/<user>`, `/root`). A symlink the host resolves is not seen here, so it shows as a row of its own.
+ */
+export function sameRepo(a: string, b: string): boolean {
+  const x = cleanPath(a)
+  const y = cleanPath(b)
+  return x === y || tildeOf(x, y) || tildeOf(y, x)
+}
+
 export interface Waiting {
   kind: 'plan' | 'question' | 'input'
   /** The agent that wrote the plan or asked, or is stopped at a prompt. */

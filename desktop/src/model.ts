@@ -117,6 +117,8 @@ export interface AppState extends WorkspaceState {
   paletteOpen: boolean
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
+  /** The main pane shows the host's quota usage and spend. */
+  usageOpen: boolean
 }
 
 export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
@@ -141,11 +143,12 @@ export interface AppModel {
   openSettings(open: boolean, query?: string): void
   openPalette(open: boolean): void
   openPairing(open: boolean): void
+  openUsage(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, usageOpen: false, paletteOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -181,7 +184,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     )
   api.shell.onNotificationClick((c) => {
     // A click on a notification of a host that has since been removed goes nowhere.
-    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false }))
+    if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false, usageOpen: false }))
   })
   let loading: Promise<void> | undefined
   async function loadHosts() {
@@ -224,12 +227,15 @@ export function createAppModel(api: DesktopApi): AppModel {
       configure()
     },
     selectHost: (id) =>
-      set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
+      set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, usageOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
     selectAgent: (hostId, agentId, tab) =>
-      set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false })),
-    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, settingsQuery: open ? query : '' }),
+      set((s) =>
+        agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, usageOpen: false },
+      ),
+    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, usageOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
-    openPairing: (open) => set({ pairOpen: open, settingsOpen: false }),
+    openPairing: (open) => set({ pairOpen: open, settingsOpen: false, usageOpen: false }),
+    openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false }),
     setTab: (tab) => set({ tab }),
     closeTab: (ref) => set((s) => closeTab(s, ref)),
     cycleTab: (by) => {

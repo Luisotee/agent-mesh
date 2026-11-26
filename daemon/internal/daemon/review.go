@@ -193,10 +193,10 @@ func (d *Daemon) installed(kind string) bool {
 
 // kindAvailable is whether a kind with limits of its own can take a review slot now: OpenCode by its tier's models,
 // Copilot by the kind-wide hold a 402 or a policy refusal leaves. Other kinds are always available.
-func (d *Daemon) kindAvailable(r store.Reader, kind, tier string) (bool, string) {
+func (d *Daemon) kindAvailable(r store.Reader, kind, tier, top, freeOff string) (bool, string) {
 	switch kind {
 	case opencode.Kind:
-		return d.openCodeAvailable(r, tier)
+		return d.openCodeAvailable(r, tier, top, freeOff)
 	case copilot.Kind:
 		return d.copilotAvailable(r, tier)
 	}
@@ -221,7 +221,7 @@ func (d *Daemon) copilotAvailable(r store.Reader, tier string) (bool, string) {
 	return true, ""
 }
 
-func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
+func (d *Daemon) openCodeAvailable(r store.Reader, tier, top, freeOff string) (bool, string) {
 	if !d.installed(opencode.Kind) {
 		return false, ""
 	}
@@ -239,6 +239,13 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
 	chain = d.expandChain(opencode.Kind, chain)
 	if len(chain) == 0 {
 		return false, d.openCodeNoFreeError()
+	}
+	if freeOff != "" {
+		kept, err := d.dropFree(top, freeOff, chain)
+		if err != nil {
+			return false, freeModelsNote(top)
+		}
+		chain = kept
 	}
 	var soonest time.Time
 	for _, m := range chain {
@@ -317,8 +324,10 @@ func authorLast(chain []string, author string) []string {
 // otherwise a comma list. A re-review asks the kinds of the last round again, except those in
 // `review.re_review.skip` (a size's `keep` list brings one back). It also returns what was left out, one
 // line each.
-func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, earlier []string) (kinds, notes []string, err error) {
+func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, earlier []string, top string) (kinds, notes []string, err error) {
 	key := sizeKey(size)
+	// A repo set against free models (freemodels.go) gets OpenCode only through a paid model of its tier.
+	off := d.freeModelsOff(r, top)
 	has := func(l []string, k string) bool {
 		for _, x := range l {
 			if x == k {
@@ -352,7 +361,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 					continue
 				}
 				if k == opencode.Kind || k == copilot.Kind {
-					if ok, why := d.kindAvailable(r, k, tier); !ok {
+					if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 						if why != "" {
 							held = append(held, why)
 						}
@@ -384,7 +393,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 				continue
 			}
 			if k == opencode.Kind || k == copilot.Kind {
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -401,7 +410,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
 			case k == opencode.Kind || k == copilot.Kind:
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -428,7 +437,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
 			case k == opencode.Kind || k == copilot.Kind:
-				if ok, why := d.kindAvailable(r, k, tier); !ok {
+				if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}

@@ -26,7 +26,7 @@ import java.io.File
 class PushSettingsTest {
     @get:Rule val compose = createComposeRule()
 
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
     private val container get() = (ApplicationProvider.getApplicationContext<Application>() as MeshApp).container
 
     private fun show() = compose.setContent {

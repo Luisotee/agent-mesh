@@ -1,6 +1,11 @@
 {
   "name": "Tokyo Night",
   "dark": true,
+  "font": {
+    "sans": "Inter",
+    "mono": "JetBrains Mono"
+  },
+  "density": "compact",
   "tokens": {
     "background": "#1a1b26",
     "foreground": "#c0caf5",
