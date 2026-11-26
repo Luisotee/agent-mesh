@@ -407,11 +407,18 @@ func TestGlobalStateReachesWhoamiAndDir(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
-	if code := Dir(env, []string{"--help"}); code != ExitOK {
-		t.Errorf("dir --help: %d", code)
+	if code := Dir(env, []string{"--help"}); code != ExitOK || !strings.Contains(out.String(), "-run") || errb.Len() != 0 {
+		t.Errorf("dir --help: %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
-	if code := Whoami(env, []string{"-h"}); code != ExitOK {
-		t.Errorf("whoami -h: %d", code)
+	out.Reset()
+	if code := Whoami(env, []string{"-h"}); code != ExitOK || !strings.Contains(out.String(), "-state") || errb.Len() != 0 {
+		t.Errorf("whoami -h: %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+	// A bad flag says so on stderr, with the usage, and prints nothing to stdout.
+	out.Reset()
+	if code := Dir(env, []string{"--nope"}); code != ExitUsage || out.Len() != 0 || !strings.Contains(errb.String(), "nope") ||
+		!strings.Contains(errb.String(), "-run") {
+		t.Errorf("dir --nope: %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 }
 

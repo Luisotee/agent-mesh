@@ -1,6 +1,6 @@
 # daemon
 
-The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`docs/apps.md`, "Order of work" step 1). It doesn't replace anything yet: the live mesh is still `bin/mesh`, and nothing here is installed or put on PATH.
+The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`docs/apps.md`, "Order of work" step 1). It doesn't replace anything yet: the live mesh is still `bin/mesh`. `./install.sh --daemon` installs it beside the live mesh, opt-in (see "Installing" below); nothing else installs it or puts it on PATH.
 
 ## Layout
 
@@ -18,8 +18,8 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `cmd/mesh-term`, `internal/termhost`: the terminal host. `internal/termclient`: the daemon's side of it (its API, terminal streams, starting it).
 - `internal/adapter`: the CLI-adapter registry; `internal/adapter/claude`: Claude Code's adapter; `internal/adapter/agy`: Antigravity CLI's (`agy`) adapter. `internal/reducer`: the pure state reducer. `internal/hook` and `cmd/mesh`: the hook command and its spool. `internal/proc`: pids checked by start time.
 - `internal/testutil/fakeclaude`, `internal/testutil/fakeagy`: the fake CLIs the tests run (turns and hooks, no network).
-- `packaging/systemd/`: the two user units for production (shipped, not installed).
-- `cmd/mesh`, `internal/cli`: the CLI (named `meshctl` until the switchover began), generated from the registry at run time.
+- `packaging/systemd/`: the two user units for production (`install.sh --daemon` installs them).
+- `cmd/mesh`, `internal/cli`: the CLI (`mesh`), generated from the registry at run time.
 - `e2e/`: the end-to-end test of the real binaries (`TestEndToEnd`).
 
 ## Toolchain
@@ -35,6 +35,18 @@ cd proto && buf generate                     # after changing a .proto
 cd daemon && go test ./internal/registry -update   # accept a reviewed change of who may call what
 cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitignored)
 ```
+
+## Installing
+
+`./install.sh --daemon` (opt-in; a plain `./install.sh` never builds or starts the daemon) puts the daemon beside the live mesh, from this checkout's branch:
+
+- It builds `cmd/meshd`, `cmd/mesh-term` and `cmd/mesh` into a temp folder first (a failed build changes nothing), then moves each binary into `~/.local/lib/agent-mesh/bin/` with one rename, so a running meshd or mesh-term is never broken by an upgrade. `daemon/share/` (the daemon's protocol and skills, once it exists) is copied to `~/.local/lib/agent-mesh/share/`. The installed daemon is versioned by install, not by the checked-out branch.
+- It copies `packaging/systemd/agent-mesh.service` and `agent-mesh-term.service` into `~/.config/systemd/user/` (or `$XDG_CONFIG_HOME`), each with a drop-in `<unit>.d/path.conf` holding the `PATH` of the shell that ran the installer: a user unit's own `PATH` is short, and the agents' CLIs (`claude`, `agy`) must be found. Re-run it to refresh that `PATH` or to upgrade.
+- It runs `systemctl --user daemon-reload`, `enable agent-mesh.service` and `restart agent-mesh.service` (meshd Wants the terminal host, which stays up across a meshd restart, with its terminals). Without a user session or `systemctl` the files are installed and it says how to start meshd.
+- It links `~/.local/bin/meshctl` to the installed `mesh` (a real file there is left alone) until `bin/mesh` is retired.
+- It never touches `~/.local/bin/mesh`, `~/.config/agent-mesh`, `~/.claude` or `~/.local/state/agent-mesh`. State is `~/.local/state/agent-mesh-daemon`.
+
+`./install.sh --daemon --uninstall` stops and disables the units and removes the units, drop-ins, binaries, `share/` and the `meshctl` link, and keeps the state. A plain `./install.sh --uninstall` leaves the daemon alone. `tests/test_install.py` runs all of it in a temp HOME with `go` and `systemctl` stubbed.
 
 ## Running a dev instance
 
@@ -62,7 +74,7 @@ daemon/bin/mesh send --to shop-api-fix-typo --type task --body "…"
 daemon/bin/mesh events --run-id <run>                 # follow; resume with --cursor '{"generation":…,"seq":…}'
 ```
 
-An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go) and `AGENT_MESH_CLI` (the absolute path of this `mesh`), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI. The live `bin/mesh` hands over to `$AGENT_MESH_CLI` when it sees `AGENT_MESH_TOKEN` without `MESH_RUN` (a login shell's rc file can put `~/.local/bin` back ahead of the `PATH`), and fails rather than run the herdr mesh for an agent of the daemon's. `meshd --meshctl` is the old name of `--mesh`. Until the switchover is finished (`docs/apps.md`, "Switchover") nothing here is installed over `bin/mesh`.
+An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go) and `AGENT_MESH_CLI` (the absolute path of this `mesh`), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI. The live `bin/mesh` hands over to `$AGENT_MESH_CLI` when it sees `AGENT_MESH_TOKEN` without `MESH_RUN` (a login shell's rc file can put `~/.local/bin` back ahead of the `PATH`), and fails rather than run the herdr mesh for an agent of the daemon's. `meshd --meshctl` is the old name of `--mesh`. Until the switchover is finished (`docs/apps.md`, "Switchover") nothing here replaces `bin/mesh`.
 
 ## Settings
 

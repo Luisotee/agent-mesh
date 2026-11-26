@@ -1,5 +1,6 @@
 """install.sh in a temp HOME: arguments, and the Claude Code plugin taking over the skills."""
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -136,3 +137,162 @@ def test_opencode_gets_the_block_only_where_it_wouldnt_hide_claude_md(tmp_path):
     rules.write_text("")
     assert install(tmp_path, "--uninstall", clis=("claude", "agy", "opencode")).returncode == 0
     assert rules.exists()  # one the user left empty, with no block in it, stays
+
+
+# ── install.sh --daemon: the daemon world beside the live mesh, with `go` and `systemctl` stubbed ──
+
+# a go that builds the packages it is given into the -o folder, as `go build -o dir/ ./cmd/a ./cmd/b` does
+GO_STUB = '''#!/bin/sh
+out=""; prev=""
+for a in "$@"; do
+  [ "$prev" = -o ] && out="$a"
+  case "$a" in ./cmd/*) mkdir -p "$out"; printf '#!/bin/sh\\n' > "$out${a#./cmd/}"; chmod +x "$out${a#./cmd/}";; esac
+  prev="$a"
+done
+'''
+BASH = shutil.which("bash")
+
+
+def daemon_install(home: Path, *args: str, go_fails: bool = False, with_systemctl: bool = True) -> subprocess.CompletedProcess:
+    stubs = home / "stub-bin"
+    stubs.mkdir(exist_ok=True)
+    calls = home / "systemctl.log"
+    go = "#!/bin/sh\necho boom >&2; exit 1\n" if go_fails else GO_STUB
+    (stubs / "go").write_text(go)
+    (stubs / "go").chmod(0o755)
+    if with_systemctl:
+        (stubs / "systemctl").write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+        (stubs / "systemctl").chmod(0o755)
+    return subprocess.run([BASH, str(ROOT / "install.sh"), "--daemon", *args], capture_output=True, text=True,
+                          env={"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin"}, timeout=60)
+
+
+def systemctl_calls(home: Path) -> list[str]:
+    log = home / "systemctl.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_daemon_install_builds_installs_units_and_links_meshctl(tmp_path):
+    done = daemon_install(tmp_path)
+    assert done.returncode == 0, done.stderr
+    lib = tmp_path / ".local" / "lib" / "agent-mesh"
+    for b in ("meshd", "mesh-term", "mesh"):
+        assert (lib / "bin" / b).stat().st_mode & 0o111, b
+    assert not list(lib.glob(".stage.*"))
+    units = tmp_path / ".config" / "systemd" / "user"
+    for unit in ("agent-mesh.service", "agent-mesh-term.service"):
+        assert (units / unit).read_text() == (ROOT / "daemon" / "packaging" / "systemd" / unit).read_text()
+        dropin = (units / f"{unit}.d" / "path.conf").read_text()
+        assert dropin.startswith("[Service]\nEnvironment=\"PATH=") and "/usr/bin" in dropin
+    meshctl = tmp_path / ".local" / "bin" / "meshctl"
+    assert meshctl.is_symlink() and meshctl.resolve() == (lib / "bin" / "mesh").resolve()
+    assert systemctl_calls(tmp_path) == ["--user daemon-reload", "--user enable agent-mesh.service",
+                                         "--user restart agent-mesh.service"]
+    # the live mesh's world is untouched
+    for path in (".local/bin/mesh", ".config/agent-mesh", ".claude", ".gemini", ".local/state"):
+        assert not (tmp_path / path).exists(), path
+
+
+def test_daemon_install_copies_share_and_is_safe_to_rerun(tmp_path):
+    share = ROOT / "daemon" / "share"
+    existed = share.exists()
+    share.mkdir(exist_ok=True)
+    marker = share / "protocol-test-marker.md"
+    try:
+        marker.write_text("x")
+        assert daemon_install(tmp_path).returncode == 0
+        lib = tmp_path / ".local" / "lib" / "agent-mesh"
+        assert (lib / "share" / "protocol-test-marker.md").read_text() == "x"
+        marker.unlink()
+        assert daemon_install(tmp_path).returncode == 0
+        assert not (lib / "share" / "protocol-test-marker.md").exists() and not (lib / "share.old").exists()
+    finally:
+        marker.unlink(missing_ok=True)
+        if not existed:
+            share.rmdir()
+    assert (tmp_path / ".local" / "bin" / "meshctl").is_symlink()
+
+
+def test_a_failed_build_changes_nothing(tmp_path):
+    assert daemon_install(tmp_path).returncode == 0
+    mesh = tmp_path / ".local" / "lib" / "agent-mesh" / "bin" / "mesh"
+    mesh.write_text("old")
+    done = daemon_install(tmp_path, go_fails=True)
+    assert done.returncode == 1 and "nothing was changed" in done.stderr
+    assert mesh.read_text() == "old"
+    assert not list((tmp_path / ".local" / "lib" / "agent-mesh").glob(".stage.*"))
+
+
+def bare_path(home: Path, *tools: str) -> str:
+    """A PATH holding only the named tools (symlinks), so `go` and `systemctl` are absent whatever the machine has."""
+    folder = home / "bare-bin"
+    folder.mkdir(exist_ok=True)
+    for tool in ("mktemp", "cp", "mv", "rm", "rmdir", "mkdir", "ln", "readlink", "dirname", "chmod", *tools):
+        (folder / tool).unlink(missing_ok=True)
+        (folder / tool).symlink_to(shutil.which(tool))
+    return str(folder)
+
+
+def test_daemon_install_without_go_changes_nothing(tmp_path):
+    done = subprocess.run([BASH, str(ROOT / "install.sh"), "--daemon"], capture_output=True, text=True,
+                          env={"HOME": str(tmp_path), "PATH": bare_path(tmp_path)}, timeout=60)
+    assert done.returncode == 1 and "needs Go" in done.stderr and not (tmp_path / ".local").exists()
+
+
+def test_daemon_install_without_systemctl_or_with_a_failing_one_still_installs(tmp_path):
+    bare = Path(bare_path(tmp_path))
+    (bare / "go").write_text(GO_STUB)
+    (bare / "go").chmod(0o755)
+
+    def run():
+        return subprocess.run([BASH, str(ROOT / "install.sh"), "--daemon"], capture_output=True, text=True,
+                              env={"HOME": str(tmp_path), "PATH": str(bare)}, timeout=60)
+
+    done = run()
+    assert done.returncode == 0 and "systemctl is not on PATH" in done.stderr, done.stderr
+    assert (tmp_path / ".local" / "lib" / "agent-mesh" / "bin" / "meshd").exists()
+    # a systemctl that fails (no user session) is a warning, not a failed install
+    (bare / "systemctl").write_text("#!/bin/sh\nexit 1\n")
+    (bare / "systemctl").chmod(0o755)
+    done = run()
+    assert done.returncode == 0 and "could not start agent-mesh.service" in done.stderr, done.stderr
+
+
+def test_daemon_install_leaves_a_real_meshctl_alone(tmp_path):
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+    (tmp_path / ".local" / "bin" / "meshctl").write_text("mine")
+    done = daemon_install(tmp_path)
+    assert done.returncode == 0 and "skip:" in done.stderr
+    assert (tmp_path / ".local" / "bin" / "meshctl").read_text() == "mine"
+
+
+def test_daemon_uninstall_reverses_it_and_keeps_state_and_the_live_mesh(tmp_path):
+    install(tmp_path)  # the live mesh, with its links
+    state = tmp_path / ".local" / "state" / "agent-mesh-daemon"
+    state.mkdir(parents=True)
+    (state / "meshd.db").write_text("runs")
+    daemon_install(tmp_path)
+    done = daemon_install(tmp_path, "--uninstall")
+    assert done.returncode == 0, done.stderr
+    assert not (tmp_path / ".local" / "lib" / "agent-mesh").exists()
+    assert not (tmp_path / ".config" / "systemd" / "user" / "agent-mesh.service").exists()
+    assert not (tmp_path / ".config" / "systemd" / "user" / "agent-mesh.service.d").exists()
+    assert not (tmp_path / ".local" / "bin" / "meshctl").exists()
+    assert "--user disable --now agent-mesh.service agent-mesh-term.service" in systemctl_calls(tmp_path)
+    assert (state / "meshd.db").read_text() == "runs"
+    assert (tmp_path / ".local" / "bin" / "mesh").is_symlink() and len(claude_skills(tmp_path)) == 8
+
+
+def test_plain_uninstall_leaves_the_daemon(tmp_path):
+    install(tmp_path)
+    daemon_install(tmp_path)
+    assert install(tmp_path, "--uninstall").returncode == 0
+    assert (tmp_path / ".local" / "lib" / "agent-mesh" / "bin" / "meshd").exists()
+    assert (tmp_path / ".local" / "bin" / "meshctl").is_symlink()
+
+
+def test_daemon_flag_conflicts_and_the_plain_install_never_builds(tmp_path):
+    done = install(tmp_path, "--daemon", "--plugin")
+    assert done.returncode == 2 and "usage:" in done.stderr
+    assert install(tmp_path).returncode == 0
+    assert not (tmp_path / ".local" / "lib").exists() and not (tmp_path / ".config" / "systemd").exists()
