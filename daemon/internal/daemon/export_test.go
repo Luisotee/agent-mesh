@@ -1,6 +1,9 @@
 package daemon
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // OnLaunched sets reopen's test seam (nil clears it).
 func OnLaunched(f func(agentID string, die func() bool)) { launchedHook = f }
@@ -29,3 +32,6 @@ func (d *Daemon) Reserved(agentID string) bool {
 
 // SameRelayURL exposes sameRelayURL.
 func SameRelayURL(a, b string) bool { return sameRelayURL(a, b) }
+
+// Accountability runs one pass of the accountability loop (nudges and alerts to parents).
+func (d *Daemon) Accountability(ctx context.Context) { d.accountability(ctx) }
