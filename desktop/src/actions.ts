@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'getUsage', 'getCost'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -67,3 +67,12 @@ export const listDevices = (c: MeshClient) => c.listDevices({ includeRevoked: fa
 
 /** Ends a device's access: its token stops working and its open streams close. */
 export const revokeDevice = (c: MeshClient, deviceId: string) => c.revokeDevice({ meta: meta(), deviceId })
+
+/** Quota usage (Claude's windows, agy's rows and tiers) and the reserve line, the same as `mesh usage`; `refresh` skips the host's cache. */
+export const getUsage = (c: MeshClient, refresh = false) => c.getUsage({ refresh })
+
+/**
+ * Spend from the session files, the same as `mesh cost`. A device names a run, or a window back from now (`24h`, `7d`):
+ * the host refuses a request that names neither.
+ */
+export const getCost = (c: MeshClient, scope: { runId: string } | { since: string }, agents = false) => c.getCost({ agents, runId: '', since: '', ...scope })

@@ -1,6 +1,11 @@
 {
   "name": "Catppuccin Latte",
   "dark": false,
+  "font": {
+    "sans": "Inter",
+    "mono": "Fira Code"
+  },
+  "density": "comfortable",
   "tokens": {
     "background": "#eff1f5",
     "foreground": "#4c4f69",
@@ -31,6 +36,8 @@
     "background": "#e6e9ef",
     "foreground": "#4c4f69",
     "cursor": "#dc8a78",
+    "black": "#5c5f77",
+    "white": "#acb0be",
     "selection": "#acb0be",
     "red": "#d20f39",
     "green": "#40a02b",

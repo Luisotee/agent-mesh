@@ -93,6 +93,19 @@ func (d *Daemon) tierChain(r store.Reader, kind, tier string) ([]string, string,
 // named, else the one its name fixes, as an exact agy id does, else the tier's, else high). There is no default:
 // neither is InvalidArgument.
 func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (string, string, error) {
+	return d.pickIn(r, "", "", kind, tier, model, effort, what)
+}
+
+// pickIn is pick for work in a repo that may be set to keep its code from OpenCode's free models (freemodels.go):
+// `freeOff` is the setting's entry that lists the repo ("" when it may use them), and `repo` names it in the error.
+// Only the zero-cost models are held back: a named one that is free (or can't be told from one) is refused, and a
+// tier's chain loses its free models.
+func (d *Daemon) pickIn(r store.Reader, repo, freeOff, kind, tier, model, effort, what string) (string, string, error) {
+	if freeOff != "" && kind == opencode.Kind && model != "" {
+		if err := d.checkNotFree(repo, freeOff, model); err != nil {
+			return "", "", err
+		}
+	}
 	if effort != "" && !validEffort(effort) {
 		return "", "", invalid("effort %q: one of %s", effort, strings.Join(settings.Efforts, ", "))
 	}
@@ -131,6 +144,11 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		return "", "", err
 	}
 	chain = d.expandChain(kind, chain)
+	if freeOff != "" && kind == opencode.Kind {
+		if chain, err = d.dropFree(repo, freeOff, chain); err != nil {
+			return "", "", err
+		}
+	}
 	if effort == "" {
 		effort = e
 	}
@@ -261,6 +279,13 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	lift := deny && !adapter.ReadOnly(a.Role)
 	if a.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED && !lift {
 		return nil
+	}
+	// Lifting a running planner's deny list reopens it on the model it has: not onto a free one its repo now refuses
+	// (a stopped one is checked when it is resumed). Before anything is written.
+	if lift && (a.PendingReopen != nil || !stopped(a)) {
+		if err := d.checkKept(tx.Reader, a, model); err != nil {
+			return err
+		}
 	}
 	if err := endPlanPhase(tx, a, "direct task"); err != nil {
 		return err
@@ -406,6 +431,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if m.Effort != "" {
 				effort = m.Effort
 			}
+			if err := d.checkKept(tx.Reader, a, model); err != nil {
+				return err
+			}
 			execTier = a.Tier
 		default:
 			tier := m.Tier
@@ -415,7 +443,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if tier == "" && m.Model == "" {
 				return invalid("name %s's execution tier (read its plan first), or a model", a.Name)
 			}
-			if model, effort, err = d.pick(tx.Reader, a.Kind, tier, m.Model, m.Effort, a.Name+"'s execution"); err != nil {
+			if model, effort, err = d.pickFor(tx.Reader, a, tier, m.Model, m.Effort, a.Name+"'s execution"); err != nil {
 				return err
 			}
 			execTier = tier
@@ -517,7 +545,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 		}
 		switch {
 		case m.Tier != "":
-			if model, effort, err = d.pick(tx.Reader, a.Kind, m.Tier, "", m.Effort, a.Name); err != nil {
+			if model, effort, err = d.pickFor(tx.Reader, a, m.Tier, "", m.Effort, a.Name); err != nil {
 				return err
 			}
 			if executing {
@@ -527,6 +555,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			}
 		case m.Model != "":
 			model = m.Model
+			// A repo set against free models (freemodels.go) is moved onto none, named or by the `free` family.
+			if off := d.freeOffFor(tx.Reader, a.Kind, a.Repo); off != "" {
+				if err := d.checkNotFree(a.Repo, off, model); err != nil {
+					return err
+				}
+			}
 			if a.Kind == opencode.Kind && model == opencode.FreeFamily {
 				if m.Effort != "" {
 					effort = m.Effort
@@ -560,6 +594,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			chain = d.expandChain(a.Kind, chain)
 			if len(chain) == 0 {
 				return failedPrecondition("%s", d.openCodeNoFreeError())
+			}
+			// A repo set against free models (freemodels.go) walks only the paid part of the chain.
+			if off := d.freeOffFor(tx.Reader, a.Kind, a.Repo); off != "" {
+				if chain, err = d.dropFree(a.Repo, off, chain); err != nil {
+					return err
+				}
 			}
 			if m.Effort != "" {
 				effort = m.Effort
@@ -599,6 +639,10 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			}
 		default:
 			effort = m.Effort
+			// The same model, so a free one its repo now refuses stays refused.
+			if err := d.checkKept(tx.Reader, a, model); err != nil {
+				return err
+			}
 		}
 		if model == was && effort == wasEffort {
 			return failedPrecondition("%s already runs on %s at %s effort", a.Name, model, effort)
@@ -706,23 +750,24 @@ func canResume(r store.Reader, actor *v1.Actor, a *v1.Agent, targetRunID string)
 
 func (d *Daemon) previewReviveTarget(r store.Reader, a *v1.Agent, spec reviveSpec) (string, string, error) {
 	model, effort, _ := target(a)
+	kept := func() (string, string, error) { return model, effort, d.checkKept(r, a, model) }
 	switch {
 	case spec.plan:
-		return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name+"'s planning")
+		return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name+"'s planning")
 	case spec.task:
 		if spec.tier != "" || spec.model != "" {
-			return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name)
+			return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name)
 		}
 		if spec.effort != "" {
 			effort = spec.effort
 		}
-		return model, effort, nil
+		return kept()
 	case spec.tier != "" || spec.model != "":
-		return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name)
+		return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name)
 	case spec.effort != "":
 		effort = spec.effort
 	}
-	return model, effort, nil
+	return kept()
 }
 
 // ResumeAgent brings an exited or retired agent back, in its own conversation. A task gives it new work (under
@@ -1110,12 +1155,20 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
 	model, effort, deny := target(a)
 	var err error
+	// A resume that names no tier or model keeps the model the agent had (a task, or an effort, on it): checked first,
+	// before the phase changes below write anything, so a refusal leaves the agent exactly as it was. A tier or a
+	// model named is checked where it is picked (pickFor).
+	if !spec.plan && spec.tier == "" && spec.model == "" {
+		if err := d.checkKept(tx.Reader, a, model); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case spec.plan:
 		// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
 		// tier's, which is not where plans are made).
 		tier := spec.tier
-		if model, effort, err = d.pick(tx.Reader, a.Kind, tier, spec.model, spec.effort, a.Name+"'s planning"); err != nil {
+		if model, effort, err = d.pickFor(tx.Reader, a, tier, spec.model, spec.effort, a.Name+"'s planning"); err != nil {
 			return nil, err
 		}
 		if spec.model != "" {
@@ -1135,7 +1188,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		// was executing), or none when the model is named.
 		endExecution(a)
 		if spec.tier != "" || spec.model != "" {
-			if model, effort, err = d.pick(tx.Reader, a.Kind, spec.tier, spec.model, spec.effort, a.Name); err != nil {
+			if model, effort, err = d.pickFor(tx.Reader, a, spec.tier, spec.model, spec.effort, a.Name); err != nil {
 				return nil, err
 			}
 			a.Tier = spec.tier
@@ -1155,7 +1208,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			return nil, err
 		}
 	case spec.tier != "" || spec.model != "":
-		if model, effort, err = d.pick(tx.Reader, a.Kind, spec.tier, spec.model, spec.effort, a.Name); err != nil {
+		if model, effort, err = d.pickFor(tx.Reader, a, spec.tier, spec.model, spec.effort, a.Name); err != nil {
 			return nil, err
 		}
 		tier := spec.tier

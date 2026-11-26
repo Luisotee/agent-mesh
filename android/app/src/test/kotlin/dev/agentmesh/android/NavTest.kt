@@ -28,7 +28,7 @@ import java.io.File
 class NavTest {
     @get:Rule val compose = createComposeRule()
 
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
 
     /** A tapped notification leaves hosts, the host and the agent on the stack, however often and from wherever it is tapped. */
     @Test fun `tapping notifications for the same agent again never stacks a second copy`() {
