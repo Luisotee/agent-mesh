@@ -16,8 +16,9 @@ export function vendorOfModel(model: string): Vendor {
   // DeepSeek first: its models are named `deepseek-v4-flash` and `-pro`, which the Gemini names below would claim.
   if (/deepseek/.test(m)) return 'deepseek'
   if (/(^|[^a-z])(claude|opus|sonnet|haiku|fable)([^a-z]|$)/.test(m)) return 'claude'
-  if (/gemini|neon|carbon|argon|hydrogen|flash|(^|[^a-z])pro([^a-z]|$)/.test(m)) return 'gemini'
+  // OpenAI before Gemini: `gpt-5-pro` and `o3-pro` carry the bare `pro` the Gemini names below match.
   if (/^(gpt|o\d|codex|chatgpt)|[-/](gpt|codex)/.test(m)) return 'openai'
+  if (/gemini|neon|carbon|argon|hydrogen|flash|(^|[^a-z])pro([^a-z]|$)/.test(m)) return 'gemini'
   return 'other'
 }
 

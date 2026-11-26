@@ -26,7 +26,15 @@ const list = (settings: Record<string, Setting>, key: string): string[] => {
 
 const trim = (p: string) => p.replace(/[/\\]+$/, '')
 const name = (p: string) => trim(p).split(/[/\\]/).pop() ?? p
-const names = (entry: string, repo: string) => trim(entry) === trim(repo) || trim(entry) === name(repo)
+const exact = (entry: string, repo: string) => trim(entry) === trim(repo)
+const names = (entry: string, repo: string) => exact(entry, repo) || trim(entry) === name(repo)
+
+/**
+ * The entries that cover the repo only by its folder's name (`api` for `/p/api`): they cover every repo of that name,
+ * so the app sets the level by the repo's path and never edits them (the user's own words in the settings).
+ */
+export const nameEntries = (settings: Record<string, Setting>, repo: string): string[] =>
+  [MERGES_KEY, PLANS_KEY].flatMap((k) => list(settings, k)).filter((e) => names(e, repo) && !exact(e, repo))
 
 /** Whether the host has the two settings (an older host has not): without them no level can be kept. */
 export const hasLevels = (settings: Record<string, Setting>) => !!settings[MERGES_KEY] && !!settings[PLANS_KEY]
@@ -38,12 +46,16 @@ export function levelOf(settings: Record<string, Setting>, repo: string): Level 
   return 'default'
 }
 
-/** The two lists with the repo taken out of both and put in the one for `level`, as whole values to set; only what changes. */
+/**
+ * The two lists with the repo's own path taken out of both and put in the one for `level`, as whole values to set; only
+ * what changes. An entry that names it by folder name stays (it covers other repos too): `nameEntries` says when one
+ * still holds the repo at a level.
+ */
 export function withLevel(settings: Record<string, Setting>, repo: string, level: Level): Array<{ key: string; value: string[] }> {
   if (levelOf(settings, repo) === level) return []
   const next = (key: string, into: boolean) => {
     const cur = list(settings, key)
-    const kept = cur.filter((e) => !names(e, repo))
+    const kept = cur.filter((e) => !exact(e, repo))
     return into ? [...kept, repo] : kept
   }
   const merges = next(MERGES_KEY, level === 'merges')

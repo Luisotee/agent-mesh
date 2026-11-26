@@ -10,7 +10,7 @@ describe('vendors', () => {
     const cases: Record<string, string> = {
       'claude-sonnet-5-5': 'claude', opus: 'claude', haiku: 'claude', 'anthropic/claude-opus-5-5': 'claude',
       'gemini-4-neon-high': 'gemini', neon: 'gemini', flash: 'gemini', 'gemini-3-pro': 'gemini',
-      'gpt-5': 'openai', 'o3-mini': 'openai', 'openai/gpt-5': 'openai', codex: 'openai',
+      'gpt-5': 'openai', 'gpt-5-pro': 'openai', 'o3-pro': 'openai', 'openai/gpt-5-pro': 'openai', 'o3-mini': 'openai', 'openai/gpt-5': 'openai', codex: 'openai',
       'deepseek-v4': 'deepseek', 'deepseek-v4-flash': 'deepseek', 'deepseek-v4-pro': 'deepseek', '': 'other', 'llama-4': 'other',
     }
     for (const [m, v] of Object.entries(cases)) expect(vendorOfModel(m), m).toBe(v)

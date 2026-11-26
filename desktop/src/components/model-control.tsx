@@ -46,7 +46,7 @@ function ChangeForm({ host, agent, onDone }: { host: HostRuntime; agent: Agent; 
   const settings = useHostState(host, (s) => s.settings)
   const tiers = useMemo(() => tiersOf(settings, agent.kind), [settings, agent.kind])
   const [by, setBy] = useState<By>('tier')
-  const [tier, setTier] = useState(agent.tier && tiers.includes(agent.tier) ? agent.tier : tiers[0]!)
+  const [tier, setTier] = useState(agent.tier && tiers.includes(agent.tier) ? agent.tier : (tiers[0] ?? ''))
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [families, setFamilies] = useState<string[]>([])
@@ -93,7 +93,8 @@ function ChangeForm({ host, agent, onDone }: { host: HostRuntime; agent: Agent; 
       </Field>
       {by === 'tier' && (
         <Field label="Tier" hint="Each tier is a model and effort in the host's settings.">
-          <Select aria-label="Tier" value={tier} onChange={(e) => setTier(e.target.value)}>
+          <Select aria-label="Tier" value={tier} disabled={tiers.length === 0} onChange={(e) => setTier(e.target.value)}>
+            {tiers.length === 0 && <option value="">The host lists no tier for {agent.kind}</option>}
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
         </Field>
@@ -116,7 +117,7 @@ function ChangeForm({ host, agent, onDone }: { host: HostRuntime; agent: Agent; 
         </Field>
       )}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-      <Button type="submit" disabled={busy || (by === 'model' && !model.trim()) || (by === 'effort' && !effort)}>Switch</Button>
+      <Button type="submit" disabled={busy || (by === 'tier' && !tier) || (by === 'model' && !model.trim()) || (by === 'effort' && !effort)}>Switch</Button>
     </form>
   )
 }

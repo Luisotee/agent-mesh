@@ -1,7 +1,7 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { LEVEL_LABEL, hasLevels, levelOf, listOf, withLevel, type Level } from '@/autonomy'
+import { LEVEL_LABEL, hasLevels, levelOf, listOf, nameEntries, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
@@ -279,6 +279,7 @@ function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
   const [error, setError] = useState('')
   if (!repo || !hasLevels(settings)) return null
   const level = levelOf(settings, repo)
+  const byName = nameEntries(settings, repo)
   async function choose(next: Level) {
     setError('')
     // Two settings move together: when the second write fails the first is put back, so the repo is never left in neither list.
@@ -299,6 +300,11 @@ function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
         {(Object.keys(LEVEL_LABEL) as Level[]).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
       </Select>
       <p className="mt-1 text-[11px] text-muted-foreground">For {repoName(repo)}: a root never merges a PR you merge, and leaves a plan you approve to you. Hold a single PR below.</p>
+      {byName.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {byName.map((e) => `"${e}"`).join(', ')} in the host's settings names every project of that folder name, so it holds this one too: edit it there to lower the level.
+        </p>
+      )}
       {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
     </Section>
   )

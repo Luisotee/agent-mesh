@@ -42,6 +42,12 @@ const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
 const agent = (id: string, o: AgentInit = {}) => create(AgentSchema, { id, name: id, runId: 'r1', repo: '/p/app', kind: 'claude', createdAt: timestampFromMs(1000), state: AgentState.IDLE, ...o })
 
+const noTiers = vi.hoisted(() => ({ on: false }))
+vi.mock('./components/spawn-dialogs', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./components/spawn-dialogs')>()
+  return { ...m, tiersOf: (settings: Record<string, unknown>, kind: string) => (noTiers.on ? [] : m.tiersOf(settings, kind)) }
+})
+
 function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentmesh.v1.HelloResponse', daemonId: 'd', instanceId: 'i', version: 'v', capabilities: [], protocolVersion: 1 } as never }) {
   const store = createHostStore()
   const agents = [
@@ -840,6 +846,59 @@ describe('NewWorkspaceDialog', () => {
     expect(client.spawnAgent.mock.calls[1]![0]).toMatchObject({ runId: 'r9', repo: '/p/api', base: '' })
   })
 
+  it('reads a project again after a failed read of the same path, and offers a fork\'s pull request only as unavailable, one option for each branch', async () => {
+    const { host, client, wrap } = dialog()
+    const withForks = create(ProjectSchema, {
+      path: '/p/shop',
+      name: 'shop',
+      defaultBranch: 'main',
+      branches: ['main'],
+      pullRequests: [
+        create(ProjectPullRequestSchema, { number: 7, title: 'Fix', headRef: 'mesh/r/fix', url: 'u7' }),
+        create(ProjectPullRequestSchema, { number: 8, title: 'Fix again', headRef: 'mesh/r/fix', url: 'u8' }),
+        create(ProjectPullRequestSchema, { number: 9, title: 'From a fork', headRef: 'main', url: 'u9', crossRepository: true }),
+      ],
+    })
+    let reads = 0
+    client.listProjects.mockImplementation(async (req: unknown) => {
+      if (!(req as { repo: string }).repo) return create(ListProjectsResponseSchema, { projects })
+      if (++reads === 1) throw new Error('[unavailable] fetch timed out')
+      return create(ListProjectsResponseSchema, { projects: [withForks] })
+    })
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    const project = await screen.findByLabelText('Project')
+    await userEvent.type(project, '/p/new') // not listed: only leaving the field reads it
+    await userEvent.tab()
+    expect(await screen.findByText('fetch timed out')).toBeInTheDocument()
+    expect(screen.getByLabelText('Start from', { selector: 'select' })).toBeDisabled()
+    // Leaving the field again asks again.
+    await userEvent.click(project)
+    await userEvent.tab()
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument()
+    expect(reads).toBe(2)
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'pr')
+    const options = within(screen.getByLabelText('Pull request')).getAllByRole('option').slice(1)
+    expect(options.map((o) => [o.textContent, (o as HTMLOptionElement).value, (o as HTMLOptionElement).disabled])).toEqual([
+      ['#7 Fix', 'mesh/r/fix', false],
+      ['#9 From a fork (from a fork: not available)', '', true],
+    ])
+  })
+
+  it('does not start a worker on no tier when the host lists none for the CLI', async () => {
+    const { host, client, wrap } = dialog()
+    noTiers.on = true
+    try {
+      render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+      await userEvent.type(await screen.findByLabelText('Name'), 'w')
+      await userEvent.type(screen.getByLabelText('Project'), '/p/shop')
+      await userEvent.selectOptions(screen.getByLabelText('Run'), 'r1') // r1 has a lead: this one is a worker
+      expect(screen.getByRole('button', { name: 'Start workspace' })).toBeDisabled()
+      expect(client.spawnAgent).not.toHaveBeenCalled()
+    } finally {
+      noTiers.on = false
+    }
+  })
+
   it('offers a path to type when the host lists no projects, and shows why a start failed', async () => {
     const { host, client, wrap } = dialog()
     client.listProjects.mockRejectedValue(new Error('[unimplemented] no such action'))
@@ -870,6 +929,20 @@ describe('ModelControl and vendor icons', () => {
     expect(screen.getByTestId('runs-on')).toHaveTextContent('claude · sonnet · high')
     expect(screen.getByRole('img', { name: 'Anthropic Claude' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Switching to opus (moved)…')
+  })
+
+  it('does not switch to a tier when the host lists none for the CLI', async () => {
+    const { host, a, wrap, client } = control()
+    noTiers.on = true
+    try {
+      render(wrap(<ModelControl host={host} agent={a} />))
+      await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
+      expect(screen.getByLabelText('Tier')).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
+      expect(client.switchAgent).not.toHaveBeenCalled()
+    } finally {
+      noTiers.on = false
+    }
   })
 
   it('switches to a tier, to a model of the host\'s list with an effort, or the effort alone', async () => {

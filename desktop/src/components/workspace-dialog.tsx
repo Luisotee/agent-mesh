@@ -10,7 +10,7 @@ import { knownRepos } from '@/derive'
 import type { Project } from '@/gen/agentmesh/v1/mesh_pb'
 import { AgentRole, RunStatus } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { startPoint, type StartFrom } from '@/workspace-start'
+import { startablePullRequests, startPoint, type StartFrom } from '@/workspace-start'
 import { vendorOfKind } from '@/vendor'
 import { VendorIcon } from './vendor-icon'
 import { tiersOf } from './spawn-dialogs'
@@ -89,7 +89,8 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   /** Reads the project once the path is complete: it is one of the listed ones, or the user left the field. */
   function load(path: string) {
     const p = path.trim()
-    if (!p || detail?.path === p) return
+    // Read once per path; a read that failed is tried again (a fetch or gh that timed out).
+    if (!p || (detail?.path === p && !detail.error)) return
     const mine = ++read.current
     setDetail({ path: p, loading: true })
     setFrom({ kind: 'default' })
@@ -108,11 +109,14 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   const role = hasLead ? AgentRole.WORKER : AgentRole.ROOT
   const tiers = useMemo(() => tiersOf(settings, kind.trim()), [settings, kind])
   // A worker always runs on a tier (`mid` when the host has one); a lead may take the CLI's default.
-  const tier = role === AgentRole.ROOT ? (chosen ?? '') : chosen && tiers.includes(chosen) ? chosen : tiers.includes('mid') ? 'mid' : tiers[0]!
+  const tier = role === AgentRole.ROOT ? (chosen ?? '') : chosen && tiers.includes(chosen) ? chosen : tiers.includes('mid') ? 'mid' : (tiers[0] ?? '')
+
+  // A worker runs on a tier: with none listed for the CLI there is nothing to start it on.
+  const noTier = role === AgentRole.WORKER && !tier
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (busy) return
+    if (busy || noTier) return
     setBusy(true)
     setError('')
     try {
@@ -174,7 +178,11 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           {from.kind === 'pr' && (
             <Select aria-label="Pull request" value={from.ref ?? ''} onChange={(e) => setFrom({ kind: 'pr', ref: e.target.value })}>
               <option value="">{project?.pullRequests.length ? 'Choose a pull request…' : 'No open pull requests'}</option>
-              {project?.pullRequests.map((p) => <option key={p.number} value={p.headRef}>#{p.number} {p.title}{p.draft ? ' (draft)' : ''}</option>)}
+              {startablePullRequests(project?.pullRequests ?? []).map((p) => (
+                <option key={p.number} value={p.crossRepository ? '' : p.headRef} disabled={p.crossRepository}>
+                  #{p.number} {p.title}{p.draft ? ' (draft)' : ''}{p.crossRepository ? ' (from a fork: not available)' : ''}
+                </option>
+              ))}
             </Select>
           )}
         </div>
@@ -204,6 +212,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
         <Field label="Tier" hint="Each tier is a model and effort in the host's settings.">
           <Select aria-label="Tier" value={tier} onChange={(e) => setChosen(e.target.value)}>
             {role === AgentRole.ROOT && <option value="">The CLI's default</option>}
+            {tiers.length === 0 && role === AgentRole.WORKER && <option value="">The host lists no tier for this CLI</option>}
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
         </Field>
@@ -212,7 +221,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
         <Textarea value={task} onChange={(e) => setTask(e.target.value)} />
       </Field>
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-      <Button type="submit" disabled={busy || (effective.kind !== 'default' && !effective.ref)}>Start workspace</Button>
+      <Button type="submit" disabled={busy || noTier || (effective.kind !== 'default' && !effective.ref)}>Start workspace</Button>
     </form>
   )
 }

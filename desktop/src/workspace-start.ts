@@ -16,3 +16,18 @@ export function startPoint(from: StartFrom): string {
       return ''
   }
 }
+
+/**
+ * The pull requests to offer, one for each head branch (two PRs of one branch start the same worktree, and an option's
+ * value is the branch). A fork's PR stays in the list, to be shown as unavailable: its `head_ref` names the fork's
+ * branch, which is no ref of the repo's remote.
+ */
+export function startablePullRequests<T extends { number: number; headRef: string; crossRepository: boolean }>(prs: T[]): T[] {
+  const seen = new Set<string>()
+  return prs.filter((p) => {
+    if (p.crossRepository) return true
+    if (seen.has(p.headRef)) return false
+    seen.add(p.headRef)
+    return true
+  })
+}

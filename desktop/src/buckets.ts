@@ -1,6 +1,6 @@
 import { AgentRole, AgentState, RunStatus, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
-import type { Waiting } from './derive'
+import { exitKind, type Waiting } from './derive'
 
 /**
  * The status buckets of `docs/apps.md` ("Status buckets per workspace"): what a daily user triages by. An agent is in
@@ -32,7 +32,7 @@ const open = (p: { state: string; draft: boolean }) => p.state === 'open' && !p.
 
 export function bucketOf(a: Agent, ctx: BucketContext): Bucket {
   if (a.state === AgentState.NEEDS_INPUT || ctx.waiting.has(a.id)) return 'needs'
-  const failedExit = a.state === AgentState.EXITED && (a.stateDetail === 'lost' || (a.exitCode > 0 && a.stateDetail !== 'killed'))
+  const failedExit = a.state === AgentState.EXITED && exitKind(a) === 'failed'
   if (a.state === AgentState.ERROR || a.state === AgentState.LIMITED || failedExit) return 'failed'
   if (a.state === AgentState.WORKING || a.state === AgentState.STARTING || a.state === AgentState.UNKNOWN) return 'working'
   // Not working and nothing wrong: a change worker with an open PR waits for the user's review; one whose PRs are
