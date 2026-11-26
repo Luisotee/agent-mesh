@@ -183,6 +183,20 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 		t.Fatalf("unexpected pairing URI fields: %+v", p)
 	}
 
+	// The relay learns the pairing's token from the daemon's push after CreatePairing: wait until it opens.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		c, err := relay.DialRelayTCP(ctx, p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, "h2")
+		if err == nil {
+			c.Close()
+			break
+		}
+		if !errors.Is(err, relay.ErrAuth) || time.Now().After(deadline) {
+			t.Fatalf("the pairing's relay token = %v, want it accepted", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	relayHC, err := relay.NewTCPHTTPClient(p.RelayTCP, p.HostID, p.RelayClientToken, p.CertFingerprint, true)
 	if err != nil {
 		t.Fatal(err)
