@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -158,12 +159,13 @@ func pbInt(num, val uint64) []byte {
 
 func TestCostColdResumesAndCopyDedupAndUnstoppedRunCap(t *testing.T) {
 	home := t.TempDir()
-	now := costT0
+	var now atomic.Int64
+	now.Store(costT0.UnixNano())
 	state := filepath.Join(t.TempDir(), "state")
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",
-		Now:      func() time.Time { return now },
+		Now:      func() time.Time { return time.Unix(0, now.Load()).UTC() },
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Agents: daemon.AgentConfig{
 			LookPath: func(string) (string, bool) { return "", false },
@@ -235,12 +237,13 @@ func TestCostColdResumesAndCopyDedupAndUnstoppedRunCap(t *testing.T) {
 
 func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	home := t.TempDir()
-	now := costT0
+	var now atomic.Int64
+	now.Store(costT0.UnixNano())
 	state := filepath.Join(t.TempDir(), "state")
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",
-		Now:      func() time.Time { return now },
+		Now:      func() time.Time { return time.Unix(0, now.Load()).UTC() },
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Agents: daemon.AgentConfig{
 			LookPath: func(string) (string, bool) { return "", false },
@@ -255,7 +258,7 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 
 	// Helper to advance clock for Store writes.
 	at := func(min float64, fn func(*store.Tx) error) {
-		now = costT0.Add(time.Duration(min * float64(time.Minute)))
+		now.Store(costT0.Add(time.Duration(min * float64(time.Minute))).UnixNano())
 		if err := h.d.Store().Write(ctx, nil, "", fn); err != nil {
 			t.Fatal(err)
 		}
