@@ -82,17 +82,23 @@ const (
 // dispatched before the registry is even loaded (each gets the environment, with a global --state as $AGENT_MESH_STATE): a hook must work, and exit 0, whatever else fails.
 func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	global := flag.NewFlagSet("mesh", flag.ContinueOnError)
-	global.SetOutput(env.Stderr)
+	global.SetOutput(io.Discard)
 	state := global.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	// --json is also a command's own flag; given here, before the command, it is that command's.
 	whole := global.String("json", "", "the whole request as JSON, for the command that follows")
-	global.Usage = func() {
-		fmt.Fprintln(env.Stderr, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]; mesh help")
-	}
+	helpAsked := false
 	if err := global.Parse(args); err != nil {
-		return ExitUsage
+		if !errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(env.Stderr, "mesh:", err)
+			fmt.Fprintln(env.Stderr, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]; mesh help")
+			return ExitUsage
+		}
+		helpAsked = true // --help is `mesh help`: the usage on stdout, exit 0
 	}
 	rest := global.Args()
+	if helpAsked {
+		rest = append([]string{"help"}, rest...)
+	}
 	if len(rest) > 0 {
 		if h, ok := hand[rest[0]]; ok {
 			// The hand-written command sees the global --state as it would $AGENT_MESH_STATE (its own --state wins).

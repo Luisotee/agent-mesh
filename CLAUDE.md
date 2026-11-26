@@ -6,7 +6,7 @@ agent-mesh lets an agent working in repo A hand repo B's part of a change to an 
 
 ## Task tracking
 
-Open work is tracked in `TODO.md` as deliberately short summaries: the agent doing a task works out the details. Check it before starting something that might already be tracked, and keep it current in the same change: remove (or tick) a task when the work lands, reword it when scope changes, and add a line for any follow-up you find but don't do.
+Open work is tracked in `TODO.md` as short summaries: the agent doing a task works out the details. Check it before starting something possibly tracked, and keep it current in the same change: remove (or tick) a task when the work lands, reword it when scope changes, and add a line for any follow-up you find but don't do.
 
 ## Peer projects
 
@@ -38,11 +38,12 @@ uvx pytest -q tests                              # full suite
 uvx pytest -q tests -k approve                   # tests matching a name
 uvx pytest -q tests/test_mesh.py::test_name      # one test
 ./install.sh            # symlink into place (--uninstall reverses it); safe to re-run
+./install.sh --daemon   # opt-in Go daemon install (daemon/README.md)
 ```
 
 To try `bin/mesh` by hand, point `MESH_HOME`, `MESH_WORKTREES` and `MESH_PEERS_DIR` at temp dirs, `MESH_CONFIG_FILE` at a temp file, `MESH_HERDR` at a missing binary and `MESH_CLAUDE` at one that does nothing (`/bin/false`: a missing one makes Claude count as not installed), as `tests/conftest.py` does, because the defaults are the real run state and herdr panes every agent uses. A worker that forgets is refused every command but its own (`check_worker`).
 
-`bin/mesh` has no build or lint step: it is one Python 3.10+ script with no dependencies. Keep it stdlib-only. The apps' commands are in their rules files (below).
+`bin/mesh` has no build or lint step: it is one Python 3.10+ script, stdlib-only. The apps' commands are in their rules files (below).
 
 The installed `mesh`, `~/.config/agent-mesh` and the skills are **symlinks to this checkout**: every agent on the machine runs whatever branch is checked out.
 

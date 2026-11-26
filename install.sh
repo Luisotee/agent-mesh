@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install (or --uninstall) agent-mesh for the current user by symlinking this
 # checkout into place and adding a marked block to both global rule files.
+# `--daemon` is the separate, opt-in install of the Go daemon beside it (see daemon_install below).
 # Claude Code gets the skills from the agent-mesh plugin instead when it is
 # installed at user scope, or with --plugin (before installing it): then they
 # are not linked into ~/.claude/skills, and our old links there are removed.
@@ -22,6 +23,10 @@ SKILLS=(delegate-claude delegate-agy delegate-review check-plan self-review find
 RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
 PLUGIN_ID="local.mesh-notify"  # herdr/mesh-notify: desktop notifications without the workers' noise
+DAEMON_LIB="$HOME/.local/lib/agent-mesh"  # the daemon world: bin/ (meshd, mesh-term, mesh) and share/, copied, not linked
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+DAEMON_UNITS=(agent-mesh.service agent-mesh-term.service)
+DAEMON_BINS=(meshd mesh-term mesh)  # built from daemon/cmd/<name>
 BEGIN="<!-- agent-mesh:begin (managed by agent-mesh/install.sh) -->"
 END="<!-- agent-mesh:end -->"
 
@@ -103,18 +108,147 @@ sys.exit(0 if found else 1)
 PY
 }
 
-USAGE="usage: install.sh [--plugin | --uninstall]"
-PLUGIN=0 UNINSTALL=0
+# ── the daemon (opt-in: `install.sh --daemon`) ──
+# Builds daemon/ into $DAEMON_LIB/{bin,share}, copies the two systemd user units beside a drop-in holding the
+# installing shell's PATH (so the agents' CLIs are found), and starts meshd. It is versioned by install, not by
+# the checked-out branch, and touches nothing of bin/mesh's world: not ~/.local/bin/mesh, ~/.config/agent-mesh,
+# ~/.claude or ~/.local/state/agent-mesh. The Go CLI is also linked as ~/.local/bin/meshctl until bin/mesh is retired.
+
+find_go() { # the go on PATH, else the one a user-local install leaves
+  if command -v go >/dev/null; then command -v go
+  elif [[ -x "$HOME/.local/go/bin/go" ]]; then echo "$HOME/.local/go/bin/go"
+  else return 1; fi
+}
+
+unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points into <dir>
+  local path="$1" dir="$2"
+  if [[ -L "$path" && "$(readlink "$path")" == "$dir"/* ]]; then
+    rm "$path"
+    echo "removed $path"
+  fi
+}
+
+same() { # same <a> <b>: identical files (without cmp, nothing counts as identical: at worst an extra note)
+  has cmp && cmp -s "$1" "$2"
+}
+
+unit_path_dropin() { # a unit's drop-in: the PATH of this shell (systemd's own is too short to find claude or agy)
+  local path_value="$PATH"
+  path_value="${path_value//\\/\\\\}"  # backslash, % and " are escapes inside a unit's quoted Environment=
+  path_value="${path_value//%/%%}"
+  path_value="${path_value//\"/\\\"}"
+  printf '[Service]\nEnvironment="PATH=%s"\n' "$path_value"
+}
+
+daemon_install() {
+  local go stage unit created=() d
+  go="$(find_go)" || { echo "install.sh: --daemon needs Go (go on PATH, or ~/.local/go/bin/go)" >&2; return 1; }
+  [[ -d "$REPO/daemon/cmd" ]] || { echo "install.sh: $REPO/daemon/cmd is missing" >&2; return 1; }
+  has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; the daemon needs at least one to run agents (and its units get this PATH)" >&2
+  # The folders this run creates are removed again if it fails before installing anything.
+  d="$DAEMON_LIB"
+  while [[ ! -d "$d" ]]; do created+=("$d"); d="$(dirname "$d")"; done
+  mkdir -p "$DAEMON_LIB"
+  stage="$(mktemp -d "$DAEMON_LIB/.stage.XXXXXX")"
+  trap 'rm -rf "$stage"; for d in "${created[@]}"; do rmdir "$d" 2>/dev/null || true; done' RETURN
+  # Everything is built before anything is replaced: a failed build leaves the installed daemon as it was.
+  echo "building the daemon (go build)..."
+  mkdir -p "$stage/bin"
+  local pkgs=()
+  for b in "${DAEMON_BINS[@]}"; do pkgs+=("./cmd/$b"); done
+  (cd "$REPO/daemon" && "$go" build -trimpath -o "$stage/bin/" "${pkgs[@]}") \
+    || { echo "install.sh: the build failed; nothing was changed" >&2; return 1; }
+  for b in "${DAEMON_BINS[@]}"; do
+    [[ -x "$stage/bin/$b" ]] || { echo "install.sh: the build made no $b; nothing was changed" >&2; return 1; }
+  done
+  # Every fallible copy is made before the first replacement; what follows is renames.
+  [[ ! -d "$REPO/daemon/share" ]] || cp -R "$REPO/daemon/share" "$stage/share" \
+    || { echo "install.sh: copying daemon/share failed; nothing was changed" >&2; return 1; }
+  mkdir -p "$DAEMON_LIB/bin"
+  # One rename per file: a running meshd or mesh-term keeps the old inode, so an upgrade never breaks it.
+  local term_changed=0 had_term=0
+  [[ ! -e "$DAEMON_LIB/bin/mesh-term" ]] || had_term=1
+  same "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
+  for b in "${DAEMON_BINS[@]}"; do mv -f "$stage/bin/$b" "$DAEMON_LIB/bin/$b"; done
+  echo "installed ${DAEMON_BINS[*]} in $DAEMON_LIB/bin"
+  if [[ -d "$REPO/daemon/share" ]]; then
+    rm -rf "$DAEMON_LIB/share.old"
+    [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
+    mv "$stage/share" "$DAEMON_LIB/share"
+    rm -rf "$DAEMON_LIB/share.old"
+    echo "installed $DAEMON_LIB/share"
+  else
+    rm -rf "$DAEMON_LIB/share"  # an earlier install's share/ is stale once the checkout has none
+  fi
+  mkdir -p "$UNIT_DIR"
+  for unit in "${DAEMON_UNITS[@]}"; do
+    [[ "$unit" != agent-mesh-term.service ]] || same "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit" || term_changed=1
+    cp "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit.tmp" && mv -f "$UNIT_DIR/$unit.tmp" "$UNIT_DIR/$unit"
+    mkdir -p "$UNIT_DIR/$unit.d"
+    unit_path_dropin >"$UNIT_DIR/$unit.d/path.conf.new"
+    if [[ "$unit" == agent-mesh-term.service ]]; then
+      same "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf" || term_changed=1
+    fi
+    mv -f "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf"
+    echo "installed $UNIT_DIR/$unit (and its PATH drop-in)"
+  done
+  link "$DAEMON_LIB/bin/mesh" "$BIN_DIR/meshctl"
+  if has systemctl; then
+    # restart, not just start: an upgrade runs the new meshd (the terminal host stays up, and its terminals with it)
+    if systemctl --user daemon-reload && systemctl --user enable agent-mesh.service >/dev/null \
+        && systemctl --user restart agent-mesh.service; then
+      echo "meshd is running (systemctl --user status agent-mesh.service); state is in ~/.local/state/agent-mesh-daemon"
+    else
+      echo "warning: systemctl --user could not start agent-mesh.service (no user session?): the files are installed; start it with 'systemctl --user enable --now agent-mesh.service'" >&2
+    fi
+  else
+    echo "note: systemctl is not on PATH: start meshd yourself (meshd --state ~/.local/state/agent-mesh-daemon)" >&2
+  fi
+  if [[ "$term_changed" == 1 && "$had_term" == 1 ]]; then
+    echo "note: the terminal host keeps running with its old binary and PATH, so the agents' terminals survive this upgrade;" \
+      "apply them with 'systemctl --user restart agent-mesh-term.service' (it ends every running agent's terminal)" >&2
+  fi
+  echo "daemon installed. Re-run \`install.sh --daemon\` to upgrade it or to refresh the PATH its units hold."
+}
+
+daemon_uninstall() {
+  local unit b
+  if has systemctl; then
+    systemctl --user disable --now "${DAEMON_UNITS[@]}" >/dev/null 2>&1 || true
+  fi
+  for unit in "${DAEMON_UNITS[@]}"; do
+    rm -f "$UNIT_DIR/$unit" "$UNIT_DIR/$unit.d/path.conf"
+    rmdir "$UNIT_DIR/$unit.d" 2>/dev/null || true
+  done
+  if has systemctl; then systemctl --user daemon-reload || true; fi
+  unlink_if_into "$BIN_DIR/meshctl" "$DAEMON_LIB"
+  for b in "${DAEMON_BINS[@]}"; do rm -f "$DAEMON_LIB/bin/$b"; done
+  rmdir "$DAEMON_LIB/bin" 2>/dev/null || true
+  rm -rf "$DAEMON_LIB/share" "$DAEMON_LIB"/.stage.* "$DAEMON_LIB/share.old"
+  rmdir "$DAEMON_LIB" 2>/dev/null || true
+  echo "daemon uninstalled (its state in ~/.local/state/agent-mesh-daemon is kept)"
+}
+
+USAGE="usage: install.sh [--plugin | --uninstall] | install.sh --daemon [--uninstall]"
+PLUGIN=0 UNINSTALL=0 DAEMON=0
 for arg in "$@"; do
   case "$arg" in
     --plugin) PLUGIN=1 ;;
     --uninstall) UNINSTALL=1 ;;
+    --daemon) DAEMON=1 ;;
     -h|--help) echo "$USAGE"; exit 0 ;;
     *) echo "install.sh: unknown argument: $arg" >&2; echo "$USAGE" >&2; exit 2 ;;
   esac
 done
 if [[ "$PLUGIN" == 1 && "$UNINSTALL" == 1 ]]; then
   echo "install.sh: --plugin and --uninstall don't go together" >&2; echo "$USAGE" >&2; exit 2
+fi
+if [[ "$DAEMON" == 1 && "$PLUGIN" == 1 ]]; then
+  echo "install.sh: --daemon and --plugin don't go together" >&2; echo "$USAGE" >&2; exit 2
+fi
+if [[ "$DAEMON" == 1 ]]; then  # the daemon alone: nothing of the live mesh is touched
+  if [[ "$UNINSTALL" == 1 ]]; then daemon_uninstall; else daemon_install; fi
+  exit $?
 fi
 if [[ "$UNINSTALL" == 0 && "$PLUGIN" == 0 ]] && claude_plugin_installed; then
   PLUGIN=1
