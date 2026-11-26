@@ -407,7 +407,7 @@ func DefaultLeaves() []Leaf {
 				"limit is over; off leaves it to the root or the user"},
 		Leaf{Key: "limits.hold", Type: Seconds, Default: 1800.0,
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
-		Leaf{Key: "caps.agents", Type: Int, Default: 8.0,
+		Leaf{Key: "caps.agents", Type: Int, Default: 16.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
 	)
 	return append(ls, AppLeaves()...)
