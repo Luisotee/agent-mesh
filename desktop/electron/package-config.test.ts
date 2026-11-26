@@ -26,7 +26,12 @@ describe('the installers (electron-builder.json)', () => {
   })
 
   it('carry only what the main process needs at run time (the page is bundled)', () => {
-    expect(Object.keys(pkg.dependencies)).toEqual(['ws'])
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['electron-updater', 'ws'])
+  })
+
+  it('publish to GitHub Releases, where the app looks for updates', () => {
+    expect(builder.publish).toEqual([{ provider: 'github', owner: 'Luisotee', repo: 'agent-mesh' }])
+    expect(builder.win.target).toEqual(expect.arrayContaining(['nsis']))
   })
 
   it('name the desktop entry the deb installs, so a window groups under its icon', () => {

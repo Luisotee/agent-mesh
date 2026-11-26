@@ -16,6 +16,7 @@ pnpm test src/store.test.ts   # one file
 pnpm typecheck                # the renderer and the main process (two tsconfigs)
 pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
+pnpm pack:win-zip             # a Windows zip of the app (builds on Linux too); the NSIS installer is built on Windows (`pnpm pack`), see README "Packaging"
 pnpm pack:dir                 # the unpacked installer app in release/ (electron-builder.json; `pnpm pack:check` builds the deb and checks its agentmesh:// entry, opt-in)
 ```
 
@@ -27,7 +28,7 @@ The e2e tests open a real Electron window, so they need a display (WSLg has one,
 - `shared/api.ts`: types only, the contract between main and the renderer.
 - `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts`.
 - `src/gen/`: the generated TypeScript (committed).
-- `electron-builder.json`: the installers (a `protocols` entry registers `agentmesh://`); `scripts/check-package.mjs`: the opt-in deb check. Only `ws` is a `dependency` (the main process's); everything the page uses is a `devDependency`, as Vite bundles it.
+- `electron-builder.json`: the installers (a `protocols` entry registers `agentmesh://`); `scripts/check-package.mjs`: the opt-in deb check. Only `ws` and `electron-updater` (`electron/updates.ts`, installed apps only) are `dependencies` (the main process's); everything the page uses is a `devDependency`, as Vite bundles it.
 - `e2e/`: the end-to-end tests and their harness.
 
 `README.md` "Layout" says what each file holds.

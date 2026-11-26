@@ -1,6 +1,6 @@
 {
   "name": "agent-mesh-desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "agent-mesh desktop app",
   "type": "module",
@@ -15,9 +15,11 @@
     "start": "electron .",
     "pack": "node scripts/make-icons.mjs --app build/icon.png && pnpm build && electron-builder",
     "pack:dir": "node scripts/make-icons.mjs --app build/icon.png && pnpm build && electron-builder --dir",
-    "pack:check": "node scripts/check-package.mjs"
+    "pack:check": "node scripts/check-package.mjs",
+    "pack:win-zip": "node scripts/make-icons.mjs --app build/icon.png && pnpm build && electron-builder --win zip"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "ws": "^8.23.0"
   },
   "devDependencies": {

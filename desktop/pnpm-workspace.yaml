@@ -3,3 +3,7 @@
 allowBuilds:
   electron: true
   electron-winstaller: false
+# makensis (the Windows installer's compiler) overflows a stack buffer on an include path of about 275 characters, and
+# electron-builder's templates sit under node_modules/.pnpm/<package and peers>/: a shorter store dir name keeps the
+# installer buildable in a deep checkout such as an agent's worktree.
+virtualStoreDirMaxLength: 60

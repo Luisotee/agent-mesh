@@ -37,12 +37,20 @@
   },
   "win": {
     "target": [
-      "nsis"
+      "nsis",
+      "zip"
     ]
   },
   "nsis": {
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true
-  }
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "Luisotee",
+      "repo": "agent-mesh"
+    }
+  ]
 }
