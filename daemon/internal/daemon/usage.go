@@ -509,9 +509,9 @@ func (d *Daemon) resolveAgyModelDisplay(ctx context.Context, model, effort strin
 	return resolvedID, display
 }
 
-// warmAgyTierNames resolves every model in agy's configured chains so firstFree/nextFree inside store.Write
-// never spawns an external command.
-func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string) {
+// warmUsage pre-fetches vendor usage and resolves model display names outside store.Write so pick()/reserveCheck()
+// never shell out or hit the network under SQLite's writer lock.
+func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, extra ...agyResolveKey) {
 	stop := d.quotaStop(r)
 	switch kind {
 	case "claude":
@@ -528,6 +528,11 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string) {
 				}
 				for _, m := range chain {
 					d.resolveAgyModelDisplay(ctx, m, effort, true)
+				}
+			}
+			for _, k := range extra {
+				if k.model != "" {
+					d.resolveAgyModelDisplay(ctx, k.model, k.effort, true)
 				}
 			}
 		}

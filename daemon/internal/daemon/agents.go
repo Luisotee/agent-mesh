@@ -767,7 +767,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		return nil, invalid("slug %q: lowercase letters, digits and dashes", m.Slug)
 	}
 	if role != v1.AgentRole_AGENT_ROLE_ROOT {
-		d.warmUsage(ctx, d.store.Read(ctx), kind)
+		d.warmUsage(ctx, d.store.Read(ctx), kind, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.

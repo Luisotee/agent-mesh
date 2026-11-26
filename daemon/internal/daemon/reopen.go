@@ -284,7 +284,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 	{
 		r := d.store.Read(ctx)
 		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
-			d.warmUsage(ctx, r, a.Kind)
+			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
 		}
 	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "approve") == nil && !stopped(a) })
@@ -404,7 +404,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 	{
 		r := d.store.Read(ctx)
 		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
-			d.warmUsage(ctx, r, a.Kind)
+			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
 		}
 	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "switch") == nil && !stopped(a) })
@@ -641,7 +641,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a0.Name)
 	}
 	if task != "" {
-		d.warmUsage(ctx, r0, a0.Kind)
+		d.warmUsage(ctx, r0, a0.Kind, agyResolveKey{model: a0.Model, effort: a0.Effort}, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
 	d.learnSession(ctx, actor, a0.Id, func(a *v1.Agent) bool { return canResume(actor, a, targetRunID) == nil && stopped(a) })
 	r1 := d.store.Read(ctx)

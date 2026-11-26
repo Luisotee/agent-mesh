@@ -406,12 +406,18 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	}
 	wg.Wait()
 	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
-	// removing those worktrees, skipping any worktree actively held by a live agent in another run (e.g. a
-	// worker resumed into a follow-up run).
+	// removing those worktrees, skipping any worktree held by a live agent or another open run.
 	busyWorktrees := map[string]bool{}
-	if all, aerr := d.store.Read(ctx).AllAgents(); aerr == nil {
+	openRuns := map[string]bool{}
+	sr := d.store.Read(ctx)
+	if runs, rerr := sr.ListRuns(true); rerr == nil {
+		for _, r := range runs {
+			openRuns[r.Id] = true
+		}
+	}
+	if all, aerr := sr.AllAgents(); aerr == nil {
 		for _, other := range all {
-			if other.RunId != req.Msg.RunId && other.Worktree != "" && hasProcess(other) {
+			if other.RunId != req.Msg.RunId && other.Worktree != "" && (hasProcess(other) || openRuns[other.RunId]) {
 				busyWorktrees[other.Worktree] = true
 			}
 		}
