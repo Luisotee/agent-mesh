@@ -460,6 +460,54 @@ public class MeshServiceClient(
 
 
   /**
+   *  Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+   *  closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+   *  A device registers only itself; revoking the device deletes it.
+   */
+  override suspend fun registerPush(request: RegisterPushRequest, headers: Headers): ResponseMessage<RegisterPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RegisterPush",
+      dev.agentmesh.gen.agentmesh.v1.RegisterPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RegisterPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+   */
+  override suspend fun unregisterPush(request: UnregisterPushRequest, headers: Headers): ResponseMessage<UnregisterPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/UnregisterPush",
+      dev.agentmesh.gen.agentmesh.v1.UnregisterPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.UnregisterPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+   *  another device's. Answers once the push service took it, or with its error.
+   */
+  override suspend fun testPush(request: TestPushRequest, headers: Headers): ResponseMessage<TestPushResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/TestPush",
+      dev.agentmesh.gen.agentmesh.v1.TestPushRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.TestPushResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
    *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
    *  tailnet opens it.
