@@ -91,3 +91,25 @@ func TestAFailedProbesStderrIsInItsError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// The stub openers are made under the directory the caller gives (the state dir), not the temp dir (which can be
+// mounted noexec, where a stub that can't be run lets a lookup fall through to the real opener), and are removed
+// when the probe ends.
+func TestAProbesStubsAreMadeUnderTheDirectoryGivenAndRemoved(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "state", "probe")
+	t.Setenv("TMPDIR", t.TempDir()) // the temp dir, which the stubs must not be in
+	out, err := Run(context.Background(), Spec{Bin: cli(t, `echo "$PATH"`), Dir: base, Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), ":")
+	if !strings.HasPrefix(first, base+string(filepath.Separator)) {
+		t.Errorf("the stubs are at %q, want under %q", first, base)
+	}
+	if left, _ := os.ReadDir(base); len(left) != 0 {
+		t.Errorf("the probe left %d entries behind", len(left))
+	}
+	if left, _ := filepath.Glob(filepath.Join(os.TempDir(), "meshprobe-*")); len(left) != 0 {
+		t.Errorf("stubs were made in the temp dir: %v", left)
+	}
+}

@@ -61,3 +61,43 @@ func TestAWorkerWithABackgroundCommandRunningIsNotNudged(t *testing.T) {
 	}
 	waitFor(t, "the nudge once the command is over", func() bool { return w.nudges(t, wk) == 1 })
 }
+
+// A background command the agent forgot (a dev server, a watcher) is not waited on for hours: past the grace
+// from the agent's last activity it is nudged once, with a nudge that names the command, though it still runs.
+func TestAWorkerWithAForgottenBackgroundCommandIsNudgedOnceAboutIt(t *testing.T) {
+	old := daemon.SetBackgroundGrace(4 * time.Second)
+	t.Cleanup(func() { daemon.SetBackgroundGrace(old) })
+	stop := filepath.Join(t.TempDir(), "stop")
+	w := startReviews(t, func(c *daemon.AgentConfig) {
+		c.Env["FAKECLAUDE_BG_STOP"] = stop
+		c.Sys.ProcTable = proc.Table
+	})
+	t.Cleanup(func() { _ = os.WriteFile(stop, nil, 0o600) })
+	w.set(t, "accountability.nudge_after", 3)
+	wk := w.worker(t, "wk")
+	if _, err := w.asRoot.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: wk.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan): check it"})); err != nil {
+		t.Fatal(err)
+	}
+	w.quiet(t, wk.Id)
+	readInbox(t, w.as(w.token(t, wk.Id)))
+	w.typeInto(w.agent(wk.Id), "/bg\r")
+	waitFor(t, "the command started", func() bool { return strings.Contains(w.screen(t, wk), "background command started") })
+	w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	waitFor(t, "the nudge about the command", func() bool { return w.nudges(t, wk) >= 1 })
+	in, _ := w.d.Store().Read(context.Background()).Inbox(wk.Id, true)
+	found := false
+	for _, m := range in {
+		if strings.HasPrefix(m.Body, "[mesh nudge]") && strings.Contains(m.Body, "a background command you started still runs") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the nudge does not name the background command: %v", in)
+	}
+	time.Sleep(3 * time.Second)
+	if n := w.nudges(t, wk); n != 1 {
+		t.Errorf("nudged %d times about one command, want once", n)
+	}
+}

@@ -17,7 +17,20 @@ import (
 // Code starts each command as `bash -c 'source ~/.claude/shell-snapshots/… && eval …'`, a child of its own process
 // (seen on a live agent with `ps --forest`), and nothing else it runs holds such a shell at a prompt (its MCP
 // servers are `node` children). The accountability pass leaves such an agent alone (no nudge, no `silent`
-// alert), for as long as a declared wait would hold it: `accountability.wait_max` from its last activity.
+// alert) for backgroundGrace from its last activity (at most `accountability.wait_max`, as a declared wait is);
+// after that a command still running is one the agent forgot (a dev server, a watcher), and it is nudged once to
+// declare a wait or stop it, as an agent with nothing running would be.
+
+// backgroundGrace is how long a background command is let run, from the agent's last activity, before the agent
+// is nudged about it. A variable for tests.
+var backgroundGrace = 30 * time.Minute
+
+// backgroundNudge is the nudge of an agent that ended a turn with a background command still running, past the
+// grace.
+const backgroundNudge = nudgeTag + " Your turn ended without a report to your parent, and a background command you started still runs. " +
+	"If you are waiting on it, declare that now: `mesh send parent --type wait --body \"<what>\"` (a wait ends when something wakes you: " +
+	"if you end that turn still waiting, declare a fresh wait first). If you are not, stop it. If the task is finished, run `mesh inbox`, " +
+	"then report it: `mesh send parent --type done --body @$(mesh dir)/reports/<your name>.md`."
 
 // hasBackgroundCommand reports whether the process tree under pid holds a Claude background command.
 func hasBackgroundCommand(table []proc.Info, pid int) bool {
@@ -62,10 +75,11 @@ func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 	return err == nil && hasBackgroundCommand(table, pid)
 }
 
-// waitsOnBackground is backgroundWork for an agent whose last activity is within waitMax.
-func (d *Daemon) waitsOnBackground(ctx context.Context, a *v1.Agent, waitMax time.Duration) bool {
-	if a.LastActivity == nil || d.now().Sub(a.LastActivity.AsTime()) >= waitMax {
-		return false // no activity to measure the wait from, or it is over
+// withinBackgroundGrace reports whether a running background command is still let run: the agent's last activity
+// is within the grace (and within waitMax). With no activity to measure from it is not.
+func (d *Daemon) withinBackgroundGrace(a *v1.Agent, waitMax time.Duration) bool {
+	if a.LastActivity == nil {
+		return false
 	}
-	return d.backgroundWork(ctx, a)
+	return d.now().Sub(a.LastActivity.AsTime()) < min(backgroundGrace, waitMax)
 }

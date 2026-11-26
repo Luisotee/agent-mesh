@@ -405,8 +405,10 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 	if err != nil || verdict == owesNothing {
 		return err
 	}
-	// A Claude agent whose background command still runs is waiting on it (background.go).
-	if d.waitsOnBackground(ctx, a, waitMax) {
+	// A Claude agent whose background command still runs is waiting on it, for a while; after that it is nudged
+	// once about the command (background.go).
+	bg := d.backgroundWork(ctx, a)
+	if bg && d.withinBackgroundGrace(a, waitMax) {
 		return nil
 	}
 	extras := ""
@@ -425,6 +427,10 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 		}
 		switch v {
 		case owesNudge:
+			if bg {
+				ring, err = tellTx(tx, cur, backgroundNudge)
+				break
+			}
 			ring, err = tellTx(tx, cur, nudgeTag+" Your turn ended without a report to your parent. If the task is finished, "+
 				"run `mesh inbox`, then report it now: `mesh send parent --type done --body @$(mesh dir)/reports/"+cur.Name+".md` "+
 				"(or `plan`, `question`, `failed`). If you are waiting on something on purpose, declare it first: "+

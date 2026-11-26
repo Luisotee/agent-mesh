@@ -1,6 +1,7 @@
 // Package probe runs a CLI the daemon asks a question of (`agy -p /usage`, `agy models`, `opencode models`) so
 // that it can never open a login: no terminal, no display, and every way of opening a browser that a PATH lookup
-// finds is a stub that records the attempt. The CLI is killed at once when it tries, and the caller is told the
+// finds is a stub that records the attempt (an opener started by an absolute path is not a PATH lookup, and is not
+// caught). The CLI is killed at once when it tries, and the caller is told the
 // CLI needs a login by ErrLoginNeeded (never the URL: it can carry a login state).
 package probe
 
@@ -33,6 +34,7 @@ var dropped = map[string]bool{"DISPLAY": true, "WAYLAND_DISPLAY": true, "WSL_INT
 // Spec is one probe.
 type Spec struct {
 	Bin     string
+	Dir     string // where the stub openers are made, which must allow running programs; empty means the temp dir
 	Args    []string
 	Env     []string // KEY=VALUE; empty means the daemon's own environment
 	Timeout time.Duration
@@ -41,7 +43,12 @@ type Spec struct {
 // Run runs the probe and returns its standard output. It is killed (with everything it started) at the timeout,
 // when ctx ends, or at the moment it tries to open a browser, which is ErrLoginNeeded.
 func Run(ctx context.Context, s Spec) ([]byte, error) {
-	dir, err := os.MkdirTemp("", "meshprobe-")
+	if s.Dir != "" {
+		if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	dir, err := os.MkdirTemp(s.Dir, "meshprobe-")
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +63,10 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 		if err := os.WriteFile(filepath.Join(stubs, name), []byte(script), 0o700); err != nil {
 			return nil, err
 		}
+	}
+	// A stub that can't be run (a noexec mount) would let a lookup fall through to the real opener: not run at all.
+	if err := syscall.Access(filepath.Join(stubs, openers[0]), 1); err != nil {
+		return nil, fmt.Errorf("the probe's stub openers can't be run (is %s mounted noexec?): %w", filepath.Dir(stubs), err)
 	}
 	env := s.Env
 	if len(env) == 0 {

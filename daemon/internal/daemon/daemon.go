@@ -24,6 +24,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/events"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -199,7 +200,13 @@ func New(cfg Config) (*Daemon, error) {
 	if a, err := d.rt.adapters.Get(agy.Kind); err == nil {
 		if ag, ok := a.(*agy.Adapter); ok {
 			ag.LoginNeeded = d.noteAgyLogin // a probe of agy that tried to open a login is recorded
-			ag.Hold = d.agyProbeBlocked     // and an agy found on PATH is not run while its token file is missing
+			ag.ProbeDir = d.paths.Probe()
+			ag.Hold = d.agyHeld // and agy is not run while it needs a login, or while an agy on PATH has no token file
+		}
+	}
+	if a, err := d.rt.adapters.Get(opencode.Kind); err == nil {
+		if oc, ok := a.(*opencode.Adapter); ok {
+			oc.ProbeDir = d.paths.Probe()
 		}
 	}
 	d.notify = d.deliverSoon

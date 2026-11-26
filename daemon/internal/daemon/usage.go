@@ -415,11 +415,17 @@ func (d *Daemon) agyBinary() (string, bool) {
 		_, err := os.Stat(bin)
 		return bin, err == nil
 	}
-	if testing.Testing() {
-		return "", false
-	}
-	bin, err := exec.LookPath("agy")
+	bin, err := lookAgy()
 	return bin, err == nil
+}
+
+// lookAgy finds agy on PATH. A test never looks (it would find the real agy); one that wants an agy on PATH
+// replaces it.
+var lookAgy = func() (string, error) {
+	if testing.Testing() {
+		return "", exec.ErrNotFound
+	}
+	return exec.LookPath("agy")
 }
 
 func (d *Daemon) cachedAgyUsageRows(now time.Time) ([]agy.UsageRow, time.Time) {
@@ -481,7 +487,7 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) ([]agy
 		} else if bin, ok := d.agyBinary(); ok {
 			// A probe: it can't open a login (internal/probe), and says so if it tries.
 			out, cerr := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"-p", "/usage", "--dangerously-skip-permissions"},
-				Env: envSlice(d.cliBaseEnv()), Timeout: 45 * time.Second})
+				Env: envSlice(d.cliBaseEnv()), Dir: d.paths.Probe(), Timeout: 45 * time.Second})
 			text, err = string(out), cerr
 		}
 		if errors.Is(err, probe.ErrLoginNeeded) {
@@ -1185,6 +1191,42 @@ func (d *Daemon) shouldSendReserveAlert(runID, key string, now time.Time) bool {
 		}
 	}
 	return true
+}
+
+// claimReserveAlert is shouldSendReserveAlert and markReserveAlertSent in one lock section: it says whether the
+// alert is to be sent, and marks it sent until expiresAt. A caller whose send fails gives the claim back
+// (unclaimReserveAlert).
+func (d *Daemon) claimReserveAlert(runID, key string, now, expiresAt time.Time) bool {
+	d.rt.usage.mu.Lock()
+	defer d.rt.usage.mu.Unlock()
+	if m := d.rt.usage.alerted[runID]; m != nil {
+		if exp, ok := m[key]; ok && now.Before(exp) {
+			return false
+		}
+	}
+	if d.rt.usage.alerted == nil {
+		d.rt.usage.alerted = map[string]map[string]time.Time{}
+	}
+	if d.rt.usage.alerted[runID] == nil {
+		d.rt.usage.alerted[runID] = map[string]time.Time{}
+	}
+	d.rt.usage.alerted[runID][key] = expiresAt
+	return true
+}
+
+func (d *Daemon) unclaimReserveAlert(runID, key string) {
+	d.rt.usage.mu.Lock()
+	defer d.rt.usage.mu.Unlock()
+	delete(d.rt.usage.alerted[runID], key)
+}
+
+// forgetReserveAlert drops an alert's mark in every run, so the next time its condition starts it is sent again.
+func (d *Daemon) forgetReserveAlert(key string) {
+	d.rt.usage.mu.Lock()
+	defer d.rt.usage.mu.Unlock()
+	for _, m := range d.rt.usage.alerted {
+		delete(m, key)
+	}
 }
 
 func (d *Daemon) markReserveAlertSent(runID, key string, expiresAt time.Time) {

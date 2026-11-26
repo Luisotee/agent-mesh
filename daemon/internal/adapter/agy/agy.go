@@ -66,6 +66,8 @@ type Adapter struct {
 	LoginNeeded func()
 	// Hold, when it says true, keeps `agy models` from being run (the daemon: an agy found on PATH whose token file is missing).
 	Hold func() bool
+	// ProbeDir is where the probe's stub openers are made (internal/probe); empty means the temp dir.
+	ProbeDir string
 	// ListModels overrides `agy models` in tests.
 	ListModels func(ctx context.Context, binary string, env map[string]string) (string, error)
 }
@@ -376,7 +378,7 @@ func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[stri
 	if a.Hold != nil && a.Hold() {
 		err = probe.ErrLoginNeeded // not run: the cache below answers, if there is one
 	} else {
-		out, err = probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models"}, Env: mapToEnv(env), Timeout: 45 * time.Second})
+		out, err = probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models"}, Env: mapToEnv(env), Dir: a.ProbeDir, Timeout: 45 * time.Second})
 		if errors.Is(err, probe.ErrLoginNeeded) && a.LoginNeeded != nil {
 			a.LoginNeeded()
 		}
