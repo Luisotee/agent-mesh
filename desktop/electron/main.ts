@@ -4,6 +4,7 @@ import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
+import { LinkInbox, PROTOCOL, linkIn, openedLink } from './links.js'
 import { redeemPairing } from './pair.js'
 import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
@@ -23,6 +24,14 @@ const appShell = new Shell(
   (click) => mainWindow?.webContents.send('shell:click', click),
   process.env.AGENT_MESH_DESKTOP_SHELL_LOG,
 )
+
+// Pairing links from outside the app (agentmesh://pair?...) wait here for the window; none is acted on without the user.
+const links = new LinkInbox(() => mainWindow?.webContents.send('links:open'))
+function offerLink(link: ReturnType<typeof openedLink>): void {
+  if (!link) return
+  links.offer(link)
+  appShell.show()
+}
 
 const aborts = new Map<string, () => void>()
 const sockets = new Map<string, Socket>()
@@ -89,6 +98,7 @@ function wire(): void {
     sockets.get(key)?.close()
     sockets.delete(key)
   })
+  ipcMain.handle('links:take', () => links.take())
   ipcMain.on('shell:notify', (_e, n: unknown) => {
     const valid = validNotice(n)
     if (valid) appShell.notify(valid)
@@ -152,11 +162,24 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   void app.whenReady().then(async () => {
     session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+    // The OS opens this app on a pairing link only once the app is installed that way: a dev or test run (its own
+    // user-data dir, or not packaged) must never take the scheme from the user's real install.
+    if (app.isPackaged && !userData) app.setAsDefaultProtocolClient(PROTOCOL)
     await hosts.load()
     wire()
     createWindow()
     appShell.start()
+    // Launched by a link (Windows and Linux hand it over as an argument).
+    offerLink(linkIn(process.argv))
   })
-  app.on('second-instance', () => appShell.show())
+  // A second launch (another link clicked) reaches this running app; macOS opens links through this event instead.
+  app.on('second-instance', (_e, argv) => {
+    appShell.show()
+    offerLink(linkIn(argv))
+  })
+  app.on('open-url', (e, url) => {
+    e.preventDefault()
+    offerLink(openedLink(url))
+  })
   app.on('window-all-closed', () => app.quit())
 }

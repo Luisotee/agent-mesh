@@ -26,7 +26,7 @@ function fixture(caps: string[] = ['tls'], actorId = 'device-local') {
     revokeDevice: vi.fn(async (_req: unknown) => ({})),
   }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client } as unknown as HostRuntime
-  const model = createAppModel({ hosts: { list: async () => [], fixed: false }, shell: { setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi)
+  const model = createAppModel({ hosts: { list: async () => [], fixed: false }, links: { take: async () => undefined, onOpen: vi.fn(() => () => {}) }, shell: { setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi)
   const wrap = (ui: React.ReactNode) => <AppContext.Provider value={model}>{ui}</AppContext.Provider>
   return { host, client, store, wrap }
 }

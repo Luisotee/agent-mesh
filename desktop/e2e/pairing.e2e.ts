@@ -135,3 +135,33 @@ test('a link naming a certificate the host doesn\'t have is refused before anyth
   await app.page.getByRole('button', { name: 'Add host' }).click()
   await app.page.getByRole('alert').filter({ hasText: /isn't the one it was paired with|couldn't reach the host to pair/ }).waitFor({ timeout: 30_000 })
 })
+
+test('an app opened by a pairing link shows it filled in, pairs only when told, and the host matches the device to the link exactly', async () => {
+  // The link is made with one name; the device that uses it calls itself something else, and another device is
+  // paired meanwhile by hand: only the pairing id can tell which one used the link.
+  const link = await makeLink(owner.page, `https://${listen}`, 'Named on the host')
+  const home = mkdtempSync(path.join(os.tmpdir(), 'amd-h5-'))
+  const opened = await launchApp({ home, args: [link] })
+  others.push(opened)
+  const { page } = opened
+  await expect.poll(() => page.getByLabel('Pairing link').inputValue(), { timeout: 30_000 }).toBe(link)
+  await page.getByRole('note').filter({ hasText: 'opened by a pairing link' }).waitFor()
+  await page.screenshot({ path: path.join(shots, 'opened-by-link.png') })
+  // Nothing was redeemed: the host's link is still on show.
+  await owner.page.getByRole('img', { name: 'Pairing QR code' }).waitFor()
+
+  await page.getByLabel("This device's name").fill('Desktop opened by link')
+  await page.getByRole('button', { name: 'Add host' }).click()
+  await page.getByRole('button', { name: /^Host e2e-home/ }).waitFor({ timeout: 30_000 })
+  await owner.page.getByRole('status').filter({ hasText: 'Paired: Desktop opened by link' }).waitFor({ timeout: 30_000 })
+
+  // A link clicked while the app runs reaches it through the single-instance lock, and opens the dialog filled in.
+  const second = await makeLink(owner.page, `https://${listen}`, 'Clicked while running')
+  await opened.openLink(second)
+  const dialog = page.getByRole('dialog')
+  await expect.poll(() => dialog.getByLabel('Pairing link').inputValue(), { timeout: 30_000 }).toBe(second)
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'detached' })
+  // Still not redeemed.
+  await owner.page.getByRole('img', { name: 'Pairing QR code' }).waitFor()
+})
