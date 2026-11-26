@@ -262,7 +262,7 @@ func ClassifyError(e Event) (Limit, bool) {
 	switch {
 	case d.ErrorType == "quota" || d.StatusCode == 402 || d.ErrorCode == "quota_exceeded":
 		return Limit{Message: firstLine(d.Message, "quota exceeded"), Hold: QuotaHold, At: e.Time()}, true
-	case policyRE.MatchString(d.Message) || (d.StatusCode == 403 && strings.Contains(d.Message, "Copilot")):
+	case policyRE.MatchString(d.Message):
 		return Limit{Message: firstLine(d.Message, "access denied by Copilot policy"), Hold: PolicyHold, Policy: true, At: e.Time()}, true
 	}
 	return Limit{}, false

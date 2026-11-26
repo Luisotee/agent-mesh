@@ -31,12 +31,12 @@ type copilotPoll struct {
 	key        string // the newest event the agent's state was driven by
 	state      string // "working" or "idle" as last applied
 	limitKey   string // the limit event or screen line already reported
-	trustTries int
 }
 
 type copilotRuntime struct {
 	mu     sync.Mutex
 	polled map[string]*copilotPoll // agent id → what the last poll applied
+	trust  map[string]int          // terminal id → Enter presses given to its trust dialog
 }
 
 func (d *Daemon) clearCopilotTerminal(terminalID string) {
@@ -49,6 +49,7 @@ func (d *Daemon) clearCopilotTerminal(terminalID string) {
 			delete(d.rt.copilot.polled, id)
 		}
 	}
+	delete(d.rt.copilot.trust, terminalID)
 	d.rt.copilot.mu.Unlock()
 }
 
@@ -61,17 +62,15 @@ func (d *Daemon) copilotTrustGate(ctx context.Context, a *v1.Agent) bool {
 		return false
 	}
 	d.rt.copilot.mu.Lock()
-	if d.rt.copilot.polled == nil {
-		d.rt.copilot.polled = map[string]*copilotPoll{}
+	if d.rt.copilot.trust == nil {
+		d.rt.copilot.trust = map[string]int{}
 	}
-	ps := d.rt.copilot.polled[a.Id]
-	if ps == nil || ps.terminalID != a.TerminalId {
-		ps = &copilotPoll{terminalID: a.TerminalId}
-		d.rt.copilot.polled[a.Id] = ps
-	}
-	tries := ps.trustTries
-	ps.trustTries++
+	tries := d.rt.copilot.trust[a.TerminalId]
+	d.rt.copilot.trust[a.TerminalId]++
 	d.rt.copilot.mu.Unlock()
+	if tries == copilotTrustTries {
+		d.log.Warn("copilot trust dialog is still up after the Enter presses; the agent stays starting", "agent", a.Name)
+	}
 	if tries < copilotTrustTries {
 		if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
 			Data: []byte("\r")})); err != nil {
@@ -143,7 +142,9 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent) {
 	if limited == nil && st.State != "idle" && a.State != v1.AgentState_AGENT_STATE_LIMITED {
 		// A rate limit shows on the screen only; one from before the newest prompt was answered is old.
 		if raw, serr := d.readScreen(ctx, a.TerminalId); serr == nil {
-			if l, ok := copilot.ScreenLimit(copilot.ScreenLines(raw)); ok {
+			// A limit line already reported for this prompt (a `continue` resumed the agent, the line is still on
+			// screen) is old: it must not hold back the turns that follow.
+			if l, ok := copilot.ScreenLimit(copilot.ScreenLines(raw)); ok && "screen:"+l.Message+"@"+st.Key != prevLimit {
 				screenLimit = &l
 				limited = &l
 			}
@@ -153,7 +154,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent) {
 	case limited != nil:
 		key := st.Key
 		if screenLimit != nil {
-			key = "screen:" + screenLimit.Message
+			key = "screen:" + screenLimit.Message + "@" + st.Key
 		}
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED && key != prevLimit {
 			at := limited.At

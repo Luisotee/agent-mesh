@@ -411,3 +411,21 @@ func TestCopilotAtItsLimitIsLeftOutOfAutoReviewers(t *testing.T) {
 		t.Fatalf("named copilot at its limit: %v", res.Agents)
 	}
 }
+
+func TestCopilotTurnsFollowAScreenLimitWhoseLineStaysOnScreen(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "stale", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(worker, "/limit\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	// A prompt is answered after the limit: its line is still among the last screen lines, yet the turn is
+	// followed to its end.
+	w.typeInto(worker, "go again\r")
+	waitFor(t, "the answered prompt", func() bool { return strings.Contains(w.screen(t, worker), "done: go again") })
+	waitFor(t, "idle after the answer, not stuck on the old limit line", func() bool {
+		return w.agent(worker.Id).State == v1.AgentState_AGENT_STATE_IDLE
+	})
+}
