@@ -2,8 +2,10 @@ package daemon_test
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +30,15 @@ func startAuthor(t *testing.T, reviews string) *authorWorld {
 	worker := w.spawnUnder(t, w.asRoot, "fix", &v1.SpawnAgentRequest{Repo: w.pr.repo, Reviews: reviews})
 	w.pr.headRef = worker.Branch
 	return &authorWorld{reviewWorld: w, worker: worker, asWorker: w.as(w.token(t, worker.Id))}
+}
+
+// commit makes a commit on the worker's branch, as its work.
+func (a *authorWorld) commit(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", a.worker.Worktree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v %s", err, out)
+	}
 }
 
 func (a *authorWorld) ask(t *testing.T, req *v1.AskRequest) (*v1.AskResponse, error) {
@@ -183,6 +194,7 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 	a.pr.push(t, "the feature")
 	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
 	// A done naming the PR before any round: the footer says no round was asked.
+	a.commit(t)
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
 	if got := a.doneBody(t); !strings.Contains(got, "[mesh reviews] PR #7: "+a.worker.Name+" asked no review round") {
 		t.Errorf("done without a round: %q", got)
@@ -453,7 +465,7 @@ func TestAWorkersHintCountsItsSingleReviewersTowardTheLastRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(again.Hint, "its last") || strings.Contains(again.Hint, "run this round again") {
+	if !strings.Contains(again.Hint, "round 2 of at most 2") || !strings.Contains(again.Hint, "its last") || strings.Contains(again.Hint, "run this round again") {
 		t.Errorf("a round the ceiling leaves no other after: %s", again.Hint)
 	}
 }
@@ -462,6 +474,7 @@ func TestAWorkersHintCountsItsSingleReviewersTowardTheLastRound(t *testing.T) {
 func TestTheFooterNamesWhoAskedTheRoundsOfAPRTheWorkerDidNot(t *testing.T) {
 	a := startAuthor(t, "")
 	a.pr.push(t, "the feature")
+	a.commit(t)
 	// The root ran a round on the worker's PR.
 	a.reviewWorld.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
@@ -513,5 +526,127 @@ func TestAWorkerIsNudgedOnceItsSingleReviewerHasHadAskTimeoutToAnswer(t *testing
 	a.pass()
 	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
 		t.Errorf("nudges with its reviewer long overdue: %d", n)
+	}
+}
+
+// Only an answers info of the daemon (newer than the task) is the agent's next work; its other infos hold nothing.
+func TestOnlyARoundsAnswersHoldAWorkersNudge(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	tell := func(body string, at time.Time) {
+		t.Helper()
+		err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutMessage(&v1.Message{Id: "m-" + body[:12], RunId: a.run.Id, From: &v1.Actor{Id: "meshd", Name: "mesh"}, ToId: "a-w1", ToName: "repo-one",
+				Type: v1.MessageType_MESSAGE_TYPE_INFO, Body: body, CreatedAt: timestamppb.New(at)})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	tell("[mesh answers k0] an answer from before the task", time.Now().Add(-time.Hour))
+	a.taskRead()
+	// The task's reading marks the first one read too: write the unread ones after it.
+	tell("[mesh alert exited x] a child ended", time.Now())
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Fatalf("nudges with only an alert unread: %d", n)
+	}
+}
+
+// The round ceiling is checked where the ask is stored: two rounds asked at once can't both pass.
+func TestTwoRoundsAskedAtOnceDoNotBothPassTheCeiling(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+		}()
+	}
+	wg.Wait()
+	ok := 0
+	for _, err := range errs {
+		if err == nil {
+			ok++
+		}
+	}
+	if ok != 1 {
+		t.Errorf("%d of 3 simultaneous rounds started, want 1: %v", ok, errs)
+	}
+}
+
+// A done of a worker with no commits that names a PR names somebody else's: no "asked no round" line.
+func TestTheFooterSaysNothingOfAPRAWorkerWithNoCommitsNamed(t *testing.T) {
+	a := startAuthor(t, "")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "I read PR "+a.pr.url()+" and found nothing")
+	if got := a.doneBody(t); strings.Contains(got, "[mesh reviews]") {
+		t.Errorf("a footer on a worker with no work: %s", got)
+	}
+	a.commit(t)
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
+	if got := a.doneBody(t); !strings.Contains(got, "asked no review round") {
+		t.Errorf("no line once it has commits: %s", got)
+	}
+}
+
+// The footer finds a PR's rounds however the done spells its URL.
+func TestTheFooterFindsRoundsByTheNormalizedPRURL(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.commit(t)
+	a.reviewWorld.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
+	typed := "https://github.com/O/Shop-API/pull/7"
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+typed+" opened")
+	if got := a.doneBody(t); !strings.Contains(got, "asked no review round itself; rounds of it were asked by "+a.lead.Name) {
+		t.Errorf("a differently typed URL: %s", got)
+	}
+}
+
+func TestAReviewTierCannotBeTop(t *testing.T) {
+	w := startReviews(t)
+	for _, k := range []string{"review.tier.small", "review.tier.large"} {
+		_, err := w.device.Mesh.SetSetting(context.Background(), connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: k, Value: val(t, "top")}))
+		if code(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s = top: %v", k, err)
+		}
+	}
+}
+
+// A round with a model names a one-reviewer ask's option: the error says so, not that the tier is missing.
+func TestARoundWithAModelIsToldThatModelIsForOneReviewer(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	_, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto", Model: "opus"})
+	if code(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "model and kind are for one reviewer") {
+		t.Errorf("round with a model: %v", err)
+	}
+}
+
+// A PR given by URL names its repo: it must be the worker's own, though no --repo says otherwise.
+func TestAWorkerReviewsNoPRByURLOfAnotherGitHubRepo(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	// The origin is a GitHub URL that git maps back to the local repo, so fetches still work.
+	for _, args := range [][]string{
+		{"config", "url." + a.pr.repo + ".insteadOf", "https://github.com/o/shop-api.git"},
+		{"remote", "set-url", "origin", "https://github.com/o/shop-api.git"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", a.pr.repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	_, err := a.ask(t, &v1.AskRequest{Review: "https://github.com/o/other/pull/7", Size: "small", Reviewers: "auto"})
+	if code(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "own repo") {
+		t.Errorf("another repo's PR URL: %v", err)
+	}
+	if _, err := a.ask(t, &v1.AskRequest{Review: "https://github.com/O/Shop-API/pull/7", Size: "small", Reviewers: "auto"}); err != nil {
+		t.Errorf("its own repo's PR URL: %v", err)
 	}
 }

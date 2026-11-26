@@ -99,6 +99,9 @@ func (s *Schema) Keys(prefix string) []string {
 func (l Leaf) rule() string {
 	switch l.Type {
 	case String:
+		if len(l.Choices) > 0 {
+			return "one of " + strings.Join(l.Choices, ", ")
+		}
 		return "a non-empty string"
 	case Strings:
 		return "a list of non-empty strings"
@@ -169,7 +172,7 @@ func Check(l Leaf, v any) (any, error) {
 	}
 	switch l.Type {
 	case String:
-		if !text(v) {
+		if !text(v) || len(l.Choices) > 0 && !oneOf(v, l.Choices) { // a leaf with choices takes one of them
 			return bad()
 		}
 	case Strings:
@@ -321,9 +324,9 @@ func DefaultLeaves() []Leaf {
 			Summary: "kinds asked again after a fix on a large PR even when skipped"},
 		Leaf{Key: "review.by", Type: String, Default: "worker", Choices: []string{"worker", "root"},
 			Summary: "who runs the review rounds of a worker's PR: the worker itself (once its self-review is done), or its parent, the root (a relay for a risky PR); `mesh spawn --reviews` and `mesh approve --reviews` set it per worker"},
-		Leaf{Key: "review.tier.small", Type: String, Default: "mid", Choices: []string{"light", "mid", "strong", "top"},
+		Leaf{Key: "review.tier.small", Type: String, Default: "mid", Choices: []string{"light", "mid", "strong"},
 			Summary: "the tier the reviewers of a small PR run on when the round names none (a worker's own round)"},
-		Leaf{Key: "review.tier.large", Type: String, Default: "strong", Choices: []string{"light", "mid", "strong", "top"},
+		Leaf{Key: "review.tier.large", Type: String, Default: "strong", Choices: []string{"light", "mid", "strong"},
 			Summary: "the tier the reviewers of a large PR run on when the round names none (a worker's own round)"},
 		Leaf{Key: "review.rounds.small", Type: Int, Default: 1.0,
 			Summary: "review rounds a small PR gets at most (a ceiling, not a quota)"},

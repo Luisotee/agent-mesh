@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -83,12 +84,34 @@ func (d *Daemon) reviewTop(ctx context.Context, actor *v1.Actor, repo string) (s
 // workerRepoGuard refuses a worker a review in a repo that is not its own, before anything is fetched from it:
 // slugs are unique per repo, so two repos' workers can share a branch name, and the branch check alone would let
 // one review the other's PR. top is the repo the review is of. Anyone else passes.
-func (d *Daemon) workerRepoGuard(r store.Reader, actor *v1.Actor, top string) error {
+func (d *Daemon) workerRepoGuard(ctx context.Context, r store.Reader, actor *v1.Actor, top, review string) error {
 	self := d.selfWorker(r, actor)
-	if self != nil && self.Repo != "" && !sameDir(top, self.Repo) {
+	if self == nil {
+		return nil
+	}
+	if self.Repo != "" && !sameDir(top, self.Repo) {
 		return denied("a worker reviews only its own PR, in its own repo (%s); %s is another: the root reviews the rest", self.Repo, top)
 	}
+	// A PR given by its URL names its repo, which `gh` reads whatever folder it runs in: it must be the repo's origin.
+	if want := githubRepoOf(review); want != "" {
+		if origin, err := git(ctx, top, "config", "--get", "remote.origin.url"); err == nil {
+			if have := githubRepoOf(origin); have != "" && have != want {
+				return denied("a worker reviews only its own PR, in its own repo (%s); %s is of %s: the root reviews the rest", have, review, want)
+			}
+		}
+	}
 	return nil
+}
+
+var githubRepoRE = regexp.MustCompile(`(?i)github\.com[/:]([^/\s]+)/([^/\s]+?)(?:\.git)?(?:/|$|\?|#)`)
+
+// githubRepoOf is the lowercase owner/repo of a GitHub URL or remote (https, ssh or scp form), else "".
+func githubRepoOf(u string) string {
+	m := githubRepoRE.FindStringSubmatch(u)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(m[1] + "/" + m[2])
 }
 
 // workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
@@ -241,11 +264,21 @@ func (d *Daemon) openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
 	return false
 }
 
+// hasBranchWork tells whether the worker's branch has commits past where it started. It runs git, so it is asked
+// before a write, not in one; where it can't tell (no worktree) the answer is yes.
+func hasBranchWork(ctx context.Context, a *v1.Agent) bool {
+	if a.Worktree == "" || a.BaseCommit == "" {
+		return true
+	}
+	n, err := git(ctx, a.Worktree, "rev-list", "--count", a.BaseCommit+"..HEAD")
+	return err != nil || n != "0"
+}
+
 // reviewFooter is what a worker's `done` to its parent carries about its PR's reviews, from the store alone: each
 // round it asked (who answered, the answers file, the verdicts and who gave them), and for a PR the `done` names
 // that it asked no round on, a line saying so. The parent then needs no relay to find the findings, and a
 // skipped round shows instead of passing silently. A worker whose parent runs its reviews gets none.
-func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) string {
+func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWork bool) string {
 	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
 		return ""
 	}
@@ -271,7 +304,9 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) strin
 			}
 		}
 	}
-	if len(own) == 0 && len(urls) > 0 {
+	// hasWork: the worker's branch has commits. A worker with none (research, a question) that names a PR names
+	// somebody else's, and "asked no review round" would be wrong of it.
+	if len(own) == 0 && len(urls) > 0 && hasWork {
 		own[prKey(urls[0])] = true
 	}
 	asks, err := r.RunAsks(self.RunId)
@@ -299,7 +334,7 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) strin
 			continue
 		}
 		// Rounds of the PR that others asked (the root, an earlier run) count against the ceiling too.
-		others, err := r.PRAsks(u)
+		others, err := prAsksByKey(r, u)
 		if err != nil {
 			continue
 		}

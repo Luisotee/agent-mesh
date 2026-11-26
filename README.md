@@ -28,9 +28,9 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 
 ```
 the root (a daemon agent, started by /delegate or the app)     keeps you in the loop
- ├── shop-api-restocked-at   (claude)          research ─▶ plan ─▶ approved ─▶ code ─▶ test ─▶ PR
- │                                                       plans on a strong tier, executes on mid
- └── shop-api-review-88-agy  (agy, read-only)  reviews the PR, reports findings
+ └── shop-api-restocked-at   (claude)          research ─▶ plan ─▶ approved ─▶ code ─▶ test ─▶ PR
+     │                                                   plans on a strong tier, executes on mid
+     └── shop-api-review-88-agy  (agy, read-only)  asked by the worker: reviews the PR, reports findings
 ```
 
 ## Quick start

@@ -828,7 +828,7 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	}
 	return d.collectRound(ctx, actor, m.Meta, ask, out, names, func(i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startPeer(ctx, actor, peers[i], m, body)
-	}, func(store.Reader, *v1.Ask) string { return "" })
+	}, func(store.Reader, *v1.Ask) string { return "" }, nil)
 }
 
 // startPeer asks one peer: its agent in this run if it has one (given the question, resumed if retired), else a
