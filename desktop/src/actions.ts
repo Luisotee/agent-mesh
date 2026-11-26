@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -69,6 +69,9 @@ export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c
 
 /** What waits on the user across the host's open runs: plans and questions nobody answered, agents at a prompt. */
 export const listWaiting = (c: MeshClient) => c.listWaiting({})
+
+/** Each change worker's pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). */
+export const listPullRequests = (c: MeshClient, refresh = false) => c.listPullRequests({ refresh })
 
 export const listSettings = (c: MeshClient, prefix = '') => c.listSettings({ prefix })
 

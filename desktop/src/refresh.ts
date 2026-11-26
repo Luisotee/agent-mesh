@@ -1,9 +1,9 @@
 import { equals } from '@bufbuild/protobuf'
 import type { MeshClient } from './actions'
-import { listWaiting } from './actions'
+import { listPullRequests, listWaiting } from './actions'
 import { realTimers, type Timers } from './connection'
 import { AgentSchema, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
-import { setWaiting, type HostStore } from './store'
+import { setPullRequests, setWaiting, type HostStore } from './store'
 
 /**
  * Two things the event stream doesn't carry, read from the host again when they may have changed.
@@ -13,25 +13,32 @@ import { setWaiting, type HostStore } from './store'
  * starting, changing state, exiting or being retired, a run stopping. A list that was on its way while one of those
  * arrived may be stale: it is shown, and fetched again after the pause.
  *
+ * The pull requests (`ListPullRequests`, which the host caches for two minutes) are read at connect and every
+ * `prsEveryMs`; a PR that changes between is told by an event the store applies itself.
+ *
  * An agent that went quiet shows as `unknown` only when the host is asked (the state is derived from the time and
  * the terminal's output when read, never stored or sent as an event), so the agents are listed again every
  * `agentsEveryMs`; an agent an event touched meanwhile keeps what the event said.
  */
 export function hostRefresher(
-  client: Pick<MeshClient, 'listWaiting' | 'listAgents'>,
+  client: Pick<MeshClient, 'listWaiting' | 'listAgents' | 'listPullRequests'>,
   store: HostStore,
   log: (line: string) => void,
   timers: Timers = realTimers,
-  opts: { debounceMs?: number; agentsEveryMs?: number } = {},
+  opts: { debounceMs?: number; agentsEveryMs?: number; prsEveryMs?: number } = {},
 ) {
   const debounceMs = opts.debounceMs ?? 200
   const agentsEveryMs = opts.agentsEveryMs ?? 30_000
+  const prsEveryMs = opts.prsEveryMs ?? 60_000
   let stopped = false
   let waitingTouches = 0
   let agentTouches = 0
   let pause: unknown
   let waitingLoading = false
   let ticker: unknown
+  let prTicker: unknown
+  let prsLoading = false
+  let prsComplained = false
   let complained = false
   let waitingFailed = false
 
@@ -75,6 +82,23 @@ export function hostRefresher(
       pause = undefined
       void loadWaiting()
     }, debounceMs)
+  }
+
+  async function loadPullRequests(): Promise<void> {
+    const st = store.getState()
+    if (prsLoading || st.conn.kind !== 'ready' || !st.synced) return
+    prsLoading = true
+    try {
+      const res = await listPullRequests(client as MeshClient)
+      if (!stopped) store.setState(setPullRequests(res.agents))
+      prsComplained = false
+    } catch (e) {
+      // The buckets then lack "ready to review": say it once (a host without `gh` or an older daemon would say it every minute).
+      if (!prsComplained) log(`couldn't read the pull requests: ${e instanceof Error ? e.message : String(e)}`)
+      prsComplained = true
+    } finally {
+      prsLoading = false
+    }
   }
 
   async function loadAgents(): Promise<void> {
@@ -151,9 +175,11 @@ export function hostRefresher(
       timers.clearTimeout(pause)
       pause = undefined
       void loadWaiting()
+      void loadPullRequests()
     },
     start(): void {
       ticker ??= timers.setInterval(() => void loadAgents(), agentsEveryMs)
+      prTicker ??= timers.setInterval(() => void loadPullRequests(), prsEveryMs)
     },
     stop(): void {
       stopped = true
@@ -161,6 +187,8 @@ export function hostRefresher(
       pause = undefined
       timers.clearInterval(ticker)
       ticker = undefined
+      timers.clearInterval(prTicker)
+      prTicker = undefined
     },
   }
 }

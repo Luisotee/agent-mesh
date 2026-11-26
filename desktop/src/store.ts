@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { ConnState, Frame } from './connection'
 
 export interface LogLine {
@@ -28,6 +29,8 @@ export interface HostState {
   settings: Record<string, Setting>
   /** What the host says waits on the user (ListWaiting), kept up to date by `refresh.ts`; empty until it first answers. */
   waiting: WaitingRow[]
+  /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
+  pullRequests: Record<string, AgentPullRequests>
   /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
   devices: Device[]
   /** The pairing each device came through (a `DevicePaired` event's `pairingId`), by device id; a device with no entry is one whose event we didn't see, or from a host before the field. */
@@ -42,7 +45,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -160,6 +163,16 @@ function applyEvent(s: HostState, e: Event): HostState {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
     }
+    // A PR's state or checks changed: it replaces what we hold for it (or is added), so the sidebar's buckets follow a merge at once.
+    case 'pullRequestChanged': {
+      const pr = p.value.pullRequest
+      if (!pr) return next
+      const cur = s.pullRequests[pr.agentId]
+      const list = cur?.pullRequests ?? []
+      const prs = list.some((x) => x.url === pr.url) ? list.map((x) => (x.url === pr.url ? pr : x)) : [...list, pr]
+      const merged: AgentPullRequests = { ...(cur ?? { $typeName: 'agentmesh.v1.AgentPullRequests', agentId: pr.agentId, agentName: '', reviewing: [], readFailed: false }), pullRequests: prs }
+      return { ...next, pullRequests: { ...s.pullRequests, [pr.agentId]: merged } }
+    }
     case 'devicePaired': {
       const d = p.value.device
       if (!d) return next
@@ -204,6 +217,11 @@ export function setDevices(devices: Device[]): Partial<HostState> {
 /** The host's answer to ListWaiting, which replaces the last one. */
 export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
   return { waiting }
+}
+
+/** The host's answer to ListPullRequests, which replaces the last one. */
+export function setPullRequests(list: AgentPullRequests[]): Partial<HostState> {
+  return { pullRequests: Object.fromEntries(list.map((x) => [x.agentId, x])) }
 }
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */

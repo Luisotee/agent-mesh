@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ListAgentsResponseSchema, ListWaitingResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ListPullRequestsResponseSchema, AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, type Event } from './gen/agentmesh/v1/types_pb'
 import { hostRefresher } from './refresh'
 import { createHostStore } from './store'
@@ -20,7 +21,7 @@ function gate<T>() {
 function setup() {
   const store = createHostStore()
   store.setState({ conn: { kind: 'ready', hello: {} as never }, synced: true })
-  const client = { listWaiting: vi.fn(), listAgents: vi.fn() }
+  const client = { listWaiting: vi.fn(), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)) }
   const log = vi.fn()
   const r = hostRefresher(client as never, store, log, undefined, { debounceMs: 200, agentsEveryMs: 30_000 })
   return { store, client, log, r }
@@ -197,5 +198,26 @@ describe('agents that went quiet', () => {
     r.start()
     await vi.advanceTimersByTimeAsync(31_000)
     expect(client.listAgents).not.toHaveBeenCalled()
+  })
+})
+
+describe('the pull requests', () => {
+  it('are read at connect and every minute, and a failure is said once', async () => {
+    const { store, client, log, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listPullRequests.mockResolvedValueOnce(create(ListPullRequestsResponseSchema, { agents: [create(AgentPullRequestsSchema, { agentId: 'w', pullRequests: [create(PullRequestSchema, { agentId: 'w', number: 7, url: 'u', state: 'open' })] })] }))
+    r.start()
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().pullRequests.w?.pullRequests[0]?.number).toBe(7)
+
+    client.listPullRequests.mockRejectedValue(new Error('gh missing'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(client.listPullRequests).toHaveBeenCalledTimes(3)
+    expect(log.mock.calls.filter(([l]) => /pull requests/.test(l as string))).toHaveLength(1)
+    // What was known stays.
+    expect(store.getState().pullRequests.w).toBeDefined()
+    r.stop()
   })
 })

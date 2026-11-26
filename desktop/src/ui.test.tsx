@@ -26,6 +26,7 @@ import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
+import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 
@@ -70,6 +71,37 @@ describe('RunSidebar', () => {
     expect(lead.closest('li')).toContainElement(fix)
     await userEvent.click(fix)
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
+  })
+
+  it('groups the agents by project or by status bucket, with Done folded, and a worker with an open PR is ready to review', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      agents: {
+        ...s.agents,
+        w2: agent('w2', { role: AgentRole.WORKER, name: 'web-docs', repo: '/p/web', parentId: 'lead', state: AgentState.IDLE }),
+        w3: agent('w3', { role: AgentRole.WORKER, name: 'web-old', repo: '/p/web', parentId: 'lead', state: AgentState.RETIRED }),
+      },
+      pullRequests: { w2: create(AgentPullRequestsSchema, { agentId: 'w2', pullRequests: [create(PullRequestSchema, { agentId: 'w2', number: 4, url: 'u', state: 'open' })] }) },
+    }))
+    render(wrap(<RunSidebar host={host} />))
+    const group = screen.getByRole('group', { name: 'Group the agents by' })
+    expect(within(group).getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(within(group).getByRole('button', { name: 'Projects' }))
+    expect(model.store.getState().sidebarGroup).toBe('project')
+    const app = screen.getByRole('region', { name: 'app' })
+    expect(within(app).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('app-fix'), expect.stringContaining('app-lead')])
+    expect(app).toHaveTextContent('1 needs you')
+    expect(screen.getByRole('region', { name: 'web' })).toHaveTextContent('1 ready to review')
+
+    await userEvent.click(within(group).getByRole('button', { name: 'Status' }))
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Needs you', 'Ready to review', 'Idle', 'Done'])
+    expect(within(screen.getByRole('region', { name: 'Ready to review' })).getByRole('button', { name: /web-docs/ })).toHaveTextContent('web · ship it')
+    // Done is folded until asked for.
+    const done = screen.getByRole('region', { name: 'Done' })
+    expect(within(done).queryByRole('button', { name: /web-old/ })).toBeNull()
+    await userEvent.click(within(done).getByRole('button', { name: /Show 1/ }))
+    expect(within(done).getByRole('button', { name: /web-old/ })).toBeInTheDocument()
   })
 
   it('invites starting a run when there are none', () => {

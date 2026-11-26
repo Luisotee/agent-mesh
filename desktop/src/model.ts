@@ -115,9 +115,14 @@ export interface AppState extends WorkspaceState {
   pairOpen: boolean
   /** The command palette is open. */
   paletteOpen: boolean
+  /** How the sidebar groups the agents. */
+  sidebarGroup: SidebarGroup
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
 }
+
+/** How the sidebar groups the agents: by run (each as a tree from its lead), by repo, or by status bucket. */
+export type SidebarGroup = 'run' | 'project' | 'state'
 
 export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
 
@@ -140,12 +145,13 @@ export interface AppModel {
   dismissTile(hostId: string, agentId: string): void
   openSettings(open: boolean, query?: string): void
   openPalette(open: boolean): void
+  setSidebarGroup(g: SidebarGroup): void
   openPairing(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, sidebarGroup: 'run', settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -223,6 +229,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false })),
     openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
+    setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false }),
     setTab: (tab) => set({ tab }),
     closeTab: (ref) => set((s) => closeTab(s, ref)),
