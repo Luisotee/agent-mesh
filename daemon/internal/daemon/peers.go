@@ -71,7 +71,11 @@ func (d *Daemon) peerWorktree(name string) string { return filepath.Join(d.workt
 // ensurePeerWorktree makes the peer's own detached worktree of its clone, on the commit it last saw.
 func (d *Daemon) ensurePeerWorktree(ctx context.Context, p *v1.Peer) error {
 	if p.InClone {
-		return nil // it works in the clone's own checkout: the daemon makes nothing
+		// It works in the clone's own checkout: the daemon makes nothing, and says so when that is gone.
+		if _, err := os.Stat(p.Worktree); err != nil {
+			return fmt.Errorf("%s works in the clone's own checkout %s, which is not there: restore it, or remove the peer and add it again", p.Name, p.Worktree)
+		}
+		return nil
 	}
 	if _, err := git(ctx, p.Worktree, "rev-parse", "--git-dir"); err == nil {
 		return nil
@@ -369,8 +373,8 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	}
 	// The peer is gone from the registry either way. A worktree of the daemon's own that git won't remove is
 	// deleted, and one that still stands is said. A peer in the clone's own checkout has no worktree of its own
-	// (that folder is the user's), and one imported at bin/mesh's folder is removed only when git finds it clean:
-	// bin/mesh may still use it, and its uncommitted work is not the daemon's to delete.
+	// (that folder is the user's), and a folder outside the daemon's worktrees (one imported from bin/mesh, which may
+	// still list it) is left whatever its state: it is not the daemon's to delete.
 	own := strings.HasPrefix(filepath.Clean(p.Worktree)+string(filepath.Separator), filepath.Clean(d.peerWorktree(""))+string(filepath.Separator))
 	// Another peer imported from the same bin/mesh folder still works in it: it stays.
 	shared := false
@@ -386,9 +390,7 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	case shared:
 		out.Worktree = "" // left where it is
 	case !own:
-		if _, err := git(ctx, p.Repo, "worktree", "remove", p.Worktree); err != nil {
-			out.Worktree = "" // left where it is
-		}
+		out.Worktree = "" // bin/mesh's, or the user's: left where it is
 	default:
 		if _, err := git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree); err != nil {
 			os.RemoveAll(p.Worktree)
@@ -472,15 +474,17 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 	sort.Strings(names)
 	var peers, created []*v1.Peer
 	var upgrades []*peerUpgrade
-	// An upgrade holds the lock an ask of its peer takes until it is applied: an ask that read the peer before the
+	// An upgrade holds the lock an ask of its peer takes until the write applies it: an ask that read the peer before the
 	// upgrade would otherwise launch a fresh agent in the old worktree and then be recorded against bin/mesh's
 	// conversation. The names are taken in order, and nothing here waits on another lock.
 	var unlock []func()
-	defer func() {
+	release := func() {
 		for _, u := range unlock {
 			u()
 		}
-	}()
+		unlock = nil
+	}
+	defer release()
 	for _, n := range names {
 		e := f.Peers[n]
 		skip := func(why string) { out.Skipped = append(out.Skipped, n+": "+why) }
@@ -492,7 +496,8 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			skip("no clone recorded")
 			continue
 		}
-		if _, err := d.store.Read(ctx).GetPeer(n); err == nil {
+		// Only a peer that may take a conversation is locked (re-read once held), and only until the write below.
+		if have, err := d.store.Read(ctx).GetPeer(n); err == nil && upgradeable(have, m.Unbriefed) {
 			lock := d.agentLock("peer:" + n)
 			lock.Lock()
 			unlock = append(unlock, lock.Unlock)
@@ -547,7 +552,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			Upstream: up, Added: timestamppb.New(d.now())}
 		fresh := proto.Clone(p).(*v1.Peer)
 		if !m.Unbriefed {
-			if note := d.adoptConversation(ctx, stateDir, n, e, p); note != "" {
+			if note := d.adoptConversation(ctx, stateDir, n, e, p, "imported without its conversation"); note != "" {
 				skip(note)
 			}
 		}
@@ -629,6 +634,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		}
 		return nil
 	})
+	release() // the upgrades are applied (or not): an ask of these peers may go on
 	if err != nil {
 		for _, p := range created {
 			git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree)

@@ -692,7 +692,7 @@ func TestAPeerInTheClonesOwnCheckoutIsNeverMovedOrRemoved(t *testing.T) {
 	}
 }
 
-func TestRemovingAnImportedPeerLeavesBinMeshsDirtyWorktreeAndTakesACleanOne(t *testing.T) {
+func TestRemovingAnImportedPeerLeavesBinMeshsWorktreeCleanOrDirty(t *testing.T) {
 	w := startPeers(t)
 	ctx := context.Background()
 	st := newBinMeshState(t)
@@ -717,8 +717,8 @@ func TestRemovingAnImportedPeerLeavesBinMeshsDirtyWorktreeAndTakesACleanOne(t *t
 			t.Fatal(err)
 		}
 	}
-	if _, err := os.Stat(wt1); err == nil {
-		t.Errorf("a clean imported worktree stays")
+	if _, err := os.Stat(wt1); err != nil {
+		t.Errorf("a clean worktree of bin/mesh's was removed with its peer: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(wt2, "wip.txt")); err != nil {
 		t.Errorf("uncommitted work in bin/mesh's worktree was deleted: %v", err)
@@ -837,7 +837,110 @@ func TestRemovingAPeerLeavesAWorktreeAnotherPeerSharesAndAClonesOwnCheckoutAlone
 	if _, err := w.device.Mesh.RemovePeer(ctx, connect.NewRequest(&v1.RemovePeerRequest{Meta: meta(""), Name: "two-research"})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(wt); err == nil {
-		t.Errorf("the last peer of a clean folder leaves it behind")
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("bin/mesh's folder was removed with its last peer: %v", err)
+	}
+}
+
+// An agy peer's hooks are files written into its worktree, so one that bin/mesh ran in the clone's own checkout
+// does not work there on the daemon: it gets a worktree of the daemon's and is briefed afresh, and the user's
+// checkout is never written to.
+func TestAnAgyPeerFromTheClonesOwnCheckoutGetsAWorktreeOfTheDaemons(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "agyin")
+	clone := cloneOf(t, up)
+	st.run(t, "r1", true, map[string]map[string]any{"agyin-research": {"kind": "agy", "repo": clone, "session": "conv-1", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{"agyin-research": map[string]any{"repo": clone, "kind": "agy", "group": "g", "about": "a",
+		"cwd": clone, "in_clone": true, "run": "r1", "as": "agyin-research"}})
+	res, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := w.peer(t, "agyin-research")
+	if p.InClone || p.Worktree == clone || p.SessionId != "" || !strings.Contains(p.Worktree, "/peers/agyin-research") {
+		t.Errorf("an agy peer was left in the clone's own checkout: %v", p)
+	}
+	if !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "agy peer's hooks would be written") {
+		t.Errorf("no note: %v", res.Msg.Skipped)
+	}
+}
+
+// A folder named in peers.json is adopted only when it is a worktree of the clone, wherever it is: one among the
+// daemon's own worktrees (another peer's) is no better than one outside them, and a folder that is gone may only
+// be where the daemon keeps this peer's.
+func TestImportingPeersChecksAFolderUnderTheDaemonsWorktreesToo(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	other := newUpstream(t, "victim")
+	victim := w.add(t, &v1.AddPeerRequest{Name: "victim-research", Source: other.url(), Group: "g", Kind: "claude"})
+	up := newUpstream(t, "thief")
+	clone := cloneOf(t, up)
+	gone := filepath.Join(filepath.Dir(victim.Worktree), "gone-folder")
+	st.run(t, "r1", true, map[string]map[string]any{
+		"thief-research": {"kind": "claude", "repo": clone, "session": "s1", "status": "retired"},
+		"gone-research":  {"kind": "claude", "repo": clone, "session": "s2", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{
+		"thief-research": map[string]any{"repo": clone, "group": "g", "about": "t", "cwd": victim.Worktree, "run": "r1", "as": "thief-research"},
+		"gone-research":  map[string]any{"repo": clone, "group": "g", "about": "g", "cwd": gone, "run": "r1", "as": "gone-research"}})
+	res, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipped := strings.Join(res.Msg.Skipped, "|")
+	if !strings.Contains(skipped, "thief-research: its folder "+victim.Worktree+" is not a worktree of") ||
+		!strings.Contains(skipped, "gone-research: its folder "+gone+" is gone") {
+		t.Errorf("skipped %v", res.Msg.Skipped)
+	}
+	for _, n := range []string{"thief-research", "gone-research"} {
+		if p := w.peer(t, n); p.SessionId != "" || p.Worktree == victim.Worktree || p.Worktree == gone {
+			t.Errorf("%s adopted a folder of the daemon's: %v", n, p)
+		}
+	}
+}
+
+// A registered peer that is not upgraded says so in its own words: nothing was imported.
+func TestImportingPeersSaysNotUpgradedForARegisteredPeerWhoseConversationRuns(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "theta")
+	clone := cloneOf(t, up)
+	wt := filepath.Join(t.TempDir(), "theta-research")
+	file := st.peersJSON(t, map[string]any{"theta-research": map[string]any{"repo": clone, "group": "g", "about": "t", "cwd": wt, "run": "live", "as": "theta-research"}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	st.run(t, "live", false, map[string]map[string]any{"theta-research": {"kind": "claude", "repo": clone, "session": "s", "status": "running"}})
+	res, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipped := strings.Join(res.Msg.Skipped, "|")
+	if !strings.Contains(skipped, "still running in bin/mesh") || !strings.Contains(skipped, "not upgraded") || strings.Contains(skipped, "imported without") {
+		t.Errorf("skipped %v", res.Msg.Skipped)
+	}
+}
+
+// A peer whose in-clone folder was deleted fails its ask with that, not a git error from somewhere later.
+func TestAnInCloneFolderThatIsGoneIsSaidSoByAnAsk(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "vanish")
+	clone := cloneOf(t, up)
+	st.run(t, "r1", true, map[string]map[string]any{"vanish-research": {"kind": "claude", "repo": clone, "session": "s1", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{"vanish-research": map[string]any{"repo": clone, "group": "g", "about": "v", "cwd": clone, "in_clone": true, "run": "r1", "as": "vanish-research"}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(clone); err != nil {
+		t.Fatal(err)
+	}
+	_, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "vanish-research", Tier: "mid", Body: "hello"}))
+	if err == nil || !strings.Contains(err.Error(), "clone's own checkout") || !strings.Contains(err.Error(), "not there") {
+		t.Errorf("ask of a peer whose checkout is gone: %v", err)
 	}
 }

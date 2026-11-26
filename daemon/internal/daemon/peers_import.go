@@ -145,15 +145,16 @@ func findPeerConversation(stateDir, name, run, as, repo, kind string) (peerConve
 
 // adoptConversation sets a peer's conversation from bin/mesh's state, when it has one that can come across: the
 // session id, the folder it ran in (and whether that is the clone's own checkout), when it was last asked, by what,
-// and its answers file. It changes nothing and returns a note when it can't (the note says why the peer is
-// imported without it), and returns "" with nothing set for a peer bin/mesh never asked.
-func (d *Daemon) adoptConversation(ctx context.Context, stateDir, name string, e peersFileEntry, p *v1.Peer) string {
+// and its answers file. It changes nothing and returns a note when it can't (the note says why, then what became
+// of the peer: outcome, "imported without its conversation" or "not upgraded"), and returns "" with nothing set for a peer
+// bin/mesh never asked.
+func (d *Daemon) adoptConversation(ctx context.Context, stateDir, name string, e peersFileEntry, p *v1.Peer, outcome string) string {
 	conv, ok := findPeerConversation(stateDir, name, e.Run, e.As, e.Repo, p.Kind)
 	if !ok {
 		return ""
 	}
 	if conv.running {
-		return "its conversation is still running in bin/mesh (run " + conv.run + ", " + conv.agent + "): imported without it; retire it there and import again"
+		return "its conversation is still running in bin/mesh (run " + conv.run + ", " + conv.agent + "): " + outcome + "; retire it there and import again"
 	}
 	cwd, inClone := e.Cwd, e.InClone
 	if inClone {
@@ -161,19 +162,28 @@ func (d *Daemon) adoptConversation(ctx context.Context, stateDir, name string, e
 	}
 	switch {
 	case cwd == "" || !filepath.IsAbs(cwd) || strings.Contains(cwd, "/.git/") || strings.HasSuffix(cwd, "/.git"):
-		return "no usable folder is recorded for its conversation: imported without it"
+		return "no usable folder is recorded for its conversation: " + outcome
 	case sameDir(cwd, e.Repo):
 		inClone = true // it ran in the clone's own checkout, whatever peers.json says
 	}
-	// A folder outside the daemon's own worktrees is adopted only when it is a worktree of this clone: peers.json
-	// is the user's file, and a path in it may be any folder (a dotfiles repo, say) that git also calls a repository.
-	if !inClone && !within(cwd, d.worktrees()) {
+	// An agy peer's hooks are files written into its worktree (.agents/hooks.json): the clone's own checkout is the
+	// user's, so such a peer gets a worktree of the daemon's instead, briefed afresh.
+	if inClone && p.Kind == "agy" {
+		return "its conversation ran in the clone's own checkout " + e.Repo + ", where an agy peer's hooks would be written: " + outcome + " (it gets a worktree of the daemon's)"
+	}
+	// A folder that exists is adopted only when it is a worktree of this clone: peers.json is the user's file, and a
+	// path in it may be any folder (a dotfiles repo, another peer's or a worker's worktree) that git also calls a
+	// repository. One that is gone is recreated, so it may only be where the daemon would put this peer's, or
+	// outside its worktrees (bin/mesh's).
+	if !inClone {
 		if _, err := os.Stat(cwd); err == nil {
 			mine, ok1 := gitCommonDir(ctx, cwd)
 			clone, ok2 := gitCommonDir(ctx, e.Repo)
 			if !ok1 || !ok2 || mine != clone {
-				return "its folder " + cwd + " is not a worktree of " + e.Repo + ": imported without its conversation"
+				return "its folder " + cwd + " is not a worktree of " + e.Repo + ": " + outcome
 			}
+		} else if within(cwd, d.worktrees()) && !sameDir(cwd, d.peerWorktree(name)) {
+			return "its folder " + cwd + " is gone and is not where the daemon keeps this peer's worktree: " + outcome
 		}
 	}
 	p.Worktree, p.InClone = cwd, inClone
@@ -234,10 +244,16 @@ type peerUpgrade struct {
 	applied     bool   // the write took it
 }
 
+// upgradeable reports whether a registered peer may take a conversation at all: one asked, with a conversation or in
+// the clone's own checkout keeps what it has, and an `unbriefed` import takes none.
+func upgradeable(have *v1.Peer, unbriefed bool) bool {
+	return !unbriefed && have.SessionId == "" && have.Asked == nil && !have.InClone
+}
+
 // upgradePeer prepares the upgrade of a registered peer, or says why not: a peer already asked (or running, or
 // with a conversation) keeps its own.
 func (d *Daemon) upgradePeer(ctx context.Context, stateDir, name string, e peersFileEntry, have *v1.Peer, unbriefed bool) (*peerUpgrade, string) {
-	if unbriefed || have.SessionId != "" || have.Asked != nil || have.InClone {
+	if !upgradeable(have, unbriefed) {
 		return nil, ""
 	}
 	if peerRunning(d.store.Read(ctx), name, "") != nil {
@@ -248,7 +264,7 @@ func (d *Daemon) upgradePeer(ctx context.Context, stateDir, name string, e peers
 		return nil, "registered on another clone (" + have.Repo + ", peers.json has " + e.Repo + "): not upgraded"
 	}
 	up := proto.Clone(have).(*v1.Peer)
-	if note := d.adoptConversation(ctx, stateDir, name, e, up); note != "" {
+	if note := d.adoptConversation(ctx, stateDir, name, e, up, "not upgraded"); note != "" {
 		return nil, note
 	}
 	if up.SessionId == "" {
