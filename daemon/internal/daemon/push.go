@@ -97,8 +97,9 @@ type pusher struct {
 	ctx     context.Context
 	senders map[senderKey]*pushSender
 
-	// started and live count senders, for tests.
+	// started and live count senders, for tests; wg waits for them at shutdown.
 	started, live atomic.Int64
+	wg            sync.WaitGroup
 
 	// spawned holds the agents spawned lately, as their AgentSpawned events said: a launch that fails deletes its
 	// agent in the transaction that reports the exit, so the store no longer has it when the exit is pushed.
@@ -139,7 +140,7 @@ func (p *pusher) enqueue(evs []*v1.Event) {
 	}
 }
 
-// run dispatches until ctx ends.
+// run dispatches until ctx ends, then returns once every sender has stopped.
 func (p *pusher) run(ctx context.Context) {
 	p.mu.Lock()
 	p.ctx = ctx
@@ -147,6 +148,10 @@ func (p *pusher) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Past the lock, queue sees ctx ended and starts no sender: every wg.Add happened before.
+			p.mu.Lock()
+			p.mu.Unlock()
+			p.wg.Wait()
 			return
 		case evs := <-p.in:
 			p.dispatch(ctx, evs)
@@ -280,6 +285,7 @@ func (p *pusher) queue(device string, j pushJob) {
 	s := p.senders[k]
 	if s == nil {
 		p.started.Add(1)
+		p.wg.Add(1)
 		ctx, cancel := context.WithCancel(p.ctx)
 		s = &pushSender{ch: make(chan pushJob, pushDeviceQueue), cancel: cancel}
 		p.senders[k] = s
@@ -315,6 +321,7 @@ func (p *pusher) stop(device, keep string) {
 // sender delivers one endpoint's pushes in order, retrying each per p.retry.
 func (p *pusher) sender(ctx context.Context, k senderKey, s *pushSender) {
 	p.live.Add(1)
+	defer p.wg.Done()
 	defer p.live.Add(-1)
 	leave := func() {
 		s.cancel()

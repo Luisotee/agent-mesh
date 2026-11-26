@@ -163,6 +163,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
+  /agentmesh.v1.MeshService/TailnetStatus
   /agentmesh.v1.MeshService/TestPush
   /agentmesh.v1.MeshService/UnregisterPush
   permission terminal.input

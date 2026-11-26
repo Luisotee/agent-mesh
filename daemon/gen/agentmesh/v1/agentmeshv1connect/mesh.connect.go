@@ -109,6 +109,9 @@ const (
 	MeshServiceUnregisterPushProcedure = "/agentmesh.v1.MeshService/UnregisterPush"
 	// MeshServiceTestPushProcedure is the fully-qualified name of the MeshService's TestPush RPC.
 	MeshServiceTestPushProcedure = "/agentmesh.v1.MeshService/TestPush"
+	// MeshServiceTailnetStatusProcedure is the fully-qualified name of the MeshService's TailnetStatus
+	// RPC.
+	MeshServiceTailnetStatusProcedure = "/agentmesh.v1.MeshService/TailnetStatus"
 	// MeshServiceGetUsageProcedure is the fully-qualified name of the MeshService's GetUsage RPC.
 	MeshServiceGetUsageProcedure = "/agentmesh.v1.MeshService/GetUsage"
 	// MeshServiceSetReserveProcedure is the fully-qualified name of the MeshService's SetReserve RPC.
@@ -242,6 +245,10 @@ type MeshServiceClient interface {
 	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
 	// another device's. Answers once the push service took it, or with its error.
 	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
+	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
+	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
+	// tailnet opens it.
+	TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
@@ -496,6 +503,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("TestPush")),
 			connect.WithClientOptions(opts...),
 		),
+		tailnetStatus: connect.NewClient[v1.TailnetStatusRequest, v1.TailnetStatusResponse](
+			httpClient,
+			baseURL+MeshServiceTailnetStatusProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("TailnetStatus")),
+			connect.WithClientOptions(opts...),
+		),
 		getUsage: connect.NewClient[v1.GetUsageRequest, v1.GetUsageResponse](
 			httpClient,
 			baseURL+MeshServiceGetUsageProcedure,
@@ -659,6 +672,7 @@ type meshServiceClient struct {
 	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
 	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
 	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
+	tailnetStatus    *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
 	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
 	ask              *connect.Client[v1.AskRequest, v1.AskResponse]
@@ -840,6 +854,11 @@ func (c *meshServiceClient) UnregisterPush(ctx context.Context, req *connect.Req
 // TestPush calls agentmesh.v1.MeshService.TestPush.
 func (c *meshServiceClient) TestPush(ctx context.Context, req *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
 	return c.testPush.CallUnary(ctx, req)
+}
+
+// TailnetStatus calls agentmesh.v1.MeshService.TailnetStatus.
+func (c *meshServiceClient) TailnetStatus(ctx context.Context, req *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {
+	return c.tailnetStatus.CallUnary(ctx, req)
 }
 
 // GetUsage calls agentmesh.v1.MeshService.GetUsage.
@@ -1031,6 +1050,10 @@ type MeshServiceHandler interface {
 	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
 	// another device's. Answers once the push service took it, or with its error.
 	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
+	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
+	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
+	// tailnet opens it.
+	TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
@@ -1281,6 +1304,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("TestPush")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceTailnetStatusHandler := connect.NewUnaryHandler(
+		MeshServiceTailnetStatusProcedure,
+		svc.TailnetStatus,
+		connect.WithSchema(meshServiceMethods.ByName("TailnetStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceGetUsageHandler := connect.NewUnaryHandler(
 		MeshServiceGetUsageProcedure,
 		svc.GetUsage,
@@ -1473,6 +1502,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceUnregisterPushHandler.ServeHTTP(w, r)
 		case MeshServiceTestPushProcedure:
 			meshServiceTestPushHandler.ServeHTTP(w, r)
+		case MeshServiceTailnetStatusProcedure:
+			meshServiceTailnetStatusHandler.ServeHTTP(w, r)
 		case MeshServiceGetUsageProcedure:
 			meshServiceGetUsageHandler.ServeHTTP(w, r)
 		case MeshServiceSetReserveProcedure:
@@ -1650,6 +1681,10 @@ func (UnimplementedMeshServiceHandler) UnregisterPush(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.TestPush is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.TailnetStatus is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {

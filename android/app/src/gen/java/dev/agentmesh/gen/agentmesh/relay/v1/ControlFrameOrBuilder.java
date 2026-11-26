@@ -52,6 +52,17 @@ public interface ControlFrameOrBuilder extends
   dev.agentmesh.gen.agentmesh.relay.v1.Ping getPing();
 
   /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   * @return Whether the clientTokens field is set.
+   */
+  boolean hasClientTokens();
+  /**
+   * <code>.agentmesh.relay.v1.ClientTokens client_tokens = 4 [json_name = "clientTokens"];</code>
+   * @return The clientTokens.
+   */
+  dev.agentmesh.gen.agentmesh.relay.v1.ClientTokens getClientTokens();
+
+  /**
    * <pre>
    * Relay to daemon.
    * </pre>

@@ -141,3 +141,6 @@ func (d *Daemon) PushSenders() (started, live int64) {
 
 // OnPushLeave sets the sender's seam for an endpoint that stopped matching (nil clears it).
 func OnPushLeave(f func()) { onPushLeave = f }
+
+// TailnetURL is the URL a pairing link carries for a tailnet node with these addresses.
+func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addresses, port) }
