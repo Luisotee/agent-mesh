@@ -1146,3 +1146,22 @@ func (r Reader) GetPeerGroup(name string) (*v1.PeerGroup, error) {
 func (r Reader) ListPeerGroups() ([]*v1.PeerGroup, error) {
 	return scanAll(r, `SELECT data FROM peer_groups ORDER BY name`, nil, func() *v1.PeerGroup { return &v1.PeerGroup{} })
 }
+
+// ── agent pull requests ──
+
+// PutAgentPR inserts or replaces the last state read for a pull request an agent owns.
+func (t *Tx) PutAgentPR(p *v1.PullRequest) error {
+	b, err := proto.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agent_prs (agent_id, url, data) VALUES (?, ?, ?)
+		ON CONFLICT (agent_id, url) DO UPDATE SET data = excluded.data`, p.AgentId, p.Url, b)
+	return err
+}
+
+// AgentPRs lists an agent's pull requests, by number then url.
+func (r Reader) AgentPRs(agentID string) ([]*v1.PullRequest, error) {
+	return scanAll(r, `SELECT data FROM agent_prs WHERE agent_id = ? ORDER BY url`, []any{agentID},
+		func() *v1.PullRequest { return &v1.PullRequest{} })
+}

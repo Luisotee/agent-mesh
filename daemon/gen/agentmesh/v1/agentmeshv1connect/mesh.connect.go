@@ -80,6 +80,9 @@ const (
 	MeshServiceResetSettingProcedure = "/agentmesh.v1.MeshService/ResetSetting"
 	// MeshServiceResetRootProcedure is the fully-qualified name of the MeshService's ResetRoot RPC.
 	MeshServiceResetRootProcedure = "/agentmesh.v1.MeshService/ResetRoot"
+	// MeshServiceListPullRequestsProcedure is the fully-qualified name of the MeshService's
+	// ListPullRequests RPC.
+	MeshServiceListPullRequestsProcedure = "/agentmesh.v1.MeshService/ListPullRequests"
 	// MeshServiceGetBriefProcedure is the fully-qualified name of the MeshService's GetBrief RPC.
 	MeshServiceGetBriefProcedure = "/agentmesh.v1.MeshService/GetBrief"
 	// MeshServiceReportHookProcedure is the fully-qualified name of the MeshService's ReportHook RPC.
@@ -186,6 +189,9 @@ type MeshServiceClient interface {
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
 	// bootstrap text. Acts on the caller's own run's root.
 	ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error)
+	// Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
+	// the work evidence (commits, pushed, dirty) of a worker with none.
+	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
@@ -375,6 +381,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ResetRoot")),
 			connect.WithClientOptions(opts...),
 		),
+		listPullRequests: connect.NewClient[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse](
+			httpClient,
+			baseURL+MeshServiceListPullRequestsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListPullRequests")),
+			connect.WithClientOptions(opts...),
+		),
 		getBrief: connect.NewClient[v1.GetBriefRequest, v1.GetBriefResponse](
 			httpClient,
 			baseURL+MeshServiceGetBriefProcedure,
@@ -512,49 +524,50 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // meshServiceClient implements MeshServiceClient.
 type meshServiceClient struct {
-	hello           *connect.Client[v1.HelloRequest, v1.HelloResponse]
-	startRun        *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
-	listRuns        *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	spawnAgent      *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
-	listAgents      *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getAgent        *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
-	stopAgent       *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
-	approveAgent    *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
-	switchAgent     *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
-	resumeAgent     *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
-	retireAgent     *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
-	stopRun         *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
-	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
-	readInbox       *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
-	listMessages    *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
-	listWaiting     *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
-	subscribeEvents *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
-	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
-	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
-	resetSetting    *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
-	resetRoot       *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
-	getBrief        *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
-	reportHook      *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
-	openTerminal    *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	createPairing   *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
-	listDevices     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
-	revokeDevice    *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
-	getUsage        *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
-	setReserve      *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
-	ask             *connect.Client[v1.AskRequest, v1.AskResponse]
-	recordVerdict   *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
-	listAsks        *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
-	listPeers       *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
-	addPeer         *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
-	editPeer        *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
-	removePeer      *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
-	importPeers     *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
-	getCost         *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
-	checkModels     *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
-	checkConflicts  *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
-	listTools       *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
-	addTools        *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
-	listMCPServers  *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
+	hello            *connect.Client[v1.HelloRequest, v1.HelloResponse]
+	startRun         *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	listRuns         *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	spawnAgent       *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
+	listAgents       *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getAgent         *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
+	stopAgent        *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
+	approveAgent     *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
+	switchAgent      *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
+	resumeAgent      *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
+	retireAgent      *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	stopRun          *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
+	sendMessage      *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	readInbox        *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	listMessages     *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
+	listWaiting      *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
+	subscribeEvents  *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
+	listSettings     *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
+	setSetting       *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	resetSetting     *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
+	resetRoot        *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
+	listPullRequests *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
+	getBrief         *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
+	reportHook       *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
+	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
+	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
+	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
+	ask              *connect.Client[v1.AskRequest, v1.AskResponse]
+	recordVerdict    *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
+	listAsks         *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
+	listPeers        *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
+	addPeer          *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
+	editPeer         *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
+	removePeer       *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
+	importPeers      *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
+	getCost          *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
+	checkModels      *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	checkConflicts   *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
+	listTools        *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	addTools         *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
+	listMCPServers   *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -660,6 +673,11 @@ func (c *meshServiceClient) ResetSetting(ctx context.Context, req *connect.Reque
 // ResetRoot calls agentmesh.v1.MeshService.ResetRoot.
 func (c *meshServiceClient) ResetRoot(ctx context.Context, req *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error) {
 	return c.resetRoot.CallUnary(ctx, req)
+}
+
+// ListPullRequests calls agentmesh.v1.MeshService.ListPullRequests.
+func (c *meshServiceClient) ListPullRequests(ctx context.Context, req *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error) {
+	return c.listPullRequests.CallUnary(ctx, req)
 }
 
 // GetBrief calls agentmesh.v1.MeshService.GetBrief.
@@ -826,6 +844,9 @@ type MeshServiceHandler interface {
 	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
 	// bootstrap text. Acts on the caller's own run's root.
 	ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error)
+	// Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
+	// the work evidence (commits, pushed, dirty) of a worker with none.
+	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
@@ -1011,6 +1032,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ResetRoot")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListPullRequestsHandler := connect.NewUnaryHandler(
+		MeshServiceListPullRequestsProcedure,
+		svc.ListPullRequests,
+		connect.WithSchema(meshServiceMethods.ByName("ListPullRequests")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceGetBriefHandler := connect.NewUnaryHandler(
 		MeshServiceGetBriefProcedure,
 		svc.GetBrief,
@@ -1187,6 +1214,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceResetSettingHandler.ServeHTTP(w, r)
 		case MeshServiceResetRootProcedure:
 			meshServiceResetRootHandler.ServeHTTP(w, r)
+		case MeshServiceListPullRequestsProcedure:
+			meshServiceListPullRequestsHandler.ServeHTTP(w, r)
 		case MeshServiceGetBriefProcedure:
 			meshServiceGetBriefHandler.ServeHTTP(w, r)
 		case MeshServiceReportHookProcedure:
@@ -1322,6 +1351,10 @@ func (UnimplementedMeshServiceHandler) ResetSetting(context.Context, *connect.Re
 
 func (UnimplementedMeshServiceHandler) ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetRoot is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPullRequests is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error) {

@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Pull requests per agent (docs/design.md §13 `waiting_rows`, ported). Leaf messages and the list action's
+// request and response; types.proto imports this file for the event.
+
+// PullRequest is a pull request an agent owns, as GitHub last said it.
+message PullRequest {
+  // The change worker that owns it (its branch's PR, or one its `done` names).
+  string agent_id = 1;
+  string url = 2;
+  int32 number = 3;
+  // "open", "merged", "closed", or "unknown" when GitHub was never read.
+  string state = 4;
+  bool draft = 5;
+  // The checks folded to one word: "failing", "pending" or "pass"; empty with no checks.
+  string checks = 6;
+  // Where the daemon found it: "branch" (`gh pr list --head`) or "report" (a link in the agent's `done`).
+  string source = 7;
+  // When GitHub was last read for it.
+  google.protobuf.Timestamp checked_at = 8;
+  // The last read failed: state and checks are the last ones seen.
+  bool stale = 9;
+}
+
+// WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
+message WorkEvidence {
+  // Commits past the branch's base; unset (has_commits false) when it can't be told.
+  int32 commits = 1;
+  bool has_commits = 2;
+  // The branch tip is on its upstream; meaningful only with commits.
+  bool pushed = 3;
+  bool has_pushed = 4;
+  // The worktree has uncommitted changes.
+  bool dirty = 5;
+  bool has_dirty = 6;
+}
+
+// AgentPullRequests is one change worker's PRs, with its work evidence when it has none.
+message AgentPullRequests {
+  string agent_id = 1;
+  string agent_name = 2;
+  repeated PullRequest pull_requests = 3;
+  WorkEvidence evidence = 4;
+  // Reviewer agents of this run that haven't reported since their last review task, per PR url of this agent.
+  repeated string reviewing = 5;
+  // GitHub could not be read for this agent the last time: an empty list means unknown, not none.
+  bool read_failed = 6;
+}
+
+message ListPullRequestsRequest {
+  // The run (a device names it; an agent's is its own).
+  string run_id = 1;
+  // Only this agent's.
+  string agent = 2;
+  // Read GitHub again whatever the cache says.
+  bool refresh = 3;
+}
+
+message ListPullRequestsResponse {
+  repeated AgentPullRequests agents = 1;
+}
+
+// PullRequestChanged is a PR whose state or checks changed since the daemon last read it (a merge, a check
+// that went red). It is an event of the run's log, not a message: nobody is woken by it.
+message PullRequestChanged {
+  PullRequest pull_request = 1;
+  // What it was before: "" the first time the PR was seen.
+  string from_state = 2;
+  string from_checks = 3;
+}

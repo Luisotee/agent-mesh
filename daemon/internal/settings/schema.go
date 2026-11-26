@@ -335,6 +335,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Type: Seconds, Default: 14400.0,
 			Summary: "seconds a declared wait (a `wait` message to the parent) holds off the nudge, at most"},
+		Leaf{Key: "accountability.input_after", Type: Seconds, Default: 120.0,
+			Summary: "seconds an agent waits at a permission prompt or question with no answer before its parent is told (once per prompt); 0 never tells"},
 		Leaf{Key: "delivery.socket", Type: Bool, Default: true,
 			Summary: "write a Claude agent's doorbell into its inbox socket (never into its input box) where it takes cross-session messages; false types every doorbell"},
 		Leaf{Key: "delivery.confirm_after", Type: Seconds, Default: 10.0,

@@ -176,6 +176,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			unread[m.Id] = true
 		}
 	}
+	prRows := d.briefPRs(ctx, r, run.Id, agents)
 	for _, a := range agents {
 		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
 			continue
@@ -185,6 +186,15 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			line += " (" + a.StateDetail + ")"
 		}
 		var kind v1.MessageType
+		if row := prRows[a.Id]; row != nil {
+			rep, err := lastReport(r, a)
+			if err != nil {
+				return "", err
+			}
+			if t := prText(row, rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE); t != "" {
+				line += "; " + t
+			}
+		}
 		if a.State != v1.AgentState_AGENT_STATE_EXITED && a.State != v1.AgentState_AGENT_STATE_RETIRED {
 			rep, err := lastReport(r, a)
 			if err != nil {

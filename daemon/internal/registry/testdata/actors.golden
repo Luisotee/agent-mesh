@@ -17,6 +17,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
@@ -51,6 +52,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
@@ -74,6 +76,7 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
@@ -92,6 +95,7 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
@@ -119,6 +123,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
@@ -153,6 +158,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
+  /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools

@@ -335,6 +335,22 @@ public class MeshServiceClient(
 
 
   /**
+   *  Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
+   *  the work evidence (commits, pushed, dirty) of a worker with none.
+   */
+  override suspend fun listPullRequests(request: ListPullRequestsRequest, headers: Headers): ResponseMessage<ListPullRequestsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListPullRequests",
+      dev.agentmesh.gen.agentmesh.v1.ListPullRequestsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListPullRequestsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
    *  headers and the last reset. Marks nothing read.
    */

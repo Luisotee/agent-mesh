@@ -102,3 +102,6 @@ func (f *flakyTerm) ListTerminals(ctx context.Context, req *connect.Request[term
 func (d *Daemon) FlakyTerminalList(fail *atomic.Bool) {
 	d.rt.term.API = &flakyTerm{d.rt.term.API, fail}
 }
+
+// ChecksWord exposes checksWord.
+func ChecksWord(rollup []map[string]any) string { return checksWord(rollup) }
