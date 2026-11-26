@@ -111,7 +111,7 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 		return model, effort, nil
 	}
 	if tier == "" {
-		return "", "", invalid("give a tier for %s (light, mid, strong, …: `meshctl settings --prefix tiers.%s.` shows "+
+		return "", "", invalid("give a tier for %s (light, mid, strong, …: `mesh settings --prefix tiers.%s.` shows "+
 			"what each is for), or a model if the user named one: there is no default model", what, kind)
 	}
 	chain, e, err := d.tierChain(r, kind, tier)

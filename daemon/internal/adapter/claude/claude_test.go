@@ -29,7 +29,7 @@ func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) 
 	cwd, repo := t.TempDir(), t.TempDir()
 	plan := func(role agentmeshv1.AgentRole) []string {
 		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
-			Role: role, Cwd: cwd, Repo: repo, SkipPermissions: true, HookArgv: []string{"meshctl", "hook"}}))
+			Role: role, Cwd: cwd, Repo: repo, SkipPermissions: true, HookArgv: []string{"mesh", "hook"}}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestPlanLaunch(t *testing.T) {
 	a.NewSessionID = func() string { return "sid-1" }
 	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		Binary: "/opt/claude", Model: "opus", Effort: "high", SkipPermissions: true,
-		HookArgv: []string{"/path with space/meshctl", "hook", "claude", "--agent", "a1"},
+		HookArgv: []string{"/path with space/mesh", "hook", "claude", "--agent", "a1"},
 		Env:      map[string]string{"PATH": "/bin", "CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "x"},
 	}))
 	if err != nil {
@@ -95,7 +95,7 @@ func TestPlanLaunch(t *testing.T) {
 			continue
 		}
 		cmd := groups[0].Hooks[0].Command
-		if cmd != "'/path with space/meshctl' hook claude --agent a1 "+ev.name {
+		if cmd != "'/path with space/mesh' hook claude --agent a1 "+ev.name {
 			t.Errorf("%s command %q", ev.name, cmd)
 		}
 	}

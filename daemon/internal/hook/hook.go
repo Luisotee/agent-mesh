@@ -1,4 +1,4 @@
-// Package hook is what a CLI's hook runs (`meshctl hook <kind> <event>`): it reports the hook to the daemon,
+// Package hook is what a CLI's hook runs (`mesh hook <kind> <event>`): it reports the hook to the daemon,
 // finding the daemon's address at call time, and spools the report while the daemon is down. It never fails
 // the CLI: whatever happens, the hook exits 0 and prints nothing (but an agy PreToolUse denial).
 package hook

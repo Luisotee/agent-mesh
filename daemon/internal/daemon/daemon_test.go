@@ -21,6 +21,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -601,5 +602,20 @@ func TestListMessagesPagesAThrough(t *testing.T) {
 	// An agent reads its own mailbox, not the run's messages.
 	if _, err := h.as(root).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run.Id})); code(err) != connect.CodePermissionDenied {
 		t.Errorf("an agent listing messages: %v", err)
+	}
+}
+
+// A run gets its folders when it starts: where its agents write plans, reports and tasks (`mesh dir`).
+func TestStartRunMakesTheRunsFolders(t *testing.T) {
+	h := start(t, "")
+	res, err := h.device.Mesh.StartRun(context.Background(), connect.NewRequest(&v1.StartRunRequest{Meta: meta("run-dirs"), Title: "demo"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := statedir.Paths{Dir: h.state}.RunDir(res.Msg.Run.Id)
+	for _, f := range statedir.RunFolders {
+		if st, err := os.Stat(filepath.Join(dir, f)); err != nil || !st.IsDir() {
+			t.Errorf("%s/%s: %v", dir, f, err)
+		}
 	}
 }

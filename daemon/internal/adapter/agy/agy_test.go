@@ -54,7 +54,7 @@ func TestPlanLaunchFreshResumeDenyAndEnv(t *testing.T) {
 	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		AgentId: "a1", Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: cwd, Repo: repo,
 		Binary: "/opt/agy", Model: "hydrogen", Effort: "high", SkipPermissions: true,
-		HookArgv: []string{"/bin/meshctl", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
+		HookArgv: []string{"/bin/mesh", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
 		Env:      map[string]string{"PATH": "/bin", "ANTIGRAVITY_AGENT": "1", "ANTIGRAVITY_CSRF_TOKEN": "sec"},
 	}))
 	if err != nil {
@@ -95,7 +95,7 @@ func TestPlanLaunchFreshResumeDenyAndEnv(t *testing.T) {
 	res2, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		AgentId: "a1", Role: agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER, Cwd: cwd, Repo: repo,
 		ResumeSessionId: "conv-123", Model: "gemini-4-neon-high", Effort: "low",
-		HookArgv: []string{"meshctl", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
+		HookArgv: []string{"mesh", "hook", "agy", "--state", "/tmp/st", "--agent", "a1"},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +316,7 @@ func TestLookupSessionFromSummariesAndHistory(t *testing.T) {
 func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args")
-	fake := filepath.Join(dir, "meshctl")
+	fake := filepath.Join(dir, "mesh")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$*\" >> "+argsLog+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -354,13 +354,13 @@ func TestHooksGuardKeepsDenyRulesForAnotherSession(t *testing.T) {
 
 func TestHooksJSONPreToolUseFailOpenForWritersAndFailClosedForDeny(t *testing.T) {
 	// Without deny rules: PreToolUse matches "*", runs without GNU timeout, and exits 0 silently even when
-	// meshctl is missing, exits non-zero, or prints non-JSON.
+	// mesh is missing, exits non-zero, or prints non-JSON.
 	dir := t.TempDir()
-	bad := filepath.Join(dir, "bad-meshctl")
+	bad := filepath.Join(dir, "bad-mesh")
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\necho 'not json!'\nexit 2\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, bin := range []string{bad, filepath.Join(dir, "missing-meshctl")} {
+	for _, bin := range []string{bad, filepath.Join(dir, "missing-mesh")} {
 		b, err := HooksJSON("a1", []string{bin, "hook", "agy"}, false)
 		if err != nil {
 			t.Fatal(err)

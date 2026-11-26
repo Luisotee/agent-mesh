@@ -212,7 +212,7 @@ func TestAgyPreToolUseDenyEvaluatesLocallyEvenWhenDaemonIsDown(t *testing.T) {
 	o.Kind, o.Event, o.Stdout, o.Cwd = "agy", "PreToolUse", &out, wt
 	o.DenyPaths, o.DenyPublish = []string{wt}, true
 	o.Stdin = strings.NewReader(`{"cwd":"` + wt + `","toolCall":{"name":"write_file","args":{"Path":"foo.txt"}}}`)
-	// Daemon is down: Run returns spool/dial error (meshctl still exits 0), and stdout got the deny JSON.
+	// Daemon is down: Run returns spool/dial error (mesh still exits 0), and stdout got the deny JSON.
 	_ = Run(o)
 	if !strings.Contains(out.String(), `"decision":"deny"`) {
 		t.Fatalf("expected deny decision on stdout, got %q", out.String())

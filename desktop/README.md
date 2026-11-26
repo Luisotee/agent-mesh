@@ -35,7 +35,7 @@ pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
 ```
 
-The e2e tests open a real Electron window, so they need a display (WSLg has one; `xvfb-run` otherwise). They build meshd, mesh-term, meshctl and the fake claude into a temp dir and give each run a state dir, HOME and user-data dir under the temp dir: they read and write nothing of yours, and refuse an `AGENT_MESH_STATE` aimed elsewhere by clearing it. They pass `--no-sandbox` to Electron (WSL has no SUID helper for Chromium's own sandbox); the page itself runs sandboxed either way.
+The e2e tests open a real Electron window, so they need a display (WSLg has one; `xvfb-run` otherwise). They build meshd, mesh-term, mesh and the fake claude into a temp dir and give each run a state dir, HOME and user-data dir under the temp dir: they read and write nothing of yours, and refuse an `AGENT_MESH_STATE` aimed elsewhere by clearing it. They pass `--no-sandbox` to Electron (WSL has no SUID helper for Chromium's own sandbox); the page itself runs sandboxed either way.
 
 ## Trying it by hand
 
