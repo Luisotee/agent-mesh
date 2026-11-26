@@ -125,6 +125,7 @@ type runtime struct {
 	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 	guard       guard
+	holds       holds // models at a usage limit (limits.go)
 	cpus        cpuTracker
 }
 
@@ -384,12 +385,12 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, accounted time.Time
+		var pruned, retired, limited, accounted time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
 		}
-		var retiring atomic.Bool
+		var retiring, limiting atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -409,6 +410,14 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(accounted) >= accountEvery {
 				accounted = now
 				d.accountability(ctx)
+			}
+			if now := d.now(); now.Sub(limited) >= retireEvery && limiting.CompareAndSwap(false, true) {
+				limited = now
+				// Off this loop, as the retire pass is: a reopen takes the agent's lock and the store's writer.
+				go func() {
+					defer limiting.Store(false)
+					d.limitPass(ctx)
+				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
@@ -537,6 +546,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 				HookDecodeFailed: &v1.HookDecodeFailed{Error: bad.Error}}}); err != nil {
 				return err
 			}
+		}
+		if rl := ev.GetRateLimited(); rl != nil {
+			d.noteLimit(tx.Reader, a, rl, ev.Time.AsTime())
 		}
 		s = reducer.Reduce(s, ev)
 	}

@@ -1403,9 +1403,14 @@ func (x *DecodeError) GetError() string {
 
 // The CLI hit a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit); ready for SwitchAgent.
 type RateLimited struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	ResetIn       string                 `protobuf:"bytes,2,opt,name=reset_in,json=resetIn,proto3" json:"reset_in,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Message string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	ResetIn string                 `protobuf:"bytes,2,opt,name=reset_in,json=resetIn,proto3" json:"reset_in,omitempty"`
+	// When the limit is over, if the CLI said (Claude's "resets 3pm (America/Sao_Paulo)").
+	ResetAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=reset_at,json=resetAt,proto3" json:"reset_at,omitempty"`
+	// The limit is on the whole account (a session or weekly limit), so every model of a chain shares it: no
+	// other model of the chain is free. False for a limit on one model (agy's, Claude's Opus or Sonnet limit).
+	AllModels     bool `protobuf:"varint,4,opt,name=all_models,json=allModels,proto3" json:"all_models,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1452,6 +1457,20 @@ func (x *RateLimited) GetResetIn() string {
 		return x.ResetIn
 	}
 	return ""
+}
+
+func (x *RateLimited) GetResetAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ResetAt
+	}
+	return nil
+}
+
+func (x *RateLimited) GetAllModels() bool {
+	if x != nil {
+		return x.AllModels
+	}
+	return false
 }
 
 // The turn ended in a non-limit error.
@@ -1615,10 +1634,13 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06signal\x18\x02 \x01(\x05R\x06signal\"#\n" +
 	"\vDecodeError\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"B\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"\x98\x01\n" +
 	"\vRateLimited\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x19\n" +
-	"\breset_in\x18\x02 \x01(\tR\aresetIn\"\"\n" +
+	"\breset_in\x18\x02 \x01(\tR\aresetIn\x125\n" +
+	"\breset_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aresetAt\x12\x1d\n" +
+	"\n" +
+	"all_models\x18\x04 \x01(\bR\tallModels\"\"\n" +
 	"\n" +
 	"TurnFailed\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05error2\x84\x04\n" +
@@ -1696,21 +1718,22 @@ var file_agentmesh_adapter_v1_adapter_proto_depIdxs = []int32{
 	20, // 17: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
 	21, // 18: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
 	22, // 19: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
-	0,  // 20: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
-	2,  // 21: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
-	9,  // 22: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
-	5,  // 23: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
-	7,  // 24: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
-	1,  // 25: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
-	4,  // 26: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
-	10, // 27: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
-	6,  // 28: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
-	8,  // 29: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
-	25, // [25:30] is the sub-list for method output_type
-	20, // [20:25] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	27, // 20: agentmesh.adapter.v1.RateLimited.reset_at:type_name -> google.protobuf.Timestamp
+	0,  // 21: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
+	2,  // 22: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
+	9,  // 23: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
+	5,  // 24: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
+	7,  // 25: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
+	1,  // 26: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
+	4,  // 27: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
+	10, // 28: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
+	6,  // 29: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
+	8,  // 30: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
+	26, // [26:31] is the sub-list for method output_type
+	21, // [21:26] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_adapter_v1_adapter_proto_init() }

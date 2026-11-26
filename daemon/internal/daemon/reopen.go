@@ -85,7 +85,7 @@ func (d *Daemon) tierChain(r store.Reader, kind, tier string) ([]string, string,
 	return chain, effort.(string), nil
 }
 
-// pick resolves what an agent runs on: a tier's first model at its effort, or a named model (at the effort
+// pick resolves what an agent runs on: a tier's first model with quota left (limits.go) at its effort, or a named model (at the effort
 // named, else the one its name fixes, as an exact agy id does, else the tier's, else high). There is no default:
 // neither is InvalidArgument.
 func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (string, string, error) {
@@ -121,7 +121,7 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 	if effort == "" {
 		effort = e
 	}
-	return chain[0], effort, nil
+	return d.firstFree(kind, chain), effort, nil
 }
 
 func validEffort(e string) bool {
@@ -450,7 +450,10 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			case i < 0:
 				model = chain[0] // the chain changed since it started: its first model
 			case i+1 < len(chain):
-				model = chain[i+1] // never back to one before: they were tried
+				// Never back to one before: they were tried. The first with quota left, else the next one.
+				if model = d.nextFree(a.Kind, chain, i); model == "" {
+					model = chain[i+1]
+				}
 			default:
 				return failedPrecondition("%s is the last model of the %s %s chain (%s): nothing to move %s to",
 					was, a.Kind, phaseTier, strings.Join(chain, ", "), a.Name)
