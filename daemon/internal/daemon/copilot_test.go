@@ -12,10 +12,14 @@ import (
 
 	"connectrpc.com/connect"
 
+	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
 type fakeCopilotLaunch struct {
@@ -295,6 +299,32 @@ func TestCopilotFolderTrustDialogIsAnsweredBeforeAnyDoorbell(t *testing.T) {
 	}
 }
 
+// A trust dialog the Enter presses do not answer leaves the agent needing input, with the reason, instead of
+// starting for good; answered by hand, it goes on to idle.
+func TestCopilotAnUnansweredTrustDialogNeedsInputUntilItIsAnswered(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, map[string]string{"FAKECOPILOT_TRUST": "stuck"})
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "copilot", Tier: "light", Task: "look around"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_NEEDS_INPUT)
+	if !strings.Contains(a.StateDetail, "folder trust dialog not answered") {
+		t.Fatalf("detail %q", a.StateDetail)
+	}
+	tc, err := termclient.New(statedir.Paths{Dir: w.state}.Term())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tc.API.WriteTerminal(context.Background(), connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
+		Data: []byte("trust\r")})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
 func (w *reopenWorld) modelHold(t *testing.T, kind string) time.Time {
 	t.Helper()
 	until, _, err := w.d.Store().Read(context.Background()).ModelHold(kind, "auto", time.Now())
@@ -519,6 +549,63 @@ func TestCopilotARunningTurnsAnswerDoesNotLiftAFreshHold(t *testing.T) {
 	// A prompt typed after the hold, and answered, does.
 	w.typeInto(running, "after the hold\r")
 	waitFor(t, "the hold lifted by an answer to a newer prompt", func() bool { return w.modelHold(t, "copilot").IsZero() })
+}
+
+// An answer lifts only its own model's hold (and an account-wide one): an agent on another model answering says
+// nothing of a model that is rate limited.
+func TestCopilotAnAnswerOnOneModelDoesNotLiftAnotherModelsHold(t *testing.T) {
+	tweak, _, _ := copilotTweak(t, nil)
+	w := startReopen(t, fastPass, tweak)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.copilotRoot(t, run.Id)
+	onX := w.spawnUnder(t, asLead, "onx", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Model: "model-x"})
+	onY := w.spawnUnder(t, asLead, "ony", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Model: "model-y"})
+	w.waitState(onX.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.waitState(onY.Id, v1.AgentState_AGENT_STATE_IDLE)
+	// The hold's remaining time by model. A lifted hold on a limited agent is put back for the short default
+	// (settleLimit), so only the length tells a kept hold from a lifted one.
+	holds := func() map[string]time.Duration {
+		hs, err := w.d.Store().Read(context.Background()).ModelLimits("copilot")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]time.Duration{}
+		for _, h := range hs {
+			if left := time.Until(h.Until); left > 0 {
+				out[h.Model] = left
+			}
+		}
+		return out
+	}
+	w.typeInto(onX, "/modellimit\r")
+	w.waitState(onX.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	if h := holds(); h["model-x"] < time.Hour || len(h) != 1 { // "Resets in 2h"
+		t.Fatalf("holds %v, want model-x's, for 2h, only", h)
+	}
+	time.Sleep(600 * time.Millisecond) // the hold is final: a poll or two may still note it
+	// Y answers a prompt typed after X's hold: X's hold stays.
+	w.typeInto(onY, "hello\r")
+	waitFor(t, "model-y's answer", func() bool { return strings.Contains(w.screen(t, onY), "done: hello") })
+	w.waitState(onY.Id, v1.AgentState_AGENT_STATE_IDLE)
+	time.Sleep(500 * time.Millisecond) // several polls
+	if h := holds(); h["model-x"] < time.Hour {
+		t.Fatalf("an answer on model-y lifted model-x's hold: %v", h)
+	}
+	// X answering a prompt of its own, typed after the hold, does lift it.
+	w.typeInto(onX, "hello again\r")
+	waitFor(t, "model-x's hold lifted by an answer on model-x", func() bool { return holds()["model-x"] < time.Hour })
+}
+
+// A limit line whose countdown ticks is one line: the working agent is not limited again by it.
+func TestCopilotLimitKeyIgnoresTheCountdown(t *testing.T) {
+	a := copilot.Limit{Message: "You've hit your rate limit, resets in 3h 20m"}
+	b := copilot.Limit{Message: "You've hit your rate limit, resets in 3h 19m"}
+	if a.Key() != b.Key() || a.Key() == "" {
+		t.Errorf("keys %q and %q differ", a.Key(), b.Key())
+	}
+	if c := (copilot.Limit{Message: "You've hit the rate limit for this model"}); c.Key() == a.Key() {
+		t.Errorf("different limits share a key %q", c.Key())
+	}
 }
 
 // Copilot has no `top` tier: an auto round at that tier passes it over, as bin/mesh's pick_slots does, and says so.

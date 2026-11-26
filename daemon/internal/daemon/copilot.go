@@ -27,6 +27,9 @@ var copilotInheritedEnv = []string{"COPILOT_HOME", "COPILOT_GITHUB_TOKEN", "GH_T
 // cover a keypress lost while the TUI was still drawing.
 const copilotTrustTries = 5
 
+// copilotTrustUnanswered is the detail of a Copilot agent whose trust dialog the Enter presses did not answer.
+const copilotTrustUnanswered = "folder trust dialog not answered"
+
 type copilotPoll struct {
 	terminalID string
 	key        string // the newest event the agent's state was driven by
@@ -70,7 +73,11 @@ func (d *Daemon) copilotTrustGate(ctx context.Context, a *v1.Agent) bool {
 	d.rt.copilot.trust[a.TerminalId]++
 	d.rt.copilot.mu.Unlock()
 	if tries == copilotTrustTries {
-		d.log.Warn("copilot trust dialog is still up after the Enter presses; the agent stays starting", "agent", a.Name)
+		// The agent is not stuck silently: it needs its human (or its parent's), and says what for. Once the
+		// dialog is gone the readiness pass takes it on to idle (settleStartingAgents).
+		d.log.Warn("copilot trust dialog is still up after the Enter presses", "agent", a.Name)
+		_ = d.applyCopilotEvents(ctx, a.Id, a.TerminalId, []*adapterv1.AgentEvent{{Time: timestamppb.New(d.now()),
+			Kind: &adapterv1.AgentEvent_NeedsInput{NeedsInput: &adapterv1.NeedsInput{Reason: copilotTrustUnanswered}}}})
 	}
 	if tries < copilotTrustTries {
 		if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
@@ -176,7 +183,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 			switch {
 			case !ok:
 				screenGone = true
-			case "screen:"+l.Message != prevLimit:
+			case "screen:"+l.Key() != prevLimit:
 				screenLimit = &l
 				limited = &l
 			}
@@ -186,7 +193,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 	case limited != nil:
 		key := st.Key
 		if screenLimit != nil {
-			key = "screen:" + screenLimit.Message
+			key = "screen:" + screenLimit.Key()
 		}
 		if a.State != v1.AgentState_AGENT_STATE_LIMITED && key != prevLimit {
 			at := limited.At
@@ -226,7 +233,7 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 	// It answered a prompt typed after a hold was set: the quota is back (topped up, or the policy changed), so
 	// lift the hold. An answer to an earlier prompt (a turn that was running when the quota ran out) says nothing.
 	if st.Limit == nil && !st.PromptAt.IsZero() {
-		d.liftCopilotHolds(ctx, st.PromptAt)
+		d.liftCopilotHolds(ctx, st.PromptAt, a.Model)
 	}
 	d.rt.copilot.mu.Lock()
 	if cur := d.rt.copilot.polled[a.Id]; cur != nil && cur.terminalID == a.TerminalId {
@@ -235,15 +242,18 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time
 	d.rt.copilot.mu.Unlock()
 }
 
-// liftCopilotHolds deletes the Copilot holds recorded before promptAt, the time of a prompt that was answered.
-func (d *Daemon) liftCopilotHolds(ctx context.Context, promptAt time.Time) {
+// liftCopilotHolds deletes the Copilot holds an answer disproves: those recorded before promptAt, the time of the
+// prompt that was answered, on the model that answered (a per-model hold) or on every model (`holdAll`: a quota or
+// policy hold is the account's, so an answer on any model disproves it). Another model's hold stays: this answer
+// says nothing of it.
+func (d *Daemon) liftCopilotHolds(ctx context.Context, promptAt time.Time, model string) {
 	holds, err := d.store.Read(ctx).ModelLimits(copilot.Kind)
 	if err != nil {
 		return
 	}
 	var stale []store.ModelLimit
 	for _, h := range holds {
-		if h.UpdatedAt.Before(promptAt) && h.Until.After(d.now()) {
+		if (h.Model == holdAll || h.Model == model) && h.UpdatedAt.Before(promptAt) && h.Until.After(d.now()) {
 			stale = append(stale, h)
 		}
 	}
