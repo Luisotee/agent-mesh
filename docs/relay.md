@@ -46,7 +46,7 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
 
 ## Pairing flow and URI contract
 
-1. On the host, the local device (`device-local`) calls `MeshService/CreatePairing` (`mesh pair --name "Pixel 9"`). Paired remote devices are refused `CreatePairing`, `ListDevices`, and `RevokeDevice` (`PermissionDenied`).
+1. On the host, the local device (`device-local`) calls `MeshService/CreatePairing` (`meshctl pair --name "Pixel 9"`). Paired remote devices are refused `CreatePairing`, `ListDevices`, and `RevokeDevice` (`PermissionDenied`).
 2. `CreatePairing` stores only the SHA-256 hash of a one-time `amp_...` token (default TTL 10 minutes, max 24 h) and returns structured fields plus a canonical URI:
    ```text
    agentmesh://pair?v=1&h=<host_id>&fp=<sha256_fp>&t=<amp_token>[&hn=<host_name>][&r=<relay_url>][&rtcp=<relay_tcp>][&rt=<relay_client_token>][&d=<direct_url>][&n=<device_name>]
@@ -88,6 +88,6 @@ Native apps (Android OkHttp, desktop Node) connect here directly over TCP (`TCP_
    ```
 5. **Create a pairing payload on the home machine:**
    ```bash
-   mesh --state "$HOME/.local/state/agent-mesh-daemon" pair --name "phone"
+   meshctl --state "$HOME/.local/state/agent-mesh-daemon" pair --name "phone"
    ```
 6. **Monitoring:** point uptime-kuma at `https://relay.example.com/healthz`.

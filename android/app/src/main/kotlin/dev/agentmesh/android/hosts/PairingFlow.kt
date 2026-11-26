@@ -112,9 +112,9 @@ class PairingFlow(private val repo: HostRepository, private val clients: Pairing
         return when {
             // The host may have taken the token on a route whose reply never came back.
             "already used" in m && earlierFailures.isNotEmpty() ->
-                "This pairing code is used up. An earlier try (${earlierFailures.first()}) may have reached the host before its reply was lost: make a new code on the host (mesh pair)."
-            "expired" in m -> "This pairing code has expired. Make a new one on the host (mesh pair)."
-            "already used" in m -> "This pairing code was already used. Make a new one on the host (mesh pair)."
+                "This pairing code is used up. An earlier try (${earlierFailures.first()}) may have reached the host before its reply was lost: make a new code on the host (meshctl pair)."
+            "expired" in m -> "This pairing code has expired. Make a new one on the host (meshctl pair)."
+            "already used" in m -> "This pairing code was already used. Make a new one on the host (meshctl pair)."
             "unknown" in m -> "The host doesn't know this pairing code. It may be for another host, or it expired and was cleaned up: make a new one."
             else -> "The host refused the pairing: $m"
         }

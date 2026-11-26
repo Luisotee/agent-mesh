@@ -33,7 +33,7 @@ func fakeShare(t *testing.T, plugin bool) string {
 	}
 	if plugin {
 		os.MkdirAll(filepath.Join(share, ".claude-plugin"), 0o755)
-		os.WriteFile(filepath.Join(share, ".claude-plugin", "plugin.json"), []byte(`{"name":"agent-mesh"}`), 0o644)
+		os.WriteFile(filepath.Join(share, ".claude-plugin", "plugin.json"), []byte(`{"name":"agent-mesh-daemon"}`), 0o644)
 	}
 	return share
 }

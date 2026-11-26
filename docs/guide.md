@@ -1,0 +1,513 @@
+# agent-mesh guide
+
+The full reference: every command, default and mechanism. Start with the [README](../README.md) for what agent-mesh is and a quick start; [`design.md`](design.md) has why each decision was made.
+
+## Commands
+
+Both commands work from Claude Code and from agy. Nothing starts until you say go: the root first proposes the work (what it does itself, each worker's repo, size, model and view, any routing), unless you told it to run on its own; a question or a review you asked for just runs.
+
+| Command | Workers (one per repo) |
+|---|---|
+| `/delegate-agy` | agy, on the tier the root picks per task (`strong`: Neon → Claude Opus → Carbon → Hydrogen, the first with quota left; `mid`: Hydrogen at high; `light`: Flash) |
+| `/delegate-claude` | Claude, on the tier the root picks per task (`strong`: Opus; `mid`: Sonnet; `light`: Haiku) |
+
+- **You don't have to type the command.** Agents use these skills on their own when you ask for something in another repo ("have the shop-api agent add `restockedAt`", "ask agy how shop-api computes it"). Naming a CLI picks its mode; otherwise the agent uses its own. Typing the command still works and leaves no doubt.
+- **The pane you type into is the root.** It supervises and spawns a worker for every repo the request touches, its own included. Work you gave it before delegating stays with it. To have it do a part of the request itself, say so.
+- **Tiers:** the root picks every worker's model and effort as a tier (`light`, `mid`, `strong`, and Claude's `top`), by the task: a large task's planning tier at spawn and its execution tier when it approves the plan (a plan that leaves nothing open executes on `mid`). mesh has no default and refuses a start without one. [Configuration](#configuration) sets what each tier runs.
+- **Overrides:** naming a model in the request ("use Argon", "with Claude", "with Fable") overrides the default, and that model then runs the whole task; a named effort ("at max effort") applies to both phases. Claude Fable 5.1 is never a default, since it draws on a capped share of your Claude limits: name it for an ambiguous root-cause hunt or an architecture decision. If a worker *fails*, the root tells you and suggests a stronger model or more effort; it doesn't pick a model on its own.
+
+### Sizes
+
+The root sizes every task before it starts a worker, and picks its tier (the views are the defaults; see [Configuration](#configuration)):
+
+| Size | For | Usual tier | Claude worker | Plan reviewed? |
+|---|---|---|---|---|
+| trivial | translations, copy, config | `light` | background | no |
+| small | a bug fix, a UI tweak, a test | `mid` (`strong` for an unknown cause) | background | no |
+| large | a feature, a cross-repo contract | `strong` to plan, `mid` or `strong` to execute | a pane | yes |
+
+- **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
+- **Groups** of tasks (see "Task lists") are sized by their combined work: a few independent small fixes stay `small`, one worker with no plan, and a group plans only when a task in it is large, its tasks build on each other, or the whole change is worth reviewing before it's built.
+- **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans in plan mode on the tier the root picks and, once you approve, executes on the same model in the same conversation (there's no `mesh approve`).
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, or mid and light work to agy or OpenCode to save your Claude limits; it proposes, and your go confirms it. Every PR a worker opens is reviewed by its author first (the `self-review` skill), then by outside reviewers without your asking: by default one cheap reviewer for a small PR (OpenCode, else agy; never Claude by itself), and one reviewer of another CLI than the author's for a large one, at the tier the root picks by the PR's risk, only among the CLIs you have installed. A small PR gets one review round; a large one's re-reviews after a fix go to the same reviewers except Copilot, or to a cheap fresh one of only the fix commits. A large task's diff is checked against its plan by the root first. All of these are [settings](#configuration).
+- **Reviews and fixes:** a fresh reviewer runs at high effort (`review.effort`) whatever its tier. A real review finding, or a worker stuck on its task, goes back to the same worker; the root records its verdict on each reviewer's findings (`mesh verdict`), which `mesh cost` turns into each reviewer model's precision.
+
+### Background workers
+
+A Claude worker for a trivial or small task runs as a Claude Code background session (`claude --bg`) instead of a pane. It's still a mesh worker: you can ask it again, resume it and review its PR. It runs on a 5-minute prompt cache (`promptCacheTtl: "5m"`), as do askers, reviewers, peers and mesh's headless compactions: they rarely come back within the hour, and a 5-minute cache write costs 1.25× the input price instead of 2×. Large change workers and the root keep Claude Code's 1 hour. Where to see it:
+
+```bash
+mesh status                # every worker, with its size and view (pane or bg)
+mesh open <worker>         # attach to a running background worker from any pane
+claude agents              # Claude Code's own view of background sessions
+```
+
+Background workers report to a Claude root as cross-session messages, so the root has to run in Claude Code; under an agy root they open in panes. A repo Claude Code has never been trusted in also gets a pane, and so does a fresh reviewer (`mesh ask --review`), whatever its size.
+
+## Models
+
+A worker on a large task has two phases in one conversation, each on the tier the root picks:
+
+- **Planning** runs on the first model of its tier's chain (`tiers.<kind>.<tier>.model`, [Configuration](#configuration)) with more than the reserve left (below). For agy, `mesh` reads `agy -p /usage` (cached for 5 minutes), so while Neon is exhausted, `strong` workers plan on Claude Opus through agy's pool.
+- **Executing:** `mesh approve <worker> --tier <tier>` waits for the worker to finish its turn. Then it reopens the worker's conversation (`agy --conversation <id>` / `claude --resume <id>`) on that tier's model in a new pane, and delivers the approval there. `mesh switch <worker> --effort <e>` or `--tier <t>` moves a worker later, in the same conversation (an effort-only move keeps Claude's cache).
+- **Quota hits:** every agy worker writes its own log (`--log-file`). When agy logs `RESOURCE_EXHAUSTED`, `mesh watch` exits 7 with the reset time (a 429 that names no quota, "check quota", exits 7 too and holds that model for 30 minutes: `--reviewers auto`, spawns and `mesh switch` skip it). The root then runs `mesh switch <worker>`, which moves the worker to the next model with quota and tells it to continue where it stopped. Execution has only Hydrogen, so a Hydrogen quota hit is reported to you with its reset time.
+- **The quota reserve:** mesh keeps the last 10% of every quota for you by default. Once a quota is 90% used (`quota_stop` in the config, or `MESH_QUOTA_STOP`; `100` turns the reserve off), it starts nothing new on it: `spawn`, `ask`, `resume` with a task, `send --type task` and `approve` are refused with the window, its use and its reset, and nothing is started or sent. Answers still go, and running workers finish their current task: the root's `mesh watch` exits 7 once per window when a quota they draw on reaches the reserve, and nothing is stopped. Claude's usage comes live from the endpoint Claude Code's `/usage` reads (`/api/oauth/usage`, with the login Claude Code keeps in `~/.claude/.credentials.json`; never refreshed by mesh), shared machine-wide for 2 minutes, else from a cached copy at most 15 minutes old; `MESH_CLAUDE_USAGE=off` keeps mesh off the network. agy's comes from `agy -p /usage`. A quota mesh can't read never blocks. For a run you want finished anyway, `mesh reserve off` lets it past the reserve (`mesh reserve on` holds it again).
+
+```bash
+mesh usage                 # Claude's and agy's quotas, the reserve, and what each agy tier would start on
+mesh model --kind agy --tier strong   # the model a spawn of that tier would use, and why
+mesh models                # model families each CLI lists against the tiers: new and retired ones
+MESH_QUOTA_STOP=95 ...     # keep 5% instead of 10%
+mesh reserve off           # root: let this run go on past the reserve
+```
+
+Your root session's model is yours: mesh never changes it.
+
+More examples:
+
+```
+/delegate-agy     add rate limiting to the webhook route in notifications-service
+/delegate-agy     add tests for the date parser in shop-web and admin-web, use Argon
+/delegate-claude  add the `marketingOptOut` field to shared-schemas and update shop-api's user route to match
+```
+
+## Questions and reviews
+
+Not every cross-repo need is a change. To ask another repo something, use the same commands. To get a PR reviewed, yours included, use `/delegate-review`, which takes the reviewers as arguments:
+
+```
+/delegate-agy     how does shop-api compute restockedAt, and is it ever null?
+/delegate-agy     ask the agent that made shop-api#88 why it returns ISO dates
+/delegate-review                  # the current branch's PR: one reviewer, or Claude + one if large
+/delegate-review  copilot 88      # PR #88, reviewed by Copilot
+/delegate-review  copilot agy     # the current PR, by Copilot and agy at the same time
+/delegate-review  all 88          # PR #88, by Claude, agy and Copilot
+```
+
+`/delegate-review` checks every finding against the code before it shows you, merges the ones several reviewers found (saying who found each), gives its verdict on each, and fixes nothing unless you ask. Reviewers mark each finding blocking (with the input that makes it fail) or advisory, and every review names the commit it read, so a reviewer asked again after a fix reviews what changed since. A Claude reviewer runs Claude Code's `/code-review` skill as the core of its review (at `medium` for a small PR, `high` for a large one) and checks each of its findings before reporting it. A run's own PRs get one review round when small, whose fix the root checks itself, and at most two review→fix rounds when large; what's still open after that comes to you.
+
+The root runs `mesh ask`. It starts an agent in that repo (a reviewer gets the PR head checked out, and the diff in its task), or reaches a worker you already have, live or past. It gives the agent a read-only task, waits for its answer and prints it, then closes an agent it opened (`--keep` leaves it open; asking again reopens its conversation). A review round (`--reviewers`) runs all of a PR's reviewers at once and writes their answers into one file, so the root wakes once per round instead of once per reviewer; run again after a fix, it asks the same reviewers on the commits since. The agent changes nothing and posts nothing on GitHub.
+
+The agent is an ordinary worker, so it stays useful after it answers:
+
+- **Ask it again:** a follow-up question goes to the same agent, with everything it already read.
+- **Hand it the change:** when the answer leads to a fix, resume it with a task (`mesh resume <name> --task-file …`). It plans, the root approves, it executes and opens a PR, like any worker.
+- **Ask the workers you already have:** the agent that wrote a PR is the one to ask why it's written that way, or to review a related PR.
+
+A **Copilot** agent (`--kind copilot`) is a worker like the others: it runs in a pane, answers, reviews and makes changes, and asking it again reopens its session. Read-only and planning, it runs under `--deny-tool` (no file writes, no publishing commands). It has no Stop hook, so the watch sees its turns end, as agy's. On a plan that only offers `auto` (some Copilot plans do), Copilot picks the model. A Copilot asker recorded before this (a `headless` one) reopens in a pane, in the same session, the next time it is asked.
+
+An **OpenCode** agent (`--kind opencode`) is one too, on any model [OpenCode](https://opencode.ai) reaches: by default `free`, OpenCode's own models that cost nothing and need no account, newest first; or a `provider/model` from any provider you set up in OpenCode, an OpenAI-compatible endpoint included (`models.opencode.*`). The free models are rate-limited: when one hits its limit (`Free usage exceeded`, OpenCode Go's limit, a 429 still retried at the third attempt), the watch exits 7 and `mesh switch` moves the same conversation to the next model of its chain that isn't spent, while executing too; the spent model is skipped machine-wide until the reset it names (else 5 h). If the free limit is per IP rather than per model, every free model spends at once: put a provider's model in the chain. Read-only and planning, it runs under `OPENCODE_PERMISSION` rules (no edits in its worktree or your checkout, no publishing commands). It has no Stop hook, and compacts itself.
+
+```bash
+mesh ask --repo ../shop-api --tier mid --body "How is restockedAt computed?"   # a fresh agent
+mesh ask --repo . --tier strong --review 88                                    # a fresh reviewer at PR #88's head
+mesh ask --repo . --tier mid --review 88 --kind copilot                        # the same, by Copilot
+mesh ask --repo . --tier mid --review 88 --kind opencode                       # by OpenCode, on a free model
+mesh ask --repo . --tier mid --review 88 --size small --reviewers auto         # a review round, one answers file
+mesh ask --repo . --tier mid --review 88 --reviewers opencode --since <head>   # only the fix commits since <head>
+mesh ask shop-api-restocked-at --body "Why ISO dates?"                      # a worker you already have
+mesh ask https://github.com/acme/shop-api/pull/12 --review <another PR>     # the author of #12 reviews another PR
+```
+
+### Standing peer askers
+
+Some repos are worth asking again and again: projects similar to yours that you cloned to learn from, say. `mesh peers` keeps a machine-wide list of them, each with one research asker whose conversation outlives every run. A URL is cloned under `$MESH_PEERS_DIR` (default `~/research`), in a folder per group:
+
+```bash
+mesh peers add https://github.com/acme/swarm --group orchestrators   # clone into $MESH_PEERS_DIR/orchestrators/swarm
+mesh ask swarm-research --size large --tier strong --file brief.md   # its first research brief
+mesh peers                                                           # what each is, what it last read, its size
+mesh peers edit swarm-research --about "A Rust daemon…; ask about delivery"   # whom to ask about what
+mesh ask swarm-research --body "How do they merge?"                  # one of them
+mesh ask --peers orchestrators --file question.md                    # all of a group (or all, or a,b,c) at once
+mesh peers refresh                                                   # what changed upstream, without asking
+```
+
+- **Current:** before each question mesh fetches the project, moves the asker's checkout to the new upstream head and tells it what changed since it last looked (the commits, capped), so its answer accounts for them.
+- **One result:** `mesh ask --peers` asks them all at once and blocks until every one has answered. It writes their answers into one file (`$(mesh dir)/reports/peers-<time>.md`) and prints a line per peer and the file's path, which `mesh peers` keeps showing as the newest answers, and as each answering peer's last answers, even once `mesh stop` archived the run. Run it in the background. A peer stuck at a startup screen mesh doesn't answer is given up on after `held_wait` seconds, with its line saying how to clear it; its answer then comes to your inbox.
+- **Read-only for good:** a peer asker only answers. A change to that project goes to an ordinary worker there. Its checkout stays in place between runs, and its conversation is compacted over `compact.claude` tokens (`compact.agy` for agy) to what it learned about the project.
+- **Someone else's settings:** a peer's repo isn't yours to fix, so when its `.claude/settings.json` has a rule Claude Code rejects, mesh takes the warning's default "Continue", which skips just those rules. Your own repos still stop there for you.
+- **What each one is:** every peer and group has an `about` (at most 400 characters), which `mesh peers` shows and the answers file repeats. Write what the project is and what it's worth asking about. A new peer starts from its GitHub description; `mesh peers edit <peer | group> --about …` replaces it.
+- **Finding them:** `/find-peers` (or just ask for projects like yours to learn from) characterizes your repo's core mechanisms, searches GitHub, awesome lists, plugin directories and the web, ranks what it finds by shared mechanisms rather than stars, and shows you a shortlist. On your yes it runs `mesh peers add` for each, with an `about`, and stops there. The search and ranking work in any repo.
+- **Harvesting them:** `/harvest-peers` (or ask for ideas or likely bugs from the peers) runs a research round: a first brief for peers that never researched anything, else a follow-up with what changed here since and 3 to 5 of your riskiest mechanisms for them to compare against theirs. It checks every finding against your code before showing it (real bug or gap, already tracked, already rejected, wrong), ranks them as bugs, improvements and features, and on your yes adds them to your tracker. You decide when to run it; `/find-peers` never does.
+- `mesh peers add <path>` registers a clone you already have. It adopts the asker that already researched it when one has the default name (`<repo>-research`, or `--name`). `mesh peers remove <name>` drops a peer and keeps its clone.
+
+## Task lists
+
+Hand the root a whole list, and it supervises instead of coding:
+
+```
+/delegate-claude work through TODO.md: the translation fix, the settings UI tweak, and the two export features
+```
+
+1. **Triage:** the root sorts the tasks into a few themed groups, writes a board (`$(mesh dir)/board.md`), and waits for your go on it, as it does for any request (unless you told it to run on its own).
+2. **Workers:** one per group, in its own worktree, with at most four working at a time. A group is tasks that share a theme, or where one task's context helps another; small unrelated ones join a group rather than get a worker. There's no size cap: workers run as strong a model as the root, so one takes on a whole batch. A group is sized by its combined work, so a few small independent fixes go out with no plan; a group that plans gets **one plan** for all its tasks. Its worker does them in order, a commit each, and opens **one PR**. New work it proposes, and small follow-ups, go back to it rather than to a fresh agent. The root writes no code itself, in its own repo too.
+3. **Reviewers per PR:** each PR is reviewed by its author first (the `self-review` skill), then gets read-only outside reviews by default, as every PR a run makes does (the defaults below; [Configuration](#configuration) changes them): one cheap reviewer for a small PR (OpenCode, else agy), one reviewer of another CLI than the author's for a large or risky one, at the tier the root picks. Rounds are a ceiling, not a quota: a round with nothing the root agrees with to fix ends the PR's reviews. A small PR gets no re-review: the root checks its fix itself. A large one's fix is re-reviewed once, by the same reviewers except Copilot, or by a cheap fresh one of only the fix commits. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
+4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. It also notes when two workers change the same files, which needs nothing by itself: a conflict is rebased when the PRs merge. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
+5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
+
+## Follow-ups: resuming a worker
+
+A worker's conversation outlives its run. When the PR gets review comments, or you change your mind about the feature, send the work back to **the agent that did it**, with all its research still in context, instead of briefing a fresh one:
+
+```
+/delegate-agy send the review on shop-api#88 and your opinion on it to the agent that made that PR
+/delegate-agy ask the shop-api worker to return restockedAt as a unix timestamp instead of ISO
+```
+
+The root finds the worker (`mesh agents`) and runs `mesh resume`. This reopens the worker's own Claude or agy conversation in a new pane, in its old worktree and branch (recreated if `mesh stop` removed it). The worker plans the change on the tier the root names (as for a new worker, whatever it last ran on), gets it approved (which moves it to the execution tier the root names), and pushes to the **same** branch, so the existing PR updates. If that PR was merged or closed meanwhile (`gh pr list --head <branch>`), a change task starts a new branch, `mesh/<run>/<slug>`, in the same worktree, and opens a new PR; the resume output and the task say so. After a merge the branch starts from the freshly fetched default branch (a worktree with uncommitted changes stays put and the task tells the worker instead); after a close, from the old branch's tip (or the PR's head, fetched from GitHub, when the branch lost it), so its commits come along. When `gh` can't answer, it resumes on the old branch with a note.
+
+To carry on with a worker yourself, open its conversation in your own terminal:
+
+```bash
+mesh agents shop-api                  # past workers: run, branch, PRs, whether the conversation was found
+mesh open shop-api-restocked-at       # cd into its worktree and resume its conversation here
+mesh open shop-api-restocked-at -- --dangerously-skip-permissions   # extra flags go to the CLI
+```
+
+`mesh open` runs outside the mesh, with your usual permission settings. Both commands take the worker's name, its branch (`mesh/<run>/<slug>`) or a PR link. A PR link names the worker whose branch is the PR's head (asked of `gh`), or else the one whose reports quote the link. `resume` refuses a worker that's still running. `open` refuses a running pane worker (use `herdr agent focus <name>`) and attaches to a running background worker.
+
+### Compaction on the way back
+
+Every turn of a follow-up re-reads the whole conversation, and one whose prompt cache has expired writes it all again first. Before reopening a worker, `resume` and `ask` compact its conversation headless when that pays off:
+
+- a Claude conversation over `compact.claude` tokens, or over `compact.claude_cold` tokens once its cache has gone cold (it was last written longer ago than its cache's 5-minute or 1-hour lifetime), or an agy one over `compact.agy` tokens (agy compacts itself at about 250k); twice that for a read-only question. An agy conversation whose size can't be read is compacted when it comes back from an earlier run;
+- the default focus is what the new task needs; the root can give its own (`--focus "the restockedAt contract"`);
+- `--compact yes|no` forces it either way, and the `compact.*` settings ([Configuration](#configuration)) move the thresholds.
+
+Two more points compact a live Claude worker, with no resume: `mesh approve` compacts a big planner before reopening it for execution (over `compact.approve`, or `compact.approve_switch` when the execution model differs: a prompt cache is per model, so the new model writes the whole context anyway), in its own pane while its cache is warm; and a task or answer to a big worker that already reported `done` compacts it first (`compact.followup`, `compact.followup_cold`). Each logs a `compacted` event with the sizes before and after.
+
+### The root's own context
+
+The root lives longest, and every turn re-reads its whole context: a twentieth of the input price while the prompt cache is warm, the cache-write price (2× the input price on the 1 h cache, 1.25× on the 5-minute one) for all but the system prompt's ~25k (cached across sessions) once the cache has expired (an hour on a Claude subscription within its plan usage, five minutes on usage credits or an API key; mesh reads which from the root's session file). So mesh measures the root too, and the root resets itself, without asking anyone:
+
+- root commands print a `mesh: root context 452k, cache cold since 14:02 …` line when a reset pays: over `root_reset.at` tokens with a cold cache, or when the root is about to wait on workers; over twice that while warm. `mesh status` shows the size and cache state in its header;
+- the root writes what the files can't hold to `$(mesh dir)/notes.md` (the user's standing instructions, decisions and why, what's next), runs `mesh reset --next "<what next>"` and ends its turn. A detached process waits until the turn has ended and the input box is empty (never over a draft), restarts the root's Claude in its own pane with the lean flags ([Lean sessions](#lean-sessions); your launch flags are kept, a `/model` switched inside the session isn't), or types `/clear` where it can't (or `/compact <focus>` with `--compact`), then a prompt that sends the fresh session to `mesh brief`. A restart waits for the old Claude to finish exiting (minutes if it must: one that hangs on its way out is ended after that), leaves a root that still answers alone, and starts your old session again if the new one doesn't start, so a reset ends with a root;
+- `mesh brief` is one bounded view of the run for a fresh root: a short **root card** (the rules it acts on every turn, from `protocol/ROOT_CARD.md`, and which part of the protocol to read before each step), request, notes, board, each worker's state, what waits on it, PRs, unread mail headers and the old transcript's path, each part capped with a command for the rest. A root restarted by mesh also gets a SessionStart reminder to run it after a compaction, a `/clear` or a resume. `mesh protocol [name]` prints one part of ORCHESTRATE.md or PROTOCOL.md (`root.6` is the step on reviewing a plan, `your-own-context`, `protocol` for all of PROTOCOL.md; with no name, it lists them with their sizes): a few thousand tokens instead of the 21k of the whole Root section;
+- the run's root keeper (a detached process root commands start) resets an idle root over the threshold with no unread report, warm or cold, once it has been quiet 5 minutes after a turn mesh started or 30 minutes after one you started (it may be waiting on you; it writes such a question into notes.md, and asks again after the reset). `root_reset.auto: false` turns it off.
+
+### Lean sessions
+
+A Claude agent's first call carried 60–70k tokens, about 39k of them tools, skills, plugins and MCP servers a mesh agent doesn't use, and every call re-reads them. So mesh starts every Claude worker, and the root at each reset, without them, with flags for that session only; your settings and your launch alias stay as they are:
+
+- tools by name (`claude.deny_tools`, the root's `claude.root_deny_tools`): Artifact, Workflow, SendFeedback, ScheduleWakeup, ListAgents, and for workers AskUserQuestion and EnterWorktree; the root's also Agent and ReportFindings (`mesh tools add Agent` brings the Agent tool back);
+- bundled skills hidden from the model's listing (`claude.skills_hidden`; for workers also the delegate and peer skills): you can still type them;
+- the skills synced from claude.ai, and the plugins in `claude.plugins_off`;
+- MCP servers other than the repo's own (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) and `claude.mcp_keep` (Context7 by default; web search is a built-in tool, never cut), including claude.ai's connectors (`claude.mcp`).
+
+The root picks more per task: `mesh tools servers` lists your own MCP servers (name, one line, whether it is always loaded or exclusive, who holds it), and `--mcp a,b` on `mesh spawn`, `mesh ask --repo` and `mesh resume` starts that Claude worker with them from its first turn, kept through resumes (`resume --mcp` replaces them, `--mcp none` clears them). The one line is `claude.mcp_about[name]`, else the server's type and host or command (never its arguments, headers or environment). The ones in `claude.mcp_exclusive` (Playwright by default: your server is one browser) have one holder at a time across all runs: a second `--mcp playwright`, or `mesh tools add playwright`, is refused naming the holder until it is retired or its run stopped (a server in `claude.mcp_keep` is in every agent and skips this). The protocol tells the root to pass none by default, the browser to a frontend task, and your personal servers only to a task about them.
+
+An agent that needs one back runs `mesh tools` (what it runs without) and `mesh tools add <name>… --next "<what next>"`, then ends its turn: mesh reopens the same conversation with it, which costs one cold cache write of its context. `claude.lean: false` turns all of it off. To start your root lean from its first turn too, launch it with the same flags, for example `claude --disallowedTools Artifact Workflow SendFeedback ScheduleWakeup ListAgents --settings ~/.config/agent-mesh-root.json --strict-mcp-config --mcp-config <your repo's servers>`, with `skillOverrides`, `syncClaudeAiSkills` and `enabledPlugins` in that settings file (design §11, "Lean sessions").
+
+## How it works
+
+### Mailbox plus doorbell
+
+Typing into a terminal is not reliable delivery: the agent might be busy, stopped at a dialog, or you might be typing in that pane. So every message is **written to the recipient's mailbox first**, and only then does the recipient get a one-line **doorbell**:
+
+```
+📬 [mesh] question from shop-api-restocked-at (ref 3fa9c1): Should restockedAt be null for products that were never out of stock? (run `mesh inbox`)
+```
+
+- **The doorbell wakes the agent.** An idle agent starts a new turn; a busy one queues it, which both CLIs do. The agent then runs `mesh inbox` to read the full message.
+- **A Claude recipient's doorbell goes straight into its session.** `mesh` writes it into the session's cross-session inbox (its socket), from any sender, agy included, so nothing is typed into its pane. Workers are started to accept these messages. A Claude root takes them under a `crossSessionInbound: accept` setting or in a mode that asks for permissions; in bypass mode it takes only a message from a session in its own mode, so a Claude worker gets a `send_message` back from `mesh send` and passes it on with `SendMessage`, and an agy worker's doorbell is typed. `mesh init` and `mesh status` warn when your settings hold such messages. The root is addressed by its session's socket, which `mesh init` records, because session names change. If you reopen the root, its next mesh command records the new socket.
+- **A doorbell is typed once.** herdr can miss that a busy agent queued it and report the prompt as stalled, so before retrying, `mesh` reads the pane: a doorbell whose `ref` showed up above the input box counts as delivered. The `ref` is new for every doorbell, so an older one never confirms it. A pane it couldn't read, or whose input box it can't find, never confirms one. Retrying also stops once the recipient has read the message, and every doorbell that got through is logged (`rung`, with how it was confirmed).
+- **Your draft is never sent for you.** herdr submits a doorbell fused to whatever is in the input box, so `mesh` doesn't type while you have a half-written prompt in an agent's pane: it waits through its retries (about a minute) and then gives up with exit 2 (`human_draft`), the message still in the mailbox. When the box can't be read, it types anyway. One doorbell at a time goes into a pane, since herdr merges prompts typed at once.
+- **The preview is plain text.** Backticks, `$` and quotes are dropped from the message preview, so it never reads as a shell command.
+- **A lost doorbell loses nothing.** The message waits in the mailbox, and `mesh status` shows unread counts and a task whose doorbell failed.
+- **The mailbox is the record.** `~/.local/state/agent-mesh/<run>/` holds every message, plan and report, plus a `log.jsonl` of events. `mesh stop` archives it.
+
+### Names and workspaces
+
+- **Readable names:** agents are named for what they do, such as `shop-web-lead` (the root) and `shop-api-restocked-at` (a worker).
+- **Beside you first:** a pane worker opens as a split in the root's own tab, so you watch it work from where you are. The first one takes the right half and later ones split the workers' side, `side_panes` at most (`0` turns it off). A swap to the exec model reopens the worker in the same spot.
+- **Then one workspace per project:** workers past that open in the project's existing herdr workspace, in one tab per run (`mesh: add restockedAt to shop-api`). A workspace is created only for a project that has none.
+
+### Identity
+
+`mesh spawn` injects `MESH_RUN`, `MESH_SELF`, `MESH_PARENT` and `MESH_ROLE` into each new pane through herdr, and into a background session through `claude --bg --settings` (its own process environment comes from Claude Code's daemon, not from mesh). Every Claude worker, pane or background, also gets two hooks through `--settings`, added to your own and the repo's: a `Stop` hook (`mesh hook stop`, below) and a `SessionStart` hook that, after a `/compact`, a `/clear` or a resume, restates its name, parent, phase and current task (`mesh whoami --reminder`); after a clear or a compaction, its next `mesh inbox` shows its current task again. A Claude session that inherited another worker's variables is caught by its session id (or a run that no longer exists) and ignored. The root is found by its pane id, and only the Claude process running in that pane counts: a Claude started inside another one (a `claude -p` from an agent's tool) or a background session carrying the pane's id is never taken for the pane's agent. "Running in that pane" means leading the pane's foreground process group: `claude`, `time claude`, `env … claude` and `direnv exec . claude` all do, but a launcher script that starts `claude` without `exec`, or tmux/zellij inside the pane, puts another process there, and the root is refused. Use `exec claude "$@"` in the script; inside a multiplexer, pass `--run <run> --as <name>`. A Claude pane worker that herdr restored without its variables (after a power outage, say) is found the same way: by its pane, its recorded session and its process leading the pane. Such a restore also drops mesh's flags (its hooks, a planner's or asker's deny list, its model and effort), so the next message mesh sends it first reopens it in the same conversation with them, once its turn ends; until then the message is stored, not rung. Agents never pass ids by hand: `mesh send parent --type question --body "…"` just works.
+
+### Watchdog
+
+The root runs `mesh watch <worker>` in the background, or one `mesh watch --any` for every worker of the run. It exits 0 when a worker reports `done`/`failed`, and with an alert status otherwise; a `plan` or `question` reaches you by its doorbell or `SendMessage`, and the watch keeps going. A root's `mesh watch --any` is `--alerts` by default (`--reports` brings back the exit on every `done`/`failed`) with a `--timeout` of `watch.timeout` seconds (7200; `0` for none), so a bare one is the right one: it keeps watching through reports and exits on an alert, or with 0 once every watched worker has reported and ended. It also exits 0 when a worker's `plan`, `question`, `done` or `failed` has sat unread for two minutes with no doorbell rung for it (a report a Claude worker had to pass on with its own `SendMessage` and didn't): `mesh inbox` has it. A worker's Stop hook blocks once to remind it of such a `SendMessage`. An `--any` watch also takes on workers spawned or resumed after it started, so it needn't be restarted for them. A worker you `mesh retire` while a watch runs is let go, report or not, rather than reported gone. The watch also retires a worker itself (and, when no watch covers it, the run's retirer, which a worker's report starts, so an agy root's workers too) once it has been idle `idle_retire` seconds after its `done` or `failed` (0 = never), since an idle session holds memory and buys nothing over a resume, but not while you're looking at it (attached with `mesh open`, or its pane focused in herdr); `mesh send` (a task, answer or question) or `mesh ask` to a retired worker resumes it in the same conversation, then delivers; an `info` is only stored (exit 2), for it to read when next resumed, and a retired peer asker is refused by `send` in favour of `mesh ask <peer>`, which refreshes its worktree. And `mesh stop` ends a running watch with 0 (`run <run> stopped`) from the moment it starts closing panes; a `mesh ask` whose run is stopped before the answer exits 1. A report from a watched worker that's still unread in your mailbox (sent while no watch ran, its doorbell lost) makes the watch exit 0 at once:
+
+| Status | Meaning |
+|---|---|
+| 3 | the worker stopped without reporting, and stayed silent after one nudge |
+| 4 | the worker is blocked on a dialog |
+| 5 | the worker's pane is gone, its CLI has exited (or a model switch failed to reopen it) |
+| 6 | timeout |
+| 7 | the worker hit a quota (`mesh switch` moves it on), or a Claude worker hit its usage limit (mesh continues it at the reset) or its login expired (the user runs `/login`); or (the root's watch) a quota the workers draw on reached the reserve |
+| 8 | the worker may be hung: it reads working, but its transcript hasn't changed for 40 minutes |
+
+A worker counts as stopped once it has read idle for `--grace` seconds (30) with no `plan`, `question`, `done` or `failed` since its last task or answer (an `info` isn't a report); a short idle reading mid-turn doesn't count. A worker the watch never saw working (a turn shorter than one poll, a task it never picked up, a watch started after the turn ended) counts as stopped the same way once that last task or answer is 4 × `--grace` old (2 minutes, never under 30 s), measured from the log, so a late watch still judges it; once a watch has alerted on that task, a restarted watch doesn't alert on it again until the worker works or gets a new task or answer. A pane worker then gets one nudge (an `info` asking it to report with `mesh send`), once per task even with several watches running, and the watch exits 3 only if it stays silent; the line says whether the nudge's doorbell rang, and whether its task (or answer) is still unread. A Claude worker usually gets that nudge sooner, from its own `Stop` hook: when its turn is about to end with unread mail, or with no report since its last task or answer, the hook keeps it going once with the reminder, and that counts as the task's nudge, so the watch doesn't nudge it again. That covers background workers too, which the watch can't reach: when a background worker's hook didn't nudge it, its exit-3 line says how to nudge it yourself. The blocked (4), stopped (3) and hung (8) alerts end with the pane's last lines, so you can tell a stray menu from a real question, and the stopped (3) and gone (5) ones say what the worker's branch shows: commits past its base, pushed or not, an open PR, a dirty worktree.
+
+A worker that ends its turn to wait on a long command it started (both CLIs move a long test run to the background and end the turn) declares it with `mesh send parent --type wait --until 30m --body "<why>"`. It's stored for the root without a doorbell, and until then the watch neither nudges it nor raises 3 or 8, and its Stop hook lets the turn end. A wait covers that one turn end: a worker that wakes early and stops again without reporting is reminded once, then judged as usual. After the deadline the usual rules apply. Each running watch holds a lock per worker it watches, so `spawn`, `resume`, `approve`, `switch` and `ask` warn when a worker that owes a report has no watch.
+
+A Claude worker at its usage limit is told by the pane's last 20 lines or by its session file's last reply (a background worker has only that one), and gets exit 7 with the reset time instead of a nudge, a 3 or a 4; there's no model to move it to, so it's continued at the reset: in a pane by Claude Code itself (`autoContinueAtUsageLimit`), else by mesh, which sends `continue` from the root ten minutes after the reset unless something else moved the worker on (a newer task or answer, a report, Claude's own continue). An agy worker `mesh switch` can't move (no model left) is continued the same way. An expired login (`Login expired · Please run /login`) is read the same two ways (a readable session file decides the login, and the limit once it records one, so a line left on the screen after a new login or the reset doesn't count) and gets its own exit 7: the root asks the user to run `/login` there, then sends the task to continue. A worker that reads working, with nothing reported since its last task or answer, while its transcript (Claude's session file; agy's conversation file and log) stays unchanged for `--hang` seconds (default `hang_after`; 0 turns it off) gets exit 8: a hung test, a server in watch mode, or a registration herdr kept after the agent died (then it's exit 5, once the pane shows only a shell). The watch never stops it. Exits 7 and 8, like 3, come once per task (a limit and an expired login once each). herdr can also lose a live agent (seen after a Claude Code auto-update): a worker herdr doesn't list counts as gone only when its pane no longer runs its `claude`/`agy`; otherwise it reads `unknown`.
+
+A Claude root gets notified the moment the watch exits.
+
+### Many agents on one machine
+
+Every agent is a whole CLI process with its own MCP servers: an idle `claude` session takes about 200 MB, and each stdio MCP server it starts adds to that, per session. Two large runs can fill a small machine, and a Linux VM without an OOM killer (WSL, say) hangs instead of killing something; [design notes](design.md) §17 has the measurements. A background worker is the same process with the same servers, so fewer panes alone saves little.
+
+- **Swap and an OOM killer.** Give the machine enough swap to absorb a spike, and run [earlyoom](https://github.com/rfjakob/earlyoom) (or systemd-oomd) so a full machine kills something instead of hanging. Tell it what to sacrifice and what to spare, e.g. `--prefer '(^|/)(next-server|node|pnpm)' --avoid '(^|/)(herdr|claude|agy)$'`.
+- **One MCP server per machine, not per session.** A stdio MCP server is started by every session that has it configured, so its memory multiplies by the agents running. Run a server that can be shared once, as a user service listening on a port (Playwright's MCP server takes `--port`), and point the user-scope entry at its URL; scope the others to the projects that use them (a project `.mcp.json`, or `claude mcp add --scope project` / `--scope local`) instead of the user scope. mesh launches workers with their repo's own MCP configuration and doesn't trim it (see [design notes](design.md), §17).
+- **Retire what has reported.** An idle worker holds its whole process; its conversation stays on disk, and `mesh resume` (or `mesh ask`) reopens it. `mesh status` shows who's done.
+- **What mesh does itself:** `spawn`, `resume` and `ask` refuse to start an agent under a memory floor or while the machine thrashes, and `retire` and `stop` stop what a worker left running in its worktree (both under Safety rails below). Workers are asked to stop their own servers before reporting, and reviewers to read the PR's CI results before running tests, then only the tests the change touches.
+- **A CPU cap per agent.** Test runners size their worker pools by the cores they see: in one run a reviewer's `vitest run` started 11 workers on a 12-core machine, each with its own database, about 7.7 GB at once. So every agent mesh starts (workers, askers, reviewers and peers, Copilot ones too; never your root or a `mesh open`) gets a CPU affinity mask of `worker_cpus` % of the cores (at least one), on the cores the fewest running agents share, and what it runs inherits it: Node's `os.availableParallelism()` (which vitest and jest size their pools by) and `nproc` report that many. A runner that counts cores another way ignores it; its own config (`maxWorkers`) stays the repo's business. `0` or `100` turns it off.
+- **A memory limit per agent (off by default).** With `worker_memory_high` set (MB), mesh also moves each agent it starts into a systemd user scope with `MemoryHigh`, so a spike in what one agent runs swaps and slows that agent instead of the whole machine. It needs `systemd --user` and `busctl`.
+
+### Safety rails
+
+- **Branches:** workers change code only in their own worktree, on `mesh/<run>/<slug>`, and never touch the main checkout.
+- **Plans first:** a worker changes nothing until the root approves its plan.
+- **Publishing:** workers push only their own run branch and open a PR. Nobody merges or deploys.
+- **No sub-delegation:** workers never spawn agents, background or headless.
+- **Authority:** mesh messages are not user authority. Text you type directly into a pane overrides the agent's parent.
+- **Startup:** `mesh spawn` accepts a folder-trust dialog in directories it created itself (moving to "Yes" and reading the screen again before Enter, since Claude Code's default is "No, exit"), and answers no other startup screen. A worker that waits at one (Claude Code's Settings Warning for a malformed `.claude/settings.json` rule, its external CLAUDE.md imports question, or a screen mesh doesn't know) gets its task stored, not rung: `spawn`, `ask`, `resume`, `approve` and `switch` exit 4 with an `ALERT` and the pane's last lines, and once the user clears the screen a running `mesh watch` (or `mesh ring <worker>`) rings its doorbell. Messages sent to it meanwhile are stored, not typed. A CLI that exits during startup is an error, with the pane's last lines.
+- **Cleanup:** `mesh stop` stops background workers (their conversations are kept), removes only *clean* worktrees and never touches your own checkout. `mesh retire` and `mesh stop` also stop what a worker left running in its worktree (a dev server, a watcher: a process there whose parent has died), TERM then KILL, logged as `killed`; a live pane's shell, a live agent and its MCP servers, and your own terminal or tmux there (anything holding a terminal) are left alone, and so is a worktree another agent still works in. It keeps every branch that has a commit or was pushed; an asker's branch that got neither is deleted, and resuming that worker starts it again.
+- **Memory floor:** `spawn`, `resume` and `ask` (each peer of `ask --peers` too) start no agent while the machine's available memory plus free swap is under a floor: by default 10 % of RAM plus 10 % of swap (where earlyoom's defaults start killing) plus 1 GB, at least 2 GB (`min_free_mb: "auto"`); a number of MB there sets it, 0 turns it off. They also start none while the kernel's memory pressure (`full avg60` in `/proc/pressure/memory`) is over `memory_pressure_max` %, which clears by itself as the pressure drops: try again a minute or two later. An agent started in the last two minutes, by any `mesh`, counts as 400 MB used, since it hasn't grown yet. They refuse before the agent's worktree or entry is made, naming the worker, and say to retire workers that have reported. `mesh open`, typed by you, isn't guarded. See [Many agents on one machine](#many-agents-on-one-machine).
+- **One process per conversation:** `mesh resume` and `mesh open` refuse a worker that's still running, so a conversation is never open twice. "Running" means herdr lists an agent in its worktree, or, should herdr have lost it, a `claude`/`agy` process works there (in a shared main checkout, one naming its session).
+
+## Requirements
+
+- **[herdr](https://herdr.dev)**, with your root session running in a herdr pane: `mesh init` refuses to start a run outside one, so background Claude workers need it too.
+- **Claude Code and/or agy** ([Antigravity CLI](https://antigravity.google)): at least one, for the root and the workers. The [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) is optional: a worker kind like the others (never a root), used by default only as a reviewer. [OpenCode](https://opencode.ai) (`opencode`) is optional the same way, on its free models or your own providers.
+- **GitHub, with [`gh`](https://cli.github.com) logged in.** Workers open PRs with `gh`, and mesh reads PR links and remotes as `github.com` only; another forge works for local branches but loses PR tracking, resume onto a finished PR and review rounds.
+- **Linux or WSL.** The memory floor and the sweep of leftover processes read `/proc`. On macOS both are off (no agent start is refused for memory, and what a worker left running in its worktree is not killed), and mesh tells a running worker from herdr and `ps` instead; `herdr/mesh-notify` has no macOS notifier.
+- **Python 3.10+** and **git**. `bin/mesh` is one stdlib-only script.
+
+**Permissions.** Workers run with `--dangerously-skip-permissions` (agy's and Claude Code's), so they don't stop at every tool prompt. What still holds them: each works in its own git worktree on `mesh/<run>/<slug>`, never your checkout; a Claude worker that is planning or answering a read-only question runs under a `--disallowedTools` deny list (no edits in its worktree, no push, no PR comments) until its plan is approved; agy has no deny list, so its planners and askers are held by the prompt; workers are told to push only their own branch and open a PR, never to merge or deploy; a worker can't spawn agents or message anyone but its parent. Run it on repos and machines where that is acceptable. Claude Code delivers cross-session messages without asking only between sessions in the same permission mode, so run a Claude root in bypass-permissions mode too, or approve each worker's report as it arrives.
+
+## Install
+
+```bash
+git clone https://github.com/Luisotee/agent-mesh   # anywhere; install.sh links to wherever it is
+agent-mesh/install.sh                                # --uninstall reverses it
+```
+
+`install.sh` symlinks:
+
+| From | To |
+|---|---|
+| `bin/mesh` | `~/.local/bin/mesh` |
+| `protocol/` | `~/.config/agent-mesh` |
+| the skills | `~/.claude/skills/` (not when the plugin is installed, or with `--plugin`) and `~/.gemini/config/skills/` |
+| `herdr/mesh-notify` | herdr's plugins (`herdr plugin link`), when herdr is on PATH |
+
+It also adds a short, marked block to `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md`, so any agent that receives a doorbell knows the protocol. Each CLI's skills and rules block go in only when that CLI is on PATH: `/delegate-agy` needs agy and `/delegate-claude` needs Claude Code, so a skill whose CLI is missing is left out; a re-run without a CLI on PATH adds nothing for it and removes nothing (only `--uninstall` does). Re-run `install.sh` after installing the other one. Re-running it is safe. The links point into your clone, so `git pull` there updates everything; re-run `install.sh` after a pull that adds a skill or changes `rules/global-snippet.md` (it's copied, not linked).
+
+### Claude Code only, agy only, or both
+
+mesh works with whichever is installed; Copilot and OpenCode are optional.
+
+- **Claude Code only:** use `/delegate-claude` and `/delegate-review`. Workers, askers and reviewers are Claude (Copilot too, if installed). Background workers and `--plan-review user` are Claude features, so all of it works.
+- **agy only:** use `/delegate-agy` and `/delegate-review`. Workers and reviewers are agy (Copilot too, if installed); every worker runs in a pane, and `--plan-review user` (Claude Code's plan mode) is refused.
+- **Both:** both commands, and reviewers from either; the defaults are tuned for this setup.
+
+A CLI that isn't installed is never started: `mesh init --mode`, `spawn --kind`, `ask --kind` and named reviewers are refused with what is installed, a spawn with no `--kind` uses agy, else Claude, and `--reviewers auto` picks only among installed CLIs (`mesh routing` shows what it would pick).
+
+### Skills as a Claude Code plugin
+
+Claude Code can take the skills from the repo's plugin marketplace instead of `~/.claude/skills`:
+
+```text
+/plugin marketplace add Luisotee/agent-mesh
+/plugin install agent-mesh@agent-mesh
+```
+
+The plugin carries only the skills (named `/agent-mesh:delegate-claude` and so on). They run `mesh` and read `~/.config/agent-mesh/*.md`, so `install.sh` is still needed for the CLI, the protocol, the global rules block and agy's skills: once the plugin is installed (at user scope), `install.sh` sees it and skips the links in `~/.claude/skills` (and removes ours there), so Claude Code doesn't list every skill twice; `install.sh --plugin` does the same before you install it. The CLI and protocol follow your clone, but the plugin is a cached copy: auto-update is off for a third-party marketplace, so after a `git pull` run `/plugin marketplace update agent-mesh` (or `claude plugin update agent-mesh@agent-mesh`), or turn on auto-update for it under `/plugin` → Marketplaces.
+
+`herdr/mesh-notify` sends a desktop notification (`notify-send`, or a Windows toast under WSL) when an agent finishes or needs input, without the run's noise: never for a worker, and for a root's finished turn only once no worker still owes it a report. Turn herdr's own popups and sounds off, or they fire for every worker too:
+
+```toml
+[ui.toast]
+delivery = "off"
+
+[ui.sound]
+enabled = false
+```
+
+`herdr plugin action invoke local.mesh-notify.test` sends a test notification; its decisions are logged in `~/.local/state/herdr/plugins/local.mesh-notify/notify.log`.
+
+`/make-concise`, run in any repo by that repo's own agent (or as a mesh task there), rewrites its `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` in concise plain English: every rule and its reason kept, examples of different cases kept, code, paths, URLs and marked blocks (the Next.js one) untouched, each file under agy's 24,000-byte limit. Its `validate.py` compares the files before and after and fails on anything code-like that went missing; it adds a size test and opens one PR for the repo's reviewers.
+
+## Configuration
+
+mesh's policy is data: what each tier runs per CLI, the views per CLI and size, the reviewers per review size, the re-review rules, the review rounds, the quota reserve, where repos and peers live, and the watchdog's, memory guard's, compaction's and root reset's thresholds. With no config file mesh uses its built-in values; to change any of them, write `~/.config/agent-mesh.json` (`$XDG_CONFIG_HOME/agent-mesh.json`, or the path in `MESH_CONFIG_FILE`). It sits beside `~/.config/agent-mesh`, not inside it: that folder is the link to the repo's `protocol/`.
+
+```bash
+mesh routing               # every setting, its value and where it comes from (built-in, config, env), the installed CLIs
+mesh routing --json
+```
+
+An env var beats the file, which beats the built-in, setting by setting: `MESH_QUOTA_STOP` (or the older `MESH_MIN_QUOTA`) for `quota_stop`, `MESH_PEERS_DIR`, `MESH_REPOS_DIR` (`:`-separated), `MESH_COPILOT_MODEL`, `MESH_WORKER_CPUS`, `MESH_MEMORY_PRESSURE_MAX`, `MESH_WORKER_MEMORY_HIGH`, `MESH_MIN_FREE_MB`, `MESH_IDLE_RETIRE`, `MESH_HANG_AFTER`, `MESH_HELD_WAIT`, `MESH_SIDE_PANES`, `MESH_COMPACT_AT` / `MESH_COMPACT_COLD_AT` / `MESH_AGY_COMPACT_AT` for `compact.claude` / `compact.claude_cold` / `compact.agy`, and `MESH_ROOT_RESET_AT` / `MESH_ROOT_AUTORESET` (`0` or `1`) / `MESH_RESET_WAIT` for `root_reset.at` / `auto` / `wait`, and `MESH_WATCH_TIMEOUT` for `watch.timeout`. An env value that isn't one of its setting's kind is ignored. Workers read the same file (mesh passes its path to them, background sessions too). A key mesh doesn't know, or a value of the wrong type, is an error naming the file and the key, so a typo never falls back silently; keys starting with `_` are comments. The agents follow `mesh routing` rather than restating these values, so a change applies to the next run.
+
+This file reproduces the built-in policy, plus a `repos_dir`:
+
+```json
+{
+  "_comment": "Every key is optional: a missing one keeps its built-in value. These are the built-ins, plus repos_dir.",
+  "tiers": {
+    "claude": {
+      "light": {"model": ["haiku"], "effort": "medium",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["sonnet"], "effort": "high",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["opus"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"},
+      "top": {"model": ["fable"], "effort": "high",
+               "note": "only when the user names it"}
+    },
+    "agy": {
+      "light": {"model": ["flash"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["hydrogen"], "effort": "high",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["neon", "opus", "carbon", "hydrogen"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
+    },
+    "copilot": {
+      "light": {"model": ["auto"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["auto"], "effort": "medium",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["auto"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
+    },
+    "opencode": {
+      "light": {"model": ["free"], "effort": "low",
+               "note": "trivial tasks (copy, translations, a version bump, config) and short mechanical text"},
+      "mid": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"], "effort": "high",
+               "note": "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews"},
+      "strong": {"model": ["opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"], "effort": "high",
+               "note": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews"}
+    }
+  },
+  "models": {
+    "claude": {"trivial": {"view": "bg"}, "small": {"view": "bg"}},
+    "agy": {"trivial": {"view": "pane"}, "small": {"view": "pane"}},
+    "copilot": {"trivial": {"view": "pane"}, "small": {"view": "pane"}},
+    "opencode": {"trivial": {"view": "pane"}, "small": {"view": "pane"}}
+  },
+  "review": {
+    "effort": "high",
+    "level": {"trivial": "medium", "small": "medium", "large": "high"},
+    "self_level": {"trivial": "low", "small": "low", "large": "medium"},
+    "reviewers": {"small": [["opencode", "agy"]], "large": [["claude", "agy", "copilot", "opencode"]]},
+    "re_review": {"skip": ["copilot"], "keep": {"small": [], "large": []}},
+    "rounds": {"small": 1, "large": 2}
+  },
+  "quota_stop": 90,
+  "copilot_model": "auto",
+  "peers_dir": "~/research",
+  "repos_dir": ["~/projects"],
+  "skip_permissions": true,
+  "worker_cpus": 25,
+  "memory_pressure_max": 10,
+  "worker_memory_high": 0,
+  "min_free_mb": "auto",
+  "idle_retire": 300,
+  "hang_after": 2400,
+  "held_wait": 300,
+  "side_panes": 3,
+  "compact": {"claude": 300000, "claude_cold": 200000, "agy": 100000,
+              "approve": 250000, "approve_switch": 200000, "followup": 250000, "followup_cold": 200000},
+  "watch": {"timeout": 7200},
+  "root_reset": {"at": 150000, "auto": true, "wait": 1800, "relaunch": true},
+  "claude": {
+    "lean": true,
+    "deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion",
+                   "EnterWorktree"],
+    "root_deny_tools": ["Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "Agent", "ReportFindings"],
+    "skills_hidden": ["dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
+                      "schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring",
+                      "keybindings-help", "fewer-permission-prompts", "claude-approvals", "update-config"],
+    "worker_skills_hidden": ["delegate-agy", "delegate-claude", "delegate-review", "find-peers", "harvest-peers"],
+    "claudeai_skills": false,
+    "plugins_off": ["pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"],
+    "mcp": "repo",
+    "mcp_keep": ["context7"],
+    "mcp_about": {},
+    "mcp_exclusive": ["playwright"]
+  }
+}
+```
+
+- **`tiers.<kind>.<tier>`:** what the root's `--tier` means on each CLI: `model` is a chain (agy and OpenCode take the first with quota or not at its limit, Claude and Copilot the first), `effort` its effort, `note` what it's for (the root reads it in `mesh routing`). Models are families (`argon`, `flash`, `opus`, `sonnet`, OpenCode's `free`), Claude aliases or exact ids. mesh has no default model: a start without `--tier` (or a `--model` you named) is refused. Only Claude has `top`.
+- **`models.<kind>.<size>.view`:** a trivial or small task's view: `pane`, or `bg` for a Claude background session.
+- **`review.reviewers.<size>`:** a list of slots, each taking the first CLI in it that is installed and available (agy with quota on the round's tier, Copilot with no quota error in the last day, OpenCode with a model of the tier not at its limit) and not picked yet, passing over the PR author's own CLI while another is free; a trivial review uses `small`. `re_review`: a re-review asks the earlier reviewers again minus `skip`, plus `keep.<size>`, and fills the slots again when that leaves nobody. `effort` is a fresh reviewer's effort, `level` a Claude reviewer's `/code-review` level, `self_level` the level of a worker's own self-review before its `done`.
+- **`review.rounds`:** the most review→fix rounds a PR gets (a round that needs no fix ends them sooner).
+- **`quota_stop`:** the percent of a quota used at which mesh starts nothing new on it. **`repos_dir`:** the folders a bare `--repo <name>` is looked up in (none by default: pass paths). **`peers_dir`:** where `mesh peers add` clones a peer.
+- **`skip_permissions`:** `true` starts workers with `--dangerously-skip-permissions`. `false` drops it (and `--allow-dangerously-skip-permissions` from a user-reviewed plan); then every tool call your allow rules don't cover stops at a prompt in the worker's pane, where the watch reports it blocked (exit 4) until you answer; Claude workers that would run in the background open in panes, since a background session can't answer a prompt; and a Claude worker's report to a root in bypass mode waits for your approval there. mesh's own headless calls that run no tools on your repos (`agy -p /usage`, the compaction before a resume) keep the flag.
+- **`worker_cpus`:** the percent of the machine's cores each agent mesh starts may use (at least one core): a CPU affinity mask, so the test runners it starts size their worker pools to it. `0` or `100` turns it off. See [Many agents on one machine](#many-agents-on-one-machine).
+- **`memory_pressure_max`:** mesh starts no agent while the kernel's memory pressure (`full avg60` of `/proc/pressure/memory`: the share of the last minute in which every runnable task stalled on memory) is over this percent; `0` turns it off. The default is a first guess.
+- **`worker_memory_high`:** MB of memory above which an agent mesh starts, with everything it runs, is throttled: mesh moves it into a systemd user scope with `MemoryHigh`, so a spike there swaps and slows that agent instead of the whole machine. `0` (the default) creates no scope. It needs a running `systemd --user` and `busctl`; without them it does nothing. A worker held at its limit slows down, and a long stall can read as a hang to the watch.
+- **`min_free_mb`:** the MB of free memory plus swap under which mesh starts no agent; `"auto"` derives it from RAM and swap, `0` turns the guard off. See [Many agents on one machine](#many-agents-on-one-machine).
+- **`idle_retire`, `hang_after`, `held_wait`:** seconds: how long a worker idle after its report stays open before it's retired (`0` = never), how long a working worker's transcript may stay unchanged before the watch's exit 8 (`0` = never; `--hang` overrides it per watch), and how long `ask --peers` waits for a peer held at a startup screen.
+- **`side_panes`:** how many workers open beside the root before the rest go to the run's tab (`0`: all to the tab).
+- **`compact`:** the context tokens over which a resume compacts first (`--compact auto`): `claude` for a Claude conversation, `claude_cold` for one whose cache has gone cold, `agy` for agy. `approve` and `approve_switch`: over which `mesh approve` compacts a Claude planner before reopening it, when its execution model is the planning one and when it changes (the new model writes the whole context anyway, so it pays sooner). `followup` and `followup_cold`: over which a task or answer to a live Claude worker that already reported `done` compacts it first (warm or cold cache). `0` turns any of these four off.
+- **`watch`:** `timeout` is the seconds a root's `mesh watch --any` runs when it gets no `--timeout` (7200; `0` = none).
+- **`root_reset`:** `at` is the root context in tokens past which mesh suggests `mesh reset` and the run's root keeper resets an idle root, `auto: false` turns that idle reset off, `wait` is how many seconds a reset waits for the root's turn to end, and `relaunch: false` makes a reset type `/clear` instead of restarting the root's Claude with the lean flags.
+- **`claude`:** lean Claude sessions (see [Lean sessions](#lean-sessions)). `lean: false` starts every agent with your full set of tools, skills, plugins and MCP servers. `deny_tools` / `root_deny_tools`: the tools a worker / the root starts without. `skills_hidden` (everyone) and `worker_skills_hidden` (workers only): skills left out of the model's listing (you can still type them). `claudeai_skills`: the skills synced from claude.ai. `plugins_off`: plugins turned off, by name. `mcp`: `repo` loads only the repo's own MCP servers (its entry in `~/.claude.json` and the `.mcp.json` servers you approved) plus `mcp_keep`, `none` only `mcp_keep`, `inherit` whatever your config loads. `mcp_keep`: servers every agent loads (Context7, with the built-in web search). `mcp_about`: a one-line description per server name, shown by `mesh tools servers`. `mcp_exclusive`: servers one agent at a time may hold (`--mcp`, `mesh tools add`).
+
+Useful commands while a run is going:
+
+```bash
+mesh status <run>          # every agent: model, size, view, live state, unread mail, branch, and what it
+                           #   owes or waits on (plan unanswered 12m, task unread, done + PR state), needing-you first
+mesh log [<run>] [--follow]  # the run's events as a timeline: sends, nudges, alerts, swaps
+mesh inbox                 # (as an agent) read your messages
+mesh stop <run>            # close panes, remove clean worktrees and empty branches, archive the run
+mesh ask <worker> --body …  # ask a worker (or --repo <path> for a fresh one) and wait for the answer
+mesh agents [query] [--run <id>]  # every past worker, live or archived, with branch, PRs and reviews
+mesh open <worker>         # continue a worker's conversation yourself, in this terminal
+mesh approve <worker> --tier <t>   # (root) approve the plan it sent, moving it to that execution tier
+mesh verdict <PR> --reviewer <name> --agree N --other N --disagree N   # (root) your verdict on its findings
+                           #   --keep-model: execute on the current model when that move can't start
+mesh switch <worker>       # (root) move a worker off a model that hit its quota (--effort / --tier: where you say)
+                           #   approve, switch, retire and stop refuse a worker (the user: --run <id> --as <root>)
+mesh usage                 # agy quotas and what each agy tier would start on
+mesh models                # model families no tier names, or that a CLI no longer lists
+mesh routing               # this machine's policy and where each value comes from
+mesh cost [<run>]          # what each agent spent (API prices): by kind, phase, model, cold resumes; review precision
+                           #   --since 7d [--until …]: every session on the machine in a window
+mesh conflicts             # which run branches conflict with the default branch or each other,
+                           #   and which workers change the same files (uncommitted too)
+mesh watch --any [--reports]  # one watchdog for every worker of the run (a root's: alerts only, 2 h)
+mesh protocol [name]       # print one part of the protocol (root.6, your-own-context, root-card); no name lists them
+mesh brief                 # (root) one bounded view of the run: what a fresh session needs
+mesh reset [--next …] [--compact [focus]]  # (root) once your turn ends, clear your own pane and resume from mesh brief
+mesh tools [add <name>… --next …]  # what your Claude session runs without; add some back (reopens it once your turn ends)
+mesh tools servers [--json]  # your MCP servers a worker can start with: spawn/ask --repo/resume --mcp a,b
+```
+
+## The protocol in one screen
+
+- `📬 [mesh]` means you have mail: run `mesh inbox`.
+- **Plan first:** a worker on a large task sends `mesh send parent --type plan --file …` and changes nothing until it's `approved` (a Claude worker can't: the asker's deny list holds it until `mesh approve`). Before sending it, the worker runs the `check-plan` skill, which checks the plan's claims in the code, attacks it and fixes it. A `Direct task (no plan)` goes straight to the change.
+- **`send_message`:** when `mesh send` prints one (a report to a root in bypass mode, or a message to a background worker launched before workers accepted cross-session messages, until it's retired and resumed), pass it on with `SendMessage`, exactly as printed.
+- **Read-only tasks:** a `Question (read-only)` or `Review (read-only)` task gets no plan and no changes, only one `done` with the answer. A Claude asker also runs with a deny list (no edits to the repo, no push, no PR comments or reviews), lifted by reopening its conversation when it's given a direct change (a change it plans keeps the list until `mesh approve`); agy has no deny list, so its askers are held by the prompt. Any worker is refused every `mesh` command but its own (`send` to its parent, `inbox`, `whoami`, `dir`, the readings).
+- **Stuck or unsure?** `mesh send parent --type question`, then **end your turn**. No polling.
+- **Need a tool that was cut?** `mesh tools add <name> --next "<what next>"`, then end your turn: mesh reopens the same conversation with it (one cold cache write).
+- **Finishing:** every task ends with exactly one `done` or `failed`. Empty your mailbox before reporting: `mesh send` refuses a report while a task or answer is unread.
+- **Long text** goes in `--file` reports under the run directory, never inside the repo.
+- **Repo rules still apply:** the repo's own `CLAUDE.md` / `AGENTS.md` always apply. The mesh never names a tracker or a repo-specific process.
+
+Full text: [`protocol/PROTOCOL.md`](../protocol/PROTOCOL.md). The procedure for roots and workers is in [`protocol/ORCHESTRATE.md`](../protocol/ORCHESTRATE.md), and plans follow [`protocol/PLAN_TEMPLATE.md`](../protocol/PLAN_TEMPLATE.md).
+
+## Design notes
+
+Why a mailbox instead of an MCP server, why not Claude Code's native agent teams, why interactive panes instead of `-p`, which native Claude Code pieces mesh uses since 0.7 and why it compacts on resume: see [`docs/design.md`](design.md).
+
+## Development
+
+```bash
+uvx pytest -q tests       # herdr is stubbed; git worktree tests use real temp repos
+```
+
+## License
+
+[PolyForm Noncommercial 1.0.0](../LICENSE): free for personal use, hobby projects and research, and for charitable organizations, educational institutions, public research, safety, health or environmental organizations and government institutions. Any commercial use, including use inside a company and selling or reselling it, needs a commercial license: contact [@Luisotee](https://github.com/Luisotee). This is a summary: the LICENSE text governs. Commits up to f73ee32 (2026-11-25) remain under the MIT License.

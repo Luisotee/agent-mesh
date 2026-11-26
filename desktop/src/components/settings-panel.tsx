@@ -16,7 +16,7 @@ const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify
 
 /**
  * The host's settings, generated from the schema the host sends: a control per type, the host's own check on
- * every value, a reset to the default. The same settings an agent reads and sets with `mesh settings`.
+ * every value, a reset to the default. The same settings an agent reads and sets with `meshctl settings`.
  */
 export function SettingsPanel({ host }: { host: HostRuntime }) {
   const settings = useHostState(host, (s) => s.settings)
