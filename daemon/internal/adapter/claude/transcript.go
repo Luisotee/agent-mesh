@@ -129,14 +129,18 @@ func TranscriptEntries(line []byte, offset int64) []*agentmeshv1.TranscriptEntry
 	return out
 }
 
+// doorbellPrefix is how Claude presents what its inbox socket received, before the doorbell's own line.
+const doorbellPrefix = "Another Claude session sent a message:"
+
 // userEntry is what a user line holds: a mesh doorbell (even when the CLI marks it as injected context), what the
-// user typed, or nothing (injected context, an empty line).
+// user typed, or nothing (injected context, an empty line). A doorbell is a line that begins with the mark, alone or
+// after Claude's own prefix: injected context that only quotes it (the user's CLAUDE.md does) is not one.
 func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
-	if i := strings.Index(text, doorbellMark); i >= 0 {
-		line, _, _ := strings.Cut(text[i:], "\n")
+	text = strings.TrimSpace(systemReminder.ReplaceAllString(text, ""))
+	if rest := strings.TrimSpace(strings.TrimPrefix(text, doorbellPrefix)); strings.HasPrefix(rest, doorbellMark) {
+		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
 	}
-	text = strings.TrimSpace(systemReminder.ReplaceAllString(text, ""))
 	if meta || text == "" {
 		return nil
 	}

@@ -68,7 +68,8 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
     } catch (e) {
       if (mine === gen.current) setError(say(e))
     } finally {
-      busy.current = false
+      // A read of an earlier conversation ends without freeing the flag: the reset did, and a newer read may hold it now.
+      if (mine === gen.current) busy.current = false
     }
   }, [host, agentId])
 
@@ -150,6 +151,12 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
       anchor.current = undefined
     } else if (stick.current) el.scrollTop = el.scrollHeight
   }, [transcript.entries, active])
+  // Read on shortly after a prompt is sent (its turn shows within a second or so); not after the view is gone.
+  const sendTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
+  useEffect(() => () => sendTimers.current.forEach(clearTimeout), [])
+  const afterSend = () => {
+    sendTimers.current = [300, 1500].map((ms) => setTimeout(() => void sync(), ms))
+  }
   const earlier = async () => {
     const el = scroller.current
     if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop }
@@ -199,7 +206,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
       </p>
-      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={() => [300, 1500].forEach((ms) => setTimeout(() => void sync(), ms))} openTerminal={() => app.setTab('terminal')} />
+      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={afterSend} openTerminal={() => app.setTab('terminal')} />
     </div>
   )
 }

@@ -20,9 +20,12 @@ const (
 
 // Lines in the shapes Claude Code 2.1.x writes (cut down to the fields read).
 const (
-	lMode        = `{"type":"mode","mode":"normal","sessionId":"s1"}`
-	lDoorbell    = `{"type":"user","isMeta":true,"uuid":"u1","timestamp":"2026-11-26T19:27:08.201Z","message":{"role":"user","content":"Another Claude session sent a message:\n📬 [mesh] task from lead (ref a1): run ` + "`mesh inbox`" + `\n\nThis came from another Claude session."}}`
-	lTyped       = `{"type":"user","uuid":"u2","timestamp":"2026-11-26T19:28:00.000Z","message":{"role":"user","content":"fix the typo <system-reminder>noise</system-reminder>"}}`
+	lMode     = `{"type":"mode","mode":"normal","sessionId":"s1"}`
+	lDoorbell = `{"type":"user","isMeta":true,"uuid":"u1","timestamp":"2026-11-26T19:27:08.201Z","message":{"role":"user","content":"Another Claude session sent a message:\n📬 [mesh] task from lead (ref a1): run ` + "`mesh inbox`" + `\n\nThis came from another Claude session."}}`
+	lTyped    = `{"type":"user","uuid":"u2","timestamp":"2026-11-26T19:28:00.000Z","message":{"role":"user","content":"fix the typo <system-reminder>noise</system-reminder>"}}`
+	// Injected context that only quotes the doorbell's mark (the user's CLAUDE.md does): not a doorbell, not shown.
+	lContext     = `{"type":"user","isMeta":true,"uuid":"u0","message":{"role":"user","content":"<system-reminder>A prompt starting with 📬 [mesh] means you are in a mesh</system-reminder>"}}`
+	lQuoting     = `{"type":"user","isMeta":true,"uuid":"u0b","message":{"role":"user","content":"Notes: a line starting with 📬 [mesh] is a doorbell"}}`
 	lSkill       = `{"type":"user","isMeta":true,"uuid":"u3","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x"}]}}`
 	lThinking    = `{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":"abc"}]}}`
 	lCall        = `{"type":"assistant","uuid":"a2","timestamp":"2026-11-26T19:28:05.500Z","message":{"role":"assistant","content":[{"type":"text","text":"Looking."},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"grep -rn\n  typo .","description":"find it"}}]}}`
@@ -48,7 +51,7 @@ func entries(t *testing.T, line string) []*agentmeshv1.TranscriptEntry {
 }
 
 func TestTranscriptShowsTheConversationAndNothingElse(t *testing.T) {
-	for _, skipped := range []string{lMode, lSkill, lThinking, lSidechain, lBoundary, `{not json`, ``, `{"type":"user","message":{"content":42}}`} {
+	for _, skipped := range []string{lMode, lContext, lQuoting, lSkill, lThinking, lSidechain, lBoundary, `{not json`, ``, `{"type":"user","message":{"content":42}}`} {
 		if es := entries(t, skipped); len(es) != 0 {
 			t.Errorf("%q gave %v", skipped, es)
 		}

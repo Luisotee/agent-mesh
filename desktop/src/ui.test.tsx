@@ -683,6 +683,25 @@ describe('ChatView', () => {
     expect(screen.queryByText('fix the typo')).toBeNull()
   })
 
+  it('a read of the conversation it left does not free the way for a second read of the new one', async () => {
+    const pending: Array<(r: ReturnType<typeof res>) => void> = []
+    const read = vi.fn(() => new Promise<ReturnType<typeof res>>((r) => pending.push(r)))
+    const { ui, host } = chat({ read })
+    render(ui)
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+    // The conversation changes while the first read is in flight: the new one's read starts, and is in flight too.
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, sessionId: 's2' } } })))
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+    // The old read comes back, then an event asks for another read: it waits for the one in flight.
+    await act(async () => pending[0]!(res([entry('old', TranscriptKind.USER, { text: 'stale' })])))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, stateDetail: 'a' } } })))
+    await new Promise((r) => setTimeout(r, 600))
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => pending[1]!(res(tail, { sessionId: 's2' })))
+    expect(await screen.findByText('fix the typo')).toBeInTheDocument()
+    expect(screen.queryByText('stale')).toBeNull()
+  })
+
   it('types the prompt into the agent: Enter sends, Shift+Enter adds a line, the host\'s refusal is shown', async () => {
     const { ui, promptAgent } = chat()
     render(ui)
