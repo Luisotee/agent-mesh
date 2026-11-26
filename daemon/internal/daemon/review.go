@@ -513,6 +513,9 @@ func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
 	}
 	counted := a.Round
 	limit := fmt.Sprintf("%d of at most %d for a %s PR (`review.rounds.%s`)", a.Round, max, a.Size, key)
+	if callerIsWorker(r, a) {
+		return d.workerHint(r, a, finished, max)
+	}
 	switch {
 	case finished && answered(a) == 0:
 		return fmt.Sprintf("(this round didn't count: no reviewer answered; run it again. Rounds so far: %d of at most %d for a %s PR "+
@@ -526,6 +529,31 @@ func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
 	}
 	return fmt.Sprintf("(round %s: findings that need no fix, none you agree with or only advisory ones you decline, end its reviews. "+
 		"Only a fix you ask for gets a re-review: run this round again once it's pushed. Ask one reviewer again: `mesh ask <name> --body …`)", limit)
+}
+
+// workerHint is the line under a round the PR's author asked: it judges the findings itself ("PROTOCOL.md" rule 8),
+// records its verdicts, fixes what it agrees with, and reports once; the root checks what it declined.
+func (d *Daemon) workerHint(r store.Reader, a *v1.Ask, finished bool, max int) string {
+	// What counts against the ceiling: the answered rounds (this one too, once it answered) and the single
+	// reviewers the worker asked, which a round's own number does not show.
+	used, err := workerRoundsUsed(r, a.CallerId, a.Pr, a.Id)
+	if err != nil {
+		used = int(a.Round) - 1
+	}
+	if !finished || answered(a) > 0 {
+		used++
+	}
+	limit := fmt.Sprintf("%d of at most %d for a %s PR (`review.rounds.%s`)", used, max, a.Size, sizeKey(a.Size))
+	verdict := "record `mesh verdict --pr " + a.Pr + " --reviewer <name> --agree <n> --other <n> --disagree <n> --blocking <n>` for each reviewer"
+	switch {
+	case finished && answered(a) == 0:
+		return fmt.Sprintf("(this round didn't count: no reviewer answered; run it again. Rounds so far: %s)", limit)
+	case used >= max:
+		return fmt.Sprintf("(round %s, its last: judge each finding, fix what you agree with, push, %s, and report `done` with each finding fixed or declined with your reason "+
+			"(declined ones first); no re-review: name the fix commits `git diff %s..<new head>` as not re-reviewed)", limit, verdict, short(a.Head))
+	}
+	return fmt.Sprintf("(round %s: judge each finding, fix what you agree with and push; %s. Findings that need no fix, or only advisory ones you decline, end the reviews: "+
+		"report `done` with each declined one and your reason. After a fix, run this round again: its reviewers read only the fix commits)", limit, verdict)
 }
 
 // stamp is a file name's time: UTC, with microseconds, as bin/mesh's `%Y%m%dT%H%M%S%fZ`.

@@ -7,7 +7,7 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
+ * Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.Verdict}
@@ -23,6 +23,7 @@ public  final class Verdict extends
     kind_ = "";
     model_ = "";
     tier_ = "";
+    judge_ = "";
   }
   private int bitField0_;
   public static final int REVIEWER_FIELD_NUMBER = 1;
@@ -396,6 +397,73 @@ public  final class Verdict extends
     bitField0_ = (bitField0_ & ~0x00000001);
   }
 
+  public static final int JUDGE_FIELD_NUMBER = 10;
+  private java.lang.String judge_;
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @return The judge.
+   */
+  @java.lang.Override
+  public java.lang.String getJudge() {
+    return judge_;
+  }
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @return The bytes for judge.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getJudgeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(judge_);
+  }
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @param value The judge to set.
+   */
+  private void setJudge(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    judge_ = value;
+  }
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   */
+  private void clearJudge() {
+
+    judge_ = getDefaultInstance().getJudge();
+  }
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @param value The bytes for judge to set.
+   */
+  private void setJudgeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    judge_ = value.toStringUtf8();
+
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Verdict parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -481,7 +549,7 @@ public  final class Verdict extends
 
   /**
    * <pre>
-   * Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
+   * Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.Verdict}
@@ -884,6 +952,75 @@ public  final class Verdict extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+     * </pre>
+     *
+     * <code>string judge = 10 [json_name = "judge"];</code>
+     * @return The judge.
+     */
+    @java.lang.Override
+    public java.lang.String getJudge() {
+      return instance.getJudge();
+    }
+    /**
+     * <pre>
+     * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+     * </pre>
+     *
+     * <code>string judge = 10 [json_name = "judge"];</code>
+     * @return The bytes for judge.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getJudgeBytes() {
+      return instance.getJudgeBytes();
+    }
+    /**
+     * <pre>
+     * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+     * </pre>
+     *
+     * <code>string judge = 10 [json_name = "judge"];</code>
+     * @param value The judge to set.
+     * @return This builder for chaining.
+     */
+    public Builder setJudge(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setJudge(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+     * </pre>
+     *
+     * <code>string judge = 10 [json_name = "judge"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearJudge() {
+      copyOnWrite();
+      instance.clearJudge();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+     * </pre>
+     *
+     * <code>string judge = 10 [json_name = "judge"];</code>
+     * @param value The bytes for judge to set.
+     * @return This builder for chaining.
+     */
+    public Builder setJudgeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setJudgeBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Verdict)
   }
   @java.lang.Override
@@ -910,10 +1047,11 @@ public  final class Verdict extends
             "disagree_",
             "blocking_",
             "at_",
+            "judge_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0004\u0006\u0004\u0007\u0004\b\u0004\t\u1009\u0000";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0004\u0006\u0004\u0007\u0004\b\u0004\t\u1009\u0000\n\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

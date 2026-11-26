@@ -93,4 +93,14 @@ public interface VerdictCostSummaryOrBuilder extends
    * @return The hasAgreedPct.
    */
   boolean getHasAgreedPct();
+
+  /**
+   * <pre>
+   * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+   * </pre>
+   *
+   * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+   * @return The byAuthor.
+   */
+  long getByAuthor();
 }

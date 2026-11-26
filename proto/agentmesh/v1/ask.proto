@@ -65,7 +65,7 @@ message AskMember {
   string about = 14;
 }
 
-// Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
+// Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
 message Verdict {
   string reviewer = 1;
   string kind = 2;
@@ -78,6 +78,8 @@ message Verdict {
   // Of the findings agreed with or otherwise useful, how many were blocking.
   int32 blocking = 8;
   google.protobuf.Timestamp at = 9;
+  // Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+  string judge = 10;
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.
@@ -130,6 +132,7 @@ message AskRequest {
   // fresh agent is started in `repo`.
   string agent = 2;
   // The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+  // A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
   string repo = 3 [(path) = true, (repo_name) = true];
   // The question, or the notes to the reviewers; `@file` reads it from a file.
   string body = 4;
@@ -137,6 +140,7 @@ message AskRequest {
   string review = 5;
   // trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
   string size = 6;
+  // The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`.
   string tier = 7;
   // The CLI of a fresh agent; a round chooses its own.
   string kind = 8;

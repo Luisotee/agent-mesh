@@ -155,6 +155,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -167,6 +168,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -180,6 +182,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -194,6 +197,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -205,6 +209,7 @@ public  final class AskRequest extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -421,6 +426,10 @@ public  final class AskRequest extends
   public static final int TIER_FIELD_NUMBER = 7;
   private java.lang.String tier_;
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The tier.
    */
@@ -429,6 +438,10 @@ public  final class AskRequest extends
     return tier_;
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The bytes for tier.
    */
@@ -438,6 +451,10 @@ public  final class AskRequest extends
     return com.google.protobuf.ByteString.copyFromUtf8(tier_);
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @param value The tier to set.
    */
@@ -448,6 +465,10 @@ public  final class AskRequest extends
     tier_ = value;
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    */
   private void clearTier() {
@@ -455,6 +476,10 @@ public  final class AskRequest extends
     tier_ = getDefaultInstance().getTier();
   }
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @param value The bytes for tier to set.
    */
@@ -1380,6 +1405,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1392,6 +1418,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1405,6 +1432,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1420,6 +1448,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1433,6 +1462,7 @@ public  final class AskRequest extends
     /**
      * <pre>
      * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+     * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
      * </pre>
      *
      * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -1654,6 +1684,10 @@ public  final class AskRequest extends
     }
 
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return The tier.
      */
@@ -1662,6 +1696,10 @@ public  final class AskRequest extends
       return instance.getTier();
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return The bytes for tier.
      */
@@ -1671,6 +1709,10 @@ public  final class AskRequest extends
       return instance.getTierBytes();
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @param value The tier to set.
      * @return This builder for chaining.
@@ -1682,6 +1724,10 @@ public  final class AskRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @return This builder for chaining.
      */
@@ -1691,6 +1737,10 @@ public  final class AskRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * </pre>
+     *
      * <code>string tier = 7 [json_name = "tier"];</code>
      * @param value The bytes for tier to set.
      * @return This builder for chaining.
