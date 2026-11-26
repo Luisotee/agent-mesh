@@ -24,6 +24,9 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
   function loadRun(runId: string): Promise<void> {
     const going = running.get(runId)
     if (going) return going
+    // A retry still waiting is replaced by this load, not added to.
+    clearTimeout(timers.get(runId))
+    timers.delete(runId)
     const p = (async () => {
       // A run already shown stays `loaded` while it is topped up.
       if (!complete.has(runId)) store.setState(setMessageLoad(runId, 'loading'))
@@ -40,15 +43,18 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
           if (!page.more || !last) break
           after = last.id
         }
+        // A run the host dropped (or the loader was stopped) while this ran is not recorded as loaded.
+        if (!wanted.has(runId)) return
         complete.add(runId)
         retries.delete(runId)
         store.setState(setMessageLoad(runId, 'loaded'))
       } catch (e) {
         log(`couldn't load the messages of run ${runId}: ${e instanceof Error ? e.message : String(e)}`)
+        if (!wanted.has(runId)) return
         if (!complete.has(runId)) store.setState(setMessageLoad(runId, 'failed'))
         // The Messages tab reads the history: try again, a few times, with a growing wait.
         const n = retries.get(runId) ?? 0
-        if (n < MAX_RETRIES && wanted.has(runId)) {
+        if (n < MAX_RETRIES) {
           retries.set(runId, n + 1)
           timers.set(runId, setTimeout(() => void loadRun(runId), RETRY_BASE_MS * 2 ** n))
         }
@@ -64,17 +70,11 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
     /** Load a run's messages once (a run already loaded, or on its way, is left as it is). */
     ensure(runId: string): Promise<void> {
       wanted.add(runId)
-      if (complete.has(runId)) return Promise.resolve()
-      // A retry already waiting is replaced by this load, not added to.
-      clearTimeout(timers.get(runId))
-      timers.delete(runId)
-      return loadRun(runId)
+      return complete.has(runId) ? Promise.resolve() : loadRun(runId)
     },
     /** Try again now (the Retry button), starting the back-off over. */
     retry(runId: string): Promise<void> {
       wanted.add(runId)
-      clearTimeout(timers.get(runId))
-      timers.delete(runId)
       retries.delete(runId)
       return loadRun(runId)
     },

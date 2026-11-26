@@ -131,6 +131,45 @@ describe('messageLoader', () => {
     }
   })
 
+  it('a snapshot while a retry waits loads at once and leaves one retry chain, not two', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = createHostStore()
+      const pages: Record<string, { messages: ReturnType<typeof m>[]; more: boolean }> = {}
+      const { c, calls } = client(pages)
+      const loader = messageLoader(c as never, store, () => {})
+      await loader.ensure('r1') // fails: a retry is queued
+      await loader.resync([{ id: 'r1' }]) // fails again: the queued retry is replaced
+      expect(calls).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(1000) // the first retry's time: nothing is left of it
+      expect(calls).toHaveLength(2)
+      pages['r1:'] = { messages: [m('a')], more: false }
+      await vi.advanceTimersByTimeAsync(1000) // the replacing retry (its wait doubled)
+      expect(calls).toHaveLength(3)
+      expect(store.getState().messageLoad).toEqual({ r1: 'loaded' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(calls).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a load that finishes after its run was dropped by a snapshot records nothing, and asking again starts over', async () => {
+    const store = createHostStore()
+    let release!: () => void
+    const page = { messages: [m('a')], more: false }
+    const listMessages = vi.fn().mockImplementationOnce(() => new Promise((r) => (release = () => r(page)))).mockResolvedValue(page)
+    const loader = messageLoader({ listMessages } as never, store, () => {})
+    const loading = loader.ensure('r1')
+    await loader.resync([{ id: 'r2' }]) // r1 is gone from the host
+    release()
+    await loading
+    expect(store.getState().messageLoad.r1).not.toBe('loaded')
+    await loader.ensure('r1')
+    expect(listMessages).toHaveBeenCalledTimes(2) // not trusted as complete
+    expect(store.getState().messageLoad.r1).toBe('loaded')
+  })
+
   it('stops retrying once stopped', async () => {
     vi.useFakeTimers()
     try {

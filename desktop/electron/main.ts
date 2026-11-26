@@ -26,7 +26,9 @@ const appShell = new Shell(
 )
 
 // Pairing links from outside the app (agentmesh://pair?...) wait here for the window; none is acted on without the user.
-const links = new LinkInbox(() => mainWindow?.webContents.send('links:open'))
+const links = new LinkInbox(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('links:open')
+})
 function offerLink(link: ReturnType<typeof openedLink>): void {
   if (!link) return
   links.offer(link)
@@ -153,6 +155,9 @@ function createWindow(): BrowserWindow {
     }
   })
   void win.loadFile(path.join(here, '../../dist/index.html'))
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = undefined
+  })
   mainWindow = win
   return win
 }
