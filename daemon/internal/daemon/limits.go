@@ -190,6 +190,7 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	moved := false
+	var told *v1.Message
 	err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -243,11 +244,20 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		if _, err := requestReopen(tx, a, model, effort, deny, why, "automatic: "+limitDetail(a)); err != nil {
 			return err
 		}
+		// Its parent was told it stopped at the limit; now it is told what meshd did about it.
+		note := fmt.Sprintf("%s's usage limit on %s was dealt with: it is reopened on %s (%s), in the same conversation, and carries on.",
+			a.Name, a.Model, model, why)
+		if told, err = d.noteParentTx(tx, a, "moved", note); err != nil {
+			return err
+		}
 		moved = true
 		return tx.PutAgent(a)
 	})
 	if err != nil || !moved {
 		return err
+	}
+	if told != nil && d.notify != nil {
+		d.notify(told.ToId)
 	}
 	d.deliverSoon(agentID)
 	return nil

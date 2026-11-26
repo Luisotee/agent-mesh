@@ -4,6 +4,7 @@ package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/context.proto";
+import "agentmesh/v1/pr.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -242,6 +243,7 @@ message Event {
     DoorbellFailed doorbell_failed = 32;
     DoorbellHeld doorbell_held = 33;
     WorktreeCreated worktree_created = 34;
+    PullRequestChanged pull_request_changed = 35;
   }
 }
 
