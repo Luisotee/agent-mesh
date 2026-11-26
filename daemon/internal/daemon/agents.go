@@ -719,10 +719,8 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 		env[k] = v
 	}
 	// The folder of the host's own `mesh` goes first on the agent's PATH, so a bare `mesh` is this daemon's CLI
-	// whatever else is installed (the live bin/mesh, ahead on a login shell's PATH, also hands over to it
-	// when it sees AGENT_MESH_TOKEN, and runs the CLI AGENT_MESH_CLI names).
+	// whatever else is installed.
 	if m := d.rt.cfg.Mesh; filepath.IsAbs(m) {
-		env[client.CLIEnv] = m
 		rest := env["PATH"]
 		if rest == "" {
 			rest = "/usr/local/bin:/usr/bin:/bin" // a daemon with no PATH: never leave the agent with only our folder

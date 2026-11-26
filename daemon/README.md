@@ -1,6 +1,6 @@
 # daemon
 
-The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`docs/apps.md`, "Order of work" step 1). It doesn't replace anything yet: the live mesh is still `bin/mesh`. `./install.sh --daemon` installs it beside the live mesh, opt-in (see "Installing" below); nothing else installs it or puts it on PATH.
+The Go daemon that replaces herdr and the old `bin/mesh` script, the mesh every agent on this machine runs on (`docs/apps.md`, "Order of work"). `./install.sh` builds and installs it (see "Installing" below). The `bin/mesh` era is recorded in `docs/design.md`; its design decisions still hold where `docs/apps.md` doesn't say otherwise.
 
 ## Layout
 
@@ -19,7 +19,7 @@ The Go daemon that replaces herdr and the pane-handling parts of `bin/mesh` (`do
 - `cmd/mesh-term`, `internal/termhost`: the terminal host. `internal/termclient`: the daemon's side of it (its API, terminal streams, starting it).
 - `internal/adapter`: the CLI-adapter registry; `internal/adapter/claude`: Claude Code's adapter; `internal/adapter/agy`: Antigravity CLI's (`agy`) adapter. `internal/shellmatch`: publish-command matcher for `PreToolUse`. `internal/reducer`: the pure state reducer. `internal/hook` and `cmd/mesh`: the hook command and its spool. `internal/proc`: pids checked by start time.
 - `internal/testutil/fakeclaude`, `internal/testutil/fakeagy`: the fake CLIs the tests run (turns and hooks, no network).
-- `packaging/systemd/`: the two user units for production (`install.sh --daemon` installs them).
+- `packaging/systemd/`: the two user units for production (`install.sh` installs them).
 - `share/`: the protocol and skills daemon agents follow (`protocol/`: `PROTOCOL.md` for every agent, `ORCHESTRATE.md`, `ROOT_CARD.md`, `PLAN_TEMPLATE.md`; `skills/`; `.claude-plugin/plugin.json`), see "Protocol and skills".
 - `cmd/mesh`, `internal/cli`: the CLI (`mesh`), generated from the registry at run time.
 - `e2e/`: the end-to-end test of the real binaries (`TestEndToEnd`).
@@ -40,43 +40,19 @@ cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitign
 
 ## Installing
 
-`./install.sh --daemon` (opt-in; a plain `./install.sh` never builds or starts the daemon) puts the daemon beside the live mesh, from this checkout's branch:
+`./install.sh` (safe to re-run; `--daemon` is accepted as an alias) installs the daemon from this checkout's branch:
 
-- It builds `cmd/meshd`, `cmd/mesh-term` and `cmd/mesh` into a temp folder first (a failed build changes nothing), then moves each binary into `~/.local/lib/agent-mesh/bin/` with one rename, so a running meshd or mesh-term is never broken by an upgrade. `daemon/share/` (the daemon's protocol and skills, once it exists) is copied to `~/.local/lib/agent-mesh/share/`. The installed daemon is versioned by install, not by the checked-out branch.
+- It builds `cmd/meshd`, `cmd/mesh-term` and `cmd/mesh` into a temp folder first (a failed build changes nothing, links included), then moves each binary into `~/.local/lib/agent-mesh/bin/` with one rename, so a running meshd or mesh-term is never broken by an upgrade. `daemon/share/` (the protocol and skills) is copied to `~/.local/lib/agent-mesh/share/`. The installed daemon is versioned by install, not by the checked-out branch: a branch switch here changes no agent until the next install.
 - It copies `packaging/systemd/agent-mesh.service` and `agent-mesh-term.service` into `~/.config/systemd/user/` (or `$XDG_CONFIG_HOME`), each with a drop-in `<unit>.d/path.conf` holding the `PATH` of the shell that ran the installer: a user unit's own `PATH` is short, and the agents' CLIs (`claude`, `agy`) must be found. Re-run it to refresh that `PATH` or to upgrade.
 - It runs `systemctl --user daemon-reload`, `enable agent-mesh.service` and `restart agent-mesh.service` (meshd Wants the terminal host, which stays up across a meshd restart, with its terminals). Without a user session or `systemctl` the files are installed and it says how to start meshd.
-- It links `~/.local/bin/meshctl` to the installed `mesh` (a real file there is left alone) until `bin/mesh` is retired.
-- It never touches `~/.local/bin/mesh`, `~/.config/agent-mesh`, `~/.claude` or `~/.local/state/agent-mesh`. State is `~/.local/state/agent-mesh-daemon`.
+- It links `~/.local/bin/mesh` to the installed `mesh`, `~/.config/agent-mesh` to the installed `share/protocol` (the snippet's fallback path), and each skill of `share/skills` into `~/.claude/skills` and `~/.gemini/config/skills` (the installed copy's, so agy gets them globally; Claude's come from the marketplace plugin instead when it is installed at user scope, or with `--plugin`). A real file where a link goes is left alone.
+- It writes the rules block (`rules/global-snippet.md`) into `~/.claude/CLAUDE.md` and `~/.gemini/AGENTS.md` between markers, when the CLI is on PATH.
+- It cleans up an install of the old `bin/mesh`: links into the checkout (dangling once it is pulled) are re-pointed, the retired `delegate-claude` and `delegate-agy` links, the `meshctl` link and the herdr plugin (`local.mesh-notify`) are removed, and the Copilot and OpenCode rules blocks are taken out (those CLIs have no adapter yet). `~/.local/state/agent-mesh` and `~/.config/agent-mesh.json` are left unread.
+- State is `~/.local/state/agent-mesh-daemon`.
 
-`./install.sh --daemon --uninstall` stops and disables the units and removes the units, drop-ins, binaries, `share/` and the `meshctl` link, and keeps the state. A plain `./install.sh --uninstall` leaves the daemon alone. `tests/test_install.py` runs all of it in a temp HOME with `go` and `systemctl` stubbed.
+`./install.sh --uninstall` reverses all of it (units, drop-ins, binaries, `share/`, links, blocks) and keeps both state dirs. `tests/test_install.py` runs all of it in a temp HOME with `go`, `systemctl` and `herdr` stubbed, an upgrade from the old links included.
 
-## Running a dev instance
-
-Always give it a state dir of its own: meshd has no default, so it can't land in a real one by accident. A unix socket path holds about 107 bytes, so keep the state dir path short: meshd refuses to start with a longer one.
-
-```bash
-state=$(mktemp -d)
-daemon/bin/meshd --state "$state"            # socket at $state/meshd.sock, device token at $state/device.token
-```
-
-Every call needs a token. The host's own CLI uses the device token meshd writes on first start (`device.token`, mode 0600); each agent gets its own at spawn, in `AGENT_MESH_TOKEN`. The actor of every action comes from the token, never from the request. Requests that carry a browser's `Origin` or `Sec-Fetch-Site` header are refused, and `--tcp` binds loopback only. A worker, asker, or reviewer token reads only its own run; a root may list earlier runs (`ListRuns`, `ListAgents`, `GetAgent`, `ListMessages`) and resume stopped non-root workers from them into its own open run. A token without a run is not stored.
-
-A run is one trust domain for events for now: every agent of a run receives its run's events, so a reviewer or asker sees the bodies of the `MessageSent` events between the run's other agents, though it can send only to its parent and children. `TODO.md` tracks revisiting it.
-
-## mesh (the CLI)
-
-Every action of the registry is a `mesh` command, built at run time from the compiled schemas: the command is the action's `cli` name, each request field is a flag (`snake_case` → `--kebab-case`; a bool is a switch, `--peek`; enums by short name, `--role worker`; message fields as JSON; `@file` or `@-` for text, `@@` for a literal leading `@`), `--json` gives the whole request (also before the command: `mesh --json '{…}' set`) and the other flags override it (a repeated field's first flag replaces the list the JSON gave, the next ones add to it), a `google.protobuf.Value` field takes any JSON or, when the text isn't JSON, the string it spells (`--value sonnet`, `--value 75`, `--value '["haiku","sonnet"]'`), and the response prints as JSON (a stream as one object per line), except `mesh inbox` and `mesh settings`, which print short text by default (an inbox as a header line and the body of each message, settings as `key = value`, with the default after an override) and give the whole response with `--format json`: the CLI's own view, the API is the same. Writes get a fresh mutation id unless `--mutation-id` is given. `--state` goes before or after the command; without it (and without `$AGENT_MESH_STATE`) the CLI uses `$XDG_STATE_HOME/agent-mesh-daemon` (else `~/.local/state/agent-mesh-daemon`), where the installed units keep the state, but only when `meshd.sock` is there (`meshd` itself has no default). `mesh help` lists the commands, `mesh help <command>` its flags, each with the schema's own comment on the field (generated into `gen/` by `cmd/protoc-gen-flagdocs`, a `buf generate` plugin). A command whose request has a string field `to` or `agent` takes it as its one bare argument, wherever it stands among the flags (`mesh send parent --type done --body @report.md`, `mesh approve <agent> --tier mid`); it is a convention of the schema, so an action added with such a field gets it, and giving it twice (argument and flag) is an error. Only `hook`, `statusline`, `version`, `whoami` and `dir` are written by hand: `mesh whoami` prints the caller's role, name, id, run, run folder and parent as JSON, and `mesh dir` the run's folder (`$AGENT_MESH_RUN_DIR`, or `--run <id>` for a device).
-
-```bash
-export AGENT_MESH_STATE=$state
-daemon/bin/mesh start-run --title demo
-daemon/bin/mesh spawn --run-id <run> --repo ~/projects/shop-api --slug fix-typo --task @task.md
-daemon/bin/mesh agents --run-id <run>
-daemon/bin/mesh send --to shop-api-fix-typo --type task --body "…"
-daemon/bin/mesh events --run-id <run>                 # follow; resume with --cursor '{"generation":…,"seq":…}'
-```
-
-An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go) and `AGENT_MESH_CLI` (the absolute path of this `mesh`), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI. The live `bin/mesh` hands over to `$AGENT_MESH_CLI` when it sees `AGENT_MESH_TOKEN` without `MESH_RUN` (a login shell's rc file can put `~/.local/bin` back ahead of the `PATH`), and fails rather than run the herdr mesh for an agent of the daemon's. `meshd --meshctl` is the old name of `--mesh`. Until the switchover is finished (`docs/apps.md`, "Switchover") nothing here replaces `bin/mesh`.
+An agent's own shell has `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`, so the same commands act as the agent (`mesh inbox`, `mesh send parent …`). Its environment also holds `AGENT_MESH_RUN_DIR` (the run's folder, `<state>/runs/<run>/`, made when the run starts, with `plans/`, `reports/` and `tasks/` in it: where the protocol's files go), and the folder of `meshd --mesh` is first on its `PATH` (whatever `--agent-env PATH=…` says), so a bare `mesh` in an agent is this CLI. 
 
 ## Settings
 
@@ -143,7 +119,7 @@ What `bin/mesh watch` did with exit codes (design, "The watchdog"), done by the 
 `share/` is what a daemon agent reads and the skills it can use, written for the daemon's events (a message rings at the recipient's next idle; no watch process, no exit codes, no panes) and for the commands the Go CLI has. What the CLI lacks (`reset`/`brief`, `cost`, `conflicts`, the quota reserve) the files say plainly, with the manual way; `internal/cli/share_test.go` fails when a file names a `mesh` command or flag that doesn't exist, unless its sentence says "yet". The herdr mesh's `protocol/` and `skills/` are untouched until PR 6 of the switchover.
 
 - **`--share <dir>`** (default `../share` of the `meshd` binary, which is the installed `~/.local/lib/agent-mesh/share` or, in a dev build, this folder; ignored when it has no `protocol/`). Every agent gets `$AGENT_MESH_SHARE` (the absolute path).
-- **Skills per launch:** a Claude agent is launched with `--plugin-dir <share>` when `<share>/.claude-plugin/plugin.json` exists, so the skills load for that session only (as `agent-mesh-daemon:<name>`), never into the user's own `~/.claude`. agy has no such flag: its protocol tells it to read the `SKILL.md`.
+- **Skills per launch:** a Claude agent is launched with `--plugin-dir <share>` when `<share>/.claude-plugin/plugin.json` exists, so the skills load for that session only (as `agent-mesh:<name>`), never into the user's own `~/.claude`. agy has no such flag: its protocol tells it to read the `SKILL.md`.
 - **The first doorbell of each process** (a new terminal: a spawn, a resume, a reopen, a restart of meshd) ends with `(first one here: read <share>/protocol/PROTOCOL.md once, and follow it)`; a root's names `ROOT_CARD.md`, which tells it to read `PROTOCOL.md` too. The path is absolute, since the agent's CLI doesn't expand variables in what is typed to it. Later doorbells of the same process don't repeat it. The global rules block (`rules/global-snippet.md`) says the same for agents that read it first: the file the doorbell names, else `$AGENT_MESH_SHARE/protocol/PROTOCOL.md`, else `~/.config/agent-mesh/PROTOCOL.md` (a herdr agent).
 - **Skills:** `delegate` (the user's own session starts a run and a root and stops; the root is the supervisor), `delegate-review` (a root runs the review), `self-review`, `check-plan`, `find-peers` (the user's session searches and registers peers with `mesh add-peer`) and `harvest-peers` (a root asks the peers with `mesh ask --peers`, checks their findings and reports; `HARVEST.md` holds the briefs).
 

@@ -115,7 +115,7 @@ public interface MeshServiceClientInterface {
   public suspend fun resetSetting(request: ResetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<ResetSettingResponse>
 
   /**
-   *  A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
+   *  A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
    */
   public suspend fun reportHook(request: ReportHookRequest, headers: Headers = emptyMap()): ResponseMessage<ReportHookResponse>
 

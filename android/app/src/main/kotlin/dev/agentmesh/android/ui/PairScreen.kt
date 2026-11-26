@@ -56,7 +56,7 @@ fun pairingSummary(p: PairingPayload): List<String> = buildList {
 }
 
 /**
- * Pairing: a link from `meshctl pair` or the desktop's pair screen, pasted, opened from the phone (the
+ * Pairing: a link from `mesh pair` or the desktop's pair screen, pasted, opened from the phone (the
  * `agentmesh://pair` link) or scanned from its QR code. Nothing is sent until the user has seen which host the code
  * names and taps Pair; the link's one-time token is held only in this screen's memory (never in saved state), and the
  * link is dropped from the field once the host is saved.
@@ -123,7 +123,7 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
     }) { pad ->
         if (scanning) {
             Column(Modifier.padding(pad).fillMaxSize()) {
-                Text("Point the camera at the QR code from meshctl pair.", Modifier.padding(16.dp))
+                Text("Point the camera at the QR code from mesh pair.", Modifier.padding(16.dp))
                 QrScanner(
                     onCode = { text = it; scanning = false }, onError = { cameraError = it; scanning = false },
                     modifier = Modifier.weight(1f).fillMaxWidth().testTag("scanner"),
@@ -134,7 +134,7 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
         }
         Column(Modifier.padding(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                "On the host, run meshctl pair (or open Pair a device in the desktop app). Scan its QR code, or paste the agentmesh://pair link.",
+                "On the host, run mesh pair (or open Pair a device in the desktop app). Scan its QR code, or paste the agentmesh://pair link.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(onClick = ::scan, Modifier.fillMaxWidth().testTag("scan"), enabled = !busy) { Text("Scan the QR code") }
