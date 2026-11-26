@@ -503,13 +503,12 @@ func TestAReReviewInAnotherRunStartsFreshReviewersOfTheSameKindsOnTheFixCommits(
 	}
 }
 
-func TestAReviewNeedsASizeATierAndAPRGhCanRead(t *testing.T) {
+func TestAReviewNeedsASizeAndAPRGhCanRead(t *testing.T) {
 	w := startReviews(t)
 	ctx := context.Background()
 	w.pr.push(t, "the feature")
 	for name, req := range map[string]*v1.AskRequest{
 		"no size":           {Repo: w.pr.repo, Review: "7", Tier: "mid", Reviewers: "all"},
-		"no tier":           {Repo: w.pr.repo, Review: "7", Size: "small", Reviewers: "all"},
 		"an option as PR":   {Repo: w.pr.repo, Review: "--web", Size: "small", Tier: "mid", Reviewers: "all"},
 		"since not a hash":  {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Since: "--all"},
 		"a model and round": {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Model: "opus"},
