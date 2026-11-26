@@ -323,4 +323,18 @@ public interface AskRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMcpBytes(int index);
+
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @return The relay.
+   */
+  boolean getRelay();
 }

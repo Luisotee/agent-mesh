@@ -343,4 +343,27 @@ public interface AskOrBuilder extends
    */
   com.google.protobuf.ByteString
       getContextBytes();
+
+  /**
+   * <pre>
+   * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+   * steps are not counted as rounds.
+   * </pre>
+   *
+   * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+   * @return The relayStep.
+   */
+  int getRelayStep();
+
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @return The relayOf.
+   */
+  java.lang.String getRelayOf();
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @return The bytes for relayOf.
+   */
+  com.google.protobuf.ByteString
+      getRelayOfBytes();
 }

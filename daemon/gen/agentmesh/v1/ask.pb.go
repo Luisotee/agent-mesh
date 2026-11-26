@@ -493,7 +493,11 @@ type Ask struct {
 	// The ask is still starting its members: it can't finish yet, however many have answered.
 	Starting bool `protobuf:"varint,23,opt,name=starting,proto3" json:"starting,omitempty"`
 	// What the answers file says before the question: the peers' groups' `about`.
-	Context       string `protobuf:"bytes,24,opt,name=context,proto3" json:"context,omitempty"`
+	Context string `protobuf:"bytes,24,opt,name=context,proto3" json:"context,omitempty"`
+	// A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+	// steps are not counted as rounds.
+	RelayStep     int32  `protobuf:"varint,25,opt,name=relay_step,json=relayStep,proto3" json:"relay_step,omitempty"`
+	RelayOf       string `protobuf:"bytes,26,opt,name=relay_of,json=relayOf,proto3" json:"relay_of,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -696,6 +700,20 @@ func (x *Ask) GetContext() string {
 	return ""
 }
 
+func (x *Ask) GetRelayStep() int32 {
+	if x != nil {
+		return x.RelayStep
+	}
+	return 0
+}
+
+func (x *Ask) GetRelayOf() string {
+	if x != nil {
+		return x.RelayOf
+	}
+	return ""
+}
+
 type AskRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
@@ -730,7 +748,13 @@ type AskRequest struct {
 	// Seconds a collected ask waits for its members, instead of `ask.timeout`.
 	Timeout int32 `protobuf:"varint,16,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
-	Mcp           []string `protobuf:"bytes,17,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	Mcp []string `protobuf:"bytes,17,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	// A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+	// to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+	// new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+	// review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+	// 3 steps.
+	Relay         bool `protobuf:"varint,18,opt,name=relay,proto3" json:"relay,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -882,6 +906,13 @@ func (x *AskRequest) GetMcp() []string {
 		return x.Mcp
 	}
 	return nil
+}
+
+func (x *AskRequest) GetRelay() bool {
+	if x != nil {
+		return x.Relay
+	}
+	return false
 }
 
 type AskResponse struct {
@@ -2126,7 +2157,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05other\x18\x06 \x01(\x05R\x05other\x12\x1a\n" +
 	"\bdisagree\x18\a \x01(\x05R\bdisagree\x12\x1a\n" +
 	"\bblocking\x18\b \x01(\x05R\bblocking\x12*\n" +
-	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\x90\x06\n" +
+	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"\xca\x06\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
@@ -2155,7 +2186,10 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\vfinished_at\x18\x16 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1a\n" +
 	"\bstarting\x18\x17 \x01(\bR\bstarting\x12\x18\n" +
-	"\acontext\x18\x18 \x01(\tR\acontext\"\xae\x03\n" +
+	"\acontext\x18\x18 \x01(\tR\acontext\x12\x1d\n" +
+	"\n" +
+	"relay_step\x18\x19 \x01(\x05R\trelayStep\x12\x19\n" +
+	"\brelay_of\x18\x1a \x01(\tR\arelayOf\"\xc4\x03\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
@@ -2176,7 +2210,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\n" +
 	"no_refresh\x18\x0f \x01(\bR\tnoRefresh\x12\x18\n" +
 	"\atimeout\x18\x10 \x01(\x05R\atimeout\x12\x10\n" +
-	"\x03mcp\x18\x11 \x03(\tR\x03mcp\"\xba\x01\n" +
+	"\x03mcp\x18\x11 \x03(\tR\x03mcp\x12\x14\n" +
+	"\x05relay\x18\x12 \x01(\bR\x05relay\"\xba\x01\n" +
 	"\vAskResponse\x12#\n" +
 	"\x03ask\x18\x01 \x01(\v2\x11.agentmesh.v1.AskR\x03ask\x12+\n" +
 	"\x06agents\x18\x02 \x03(\v2\x13.agentmesh.v1.AgentR\x06agents\x12\x14\n" +

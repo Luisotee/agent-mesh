@@ -34,6 +34,7 @@ public  final class Ask extends
     answersPath_ = "";
     verdicts_ = emptyProtobufList();
     context_ = "";
+    relayOf_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1347,6 +1348,94 @@ public  final class Ask extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     context_ = value.toStringUtf8();
+
+  }
+
+  public static final int RELAY_STEP_FIELD_NUMBER = 25;
+  private int relayStep_;
+  /**
+   * <pre>
+   * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+   * steps are not counted as rounds.
+   * </pre>
+   *
+   * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+   * @return The relayStep.
+   */
+  @java.lang.Override
+  public int getRelayStep() {
+    return relayStep_;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+   * steps are not counted as rounds.
+   * </pre>
+   *
+   * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+   * @param value The relayStep to set.
+   */
+  private void setRelayStep(int value) {
+    
+    relayStep_ = value;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+   * steps are not counted as rounds.
+   * </pre>
+   *
+   * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+   */
+  private void clearRelayStep() {
+
+    relayStep_ = 0;
+  }
+
+  public static final int RELAY_OF_FIELD_NUMBER = 26;
+  private java.lang.String relayOf_;
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @return The relayOf.
+   */
+  @java.lang.Override
+  public java.lang.String getRelayOf() {
+    return relayOf_;
+  }
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @return The bytes for relayOf.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRelayOfBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(relayOf_);
+  }
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @param value The relayOf to set.
+   */
+  private void setRelayOf(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    relayOf_ = value;
+  }
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   */
+  private void clearRelayOf() {
+
+    relayOf_ = getDefaultInstance().getRelayOf();
+  }
+  /**
+   * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+   * @param value The bytes for relayOf to set.
+   */
+  private void setRelayOfBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    relayOf_ = value.toStringUtf8();
 
   }
 
@@ -2827,6 +2916,98 @@ public  final class Ask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+     * steps are not counted as rounds.
+     * </pre>
+     *
+     * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+     * @return The relayStep.
+     */
+    @java.lang.Override
+    public int getRelayStep() {
+      return instance.getRelayStep();
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+     * steps are not counted as rounds.
+     * </pre>
+     *
+     * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+     * @param value The relayStep to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRelayStep(int value) {
+      copyOnWrite();
+      instance.setRelayStep(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+     * steps are not counted as rounds.
+     * </pre>
+     *
+     * <code>int32 relay_step = 25 [json_name = "relayStep"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRelayStep() {
+      copyOnWrite();
+      instance.clearRelayStep();
+      return this;
+    }
+
+    /**
+     * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+     * @return The relayOf.
+     */
+    @java.lang.Override
+    public java.lang.String getRelayOf() {
+      return instance.getRelayOf();
+    }
+    /**
+     * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+     * @return The bytes for relayOf.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getRelayOfBytes() {
+      return instance.getRelayOfBytes();
+    }
+    /**
+     * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+     * @param value The relayOf to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRelayOf(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRelayOf(value);
+      return this;
+    }
+    /**
+     * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRelayOf() {
+      copyOnWrite();
+      instance.clearRelayOf();
+      return this;
+    }
+    /**
+     * <code>string relay_of = 26 [json_name = "relayOf"];</code>
+     * @param value The bytes for relayOf to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRelayOfBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRelayOfBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Ask)
   }
   @java.lang.Override
@@ -2870,13 +3051,15 @@ public  final class Ask extends
             "finishedAt_",
             "starting_",
             "context_",
+            "relayStep_",
+            "relayOf_",
           };
           java.lang.String info =
-              "\u0000\u0018\u0000\u0001\u0001\u0018\u0018\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001a\u0000\u0001\u0001\u001a\u001a\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\f\u0006\f\u0007\u0208\b\u0004\t\u0208\n\u0208\u000b" +
               "\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u001b\u0010\u0007\u0011\u0208\u0012\u0004" +
               "\u0013\u001b\u0014\u1009\u0000\u0015\u1009\u0001\u0016\u1009\u0002\u0017\u0007\u0018" +
-              "\u0208";
+              "\u0208\u0019\u0004\u001a\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

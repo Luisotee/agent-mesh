@@ -1109,6 +1109,56 @@ public  final class AskRequest extends
     mcp_.add(value.toStringUtf8());
   }
 
+  public static final int RELAY_FIELD_NUMBER = 18;
+  private boolean relay_;
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @return The relay.
+   */
+  @java.lang.Override
+  public boolean getRelay() {
+    return relay_;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @param value The relay to set.
+   */
+  private void setRelay(boolean value) {
+    
+    relay_ = value;
+  }
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   */
+  private void clearRelay() {
+
+    relay_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.AskRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2313,6 +2363,58 @@ public  final class AskRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @return The relay.
+     */
+    @java.lang.Override
+    public boolean getRelay() {
+      return instance.getRelay();
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @param value The relay to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRelay(boolean value) {
+      copyOnWrite();
+      instance.setRelay(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+     * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+     * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+     * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+     * 3 steps.
+     * </pre>
+     *
+     * <code>bool relay = 18 [json_name = "relay"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRelay() {
+      copyOnWrite();
+      instance.clearRelay();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskRequest)
   }
   @java.lang.Override
@@ -2347,12 +2449,13 @@ public  final class AskRequest extends
             "noRefresh_",
             "timeout_",
             "mcp_",
+            "relay_",
           };
           java.lang.String info =
-              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0012\u0000\u0001\u0001\u0012\u0012\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208" +
               "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004\u0011\u021a" +
-              "";
+              "\u0012\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

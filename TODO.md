@@ -3,7 +3,6 @@
 Open work, kept short on purpose: whoever picks a task up works out the details. The reasons behind past decisions are in `docs/design.md`; the cost study's baseline, method, scripts and savings ledger are in `docs/cost-research/README.md`. If you have the peer projects registered (`mesh peers`), ask them before designing a mechanism they may have solved (see `CLAUDE.md`, "Peer projects").
 
 - [ ] Daemon, root weight (`docs/cost-research/roles-and-reviews.md`, "The root's weight"): after the inbox summaries, `mesh check` and smaller `mesh protocol` parts (done), measure root $ per worker task before an earlier root reset (lowering `root_reset.at`).
-- [ ] Daemon: a built-in relay mode for review asks on risky PRs (ORCHESTRATE, "A relay for a risky PR"): one command runs the steps (A, B, A on the fix range), passes `--since` and the "commits X..Y fixed an earlier review" note, and counts steps (at most 3), instead of the root running three separate `mesh ask`s.
 - [ ] Copilot workers, unverified live (the account had no Copilot subscription when it was built): a reopen on a named model, `write(<path>)` deny rules (to allow the report under `$(mesh dir)`), a `Stop` hook through `--plugin-dir`. (The daemon's `ReadInputBox` reads a live Copilot's box with a draft in it: `daemon/README.md`, "Live checks".)
 - [ ] `mesh cost`: count Copilot workers' calls (`session.usage_record` in their `events.jsonl`).
 - [ ] `mesh cost`: agy workers whose entries have no `size` show as `agy worker ? pane` (1,064 calls over 2026-10-28 → 11-04): record or derive their size.

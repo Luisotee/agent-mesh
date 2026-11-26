@@ -70,6 +70,9 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 		}
 		return d.askFresh(ctx, m, body)
 	}
+	if m.Relay {
+		return d.relayStep(ctx, actor, m, body)
+	}
 	if _, ok := sizes[m.Size]; !ok {
 		return nil, invalid("size %q: trivial, small or large (it picks the reviewers, the /code-review level and the rounds)", m.Size)
 	}
@@ -309,6 +312,12 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 // reviewer of each at the PR's head (or, in the same run, asks the earlier round's own again), and records
 // the ask the answers are collected by.
 func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	return d.reviewRoundOf(ctx, actor, m, body, nil)
+}
+
+// reviewRoundOf is reviewRound, or one step of a relay (relay.go) when relay is set: the step names the
+// reviewer to resume, the commit to review from and its number, and is no round of the PR's.
+func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string, relay *relayJob) (*connect.Response[v1.AskResponse], error) {
 	if len(m.Mcp) > 0 {
 		return nil, invalid("mcp is for a fresh Claude asker or single reviewer, not a round")
 	}
@@ -337,11 +346,13 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	}
 	// A re-review: the head the last round covered, or the one named.
 	since := m.Since
-	if since == "" && last != nil && last.Head != pr.Head {
+	if relay != nil {
+		last, since = relay.reuse, relay.since // a step reads what its own relay says, not the PR's rounds
+	} else if since == "" && last != nil && last.Head != pr.Head {
 		since = last.Head
 	}
 	var earlierKinds []string
-	if last != nil && last.Head != pr.Head {
+	if relay == nil && last != nil && last.Head != pr.Head {
 		for _, mem := range last.Members {
 			if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
 				earlierKinds = append(earlierKinds, mem.Kind)
@@ -373,11 +384,17 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		Head: pr.Head, Since: since, Size: m.Size, Tier: m.Tier, Body: body, Collected: true, Round: int32(len(prior) + 1),
 		AnswersPath: d.answersPath(actor.RunId, pr.Number, now), CreatedAt: timestamppb.New(now),
 		Deadline: timestamppb.New(now.Add(timeout))}
+	if relay != nil {
+		ask.Round, ask.RelayStep, ask.RelayOf = int32(relay.step), int32(relay.step), relay.of
+		if ask.RelayOf == "" {
+			ask.RelayOf = ask.Id
+		}
+	}
 	out := &v1.AskResponse{Ask: ask, Notes: notes}
 	narrow := narrowSince(ctx, top, since, pr.Head)
 	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
 	reuseFrom := last
-	if last != nil && last.Head == pr.Head {
+	if last != nil && last.Head == pr.Head && relay == nil {
 		reuseFrom = nil
 	}
 	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, func(i int) (*v1.AskMember, *v1.Agent, string) {
