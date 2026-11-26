@@ -78,6 +78,9 @@ func (d *Daemon) clearAgyLogin() {
 	d.forgetReserveAlert(agyLoginAlertKey) // the next time agy needs a login, the roots are told again
 }
 
+// agyAlertPlannedHook is a test seam (nil in production): the login alert's claim made, before its message is stored.
+var agyAlertPlannedHook func()
+
 // agyLoginAlertKey is the alert's key: one per run while the condition lasts (a day at most), however often the
 // record is renewed.
 const agyLoginAlertKey = "login-agy"
@@ -135,6 +138,9 @@ func (d *Daemon) agyLoginAlertPass(ctx context.Context) {
 		}
 		body := fmt.Sprintf("[mesh alert login agy] %s. Tell the user: agy workers can't start a turn until it is logged in. "+
 			"Nothing for you to send; the daemon looks again by itself once the login is done.", agyLoginNote)
+		if agyAlertPlannedHook != nil {
+			agyAlertPlannedHook()
+		}
 		var delivered bool
 		err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAgent(lead.Id)

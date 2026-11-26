@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -213,16 +214,61 @@ func TestTwoLoginAlertPassesAtOnceTellTheRootOnce(t *testing.T) {
 	}
 }
 
-// A pass whose message could not be stored gives its claim back, so the next pass tells the root.
+// A pass whose message was not stored (the root stopped meanwhile) gives its claim back, so the next pass tells
+// the root.
 func TestAFailedLoginAlertIsSentAtTheNextPass(t *testing.T) {
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 	d, lead := loginWorld(t, func() time.Time { return now })
 	d.noteAgyLogin()
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	d.agyLoginAlertPass(canceled) // the read or the write fails
+	setState := func(s v1.AgentState) {
+		if err := d.store.Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			a, err := tx.GetAgent(lead.Id)
+			if err != nil {
+				return err
+			}
+			a.State = s
+			return tx.PutAgent(a)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agyAlertPlannedHook = func() { setState(v1.AgentState_AGENT_STATE_EXITED) }
+	t.Cleanup(func() { agyAlertPlannedHook = nil })
+	d.agyLoginAlertPass(context.Background()) // the root is gone by the write: nothing stored
+	agyAlertPlannedHook = nil
+	setState(v1.AgentState_AGENT_STATE_IDLE)
 	d.agyLoginAlertPass(context.Background())
 	if n := loginAlerts(t, d, lead); n != 1 {
 		t.Errorf("the root was told %d times after a failed pass and a good one, want 1", n)
+	}
+}
+
+// The agy adapter's `agy models` is held by the daemon's agyHeld: while a probe's login record holds, as well as
+// while an agy on PATH has no token file.
+func TestTheAgyAdaptersModelsAreHeldWhileALoginIsRecorded(t *testing.T) {
+	agyOnPath(t, false)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	d := loginDaemon(t, func() time.Time { return now })
+	rt, err := newRuntime(AgentConfig{Env: map[string]string{"HOME": t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.rt = rt
+	d.wireProbes()
+	a, err := d.rt.adapters.Get(agy.Kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := a.(*agy.Adapter)
+	if ag.Hold() {
+		t.Fatal("held with nothing recorded")
+	}
+	d.noteAgyLogin()
+	if !ag.Hold() {
+		t.Error("`agy models` is not held while a login is recorded")
+	}
+	ag.LoginNeeded()
+	if ag.ProbeDir != d.paths.Probe() {
+		t.Errorf("ProbeDir = %q, want %q", ag.ProbeDir, d.paths.Probe())
 	}
 }
