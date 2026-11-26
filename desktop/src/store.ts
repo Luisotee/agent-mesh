@@ -22,6 +22,8 @@ export interface HostState {
   agents: Record<string, Agent>
   /** Every message seen: loaded with ListMessages, then added by events. */
   messages: Record<string, Message>
+  /** How loading a run's stored messages went (`messages.ts`): they are read when a run's Messages tab is first shown. A run not in here wasn't asked for. */
+  messageLoad: Record<string, MessageLoad>
   /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
   settings: Record<string, Setting>
   /** What the host says waits on the user (ListWaiting), kept up to date by `refresh.ts`; empty until it first answers. */
@@ -34,10 +36,13 @@ export interface HostState {
   log: LogLine[]
 }
 
+/** `loading` until the run's stored messages arrived once; `failed` when the last try did (a retry follows). */
+export type MessageLoad = 'loading' | 'loaded' | 'failed'
+
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, settings: {}, waiting: [], devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -55,7 +60,8 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
       for (const a of frame.value.agents) agents[a.id] = a
       // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
       const messages = Object.fromEntries(Object.entries(s.messages).filter(([, m]) => m.runId in runs))
-      return { ...s, synced: true, runs, agents, messages, cursor: frame.value.cursor }
+      const messageLoad = Object.fromEntries(Object.entries(s.messageLoad).filter(([id]) => id in runs))
+      return { ...s, synced: true, runs, agents, messages, messageLoad, cursor: frame.value.cursor }
     }
     case 'resumed':
       return { ...s, synced: true }
@@ -174,6 +180,15 @@ export function mergeMessages(s: HostState, page: Message[]): Partial<HostState>
   const messages = { ...s.messages }
   for (const m of page) messages[m.id] ??= m
   return { messages }
+}
+
+/** Records how loading a run's messages stands. */
+export function setMessageLoad(runId: string, state: MessageLoad | undefined): (s: HostState) => Partial<HostState> {
+  return (s) => {
+    if (s.messageLoad[runId] === state) return {}
+    const { [runId]: _old, ...rest } = s.messageLoad
+    return { messageLoad: state ? { ...rest, [runId]: state } : rest }
+  }
 }
 
 /** The host's list of paired devices, which replaces the last one. */
