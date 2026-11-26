@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -174,10 +175,97 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 	return connect.NewResponse(out), err
 }
 
+// mayCrossRunRead reports whether an actor may read runs/agents outside its own run: a device, or a root
+// with a valid run id (never an empty-run root or a worker/asker/reviewer).
+func mayCrossRunRead(actor *v1.Actor) bool {
+	if actor == nil {
+		return false
+	}
+	if !IsAgent(actor.Class) {
+		return true
+	}
+	return actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && actor.RunId != ""
+}
+
+// scopedReadRun resolves `asked` for read RPCs (ListAgents): a root defaults to its own run when empty but
+// may name another run; workers/askers/reviewers remain strictly confined to their own run.
+func scopedReadRun(actor *v1.Actor, asked string) (string, error) {
+	if mayCrossRunRead(actor) {
+		if asked == "" && actor != nil && IsAgent(actor.Class) {
+			return actor.RunId, nil
+		}
+		return asked, nil
+	}
+	return scopedRun(actor, asked)
+}
+
+// findAgentCrossRun resolves an agent reference for GetAgent / ResumeAgent: a device or root with valid run_id
+// may reach agents in other runs. For a root, it prefers its own run, then closed runs, then other open runs;
+// for a device, open runs then closed runs. Workers/askers/reviewers remain strictly confined to FindAgent.
+func (d *Daemon) findAgentCrossRun(r store.Reader, actor *v1.Actor, ref string) (*v1.Agent, error) {
+	if !mayCrossRunRead(actor) {
+		return d.FindAgent(r, actor, ref)
+	}
+	if ref == "" {
+		return nil, invalid("no agent given")
+	}
+	a, err := r.GetAgent(ref)
+	if err == nil {
+		return a, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	var found []*v1.Agent
+	if actor != nil && IsAgent(actor.Class) && actor.RunId != "" {
+		found, err = r.AgentsNamed(actor.RunId, ref)
+		if err != nil {
+			return nil, err
+		}
+		if len(found) == 0 {
+			found, err = r.AgentsNamedClosed(ref)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(found) == 0 {
+			found, err = r.AgentsNamed("", ref)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		found, err = r.AgentsNamed("", ref)
+		if err != nil {
+			return nil, err
+		}
+		if len(found) == 0 {
+			found, err = r.AgentsNamedClosed(ref)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	switch len(found) {
+	case 0:
+		return nil, notFound("no agent %q", ref)
+	case 1:
+		return found[0], nil
+	}
+	names := make([]string, len(found))
+	for i, x := range found {
+		names[i] = x.Id + " (run " + x.RunId + ")"
+	}
+	return nil, connect.NewError(connect.CodeFailedPrecondition,
+		fmt.Errorf("%q names several agents: %s; give an id", ref, strings.Join(names, ", ")))
+}
+
 // ListRuns lists runs.
 func (d *Daemon) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
 	r := d.store.Read(ctx)
-	if own := runScope(auth.ActorFrom(ctx)); own != "" {
+	actor := auth.ActorFrom(ctx)
+	if !mayCrossRunRead(actor) {
+		own := runScope(actor)
 		run, err := r.GetRun(own)
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, notFound("no run %s", own)
@@ -193,7 +281,7 @@ func (d *Daemon) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsR
 
 // ListAgents lists agents with their derived state.
 func (d *Daemon) ListAgents(ctx context.Context, req *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
-	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	runID, err := scopedReadRun(auth.ActorFrom(ctx), req.Msg.RunId)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +297,7 @@ func (d *Daemon) ListAgents(ctx context.Context, req *connect.Request[v1.ListAge
 
 // GetAgent shows one agent.
 func (d *Daemon) GetAgent(ctx context.Context, req *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error) {
-	a, err := d.FindAgent(d.store.Read(ctx), auth.ActorFrom(ctx), req.Msg.Agent)
+	a, err := d.findAgentCrossRun(d.store.Read(ctx), auth.ActorFrom(ctx), req.Msg.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +313,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
 	// both need its conversation id, found before the write (learnSession).
 	actor := auth.ActorFrom(ctx)
+	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "" && req.Msg.To != "parent" {
+		r := d.store.Read(ctx)
+		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+			d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+		}
+	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
 		if stopped(to) {
 			return resumes(req.Msg.Type)
@@ -236,6 +330,44 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		_, _, deny := target(to)
 		return deny && !adapter.ReadOnly(to.Role)
 	})
+	var prepCandID string
+	var prepTarget *v1.Agent
+	var prep *preparedWorktree
+	var prepErr error
+	var prepLock *sync.Mutex
+	var resumedID string
+	if req.Msg.To != "" && req.Msg.To != "parent" && resumes(req.Msg.Type) {
+		r := d.store.Read(ctx)
+		if cand, cerr := d.FindAgent(r, actor, req.Msg.To); cerr == nil && stopped(cand) &&
+			!adapter.ReadOnly(cand.Role) && cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
+			cand.Worktree != "" && cand.Repo != "" &&
+			(!IsAgent(actor.Class) || cand.ParentId == actor.Id) {
+			mu := d.worktreeLock(cand.Worktree)
+			mu.Lock()
+			r2 := d.store.Read(ctx)
+			if cur, cerr := d.FindAgent(r2, actor, cand.Id); cerr == nil && stopped(cur) && cur.SessionId != "" {
+				if run, rerr := r2.GetRun(cur.RunId); rerr == nil && run.Status == v1.RunStatus_RUN_STATUS_OPEN {
+					okReserve := true
+					if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && cur.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+						model, effort, _ := target(cur)
+						okReserve = d.reserveCheck(r2, cur.RunId, cur.Kind, model, effort, "") == nil
+					}
+					if okReserve &&
+						d.hasProcessOnSessionOrWorktree(r2, cur) == nil &&
+						d.capGuard(r2, "resuming "+cur.Name, cur.Id) == nil &&
+						d.checkMemoryGuard(r2, "resuming "+cur.Name) == nil {
+						prepCandID = cur.Id
+						if p, perr := d.prepareWorktreeForTask(ctx, cur, cur.RunId, req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK); perr != nil {
+							prepErr = perr
+						} else {
+							prepTarget, prep = cur, p
+						}
+					}
+				}
+			}
+			prepLock = mu
+		}
+	}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
 		var to *v1.Agent
@@ -289,6 +421,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				}
 			}
 		}
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+			model, effort, _ := target(to)
+			if err := d.reserveCheck(t.Reader, to.RunId, to.Kind, model, effort, "sending a task to "+to.Name); err != nil {
+				return err
+			}
+		}
 		// A task marked direct ends the plan phase of the agent it is for and lifts its planning deny list (by a
 		// reopen, since a running process can't change it), as bin/mesh's `cmd_send` does for a `Direct task`; a
 		// planned follow-up leaves a planner planning. From a device as from the agent's parent. A stopped agent
@@ -301,8 +439,46 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return err
 			}
 		}
+		msgBody := req.Msg.Body
+		willPrep := stopped(to) && resumes(req.Msg.Type) && prep != nil && prepTarget != nil && to.Id == prepTarget.Id
+		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
+		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task
+		// marked direct is direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase;
+		// any other comes back as it was (a planner still planning), as `send` leaves a live one.
+		if stopped(to) && resumes(req.Msg.Type) {
+			if prepErr != nil && to.Id == prepCandID {
+				out.ResumeError = fmt.Sprintf("preparing worktree for %s: %v", to.Name, prepErr)
+			} else {
+				spec := reviveSpec{task: direct}
+				// The guards answer before anything is written: a refusal keeps the message and says why the agent
+				// stayed stopped (a report to a retired parent must not be lost to the host's cap).
+				switch rv, err := d.revive(t, to, spec); {
+				case connect.CodeOf(err) == connect.CodeResourceExhausted || connect.CodeOf(err) == connect.CodeFailedPrecondition:
+					out.ResumeError = err.Error()
+					var ce *connect.Error
+					if errors.As(err, &ce) {
+						out.ResumeError = ce.Message()
+					}
+				case err != nil:
+					return err
+				default:
+					out.Resumed = rv
+					resumedID = to.Id
+					if willPrep && prep.taskNote != "" {
+						msgBody += "\n\n" + prep.taskNote
+					}
+					if willPrep && prep.newBranch != "" {
+						to.Branch = prep.newBranch
+						to.BaseCommit = prep.newBaseCommit
+					}
+					if err := t.PutAgent(to); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
-			Type: req.Msg.Type, Body: req.Msg.Body, CreatedAt: tsOf(t.Now())}
+			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_WAIT {
 			// Not a report: it asks nothing of its parent, who reads it in the inbox, and rings no doorbell
 			// (PROTOCOL.md, design "A declared wait"). Marked delivered so the doorbell loop never takes it.
@@ -316,35 +492,19 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
-		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
-		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task
-		// marked direct is direct, as one sent to a live agent is and as `resume --task` is: it ends a plan phase;
-		// any other comes back as it was (a planner still planning), as `send` leaves a live one.
-		if stopped(to) && resumes(req.Msg.Type) {
-			spec := reviveSpec{task: direct}
-			// The guards answer before anything is written: a refusal keeps the message and says why the agent
-			// stayed stopped (a report to a retired parent must not be lost to the host's cap).
-			switch rv, err := d.revive(t, to, spec); {
-			case connect.CodeOf(err) == connect.CodeResourceExhausted || connect.CodeOf(err) == connect.CodeFailedPrecondition:
-				out.ResumeError = err.Error()
-				var ce *connect.Error
-				if errors.As(err, &ce) {
-					out.ResumeError = ce.Message()
-				}
-			case err != nil:
-				return err
-			default:
-				out.Resumed = rv
-				if err := t.PutAgent(to); err != nil {
-					return err
-				}
-			}
-		}
 		return nil
 	})
+	if err != nil || out.ResumeError != "" {
+		if prep != nil && prepTarget != nil {
+			prep.rollback(ctx, prepTarget.Repo, prepTarget.Worktree)
+		}
+	}
+	if prepLock != nil {
+		prepLock.Unlock()
+	}
 	if err != nil {
-		if out.Resumed != nil {
-			d.rt.guard.release(out.Message.GetToId()) // the write failed after the guard passed: nothing was requested
+		if out.Resumed != nil && resumedID != "" {
+			d.rt.guard.release(resumedID) // the write failed after the guard passed: nothing was requested
 		}
 		return nil, err
 	}
@@ -362,7 +522,11 @@ const (
 
 // ListMessages returns a run's stored messages, oldest first, a page at a time.
 func (d *Daemon) ListMessages(ctx context.Context, req *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
-	if req.Msg.RunId == "" {
+	runID, err := scopedReadRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	if runID == "" {
 		return nil, invalid("no run given")
 	}
 	limit := int(req.Msg.Limit)
@@ -375,15 +539,15 @@ func (d *Daemon) ListMessages(ctx context.Context, req *connect.Request[v1.ListM
 		limit = maxMessagePage
 	}
 	r := d.store.Read(ctx)
-	if _, err := r.GetRun(req.Msg.RunId); errors.Is(err, store.ErrNotFound) {
-		return nil, notFound("no run %s", req.Msg.RunId)
+	if _, err := r.GetRun(runID); errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no run %s", runID)
 	} else if err != nil {
 		return nil, err
 	}
 	// One more than asked tells whether another page follows.
-	msgs, err := r.RunMessages(req.Msg.RunId, req.Msg.AfterId, limit+1)
+	msgs, err := r.RunMessages(runID, req.Msg.AfterId, limit+1)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, notFound("no message %s in run %s", req.Msg.AfterId, req.Msg.RunId)
+		return nil, notFound("no message %s in run %s", req.Msg.AfterId, runID)
 	}
 	if err != nil {
 		return nil, err

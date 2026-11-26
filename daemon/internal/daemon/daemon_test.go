@@ -599,9 +599,15 @@ func TestListMessagesPagesAThrough(t *testing.T) {
 	if _, err := list(&v1.ListMessagesRequest{RunId: run.Id, Limit: -1}); code(err) != connect.CodeInvalidArgument {
 		t.Errorf("negative limit: %v", err)
 	}
-	// An agent reads its own mailbox, not the run's messages.
-	if _, err := h.as(root).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run.Id})); code(err) != connect.CodePermissionDenied {
-		t.Errorf("an agent listing messages: %v", err)
+	// A root reads messages of any run (for cross-run follow-ups), while a worker cannot read run messages.
+	if res, err := h.as(root).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run.Id})); err != nil || len(res.Msg.Messages) != 3 {
+		t.Errorf("root listing own run messages: %v, %v", res, err)
+	}
+	if res, err := h.as(root).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: other.Id})); err != nil || len(res.Msg.Messages) != 1 {
+		t.Errorf("root listing earlier run messages: %v, %v", res, err)
+	}
+	if _, err := h.as(w1).ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run.Id})); code(err) != connect.CodePermissionDenied {
+		t.Errorf("a worker listing messages: %v", err)
 	}
 }
 

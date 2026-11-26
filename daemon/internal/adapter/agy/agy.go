@@ -140,6 +140,109 @@ func listingIDs(listing string) []string {
 	return ids
 }
 
+// ListingNames maps model id -> display name from `agy models` output.
+func ListingNames(listing string) map[string]string {
+	names := map[string]string{}
+	for _, line := range strings.Split(listing, "\n") {
+		id, display, hasTab := strings.Cut(line, "\t")
+		id = strings.TrimSpace(id)
+		if id != "" && hasTab {
+			names[id] = strings.TrimSpace(display)
+		}
+	}
+	return names
+}
+
+// UsageRow is one quota row parsed from `agy -p /usage`.
+type UsageRow struct {
+	Group  string
+	Label  string
+	Left   int
+	Resets string
+}
+
+var percentRE = regexp.MustCompile(`^(\d+)%$`)
+
+// ParseUsage parses tab-separated rows of `agy -p /usage`: group, label, percent left, reset time.
+func ParseUsage(text string) []UsageRow {
+	var rows []UsageRow
+	for _, line := range strings.Split(text, "\n") {
+		parts := strings.Split(line, "\t")
+		if len(parts) < 4 {
+			continue
+		}
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		m := percentRE.FindStringSubmatch(parts[2])
+		if m == nil {
+			continue
+		}
+		left, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		rows = append(rows, UsageRow{Group: parts[0], Label: parts[1], Left: left, Resets: parts[3]})
+	}
+	return rows
+}
+
+// QuotaApplies reports whether an `agy -p /usage` group covers `modelID` (display name `display`).
+func QuotaApplies(group, modelID, display string) bool {
+	gl := strings.ToLower(group)
+	if strings.HasSuffix(gl, " models") {
+		prefix := strings.TrimSuffix(gl, " models")
+		for _, v := range strings.Split(prefix, " and ") {
+			v = strings.TrimSpace(v)
+			if v != "" && strings.HasPrefix(strings.ToLower(modelID), v+"-") {
+				return true
+			}
+		}
+		return false
+	}
+	return display != "" && strings.HasPrefix(strings.ToLower(display), gl)
+}
+
+// ModelQuota returns the tightest quota row covering `modelID` / `display`.
+func ModelQuota(modelID, display string, rows []UsageRow) (UsageRow, bool) {
+	var best UsageRow
+	found := false
+	for _, r := range rows {
+		if !QuotaApplies(r.Group, modelID, display) {
+			continue
+		}
+		if !found || r.Left < best.Left {
+			best = r
+			found = true
+		}
+	}
+	return best, found
+}
+
+// ResolveForUsage resolves a model family or exact id at `effort` and returns the resolved model id and its
+// display name from `agy models` (using the adapter's cached models listing).
+func (a *Adapter) ResolveForUsage(ctx context.Context, bin, model, effort string, env map[string]string) (string, string, error) {
+	if bin == "" {
+		bin = "agy"
+	}
+	if effort == "" {
+		effort = namedEffort
+	}
+	resolved := model
+	if _, ok := parseAgyID(model); !ok {
+		var err error
+		resolved, err = a.resolveModel(ctx, bin, model, effort, env)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	listing, err := a.listModels(ctx, bin, env)
+	if err != nil {
+		return resolved, "", nil
+	}
+	return resolved, ListingNames(listing)[resolved], nil
+}
+
 // PickModel picks the newest model ID matching family and effort from `agy models` output, or returns family
 // directly if it is already an exact listed ID.
 func PickModel(listing, family, effort string) (string, error) {

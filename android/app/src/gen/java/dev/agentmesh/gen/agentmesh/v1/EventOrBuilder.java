@@ -289,5 +289,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.RunStopped getRunStopped();
 
+  /**
+   * <code>.agentmesh.v1.ReserveChanged reserve_changed = 27 [json_name = "reserveChanged"];</code>
+   * @return Whether the reserveChanged field is set.
+   */
+  boolean hasReserveChanged();
+  /**
+   * <code>.agentmesh.v1.ReserveChanged reserve_changed = 27 [json_name = "reserveChanged"];</code>
+   * @return The reserveChanged.
+   */
+  dev.agentmesh.gen.agentmesh.v1.ReserveChanged getReserveChanged();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

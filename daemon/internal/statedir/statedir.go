@@ -21,6 +21,12 @@ func (p Paths) DaemonID() string    { return filepath.Join(p.Dir, "daemon.id") }
 func (p Paths) TLSCert() string     { return filepath.Join(p.Dir, "tls.crt") }
 func (p Paths) TLSKey() string      { return filepath.Join(p.Dir, "tls.key") }
 func (p Paths) HookLog() string     { return filepath.Join(p.Dir, "hook.log") }
+func (p Paths) ClaudeUsage() string { return filepath.Join(p.Dir, "claude-usage.json") }
+func (p Paths) ClaudeUsageFailed() string {
+	return filepath.Join(p.Dir, "claude-usage.failed")
+}
+func (p Paths) AgyUsage() string       { return filepath.Join(p.Dir, "agy-usage.txt") }
+func (p Paths) AgyUsageFailed() string { return filepath.Join(p.Dir, "agy-usage.failed") }
 
 // Term is the terminal host's dir.
 func (p Paths) Term() string { return filepath.Join(p.Dir, "term") }

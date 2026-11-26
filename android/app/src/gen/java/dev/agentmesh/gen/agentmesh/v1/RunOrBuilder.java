@@ -74,4 +74,14 @@ public interface RunOrBuilder extends
    * @return The createdBy.
    */
   dev.agentmesh.gen.agentmesh.v1.Actor getCreatedBy();
+
+  /**
+   * <pre>
+   * True when the user let this run go on past the quota reserve (`mesh reserve off`).
+   * </pre>
+   *
+   * <code>bool over_reserve = 6 [json_name = "overReserve"];</code>
+   * @return The overReserve.
+   */
+  boolean getOverReserve();
 }

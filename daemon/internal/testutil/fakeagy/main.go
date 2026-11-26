@@ -71,6 +71,17 @@ func main() {
 			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n")
 		return
 	}
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-p" && args[i+1] == "/usage" {
+			if p := os.Getenv("FAKEAGY_USAGE_FILE"); p != "" {
+				b, _ := os.ReadFile(p)
+				fmt.Print(string(b))
+			} else {
+				fmt.Print(os.Getenv("FAKEAGY_USAGE"))
+			}
+			return
+		}
+	}
 	if log := os.Getenv("FAKEAGY_ARGV_LOG"); log != "" {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			line, _ := json.Marshal(args)

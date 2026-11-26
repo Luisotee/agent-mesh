@@ -430,6 +430,25 @@ func (r Reader) AgentsNamed(runID, name string) ([]*v1.Agent, error) {
 		func() *v1.Agent { return &v1.Agent{} })
 }
 
+// AgentsNamedAll returns every agent with this name across all runs (open and closed), newest first.
+func (r Reader) AgentsNamedAll(name string) ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT data FROM agents WHERE name = ? ORDER BY created_at DESC, id DESC`, []any{name},
+		func() *v1.Agent { return &v1.Agent{} })
+}
+
+// AgentsNamedClosed returns every agent with this name in closed runs, newest first.
+func (r Reader) AgentsNamedClosed(name string) ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT a.data FROM agents a JOIN runs r ON r.id = a.run_id
+		WHERE a.name = ? AND r.status = ? ORDER BY a.created_at DESC, a.id DESC`,
+		[]any{name, int32(v1.RunStatus_RUN_STATUS_CLOSED)}, func() *v1.Agent { return &v1.Agent{} })
+}
+
+// AllAgents returns every agent across all runs (open and closed), oldest first.
+func (r Reader) AllAgents() ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT data FROM agents ORDER BY created_at, id`, nil,
+		func() *v1.Agent { return &v1.Agent{} })
+}
+
 // ListAgents returns a run's agents, or every open run's when runID is empty, oldest first.
 func (r Reader) ListAgents(runID string) ([]*v1.Agent, error) {
 	if runID != "" {
@@ -923,6 +942,77 @@ func (t *Tx) PutSetting(key, valueJSON string) error {
 func (t *Tx) DeleteSetting(key string) error {
 	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM settings WHERE key = ?`, key)
 	return err
+}
+
+// ── model limits ──
+
+// ModelLimit is one held model (or "*" for every model of a kind) until a reset time.
+type ModelLimit struct {
+	Kind      string
+	Model     string
+	Until     time.Time
+	UpdatedAt time.Time
+}
+
+// PutModelLimit records or extends a usage-limit hold for (kind, model) until `until`.
+func (t *Tx) PutModelLimit(kind, model string, until time.Time) error {
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO model_limits (kind, model, until, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (kind, model) DO UPDATE SET
+			until = CASE WHEN excluded.until > model_limits.until THEN excluded.until ELSE model_limits.until END,
+			updated_at = excluded.updated_at`,
+		kind, model, nanos(until), nanos(t.now))
+	return err
+}
+
+// ModelHold returns the latest active hold end (zero if none is after `now`) for (kind, model) counting a
+// kind-wide "*" hold, and whether any hold record (active or expired) exists for either key.
+func (r Reader) ModelHold(kind, model string, now time.Time) (until time.Time, known bool, err error) {
+	rows, err := r.q.QueryContext(r.ctx, `SELECT until FROM model_limits WHERE kind = ? AND model IN (?, '*')`,
+		kind, model)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u int64
+		if err := rows.Scan(&u); err != nil {
+			return time.Time{}, false, err
+		}
+		known = true
+		t := time.Unix(0, u)
+		if t.After(now) && t.After(until) {
+			until = t
+		}
+	}
+	return until, known, rows.Err()
+}
+
+// ModelLimits returns all recorded holds for kind (or every kind when empty).
+func (r Reader) ModelLimits(kind string) ([]ModelLimit, error) {
+	query := `SELECT kind, model, until, updated_at FROM model_limits ORDER BY kind, model`
+	var args []any
+	if kind != "" {
+		query = `SELECT kind, model, until, updated_at FROM model_limits WHERE kind = ? ORDER BY model`
+		args = []any{kind}
+	}
+	rows, err := r.q.QueryContext(r.ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ModelLimit
+	for rows.Next() {
+		var l ModelLimit
+		var u, upd int64
+		if err := rows.Scan(&l.Kind, &l.Model, &u, &upd); err != nil {
+			return nil, err
+		}
+		l.Until = time.Unix(0, u)
+		l.UpdatedAt = time.Unix(0, upd)
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }
 
 // Exec runs a statement in the transaction; for tests and one-off fixes.
