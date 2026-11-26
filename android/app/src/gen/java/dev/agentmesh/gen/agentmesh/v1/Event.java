@@ -48,6 +48,7 @@ public  final class Event extends
     AGENT_RETIRED(23),
     RUN_STOPPED(24),
     RESERVE_CHANGED(27),
+    AGENT_ROLE_CHANGED(28),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -81,6 +82,7 @@ public  final class Event extends
         case 23: return AGENT_RETIRED;
         case 24: return RUN_STOPPED;
         case 27: return RESERVE_CHANGED;
+        case 28: return AGENT_ROLE_CHANGED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1345,6 +1347,56 @@ public  final class Event extends
    */
   private void clearReserveChanged() {
     if (payloadCase_ == 27) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_ROLE_CHANGED_FIELD_NUMBER = 28;
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentRoleChanged() {
+    return payloadCase_ == 28;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged getAgentRoleChanged() {
+    if (payloadCase_ == 28) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+   */
+  private void setAgentRoleChanged(dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 28;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+   */
+  private void mergeAgentRoleChanged(dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 28 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 28;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+   */
+  private void clearAgentRoleChanged() {
+    if (payloadCase_ == 28) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -2690,6 +2742,54 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentRoleChanged() {
+      return instance.hasAgentRoleChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged getAgentRoleChanged() {
+      return instance.getAgentRoleChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    public Builder setAgentRoleChanged(dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged value) {
+      copyOnWrite();
+      instance.setAgentRoleChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    public Builder setAgentRoleChanged(
+        dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentRoleChanged(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    public Builder mergeAgentRoleChanged(dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged value) {
+      copyOnWrite();
+      instance.mergeAgentRoleChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 28 [json_name = "agentRoleChanged"];</code>
+     */
+    public Builder clearAgentRoleChanged() {
+      copyOnWrite();
+      instance.clearAgentRoleChanged();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -2734,13 +2834,14 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.DevicePaired.class,
             dev.agentmesh.gen.agentmesh.v1.DeviceRevoked.class,
             dev.agentmesh.gen.agentmesh.v1.ReserveChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.class,
           };
           java.lang.String info =
-              "\u0000\u0019\u0001\u0001\u0001\u001b\u0019\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
+              "\u0000\u001a\u0001\u0001\u0001\u001c\u001a\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
               "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000" +
               "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000" +
               "\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018" +
-              "<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000";
+              "<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

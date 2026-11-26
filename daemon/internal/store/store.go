@@ -607,6 +607,14 @@ func (t *Tx) RevokeTokens(subjectID string) error {
 	return err
 }
 
+// SetTokenClass changes the class of every live token of a subject: the class is read from the row on every
+// call, so a running agent's role change applies to its process at once.
+func (t *Tx) SetTokenClass(subjectID string, class v1.ActorClass) error {
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE tokens SET class = ? WHERE subject_id = ? AND revoked_at IS NULL`,
+		int32(class), subjectID)
+	return err
+}
+
 // TokenKnown reports whether a hash is stored at all, revoked or not.
 func (r Reader) TokenKnown(hash string) (bool, error) {
 	var n int

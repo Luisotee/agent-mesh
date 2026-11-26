@@ -178,6 +178,64 @@ var directStartRe = regexp.MustCompile(`^Direct task(?:\s*\(no plan\)|:|\.(?:\s|
 
 func isDirectTask(body string) bool { return directStartRe.MatchString(strings.TrimSpace(body)) }
 
+// readOnlyStartRe is how a read-only task begins (bin/mesh's ASK_PREFIX and REVIEW_PREFIX): PROTOCOL.md rule 6.
+var readOnlyStartRe = regexp.MustCompile(`^(?:Question|Review) \(read-only\)`)
+
+func isReadOnlyTask(body string) bool { return readOnlyStartRe.MatchString(strings.TrimSpace(body)) }
+
+// becomesWorker reports whether a task with this body, sent to this agent, gives an asker or reviewer a change
+// to make: any task that is not a read-only one, unless a worker started the agent. A worker never gets a change
+// worker (mayStart), so a plain task to its asker stays a read-only follow-up, as it was before roles changed.
+func (d *Daemon) becomesWorker(r store.Reader, a *v1.Agent, body string) bool {
+	if !adapter.ReadOnly(a.Role) || isReadOnlyTask(body) {
+		return false
+	}
+	parent := v1.ActorClass_ACTOR_CLASS_DEVICE // started by a device: no parent agent
+	if a.ParentId != "" {
+		p, err := d.getAgent(r, a.ParentId)
+		if err != nil {
+			return false
+		}
+		parent = ClassOf(p.Role)
+	}
+	return mayStart(parent, v1.AgentRole_AGENT_ROLE_WORKER)
+}
+
+// takeChange turns an asker or reviewer that was given a change task into a worker, in the same conversation
+// (bin/mesh does the same: the role is the agent's, not its start): its role and its live tokens' class change,
+// and a planned task puts it in the plan phase, still under the planning deny list its read-only start gave it
+// (approve then reopens it without, on the execution tier; a direct task lifts it through directTask or
+// revive). It stores the agent. A task that is read-only, one sent to any other role, and one to an agent a
+// worker started change nothing. On a stopped agent whose resume is then refused, the conversion stays with the
+// stored task: the next resume brings it back as the worker the task is for.
+func (d *Daemon) takeChange(tx *store.Tx, a *v1.Agent, body string, planned bool) error {
+	if !d.becomesWorker(tx.Reader, a, body) {
+		return nil
+	}
+	from := a.Role
+	why := "change task"
+	if planned {
+		why = "planned change task"
+	}
+	a.Role = v1.AgentRole_AGENT_ROLE_WORKER
+	a.DenyEdits = true // it was launched under the read-only list: until it is lifted, the list is its own
+	if err := tx.SetTokenClass(a.Id, ClassOf(a.Role)); err != nil {
+		return err
+	}
+	if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentRoleChanged{
+		AgentRoleChanged: &v1.AgentRoleChanged{From: from, To: a.Role, Why: why}}}); err != nil {
+		return err
+	}
+	if planned {
+		a.Pinned = false // a named model covers the whole task, but a plan phase now exists to approve into a tier
+		endExecution(a)
+		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, why); err != nil {
+			return err
+		}
+	}
+	return tx.PutAgent(a)
+}
+
 // directTask applies a direct task sent to an agent outside resume: the plan phase it was in ends, and the
 // planning deny list goes unless the role is read-only. A running process can't change its deny list, so that
 // is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
@@ -708,7 +766,22 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			mu.Lock()
 			defer mu.Unlock()
 		}
-		prep, perr := d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
+		// An asker or reviewer that this task makes a worker (takeChange, or the cross-run follow-up below) is
+		// prepared as one: its worktree recreated if StopRun removed it, moved off a finished PR's branch.
+		probe := a0
+		if targetRunID != a0.RunId {
+			probe = proto.Clone(a0).(*v1.Agent) // the follow-up's parent is whoever resumes it
+			probe.ParentId = ""
+			if IsAgent(actor.Class) {
+				probe.ParentId = actor.Id
+			}
+		}
+		asWorker := a0
+		if task != "" && d.becomesWorker(r1, probe, task) {
+			asWorker = proto.Clone(a0).(*v1.Agent)
+			asWorker.Role = v1.AgentRole_AGENT_ROLE_WORKER
+		}
+		prep, perr := d.prepareWorktreeForTask(ctx, asWorker, targetRunID, task != "")
 		if perr != nil {
 			return failedPrecondition("preparing worktree for %s: %v", a0.Name, perr)
 		}
@@ -743,6 +816,12 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			out.LeftPr = prep.leftPR
 
 			if targetRunID == a.RunId {
+				// A change task makes an asker or reviewer the worker for it, before it is revived (takeChange).
+				if task != "" {
+					if err := d.takeChange(tx, a, task, m.Plan); err != nil {
+						return err
+					}
+				}
 				if prep.newBranch != "" {
 					a.Branch = prep.newBranch
 					a.BaseCommit = prep.newBaseCommit
@@ -799,6 +878,11 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				LastActivity:       now,
 				ResumedFromRunId:   a.RunId,
 				ResumedFromAgentId: a.Id,
+			}
+			// The follow-up of an asker or reviewer given a change task is a worker from its start (reviveAs then
+			// lifts or keeps its list as the task says).
+			if task != "" && d.becomesWorker(tx.Reader, created, task) {
+				created.Role = v1.AgentRole_AGENT_ROLE_WORKER
 			}
 			out.Agent = created
 			if err := d.mayLaunch(tx.Reader, "resuming "+created.Name, created.Id); err != nil {

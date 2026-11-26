@@ -210,6 +210,7 @@ message Event {
     AgentRetired agent_retired = 23;
     RunStopped run_stopped = 24;
     ReserveChanged reserve_changed = 27;
+    AgentRoleChanged agent_role_changed = 28;
   }
 }
 
@@ -285,6 +286,15 @@ message AgentPhaseChanged {
   AgentPhase from = 1;
   AgentPhase to = 2;
   // "planned task", "plan sent", "plan approved", "direct task".
+  string why = 3;
+}
+
+// An asker or reviewer was given a change to make and became a worker, in the same conversation. Its live
+// tokens now carry the worker's class.
+message AgentRoleChanged {
+  AgentRole from = 1;
+  AgentRole to = 2;
+  // "change task", "planned change task".
   string why = 3;
 }
 

@@ -31,6 +31,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.AgentExited.reason":                       "\"exited\", \"killed\", or \"lost\" (its terminal was gone when the daemon looked).",
 	"agentmesh.v1.AgentPhaseChanged.why":                    "\"planned task\", \"plan sent\", \"plan approved\", \"direct task\".",
 	"agentmesh.v1.AgentRetired.reason":                      "\"requested\", \"idle after its report\", \"run stopped\".",
+	"agentmesh.v1.AgentRoleChanged.why":                     "\"change task\", \"planned change task\".",
 	"agentmesh.v1.AgyTierPick.left":                         "Percent left of the picked model's tightest quota, when has_left is true.",
 	"agentmesh.v1.ApproveAgentRequest.body":                 "Added to the \"approved\" answer.",
 	"agentmesh.v1.ApproveAgentRequest.keep_model":           "Execute on the planning model; only the deny list is lifted (still a reopen, for a Claude planner).",

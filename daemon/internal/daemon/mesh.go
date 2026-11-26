@@ -328,7 +328,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return false
 		}
 		_, _, deny := target(to)
-		return deny && !adapter.ReadOnly(to.Role)
+		return deny && (!adapter.ReadOnly(to.Role) || d.becomesWorker(d.store.Read(ctx), to, req.Msg.Body))
 	})
 	var prepCandID string
 	var prepTarget *v1.Agent
@@ -338,8 +338,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	var resumedID string
 	if req.Msg.To != "" && req.Msg.To != "parent" && resumes(req.Msg.Type) {
 		r := d.store.Read(ctx)
+		// A stopped asker or reviewer that this task makes a worker (takeChange, in the write below) gets the
+		// worktree a worker gets: recreated if StopRun removed it, moved off a finished PR's branch.
+		isTask := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK
 		if cand, cerr := d.FindAgent(r, actor, req.Msg.To); cerr == nil && stopped(cand) &&
-			!adapter.ReadOnly(cand.Role) && cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
+			(!adapter.ReadOnly(cand.Role) || isTask && d.becomesWorker(r, cand, req.Msg.Body)) &&
+			cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
 			cand.Worktree != "" && cand.Repo != "" &&
 			(!IsAgent(actor.Class) || cand.ParentId == actor.Id) {
 			mu := d.worktreeLock(cand.Worktree)
@@ -357,7 +361,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 						d.capGuard(r2, "resuming "+cur.Name, cur.Id) == nil &&
 						d.checkMemoryGuard(r2, "resuming "+cur.Name) == nil {
 						prepCandID = cur.Id
-						if p, perr := d.prepareWorktreeForTask(ctx, cur, cur.RunId, req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK); perr != nil {
+						asWorker := proto.Clone(cur).(*v1.Agent)
+						if isTask && d.becomesWorker(r2, cur, req.Msg.Body) {
+							asWorker.Role = v1.AgentRole_AGENT_ROLE_WORKER
+						}
+						if p, perr := d.prepareWorktreeForTask(ctx, asWorker, cur.RunId, isTask); perr != nil {
 							prepErr = perr
 						} else {
 							prepTarget, prep = cur, p
@@ -432,8 +440,16 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// planned follow-up leaves a planner planning. From a device as from the agent's parent. A stopped agent
 		// gets it from `revive` below instead, behind the same guards as any resume, so that a refusal leaves it
 		// as it was and nothing is requested twice.
-		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
-			(!IsAgent(actor.Class) || to.ParentId == actor.Id)
+		fromParent := !IsAgent(actor.Class) || to.ParentId == actor.Id
+		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) && fromParent
+		// A task that is not a read-only one, from the agent's parent or a device, makes an asker or reviewer
+		// the worker for it (takeChange), before the direct task lifts its list.
+		wasReadOnly := adapter.ReadOnly(to.Role)
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && fromParent {
+			if err := d.takeChange(t, to, req.Msg.Body, !direct); err != nil {
+				return err
+			}
+		}
 		if direct && !stopped(to) {
 			if err := d.directTask(t, to); err != nil {
 				return err
@@ -458,6 +474,16 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					var ce *connect.Error
 					if errors.As(err, &ce) {
 						out.ResumeError = ce.Message()
+					}
+					// The agent stays stopped with the task stored. A planner keeps its phase (a refusal leaves it as
+					// it was), but an asker or reviewer this direct task just made a worker has no plan phase and no
+					// deny list to come back under: the next resume brings it back to do the task.
+					// Its DenyEdits changes with no event: the apps don't show it, and a stopped agent's launch reads
+					// the stored value, so the next reopen or snapshot carries it.
+					if direct && wasReadOnly && !adapter.ReadOnly(to.Role) {
+						if err := d.directTask(t, to); err != nil {
+							return err
+						}
 					}
 				case err != nil:
 					return err
