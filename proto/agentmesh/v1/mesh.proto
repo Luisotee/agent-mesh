@@ -297,6 +297,18 @@ service MeshService {
     };
   }
 
+  // Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+  // maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+  // `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+  rpc ImportSettings(ImportSettingsRequest) returns (ImportSettingsResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "import-settings"
+      summary: "Import bin/mesh's policy file (agent-mesh.json) into the settings (read only)"
+    };
+  }
+
   // Put a setting back to its default.
   rpc ResetSetting(ResetSettingRequest) returns (ResetSettingResponse) {
     option (action) = {
@@ -565,6 +577,23 @@ service MeshService {
     };
   }
 
+  // What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+  // standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+  rpc ResolveModel(ResolveModelRequest) returns (ResolveModelResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "model"
+      summary: "Show the model and effort a spawn of a kind and tier would run"
+    };
+  }
+
   // Find which run branches with commits conflict with their base or each other, and which workers share files.
   rpc CheckConflicts(CheckConflictsRequest) returns (CheckConflictsResponse) {
     option (action) = {
@@ -732,8 +761,8 @@ message SpawnAgentRequest {
   RequestMeta meta = 1;
   // Defaults to the caller's run for an agent; required for a device.
   string run_id = 2;
-  // Path to the git repository.
-  string repo = 3 [(path) = true];
+  // The git repository: a path, or a bare name of a folder of the repos.dir setting.
+  string repo = 3 [(path) = true, (repo_name) = true];
   // Names the branch (mesh/<run>/<slug>) and the agent (<repo>-<slug>).
   string slug = 4;
   AgentRole role = 5;
@@ -993,6 +1022,34 @@ message ResetSettingRequest {
 
 message ResetSettingResponse {
   Setting setting = 1;
+}
+
+message ImportSettingsRequest {
+  RequestMeta meta = 1;
+  // The policy file; default the one meshd was started with (--policy-file). It is only read.
+  string from = 2 [(path) = true];
+  // Replace a setting that is already set (by mesh set or an app); by default it is left as it is.
+  bool overwrite = 3;
+  // Say what would be imported and write nothing.
+  bool dry_run = 4;
+}
+
+message ImportedSetting {
+  string key = 1;
+  google.protobuf.Value value = 2;
+  // The file's own key when it isn't `key` (`repos_dir`, `copilot_model`).
+  string from = 3;
+}
+
+message ImportSettingsResponse {
+  // The file read.
+  string file = 1;
+  // What was stored (with `dry_run`, what would be); a value equal to the setting's current one is not listed.
+  repeated ImportedSetting imported = 2;
+  // Keys of the file left alone, each with why ("no such setting", "already set", "not used by the daemon", a rule).
+  repeated string skipped = 3;
+  // The request was a dry run: nothing was written.
+  bool dry_run = 4;
 }
 
 message ApproveAgentRequest {

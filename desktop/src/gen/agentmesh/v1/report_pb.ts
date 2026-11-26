@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/report.proto.
  */
 export const file_agentmesh_v1_report: GenFile = /*@__PURE__*/
-  fileDesc("ChlhZ2VudG1lc2gvdjEvcmVwb3J0LnByb3RvEgxhZ2VudG1lc2gudjEiTgoOR2V0Q29zdFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEg0KBXNpbmNlGAIgASgJEg0KBXVudGlsGAMgASgJEg4KBmFnZW50cxgEIAEoCCLqAQoJQWdlbnRDb3N0EgsKA3J1bhgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSDQoFY2FsbHMYBCABKAMSDQoFaW5wdXQYBSABKAMSCgoCdzEYBiABKAMSCgoCdzUYByABKAMSDAoEcmVhZBgIIAEoAxIOCgZvdXRwdXQYCSABKAMSCwoDdXNkGAogASgBEhAKCHBsYW5fdXNkGAsgASgBEhAKCGV4ZWNfdXNkGAwgASgBEg8KB3N1Yl91c2QYDSABKAESDAoEY29sZBgOIAEoAxIQCghjb2xkX3VzZBgPIAEoASLMAgoIS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxILCgN1c2QYBCABKAESDQoFc2hhcmUYBSABKAESFAoMdXNkX3Blcl9jYWxsGAYgASgBEhQKDGN0eF9wZXJfY2FsbBgHIAEoAxIUCgxvdXRfcGVyX2NhbGwYCCABKAMSDQoFaW5wdXQYCSABKAMSCgoCdzEYCiABKAMSCgoCdzUYCyABKAMSDAoEcmVhZBgMIAEoAxIOCgZvdXRwdXQYDSABKAMSFgoOd3JpdGVfNW1fc2hhcmUYDiABKAESGAoQZmlyc3RfY3R4X21lZGlhbhgPIAEoAxIcChRoYXNfZmlyc3RfY3R4X21lZGlhbhgQIAEoCBIMCgRjb2xkGBEgASgDEhAKCGNvbGRfdXNkGBIgASgBIngKDVRva2VuS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEidgoOTW9kZWxQaGFzZUNvc3QSDQoFbW9kZWwYASABKAkSDQoFcGhhc2UYAiABKAkSDQoFY2FsbHMYAyABKAMSCwoDdXNkGAQgASgBEhQKDGN0eF9wZXJfY2FsbBgFIAEoAxIUCgxvdXRfcGVyX2NhbGwYBiABKAMifAoTVG9rZW5Nb2RlbFBoYXNlQ29zdBINCgVtb2RlbBgBIAEoCRINCgVwaGFzZRgCIAEoCRINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEikQIKEVJldmlld0Nvc3RTdW1tYXJ5EgsKA3BycxgBIAEoAxILCgN1c2QYAiABKAESEgoKdXNkX3Blcl9wchgDIAEoARIWCg5oYXNfdXNkX3Blcl9wchgEIAEoCBIUCgxyZXZpZXdlZF9wcnMYBSABKAMSGAoQcmV2aWV3ZXJzX3Blcl9wchgGIAEoARIcChRoYXNfcmV2aWV3ZXJzX3Blcl9wchgHIAEoCBI6CgZieV9jbGkYCCADKAsyKi5hZ2VudG1lc2gudjEuUmV2aWV3Q29zdFN1bW1hcnkuQnlDbGlFbnRyeRosCgpCeUNsaUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoAToCOAEi0AEKElZlcmRpY3RDb3N0U3VtbWFyeRIMCgRraW5kGAEgASgJEg0KBW1vZGVsGAIgASgJEgwKBHRpZXIYAyABKAkSDwoHcmV2aWV3cxgEIAEoAxINCgVhZ3JlZRgFIAEoAxINCgVvdGhlchgGIAEoAxIQCghkaXNhZ3JlZRgHIAEoAxIQCghibG9ja2luZxgIIAEoAxIQCghmaW5kaW5ncxgJIAEoAxISCgphZ3JlZWRfcGN0GAogASgFEhYKDmhhc19hZ3JlZWRfcGN0GAsgASgIIqcDCg9HZXRDb3N0UmVzcG9uc2USDQoFc2NvcGUYASABKAkSFAoMcHJpY2VzX2FzX29mGAIgASgJEgsKA3VzZBgDIAEoARInCgZhZ2VudHMYBCADKAsyFy5hZ2VudG1lc2gudjEuQWdlbnRDb3N0EiUKBWtpbmRzGAUgAygLMhYuYWdlbnRtZXNoLnYxLktpbmRDb3N0EjAKC3Rva2VuX2tpbmRzGAYgAygLMhsuYWdlbnRtZXNoLnYxLlRva2VuS2luZENvc3QSLgoIYnlfbW9kZWwYByADKAsyHC5hZ2VudG1lc2gudjEuTW9kZWxQaGFzZUNvc3QSOgoPdG9rZW5zX2J5X21vZGVsGAggAygLMiEuYWdlbnRtZXNoLnYxLlRva2VuTW9kZWxQaGFzZUNvc3QSMAoHcmV2aWV3cxgJIAEoCzIfLmFnZW50bWVzaC52MS5SZXZpZXdDb3N0U3VtbWFyeRIyCgh2ZXJkaWN0cxgKIAMoCzIgLmFnZW50bWVzaC52MS5WZXJkaWN0Q29zdFN1bW1hcnkSDgoGcmVzZXRzGAsgASgFIlkKEkNoZWNrTW9kZWxzUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWNoZWNrGAIgASgIEgsKA2FjaxgDIAMoCSI0ChBNb2RlbEZhbWlseUVudHJ5Eg4KBmZhbWlseRgBIAEoCRIQCghpbl90aWVycxgCIAEoCCKSAQoKS2luZE1vZGVscxIMCgRraW5kGAEgASgJEi4KBmxpc3RlZBgCIAMoCzIeLmFnZW50bWVzaC52MS5Nb2RlbEZhbWlseUVudHJ5EhQKDG5ld19mYW1pbGllcxgDIAMoCRIYChByZXRpcmVkX2ZhbWlsaWVzGAQgAygJEhYKDmFja2VkX2ZhbWlsaWVzGAUgAygJIn4KE0NoZWNrTW9kZWxzUmVzcG9uc2USLgoKY2hlY2tlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoFa2luZHMYAiADKAsyGC5hZ2VudG1lc2gudjEuS2luZE1vZGVscxIOCgZub3RpY2UYAyABKAkiJwoVQ2hlY2tDb25mbGljdHNSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSJ4Cg5CcmFuY2hDb25mbGljdBIMCgRyZXBvGAEgASgJEg4KBmJyYW5jaBgCIAEoCRIPCgdhZ2FpbnN0GAMgASgJEg0KBWZpbGVzGAQgAygJEigKBGtpbmQYBSABKA4yGi5hZ2VudG1lc2gudjEuQ29uZmxpY3RLaW5kIqUBChZDaGVja0NvbmZsaWN0c1Jlc3BvbnNlEhgKEGNoZWNrZWRfYnJhbmNoZXMYASABKAUSLwoJY29uZmxpY3RzGAIgAygLMhwuYWdlbnRtZXNoLnYxLkJyYW5jaENvbmZsaWN0Ei4KCG92ZXJsYXBzGAMgAygLMhwuYWdlbnRtZXNoLnYxLkJyYW5jaENvbmZsaWN0EhAKCHdhcm5pbmdzGAQgAygJKmQKDENvbmZsaWN0S2luZBIdChlDT05GTElDVF9LSU5EX1VOU1BFQ0lGSUVEEAASGgoWQ09ORkxJQ1RfS0lORF9DT05GTElDVBABEhkKFUNPTkZMSUNUX0tJTkRfT1ZFUkxBUBACYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChlhZ2VudG1lc2gvdjEvcmVwb3J0LnByb3RvEgxhZ2VudG1lc2gudjEiTgoOR2V0Q29zdFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEg0KBXNpbmNlGAIgASgJEg0KBXVudGlsGAMgASgJEg4KBmFnZW50cxgEIAEoCCLqAQoJQWdlbnRDb3N0EgsKA3J1bhgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSDQoFY2FsbHMYBCABKAMSDQoFaW5wdXQYBSABKAMSCgoCdzEYBiABKAMSCgoCdzUYByABKAMSDAoEcmVhZBgIIAEoAxIOCgZvdXRwdXQYCSABKAMSCwoDdXNkGAogASgBEhAKCHBsYW5fdXNkGAsgASgBEhAKCGV4ZWNfdXNkGAwgASgBEg8KB3N1Yl91c2QYDSABKAESDAoEY29sZBgOIAEoAxIQCghjb2xkX3VzZBgPIAEoASLMAgoIS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxILCgN1c2QYBCABKAESDQoFc2hhcmUYBSABKAESFAoMdXNkX3Blcl9jYWxsGAYgASgBEhQKDGN0eF9wZXJfY2FsbBgHIAEoAxIUCgxvdXRfcGVyX2NhbGwYCCABKAMSDQoFaW5wdXQYCSABKAMSCgoCdzEYCiABKAMSCgoCdzUYCyABKAMSDAoEcmVhZBgMIAEoAxIOCgZvdXRwdXQYDSABKAMSFgoOd3JpdGVfNW1fc2hhcmUYDiABKAESGAoQZmlyc3RfY3R4X21lZGlhbhgPIAEoAxIcChRoYXNfZmlyc3RfY3R4X21lZGlhbhgQIAEoCBIMCgRjb2xkGBEgASgDEhAKCGNvbGRfdXNkGBIgASgBIngKDVRva2VuS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEidgoOTW9kZWxQaGFzZUNvc3QSDQoFbW9kZWwYASABKAkSDQoFcGhhc2UYAiABKAkSDQoFY2FsbHMYAyABKAMSCwoDdXNkGAQgASgBEhQKDGN0eF9wZXJfY2FsbBgFIAEoAxIUCgxvdXRfcGVyX2NhbGwYBiABKAMifAoTVG9rZW5Nb2RlbFBoYXNlQ29zdBINCgVtb2RlbBgBIAEoCRINCgVwaGFzZRgCIAEoCRINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEikQIKEVJldmlld0Nvc3RTdW1tYXJ5EgsKA3BycxgBIAEoAxILCgN1c2QYAiABKAESEgoKdXNkX3Blcl9wchgDIAEoARIWCg5oYXNfdXNkX3Blcl9wchgEIAEoCBIUCgxyZXZpZXdlZF9wcnMYBSABKAMSGAoQcmV2aWV3ZXJzX3Blcl9wchgGIAEoARIcChRoYXNfcmV2aWV3ZXJzX3Blcl9wchgHIAEoCBI6CgZieV9jbGkYCCADKAsyKi5hZ2VudG1lc2gudjEuUmV2aWV3Q29zdFN1bW1hcnkuQnlDbGlFbnRyeRosCgpCeUNsaUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoAToCOAEi0AEKElZlcmRpY3RDb3N0U3VtbWFyeRIMCgRraW5kGAEgASgJEg0KBW1vZGVsGAIgASgJEgwKBHRpZXIYAyABKAkSDwoHcmV2aWV3cxgEIAEoAxINCgVhZ3JlZRgFIAEoAxINCgVvdGhlchgGIAEoAxIQCghkaXNhZ3JlZRgHIAEoAxIQCghibG9ja2luZxgIIAEoAxIQCghmaW5kaW5ncxgJIAEoAxISCgphZ3JlZWRfcGN0GAogASgFEhYKDmhhc19hZ3JlZWRfcGN0GAsgASgIIqcDCg9HZXRDb3N0UmVzcG9uc2USDQoFc2NvcGUYASABKAkSFAoMcHJpY2VzX2FzX29mGAIgASgJEgsKA3VzZBgDIAEoARInCgZhZ2VudHMYBCADKAsyFy5hZ2VudG1lc2gudjEuQWdlbnRDb3N0EiUKBWtpbmRzGAUgAygLMhYuYWdlbnRtZXNoLnYxLktpbmRDb3N0EjAKC3Rva2VuX2tpbmRzGAYgAygLMhsuYWdlbnRtZXNoLnYxLlRva2VuS2luZENvc3QSLgoIYnlfbW9kZWwYByADKAsyHC5hZ2VudG1lc2gudjEuTW9kZWxQaGFzZUNvc3QSOgoPdG9rZW5zX2J5X21vZGVsGAggAygLMiEuYWdlbnRtZXNoLnYxLlRva2VuTW9kZWxQaGFzZUNvc3QSMAoHcmV2aWV3cxgJIAEoCzIfLmFnZW50bWVzaC52MS5SZXZpZXdDb3N0U3VtbWFyeRIyCgh2ZXJkaWN0cxgKIAMoCzIgLmFnZW50bWVzaC52MS5WZXJkaWN0Q29zdFN1bW1hcnkSDgoGcmVzZXRzGAsgASgFIlkKEkNoZWNrTW9kZWxzUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWNoZWNrGAIgASgIEgsKA2FjaxgDIAMoCSI0ChBNb2RlbEZhbWlseUVudHJ5Eg4KBmZhbWlseRgBIAEoCRIQCghpbl90aWVycxgCIAEoCCKSAQoKS2luZE1vZGVscxIMCgRraW5kGAEgASgJEi4KBmxpc3RlZBgCIAMoCzIeLmFnZW50bWVzaC52MS5Nb2RlbEZhbWlseUVudHJ5EhQKDG5ld19mYW1pbGllcxgDIAMoCRIYChByZXRpcmVkX2ZhbWlsaWVzGAQgAygJEhYKDmFja2VkX2ZhbWlsaWVzGAUgAygJIn4KE0NoZWNrTW9kZWxzUmVzcG9uc2USLgoKY2hlY2tlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoFa2luZHMYAiADKAsyGC5hZ2VudG1lc2gudjEuS2luZE1vZGVscxIOCgZub3RpY2UYAyABKAkiUAoTUmVzb2x2ZU1vZGVsUmVxdWVzdBIMCgRraW5kGAEgASgJEgwKBHRpZXIYAiABKAkSDQoFbW9kZWwYAyABKAkSDgoGZWZmb3J0GAQgASgJIi0KCkNoYWluTW9kZWwSDQoFbW9kZWwYASABKAkSEAoIc3RhbmRpbmcYAiABKAkiegoUUmVzb2x2ZU1vZGVsUmVzcG9uc2USDAoEa2luZBgBIAEoCRIMCgR0aWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEg4KBmVmZm9ydBgEIAEoCRInCgVjaGFpbhgFIAMoCzIYLmFnZW50bWVzaC52MS5DaGFpbk1vZGVsIicKFUNoZWNrQ29uZmxpY3RzUmVxdWVzdBIOCgZydW5faWQYASABKAkieAoOQnJhbmNoQ29uZmxpY3QSDAoEcmVwbxgBIAEoCRIOCgZicmFuY2gYAiABKAkSDwoHYWdhaW5zdBgDIAEoCRINCgVmaWxlcxgEIAMoCRIoCgRraW5kGAUgASgOMhouYWdlbnRtZXNoLnYxLkNvbmZsaWN0S2luZCKlAQoWQ2hlY2tDb25mbGljdHNSZXNwb25zZRIYChBjaGVja2VkX2JyYW5jaGVzGAEgASgFEi8KCWNvbmZsaWN0cxgCIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIuCghvdmVybGFwcxgDIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIQCgh3YXJuaW5ncxgEIAMoCSpkCgxDb25mbGljdEtpbmQSHQoZQ09ORkxJQ1RfS0lORF9VTlNQRUNJRklFRBAAEhoKFkNPTkZMSUNUX0tJTkRfQ09ORkxJQ1QQARIZChVDT05GTElDVF9LSU5EX09WRVJMQVAQAmIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message agentmesh.v1.GetCostRequest
@@ -689,6 +689,111 @@ export const CheckModelsResponseSchema: GenMessage<CheckModelsResponse> = /*@__P
   messageDesc(file_agentmesh_v1_report, 12);
 
 /**
+ * @generated from message agentmesh.v1.ResolveModelRequest
+ */
+export type ResolveModelRequest = Message<"agentmesh.v1.ResolveModelRequest"> & {
+  /**
+   * The CLI adapter; default claude.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * The tier (tiers.<kind>.<tier>): required unless a model is named.
+   *
+   * @generated from field: string tier = 2;
+   */
+  tier: string;
+
+  /**
+   * A model the user named, used as it is.
+   *
+   * @generated from field: string model = 3;
+   */
+  model: string;
+
+  /**
+   * Overrides the tier's effort (a named model defaults to its own, else the tier's, else high).
+   *
+   * @generated from field: string effort = 4;
+   */
+  effort: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ResolveModelRequest.
+ * Use `create(ResolveModelRequestSchema)` to create a new message.
+ */
+export const ResolveModelRequestSchema: GenMessage<ResolveModelRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_report, 13);
+
+/**
+ * @generated from message agentmesh.v1.ChainModel
+ */
+export type ChainModel = Message<"agentmesh.v1.ChainModel"> & {
+  /**
+   * @generated from field: string model = 1;
+   */
+  model: string;
+
+  /**
+   * Empty when it has quota; else why a spawn would skip it: "held until 17:40", "at the reserve (6% left)".
+   *
+   * @generated from field: string standing = 2;
+   */
+  standing: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ChainModel.
+ * Use `create(ChainModelSchema)` to create a new message.
+ */
+export const ChainModelSchema: GenMessage<ChainModel> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_report, 14);
+
+/**
+ * @generated from message agentmesh.v1.ResolveModelResponse
+ */
+export type ResolveModelResponse = Message<"agentmesh.v1.ResolveModelResponse"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string tier = 2;
+   */
+  tier: string;
+
+  /**
+   * What a spawn would launch on.
+   *
+   * @generated from field: string model = 3;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string effort = 4;
+   */
+  effort: string;
+
+  /**
+   * The tier's chain, first choice first (OpenCode's `free` expanded); empty for a named model.
+   *
+   * @generated from field: repeated agentmesh.v1.ChainModel chain = 5;
+   */
+  chain: ChainModel[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ResolveModelResponse.
+ * Use `create(ResolveModelResponseSchema)` to create a new message.
+ */
+export const ResolveModelResponseSchema: GenMessage<ResolveModelResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_report, 15);
+
+/**
  * @generated from message agentmesh.v1.CheckConflictsRequest
  */
 export type CheckConflictsRequest = Message<"agentmesh.v1.CheckConflictsRequest"> & {
@@ -705,7 +810,7 @@ export type CheckConflictsRequest = Message<"agentmesh.v1.CheckConflictsRequest"
  * Use `create(CheckConflictsRequestSchema)` to create a new message.
  */
 export const CheckConflictsRequestSchema: GenMessage<CheckConflictsRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 13);
+  messageDesc(file_agentmesh_v1_report, 16);
 
 /**
  * @generated from message agentmesh.v1.BranchConflict
@@ -742,7 +847,7 @@ export type BranchConflict = Message<"agentmesh.v1.BranchConflict"> & {
  * Use `create(BranchConflictSchema)` to create a new message.
  */
 export const BranchConflictSchema: GenMessage<BranchConflict> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 14);
+  messageDesc(file_agentmesh_v1_report, 17);
 
 /**
  * @generated from message agentmesh.v1.CheckConflictsResponse
@@ -774,7 +879,7 @@ export type CheckConflictsResponse = Message<"agentmesh.v1.CheckConflictsRespons
  * Use `create(CheckConflictsResponseSchema)` to create a new message.
  */
 export const CheckConflictsResponseSchema: GenMessage<CheckConflictsResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 15);
+  messageDesc(file_agentmesh_v1_report, 18);
 
 /**
  * @generated from enum agentmesh.v1.ConflictKind

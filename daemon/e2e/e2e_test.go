@@ -69,6 +69,8 @@ type world struct {
 	home  string
 	meshd *exec.Cmd
 	log   *lockedBuffer
+	// extra are more meshd flags.
+	extra []string
 }
 
 // env is the isolated environment every process of the test gets: its own HOME, nothing of the caller's
@@ -117,6 +119,7 @@ func (w *world) startMeshd() {
 		"--cli", "agy="+filepath.Join(bins, "agy"),
 		"--agent-env", "HOME="+w.home, "--agent-env", "PATH="+decoy+":"+os.Getenv("PATH"),
 		"--agent-env", "FAKECLAUDE_ENV_LOG="+filepath.Join(w.home, "claude-env.log"))
+	cmd.Args = append(cmd.Args, w.extra...)
 	cmd.Env = w.env()
 	cmd.Stdout, cmd.Stderr = w.log, w.log
 	if err := cmd.Start(); err != nil {
@@ -273,6 +276,62 @@ func hasSeq(states []string, want ...string) bool {
 		}
 	}
 	return i == len(want)
+}
+
+// text runs mesh and returns what it printed (for the commands whose default output is text).
+func (w *world) text(args ...string) string {
+	w.t.Helper()
+	cmd := exec.Command(filepath.Join(bins, "mesh"), args...)
+	cmd.Env = w.env()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		w.t.Fatalf("mesh %s: %v\n%s", strings.Join(args, " "), err, stderr.String())
+	}
+	return string(out)
+}
+
+// The policy file of bin/mesh is imported at meshd's first start, `mesh import-settings` applies it again, and
+// `mesh model` shows what a spawn would run (with the setting the file brought).
+func TestPolicyFileAndModelEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	os.MkdirAll(w.home, 0o700)
+	t.Cleanup(w.stopAll)
+	policy := filepath.Join(w.home, "agent-mesh.json")
+	body := `{"repos_dir": ["~/projects"], "compact": {"claude": 250000}, "side_panes": 3,
+		"tiers": {"agy": {"mid": {"model": ["flash"], "effort": "low"}}}}`
+	if err := os.WriteFile(policy, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.extra = []string{"--policy-file", policy}
+	w.startMeshd()
+	got := w.text("settings", "--prefix", "compact.claude")
+	if !strings.Contains(got, "compact.claude = 250000   (set; default 300000)") {
+		t.Errorf("settings: %s", got)
+	}
+	if got := w.text("settings", "--prefix", "repos.dir"); !strings.Contains(got, `repos.dir = ["~/projects"]`) {
+		t.Errorf("repos.dir: %s", got)
+	}
+	if got := w.text("model", "--kind", "agy", "--tier", "mid"); !strings.HasPrefix(got, "flash low\n  flash\n") {
+		t.Errorf("model: %q", got)
+	}
+	if got := w.text("model", "--tier", "light"); !strings.HasPrefix(got, "haiku medium\n") {
+		t.Errorf("model: %q", got)
+	}
+	// Nothing is left to import; a file edited since then is applied on demand, and never over what is set.
+	if got := w.text("import-settings"); !strings.Contains(got, "imported 0 setting(s)") || !strings.Contains(got, "left alone: side_panes: not used by the daemon") {
+		t.Errorf("import-settings: %s", got)
+	}
+	os.WriteFile(policy, []byte(`{"compact": {"claude": 1, "agy": 5}}`), 0o644)
+	got = w.text("import-settings", "--from", policy)
+	if !strings.Contains(got, "imported 1 setting(s)") || !strings.Contains(got, "compact.agy = 5") || !strings.Contains(got, "compact.claude: already set") {
+		t.Errorf("import-settings --from: %s", got)
+	}
+	if got := w.text("import-settings", "--from", policy, "--overwrite", "--dry-run"); !strings.Contains(got, "would import 1 setting(s)") || !strings.Contains(got, "compact.claude = 1") {
+		t.Errorf("dry run: %s", got)
+	}
 }
 
 func TestEndToEnd(t *testing.T) {

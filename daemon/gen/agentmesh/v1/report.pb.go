@@ -1347,6 +1347,209 @@ func (x *CheckModelsResponse) GetNotice() string {
 	return ""
 }
 
+type ResolveModelRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The CLI adapter; default claude.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The tier (tiers.<kind>.<tier>): required unless a model is named.
+	Tier string `protobuf:"bytes,2,opt,name=tier,proto3" json:"tier,omitempty"`
+	// A model the user named, used as it is.
+	Model string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	// Overrides the tier's effort (a named model defaults to its own, else the tier's, else high).
+	Effort        string `protobuf:"bytes,4,opt,name=effort,proto3" json:"effort,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveModelRequest) Reset() {
+	*x = ResolveModelRequest{}
+	mi := &file_agentmesh_v1_report_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveModelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveModelRequest) ProtoMessage() {}
+
+func (x *ResolveModelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_report_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveModelRequest.ProtoReflect.Descriptor instead.
+func (*ResolveModelRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ResolveModelRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ResolveModelRequest) GetTier() string {
+	if x != nil {
+		return x.Tier
+	}
+	return ""
+}
+
+func (x *ResolveModelRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ResolveModelRequest) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
+}
+
+type ChainModel struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Model string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
+	// Empty when it has quota; else why a spawn would skip it: "held until 17:40", "at the reserve (6% left)".
+	Standing      string `protobuf:"bytes,2,opt,name=standing,proto3" json:"standing,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChainModel) Reset() {
+	*x = ChainModel{}
+	mi := &file_agentmesh_v1_report_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChainModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChainModel) ProtoMessage() {}
+
+func (x *ChainModel) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_report_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChainModel.ProtoReflect.Descriptor instead.
+func (*ChainModel) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ChainModel) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ChainModel) GetStanding() string {
+	if x != nil {
+		return x.Standing
+	}
+	return ""
+}
+
+type ResolveModelResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Tier  string                 `protobuf:"bytes,2,opt,name=tier,proto3" json:"tier,omitempty"`
+	// What a spawn would launch on.
+	Model  string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Effort string `protobuf:"bytes,4,opt,name=effort,proto3" json:"effort,omitempty"`
+	// The tier's chain, first choice first (OpenCode's `free` expanded); empty for a named model.
+	Chain         []*ChainModel `protobuf:"bytes,5,rep,name=chain,proto3" json:"chain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveModelResponse) Reset() {
+	*x = ResolveModelResponse{}
+	mi := &file_agentmesh_v1_report_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveModelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveModelResponse) ProtoMessage() {}
+
+func (x *ResolveModelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_report_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveModelResponse.ProtoReflect.Descriptor instead.
+func (*ResolveModelResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ResolveModelResponse) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ResolveModelResponse) GetTier() string {
+	if x != nil {
+		return x.Tier
+	}
+	return ""
+}
+
+func (x *ResolveModelResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ResolveModelResponse) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
+}
+
+func (x *ResolveModelResponse) GetChain() []*ChainModel {
+	if x != nil {
+		return x.Chain
+	}
+	return nil
+}
+
 type CheckConflictsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Run id to check (defaults to the caller's own run; required for a device).
@@ -1357,7 +1560,7 @@ type CheckConflictsRequest struct {
 
 func (x *CheckConflictsRequest) Reset() {
 	*x = CheckConflictsRequest{}
-	mi := &file_agentmesh_v1_report_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1369,7 +1572,7 @@ func (x *CheckConflictsRequest) String() string {
 func (*CheckConflictsRequest) ProtoMessage() {}
 
 func (x *CheckConflictsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_report_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1382,7 +1585,7 @@ func (x *CheckConflictsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckConflictsRequest.ProtoReflect.Descriptor instead.
 func (*CheckConflictsRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{13}
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CheckConflictsRequest) GetRunId() string {
@@ -1405,7 +1608,7 @@ type BranchConflict struct {
 
 func (x *BranchConflict) Reset() {
 	*x = BranchConflict{}
-	mi := &file_agentmesh_v1_report_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1620,7 @@ func (x *BranchConflict) String() string {
 func (*BranchConflict) ProtoMessage() {}
 
 func (x *BranchConflict) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_report_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1633,7 @@ func (x *BranchConflict) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BranchConflict.ProtoReflect.Descriptor instead.
 func (*BranchConflict) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{14}
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *BranchConflict) GetRepo() string {
@@ -1480,7 +1683,7 @@ type CheckConflictsResponse struct {
 
 func (x *CheckConflictsResponse) Reset() {
 	*x = CheckConflictsResponse{}
-	mi := &file_agentmesh_v1_report_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1492,7 +1695,7 @@ func (x *CheckConflictsResponse) String() string {
 func (*CheckConflictsResponse) ProtoMessage() {}
 
 func (x *CheckConflictsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_report_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_report_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1505,7 +1708,7 @@ func (x *CheckConflictsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckConflictsResponse.ProtoReflect.Descriptor instead.
 func (*CheckConflictsResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{15}
+	return file_agentmesh_v1_report_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CheckConflictsResponse) GetCheckedBranches() int32 {
@@ -1672,7 +1875,22 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\n" +
 	"checked_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x12.\n" +
 	"\x05kinds\x18\x02 \x03(\v2\x18.agentmesh.v1.KindModelsR\x05kinds\x12\x16\n" +
-	"\x06notice\x18\x03 \x01(\tR\x06notice\".\n" +
+	"\x06notice\x18\x03 \x01(\tR\x06notice\"k\n" +
+	"\x13ResolveModelRequest\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04tier\x18\x02 \x01(\tR\x04tier\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x16\n" +
+	"\x06effort\x18\x04 \x01(\tR\x06effort\">\n" +
+	"\n" +
+	"ChainModel\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x12\x1a\n" +
+	"\bstanding\x18\x02 \x01(\tR\bstanding\"\x9c\x01\n" +
+	"\x14ResolveModelResponse\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04tier\x18\x02 \x01(\tR\x04tier\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x16\n" +
+	"\x06effort\x18\x04 \x01(\tR\x06effort\x12.\n" +
+	"\x05chain\x18\x05 \x03(\v2\x18.agentmesh.v1.ChainModelR\x05chain\".\n" +
 	"\x15CheckConflictsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\x9c\x01\n" +
 	"\x0eBranchConflict\x12\x12\n" +
@@ -1705,7 +1923,7 @@ func file_agentmesh_v1_report_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_report_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agentmesh_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_agentmesh_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_agentmesh_v1_report_proto_goTypes = []any{
 	(ConflictKind)(0),              // 0: agentmesh.v1.ConflictKind
 	(*GetCostRequest)(nil),         // 1: agentmesh.v1.GetCostRequest
@@ -1721,15 +1939,18 @@ var file_agentmesh_v1_report_proto_goTypes = []any{
 	(*ModelFamilyEntry)(nil),       // 11: agentmesh.v1.ModelFamilyEntry
 	(*KindModels)(nil),             // 12: agentmesh.v1.KindModels
 	(*CheckModelsResponse)(nil),    // 13: agentmesh.v1.CheckModelsResponse
-	(*CheckConflictsRequest)(nil),  // 14: agentmesh.v1.CheckConflictsRequest
-	(*BranchConflict)(nil),         // 15: agentmesh.v1.BranchConflict
-	(*CheckConflictsResponse)(nil), // 16: agentmesh.v1.CheckConflictsResponse
-	nil,                            // 17: agentmesh.v1.ReviewCostSummary.ByCliEntry
-	(*RequestMeta)(nil),            // 18: agentmesh.v1.RequestMeta
-	(*timestamppb.Timestamp)(nil),  // 19: google.protobuf.Timestamp
+	(*ResolveModelRequest)(nil),    // 14: agentmesh.v1.ResolveModelRequest
+	(*ChainModel)(nil),             // 15: agentmesh.v1.ChainModel
+	(*ResolveModelResponse)(nil),   // 16: agentmesh.v1.ResolveModelResponse
+	(*CheckConflictsRequest)(nil),  // 17: agentmesh.v1.CheckConflictsRequest
+	(*BranchConflict)(nil),         // 18: agentmesh.v1.BranchConflict
+	(*CheckConflictsResponse)(nil), // 19: agentmesh.v1.CheckConflictsResponse
+	nil,                            // 20: agentmesh.v1.ReviewCostSummary.ByCliEntry
+	(*RequestMeta)(nil),            // 21: agentmesh.v1.RequestMeta
+	(*timestamppb.Timestamp)(nil),  // 22: google.protobuf.Timestamp
 }
 var file_agentmesh_v1_report_proto_depIdxs = []int32{
-	17, // 0: agentmesh.v1.ReviewCostSummary.by_cli:type_name -> agentmesh.v1.ReviewCostSummary.ByCliEntry
+	20, // 0: agentmesh.v1.ReviewCostSummary.by_cli:type_name -> agentmesh.v1.ReviewCostSummary.ByCliEntry
 	2,  // 1: agentmesh.v1.GetCostResponse.agents:type_name -> agentmesh.v1.AgentCost
 	3,  // 2: agentmesh.v1.GetCostResponse.kinds:type_name -> agentmesh.v1.KindCost
 	4,  // 3: agentmesh.v1.GetCostResponse.token_kinds:type_name -> agentmesh.v1.TokenKindCost
@@ -1737,18 +1958,19 @@ var file_agentmesh_v1_report_proto_depIdxs = []int32{
 	6,  // 5: agentmesh.v1.GetCostResponse.tokens_by_model:type_name -> agentmesh.v1.TokenModelPhaseCost
 	7,  // 6: agentmesh.v1.GetCostResponse.reviews:type_name -> agentmesh.v1.ReviewCostSummary
 	8,  // 7: agentmesh.v1.GetCostResponse.verdicts:type_name -> agentmesh.v1.VerdictCostSummary
-	18, // 8: agentmesh.v1.CheckModelsRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	21, // 8: agentmesh.v1.CheckModelsRequest.meta:type_name -> agentmesh.v1.RequestMeta
 	11, // 9: agentmesh.v1.KindModels.listed:type_name -> agentmesh.v1.ModelFamilyEntry
-	19, // 10: agentmesh.v1.CheckModelsResponse.checked_at:type_name -> google.protobuf.Timestamp
+	22, // 10: agentmesh.v1.CheckModelsResponse.checked_at:type_name -> google.protobuf.Timestamp
 	12, // 11: agentmesh.v1.CheckModelsResponse.kinds:type_name -> agentmesh.v1.KindModels
-	0,  // 12: agentmesh.v1.BranchConflict.kind:type_name -> agentmesh.v1.ConflictKind
-	15, // 13: agentmesh.v1.CheckConflictsResponse.conflicts:type_name -> agentmesh.v1.BranchConflict
-	15, // 14: agentmesh.v1.CheckConflictsResponse.overlaps:type_name -> agentmesh.v1.BranchConflict
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	15, // 12: agentmesh.v1.ResolveModelResponse.chain:type_name -> agentmesh.v1.ChainModel
+	0,  // 13: agentmesh.v1.BranchConflict.kind:type_name -> agentmesh.v1.ConflictKind
+	18, // 14: agentmesh.v1.CheckConflictsResponse.conflicts:type_name -> agentmesh.v1.BranchConflict
+	18, // 15: agentmesh.v1.CheckConflictsResponse.overlaps:type_name -> agentmesh.v1.BranchConflict
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_report_proto_init() }
@@ -1763,7 +1985,7 @@ func file_agentmesh_v1_report_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_report_proto_rawDesc), len(file_agentmesh_v1_report_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
