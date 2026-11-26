@@ -104,4 +104,24 @@ public interface VerdictOrBuilder extends
    * @return The at.
    */
   com.google.protobuf.Timestamp getAt();
+
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @return The judge.
+   */
+  java.lang.String getJudge();
+  /**
+   * <pre>
+   * Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
+   * </pre>
+   *
+   * <code>string judge = 10 [json_name = "judge"];</code>
+   * @return The bytes for judge.
+   */
+  com.google.protobuf.ByteString
+      getJudgeBytes();
 }

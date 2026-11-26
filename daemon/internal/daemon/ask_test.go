@@ -24,6 +24,7 @@ type fakePR struct {
 	repo, json string
 	number     int
 	gh         string
+	headRef    string // the PR's head branch as gh says it; "feature" unless a test makes the PR a worker's own
 }
 
 func newFakePR(t *testing.T, number int) *fakePR {
@@ -39,7 +40,7 @@ func newFakePR(t *testing.T, number int) *fakePR {
 	}
 	run("remote", "add", "origin", repo) // fetches of main and of a PR head go to itself
 	dir := t.TempDir()
-	p := &fakePR{repo: repo, number: number, json: filepath.Join(dir, "pr.json"), gh: filepath.Join(dir, "gh")}
+	p := &fakePR{repo: repo, number: number, json: filepath.Join(dir, "pr.json"), gh: filepath.Join(dir, "gh"), headRef: "feature"}
 	script := "#!/bin/sh\n[ \"$1 $2\" = \"pr view\" ] || { echo \"fake gh: only pr view\" >&2; exit 2; }\ncat " + p.json + "\n"
 	if err := os.WriteFile(p.gh, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -67,7 +68,7 @@ func (p *fakePR) push(t *testing.T, msg string) string {
 	sha := run("commit-tree", "main^{tree}", "-p", parent, "-m", msg)
 	run("update-ref", "refs/heads/feature", sha)
 	b, _ := json.Marshal(map[string]any{"number": p.number, "url": fmt.Sprintf("https://github.com/o/shop-api/pull/%d", p.number),
-		"headRefOid": sha, "headRefName": "feature", "baseRefName": "main"})
+		"headRefOid": sha, "headRefName": p.headRef, "baseRefName": "main"})
 	if err := os.WriteFile(p.json, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -502,13 +503,12 @@ func TestAReReviewInAnotherRunStartsFreshReviewersOfTheSameKindsOnTheFixCommits(
 	}
 }
 
-func TestAReviewNeedsASizeATierAndAPRGhCanRead(t *testing.T) {
+func TestAReviewNeedsASizeAndAPRGhCanRead(t *testing.T) {
 	w := startReviews(t)
 	ctx := context.Background()
 	w.pr.push(t, "the feature")
 	for name, req := range map[string]*v1.AskRequest{
 		"no size":           {Repo: w.pr.repo, Review: "7", Tier: "mid", Reviewers: "all"},
-		"no tier":           {Repo: w.pr.repo, Review: "7", Size: "small", Reviewers: "all"},
 		"an option as PR":   {Repo: w.pr.repo, Review: "--web", Size: "small", Tier: "mid", Reviewers: "all"},
 		"since not a hash":  {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Since: "--all"},
 		"a model and round": {Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "all", Model: "opus"},

@@ -127,6 +127,8 @@ message VerdictCostSummary {
   int64 findings = 9;
   int32 agreed_pct = 10;
   bool has_agreed_pct = 11;
+  // Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+  int64 by_author = 12;
 }
 
 // One CLI's tokens in the measured span, and how far to trust them.

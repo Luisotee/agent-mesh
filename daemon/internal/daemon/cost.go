@@ -1738,6 +1738,9 @@ func verdictRows(verdicts []*v1.Verdict) []*v1.VerdictCostSummary {
 			rows[k] = row
 		}
 		row.Reviews++
+		if v.Judge == judgeAuthor {
+			row.ByAuthor++
+		}
 		row.Agree += int64(v.Agree)
 		row.Other += int64(v.Other)
 		row.Disagree += int64(v.Disagree)

@@ -26,6 +26,7 @@ public  final class SpawnAgentRequest extends
     tier_ = "";
     execTier_ = "";
     mcp_ = emptyProtobufList();
+    reviews_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -989,6 +990,73 @@ public  final class SpawnAgentRequest extends
     checkByteStringIsUtf8(value);
     ensureMcpIsMutable();
     mcp_.add(value.toStringUtf8());
+  }
+
+  public static final int REVIEWS_FIELD_NUMBER = 15;
+  private java.lang.String reviews_;
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  @java.lang.Override
+  public java.lang.String getReviews() {
+    return reviews_;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReviewsBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(reviews_);
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @param value The reviews to set.
+   */
+  private void setReviews(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    reviews_ = value;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void clearReviews() {
+
+    reviews_ = getDefaultInstance().getReviews();
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string reviews = 15 [json_name = "reviews"];</code>
+   * @param value The bytes for reviews to set.
+   */
+  private void setReviewsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    reviews_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest parseFrom(
@@ -2076,6 +2144,75 @@ public  final class SpawnAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string reviews = 15 [json_name = "reviews"];</code>
+     * @return The reviews.
+     */
+    @java.lang.Override
+    public java.lang.String getReviews() {
+      return instance.getReviews();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string reviews = 15 [json_name = "reviews"];</code>
+     * @return The bytes for reviews.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReviewsBytes() {
+      return instance.getReviewsBytes();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string reviews = 15 [json_name = "reviews"];</code>
+     * @param value The reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviews(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setReviews(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string reviews = 15 [json_name = "reviews"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviews() {
+      copyOnWrite();
+      instance.clearReviews();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string reviews = 15 [json_name = "reviews"];</code>
+     * @param value The bytes for reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReviewsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentRequest)
   }
   @java.lang.Override
@@ -2107,11 +2244,12 @@ public  final class SpawnAgentRequest extends
             "plan_",
             "execTier_",
             "mcp_",
+            "reviews_",
           };
           java.lang.String info =
-              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n" +
-              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a";
+              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a\u000f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

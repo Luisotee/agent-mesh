@@ -35,6 +35,7 @@ public  final class Agent extends
     resumedFromAgentId_ = "";
     mcp_ = emptyProtobufList();
     addedTools_ = emptyProtobufList();
+    reviewBy_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -2239,6 +2240,78 @@ public  final class Agent extends
   private void clearMcpAll() {
 
     mcpAll_ = false;
+  }
+
+  public static final int REVIEW_BY_FIELD_NUMBER = 39;
+  private java.lang.String reviewBy_;
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The reviewBy.
+   */
+  @java.lang.Override
+  public java.lang.String getReviewBy() {
+    return reviewBy_;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The bytes for reviewBy.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReviewByBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(reviewBy_);
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @param value The reviewBy to set.
+   */
+  private void setReviewBy(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    reviewBy_ = value;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   */
+  private void clearReviewBy() {
+
+    reviewBy_ = getDefaultInstance().getReviewBy();
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @param value The bytes for reviewBy to set.
+   */
+  private void setReviewByBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    reviewBy_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -4620,6 +4693,80 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+     * a relay for a risky PR). Empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+     * @return The reviewBy.
+     */
+    @java.lang.Override
+    public java.lang.String getReviewBy() {
+      return instance.getReviewBy();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+     * a relay for a risky PR). Empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+     * @return The bytes for reviewBy.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReviewByBytes() {
+      return instance.getReviewByBytes();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+     * a relay for a risky PR). Empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+     * @param value The reviewBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewBy(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setReviewBy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+     * a relay for a risky PR). Empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviewBy() {
+      copyOnWrite();
+      instance.clearReviewBy();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+     * a relay for a risky PR). Empty means the `review.by` setting.
+     * </pre>
+     *
+     * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+     * @param value The bytes for reviewBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewByBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReviewByBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -4675,14 +4822,15 @@ public  final class Agent extends
             "addedTools_",
             "toolsAdded_",
             "mcpAll_",
+            "reviewBy_",
           };
           java.lang.String info =
-              "\u0000&\u0000\u0001\u0001&&\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000\'\u0000\u0001\u0001\'\'\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
-              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007";
+              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

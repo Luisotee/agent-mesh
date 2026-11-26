@@ -598,14 +598,14 @@ func TestCostModelsAndConflictsRenderers(t *testing.T) {
 			{Model: "opus", Phase: "plan", Calls: 1, Usd: 0.02, OutPerCall: 1000},
 		},
 		Verdicts: []*v1.VerdictCostSummary{
-			{Kind: "opencode", Model: "opencode/big-pickle", Tier: "mid", Reviews: 2, Findings: 8, AgreedPct: 38, HasAgreedPct: true, Blocking: 1},
+			{Kind: "opencode", Model: "opencode/big-pickle", Tier: "mid", Reviews: 2, ByAuthor: 1, Findings: 8, AgreedPct: 38, HasAgreedPct: true, Blocking: 1},
 		},
 		Reviews: &v1.ReviewCostSummary{
 			ReviewedPrs: 1, ReviewersPerPr: 1.0, HasReviewersPerPr: true,
 			ByCli: map[string]float64{"opencode": 1.0},
 		},
 	}, &out)
-	for _, want := range []string{"run r1: 1.2M tokens", "cache reads 9.0M apart", "≈ $0.18 at API prices", "total = input + cache write + output", "agy: an estimate", "cache write", "904k", "repo-fix", "by model and phase:", "review findings, by the root's verdict", "38%", "reviews: 1 PRs, 1.0 reviewers per PR (opencode 1.0)", "root resets: 0"} {
+	for _, want := range []string{"run r1: 1.2M tokens", "cache reads 9.0M apart", "≈ $0.18 at API prices", "total = input + cache write + output", "agy: an estimate", "cache write", "904k", "repo-fix", "by model and phase:", "review findings, by the judge's verdict", "38%", "reviews: 1 PRs, 1.0 reviewers per PR (opencode 1.0)", "root resets: 0"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("renderCost missing %q in:\n%s", want, out.String())
 		}

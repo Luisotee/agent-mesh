@@ -514,11 +514,13 @@ service MeshService {
     };
   }
 
-  // Record the root's verdict on one reviewer's findings of a round.
+  // Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+  // own newest round, never one the root asked) or the root's (which replaces it).
   rpc RecordVerdict(RecordVerdictRequest) returns (RecordVerdictResponse) {
     option (action) = {
       actors: [
         ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
         ACTOR_CLASS_DEVICE
       ]
       write: true
@@ -853,6 +855,8 @@ message SpawnAgentRequest {
   // such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
   // (else every server loads already).
   repeated string mcp = 14;
+  // Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+  string reviews = 15;
 }
 
 message SpawnAgentResponse {
@@ -1128,6 +1132,8 @@ message ApproveAgentRequest {
   string body = 7;
   // Why this tier, recorded on the reopen.
   string why = 8;
+  // Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+  string reviews = 9;
 }
 
 message ApproveAgentResponse {

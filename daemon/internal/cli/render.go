@@ -344,16 +344,16 @@ func renderCost(m proto.Message, w io.Writer) {
 		printTable(w, []string{"model", "phase", "calls", "input", "cache write", "output", "total", "cache read", "≈ $", "ctx/call", "out/call"}, rows)
 	}
 	if len(r.Verdicts) > 0 {
-		fmt.Fprintln(w, "\nreview findings, by the root's verdict (`mesh verdict`):")
+		fmt.Fprintln(w, "\nreview findings, by the judge's verdict (`mesh verdict`; the PR author's unless the root changed it):")
 		rows := make([][]string, 0, len(r.Verdicts))
 		for _, v := range r.Verdicts {
 			agreed := ""
 			if v.HasAgreedPct {
 				agreed = fmt.Sprintf("%d%%", v.AgreedPct)
 			}
-			rows = append(rows, []string{v.Kind, v.Model, v.Tier, fmt.Sprint(v.Reviews), fmt.Sprint(v.Findings), agreed, fmt.Sprint(v.Blocking)})
+			rows = append(rows, []string{v.Kind, v.Model, v.Tier, fmt.Sprint(v.Reviews), fmt.Sprint(v.ByAuthor), fmt.Sprint(v.Findings), agreed, fmt.Sprint(v.Blocking)})
 		}
-		printTable(w, []string{"kind", "model", "tier", "reviews", "findings", "agreed", "blocking"}, rows)
+		printTable(w, []string{"kind", "model", "tier", "reviews", "by author", "findings", "agreed", "blocking"}, rows)
 	}
 	if rev := r.Reviews; rev != nil && (rev.ReviewedPrs > 0 || rev.Prs > 0) {
 		fmt.Fprintln(w)

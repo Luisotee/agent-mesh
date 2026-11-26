@@ -29,9 +29,10 @@ var meshActor = &v1.Actor{Id: "meshd", Name: "mesh"}
 
 // The first words of the daemon's messages, which the pass finds its own by (a nudge, and one alert per kind).
 const (
-	nudgeTag  = "[mesh nudge]"
-	alertTag  = "[mesh alert "
-	alertEnds = "]"
+	nudgeTag   = "[mesh nudge]"
+	answersTag = "[mesh answers "
+	alertTag   = "[mesh alert "
+	alertEnds  = "]"
 )
 
 func alertHead(kind, agentID string) string { return alertTag + kind + " " + agentID + alertEnds }
@@ -151,15 +152,21 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	if task.IsZero() || reported {
 		return owesNothing, task, nil
 	}
-	// Unread mail other than the daemon's own nudge: work is coming, or a doorbell was lost.
+	// Unread mail other than the daemon's own: work is coming, or a doorbell was lost. Of the daemon's, only a
+	// finished round's `[mesh answers]` counts (it is the agent's next work: it must not be nudged for a report it
+	// has not had the time to write); its nudge and other infos do not.
 	unread, err := r.Inbox(a.Id, false)
 	if err != nil {
 		return owesNothing, task, err
 	}
 	for _, m := range unread {
-		if m.From.GetId() != meshActor.Id {
+		if m.From.GetId() != meshActor.Id || strings.HasPrefix(m.Body, answersTag) && m.CreatedAt.AsTime().After(task) {
 			return owesNothing, task, nil
 		}
+	}
+	// A round (or a peers ask) the agent started and is waiting on: its members' answers are what it waits for.
+	if d.openOwnAsk(r, a, now) {
+		return owesNothing, task, nil
 	}
 	// A declared wait: the agent said it is waiting on purpose, until it is over: its deadline, or the agent woke
 	// (was active again after the turn end that declared it) and ended a turn with no report (bin/mesh's wait_over).
