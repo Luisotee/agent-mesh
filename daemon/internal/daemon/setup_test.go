@@ -287,18 +287,25 @@ func TestTheSetupAgentsReminderIsSilentWhileItsResetTypes(t *testing.T) {
 	if text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "compact"); !strings.Contains(text, "the setup agent of run "+got.Run.Id) {
 		t.Fatalf("reminder = %q", text)
 	}
-	err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
-		a, err := tx.GetAgent(got.Agent.Id)
+	// The reset is on the agent only for this check: left there, the daemon's reset machinery would act on it.
+	putReset := func(pr *v1.RootReset) {
+		t.Helper()
+		err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+			a, err := tx.GetAgent(got.Agent.Id)
+			if err != nil {
+				return err
+			}
+			a.PendingReset = pr
+			return tx.PutAgent(a)
+		})
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		a.PendingReset = &v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now(), TypedAt: timestamppb.Now()}
-		return tx.PutAgent(a)
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	if text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "clear"); text != "" {
+	putReset(&v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now(), TypedAt: timestamppb.Now()})
+	text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "clear")
+	putReset(nil)
+	if text != "" {
 		t.Fatalf("a reminder while the reset types: %q", text)
 	}
 }
