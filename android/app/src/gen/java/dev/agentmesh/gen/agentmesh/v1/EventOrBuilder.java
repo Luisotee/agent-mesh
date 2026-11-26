@@ -312,26 +312,37 @@ public interface EventOrBuilder extends
   dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged getAgentRoleChanged();
 
   /**
-   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 29 [json_name = "doorbellFailed"];</code>
-   * @return Whether the doorbellFailed field is set.
+   * <code>.agentmesh.v1.AgentCompacted agent_compacted = 29 [json_name = "agentCompacted"];</code>
+   * @return Whether the agentCompacted field is set.
    */
-  boolean hasDoorbellFailed();
+  boolean hasAgentCompacted();
   /**
-   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 29 [json_name = "doorbellFailed"];</code>
-   * @return The doorbellFailed.
+   * <code>.agentmesh.v1.AgentCompacted agent_compacted = 29 [json_name = "agentCompacted"];</code>
+   * @return The agentCompacted.
    */
-  dev.agentmesh.gen.agentmesh.v1.DoorbellFailed getDoorbellFailed();
+  dev.agentmesh.gen.agentmesh.v1.AgentCompacted getAgentCompacted();
 
   /**
-   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 30 [json_name = "doorbellHeld"];</code>
-   * @return Whether the doorbellHeld field is set.
+   * <code>.agentmesh.v1.RootResetRequested root_reset_requested = 30 [json_name = "rootResetRequested"];</code>
+   * @return Whether the rootResetRequested field is set.
    */
-  boolean hasDoorbellHeld();
+  boolean hasRootResetRequested();
   /**
-   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 30 [json_name = "doorbellHeld"];</code>
-   * @return The doorbellHeld.
+   * <code>.agentmesh.v1.RootResetRequested root_reset_requested = 30 [json_name = "rootResetRequested"];</code>
+   * @return The rootResetRequested.
    */
-  dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld();
+  dev.agentmesh.gen.agentmesh.v1.RootResetRequested getRootResetRequested();
+
+  /**
+   * <code>.agentmesh.v1.RootResetFinished root_reset_finished = 31 [json_name = "rootResetFinished"];</code>
+   * @return Whether the rootResetFinished field is set.
+   */
+  boolean hasRootResetFinished();
+  /**
+   * <code>.agentmesh.v1.RootResetFinished root_reset_finished = 31 [json_name = "rootResetFinished"];</code>
+   * @return The rootResetFinished.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RootResetFinished getRootResetFinished();
 
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

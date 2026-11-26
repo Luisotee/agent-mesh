@@ -509,4 +509,64 @@ public interface AgentOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMcpBytes(int index);
+
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   * @return Whether the pendingCompaction field is set.
+   */
+  boolean hasPendingCompaction();
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   * @return The pendingCompaction.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction();
+
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   * @return Whether the pendingReset field is set.
+   */
+  boolean hasPendingReset();
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   * @return The pendingReset.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset();
+
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   * @return Whether the lastReset field is set.
+   */
+  boolean hasLastReset();
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   * @return The lastReset.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset();
+
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @return The lastTurnByMesh.
+   */
+  boolean getLastTurnByMesh();
 }

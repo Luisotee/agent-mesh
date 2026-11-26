@@ -4,6 +4,7 @@ package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/ask.proto";
+import "agentmesh/v1/context.proto";
 import "agentmesh/v1/options.proto";
 import "agentmesh/v1/report.proto";
 import "agentmesh/v1/types.proto";
@@ -304,6 +305,37 @@ service MeshService {
       write: true
       cli: "unset"
       summary: "Reset a setting to its default"
+    };
+  }
+
+  // Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
+  // bootstrap text. Acts on the caller's own run's root.
+  rpc ResetRoot(ResetRootRequest) returns (ResetRootResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "reset"
+      summary: "Reset the root's context: a fresh session that rebuilds from its notes"
+    };
+  }
+
+  // What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
+  // headers and the last reset. Marks nothing read.
+  rpc GetBrief(GetBriefRequest) returns (GetBriefResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "brief"
+      summary: "Print the run's brief: the root card, notes, status and unread mail headers"
     };
   }
 
@@ -780,6 +812,38 @@ message ReportHookRequest {
 message ReportHookResponse {
   // The agent's state after the hook.
   AgentState state = 1;
+  // Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+  string context = 2;
+}
+
+message ResetRootRequest {
+  RequestMeta meta = 1;
+  // What the root does next after the reset; the bootstrap line carries it.
+  string next = 2;
+  // Compact the session instead of starting a fresh one (a Claude root only).
+  bool compact = 3;
+  // The run (a device names it; a root's is its own).
+  string run_id = 4;
+  // What a compacting reset keeps; empty is the CLI's own default.
+  string focus = 5;
+}
+
+message ResetRootResponse {
+  RootReset root_reset = 1;
+  // Notes: why nothing was started, or what it waits for.
+  repeated string notes = 2;
+}
+
+message GetBriefRequest {
+  // The run (a device names it; an agent's is its own).
+  string run_id = 1;
+  // An agent whose brief this is (a device names it); default the caller, else the run's root.
+  string agent = 2;
+}
+
+message GetBriefResponse {
+  // The brief, as text.
+  string text = 1;
 }
 
 message OpenTerminalRequest {
@@ -877,6 +941,10 @@ message ResumeAgentRequest {
   string why = 8;
   // Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
   string run_id = 9;
+  // Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+  string compact = 10;
+  // What the compaction keeps, instead of the default for the task.
+  string focus = 11;
 }
 
 message ResumeAgentResponse {

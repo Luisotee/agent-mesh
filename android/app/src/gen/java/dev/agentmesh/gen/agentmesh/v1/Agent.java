@@ -1804,6 +1804,228 @@ public  final class Agent extends
     mcp_.add(value.toStringUtf8());
   }
 
+  public static final int PENDING_COMPACTION_FIELD_NUMBER = 32;
+  private dev.agentmesh.gen.agentmesh.v1.PendingCompaction pendingCompaction_;
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPendingCompaction() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction() {
+    return pendingCompaction_ == null ? dev.agentmesh.gen.agentmesh.v1.PendingCompaction.getDefaultInstance() : pendingCompaction_;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  private void setPendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+    java.util.Objects.requireNonNull(value);
+    pendingCompaction_ = value;
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+    java.util.Objects.requireNonNull(value);
+    if (pendingCompaction_ != null &&
+        pendingCompaction_ != dev.agentmesh.gen.agentmesh.v1.PendingCompaction.getDefaultInstance()) {
+      pendingCompaction_ =
+        dev.agentmesh.gen.agentmesh.v1.PendingCompaction.newBuilder(pendingCompaction_).mergeFrom(value).buildPartial();
+    } else {
+      pendingCompaction_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  private void clearPendingCompaction() {
+    pendingCompaction_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
+  public static final int PENDING_RESET_FIELD_NUMBER = 33;
+  private dev.agentmesh.gen.agentmesh.v1.RootReset pendingReset_;
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPendingReset() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset() {
+    return pendingReset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : pendingReset_;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  private void setPendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    pendingReset_ = value;
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    if (pendingReset_ != null &&
+        pendingReset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
+      pendingReset_ =
+        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(pendingReset_).mergeFrom(value).buildPartial();
+    } else {
+      pendingReset_ = value;
+    }
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  private void clearPendingReset() {
+    pendingReset_ = null;
+    bitField0_ = (bitField0_ & ~0x00000010);
+  }
+
+  public static final int LAST_RESET_FIELD_NUMBER = 34;
+  private dev.agentmesh.gen.agentmesh.v1.RootReset lastReset_;
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.Override
+  public boolean hasLastReset() {
+    return ((bitField0_ & 0x00000020) != 0);
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset() {
+    return lastReset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : lastReset_;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  private void setLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    lastReset_ = value;
+    bitField0_ |= 0x00000020;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    if (lastReset_ != null &&
+        lastReset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
+      lastReset_ =
+        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(lastReset_).mergeFrom(value).buildPartial();
+    } else {
+      lastReset_ = value;
+    }
+    bitField0_ |= 0x00000020;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  private void clearLastReset() {
+    lastReset_ = null;
+    bitField0_ = (bitField0_ & ~0x00000020);
+  }
+
+  public static final int LAST_TURN_BY_MESH_FIELD_NUMBER = 35;
+  private boolean lastTurnByMesh_;
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @return The lastTurnByMesh.
+   */
+  @java.lang.Override
+  public boolean getLastTurnByMesh() {
+    return lastTurnByMesh_;
+  }
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @param value The lastTurnByMesh to set.
+   */
+  private void setLastTurnByMesh(boolean value) {
+    
+    lastTurnByMesh_ = value;
+  }
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   */
+  private void clearLastTurnByMesh() {
+
+    lastTurnByMesh_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -3734,6 +3956,238 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPendingCompaction() {
+      return instance.hasPendingCompaction();
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction() {
+      return instance.getPendingCompaction();
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder setPendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+      copyOnWrite();
+      instance.setPendingCompaction(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder setPendingCompaction(
+        dev.agentmesh.gen.agentmesh.v1.PendingCompaction.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPendingCompaction(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder mergePendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+      copyOnWrite();
+      instance.mergePendingCompaction(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder clearPendingCompaction() {  copyOnWrite();
+      instance.clearPendingCompaction();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPendingReset() {
+      return instance.hasPendingReset();
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset() {
+      return instance.getPendingReset();
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder setPendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.setPendingReset(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder setPendingReset(
+        dev.agentmesh.gen.agentmesh.v1.RootReset.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPendingReset(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder mergePendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.mergePendingReset(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder clearPendingReset() {  copyOnWrite();
+      instance.clearPendingReset();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    @java.lang.Override
+    public boolean hasLastReset() {
+      return instance.hasLastReset();
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset() {
+      return instance.getLastReset();
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder setLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.setLastReset(value);
+      return this;
+      }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder setLastReset(
+        dev.agentmesh.gen.agentmesh.v1.RootReset.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLastReset(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder mergeLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.mergeLastReset(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder clearLastReset() {  copyOnWrite();
+      instance.clearLastReset();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @return The lastTurnByMesh.
+     */
+    @java.lang.Override
+    public boolean getLastTurnByMesh() {
+      return instance.getLastTurnByMesh();
+    }
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @param value The lastTurnByMesh to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLastTurnByMesh(boolean value) {
+      copyOnWrite();
+      instance.setLastTurnByMesh(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLastTurnByMesh() {
+      copyOnWrite();
+      instance.clearLastTurnByMesh();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3782,14 +4236,18 @@ public  final class Agent extends
             "resumedFromAgentId_",
             "peer_",
             "mcp_",
+            "pendingCompaction_",
+            "pendingReset_",
+            "lastReset_",
+            "lastTurnByMesh_",
           };
           java.lang.String info =
-              "\u0000\u001f\u0000\u0001\u0001\u001f\u001f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
-              "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a" +
-              "";
+              "\u0000#\u0000\u0001\u0001##\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
+              "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
+              "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
+              "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
+              "!\u1009\u0004\"\u1009\u0005#\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

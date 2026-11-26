@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package agentmesh.adapter.v1;
 
+import "agentmesh/v1/context.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -22,6 +23,11 @@ service CliAdapterService {
   // DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
   // capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
   rpc DeliverNative(DeliverNativeRequest) returns (DeliverNativeResponse);
+  // MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
+  // compacts itself) is never compacted by mesh.
+  rpc MeasureContext(MeasureContextRequest) returns (MeasureContextResponse);
+  // PlanCompact says how to compact a stopped conversation headless, before it is reopened.
+  rpc PlanCompact(PlanCompactRequest) returns (PlanCompactResponse);
 }
 
 message DescribeRequest {}
@@ -178,6 +184,37 @@ message DescribeModelResponse {
   string effort = 1;
 }
 
+message MeasureContextRequest {
+  string session_id = 1;
+  string cwd = 2;
+  // The environment the CLI's records are found by (HOME).
+  map<string, string> env = 3;
+}
+
+message MeasureContextResponse {
+  agentmesh.v1.ContextUsage usage = 1;
+}
+
+message PlanCompactRequest {
+  string binary = 1;
+  string session_id = 2;
+  string cwd = 3;
+  map<string, string> env = 4;
+  string model = 5;
+  string effort = 6;
+  // What the compaction keeps.
+  string focus = 7;
+  // The agent's lean session policy (Claude), so the compaction loads no more than the agent did.
+  LeanLaunch lean = 8;
+  // Tools denied by name, as at launch (a read-only agent's).
+  repeated string deny_tools = 9;
+}
+
+message PlanCompactResponse {
+  repeated string argv = 1;
+  map<string, string> env = 2;
+}
+
 message DecodeHookRequest {
   string agent_id = 1;
   // The conversation id the daemon knows for the agent; hooks from another conversation are dropped.
@@ -217,7 +254,10 @@ message SessionStarted {
   string source = 2;
 }
 
-message TurnStarted {}
+message TurnStarted {
+  // The turn began with a mesh doorbell (`📬 [mesh]`), not text the user typed. False when unknown.
+  bool by_mesh = 1;
+}
 
 // Something happened in a turn (a tool ran); keeps the agent from reading as unknown.
 message Activity {

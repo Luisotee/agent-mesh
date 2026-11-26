@@ -158,6 +158,12 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if err != nil {
 		return err
 	}
+	if held, err := d.resetStep(ctx, a); held || err != nil {
+		return err // a root's reset first: no doorbell is typed into a root that is being reset
+	}
+	if held, err := d.compactStep(ctx, a); held || err != nil {
+		return err // a compaction first: the reopen and the doorbell wait for it
+	}
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)
 	}

@@ -28,4 +28,24 @@ public interface ReportHookResponseOrBuilder extends
    * @return The state.
    */
   dev.agentmesh.gen.agentmesh.v1.AgentState getState();
+
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @return The context.
+   */
+  java.lang.String getContext();
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @return The bytes for context.
+   */
+  com.google.protobuf.ByteString
+      getContextBytes();
 }

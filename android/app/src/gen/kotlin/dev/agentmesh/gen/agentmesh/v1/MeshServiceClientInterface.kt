@@ -115,6 +115,18 @@ public interface MeshServiceClientInterface {
   public suspend fun resetSetting(request: ResetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<ResetSettingResponse>
 
   /**
+   *  Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
+   *  bootstrap text. Acts on the caller's own run's root.
+   */
+  public suspend fun resetRoot(request: ResetRootRequest, headers: Headers = emptyMap()): ResponseMessage<ResetRootResponse>
+
+  /**
+   *  What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
+   *  headers and the last reset. Marks nothing read.
+   */
+  public suspend fun getBrief(request: GetBriefRequest, headers: Headers = emptyMap()): ResponseMessage<GetBriefResponse>
+
+  /**
    *  A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
    */
   public suspend fun reportHook(request: ReportHookRequest, headers: Headers = emptyMap()): ResponseMessage<ReportHookResponse>

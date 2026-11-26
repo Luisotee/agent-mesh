@@ -64,7 +64,7 @@ public interface ReopenOrBuilder extends
 
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -73,7 +73,7 @@ public interface ReopenOrBuilder extends
   java.lang.String getWhy();
   /**
    * <pre>
-   * "plan approved", "moved", "quota", "resumed".
+   * "plan approved", "moved", "quota", "resumed", "reset".
    * </pre>
    *
    * <code>string why = 5 [json_name = "why"];</code>
@@ -123,4 +123,15 @@ public interface ReopenOrBuilder extends
    * @return The requestedBy.
    */
   dev.agentmesh.gen.agentmesh.v1.Actor getRequestedBy();
+
+  /**
+   * <pre>
+   * Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+   * cleared; the new process records its own.
+   * </pre>
+   *
+   * <code>bool fresh = 9 [json_name = "fresh"];</code>
+   * @return The fresh.
+   */
+  boolean getFresh();
 }

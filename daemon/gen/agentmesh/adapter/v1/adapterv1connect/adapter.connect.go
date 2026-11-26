@@ -54,6 +54,12 @@ const (
 	// CliAdapterServiceDeliverNativeProcedure is the fully-qualified name of the CliAdapterService's
 	// DeliverNative RPC.
 	CliAdapterServiceDeliverNativeProcedure = "/agentmesh.adapter.v1.CliAdapterService/DeliverNative"
+	// CliAdapterServiceMeasureContextProcedure is the fully-qualified name of the CliAdapterService's
+	// MeasureContext RPC.
+	CliAdapterServiceMeasureContextProcedure = "/agentmesh.adapter.v1.CliAdapterService/MeasureContext"
+	// CliAdapterServicePlanCompactProcedure is the fully-qualified name of the CliAdapterService's
+	// PlanCompact RPC.
+	CliAdapterServicePlanCompactProcedure = "/agentmesh.adapter.v1.CliAdapterService/PlanCompact"
 )
 
 // CliAdapterServiceClient is a client for the agentmesh.adapter.v1.CliAdapterService service.
@@ -71,6 +77,11 @@ type CliAdapterServiceClient interface {
 	// DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
 	// capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
 	DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error)
+	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
+	// compacts itself) is never compacted by mesh.
+	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
+	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
 
 // NewCliAdapterServiceClient constructs a client for the agentmesh.adapter.v1.CliAdapterService
@@ -126,18 +137,32 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("DeliverNative")),
 			connect.WithClientOptions(opts...),
 		),
+		measureContext: connect.NewClient[v1.MeasureContextRequest, v1.MeasureContextResponse](
+			httpClient,
+			baseURL+CliAdapterServiceMeasureContextProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
+			connect.WithClientOptions(opts...),
+		),
+		planCompact: connect.NewClient[v1.PlanCompactRequest, v1.PlanCompactResponse](
+			httpClient,
+			baseURL+CliAdapterServicePlanCompactProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // cliAdapterServiceClient implements CliAdapterServiceClient.
 type cliAdapterServiceClient struct {
-	describe      *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
-	planLaunch    *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
-	decodeHook    *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
-	lookupSession *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
-	describeModel *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
-	readInputBox  *connect.Client[v1.ReadInputBoxRequest, v1.ReadInputBoxResponse]
-	deliverNative *connect.Client[v1.DeliverNativeRequest, v1.DeliverNativeResponse]
+	describe       *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
+	planLaunch     *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
+	decodeHook     *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
+	lookupSession  *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
+	describeModel  *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
+	readInputBox   *connect.Client[v1.ReadInputBoxRequest, v1.ReadInputBoxResponse]
+	deliverNative  *connect.Client[v1.DeliverNativeRequest, v1.DeliverNativeResponse]
+	measureContext *connect.Client[v1.MeasureContextRequest, v1.MeasureContextResponse]
+	planCompact    *connect.Client[v1.PlanCompactRequest, v1.PlanCompactResponse]
 }
 
 // Describe calls agentmesh.adapter.v1.CliAdapterService.Describe.
@@ -175,6 +200,16 @@ func (c *cliAdapterServiceClient) DeliverNative(ctx context.Context, req *connec
 	return c.deliverNative.CallUnary(ctx, req)
 }
 
+// MeasureContext calls agentmesh.adapter.v1.CliAdapterService.MeasureContext.
+func (c *cliAdapterServiceClient) MeasureContext(ctx context.Context, req *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error) {
+	return c.measureContext.CallUnary(ctx, req)
+}
+
+// PlanCompact calls agentmesh.adapter.v1.CliAdapterService.PlanCompact.
+func (c *cliAdapterServiceClient) PlanCompact(ctx context.Context, req *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
+	return c.planCompact.CallUnary(ctx, req)
+}
+
 // CliAdapterServiceHandler is an implementation of the agentmesh.adapter.v1.CliAdapterService
 // service.
 type CliAdapterServiceHandler interface {
@@ -191,6 +226,11 @@ type CliAdapterServiceHandler interface {
 	// DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
 	// capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
 	DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error)
+	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
+	// compacts itself) is never compacted by mesh.
+	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
+	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
 
 // NewCliAdapterServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -242,6 +282,18 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("DeliverNative")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceMeasureContextHandler := connect.NewUnaryHandler(
+		CliAdapterServiceMeasureContextProcedure,
+		svc.MeasureContext,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cliAdapterServicePlanCompactHandler := connect.NewUnaryHandler(
+		CliAdapterServicePlanCompactProcedure,
+		svc.PlanCompact,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.adapter.v1.CliAdapterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CliAdapterServiceDescribeProcedure:
@@ -258,6 +310,10 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServiceReadInputBoxHandler.ServeHTTP(w, r)
 		case CliAdapterServiceDeliverNativeProcedure:
 			cliAdapterServiceDeliverNativeHandler.ServeHTTP(w, r)
+		case CliAdapterServiceMeasureContextProcedure:
+			cliAdapterServiceMeasureContextHandler.ServeHTTP(w, r)
+		case CliAdapterServicePlanCompactProcedure:
+			cliAdapterServicePlanCompactHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -293,4 +349,12 @@ func (UnimplementedCliAdapterServiceHandler) ReadInputBox(context.Context, *conn
 
 func (UnimplementedCliAdapterServiceHandler) DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DeliverNative is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.MeasureContext is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.PlanCompact is not implemented"))
 }

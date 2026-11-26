@@ -3,6 +3,7 @@ syntax = "proto3";
 package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
+import "agentmesh/v1/context.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -123,6 +124,14 @@ message Agent {
   // The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
   // (`claude.mcp_keep`); every reopen keeps them.
   repeated string mcp = 31;
+  // A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+  PendingCompaction pending_compaction = 32;
+  // A root's reset asked for and not done yet, and the last one finished (or failed).
+  RootReset pending_reset = 33;
+  RootReset last_reset = 34;
+  // Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+  // 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+  bool last_turn_by_mesh = 35;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -142,12 +151,15 @@ message Reopen {
   string model = 2;
   string effort = 3;
   bool deny_edits = 4;
-  // "plan approved", "moved", "quota", "resumed".
+  // "plan approved", "moved", "quota", "resumed", "reset".
   string why = 5;
   // The caller's own reason, when it gave one.
   string reason = 6;
   google.protobuf.Timestamp requested_at = 7;
   Actor requested_by = 8;
+  // Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+  // cleared; the new process records its own.
+  bool fresh = 9;
 }
 
 enum MessageType {
@@ -217,8 +229,11 @@ message Event {
     RunStopped run_stopped = 24;
     ReserveChanged reserve_changed = 27;
     AgentRoleChanged agent_role_changed = 28;
-    DoorbellFailed doorbell_failed = 29;
-    DoorbellHeld doorbell_held = 30;
+    AgentCompacted agent_compacted = 29;
+    RootResetRequested root_reset_requested = 30;
+    RootResetFinished root_reset_finished = 31;
+    DoorbellFailed doorbell_failed = 32;
+    DoorbellHeld doorbell_held = 33;
   }
 }
 

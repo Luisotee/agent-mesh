@@ -479,3 +479,32 @@ func TestAReadDoesNotMeanTheProtocolPointerWasSeen(t *testing.T) {
 		}
 	}
 }
+
+func TestAResetWaitsOnADraftAUserLeftInTheRootsBox(t *testing.T) {
+	// A user typed into the root and detached: nobody is typing now, but the draft is in the box. The reset's
+	// /clear (and its bootstrap, and a live /compact: they ask the same question) is not typed after it.
+	w := startReset(t, daemon.ResetTimings{}, func(c *daemon.AgentConfig) {
+		c.Env["FAKECLAUDE_BOX"] = "1"
+		c.TypingQuiet = 200 * time.Millisecond
+	})
+	w.setSetting(t, "root_reset.relaunch", false)
+	w.setSetting(t, "root_reset.wait", 2.0)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	w.typeInto(w.agent(lead.Id), "a half-written thought")
+	waitFor(t, "the draft on the screen", func() bool { return strings.Contains(w.screen(t, w.agent(lead.Id)), "a half-written thought") })
+	time.Sleep(500 * time.Millisecond) // past TypingQuiet: only the draft is left to hold the reset
+	if _, err := asLead.ResetRoot(context.Background(), connect.NewRequest(&v1.ResetRootRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReset(t, lead.Id, "failed")
+	if !strings.Contains(after.LastReset.Reason, "someone is typing into it") {
+		t.Errorf("reason %q", after.LastReset.Reason)
+	}
+	if got := w.typed(); strings.Contains(got, "/clear") {
+		t.Errorf("a /clear was typed after a draft: %q", got)
+	}
+	if !strings.Contains(w.screen(t, w.agent(lead.Id)), "a half-written thought") {
+		t.Error("the draft is gone from the box")
+	}
+}
