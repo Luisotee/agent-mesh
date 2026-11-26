@@ -17,17 +17,32 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
+// parseHand parses a hand-written command's flags. --help prints the usage to stdout and succeeds; a bad flag
+// prints the error and the usage to stderr. done says the command is over, with code.
+func parseHand(fs *flag.FlagSet, args []string, env Env) (code int, done bool) {
+	fs.SetOutput(io.Discard)
+	err := fs.Parse(args)
+	switch {
+	case err == nil:
+		return 0, false
+	case errors.Is(err, flag.ErrHelp):
+		fs.SetOutput(env.Stdout)
+		fs.Usage()
+		return ExitOK, true
+	}
+	fs.SetOutput(env.Stderr)
+	fmt.Fprintln(env.Stderr, err)
+	fs.Usage()
+	return ExitUsage, true
+}
+
 // Whoami prints who the caller is to the daemon, as JSON: its role, name and id, its run and run folder, and for
 // an agent its parent. It is `mesh whoami`: an agent reads its identity here instead of the environment.
 func Whoami(env Env, args []string) int {
 	fs := flag.NewFlagSet("mesh whoami", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
 	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return ExitOK
-		}
-		return ExitUsage
+	if code, done := parseHand(fs, args, env); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprintln(env.Stderr, "mesh whoami: takes no arguments")
@@ -76,14 +91,10 @@ var runIDRE = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 // An agent's is its own run's; anyone else names one with --run.
 func Dir(env Env, args []string) int {
 	fs := flag.NewFlagSet("mesh dir", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
 	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	run := fs.String("run", "", "the run (default: your own)")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return ExitOK
-		}
-		return ExitUsage
+	if code, done := parseHand(fs, args, env); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprintln(env.Stderr, "mesh dir: takes no arguments")

@@ -407,11 +407,35 @@ func TestGlobalStateReachesWhoamiAndDir(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
-	if code := Dir(env, []string{"--help"}); code != ExitOK {
-		t.Errorf("dir --help: %d", code)
+	if code := Dir(env, []string{"--help"}); code != ExitOK || !strings.Contains(out.String(), "-run") || errb.Len() != 0 {
+		t.Errorf("dir --help: %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
-	if code := Whoami(env, []string{"-h"}); code != ExitOK {
-		t.Errorf("whoami -h: %d", code)
+	out.Reset()
+	if code := Whoami(env, []string{"-h"}); code != ExitOK || !strings.Contains(out.String(), "-state") || errb.Len() != 0 {
+		t.Errorf("whoami -h: %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+	// A bad flag says so on stderr, with the usage, and prints nothing to stdout.
+	out.Reset()
+	if code := Dir(env, []string{"--nope"}); code != ExitUsage || out.Len() != 0 || !strings.Contains(errb.String(), "nope") ||
+		!strings.Contains(errb.String(), "-run") {
+		t.Errorf("dir --nope: %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}
+
+// `mesh --help` is `mesh help`: the usage on stdout, exit 0; a bad global flag is a usage error on stderr only.
+func TestGlobalHelpIsTheHelpCommand(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"--state", "/s", "--help"}} {
+		var out, errb bytes.Buffer
+		env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+		if code := Main(args, env, nil); code != ExitOK || !strings.Contains(out.String(), "usage: mesh") || errb.Len() != 0 {
+			t.Errorf("%v: %d stdout %q stderr %q", args, code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"--nope"}, env, nil); code != ExitUsage || out.Len() != 0 || !strings.Contains(errb.String(), "nope") ||
+		!strings.Contains(errb.String(), "usage: mesh") {
+		t.Errorf("--nope: %d stdout %q stderr %q", code, out.String(), errb.String())
 	}
 }
 
