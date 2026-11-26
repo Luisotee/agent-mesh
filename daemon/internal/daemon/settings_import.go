@@ -116,10 +116,14 @@ func (d *Daemon) ImportSettings(ctx context.Context, req *connect.Request[v1.Imp
 			return err
 		})
 	} else {
+		// d.write stores `out` as the mutation's response, so the result goes into it (a retry replays it).
 		_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceImportSettingsProcedure, out, func(t *store.Tx) error {
-			var err error
-			out, err = d.applyPolicy(t.Reader, t, vals, skips, m.Overwrite)
-			return err
+			res, err := d.applyPolicy(t.Reader, t, vals, skips, m.Overwrite)
+			if err != nil {
+				return err
+			}
+			out.Imported, out.Skipped = res.Imported, res.Skipped
+			return nil
 		})
 	}
 	if err != nil {

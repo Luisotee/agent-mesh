@@ -163,6 +163,10 @@ func TestImportSettingsAppliesOnDemandAndKeepsWhatIsSet(t *testing.T) {
 	if setting(t, h, "compact.claude").Value.GetNumberValue() != 1 {
 		t.Error("a set leaf was replaced")
 	}
+	// A retry with the same mutation id replays the first answer, not a fresh (empty) one.
+	if replay := call("one", &v1.ImportSettingsRequest{From: file}); len(replay.Imported) != 5 {
+		t.Errorf("replay: %v", replay.Imported)
+	}
 	if again := call("two", &v1.ImportSettingsRequest{From: file}); len(again.Imported) != 0 {
 		t.Errorf("a second import changed %v", again.Imported)
 	}
