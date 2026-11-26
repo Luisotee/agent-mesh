@@ -304,6 +304,23 @@ public class MeshServiceClient(
 
 
   /**
+   *  Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+   *  maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+   *  `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+   */
+  override suspend fun importSettings(request: ImportSettingsRequest, headers: Headers): ResponseMessage<ImportSettingsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ImportSettings",
+      dev.agentmesh.gen.agentmesh.v1.ImportSettingsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ImportSettingsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Put a setting back to its default.
    */
   override suspend fun resetSetting(request: ResetSettingRequest, headers: Headers): ResponseMessage<ResetSettingResponse> = client.unary(
@@ -603,6 +620,22 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/CheckModels",
       dev.agentmesh.gen.agentmesh.v1.CheckModelsRequest::class,
       dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+   *  standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+   */
+  override suspend fun resolveModel(request: ResolveModelRequest, headers: Headers): ResponseMessage<ResolveModelResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ResolveModel",
+      dev.agentmesh.gen.agentmesh.v1.ResolveModelRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ResolveModelResponse::class,
       StreamType.UNARY,
     ),
   )

@@ -7,7 +7,7 @@ Wants=agent-mesh-term.service
 After=agent-mesh-term.service
 
 [Service]
-ExecStart=%h/.local/lib/agent-mesh/bin/meshd --state %S/agent-mesh-daemon --term-launch systemd --term-unit agent-mesh-term.service
+ExecStart=%h/.local/lib/agent-mesh/bin/meshd --state %S/agent-mesh-daemon --term-launch systemd --term-unit agent-mesh-term.service --policy-file %h/.config/agent-mesh.json
 Restart=on-failure
 RestartSec=2
 # Bounded shutdown: meshd ends its event streams and stops within a few seconds.

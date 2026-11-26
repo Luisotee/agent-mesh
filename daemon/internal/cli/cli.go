@@ -546,7 +546,11 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Get(i)
 		if isPathField(f) && c.req.Has(f) {
-			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(c.req.Get(f).String(), c.env)))
+			val := c.req.Get(f).String()
+			if isRepoNameField(f) && bareRepoName(val) && !localFolder(val, c.env) {
+				continue // a name for the daemon to look up in its `repos.dir` setting
+			}
+			c.req.Set(f, protoreflect.ValueOfString(resolveCLIPath(val, c.env)))
 		}
 	}
 	if c.action.Write {
@@ -575,6 +579,32 @@ func isPathField(f protoreflect.FieldDescriptor) bool {
 	}
 	fopts, _ := f.Options().(*descriptorpb.FieldOptions)
 	return fopts != nil && proto.HasExtension(fopts, v1.E_Path) && proto.GetExtension(fopts, v1.E_Path).(bool)
+}
+
+// isRepoNameField marks a path field that may hold a bare repo name (`(agentmesh.v1.repo_name)`).
+func isRepoNameField(f protoreflect.FieldDescriptor) bool {
+	fopts, _ := f.Options().(*descriptorpb.FieldOptions)
+	return fopts != nil && proto.HasExtension(fopts, v1.E_RepoName) && proto.GetExtension(fopts, v1.E_RepoName).(bool)
+}
+
+func bareRepoName(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/") && !strings.HasPrefix(s, "~") &&
+		!strings.HasPrefix(s, "-") && !cliURLRE.MatchString(s)
+}
+
+// localFolder reports whether a folder of that name is in the working directory: then it is the repo meant, as
+// it was before names existed, and the setting isn't consulted.
+func localFolder(name string, env Env) bool {
+	getwd := env.Getwd
+	if getwd == nil {
+		getwd = os.Getwd
+	}
+	wd, err := getwd()
+	if err != nil || wd == "" {
+		return true
+	}
+	st, err := os.Stat(filepath.Join(wd, name))
+	return err == nil && st.IsDir()
 }
 
 func resolveCLIPath(s string, env Env) string {

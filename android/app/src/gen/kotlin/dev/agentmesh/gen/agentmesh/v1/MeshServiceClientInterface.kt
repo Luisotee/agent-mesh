@@ -110,6 +110,13 @@ public interface MeshServiceClientInterface {
   public suspend fun setSetting(request: SetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<SetSettingResponse>
 
   /**
+   *  Carry bin/mesh's policy file (`~/.config/agent-mesh.json`) over: each leaf it names that this host has (or
+   *  maps: `repos_dir`, `peers_dir`, `copilot_model`) is stored as a setting, except one already set unless
+   *  `overwrite`. The file is only read; a key that can't be imported is reported and skipped.
+   */
+  public suspend fun importSettings(request: ImportSettingsRequest, headers: Headers = emptyMap()): ResponseMessage<ImportSettingsResponse>
+
+  /**
    *  Put a setting back to its default.
    */
   public suspend fun resetSetting(request: ResetSettingRequest, headers: Headers = emptyMap()): ResponseMessage<ResetSettingResponse>
@@ -213,6 +220,12 @@ public interface MeshServiceClientInterface {
    *  Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
    */
   public suspend fun checkModels(request: CheckModelsRequest, headers: Headers = emptyMap()): ResponseMessage<CheckModelsResponse>
+
+  /**
+   *  What a spawn of a kind and tier would run now: the model and effort, and the tier's chain with each model's
+   *  standing (held at a limit, at the quota reserve). The same pick a spawn makes; it starts nothing.
+   */
+  public suspend fun resolveModel(request: ResolveModelRequest, headers: Headers = emptyMap()): ResponseMessage<ResolveModelResponse>
 
   /**
    *  Find which run branches with commits conflict with their base or each other, and which workers share files.

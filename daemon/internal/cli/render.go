@@ -19,16 +19,18 @@ var renderers = map[string]struct {
 	into func() proto.Message
 	text func(proto.Message, io.Writer)
 }{
-	"inbox":         {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
-	"settings":      {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
-	"usage":         {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
-	"cost":          {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
-	"models":        {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
-	"conflicts":     {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
-	"tools":         {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
-	"tools-servers": {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
-	"brief":         {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
-	"reset":         {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
+	"inbox":           {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
+	"settings":        {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
+	"usage":           {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
+	"cost":            {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
+	"models":          {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
+	"model":           {func() proto.Message { return &v1.ResolveModelResponse{} }, renderModel},
+	"import-settings": {func() proto.Message { return &v1.ImportSettingsResponse{} }, renderImportSettings},
+	"conflicts":       {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
+	"tools":           {func() proto.Message { return &v1.ListToolsResponse{} }, renderTools},
+	"tools-servers":   {func() proto.Message { return &v1.ListMCPServersResponse{} }, renderToolsServers},
+	"brief":           {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
+	"reset":           {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 }
 
 // hasText reports whether a command has a text form (and so a --format flag).
@@ -379,6 +381,37 @@ func renderModels(m proto.Message, w io.Writer) {
 		fmt.Fprintln(w, r.Notice)
 	} else {
 		fmt.Fprintln(w, "mesh: nothing new or retired since the tiers were set")
+	}
+}
+
+func renderModel(m proto.Message, w io.Writer) {
+	r := m.(*v1.ResolveModelResponse)
+	fmt.Fprintf(w, "%s %s\n", r.Model, r.Effort)
+	for _, c := range r.Chain {
+		line := "  " + c.Model
+		if c.Standing != "" {
+			line += "   (" + c.Standing + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+}
+
+func renderImportSettings(m proto.Message, w io.Writer) {
+	r := m.(*v1.ImportSettingsResponse)
+	verb := "imported"
+	if r.DryRun {
+		verb = "would import"
+	}
+	fmt.Fprintf(w, "%s: %s %d setting(s)\n", r.File, verb, len(r.Imported))
+	for _, s := range r.Imported {
+		line := "  " + s.Key + " = " + jsonOf(s.Value)
+		if s.From != "" {
+			line += "   (from " + s.From + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+	for _, s := range r.Skipped {
+		fmt.Fprintln(w, "  left alone: "+s)
 	}
 }
 

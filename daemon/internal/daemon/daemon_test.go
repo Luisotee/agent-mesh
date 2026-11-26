@@ -34,13 +34,20 @@ type harness struct {
 	done   chan error
 }
 
-func start(t *testing.T, state string) *harness {
+func start(t *testing.T, state string) *harness { return startWith(t, state, nil) }
+
+// startWith is start with a say in the config.
+func startWith(t *testing.T, state string, tweak func(*daemon.Config)) *harness {
 	t.Helper()
 	if state == "" {
 		state = filepath.Join(t.TempDir(), "state")
 	}
-	d, err := daemon.New(daemon.Config{StateDir: state, TCP: "127.0.0.1:0",
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	cfg := daemon.Config{StateDir: state, TCP: "127.0.0.1:0",
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	d, err := daemon.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

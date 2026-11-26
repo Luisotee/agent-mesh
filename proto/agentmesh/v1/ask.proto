@@ -125,8 +125,8 @@ message AskRequest {
   // An existing agent of this run, by name, to ask or to ask again (it is resumed if retired). Without it, a
   // fresh agent is started in `repo`.
   string agent = 2;
-  // The git repository a fresh asker or reviewer works in.
-  string repo = 3 [(path) = true];
+  // The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+  string repo = 3 [(path) = true, (repo_name) = true];
   // The question, or the notes to the reviewers; `@file` reads it from a file.
   string body = 4;
   // A pull request to review (its URL or number in `repo`): the ask is a review, of the PR's head commit.

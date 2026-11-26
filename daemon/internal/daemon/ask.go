@@ -132,7 +132,7 @@ func topOf(ctx context.Context, repo string) (string, error) {
 // askFresh starts an asker with a read-only question. Its own `done` is the answer: no collecting.
 func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
 	actor := auth.ActorFrom(ctx)
-	top, err := topOf(ctx, m.Repo)
+	top, err := d.repoTop(ctx, m.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 // reviewOne starts one fresh reviewer, at the PR's head. Its own `done` is the answer: no collecting, but the
 // ask is kept, so a later round knows which head was reviewed.
 func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
-	top, err := topOf(ctx, m.Repo)
+	top, err := d.repoTop(ctx, m.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if m.Model != "" || m.Kind != "" {
 		return nil, invalid("a round picks its own kinds (--reviewers) on a tier: model and kind are for one reviewer")
 	}
-	top, err := topOf(ctx, m.Repo)
+	top, err := d.repoTop(ctx, m.Repo)
 	if err != nil {
 		return nil, err
 	}

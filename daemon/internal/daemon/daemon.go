@@ -72,6 +72,10 @@ type Config struct {
 	// Settings is the table of settings the host knows; nil is settings.Default().
 	Settings *settings.Schema
 
+	// PolicyFile is bin/mesh's policy file (`~/.config/agent-mesh.json`), imported into the settings the first
+	// time meshd starts with that path (settings_import.go). No default: a dev or test run reads none.
+	PolicyFile string
+
 	// Agents (agents.go). With no TermLaunch the daemon runs without terminals and can't spawn agents.
 	Agents AgentConfig
 }
@@ -209,6 +213,7 @@ func New(cfg Config) (*Daemon, error) {
 	if err := d.ensureDeviceToken(context.Background()); err != nil {
 		return nil, err
 	}
+	d.importPolicyAtStart(context.Background())
 	ok = true
 	return d, nil
 }

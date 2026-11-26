@@ -44,6 +44,7 @@ func main() {
 	flag.StringVar(mesh, "meshctl", filepath.Join(here, "mesh"), "the old name of --mesh")
 	share := flag.String("share", filepath.Join(here, "..", "share"), "the daemon's protocol and skills (protocol/, skills/): agents get it as $"+client.ShareEnv+", their first doorbell names its protocol, and Claude agents load its skills; ignored when it isn't there")
 	worktrees := flag.String("worktrees", "", "where agents' worktrees go (default <state>/worktrees)")
+	policyFile := flag.String("policy-file", "", "bin/mesh's policy file (~/.config/agent-mesh.json): imported into the settings the first time meshd starts with this path (never read again; `mesh import-settings` re-applies it)")
 	skip := flag.Bool("skip-permissions", false, "start agents with their CLI's permission prompts off")
 	noLoginPath := flag.Bool("no-login-path", false, "do not resolve PATH from a login shell at startup")
 	var bins, envs multi
@@ -128,9 +129,10 @@ func main() {
 		}
 	}
 	d, err := daemon.New(daemon.Config{
-		StateDir: *state,
-		TCP:      *tcp,
-		Listen:   *listen,
+		StateDir:   *state,
+		PolicyFile: *policyFile,
+		TCP:        *tcp,
+		Listen:     *listen,
 		Relay: daemon.RelayConfig{
 			URL:      *relayURL,
 			TCP:      *relayTCP,

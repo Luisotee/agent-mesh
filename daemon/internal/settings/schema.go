@@ -327,6 +327,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds a round of reviewers (or another collected ask) waits for its members: the ones still silent are then settled as not answered, and you get what came in"},
 		Leaf{Key: "peers.dir", Type: String, Default: "~/research",
 			Summary: "where `mesh add-peer <url>` clones a project: <dir>/<group>/<repo> (a leading ~ is the daemon's home)"},
+		Leaf{Key: "repos.dir", Type: Strings, Default: []any{},
+			Summary: "folders a bare `--repo <name>` is looked up in, in order: the name must be a repo's own top folder there (a leading ~ is the daemon's home); a repo in the caller's working directory needs no setting"},
 		Leaf{Key: "quota_stop", Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Type: Seconds, Default: 300.0,
