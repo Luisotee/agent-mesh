@@ -54,6 +54,9 @@ fun messageSent(seq: Long, m: Message, at: Long = 5_000) = ev(seq, at, runId = m
 fun phaseChanged(seq: Long, agentId: String, to: dev.agentmesh.gen.agentmesh.v1.AgentPhase) =
     ev(seq, agentId = agentId) { setAgentPhaseChanged(dev.agentmesh.gen.agentmesh.v1.AgentPhaseChanged.newBuilder().setTo(to).setWhy("plan approved")) }
 
+fun roleChanged(seq: Long, agentId: String, to: dev.agentmesh.gen.agentmesh.v1.AgentRole) =
+    ev(seq, agentId = agentId) { setAgentRoleChanged(dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged.newBuilder().setTo(to).setWhy("change task")) }
+
 fun reopened(seq: Long, agentId: String, model: String, terminal: String) =
     ev(seq, agentId = agentId) {
         setAgentReopened(

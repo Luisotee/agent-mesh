@@ -135,6 +135,7 @@ export function hostRefresher(
         case 'agentReopenDropped':
         case 'agentReopened':
         case 'agentPhaseChanged':
+        case 'agentRoleChanged':
         case 'agentAdopted':
           agentTouches++
           return

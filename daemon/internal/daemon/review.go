@@ -185,8 +185,8 @@ func (d *Daemon) installed(kind string) bool {
 }
 
 // prAuthorKind is the CLI kind of the agent that wrote the PR: the newest agent on the host whose branch is
-// the PR's head ref. A reviewer of another CLI is worth more, so it goes last in a slot's choices.
-func prAuthorKind(r store.Reader, headRef string) string {
+// the PR's head ref in this repo. A reviewer of another CLI is worth more, so it goes last in a slot's choices.
+func prAuthorKind(r store.Reader, top, headRef string) string {
 	if headRef == "" {
 		return ""
 	}
@@ -195,7 +195,7 @@ func prAuthorKind(r store.Reader, headRef string) string {
 		return ""
 	}
 	for i := len(agents) - 1; i >= 0; i-- {
-		if agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if agents[i].Repo == top && agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
 			return agents[i].Kind
 		}
 	}
@@ -221,6 +221,38 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 		if !has(kinds, k) {
 			kinds = append(kinds, k)
 		}
+	}
+	fill := func(left []string) error {
+		v, err := d.Setting(r, "review.reviewers."+key)
+		if err != nil {
+			return err
+		}
+		slots, _ := v.([]any)
+		for i, sl := range slots {
+			var chain []string
+			for _, x := range sl.([]any) {
+				chain = append(chain, x.(string))
+			}
+			// The author's kind last, whatever the slot lists first.
+			sort.SliceStable(chain, func(a, b int) bool { return chain[a] != author && chain[b] == author })
+			picked := false
+			var missing []string
+			for _, k := range chain {
+				if !d.installed(k) {
+					missing = append(missing, k)
+				} else if !has(kinds, k) && !has(left, k) {
+					kinds, picked = append(kinds, k), true
+					if len(missing) > 0 {
+						notes = append(notes, fmt.Sprintf("%s is not installed here: slot %d takes %s", strings.Join(missing, ", "), i+1, k))
+					}
+					break
+				}
+			}
+			if !picked {
+				notes = append(notes, fmt.Sprintf("slot %d (%s): no kind of it is installed or free: no reviewer for it", i+1, strings.Join(chain, ", ")))
+			}
+		}
+		return nil
 	}
 	switch {
 	case mode == "all":
@@ -257,35 +289,15 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, author string, earlie
 				add(k)
 			}
 		}
-	default:
-		v, err := d.Setting(r, "review.reviewers."+key)
-		if err != nil {
-			return nil, nil, err
+		// Nobody left of the earlier round (all skipped or gone): the slots fill again without the skipped kinds.
+		if len(kinds) == 0 {
+			if err := fill(skip); err != nil {
+				return nil, nil, err
+			}
 		}
-		slots, _ := v.([]any)
-		for i, sl := range slots {
-			var chain []string
-			for _, x := range sl.([]any) {
-				chain = append(chain, x.(string))
-			}
-			// The author's kind last, whatever the slot lists first.
-			sort.SliceStable(chain, func(a, b int) bool { return chain[a] != author && chain[b] == author })
-			picked := false
-			var missing []string
-			for _, k := range chain {
-				if !d.installed(k) {
-					missing = append(missing, k)
-				} else if !has(kinds, k) {
-					kinds, picked = append(kinds, k), true
-					if len(missing) > 0 {
-						notes = append(notes, fmt.Sprintf("%s is not installed here: slot %d takes %s", strings.Join(missing, ", "), i+1, k))
-					}
-					break
-				}
-			}
-			if !picked {
-				notes = append(notes, fmt.Sprintf("slot %d (%s): no kind of it is installed or free: no reviewer for it", i+1, strings.Join(chain, ", ")))
-			}
+	default:
+		if err := fill(nil); err != nil {
+			return nil, nil, err
 		}
 	}
 	if len(kinds) == 0 {

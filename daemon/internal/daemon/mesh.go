@@ -304,6 +304,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) && fromParent
 		// A task that is not a read-only one, from the agent's parent or a device, makes an asker or reviewer
 		// the worker for it (takeChange), before the direct task lifts its list.
+		wasReadOnly := adapter.ReadOnly(to.Role)
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && fromParent {
 			if err := d.takeChange(t, to, req.Msg.Body, !direct); err != nil {
 				return err
@@ -353,6 +354,14 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				var ce *connect.Error
 				if errors.As(err, &ce) {
 					out.ResumeError = ce.Message()
+				}
+				// The agent stays stopped with the task stored. A planner keeps its phase (a refusal leaves it as it
+				// was), but an asker or reviewer this direct task just made a worker has no plan phase and no deny
+				// list to come back under: the next resume brings it back to do the task.
+				if direct && wasReadOnly && !adapter.ReadOnly(to.Role) {
+					if err := d.directTask(t, to); err != nil {
+						return err
+					}
 				}
 			case err != nil:
 				return err

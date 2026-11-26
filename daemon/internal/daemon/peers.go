@@ -605,7 +605,7 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 		return nil, err
 	}
 	now := d.now()
-	ask := &v1.Ask{Id: ids.New("k", 10), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name, Kind: v1.AskKind_ASK_KIND_PEERS,
+	ask := &v1.Ask{Id: askIDFor(actor, m.Meta), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name, Kind: v1.AskKind_ASK_KIND_PEERS,
 		Status: v1.AskStatus_ASK_STATUS_OPEN, Tier: m.Tier, Body: body, Collected: true, CreatedAt: timestamppb.New(now),
 		AnswersPath: filepath.Join(d.paths.RunDir(actor.RunId), "reports", "peers-"+stamp(now)+".md"), Deadline: timestamppb.New(now.Add(timeout))}
 	groups := map[string]bool{}
@@ -618,7 +618,11 @@ func (d *Daemon) askPeers(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	}
 	ask.Context = strings.Join(ctxText, "\n\n")
 	out := &v1.AskResponse{Ask: ask}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, len(peers), func(i int) (*v1.AskMember, *v1.Agent, string) {
+	names := make([]string, len(peers))
+	for i, p := range peers {
+		names[i] = p.Name
+	}
+	return d.collectRound(ctx, actor, m.Meta, ask, out, names, func(i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startPeer(ctx, actor, peers[i], m, body)
 	}, func(store.Reader, *v1.Ask) string { return "" })
 }

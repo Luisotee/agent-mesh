@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -57,8 +59,8 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	case m.Peers != "":
 		return d.askPeers(ctx, actor, m, body)
 	case m.Agent != "":
-		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" {
-			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers and slug are for a fresh one")
+		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" || m.Kind != "" || m.Tier != "" || m.Model != "" || m.Effort != "" {
+			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers, slug, kind, tier, model and effort are for a fresh one")
 		}
 		return d.askAgent(ctx, actor, m, body)
 	case strings.TrimSpace(m.Repo) == "":
@@ -105,6 +107,17 @@ func subMeta(m *v1.RequestMeta, step string) *v1.RequestMeta {
 	return &v1.RequestMeta{MutationId: m.MutationId + "/" + step}
 }
 
+// askIDFor is the id of a round's ask: derived from the caller and the request's mutation id, so a retry of an
+// interrupted round finds the ask it left (and its members) instead of opening a second one that would take
+// their answers. Without a mutation id it is random.
+func askIDFor(actor *v1.Actor, m *v1.RequestMeta) string {
+	if m.GetMutationId() == "" {
+		return ids.New("k", 10)
+	}
+	sum := sha256.Sum256([]byte(actor.Id + "\x00" + m.MutationId))
+	return "k" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))[:10]
+}
+
 var commitRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // topOf is a repo's top level.
@@ -127,17 +140,27 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	if err != nil {
 		return nil, err
 	}
+	meta := subMeta(m.Meta, "spawn")
 	slug := m.Slug
 	if slug == "" {
 		slug = askSlug(body)
 	}
-	if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
-		return nil, err
+	// A retry of an ask whose spawn went through replays that spawn: no slug or guard to find again.
+	replay := false
+	if meta != nil {
+		if proc, _, err := d.store.Read(ctx).Mutation(actor.Id, meta.MutationId); err == nil && proc == agentmeshv1connect.MeshServiceSpawnAgentProcedure {
+			replay = true
+		}
 	}
-	if err := d.quotaReserveGuard(ctx, actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top); err != nil {
-		return nil, err
+	if !replay {
+		if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
+			return nil, err
+		}
+		if err := d.quotaReserveGuard(ctx, actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top); err != nil {
+			return nil, err
+		}
 	}
-	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: m.Meta, Repo: top, Slug: slug,
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta, Repo: top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: m.Kind, Model: m.Model, Effort: m.Effort, Tier: m.Tier,
 		Task: askPrefix + "\n\n" + body}))
 	if err != nil {
@@ -303,7 +326,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 			}
 		}
 	}
-	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, prAuthorKind(r, pr.HeadRef), earlierKinds)
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, prAuthorKind(r, top, pr.HeadRef), earlierKinds)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +345,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		return nil, err
 	}
 	now := d.now()
-	ask := &v1.Ask{Id: ids.New("k", 10), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name,
+	ask := &v1.Ask{Id: askIDFor(actor, m.Meta), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name,
 		Kind: v1.AskKind_ASK_KIND_REVIEW, Status: v1.AskStatus_ASK_STATUS_OPEN, Pr: pr.URL, PrNumber: pr.Number, Repo: top,
 		Head: pr.Head, Since: since, Size: m.Size, Tier: m.Tier, Body: body, Collected: true, Round: int32(len(prior) + 1),
 		AnswersPath: d.answersPath(actor.RunId, pr.Number, now), CreatedAt: timestamppb.New(now),
@@ -334,7 +357,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if last != nil && last.Head == pr.Head {
 		reuseFrom = nil
 	}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, len(kinds), func(i int) (*v1.AskMember, *v1.Agent, string) {
+	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, func(i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) })
@@ -342,17 +365,46 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 
 // collectRound starts the members of a collected ask one after another and returns once they have started
 // (the answers come later, collect.go). The ask is stored before its first member starts and can't finish until
-// the last has (starting), so an answer that comes while the others are still starting is collected. start(i)
-// brings member i in: a member that can't be reached is one with a line saying why, not an error. A mutation id
-// of the request covers the whole ask: the final write records it.
-func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, n int,
+// the last has (starting), so an answer that comes while the others are still starting is collected. keys name
+// the members (a reviewer's kind, a peer's name) and start(i) brings member i in: a member that can't be
+// reached is one with a line saying why, not an error. A mutation id of the request covers the whole ask: its
+// id comes from it, so a retry after an interruption finds the ask it left, keeps the members already started
+// (their own spawns replay too) and starts the rest; the final write records the mutation.
+func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string,
 	start func(i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
-	ask.Starting = true
-	if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(ask) }); err != nil {
+	have := map[string]*v1.AskMember{}
+	if prev, err := d.store.Read(ctx).GetAsk(ask.Id); err == nil {
+		if prev.Status != v1.AskStatus_ASK_STATUS_OPEN || !prev.Starting {
+			return nil, d.noReviewer(prev)
+		}
+		ask = prev
+		out.Ask = prev
+		for _, mem := range prev.Members {
+			if prev.Kind == v1.AskKind_ASK_KIND_PEERS {
+				have[mem.Name] = mem
+			} else {
+				have[mem.Kind] = mem
+			}
+		}
+	} else if errors.Is(err, store.ErrNotFound) {
+		ask.Starting = true
+		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(ask) }); err != nil {
+			return nil, err
+		}
+	} else {
 		return nil, err
 	}
 	started := 0
-	for i := 0; i < n; i++ {
+	for i, key := range keys {
+		if mem := have[key]; mem != nil {
+			if mem.AgentId != "" {
+				if cur, err := d.getAgent(d.store.Read(ctx), mem.AgentId); err == nil {
+					out.Agents = append(out.Agents, d.view(cur))
+				}
+				started++
+			}
+			continue
+		}
 		member, agent, note := start(i)
 		if note != "" {
 			out.Notes = append(out.Notes, note)
@@ -377,13 +429,11 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		if err != nil {
 			return nil, err
 		}
-		var why []string
-		for _, mem := range cur.Members {
-			why = append(why, mem.Name+": "+mem.Line)
-		}
 		cur.Starting, cur.Status, cur.FinishedAt = false, v1.AskStatus_ASK_STATUS_FINISHED, timestamppb.New(d.now())
-		d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(cur) })
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("nobody could be asked (%s)", strings.Join(why, "; ")))
+		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error { return tx.PutAsk(cur) }); err != nil {
+			return nil, err
+		}
+		return nil, d.noReviewer(cur)
 	}
 	var ring *v1.Message
 	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
@@ -404,6 +454,15 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		d.notify(ring.ToId)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// noReviewer is the refusal of a round none of whose reviewers could be started.
+func (d *Daemon) noReviewer(a *v1.Ask) error {
+	var why []string
+	for _, mem := range a.Members {
+		why = append(why, mem.Name+": "+mem.Line)
+	}
+	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no reviewer could be started (%s)", strings.Join(why, "; ")))
 }
 
 // reviewJob is what starting or re-asking one reviewer of a round needs.
@@ -429,13 +488,21 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	// The earlier round's own reviewer of this kind, in this run.
 	var reuse *v1.Agent
 	var reviewedAt string
+	// A reviewer of this kind that never answered the last round (it crashed, timed out or asked a question)
+	// has not seen the earlier commits: it starts fresh and reviews the whole PR.
+	unanswered := false
 	if j.last != nil && j.last.RunId == actor.RunId {
 		for _, mem := range j.last.Members {
 			if mem.Kind != j.kind || mem.AgentId == "" || mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
 				continue
 			}
+			if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
+				unanswered = true
+				continue
+			}
 			if a, err := r.GetAgent(mem.AgentId); err == nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && a.ParentId == actor.Id {
 				reuse, reviewedAt = a, mem.Head
+				unanswered = false
 				break
 			}
 		}
@@ -464,6 +531,10 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			return fail(reuse.Name, "could not be resumed: "+res.Msg.ResumeError)
 		}
 		member.How, member.Model = "asked", reuse.Model
+		member.Tier = reuse.Tier
+		if reuse.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && reuse.ExecTier != "" {
+			member.Tier = reuse.ExecTier
+		}
 		if res.Msg.Resumed != nil {
 			member.How = "resumed"
 		}
@@ -482,7 +553,11 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	if err := d.quotaReserveGuard(ctx, actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
 		return fail(member.Name, err.Error())
 	}
-	task := reviewTask(reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow})
+	spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow}
+	if unanswered {
+		spec.last, spec.narrow = "", false
+	}
+	task := reviewTask(spec)
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(j.meta, "spawn-"+j.kind), Repo: j.top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: j.effort, Tier: j.tier, Base: j.pr.Head, Task: task}))
 	if err != nil {
@@ -506,7 +581,22 @@ func asksOf(r store.Reader, actor *v1.Actor, pr string) ([]*v1.Ask, error) {
 	if n, convErr := strconv.Atoi(strings.TrimPrefix(pr, "#")); convErr == nil {
 		asks, err = r.NumberAsks(int32(n))
 	} else {
+		// A URL as the host stored it, else as a person types it (bin/mesh's pr_key): any case, a trailing slash,
+		// a query or a fragment, found by the number at its end.
 		asks, err = r.PRAsks(pr)
+		if err == nil && len(asks) == 0 {
+			key := prKey(pr)
+			if n, convErr := strconv.Atoi(key[strings.LastIndex(key, "/")+1:]); convErr == nil {
+				var all []*v1.Ask
+				if all, err = r.NumberAsks(int32(n)); err == nil {
+					for _, a := range all {
+						if prKey(a.Pr) == key {
+							asks = append(asks, a)
+						}
+					}
+				}
+			}
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -529,6 +619,14 @@ func asksOf(r store.Reader, actor *v1.Actor, pr string) ([]*v1.Ask, error) {
 		return nil, invalid("%s is the number of several pull requests (%s): give the URL", pr, strings.Join(urls, ", "))
 	}
 	return out, nil
+}
+
+// prKey is a PR URL as one key: lower case, with no query, fragment or trailing slash.
+func prKey(u string) string {
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		u = u[:i]
+	}
+	return strings.ToLower(strings.TrimRight(u, "/"))
 }
 
 // RecordVerdict stores the root's judgement of one reviewer's findings on the PR's newest round.

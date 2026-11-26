@@ -73,13 +73,15 @@ class StoreTest {
             stateChanged(3, "a2", AgentState.AGENT_STATE_STARTING, AgentState.AGENT_STATE_WORKING),
             stateChanged(4, "a1", AgentState.AGENT_STATE_IDLE, AgentState.AGENT_STATE_NEEDS_INPUT, "plan", 1),
             exited(5, "a2", 0),
+            roleChanged(6, "a1", dev.agentmesh.gen.agentmesh.v1.AgentRole.AGENT_ROLE_WORKER),
         )
         val live = frames.fold(applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))) { s, f -> applyFrame(s, f) }
         // A later snapshot of the host's final state, as a fresh connection would get.
-        val replay = applyFrame(HostState(), snapshot(live.runs.values.toList(), live.agents.values.toList(), seq = 5))
+        val replay = applyFrame(HostState(), snapshot(live.runs.values.toList(), live.agents.values.toList(), seq = 6))
         assertEquals(live.runs, replay.runs)
         assertEquals(live.agents, replay.agents)
         assertEquals(live.cursor, replay.cursor)
+        assertEquals(dev.agentmesh.gen.agentmesh.v1.AgentRole.AGENT_ROLE_WORKER, live.agents["a1"]!!.role)
     }
 
     @Test fun `loaded pages never overwrite a message an event updated`() {
