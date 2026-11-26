@@ -330,7 +330,7 @@ func DefaultLeaves() []Leaf {
 		Leaf{Key: "repos.dir", Type: Strings, Default: []any{},
 			Summary: "folders a bare `--repo <name>` is looked up in, in order: the name must be a repo's own top folder there (a leading ~ is the daemon's home); a repo in the caller's working directory needs no setting"},
 		Leaf{Key: "repos.no_free_models", Type: Strings, Default: []any{},
-			Summary: "top folders of repos whose code must not go to OpenCode's free models (some of their providers keep prompts or train on them): nothing there is started on, switched to or picked as a reviewer on a zero-cost model; a paid OpenCode model is not held back (a leading ~ is the daemon's home). Agents already running keep their model"},
+			Summary: "top folders of repos whose code must not go to OpenCode's free models (some of their providers keep prompts or train on them): nothing there is started on, switched to or picked as a reviewer on a zero-cost model; a paid OpenCode model is not held back (absolute folders; a leading ~ is the daemon's home: a relative entry matches nothing). Agents already running keep their model"},
 		Leaf{Key: "quota_stop", Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Type: Seconds, Default: 300.0,
