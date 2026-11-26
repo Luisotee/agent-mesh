@@ -3,7 +3,7 @@ import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
-import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, RunSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -32,6 +32,22 @@ describe('applyFrame', () => {
     ])
     expect(s.agents.a1).toMatchObject({ state: AgentState.NEEDS_INPUT, stateDetail: 'Bash', needsInput: 1 })
     expect(s.cursor?.seq).toBe(6n)
+  })
+
+  it('a retire, a stopped run and a reopen change what the host says they change', () => {
+    const waiting = agent('a1', { state: AgentState.NEEDS_INPUT, needsInput: 2, stateDetail: 'Bash', model: 'sonnet' })
+    let s = run([snapshot([waiting]), ev(6, { case: 'agentRetired', value: { $typeName: 'agentmesh.v1.AgentRetired', reason: 'requested' } })])
+    expect(s.agents.a1).toMatchObject({ state: AgentState.RETIRED, needsInput: 0, stateDetail: '' })
+    s = run([
+      ev(7, { case: 'agentReopenRequested', value: { $typeName: 'agentmesh.v1.AgentReopenRequested', reopen: create(ReopenSchema, { id: 'ro', model: 'opus' }) } }),
+    ], s)
+    expect(s.agents.a1!.pendingReopen?.model).toBe('opus')
+    s = run([ev(8, { case: 'agentReopened', value: { $typeName: 'agentmesh.v1.AgentReopened', reopen: create(ReopenSchema, { id: 'ro', model: 'opus', effort: 'high' }), terminalId: 't2', sessionId: 's2' } })], s)
+    expect(s.agents.a1).toMatchObject({ model: 'opus', effort: 'high', terminalId: 't2', sessionId: 's2', pendingReopen: undefined })
+    s = run([ev(9, { case: 'agentReopenRequested', value: { $typeName: 'agentmesh.v1.AgentReopenRequested', reopen: create(ReopenSchema, { id: 'r2' }) } }), ev(10, { case: 'agentReopenDropped', value: { $typeName: 'agentmesh.v1.AgentReopenDropped', reason: 'stopped' } })], s)
+    expect(s.agents.a1!.pendingReopen).toBeUndefined()
+    s = run([ev(11, { case: 'runStopped', value: { $typeName: 'agentmesh.v1.RunStopped' } })], s)
+    expect(s.runs.r1!.status).toBe(RunStatus.CLOSED)
   })
 
   it('an exit records its code and reason', () => {

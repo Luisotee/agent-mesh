@@ -2,12 +2,12 @@
 // @generated from file agentmesh/v1/mesh.proto (package agentmesh.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Actor } from "./actor_pb";
 import { file_agentmesh_v1_actor } from "./actor_pb";
 import { file_agentmesh_v1_options } from "./options_pb";
-import type { Agent, AgentRole, AgentState, Cursor, Event, Message as Message$1, MessageType, RequestMeta, Run, Setting } from "./types_pb";
+import type { Agent, AgentRole, AgentState, Cursor, Device, Event, Message as Message$1, MessageType, Reopen, RequestMeta, Run, Setting } from "./types_pb";
 import { file_agentmesh_v1_types } from "./types_pb";
 import type { Timestamp, Value } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/mesh.proto.
  */
 export const file_agentmesh_v1_mesh: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvbWVzaC5wcm90bxIMYWdlbnRtZXNoLnYxIjgKDEhlbGxvUmVxdWVzdBIOCgZjbGllbnQYASABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgCIAEoBSL9AQoNSGVsbG9SZXNwb25zZRIRCglkYWVtb25faWQYASABKAkSEwoLaW5zdGFuY2VfaWQYAiABKAkSLgoKc3RhcnRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoQcHJvdG9jb2xfdmVyc2lvbhgEIAEoBRIPCgd2ZXJzaW9uGAUgASgJEhQKDGNhcGFiaWxpdGllcxgGIAMoCRIiCgVhY3RvchgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchIvCgtzZXJ2ZXJfdGltZRgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSQoPU3RhcnRSdW5SZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFdGl0bGUYAiABKAkiMgoQU3RhcnRSdW5SZXNwb25zZRIeCgNydW4YASABKAsyES5hZ2VudG1lc2gudjEuUnVuIh4KD0xpc3RSdW5zUmVxdWVzdBILCgNhbGwYASABKAgiMwoQTGlzdFJ1bnNSZXNwb25zZRIfCgRydW5zGAEgAygLMhEuYWdlbnRtZXNoLnYxLlJ1biLYAQoRU3Bhd25BZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIOCgZydW5faWQYAiABKAkSDAoEcmVwbxgDIAEoCRIMCgRzbHVnGAQgASgJEiUKBHJvbGUYBSABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEgwKBGtpbmQYBiABKAkSDQoFbW9kZWwYByABKAkSDgoGZWZmb3J0GAggASgJEgwKBGJhc2UYCSABKAkSDAoEdGFzaxgKIAEoCSI4ChJTcGF3bkFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQiIwoRTGlzdEFnZW50c1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJIjkKEkxpc3RBZ2VudHNSZXNwb25zZRIjCgZhZ2VudHMYASADKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQiIAoPR2V0QWdlbnRSZXF1ZXN0Eg0KBWFnZW50GAEgASgJIjYKEEdldEFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQiSgoQU3RvcEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJIjcKEVN0b3BBZ2VudFJlc3BvbnNlEiIKBWFnZW50GAEgASgLMhMuYWdlbnRtZXNoLnYxLkFnZW50IoABChJTZW5kTWVzc2FnZVJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIKCgJ0bxgCIAEoCRInCgR0eXBlGAMgASgOMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VUeXBlEgwKBGJvZHkYBCABKAkiPQoTU2VuZE1lc3NhZ2VSZXNwb25zZRImCgdtZXNzYWdlGAEgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiVgoQUmVhZEluYm94UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgwKBHBlZWsYAiABKAgSCwoDYWxsGAMgASgIIjwKEVJlYWRJbmJveFJlc3BvbnNlEicKCG1lc3NhZ2VzGAEgAygLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiRgoTTGlzdE1lc3NhZ2VzUmVxdWVzdBIOCgZydW5faWQYASABKAkSEAoIYWZ0ZXJfaWQYAiABKAkSDQoFbGltaXQYAyABKAUiTQoUTGlzdE1lc3NhZ2VzUmVzcG9uc2USJwoIbWVzc2FnZXMYASADKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZRIMCgRtb3JlGAIgASgIIk4KFlN1YnNjcmliZUV2ZW50c1JlcXVlc3QSJAoGY3Vyc29yGAEgASgLMhQuYWdlbnRtZXNoLnYxLkN1cnNvchIOCgZydW5faWQYAiABKAkiwAEKF1N1YnNjcmliZUV2ZW50c1Jlc3BvbnNlEioKCHNuYXBzaG90GAEgASgLMhYuYWdlbnRtZXNoLnYxLlNuYXBzaG90SAASKAoHcmVzdW1lZBgCIAEoCzIVLmFnZW50bWVzaC52MS5SZXN1bWVkSAASJAoFZXZlbnQYAyABKAsyEy5hZ2VudG1lc2gudjEuRXZlbnRIABIgCgNlbmQYBCABKAsyES5hZ2VudG1lc2gudjEuRW5kSABCBwoFZnJhbWUidgoIU25hcHNob3QSJAoGY3Vyc29yGAEgASgLMhQuYWdlbnRtZXNoLnYxLkN1cnNvchIfCgRydW5zGAIgAygLMhEuYWdlbnRtZXNoLnYxLlJ1bhIjCgZhZ2VudHMYAyADKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQiLQoHUmVzdW1lZBIiCgRmcm9tGAEgASgLMhQuYWdlbnRtZXNoLnYxLkN1cnNvciIVCgNFbmQSDgoGcmVhc29uGAEgASgJIp0BChFSZXBvcnRIb29rUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgwKBGtpbmQYAiABKAkSEgoKZXZlbnRfbmFtZRgDIAEoCRIPCgdwYXlsb2FkGAQgASgMEiwKCGZpcmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI9ChJSZXBvcnRIb29rUmVzcG9uc2USJwoFc3RhdGUYASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZSIzChNPcGVuVGVybWluYWxSZXF1ZXN0Eg0KBWFnZW50GAEgASgJEg0KBWlucHV0GAIgASgIInMKFE9wZW5UZXJtaW5hbFJlc3BvbnNlEgwKBHBhdGgYASABKAkSDgoGdGlja2V0GAIgASgJEg0KBWlucHV0GAMgASgIEi4KCmV4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIiUKE0xpc3RTZXR0aW5nc1JlcXVlc3QSDgoGcHJlZml4GAEgASgJIj8KFExpc3RTZXR0aW5nc1Jlc3BvbnNlEicKCHNldHRpbmdzGAEgAygLMhUuYWdlbnRtZXNoLnYxLlNldHRpbmcicAoRU2V0U2V0dGluZ1JlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRILCgNrZXkYAiABKAkSJQoFdmFsdWUYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUiPAoSU2V0U2V0dGluZ1Jlc3BvbnNlEiYKB3NldHRpbmcYASABKAsyFS5hZ2VudG1lc2gudjEuU2V0dGluZyJLChNSZXNldFNldHRpbmdSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESCwoDa2V5GAIgASgJIj4KFFJlc2V0U2V0dGluZ1Jlc3BvbnNlEiYKB3NldHRpbmcYASABKAsyFS5hZ2VudG1lc2gudjEuU2V0dGluZzKpEAoLTWVzaFNlcnZpY2USlQEKBUhlbGxvEhouYWdlbnRtZXNoLnYxLkhlbGxvUmVxdWVzdBobLmFnZW50bWVzaC52MS5IZWxsb1Jlc3BvbnNlIlOKtRhPCgYBAgMEBQYiRVNob3cgdGhlIGRhZW1vbidzIGlkLCB2ZXJzaW9uIGFuZCBjYXBhYmlsaXRpZXMsIGFuZCB3aG8geW91IGFyZSB0byBpdBJhCghTdGFydFJ1bhIdLmFnZW50bWVzaC52MS5TdGFydFJ1blJlcXVlc3QaHi5hZ2VudG1lc2gudjEuU3RhcnRSdW5SZXNwb25zZSIWirUYEgoBBRABIgtTdGFydCBhIHJ1bhJiCghMaXN0UnVucxIdLmFnZW50bWVzaC52MS5MaXN0UnVuc1JlcXVlc3QaHi5hZ2VudG1lc2gudjEuTGlzdFJ1bnNSZXNwb25zZSIXirUYEwoGAQIDBAUGIglMaXN0IHJ1bnMSjwEKClNwYXduQWdlbnQSHy5hZ2VudG1lc2gudjEuU3Bhd25BZ2VudFJlcXVlc3QaIC5hZ2VudG1lc2gudjEuU3Bhd25BZ2VudFJlc3BvbnNlIj6KtRg6CgMBAgUQARoFc3Bhd24iKlN0YXJ0IGFuIGFnZW50IGluIGEgbmV3IHdvcmt0cmVlIG9mIGEgcmVwbxKDAQoKTGlzdEFnZW50cxIfLmFnZW50bWVzaC52MS5MaXN0QWdlbnRzUmVxdWVzdBogLmFnZW50bWVzaC52MS5MaXN0QWdlbnRzUmVzcG9uc2UiMoq1GC4KBgECAwQFBhoGYWdlbnRzIhxMaXN0IGFnZW50cyB3aXRoIHRoZWlyIHN0YXRlEm4KCEdldEFnZW50Eh0uYWdlbnRtZXNoLnYxLkdldEFnZW50UmVxdWVzdBoeLmFnZW50bWVzaC52MS5HZXRBZ2VudFJlc3BvbnNlIiOKtRgfCgYBAgMEBQYaBWFnZW50Ig5TaG93IG9uZSBhZ2VudBJuCglTdG9wQWdlbnQSHi5hZ2VudG1lc2gudjEuU3RvcEFnZW50UmVxdWVzdBofLmFnZW50bWVzaC52MS5TdG9wQWdlbnRSZXNwb25zZSIgirUYHAoDAQIFEAEaBHN0b3AiDVN0b3AgYW4gYWdlbnQSgwEKC1NlbmRNZXNzYWdlEiAuYWdlbnRtZXNoLnYxLlNlbmRNZXNzYWdlUmVxdWVzdBohLmFnZW50bWVzaC52MS5TZW5kTWVzc2FnZVJlc3BvbnNlIi+KtRgrCgUBAgMEBRABGgRzZW5kIhpTZW5kIGEgbWVzc2FnZSB0byBhbiBhZ2VudBJ1CglSZWFkSW5ib3gSHi5hZ2VudG1lc2gudjEuUmVhZEluYm94UmVxdWVzdBofLmFnZW50bWVzaC52MS5SZWFkSW5ib3hSZXNwb25zZSInirUYIwoEAQIDBBABGgVpbmJveCISUmVhZCB5b3VyIG1lc3NhZ2VzEoUBCgxMaXN0TWVzc2FnZXMSIS5hZ2VudG1lc2gudjEuTGlzdE1lc3NhZ2VzUmVxdWVzdBoiLmFnZW50bWVzaC52MS5MaXN0TWVzc2FnZXNSZXNwb25zZSIuirUYKgoCBQYaCG1lc3NhZ2VzIhpMaXN0IHRoZSBtZXNzYWdlcyBvZiBhIHJ1bhKMAQoPU3Vic2NyaWJlRXZlbnRzEiQuYWdlbnRtZXNoLnYxLlN1YnNjcmliZUV2ZW50c1JlcXVlc3QaJS5hZ2VudG1lc2gudjEuU3Vic2NyaWJlRXZlbnRzUmVzcG9uc2UiKoq1GCYKBgECAwQFBhoGZXZlbnRzIhRGb2xsb3cgdGhlIGV2ZW50IGxvZzABEnwKDExpc3RTZXR0aW5ncxIhLmFnZW50bWVzaC52MS5MaXN0U2V0dGluZ3NSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLkxpc3RTZXR0aW5nc1Jlc3BvbnNlIiWKtRghCgYBAgMEBQYaCHNldHRpbmdzIg1MaXN0IHNldHRpbmdzEm8KClNldFNldHRpbmcSHy5hZ2VudG1lc2gudjEuU2V0U2V0dGluZ1JlcXVlc3QaIC5hZ2VudG1lc2gudjEuU2V0U2V0dGluZ1Jlc3BvbnNlIh6KtRgaCgIBBRABGgNzZXQiDVNldCBhIHNldHRpbmcSiAEKDFJlc2V0U2V0dGluZxIhLmFnZW50bWVzaC52MS5SZXNldFNldHRpbmdSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLlJlc2V0U2V0dGluZ1Jlc3BvbnNlIjGKtRgtCgIBBRABGgV1bnNldCIeUmVzZXQgYSBzZXR0aW5nIHRvIGl0cyBkZWZhdWx0EosBCgpSZXBvcnRIb29rEh8uYWdlbnRtZXNoLnYxLlJlcG9ydEhvb2tSZXF1ZXN0GiAuYWdlbnRtZXNoLnYxLlJlcG9ydEhvb2tSZXNwb25zZSI6irUYNgoEAQIDBBABIixSZXBvcnQgYSBDTEkgaG9vayAodXNlZCBieSB0aGUgaG9vayBjb21tYW5kKRKNAQoMT3BlblRlcm1pbmFsEiEuYWdlbnRtZXNoLnYxLk9wZW5UZXJtaW5hbFJlcXVlc3QaIi5hZ2VudG1lc2gudjEuT3BlblRlcm1pbmFsUmVzcG9uc2UiNoq1GDIKAwEFBiIrR2V0IGEgdGlja2V0IGZvciBhbiBhZ2VudCdzIHRlcm1pbmFsIHN0cmVhbRoXkrUYEwoOdGVybWluYWwuaW5wdXQSAQViBnByb3RvMw", [file_agentmesh_v1_actor, file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvbWVzaC5wcm90bxIMYWdlbnRtZXNoLnYxIjgKDEhlbGxvUmVxdWVzdBIOCgZjbGllbnQYASABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgCIAEoBSL9AQoNSGVsbG9SZXNwb25zZRIRCglkYWVtb25faWQYASABKAkSEwoLaW5zdGFuY2VfaWQYAiABKAkSLgoKc3RhcnRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoQcHJvdG9jb2xfdmVyc2lvbhgEIAEoBRIPCgd2ZXJzaW9uGAUgASgJEhQKDGNhcGFiaWxpdGllcxgGIAMoCRIiCgVhY3RvchgHIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchIvCgtzZXJ2ZXJfdGltZRgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSQoPU3RhcnRSdW5SZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFdGl0bGUYAiABKAkiMgoQU3RhcnRSdW5SZXNwb25zZRIeCgNydW4YASABKAsyES5hZ2VudG1lc2gudjEuUnVuIh4KD0xpc3RSdW5zUmVxdWVzdBILCgNhbGwYASABKAgiMwoQTGlzdFJ1bnNSZXNwb25zZRIfCgRydW5zGAEgAygLMhEuYWdlbnRtZXNoLnYxLlJ1biKHAgoRU3Bhd25BZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIOCgZydW5faWQYAiABKAkSDAoEcmVwbxgDIAEoCRIMCgRzbHVnGAQgASgJEiUKBHJvbGUYBSABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEgwKBGtpbmQYBiABKAkSDQoFbW9kZWwYByABKAkSDgoGZWZmb3J0GAggASgJEgwKBGJhc2UYCSABKAkSDAoEdGFzaxgKIAEoCRIMCgR0aWVyGAsgASgJEgwKBHBsYW4YDCABKAgSEQoJZXhlY190aWVyGA0gASgJIjgKElNwYXduQWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCIjChFMaXN0QWdlbnRzUmVxdWVzdBIOCgZydW5faWQYASABKAkiOQoSTGlzdEFnZW50c1Jlc3BvbnNlEiMKBmFnZW50cxgBIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudCIgCg9HZXRBZ2VudFJlcXVlc3QSDQoFYWdlbnQYASABKAkiNgoQR2V0QWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCJKChBTdG9wQWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiNwoRU3RvcEFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQigAEKElNlbmRNZXNzYWdlUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgoKAnRvGAIgASgJEicKBHR5cGUYAyABKA4yGS5hZ2VudG1lc2gudjEuTWVzc2FnZVR5cGUSDAoEYm9keRgEIAEoCSJ6ChNTZW5kTWVzc2FnZVJlc3BvbnNlEiYKB21lc3NhZ2UYASABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZRIlCgdyZXN1bWVkGAIgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbhIUCgxyZXN1bWVfZXJyb3IYAyABKAkiVgoQUmVhZEluYm94UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgwKBHBlZWsYAiABKAgSCwoDYWxsGAMgASgIIjwKEVJlYWRJbmJveFJlc3BvbnNlEicKCG1lc3NhZ2VzGAEgAygLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UiRgoTTGlzdE1lc3NhZ2VzUmVxdWVzdBIOCgZydW5faWQYASABKAkSEAoIYWZ0ZXJfaWQYAiABKAkSDQoFbGltaXQYAyABKAUiTQoUTGlzdE1lc3NhZ2VzUmVzcG9uc2USJwoIbWVzc2FnZXMYASADKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZRIMCgRtb3JlGAIgASgIIiQKEkxpc3RXYWl0aW5nUmVxdWVzdBIOCgZydW5faWQYASABKAkiPQoTTGlzdFdhaXRpbmdSZXNwb25zZRImCgd3YWl0aW5nGAEgAygLMhUuYWdlbnRtZXNoLnYxLldhaXRpbmcijAEKB1dhaXRpbmcSJwoEa2luZBgBIAEoDjIZLmFnZW50bWVzaC52MS5XYWl0aW5nS2luZBIOCgZydW5faWQYAiABKAkSEAoIYWdlbnRfaWQYAyABKAkSJgoHbWVzc2FnZRgEIAEoCzIVLmFnZW50bWVzaC52MS5NZXNzYWdlEg4KBmRldGFpbBgFIAEoCSJOChZTdWJzY3JpYmVFdmVudHNSZXF1ZXN0EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISDgoGcnVuX2lkGAIgASgJIsABChdTdWJzY3JpYmVFdmVudHNSZXNwb25zZRIqCghzbmFwc2hvdBgBIAEoCzIWLmFnZW50bWVzaC52MS5TbmFwc2hvdEgAEigKB3Jlc3VtZWQYAiABKAsyFS5hZ2VudG1lc2gudjEuUmVzdW1lZEgAEiQKBWV2ZW50GAMgASgLMhMuYWdlbnRtZXNoLnYxLkV2ZW50SAASIAoDZW5kGAQgASgLMhEuYWdlbnRtZXNoLnYxLkVuZEgAQgcKBWZyYW1lInYKCFNuYXBzaG90EiQKBmN1cnNvchgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3ISHwoEcnVucxgCIAMoCzIRLmFnZW50bWVzaC52MS5SdW4SIwoGYWdlbnRzGAMgAygLMhMuYWdlbnRtZXNoLnYxLkFnZW50Ii0KB1Jlc3VtZWQSIgoEZnJvbRgBIAEoCzIULmFnZW50bWVzaC52MS5DdXJzb3IiFQoDRW5kEg4KBnJlYXNvbhgBIAEoCSKdAQoRUmVwb3J0SG9va1JlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIMCgRraW5kGAIgASgJEhIKCmV2ZW50X25hbWUYAyABKAkSDwoHcGF5bG9hZBgEIAEoDBIsCghmaXJlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiPQoSUmVwb3J0SG9va1Jlc3BvbnNlEicKBXN0YXRlGAEgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUiMwoTT3BlblRlcm1pbmFsUmVxdWVzdBINCgVhZ2VudBgBIAEoCRINCgVpbnB1dBgCIAEoCCJzChRPcGVuVGVybWluYWxSZXNwb25zZRIMCgRwYXRoGAEgASgJEg4KBnRpY2tldBgCIAEoCRINCgVpbnB1dBgDIAEoCBIuCgpleHBpcmVzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIlChNMaXN0U2V0dGluZ3NSZXF1ZXN0Eg4KBnByZWZpeBgBIAEoCSI/ChRMaXN0U2V0dGluZ3NSZXNwb25zZRInCghzZXR0aW5ncxgBIAMoCzIVLmFnZW50bWVzaC52MS5TZXR0aW5nInAKEVNldFNldHRpbmdSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESCwoDa2V5GAIgASgJEiUKBXZhbHVlGAMgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlIjwKElNldFNldHRpbmdSZXNwb25zZRImCgdzZXR0aW5nGAEgASgLMhUuYWdlbnRtZXNoLnYxLlNldHRpbmciSwoTUmVzZXRTZXR0aW5nUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEgsKA2tleRgCIAEoCSI+ChRSZXNldFNldHRpbmdSZXNwb25zZRImCgdzZXR0aW5nGAEgASgLMhUuYWdlbnRtZXNoLnYxLlNldHRpbmciqQEKE0FwcHJvdmVBZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIMCgR0aWVyGAMgASgJEg0KBW1vZGVsGAQgASgJEg4KBmVmZm9ydBgFIAEoCRISCgprZWVwX21vZGVsGAYgASgIEgwKBGJvZHkYByABKAkSCwoDd2h5GAggASgJIogBChRBcHByb3ZlQWdlbnRSZXNwb25zZRIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudBImCgdtZXNzYWdlGAIgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2USJAoGcmVvcGVuGAMgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbiKUAQoSU3dpdGNoQWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkSDAoEdGllchgDIAEoCRINCgVtb2RlbBgEIAEoCRIOCgZlZmZvcnQYBSABKAkSDAoEbmV4dBgGIAEoCBILCgN3aHkYByABKAkihwEKE1N3aXRjaEFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQSJgoHbWVzc2FnZRgCIAEoCzIVLmFnZW50bWVzaC52MS5NZXNzYWdlEiQKBnJlb3BlbhgDIAEoCzIULmFnZW50bWVzaC52MS5SZW9wZW4iogEKElJlc3VtZUFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRhc2sYAyABKAkSDAoEcGxhbhgEIAEoCBIMCgR0aWVyGAUgASgJEg0KBW1vZGVsGAYgASgJEg4KBmVmZm9ydBgHIAEoCRILCgN3aHkYCCABKAkihwEKE1Jlc3VtZUFnZW50UmVzcG9uc2USIgoFYWdlbnQYASABKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQSJgoHbWVzc2FnZRgCIAEoCzIVLmFnZW50bWVzaC52MS5NZXNzYWdlEiQKBnJlb3BlbhgDIAEoCzIULmFnZW50bWVzaC52MS5SZW9wZW4inAEKFENyZWF0ZVBhaXJpbmdSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEbmFtZRgCIAEoCRIRCglyZWFkX29ubHkYAyABKAgSEwoLdHRsX3NlY29uZHMYBCABKAMSEgoKZGlyZWN0X3VybBgFIAEoCRIRCglyZWxheV91cmwYBiABKAkiiwIKFUNyZWF0ZVBhaXJpbmdSZXNwb25zZRISCgpwYWlyaW5nX2lkGAEgASgJEg0KBXRva2VuGAIgASgJEg8KB2hvc3RfaWQYAyABKAkSEQoJaG9zdF9uYW1lGAQgASgJEhgKEGNlcnRfZmluZ2VycHJpbnQYBSABKAkSEQoJcmVsYXlfdXJsGAYgASgJEhEKCXJlbGF5X3RjcBgHIAEoCRIaChJyZWxheV9jbGllbnRfdG9rZW4YCCABKAkSEgoKZGlyZWN0X3VybBgJIAEoCRILCgN1cmkYCiABKAkSLgoKZXhwaXJlc19hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiLQoSTGlzdERldmljZXNSZXF1ZXN0EhcKD2luY2x1ZGVfcmV2b2tlZBgBIAEoCCI8ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEiUKB2RldmljZXMYASADKAsyFC5hZ2VudG1lc2gudjEuRGV2aWNlIlEKE1Jldm9rZURldmljZVJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIRCglkZXZpY2VfaWQYAiABKAkiPAoUUmV2b2tlRGV2aWNlUmVzcG9uc2USJAoGZGV2aWNlGAEgASgLMhQuYWdlbnRtZXNoLnYxLkRldmljZSJMChJSZXRpcmVBZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCSI5ChNSZXRpcmVBZ2VudFJlc3BvbnNlEiIKBWFnZW50GAEgASgLMhMuYWdlbnRtZXNoLnYxLkFnZW50IkkKDlN0b3BSdW5SZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDgoGcnVuX2lkGAIgASgJInQKD1N0b3BSdW5SZXNwb25zZRIeCgNydW4YASABKAsyES5hZ2VudG1lc2gudjEuUnVuEg8KB3JldGlyZWQYAiADKAkSMAoJd29ya3RyZWVzGAMgAygLMh0uYWdlbnRtZXNoLnYxLldvcmt0cmVlT3V0Y29tZSKEAQoPV29ya3RyZWVPdXRjb21lEhAKCGFnZW50X2lkGAEgASgJEhAKCHdvcmt0cmVlGAIgASgJEg4KBmJyYW5jaBgDIAEoCRIYChB3b3JrdHJlZV9yZW1vdmVkGAQgASgIEhMKC2JyYW5jaF9rZXB0GAUgASgIEg4KBnJlYXNvbhgGIAEoCSp1CgtXYWl0aW5nS2luZBIcChhXQUlUSU5HX0tJTkRfVU5TUEVDSUZJRUQQABIVChFXQUlUSU5HX0tJTkRfUExBThABEhkKFVdBSVRJTkdfS0lORF9RVUVTVElPThACEhYKEldBSVRJTkdfS0lORF9JTlBVVBADMu4aCgtNZXNoU2VydmljZRKVAQoFSGVsbG8SGi5hZ2VudG1lc2gudjEuSGVsbG9SZXF1ZXN0GhsuYWdlbnRtZXNoLnYxLkhlbGxvUmVzcG9uc2UiU4q1GE8KBgECAwQFBiJFU2hvdyB0aGUgZGFlbW9uJ3MgaWQsIHZlcnNpb24gYW5kIGNhcGFiaWxpdGllcywgYW5kIHdobyB5b3UgYXJlIHRvIGl0EmEKCFN0YXJ0UnVuEh0uYWdlbnRtZXNoLnYxLlN0YXJ0UnVuUmVxdWVzdBoeLmFnZW50bWVzaC52MS5TdGFydFJ1blJlc3BvbnNlIhaKtRgSCgEFEAEiC1N0YXJ0IGEgcnVuEmIKCExpc3RSdW5zEh0uYWdlbnRtZXNoLnYxLkxpc3RSdW5zUmVxdWVzdBoeLmFnZW50bWVzaC52MS5MaXN0UnVuc1Jlc3BvbnNlIheKtRgTCgYBAgMEBQYiCUxpc3QgcnVucxKPAQoKU3Bhd25BZ2VudBIfLmFnZW50bWVzaC52MS5TcGF3bkFnZW50UmVxdWVzdBogLmFnZW50bWVzaC52MS5TcGF3bkFnZW50UmVzcG9uc2UiPoq1GDoKAwECBRABGgVzcGF3biIqU3RhcnQgYW4gYWdlbnQgaW4gYSBuZXcgd29ya3RyZWUgb2YgYSByZXBvEoMBCgpMaXN0QWdlbnRzEh8uYWdlbnRtZXNoLnYxLkxpc3RBZ2VudHNSZXF1ZXN0GiAuYWdlbnRtZXNoLnYxLkxpc3RBZ2VudHNSZXNwb25zZSIyirUYLgoGAQIDBAUGGgZhZ2VudHMiHExpc3QgYWdlbnRzIHdpdGggdGhlaXIgc3RhdGUSbgoIR2V0QWdlbnQSHS5hZ2VudG1lc2gudjEuR2V0QWdlbnRSZXF1ZXN0Gh4uYWdlbnRtZXNoLnYxLkdldEFnZW50UmVzcG9uc2UiI4q1GB8KBgECAwQFBhoFYWdlbnQiDlNob3cgb25lIGFnZW50Em4KCVN0b3BBZ2VudBIeLmFnZW50bWVzaC52MS5TdG9wQWdlbnRSZXF1ZXN0Gh8uYWdlbnRtZXNoLnYxLlN0b3BBZ2VudFJlc3BvbnNlIiCKtRgcCgMBAgUQARoEc3RvcCINU3RvcCBhbiBhZ2VudBKmAQoMQXBwcm92ZUFnZW50EiEuYWdlbnRtZXNoLnYxLkFwcHJvdmVBZ2VudFJlcXVlc3QaIi5hZ2VudG1lc2gudjEuQXBwcm92ZUFnZW50UmVzcG9uc2UiT4q1GEsKAwECBRABGgdhcHByb3ZlIjlBcHByb3ZlIGFuIGFnZW50J3MgcGxhbiBhbmQgbW92ZSBpdCB0byBpdHMgZXhlY3V0aW9uIHRpZXISoQEKC1N3aXRjaEFnZW50EiAuYWdlbnRtZXNoLnYxLlN3aXRjaEFnZW50UmVxdWVzdBohLmFnZW50bWVzaC52MS5Td2l0Y2hBZ2VudFJlc3BvbnNlIk2KtRhJCgMBAgUQARoGc3dpdGNoIjhNb3ZlIGFuIGFnZW50IHRvIGFub3RoZXIgbW9kZWwsIGtlZXBpbmcgaXRzIGNvbnZlcnNhdGlvbhKOAQoLUmVzdW1lQWdlbnQSIC5hZ2VudG1lc2gudjEuUmVzdW1lQWdlbnRSZXF1ZXN0GiEuYWdlbnRtZXNoLnYxLlJlc3VtZUFnZW50UmVzcG9uc2UiOoq1GDYKAwECBRABGgZyZXN1bWUiJVJlc3VtZSBhIHN0b3BwZWQgYWdlbnQncyBjb252ZXJzYXRpb24SoQEKC1JldGlyZUFnZW50EiAuYWdlbnRtZXNoLnYxLlJldGlyZUFnZW50UmVxdWVzdBohLmFnZW50bWVzaC52MS5SZXRpcmVBZ2VudFJlc3BvbnNlIk2KtRhJCgMBAgUQARoGcmV0aXJlIjhSZXRpcmUgYW4gYWdlbnQ6IHN0b3AgaXRzIHByb2Nlc3MsIGtlZXAgaXRzIGNvbnZlcnNhdGlvbhKHAQoHU3RvcFJ1bhIcLmFnZW50bWVzaC52MS5TdG9wUnVuUmVxdWVzdBodLmFnZW50bWVzaC52MS5TdG9wUnVuUmVzcG9uc2UiP4q1GDsKAQUQARoIc3RvcC1ydW4iKlN0b3AgYSBydW46IHJldGlyZSBpdHMgYWdlbnRzIGFuZCBjbG9zZSBpdBKDAQoLU2VuZE1lc3NhZ2USIC5hZ2VudG1lc2gudjEuU2VuZE1lc3NhZ2VSZXF1ZXN0GiEuYWdlbnRtZXNoLnYxLlNlbmRNZXNzYWdlUmVzcG9uc2UiL4q1GCsKBQECAwQFEAEaBHNlbmQiGlNlbmQgYSBtZXNzYWdlIHRvIGFuIGFnZW50EnUKCVJlYWRJbmJveBIeLmFnZW50bWVzaC52MS5SZWFkSW5ib3hSZXF1ZXN0Gh8uYWdlbnRtZXNoLnYxLlJlYWRJbmJveFJlc3BvbnNlIieKtRgjCgQBAgMEEAEaBWluYm94IhJSZWFkIHlvdXIgbWVzc2FnZXMShQEKDExpc3RNZXNzYWdlcxIhLmFnZW50bWVzaC52MS5MaXN0TWVzc2FnZXNSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLkxpc3RNZXNzYWdlc1Jlc3BvbnNlIi6KtRgqCgIFBhoIbWVzc2FnZXMiGkxpc3QgdGhlIG1lc3NhZ2VzIG9mIGEgcnVuEoMBCgtMaXN0V2FpdGluZxIgLmFnZW50bWVzaC52MS5MaXN0V2FpdGluZ1JlcXVlc3QaIS5hZ2VudG1lc2gudjEuTGlzdFdhaXRpbmdSZXNwb25zZSIvirUYKwoDAQUGGgd3YWl0aW5nIhtMaXN0IHdoYXQgd2FpdHMgb24gdGhlIHVzZXISjAEKD1N1YnNjcmliZUV2ZW50cxIkLmFnZW50bWVzaC52MS5TdWJzY3JpYmVFdmVudHNSZXF1ZXN0GiUuYWdlbnRtZXNoLnYxLlN1YnNjcmliZUV2ZW50c1Jlc3BvbnNlIiqKtRgmCgYBAgMEBQYaBmV2ZW50cyIURm9sbG93IHRoZSBldmVudCBsb2cwARJ8CgxMaXN0U2V0dGluZ3MSIS5hZ2VudG1lc2gudjEuTGlzdFNldHRpbmdzUmVxdWVzdBoiLmFnZW50bWVzaC52MS5MaXN0U2V0dGluZ3NSZXNwb25zZSIlirUYIQoGAQIDBAUGGghzZXR0aW5ncyINTGlzdCBzZXR0aW5ncxJvCgpTZXRTZXR0aW5nEh8uYWdlbnRtZXNoLnYxLlNldFNldHRpbmdSZXF1ZXN0GiAuYWdlbnRtZXNoLnYxLlNldFNldHRpbmdSZXNwb25zZSIeirUYGgoCAQUQARoDc2V0Ig1TZXQgYSBzZXR0aW5nEogBCgxSZXNldFNldHRpbmcSIS5hZ2VudG1lc2gudjEuUmVzZXRTZXR0aW5nUmVxdWVzdBoiLmFnZW50bWVzaC52MS5SZXNldFNldHRpbmdSZXNwb25zZSIxirUYLQoCAQUQARoFdW5zZXQiHlJlc2V0IGEgc2V0dGluZyB0byBpdHMgZGVmYXVsdBKLAQoKUmVwb3J0SG9vaxIfLmFnZW50bWVzaC52MS5SZXBvcnRIb29rUmVxdWVzdBogLmFnZW50bWVzaC52MS5SZXBvcnRIb29rUmVzcG9uc2UiOoq1GDYKBAECAwQQASIsUmVwb3J0IGEgQ0xJIGhvb2sgKHVzZWQgYnkgdGhlIGhvb2sgY29tbWFuZCkSjQEKDE9wZW5UZXJtaW5hbBIhLmFnZW50bWVzaC52MS5PcGVuVGVybWluYWxSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLk9wZW5UZXJtaW5hbFJlc3BvbnNlIjaKtRgyCgMBBQYiK0dldCBhIHRpY2tldCBmb3IgYW4gYWdlbnQncyB0ZXJtaW5hbCBzdHJlYW0SqwEKDUNyZWF0ZVBhaXJpbmcSIi5hZ2VudG1lc2gudjEuQ3JlYXRlUGFpcmluZ1JlcXVlc3QaIy5hZ2VudG1lc2gudjEuQ3JlYXRlUGFpcmluZ1Jlc3BvbnNlIlGKtRhNCgEFEAEaBHBhaXIiQENyZWF0ZSBhIG9uZS10aW1lIHBhaXJpbmcgdG9rZW4gYW5kIFFSL2xpbmsgcGF5bG9hZCBmb3IgYSBkZXZpY2USeQoLTGlzdERldmljZXMSIC5hZ2VudG1lc2gudjEuTGlzdERldmljZXNSZXF1ZXN0GiEuYWdlbnRtZXNoLnYxLkxpc3REZXZpY2VzUmVzcG9uc2UiJYq1GCEKAQUaB2RldmljZXMiE0xpc3QgcGFpcmVkIGRldmljZXMShwEKDFJldm9rZURldmljZRIhLmFnZW50bWVzaC52MS5SZXZva2VEZXZpY2VSZXF1ZXN0GiIuYWdlbnRtZXNoLnYxLlJldm9rZURldmljZVJlc3BvbnNlIjCKtRgsCgEFEAEaDXJldm9rZS1kZXZpY2UiFlJldm9rZSBhIHBhaXJlZCBkZXZpY2UaF5K1GBMKDnRlcm1pbmFsLmlucHV0EgEFYgZwcm90bzM", [file_agentmesh_v1_actor, file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message agentmesh.v1.HelloRequest
@@ -222,11 +222,16 @@ export type SpawnAgentRequest = Message<"agentmesh.v1.SpawnAgentRequest"> & {
   kind: string;
 
   /**
+   * A model named for it (the user named one); otherwise give a tier. One of the two is required: there is no
+   * default model.
+   *
    * @generated from field: string model = 7;
    */
   model: string;
 
   /**
+   * Overrides the tier's effort (or, with a named model, defaults to high).
+   *
    * @generated from field: string effort = 8;
    */
   effort: string;
@@ -244,6 +249,29 @@ export type SpawnAgentRequest = Message<"agentmesh.v1.SpawnAgentRequest"> & {
    * @generated from field: string task = 10;
    */
   task: string;
+
+  /**
+   * The tier (`tiers.<kind>.<tier>`: light, mid, strong, top) it runs on, or plans on when plan is set: the
+   * first model of its chain at its effort.
+   *
+   * @generated from field: string tier = 11;
+   */
+  tier: string;
+
+  /**
+   * The task has a plan phase: it plans (a Claude agent under the deny list) until ApproveAgent moves it to
+   * its execution tier.
+   *
+   * @generated from field: bool plan = 12;
+   */
+  plan: boolean;
+
+  /**
+   * The execution tier, when known before the plan is read; ApproveAgent may name another.
+   *
+   * @generated from field: string exec_tier = 13;
+   */
+  execTier: string;
 };
 
 /**
@@ -423,6 +451,22 @@ export type SendMessageResponse = Message<"agentmesh.v1.SendMessageResponse"> & 
    * @generated from field: agentmesh.v1.Message message = 1;
    */
   message?: Message$1 | undefined;
+
+  /**
+   * The reopen the message caused: a task, answer or question to a retired or stopped agent resumes it.
+   *
+   * @generated from field: agentmesh.v1.Reopen resumed = 2;
+   */
+  resumed?: Reopen | undefined;
+
+  /**
+   * Why a message that should have resumed a stopped agent did not (the host's agent cap or memory floor, a
+   * closed run, no conversation to resume). The message is stored either way and waits for the agent's next
+   * resume.
+   *
+   * @generated from field: string resume_error = 3;
+   */
+  resumeError: string;
 };
 
 /**
@@ -538,6 +582,87 @@ export const ListMessagesResponseSchema: GenMessage<ListMessagesResponse> = /*@_
   messageDesc(file_agentmesh_v1_mesh, 19);
 
 /**
+ * @generated from message agentmesh.v1.ListWaitingRequest
+ */
+export type ListWaitingRequest = Message<"agentmesh.v1.ListWaitingRequest"> & {
+  /**
+   * Only this run's; empty means every open run (an agent's own run, whatever it asks).
+   *
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListWaitingRequest.
+ * Use `create(ListWaitingRequestSchema)` to create a new message.
+ */
+export const ListWaitingRequestSchema: GenMessage<ListWaitingRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 20);
+
+/**
+ * @generated from message agentmesh.v1.ListWaitingResponse
+ */
+export type ListWaitingResponse = Message<"agentmesh.v1.ListWaitingResponse"> & {
+  /**
+   * @generated from field: repeated agentmesh.v1.Waiting waiting = 1;
+   */
+  waiting: Waiting[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListWaitingResponse.
+ * Use `create(ListWaitingResponseSchema)` to create a new message.
+ */
+export const ListWaitingResponseSchema: GenMessage<ListWaitingResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 21);
+
+/**
+ * One thing that waits on the user.
+ *
+ * @generated from message agentmesh.v1.Waiting
+ */
+export type Waiting = Message<"agentmesh.v1.Waiting"> & {
+  /**
+   * @generated from field: agentmesh.v1.WaitingKind kind = 1;
+   */
+  kind: WaitingKind;
+
+  /**
+   * @generated from field: string run_id = 2;
+   */
+  runId: string;
+
+  /**
+   * The agent that wrote the plan or question, or is stopped at a prompt.
+   *
+   * @generated from field: string agent_id = 3;
+   */
+  agentId: string;
+
+  /**
+   * The plan or question; unset for a prompt.
+   *
+   * @generated from field: agentmesh.v1.Message message = 4;
+   */
+  message?: Message$1 | undefined;
+
+  /**
+   * For a prompt, why the agent is stopped (its state detail).
+   *
+   * @generated from field: string detail = 5;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.Waiting.
+ * Use `create(WaitingSchema)` to create a new message.
+ */
+export const WaitingSchema: GenMessage<Waiting> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 22);
+
+/**
  * @generated from message agentmesh.v1.SubscribeEventsRequest
  */
 export type SubscribeEventsRequest = Message<"agentmesh.v1.SubscribeEventsRequest"> & {
@@ -561,7 +686,7 @@ export type SubscribeEventsRequest = Message<"agentmesh.v1.SubscribeEventsReques
  * Use `create(SubscribeEventsRequestSchema)` to create a new message.
  */
 export const SubscribeEventsRequestSchema: GenMessage<SubscribeEventsRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 20);
+  messageDesc(file_agentmesh_v1_mesh, 23);
 
 /**
  * @generated from message agentmesh.v1.SubscribeEventsResponse
@@ -608,7 +733,7 @@ export type SubscribeEventsResponse = Message<"agentmesh.v1.SubscribeEventsRespo
  * Use `create(SubscribeEventsResponseSchema)` to create a new message.
  */
 export const SubscribeEventsResponseSchema: GenMessage<SubscribeEventsResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 21);
+  messageDesc(file_agentmesh_v1_mesh, 24);
 
 /**
  * @generated from message agentmesh.v1.Snapshot
@@ -635,7 +760,7 @@ export type Snapshot = Message<"agentmesh.v1.Snapshot"> & {
  * Use `create(SnapshotSchema)` to create a new message.
  */
 export const SnapshotSchema: GenMessage<Snapshot> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 22);
+  messageDesc(file_agentmesh_v1_mesh, 25);
 
 /**
  * @generated from message agentmesh.v1.Resumed
@@ -652,7 +777,7 @@ export type Resumed = Message<"agentmesh.v1.Resumed"> & {
  * Use `create(ResumedSchema)` to create a new message.
  */
 export const ResumedSchema: GenMessage<Resumed> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 23);
+  messageDesc(file_agentmesh_v1_mesh, 26);
 
 /**
  * @generated from message agentmesh.v1.End
@@ -669,7 +794,7 @@ export type End = Message<"agentmesh.v1.End"> & {
  * Use `create(EndSchema)` to create a new message.
  */
 export const EndSchema: GenMessage<End> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 24);
+  messageDesc(file_agentmesh_v1_mesh, 27);
 
 /**
  * @generated from message agentmesh.v1.ReportHookRequest
@@ -716,7 +841,7 @@ export type ReportHookRequest = Message<"agentmesh.v1.ReportHookRequest"> & {
  * Use `create(ReportHookRequestSchema)` to create a new message.
  */
 export const ReportHookRequestSchema: GenMessage<ReportHookRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 25);
+  messageDesc(file_agentmesh_v1_mesh, 28);
 
 /**
  * @generated from message agentmesh.v1.ReportHookResponse
@@ -735,7 +860,7 @@ export type ReportHookResponse = Message<"agentmesh.v1.ReportHookResponse"> & {
  * Use `create(ReportHookResponseSchema)` to create a new message.
  */
 export const ReportHookResponseSchema: GenMessage<ReportHookResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 26);
+  messageDesc(file_agentmesh_v1_mesh, 29);
 
 /**
  * @generated from message agentmesh.v1.OpenTerminalRequest
@@ -759,7 +884,7 @@ export type OpenTerminalRequest = Message<"agentmesh.v1.OpenTerminalRequest"> & 
  * Use `create(OpenTerminalRequestSchema)` to create a new message.
  */
 export const OpenTerminalRequestSchema: GenMessage<OpenTerminalRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 27);
+  messageDesc(file_agentmesh_v1_mesh, 30);
 
 /**
  * @generated from message agentmesh.v1.OpenTerminalResponse
@@ -793,7 +918,7 @@ export type OpenTerminalResponse = Message<"agentmesh.v1.OpenTerminalResponse"> 
  * Use `create(OpenTerminalResponseSchema)` to create a new message.
  */
 export const OpenTerminalResponseSchema: GenMessage<OpenTerminalResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 28);
+  messageDesc(file_agentmesh_v1_mesh, 31);
 
 /**
  * @generated from message agentmesh.v1.ListSettingsRequest
@@ -812,7 +937,7 @@ export type ListSettingsRequest = Message<"agentmesh.v1.ListSettingsRequest"> & 
  * Use `create(ListSettingsRequestSchema)` to create a new message.
  */
 export const ListSettingsRequestSchema: GenMessage<ListSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 29);
+  messageDesc(file_agentmesh_v1_mesh, 32);
 
 /**
  * @generated from message agentmesh.v1.ListSettingsResponse
@@ -829,7 +954,7 @@ export type ListSettingsResponse = Message<"agentmesh.v1.ListSettingsResponse"> 
  * Use `create(ListSettingsResponseSchema)` to create a new message.
  */
 export const ListSettingsResponseSchema: GenMessage<ListSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 30);
+  messageDesc(file_agentmesh_v1_mesh, 33);
 
 /**
  * @generated from message agentmesh.v1.SetSettingRequest
@@ -856,7 +981,7 @@ export type SetSettingRequest = Message<"agentmesh.v1.SetSettingRequest"> & {
  * Use `create(SetSettingRequestSchema)` to create a new message.
  */
 export const SetSettingRequestSchema: GenMessage<SetSettingRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 31);
+  messageDesc(file_agentmesh_v1_mesh, 34);
 
 /**
  * @generated from message agentmesh.v1.SetSettingResponse
@@ -873,7 +998,7 @@ export type SetSettingResponse = Message<"agentmesh.v1.SetSettingResponse"> & {
  * Use `create(SetSettingResponseSchema)` to create a new message.
  */
 export const SetSettingResponseSchema: GenMessage<SetSettingResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 32);
+  messageDesc(file_agentmesh_v1_mesh, 35);
 
 /**
  * @generated from message agentmesh.v1.ResetSettingRequest
@@ -895,7 +1020,7 @@ export type ResetSettingRequest = Message<"agentmesh.v1.ResetSettingRequest"> & 
  * Use `create(ResetSettingRequestSchema)` to create a new message.
  */
 export const ResetSettingRequestSchema: GenMessage<ResetSettingRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 33);
+  messageDesc(file_agentmesh_v1_mesh, 36);
 
 /**
  * @generated from message agentmesh.v1.ResetSettingResponse
@@ -912,7 +1037,636 @@ export type ResetSettingResponse = Message<"agentmesh.v1.ResetSettingResponse"> 
  * Use `create(ResetSettingResponseSchema)` to create a new message.
  */
 export const ResetSettingResponseSchema: GenMessage<ResetSettingResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_mesh, 34);
+  messageDesc(file_agentmesh_v1_mesh, 37);
+
+/**
+ * @generated from message agentmesh.v1.ApproveAgentRequest
+ */
+export type ApproveAgentRequest = Message<"agentmesh.v1.ApproveAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * The execution tier; without it, the one preset at spawn. Or a model (and effort) named instead.
+   *
+   * @generated from field: string tier = 3;
+   */
+  tier: string;
+
+  /**
+   * @generated from field: string model = 4;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string effort = 5;
+   */
+  effort: string;
+
+  /**
+   * Execute on the planning model; only the deny list is lifted (still a reopen, for a Claude planner).
+   *
+   * @generated from field: bool keep_model = 6;
+   */
+  keepModel: boolean;
+
+  /**
+   * Added to the "approved" answer.
+   *
+   * @generated from field: string body = 7;
+   */
+  body: string;
+
+  /**
+   * Why this tier, recorded on the reopen.
+   *
+   * @generated from field: string why = 8;
+   */
+  why: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ApproveAgentRequest.
+ * Use `create(ApproveAgentRequestSchema)` to create a new message.
+ */
+export const ApproveAgentRequestSchema: GenMessage<ApproveAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 38);
+
+/**
+ * @generated from message agentmesh.v1.ApproveAgentResponse
+ */
+export type ApproveAgentResponse = Message<"agentmesh.v1.ApproveAgentResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Agent agent = 1;
+   */
+  agent?: Agent | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Message message = 2;
+   */
+  message?: Message$1 | undefined;
+
+  /**
+   * The reopen this asked for; unset when nothing changed (the same model and effort, no deny list).
+   *
+   * @generated from field: agentmesh.v1.Reopen reopen = 3;
+   */
+  reopen?: Reopen | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.ApproveAgentResponse.
+ * Use `create(ApproveAgentResponseSchema)` to create a new message.
+ */
+export const ApproveAgentResponseSchema: GenMessage<ApproveAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 39);
+
+/**
+ * @generated from message agentmesh.v1.SwitchAgentRequest
+ */
+export type SwitchAgentRequest = Message<"agentmesh.v1.SwitchAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * One of: a tier, a model, an effort alone (the same model: Claude keeps its cache), or next.
+   *
+   * @generated from field: string tier = 3;
+   */
+  tier: string;
+
+  /**
+   * @generated from field: string model = 4;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string effort = 5;
+   */
+  effort: string;
+
+  /**
+   * The next model of its phase's tier chain: its model hit a quota.
+   *
+   * @generated from field: bool next = 6;
+   */
+  next: boolean;
+
+  /**
+   * @generated from field: string why = 7;
+   */
+  why: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.SwitchAgentRequest.
+ * Use `create(SwitchAgentRequestSchema)` to create a new message.
+ */
+export const SwitchAgentRequestSchema: GenMessage<SwitchAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 40);
+
+/**
+ * @generated from message agentmesh.v1.SwitchAgentResponse
+ */
+export type SwitchAgentResponse = Message<"agentmesh.v1.SwitchAgentResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Agent agent = 1;
+   */
+  agent?: Agent | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Message message = 2;
+   */
+  message?: Message$1 | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Reopen reopen = 3;
+   */
+  reopen?: Reopen | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.SwitchAgentResponse.
+ * Use `create(SwitchAgentResponseSchema)` to create a new message.
+ */
+export const SwitchAgentResponseSchema: GenMessage<SwitchAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 41);
+
+/**
+ * @generated from message agentmesh.v1.ResumeAgentRequest
+ */
+export type ResumeAgentRequest = Message<"agentmesh.v1.ResumeAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * A task to resume it for; empty brings it back as it was.
+   *
+   * @generated from field: string task = 3;
+   */
+  task: string;
+
+  /**
+   * The task has a plan phase (it plans under the deny list, on tier: given, else the tier it had).
+   *
+   * @generated from field: bool plan = 4;
+   */
+  plan: boolean;
+
+  /**
+   * @generated from field: string tier = 5;
+   */
+  tier: string;
+
+  /**
+   * @generated from field: string model = 6;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string effort = 7;
+   */
+  effort: string;
+
+  /**
+   * @generated from field: string why = 8;
+   */
+  why: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ResumeAgentRequest.
+ * Use `create(ResumeAgentRequestSchema)` to create a new message.
+ */
+export const ResumeAgentRequestSchema: GenMessage<ResumeAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 42);
+
+/**
+ * @generated from message agentmesh.v1.ResumeAgentResponse
+ */
+export type ResumeAgentResponse = Message<"agentmesh.v1.ResumeAgentResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Agent agent = 1;
+   */
+  agent?: Agent | undefined;
+
+  /**
+   * The task, when one was given.
+   *
+   * @generated from field: agentmesh.v1.Message message = 2;
+   */
+  message?: Message$1 | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.Reopen reopen = 3;
+   */
+  reopen?: Reopen | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.ResumeAgentResponse.
+ * Use `create(ResumeAgentResponseSchema)` to create a new message.
+ */
+export const ResumeAgentResponseSchema: GenMessage<ResumeAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 43);
+
+/**
+ * @generated from message agentmesh.v1.CreatePairingRequest
+ */
+export type CreatePairingRequest = Message<"agentmesh.v1.CreatePairingRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Optional label for the device (the redeeming app may override it).
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Issue a read-only device token when redeemed.
+   *
+   * @generated from field: bool read_only = 3;
+   */
+  readOnly: boolean;
+
+  /**
+   * Lifetime in seconds (default 600, max 86400).
+   *
+   * @generated from field: int64 ttl_seconds = 4;
+   */
+  ttlSeconds: bigint;
+
+  /**
+   * Optional direct HTTPS URL (`https://host:port`) to include in the pairing payload.
+   *
+   * @generated from field: string direct_url = 5;
+   */
+  directUrl: string;
+
+  /**
+   * Optional relay URL override; defaults to the daemon's configured relay URL.
+   *
+   * @generated from field: string relay_url = 6;
+   */
+  relayUrl: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.CreatePairingRequest.
+ * Use `create(CreatePairingRequestSchema)` to create a new message.
+ */
+export const CreatePairingRequestSchema: GenMessage<CreatePairingRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 44);
+
+/**
+ * @generated from message agentmesh.v1.CreatePairingResponse
+ */
+export type CreatePairingResponse = Message<"agentmesh.v1.CreatePairingResponse"> & {
+  /**
+   * @generated from field: string pairing_id = 1;
+   */
+  pairingId: string;
+
+  /**
+   * One-time pairing token (`amp_...`).
+   *
+   * @generated from field: string token = 2;
+   */
+  token: string;
+
+  /**
+   * @generated from field: string host_id = 3;
+   */
+  hostId: string;
+
+  /**
+   * @generated from field: string host_name = 4;
+   */
+  hostName: string;
+
+  /**
+   * Canonical TLS leaf certificate fingerprint (`sha256:<64-hex>`).
+   *
+   * @generated from field: string cert_fingerprint = 5;
+   */
+  certFingerprint: string;
+
+  /**
+   * @generated from field: string relay_url = 6;
+   */
+  relayUrl: string;
+
+  /**
+   * Raw TCP client endpoint (`host:port`) on the relay, when configured.
+   *
+   * @generated from field: string relay_tcp = 7;
+   */
+  relayTcp: string;
+
+  /**
+   * Client relay auth token (`amr_...`) for this host, when relay is configured.
+   *
+   * @generated from field: string relay_client_token = 8;
+   */
+  relayClientToken: string;
+
+  /**
+   * @generated from field: string direct_url = 9;
+   */
+  directUrl: string;
+
+  /**
+   * Canonical `agentmesh://pair?...` URI for QR codes and pairing links.
+   *
+   * @generated from field: string uri = 10;
+   */
+  uri: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 11;
+   */
+  expiresAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.CreatePairingResponse.
+ * Use `create(CreatePairingResponseSchema)` to create a new message.
+ */
+export const CreatePairingResponseSchema: GenMessage<CreatePairingResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 45);
+
+/**
+ * @generated from message agentmesh.v1.ListDevicesRequest
+ */
+export type ListDevicesRequest = Message<"agentmesh.v1.ListDevicesRequest"> & {
+  /**
+   * @generated from field: bool include_revoked = 1;
+   */
+  includeRevoked: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListDevicesRequest.
+ * Use `create(ListDevicesRequestSchema)` to create a new message.
+ */
+export const ListDevicesRequestSchema: GenMessage<ListDevicesRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 46);
+
+/**
+ * @generated from message agentmesh.v1.ListDevicesResponse
+ */
+export type ListDevicesResponse = Message<"agentmesh.v1.ListDevicesResponse"> & {
+  /**
+   * @generated from field: repeated agentmesh.v1.Device devices = 1;
+   */
+  devices: Device[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListDevicesResponse.
+ * Use `create(ListDevicesResponseSchema)` to create a new message.
+ */
+export const ListDevicesResponseSchema: GenMessage<ListDevicesResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 47);
+
+/**
+ * @generated from message agentmesh.v1.RevokeDeviceRequest
+ */
+export type RevokeDeviceRequest = Message<"agentmesh.v1.RevokeDeviceRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string device_id = 2;
+   */
+  deviceId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RevokeDeviceRequest.
+ * Use `create(RevokeDeviceRequestSchema)` to create a new message.
+ */
+export const RevokeDeviceRequestSchema: GenMessage<RevokeDeviceRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 48);
+
+/**
+ * @generated from message agentmesh.v1.RevokeDeviceResponse
+ */
+export type RevokeDeviceResponse = Message<"agentmesh.v1.RevokeDeviceResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Device device = 1;
+   */
+  device?: Device | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.RevokeDeviceResponse.
+ * Use `create(RevokeDeviceResponseSchema)` to create a new message.
+ */
+export const RevokeDeviceResponseSchema: GenMessage<RevokeDeviceResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 49);
+
+/**
+ * @generated from message agentmesh.v1.RetireAgentRequest
+ */
+export type RetireAgentRequest = Message<"agentmesh.v1.RetireAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RetireAgentRequest.
+ * Use `create(RetireAgentRequestSchema)` to create a new message.
+ */
+export const RetireAgentRequestSchema: GenMessage<RetireAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 50);
+
+/**
+ * @generated from message agentmesh.v1.RetireAgentResponse
+ */
+export type RetireAgentResponse = Message<"agentmesh.v1.RetireAgentResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Agent agent = 1;
+   */
+  agent?: Agent | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.RetireAgentResponse.
+ * Use `create(RetireAgentResponseSchema)` to create a new message.
+ */
+export const RetireAgentResponseSchema: GenMessage<RetireAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 51);
+
+/**
+ * @generated from message agentmesh.v1.StopRunRequest
+ */
+export type StopRunRequest = Message<"agentmesh.v1.StopRunRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string run_id = 2;
+   */
+  runId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.StopRunRequest.
+ * Use `create(StopRunRequestSchema)` to create a new message.
+ */
+export const StopRunRequestSchema: GenMessage<StopRunRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 52);
+
+/**
+ * @generated from message agentmesh.v1.StopRunResponse
+ */
+export type StopRunResponse = Message<"agentmesh.v1.StopRunResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Run run = 1;
+   */
+  run?: Run | undefined;
+
+  /**
+   * The agents this call retired (those already stopped are not listed).
+   *
+   * @generated from field: repeated string retired = 2;
+   */
+  retired: string[];
+
+  /**
+   * What became of each agent's worktree.
+   *
+   * @generated from field: repeated agentmesh.v1.WorktreeOutcome worktrees = 3;
+   */
+  worktrees: WorktreeOutcome[];
+};
+
+/**
+ * Describes the message agentmesh.v1.StopRunResponse.
+ * Use `create(StopRunResponseSchema)` to create a new message.
+ */
+export const StopRunResponseSchema: GenMessage<StopRunResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 53);
+
+/**
+ * @generated from message agentmesh.v1.WorktreeOutcome
+ */
+export type WorktreeOutcome = Message<"agentmesh.v1.WorktreeOutcome"> & {
+  /**
+   * @generated from field: string agent_id = 1;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: string worktree = 2;
+   */
+  worktree: string;
+
+  /**
+   * @generated from field: string branch = 3;
+   */
+  branch: string;
+
+  /**
+   * @generated from field: bool worktree_removed = 4;
+   */
+  worktreeRemoved: boolean;
+
+  /**
+   * The branch moved past its start or was pushed (a remote branch of its name), or its worktree stayed: it is kept.
+   *
+   * @generated from field: bool branch_kept = 5;
+   */
+  branchKept: boolean;
+
+  /**
+   * Why a worktree or branch stayed.
+   *
+   * @generated from field: string reason = 6;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.WorktreeOutcome.
+ * Use `create(WorktreeOutcomeSchema)` to create a new message.
+ */
+export const WorktreeOutcomeSchema: GenMessage<WorktreeOutcome> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_mesh, 54);
+
+/**
+ * @generated from enum agentmesh.v1.WaitingKind
+ */
+export enum WaitingKind {
+  /**
+   * @generated from enum value: WAITING_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A plan to approve or send back.
+   *
+   * @generated from enum value: WAITING_KIND_PLAN = 1;
+   */
+  PLAN = 1,
+
+  /**
+   * A question to answer.
+   *
+   * @generated from enum value: WAITING_KIND_QUESTION = 2;
+   */
+  QUESTION = 2,
+
+  /**
+   * An agent stopped at a prompt in its terminal (a permission, say).
+   *
+   * @generated from enum value: WAITING_KIND_INPUT = 3;
+   */
+  INPUT = 3,
+}
+
+/**
+ * Describes the enum agentmesh.v1.WaitingKind.
+ */
+export const WaitingKindSchema: GenEnum<WaitingKind> = /*@__PURE__*/
+  enumDesc(file_agentmesh_v1_mesh, 0);
 
 /**
  * MeshService is the host's action registry: every action the apps, the CLI and the agents can take. Each RPC
@@ -985,6 +1739,61 @@ export const MeshService: GenService<{
     output: typeof StopAgentResponseSchema;
   },
   /**
+   * Approve an agent's plan: store the answer and move it to its execution tier (or model) by reopening its own
+   * conversation without the planning deny list. Only its parent or a device, and only when its newest report
+   * since its last task or answer is a plan.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ApproveAgent
+   */
+  approveAgent: {
+    methodKind: "unary";
+    input: typeof ApproveAgentRequestSchema;
+    output: typeof ApproveAgentResponseSchema;
+  },
+  /**
+   * Move an agent to another tier, model or effort, or to the next model of its chain (a quota), by reopening
+   * its own conversation. A move asked for mid-turn runs at its next IDLE.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.SwitchAgent
+   */
+  switchAgent: {
+    methodKind: "unary";
+    input: typeof SwitchAgentRequestSchema;
+    output: typeof SwitchAgentResponseSchema;
+  },
+  /**
+   * Reopen a stopped agent's conversation, with a new task or as it was.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ResumeAgent
+   */
+  resumeAgent: {
+    methodKind: "unary";
+    input: typeof ResumeAgentRequestSchema;
+    output: typeof ResumeAgentResponseSchema;
+  },
+  /**
+   * Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
+   * branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.RetireAgent
+   */
+  retireAgent: {
+    methodKind: "unary";
+    input: typeof RetireAgentRequestSchema;
+    output: typeof RetireAgentResponseSchema;
+  },
+  /**
+   * Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
+   * it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.StopRun
+   */
+  stopRun: {
+    methodKind: "unary";
+    input: typeof StopRunRequestSchema;
+    output: typeof StopRunResponseSchema;
+  },
+  /**
    * Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    *
    * @generated from rpc agentmesh.v1.MeshService.SendMessage
@@ -1015,6 +1824,19 @@ export const MeshService: GenService<{
     methodKind: "unary";
     input: typeof ListMessagesRequestSchema;
     output: typeof ListMessagesResponseSchema;
+  },
+  /**
+   * What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
+   * to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
+   * and every agent stopped at a prompt in its terminal. Oldest first, plans and questions before prompts. A
+   * lead reads its own run's.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ListWaiting
+   */
+  listWaiting: {
+    methodKind: "unary";
+    input: typeof ListWaitingRequestSchema;
+    output: typeof ListWaitingResponseSchema;
   },
   /**
    * The event log from a cursor, then live. The first message is a Snapshot or a Resumed; only an End message
@@ -1077,6 +1899,37 @@ export const MeshService: GenService<{
     methodKind: "unary";
     input: typeof OpenTerminalRequestSchema;
     output: typeof OpenTerminalResponseSchema;
+  },
+  /**
+   * Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
+   * may call this.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.CreatePairing
+   */
+  createPairing: {
+    methodKind: "unary";
+    input: typeof CreatePairingRequestSchema;
+    output: typeof CreatePairingResponseSchema;
+  },
+  /**
+   * List paired devices. Only the host's own device may call this.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.ListDevices
+   */
+  listDevices: {
+    methodKind: "unary";
+    input: typeof ListDevicesRequestSchema;
+    output: typeof ListDevicesResponseSchema;
+  },
+  /**
+   * Revoke a paired device's token and close its active streams. Only the host's own device may call this.
+   *
+   * @generated from rpc agentmesh.v1.MeshService.RevokeDevice
+   */
+  revokeDevice: {
+    methodKind: "unary";
+    input: typeof RevokeDeviceRequestSchema;
+    output: typeof RevokeDeviceResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_agentmesh_v1_mesh, 0);

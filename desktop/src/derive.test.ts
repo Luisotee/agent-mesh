@@ -1,7 +1,8 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { buildTrees, knownRepos, messagesOf, repoName, statusSentence, waitingOnYou } from './derive'
+import { buildTrees, knownRepos, messagesOf, repoName, statusSentence, joinWaiting } from './derive'
+import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 
 const a = (id: string, o: Parameters<typeof create<typeof AgentSchema>>[1] = {}) => create(AgentSchema, { id, name: id, runId: 'r1', createdAt: timestampFromMs(1000), ...o })
@@ -69,54 +70,21 @@ describe('repos', () => {
   })
 })
 
-describe('waitingOnYou', () => {
+describe('joinWaiting', () => {
   const msg = (id: string, type: MessageType, from: string, to: string, ms: number) =>
     create(MessageSchema, { id, runId: 'r1', type, from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: 0, runId: 'r1' }, toId: to, createdAt: timestampFromMs(ms), body: id })
   const team = byId([a('lead', { role: AgentRole.ROOT }), a('w1', { role: AgentRole.WORKER, parentId: 'lead' }), a('w2', { role: AgentRole.WORKER, parentId: 'lead' })])
-  const ids = (m: ReturnType<typeof msg>[], agents = team) => waitingOnYou(runs, agents, byId(m)).map((w) => `${w.kind}:${w.agent.id}`)
+  const row = (kind: WaitingKind, agentId: string, message?: ReturnType<typeof msg>) => create(WaitingSchema, { kind, runId: 'r1', agentId, message })
 
-  it('lists a plan or question to the lead that nobody answered, oldest first', () => {
-    expect(ids([msg('q', MessageType.QUESTION, 'w2', 'lead', 3000), msg('p', MessageType.PLAN, 'w1', 'lead', 2000)])).toEqual(['plan:w1', 'question:w2'])
+  it('shows the host\'s rows with their agent, run and message, in the host\'s order', () => {
+    const p = msg('p', MessageType.PLAN, 'w1', 'lead', 1000)
+    const out = joinWaiting([row(WaitingKind.PLAN, 'w1', p), row(WaitingKind.QUESTION, 'w2', msg('q', MessageType.QUESTION, 'w2', 'lead', 2000)), row(WaitingKind.INPUT, 'lead')], runs, team)
+    expect(out.map((w) => `${w.kind}:${w.agent.id}:${w.message?.id ?? '-'}`)).toEqual(['plan:w1:p', 'question:w2:q', 'input:lead:-'])
+    expect(out[0]!.run?.id).toBe('r1')
   })
 
-  it('closes an item once an answer to its author follows, from the lead or the user', () => {
-    expect(ids([msg('p', MessageType.PLAN, 'w1', 'lead', 1000), msg('a', MessageType.ANSWER, 'lead', 'w1', 2000)])).toEqual([])
-    // An answer before the plan, or to someone else, doesn't close it.
-    expect(ids([msg('a', MessageType.ANSWER, 'lead', 'w1', 500), msg('p', MessageType.PLAN, 'w1', 'lead', 1000)])).toEqual(['plan:w1'])
-    expect(ids([msg('p', MessageType.PLAN, 'w1', 'lead', 1000), msg('a', MessageType.ANSWER, 'lead', 'w2', 2000)])).toEqual(['plan:w1'])
-  })
-
-  it('a second plan after an answer waits again', () => {
-    expect(ids([msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('a', MessageType.ANSWER, 'lead', 'w1', 2000), msg('p2', MessageType.PLAN, 'w1', 'lead', 3000)])).toEqual(['plan:w1'])
-  })
-
-  it('ignores what is not for the lead, reports, and authors that exited', () => {
-    expect(ids([msg('p', MessageType.PLAN, 'w1', 'w2', 1000), msg('d', MessageType.DONE, 'w1', 'lead', 2000)])).toEqual([])
-    const gone = { ...team, w1: a('w1', { role: AgentRole.WORKER, parentId: 'lead', state: AgentState.EXITED }) }
-    expect(ids([msg('p', MessageType.PLAN, 'w1', 'lead', 1000)], gone)).toEqual([])
-  })
-
-  it('adds the agents stopped at a prompt, after the plans and questions', () => {
-    const t = { ...team, w2: a('w2', { role: AgentRole.WORKER, parentId: 'lead', state: AgentState.NEEDS_INPUT }) }
-    expect(ids([msg('p', MessageType.PLAN, 'w1', 'lead', 1000)], t)).toEqual(['plan:w1', 'input:w2'])
-  })
-
-  it('has nothing for a closed run, or one with no lead', () => {
-    const closed = { r1: create(RunSchema, { id: 'r1', status: RunStatus.CLOSED }) }
-    expect(waitingOnYou(closed, team, byId([msg('p', MessageType.PLAN, 'w1', 'lead', 1)]))).toEqual([])
-    const leadless = byId([a('w1', { role: AgentRole.WORKER })])
-    expect(waitingOnYou(runs, leadless, byId([msg('p', MessageType.PLAN, 'w1', 'lead', 1)]))).toEqual([])
-  })
-
-  it('orders by the nanosecond, so a plan and an answer in one millisecond keep their order', () => {
-    const p = create(MessageSchema, { id: 'z', runId: 'r1', type: MessageType.PLAN, toId: 'lead', createdAt: { $typeName: 'google.protobuf.Timestamp', seconds: 5n, nanos: 1_000_100 }, from: { $typeName: 'agentmesh.v1.Actor', id: 'w1', name: 'w1', class: 0, runId: 'r1' } })
-    const ans = create(MessageSchema, { id: 'a', runId: 'r1', type: MessageType.ANSWER, toId: 'w1', createdAt: { $typeName: 'google.protobuf.Timestamp', seconds: 5n, nanos: 1_000_900 } })
-    expect(waitingOnYou(runs, team, byId([p, ans]))).toEqual([])
-  })
-
-  it('has no prompts for agents of a closed run', () => {
-    const closed = { r1: create(RunSchema, { id: 'r1', status: RunStatus.CLOSED }) }
-    expect(waitingOnYou(closed, byId([a('x', { state: AgentState.NEEDS_INPUT })]), {})).toEqual([])
+  it('leaves out a row whose agent has not reached the store, and a kind this app does not know', () => {
+    expect(joinWaiting([row(WaitingKind.PLAN, 'ghost'), row(WaitingKind.UNSPECIFIED, 'w1')], runs, team)).toEqual([])
   })
 
   it('messagesOf gives an agent\'s conversation in order', () => {

@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Select } from '@/components/ui/input'
 import { useApp, useAppState, useHostState } from '@/context'
-import { ROLE_LABEL, statusSentence, waitingOnYou } from '@/derive'
+import { ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
@@ -27,7 +27,7 @@ export function AgentPanel({ host, agentId }: { host: HostRuntime; agentId: stri
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const app = useApp()
   const tab = useAppState((s) => s.tab)
-  const open = useHostState(host, (s) => waitingOnYou(s.runs, s.agents, s.messages).filter((w) => w.message && (w.agent.id === agentId || w.message.toId === agentId)).length)
+  const open = useHostState(host, (s) => s.waiting.filter((w) => w.message && (w.agentId === agentId || w.message.toId === agentId)).length)
   const parent = useHostState(host, (s) => (agent?.parentId ? s.agents[agent.parentId] : undefined))
   if (!agent) return <Empty>That agent isn't on this host any more.</Empty>
   const facts: Array<[string, string]> = [
@@ -100,7 +100,7 @@ function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  if (agent.state === AgentState.EXITED) return null
+  if (agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED) return null
   async function stop() {
     if (busy) return
     setBusy(true)
