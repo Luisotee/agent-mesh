@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -363,7 +365,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		}
 	}
 	d.warmOpenCodeModels(ctx, "opencode")
-	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(r, top, pr.HeadRef), earlierKinds)
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(r, top, pr.HeadRef), earlierKinds, top)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +402,15 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 	if last != nil && last.Head == pr.Head && relay == nil {
 		reuseFrom = nil
 	}
-	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, func(i int) (*v1.AskMember, *v1.Agent, string) {
+	// Reviewers of the earlier round already running are part of this one whichever slot comes first: they share
+	// its place in the cap from the start, so the order of the kinds never decides who the cap refuses.
+	running := make([]string, len(kinds)) // by slot: "" for one with no running reviewer to reuse
+	for i, k := range kinds {
+		if a, _, _ := reusableReviewer(r, actor, reuseFrom, k); a != nil && hasProcess(a) {
+			running[i] = a.Id
+		}
+	}
+	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, running, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) })
@@ -409,12 +419,14 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 // collectRound starts the members of a collected ask one after another and returns once they have started
 // (the answers come later, collect.go). The ask is stored before its first member starts and can't finish until
 // the last has (starting), so an answer that comes while the others are still starting is collected. keys name
-// the members (a reviewer's kind, a peer's name) and start(i) brings member i in: a member that can't be
-// reached is one with a line saying why, not an error. A mutation id of the request covers the whole ask: its
-// id comes from it, so a retry after an interruption finds the ask it left, keeps the members already started
-// (their own spawns replay too) and starts the rest; the final write records the mutation.
-func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string,
-	start func(i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
+// the members (a reviewer's kind, a peer's name) and start(ctx, i) brings member i in: a member that can't be
+// reached is one with a line saying why, not an error. With oneSlot the members of the round share one place in
+// `caps.agents` (a review round: its first reviewer must fit the cap, the others then join it, so the round is
+// never cut short by it, and the agents of `running` (by key: one already running for that slot, "" for none) already hold it, until their slot fails); without, each counts as the agent it is (a
+// peers group can be many). A mutation id of the request covers the whole ask: its id comes from it, so a retry after an
+// interruption finds the ask it left, keeps the members already started (their own spawns replay too) and starts the rest; the final write records the mutation.
+func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string, oneSlot bool, running []string,
+	start func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
 	have := map[string]*v1.AskMember{}
 	if prev, err := d.store.Read(ctx).GetAsk(ask.Id); err == nil {
 		if prev.Status != v1.AskStatus_ASK_STATUS_OPEN || !prev.Starting {
@@ -438,9 +450,18 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 		return nil, err
 	}
 	started := 0
+	var shared []string // the agents of this round already running, whose place in the cap the others share
+	for _, id := range running {
+		if id != "" {
+			shared = append(shared, id)
+		}
+	}
 	for i, key := range keys {
 		if mem := have[key]; mem != nil {
-			if mem.AgentId != "" {
+			if mem.AgentId != "" && mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+				if !slices.Contains(shared, mem.AgentId) {
+					shared = append(shared, mem.AgentId)
+				}
 				if cur, err := d.getAgent(d.store.Read(ctx), mem.AgentId); err == nil {
 					out.Agents = append(out.Agents, d.view(cur))
 				}
@@ -448,13 +469,23 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 			}
 			continue
 		}
-		member, agent, note := start(i)
+		startCtx := ctx
+		if oneSlot {
+			startCtx = withCapShared(ctx, shared)
+		}
+		member, agent, note := start(startCtx, i)
 		if note != "" {
 			out.Notes = append(out.Notes, note)
 		}
 		if agent != nil {
 			out.Agents = append(out.Agents, agent)
+			if !slices.Contains(shared, agent.Id) {
+				shared = append(shared, agent.Id)
+			}
 			started++
+		} else if i < len(running) && running[i] != "" {
+			// Its reviewer was not asked after all: it is no part of the round, and counts against the cap again.
+			shared = slices.DeleteFunc(shared, func(id string) bool { return id == running[i] })
 		}
 		if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAsk(ask.Id)
@@ -521,6 +552,28 @@ type reviewJob struct {
 	meta                                        *v1.RequestMeta
 }
 
+// reusableReviewer is the earlier round's own reviewer of a kind that a re-review asks again: the agent, the head
+// it reviewed, and whether a reviewer of the kind was in that round without answering it (it has not seen the
+// earlier commits, so a fresh one reviews the whole PR).
+func reusableReviewer(r store.Reader, actor *v1.Actor, last *v1.Ask, kind string) (reuse *v1.Agent, reviewedAt string, unanswered bool) {
+	if last == nil || last.RunId != actor.RunId {
+		return nil, "", false
+	}
+	for _, mem := range last.Members {
+		if mem.Kind != kind || mem.AgentId == "" || mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+			continue
+		}
+		if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
+			unanswered = true
+			continue
+		}
+		if a, err := r.GetAgent(mem.AgentId); err == nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && a.ParentId == actor.Id {
+			return a, mem.Head, false
+		}
+	}
+	return nil, "", unanswered
+}
+
 // startReviewer brings one reviewer of a round into it: the earlier round's own agent when this run has one
 // (given a new task, resumed if retired, its worktree moved to the new head when that is safe), else a fresh
 // agent at the head. A reviewer that can't be reached is a member with a line saying why, not an error.
@@ -532,30 +585,21 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		return member, nil, fmt.Sprintf("%s (%s): not asked: %s", name, j.kind, line)
 	}
 	r := d.store.Read(ctx)
-	// The earlier round's own reviewer of this kind, in this run.
-	var reuse *v1.Agent
-	var reviewedAt string
-	// A reviewer of this kind that never answered the last round (it crashed, timed out or asked a question)
-	// has not seen the earlier commits: it starts fresh and reviews the whole PR.
-	unanswered := false
-	if j.last != nil && j.last.RunId == actor.RunId {
-		for _, mem := range j.last.Members {
-			if mem.Kind != j.kind || mem.AgentId == "" || mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
-				continue
-			}
-			if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
-				unanswered = true
-				continue
-			}
-			if a, err := r.GetAgent(mem.AgentId); err == nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && a.ParentId == actor.Id {
-				reuse, reviewedAt = a, mem.Head
-				unanswered = false
-				break
-			}
+	reuse, reviewedAt, unanswered := reusableReviewer(r, actor, j.last, j.kind)
+	// An OpenCode reviewer that ran on a zero-cost model before the repo was set against them (freemodels.go) is not
+	// sent the new head: a fresh one starts on a model the tier allows, or is refused.
+	var freshNote string
+	var notReused *v1.Agent // retired once its replacement has started
+	if reuse != nil && d.freeOffFor(r, reuse.Kind, reuse.Repo) != "" {
+		d.warmOpenCodeModels(ctx, opencode.Kind)
+		at, _, _ := target(reuse) // where it will run, when a reopen is pending
+		if err := d.checkKept(r, reuse, at); err != nil {
+			freshNote = fmt.Sprintf("%s is on a model its repo keeps code from (repos.no_free_models): a new %s reviewer instead", reuse.Name, j.kind)
+			notReused, reuse, unanswered = reuse, nil, true
 		}
 	}
 	if reuse != nil {
-		member.AgentId, member.Name = reuse.Id, reuse.Name
+		member.Name = reuse.Name
 		model, effort, _ := target(reuse) // where it will run, when a reopen is pending
 		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, reuse.Kind, model, effort, "asking "+reuse.Name); err != nil {
 			return fail(reuse.Name, err.Error())
@@ -581,8 +625,11 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			return fail(reuse.Name, err.Error())
 		}
 		if res.Msg.ResumeError != "" {
+			// The task was stored with the refusal: not for the next resume, so it is marked read.
+			d.dropStoredTask(ctx, actor, reuse.Id, res.Msg.Message.GetId())
 			return fail(reuse.Name, "could not be resumed: "+res.Msg.ResumeError)
 		}
+		member.AgentId = reuse.Id // only a reviewer that took the task is the member's agent
 		member.How, member.Model = "asked", reuse.Model
 		member.Tier = reuse.Tier
 		if reuse.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && reuse.ExecTier != "" {
@@ -626,10 +673,19 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		if errors.As(err, &ce) {
 			msg = ce.Message()
 		}
+		if freshNote != "" {
+			msg = freshNote + "; " + msg // why a new one was wanted, with why it could not start
+		}
 		return fail(member.Name, msg)
 	}
 	member.AgentId, member.Name, member.How, member.Model = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model
-	return member, res.Msg.Agent, ""
+	if notReused != nil {
+		// The earlier reviewer, on a model its repo no longer allows, is not left running beside its replacement.
+		if _, err := d.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: subMeta(j.meta, "retire-"+j.kind), Agent: notReused.Id})); err != nil {
+			d.log.Warn("retiring a reviewer that was not reused", "agent", notReused.Name, "err", err)
+		}
+	}
+	return member, res.Msg.Agent, freshNote
 }
 
 // ── verdicts and listing ──

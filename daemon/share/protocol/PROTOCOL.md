@@ -35,7 +35,7 @@ The message is stored when `mesh send` returns, and your parent's doorbell rings
 
 ## What the daemon does for you
 
-- **A nudge:** if your turn ends with no `plan`, `question`, `done` or `failed` since your last task or answer, the daemon waits `accountability.nudge_after` (30 s) and sends you one `info` starting `[mesh nudge]`: run `mesh inbox` and report now. If your next turn ends the same way, it tells your parent (`[mesh alert silent …]`). It comes once per task.
+- **A nudge:** if your turn ends with no `plan`, `question`, `done` or `failed` since your last task or answer, the daemon waits `accountability.nudge_after` (30 s) and sends you one `info` starting `[mesh nudge]`: run `mesh inbox` and report now. If your next turn ends the same way, it tells your parent (`[mesh alert silent …]`). It comes once per task, and again after each wait you declare.
 - **Alerts for your parent:** when you exit, are lost, go quiet for ten minutes, or stop at a usage limit without having reported, your parent is told. That is not a failure of yours to fix: just report as usual when you are back.
 - **A usage limit** on your model is the daemon's to handle (`limits.auto`): it moves you to the next model of your tier's chain, or continues you once the limit is over, and tells you in an `info`. Carry on from it.
 - **Unread instructions:** while a `task` or `answer` is unread in your mailbox, `mesh send` refuses a `plan`, `question`, `done` or `failed` (nothing is sent) and says what is waiting, since the report would answer instructions you have not read. Read them (`mesh inbox`), act on them, then send one report that covers them too. Something that can't wait goes as an `info`.
@@ -43,6 +43,8 @@ The message is stored when `mesh send` returns, and your parent's doorbell rings
 ## Rules
 
 **Waiting on purpose:** before you end your turn to wait for something long you started (a background test suite that will wake you), declare it: `mesh send parent --type wait --body "<what you wait for>"`. The daemon then holds its nudge for up to `accountability.wait_max` (4 h) or until your next task or answer. A wait is not a report and rings no doorbell: when it is over, report as usual. Without it, a turn that ends waiting is nudged like any other.
+
+A wait ends at your next wake: a background job's notification, a monitor event, a message. If you end that turn still waiting (another job is running), **declare a fresh wait first**, every time. A turn that ends waiting with no fresh wait is nudged, and after a nudge you did not answer with a wait or a report, your parent is told you went silent.
 
 1. **Asking:** when the plan is ambiguous or wrong, or you're stuck after two honest attempts, send a `question` and **end your turn**. Don't sleep, poll or guess: the answer arrives as a new doorbell. A good question states what you tried, what you see, and the options you're choosing between.
 2. **Finishing:** every task ends with exactly **one** `done` or `failed` to your parent.

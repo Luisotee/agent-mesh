@@ -34,7 +34,7 @@ import java.io.File
 @Config(sdk = [36], qualifiers = "w411dp-h900dp-xxhdpi", application = PairTestApp::class)
 class PairScreenTest {
     @get:Rule val compose = createComposeRule()
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
     private val container get() = (ApplicationProvider.getApplicationContext<Application>() as MeshApp).container
 
     private val fp = "ab".repeat(32)

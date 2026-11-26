@@ -4,8 +4,10 @@ package daemon
 // refuse with ResourceExhausted, never queue: the caller (the root, a person) decides what to retire or wait for.
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,23 +83,41 @@ func hasProcess(a *v1.Agent) bool {
 
 // liveAgents counts the agent processes of every run, except the agent named (the one being resumed: it adds one
 // process, however many reopens it has pending).
-func liveAgents(r store.Reader, except string) (int, error) {
+func liveAgents(r store.Reader, except string, shared ...string) (int, error) {
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, a := range agents {
-		if a.Id != except && hasProcess(a) && !isAdopted(a) { // an adopted session is the user's own process
+		if a.Id != except && hasProcess(a) && !isAdopted(a) && !slices.Contains(shared, a.Id) { // an adopted session is the user's own process
 			n++
 		}
 	}
 	return n, nil
 }
 
+type capSharedKey struct{}
+
+// withCapShared marks agents that a launch under ctx shares its place in `caps.agents` with: the members of a
+// review round already started count as one agent for the round's other reviewers, so a round that fits the
+// cap at its first reviewer is never cut short at its second (README, "caps.agents").
+func withCapShared(ctx context.Context, ids []string) context.Context {
+	if len(ids) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, capSharedKey{}, slices.Clone(ids))
+}
+
+// capShared is the agents ctx shares its place in the cap with (nil for any launch not part of a round).
+func capShared(ctx context.Context) []string {
+	ids, _ := ctx.Value(capSharedKey{}).([]string)
+	return ids
+}
+
 // capGuard refuses a launch that would add an agent process past the cap (`caps.agents`; agents still starting
 // count, so a burst of spawns can't all pass).
-func (d *Daemon) capGuard(r store.Reader, what, except string) error {
+func (d *Daemon) capGuard(r store.Reader, what, except string, shared ...string) error {
 	c, err := d.capacity(r)
 	if err != nil {
 		return err
@@ -105,7 +125,7 @@ func (d *Daemon) capGuard(r store.Reader, what, except string) error {
 	if c.Agents <= 0 {
 		return nil
 	}
-	n, err := liveAgents(r, except)
+	n, err := liveAgents(r, except, shared...)
 	if err != nil {
 		return err
 	}
@@ -120,8 +140,8 @@ func (d *Daemon) capGuard(r store.Reader, what, except string) error {
 // mayLaunch is capGuard and the memory guard, for a launch that adds a process: a spawn, a resume. Called inside
 // the write that stores the new agent or its reopen, where the store's one writer makes the count and the
 // record one step: two launches can't both read the cap with room left.
-func (d *Daemon) mayLaunch(r store.Reader, what, agentID string) error {
-	if err := d.capGuard(r, what, agentID); err != nil {
+func (d *Daemon) mayLaunch(r store.Reader, what, agentID string, shared ...string) error {
+	if err := d.capGuard(r, what, agentID, shared...); err != nil {
 		return err
 	}
 	return d.memoryGuard(r, what, agentID)
