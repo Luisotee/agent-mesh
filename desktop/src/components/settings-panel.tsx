@@ -6,9 +6,10 @@ import { resetSetting, setSetting } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea } from '@/components/ui/input'
-import { useHostState } from '@/context'
+import { useApp, useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
+import { ShortcutField } from './shortcut-field'
 import { controlFor, fromText, groupOf, toText, type Control } from '@/settings-form'
 
 const json = (v: Setting['value']): unknown => (v ? toJson(ValueSchema, v) : undefined)
@@ -20,7 +21,9 @@ const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify
  */
 export function SettingsPanel({ host }: { host: HostRuntime }) {
   const settings = useHostState(host, (s) => s.settings)
-  const [query, setQuery] = useState('')
+  const app = useApp()
+  // The palette can open this screen already filtered ("Keyboard shortcuts").
+  const [query, setQuery] = useState(() => app.store.getState().settingsQuery)
   const [changed, setChanged] = useState(false)
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -117,7 +120,7 @@ function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting 
         )}
       </div>
       <p className="text-xs text-muted-foreground">{s.schema?.summary}</p>
-      <Field control={control} id={s.key} value={current} draft={draft} setDraft={setDraft} commit={commit} save={save} busy={busy} />
+      <Field host={host} control={control} id={s.key} value={current} draft={draft} setDraft={setDraft} commit={commit} save={save} busy={busy} />
       {!s.isSet && <p className="text-[11px] text-muted-foreground">Default</p>}
       {s.isSet && <p className="text-[11px] text-muted-foreground">Default: <code className="font-mono">{show(json(s.default))}</code></p>}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
@@ -125,7 +128,7 @@ function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting 
   )
 }
 
-function Field({ control, id, value, draft, setDraft, commit, save, busy }: { control: Control; id: string; value: unknown; draft: string; setDraft: (t: string) => void; commit: (t: string) => Promise<void>; save: (v: unknown) => Promise<void>; busy: boolean }) {
+function Field({ host, control, id, value, draft, setDraft, commit, save, busy }: { host: HostRuntime; control: Control; id: string; value: unknown; draft: string; setDraft: (t: string) => void; commit: (t: string) => Promise<void>; save: (v: unknown) => Promise<void>; busy: boolean }) {
   const label = `Value of ${id}`
   switch (control.kind) {
     case 'bool':
@@ -135,6 +138,8 @@ function Field({ control, id, value, draft, setDraft, commit, save, busy }: { co
           {value === true ? 'On' : 'Off'}
         </label>
       )
+    case 'shortcut':
+      return <ShortcutField host={host} id={id} value={typeof value === 'string' ? value : ''} busy={busy} save={save} />
     case 'select':
       return (
         <Select aria-label={label} className="max-w-xs" value={draft} disabled={busy} onChange={(e) => void commit(e.target.value)}>

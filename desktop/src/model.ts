@@ -113,6 +113,10 @@ export interface AppState extends WorkspaceState {
   settingsOpen: boolean
   /** The main pane shows the host's pairing screen. */
   pairOpen: boolean
+  /** The command palette is open. */
+  paletteOpen: boolean
+  /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
+  settingsQuery: string
 }
 
 export type AgentTab = 'overview' | 'messages' | 'terminal'
@@ -134,13 +138,14 @@ export interface AppModel {
   setDock(open: boolean): void
   /** Takes a tile off the dock until its agent's state changes. */
   dismissTile(hostId: string, agentId: string): void
-  openSettings(open: boolean): void
+  openSettings(open: boolean, query?: string): void
+  openPalette(open: boolean): void
   openPairing(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -216,7 +221,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
     selectAgent: (hostId, agentId, tab) =>
       set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false })),
-    openSettings: (open) => set({ settingsOpen: open, pairOpen: false }),
+    openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, settingsQuery: open ? query : '' }),
+    openPalette: (open) => set({ paletteOpen: open }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false }),
     setTab: (tab) => set({ tab }),
     closeTab: (ref) => set((s) => closeTab(s, ref)),

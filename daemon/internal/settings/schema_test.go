@@ -35,7 +35,7 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 func TestTheAppRowsAreInTheTable(t *testing.T) {
 	s := Default()
 	got := s.Keys("app.")
-	want := []string{"app.dock.new_agents", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.tray.close_to_tray"}
+	want := []string{"app.dock.new_agents", "app.keys.dock", "app.keys.palette", "app.keys.settings", "app.keys.tab_close", "app.keys.tab_next", "app.keys.tab_prev", "app.keys.waiting_next", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.tray.close_to_tray"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("app rows %v, want %v", got, want)
 	}
@@ -123,6 +123,37 @@ func TestAStringLeafWithChoicesTakesOnlyThem(t *testing.T) {
 	}
 	if _, err := Check(mcp, "everything"); err == nil {
 		t.Error("claude.mcp took a value outside its choices")
+	}
+}
+
+func TestAShortcutIsAKeyChord(t *testing.T) {
+	for _, ok := range []string{"Mod+Shift+P", "Mod+,", "Ctrl+Tab", "Ctrl+Shift+Tab", "Alt+ArrowLeft", "F5", "Shift+F12", "Mod+Plus", "Mod+1", "Mod+/", "Meta+k", "Ctrl+Alt+Delete", "Ctrl+Space"} {
+		if !ValidShortcut(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"P", "Shift+P", "Mod+", "+P", "Mod+Mod+P", "Cmd+P", "mod+P", "Mod+Shift", "Mod+PP", "Mod++", "Mod+ ", "F25", "F0", "F01", "Mod+Shift+Nope", "Mod+Shift+P+Q", "Tab"} {
+		if ValidShortcut(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	l := Leaf{Key: "k", Type: Shortcut}
+	if _, err := Check(l, ""); err != nil {
+		t.Errorf("an unbound shortcut: %v", err)
+	}
+	for _, v := range []any{"Shift+P", 1.0, nil, true, []any{"Mod+P"}} {
+		if _, err := Check(l, v); err == nil || !strings.Contains(err.Error(), "k must be a key chord such as Mod+Shift+P") {
+			t.Errorf("%v gave %v", v, err)
+		}
+	}
+	// The defaults don't clash with each other.
+	seen := map[string]string{}
+	for _, k := range Default().Keys("app.keys.") {
+		l, _ := Default().Lookup(k)
+		if other, dup := seen[l.Default.(string)]; dup {
+			t.Errorf("%s and %s share %s", k, other, l.Default)
+		}
+		seen[l.Default.(string)] = k
 	}
 }
 

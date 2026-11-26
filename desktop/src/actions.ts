@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -33,6 +33,18 @@ export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'ki
 export const spawnAgent = (c: MeshClient, input: SpawnInput) => c.spawnAgent({ meta: meta(), ...input })
 
 export const stopAgent = (c: MeshClient, agent: string) => c.stopAgent({ meta: meta(), agent })
+
+/** Stops an agent's process on purpose and keeps its conversation: a message to it brings it back. */
+export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ meta: meta(), agent })
+
+/** Rings an agent that has unread messages again (the host says why when it can't). */
+export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: meta(), agent })
+
+/** Approves an agent's plan: it goes on at its execution tier, in its own conversation. */
+export const approveAgent = (c: MeshClient, agent: string) => c.approveAgent({ meta: meta(), agent })
+
+/** Moves an agent to the next model of its chain (its model hit a quota), in its own conversation. */
+export const switchToNextModel = (c: MeshClient, agent: string) => c.switchAgent({ meta: meta(), agent, next: true })
 
 export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: string) =>
   c.sendMessage({ meta: meta(), to, type, body })

@@ -46,3 +46,26 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
     dockNewAgents: DOCK_MODES.includes(dock as string) ? (dock as DockNewAgents) : DEFAULT_PREFS.dockNewAgents,
   }
 }
+
+/** The keys of the commands that can be bound, with the host's defaults (daemon/internal/settings/schema.go, AppLeaves). */
+export const DEFAULT_KEYS = {
+  palette: 'Mod+Shift+P',
+  settings: 'Mod+,',
+  dock: 'Mod+Shift+D',
+  tab_next: 'Ctrl+Tab',
+  tab_prev: 'Ctrl+Shift+Tab',
+  tab_close: 'Mod+Shift+W',
+  waiting_next: 'Mod+Shift+A',
+} as const
+
+export type KeyedCommand = keyof typeof DEFAULT_KEYS
+
+/** Each bindable command's chord as the host has it ("" is unbound); the default until the host's settings arrive. */
+export function appKeys(settings: Record<string, Setting>): Record<KeyedCommand, string> {
+  const out = { ...DEFAULT_KEYS } as Record<KeyedCommand, string>
+  for (const id of Object.keys(DEFAULT_KEYS) as KeyedCommand[]) {
+    const v = jsonOf(settings[`app.keys.${id}`])
+    if (typeof v === 'string') out[id] = v
+  }
+  return out
+}

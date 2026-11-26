@@ -7,14 +7,19 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
+import { ShortcutField } from './components/shortcut-field'
+import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
 import { MessagesPanel } from './components/messages-panel'
 import { RunSidebar } from './components/run-sidebar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
-import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { fromJson } from '@bufbuild/protobuf'
+import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
 import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { createHostStore } from './store'
@@ -504,5 +509,98 @@ describe('Dock and TabBar', () => {
     expect(screen.getByRole('status')).toHaveTextContent('2 started')
     await userEvent.click(screen.getByRole('button', { name: 'Show the live dock' }))
     expect(model.store.getState().dockBadge).toBe(0)
+  })
+})
+
+describe('the command palette and shortcuts', () => {
+  const Keys = () => {
+    useShortcuts()
+    return null
+  }
+
+  it('opens on its shortcut, filters, runs a command, and closes on Escape', async () => {
+    const { wrap, model } = fixture()
+    render(wrap(<><Keys /><CommandPalette /></>))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.keyDown(window, { key: 'P', ctrlKey: true, shiftKey: true })
+    const box = await screen.findByRole('combobox', { name: 'Search commands' })
+    await userEvent.type(box, 'fix')
+    const options = within(screen.getByRole('listbox', { name: 'Commands' })).getAllByRole('option')
+    expect(options[0]).toHaveTextContent('Go to app-fix')
+    await userEvent.keyboard('{Enter}')
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', paletteOpen: false })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    model.openPalette(true)
+    await screen.findByRole('combobox', { name: 'Search commands' })
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(model.store.getState().paletteOpen).toBe(false))
+  })
+
+  it('asks for a title to start a run, and confirms before it stops an agent', async () => {
+    const { wrap, model, client } = fixture()
+    render(wrap(<CommandPalette />))
+    act(() => model.openPalette(true))
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'start a run')
+    await userEvent.keyboard('{Enter}')
+    await userEvent.type(await screen.findByLabelText(/Title of the new run/), 'my run{Enter}')
+    await waitFor(() => expect(client.startRun).toHaveBeenCalledWith(expect.objectContaining({ title: 'my run' })))
+    await waitFor(() => expect(model.store.getState().paletteOpen).toBe(false))
+
+    act(() => model.openPalette(true))
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'stop app-fix')
+    await userEvent.keyboard('{Enter}')
+    expect(client.stopAgent).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Its process ends/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.keyboard('{Enter}') // the filter is still there
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop app-fix' }))
+    await waitFor(() => expect(client.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1' })))
+  })
+
+  it('follows the host\'s own bindings, and an unbound command does nothing', () => {
+    const { host, wrap, model } = fixture()
+    const bind = (key: string, value: string) =>
+      host.store.setState((s) => ({ settings: { ...s.settings, [key]: create(SettingDescriptor, { key, value: fromJson(ValueSchema, value), isSet: true }) } }))
+    bind('app.keys.dock', 'Mod+K')
+    bind('app.keys.palette', '')
+    render(wrap(<Keys />))
+    fireEvent.keyDown(window, { key: 'D', ctrlKey: true, shiftKey: true })
+    expect(model.store.getState().dockOpen).toBe(true) // the old chord is free now
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(model.store.getState().dockOpen).toBe(false)
+    fireEvent.keyDown(window, { key: 'P', ctrlKey: true, shiftKey: true })
+    expect(model.store.getState().paletteOpen).toBe(false)
+  })
+})
+
+describe('ShortcutField', () => {
+  const setting = (key: string, value: string) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, value), isSet: true, schema: create(SettingSchemaSchema, { type: 'shortcut', summary: `shortcut: ${key}` }) })
+
+  it('records the pressed chord, unbinds on Backspace, cancels on Escape, and refuses a chord another command has', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState({ settings: { 'app.keys.dock': setting('app.keys.dock', 'Mod+Shift+D'), 'app.keys.settings': setting('app.keys.settings', 'Mod+,') } })
+    const save = vi.fn(async (_v: unknown) => {})
+    render(wrap(<ShortcutField host={host} id="app.keys.dock" value="Mod+Shift+D" busy={false} save={save} />))
+    const rec = screen.getByRole('button', { name: 'Record a shortcut for app.keys.dock' })
+    await userEvent.click(rec)
+    expect(rec).toHaveTextContent('Press the keys')
+    // Only modifiers: still waiting. Another command's chord: refused. Then a free one.
+    fireEvent.keyDown(rec, { key: 'Control', ctrlKey: true })
+    expect(save).not.toHaveBeenCalled()
+    fireEvent.keyDown(rec, { key: ',', ctrlKey: true, code: 'Comma' })
+    expect(await screen.findByRole('alert')).toHaveTextContent('already does')
+    expect(save).not.toHaveBeenCalled()
+    fireEvent.keyDown(rec, { key: 'J', ctrlKey: true, altKey: true })
+    expect(save).toHaveBeenCalledWith('Mod+Alt+J')
+    expect(rec).toHaveTextContent('Change')
+
+    await userEvent.click(rec)
+    fireEvent.keyDown(rec, { key: 'Backspace' })
+    expect(save).toHaveBeenLastCalledWith('')
+    await userEvent.click(rec)
+    fireEvent.keyDown(rec, { key: 'Escape' })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(rec).toHaveTextContent('Change')
   })
 })

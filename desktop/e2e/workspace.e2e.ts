@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, test, beforeAll, afterAll } from 'vitest'
-import { AgentRole } from '../src/gen/agentmesh/v1/types_pb'
+import { ActorClass } from '../src/gen/agentmesh/v1/actor_pb'
+import { AgentRole, AgentState } from '../src/gen/agentmesh/v1/types_pb'
 import { launchApp, type App } from './electron'
 import { buildBinaries, makeHost, until, type Host } from './harness'
 
@@ -86,4 +87,80 @@ test('the live dock: a tile per agent, a new worker pops in without taking focus
   await tabs.getByRole('button', { name: 'Close repo-fix' }).click()
   await tabs.getByRole('tab', { name: /repo-fix/ }).waitFor({ state: 'detached' })
   await fixTile.waitFor()
+})
+
+test('the command palette across the host, and shortcuts rebound from the settings or by another device', async () => {
+  const { page } = app
+  const tabs = page.getByRole('tablist', { name: 'Open agents' })
+  const palette = page.getByRole('combobox', { name: 'Search commands' })
+  const dialog = page.getByRole('dialog', { name: 'Command palette' })
+
+  // The default chord opens it; typing filters; Enter goes there as a tab.
+  await page.keyboard.press('Control+Shift+P')
+  await palette.waitFor()
+  await palette.fill('repo-fix')
+  await page.screenshot({ path: path.join(shots, 'palette.png') })
+  await page.getByRole('option', { name: /Go to repo-fix/ }).waitFor()
+  await page.keyboard.press('Enter')
+  await tabs.getByRole('tab', { name: /repo-fix/, selected: true }).waitFor()
+  await dialog.waitFor({ state: 'detached' })
+
+  // Tabs cycle on Ctrl+Tab, and Escape closes the palette.
+  await page.keyboard.press('Control+Tab')
+  await tabs.getByRole('tab', { name: /repo-lead/, selected: true }).waitFor()
+  await page.keyboard.press('Control+Shift+Tab')
+  await tabs.getByRole('tab', { name: /repo-fix/, selected: true }).waitFor()
+  await page.keyboard.press('Control+Shift+P')
+  await palette.waitFor()
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'detached' })
+
+  // An action of the registry from the palette: ring... retire the worker (confirmed first), and the host says so.
+  await page.keyboard.press('Control+Shift+P')
+  await palette.fill('retire repo-fix')
+  await page.keyboard.press('Enter')
+  await page.getByText(/its conversation is kept/i).waitFor()
+  await page.getByRole('button', { name: 'Retire repo-fix' }).click()
+  await expect.poll(async () => (await host.client().listAgents({})).agents.find((a) => a.name === 'repo-fix')?.state, { timeout: 20_000 }).toBe(AgentState.RETIRED)
+  await dialog.waitFor({ state: 'detached' })
+
+  // Rebinding from the settings screen: the palette's own "Keyboard shortcuts…" opens it filtered.
+  await page.keyboard.press('Control+Shift+P')
+  await palette.fill('keyboard shortcuts')
+  await page.keyboard.press('Enter')
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await settings.waitFor()
+  const row = settings.locator('[data-setting="app.keys.palette"]')
+  await row.waitFor()
+  await page.screenshot({ path: path.join(shots, 'shortcuts.png') })
+  await row.getByRole('button', { name: 'Record a shortcut for app.keys.palette' }).click()
+  await page.keyboard.press('Control+Alt+K')
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'app.keys.palette' })).settings[0]?.isSet, { timeout: 10_000 }).toBe(true)
+  const stored = (await host.client().listSettings({ prefix: 'app.keys.palette' })).settings[0]!
+  expect(stored.value?.kind).toEqual({ case: 'stringValue', value: 'Mod+Alt+K' })
+  expect(stored.updatedBy?.class).toBe(ActorClass.DEVICE)
+
+  // The old chord does nothing now, and the new one opens it.
+  await page.keyboard.press('Control+Shift+P')
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await palette.count()).toBe(0)
+  await page.keyboard.press('Control+Alt+K')
+  await palette.waitFor()
+  await page.keyboard.press('Escape')
+
+  // Another device (here the CLI's client) rebinds it, and the open app follows with no reload; a reset gives the default back.
+  await host.client().setSetting({ key: 'app.keys.palette', value: { kind: { case: 'stringValue', value: 'Mod+Shift+O' } } })
+  await expect.poll(async () => {
+    await page.keyboard.press('Control+Shift+O')
+    return palette.count().then((n) => n > 0)
+  }, { timeout: 10_000 }).toBe(true)
+  await page.keyboard.press('Escape')
+  // The host refuses a value that is not a chord, and says why.
+  await expect(host.client().setSetting({ key: 'app.keys.palette', value: { kind: { case: 'stringValue', value: 'P' } } })).rejects.toThrow(/key chord/)
+  await host.client().resetSetting({ key: 'app.keys.palette' })
+  await expect.poll(async () => {
+    await page.keyboard.press('Control+Shift+P')
+    return palette.count().then((n) => n > 0)
+  }, { timeout: 10_000 }).toBe(true)
+  await page.keyboard.press('Escape')
 })

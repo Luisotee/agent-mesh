@@ -14,6 +14,7 @@ describe('controlFor', () => {
     expect(controlFor('string', [])).toEqual({ kind: 'text' })
     expect(controlFor('string', ['dock', 'tab'])).toEqual({ kind: 'select', choices: ['dock', 'tab'] })
     expect(controlFor('mb_or_auto', [])).toEqual({ kind: 'text' })
+    expect(controlFor('shortcut', [])).toEqual({ kind: 'shortcut' })
   })
   it('falls back to JSON for slots, json and any type it does not know', () => {
     for (const t of ['slots', 'json', 'something-newer']) expect(controlFor(t, [])).toEqual({ kind: 'json' })

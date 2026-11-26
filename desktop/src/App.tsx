@@ -1,4 +1,4 @@
-import { QrCode, Settings } from 'lucide-react'
+import { QrCode, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -6,6 +6,7 @@ import { createAppModel, type HostRuntime } from '@/model'
 import type { DesktopApi, OpenedLink } from '../shared/api'
 import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
+import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
 import { TabBar } from '@/components/tab-bar'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
@@ -13,6 +14,7 @@ import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
 import { joinWaiting } from '@/derive'
+import { useShortcuts } from '@/shortcuts'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -41,6 +43,7 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
   const error = useAppState((s) => s.error)
   const hosts = useAppState((s) => s.hosts)
   const host = useSelectedHost()
+  useShortcuts()
   if (!loaded) return <div className="grid h-screen place-items-center text-muted-foreground">Loading…</div>
   if (error) return <div role="alert" className="grid h-screen place-items-center text-destructive">{error}</div>
   if (hosts.length === 0) return <Welcome opened={opened} onDone={onOpenedDone} />
@@ -59,6 +62,7 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
             <MainPane host={host} />
             <Dock />
           </main>
+          <CommandPalette />
         </>
       )}
     </div>
@@ -132,6 +136,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
           {conn.kind === 'ready' ? `daemon ${conn.hello.version} · you are ${conn.hello.actor?.name || 'a device'}` : conn.kind}
         </p>
       </div>
+      <Button size="icon" variant="ghost" aria-label="Command palette" title="Command palette" onClick={() => app.openPalette(true)}>
+        <Search />
+      </Button>
       {mayPair && (
         <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
           <QrCode />
