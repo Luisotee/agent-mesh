@@ -91,19 +91,37 @@ func (d *Daemon) pollCopilot(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	var live []*v1.Agent
 	for _, a := range agents {
+		if a.Kind == copilot.Kind && !stopped(a) && a.TerminalId != "" && a.SessionId != "" &&
+			a.State != v1.AgentState_AGENT_STATE_STARTING {
+			live = append(live, a)
+		}
+	}
+	if len(live) == 0 {
+		return
+	}
+	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		return
+	}
+	started := map[string]time.Time{}
+	for _, tm := range res.Msg.Terminals {
+		if tm.StartedAt != nil && !tm.Exited {
+			started[tm.Id] = tm.StartedAt.AsTime()
+		}
+	}
+	for _, a := range live {
 		if ctx.Err() != nil {
 			return
 		}
-		if a.Kind != copilot.Kind || stopped(a) || a.TerminalId == "" || a.SessionId == "" ||
-			a.State == v1.AgentState_AGENT_STATE_STARTING {
-			continue
+		if at, ok := started[a.TerminalId]; ok {
+			d.pollCopilotAgent(ctx, a, at)
 		}
-		d.pollCopilotAgent(ctx, a)
 	}
 }
 
-func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent) {
+func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent, started time.Time) {
 	events, err := copilot.ReadEvents(copilot.EventsPath(d.agentEnv(a, ""), a.SessionId))
 	if err != nil {
 		return
@@ -118,15 +136,23 @@ func (d *Daemon) pollCopilotAgent(ctx context.Context, a *v1.Agent) {
 	ps := d.rt.copilot.polled[a.Id]
 	if ps == nil || ps.terminalID != a.TerminalId {
 		// A fresh process (or a daemon restart): its events file holds what an earlier process did, so only what
-		// follows is new. The state the agent has is the baseline.
-		ps = &copilotPoll{terminalID: a.TerminalId, key: st.Key}
+		// follows the process's start is new (a prompt typed before the first poll is not). The baseline is the
+		// events up to that start.
+		var older []copilot.Event
+		for _, e := range events {
+			if t := e.Time(); t.IsZero() || !t.After(started) {
+				older = append(older, e)
+			}
+		}
+		old := copilot.Inspect(older)
+		ps = &copilotPoll{terminalID: a.TerminalId, key: old.Key}
 		if a.State == v1.AgentState_AGENT_STATE_WORKING {
 			ps.state = "working"
 		} else {
 			ps.state = "idle"
 		}
-		if st.Limit != nil {
-			ps.limitKey = st.Key
+		if old.Limit != nil {
+			ps.limitKey = old.Key
 		}
 		d.rt.copilot.polled[a.Id] = ps
 	}
