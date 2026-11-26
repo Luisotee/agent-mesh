@@ -729,7 +729,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			return fail("it is still answering an earlier question of this run")
 		}
 	}
-	if err := d.quotaReserveGuard(ctx, actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
 		return fail(err.Error())
 	}
 	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh)

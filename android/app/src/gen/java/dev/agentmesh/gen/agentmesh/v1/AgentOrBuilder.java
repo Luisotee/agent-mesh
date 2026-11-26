@@ -424,11 +424,43 @@ public interface AgentOrBuilder extends
 
   /**
    * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The resumedFromRunId.
+   */
+  java.lang.String getResumedFromRunId();
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The bytes for resumedFromRunId.
+   */
+  com.google.protobuf.ByteString
+      getResumedFromRunIdBytes();
+
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The resumedFromAgentId.
+   */
+  java.lang.String getResumedFromAgentId();
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The bytes for resumedFromAgentId.
+   */
+  com.google.protobuf.ByteString
+      getResumedFromAgentIdBytes();
+
+  /**
+   * <pre>
    * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
    * peer's conversation, and is never given a change task or have its worktree removed.
    * </pre>
    *
-   * <code>bool peer = 28 [json_name = "peer"];</code>
+   * <code>bool peer = 30 [json_name = "peer"];</code>
    * @return The peer.
    */
   boolean getPeer();

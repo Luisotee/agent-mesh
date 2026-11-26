@@ -119,12 +119,16 @@ func (d *Daemon) learnSession(ctx context.Context, actor *v1.Actor, ref string, 
 		}
 		a, err = d.getAgent(r, self.ParentId)
 	} else {
-		a, err = d.FindAgent(r, actor, ref)
+		a, err = d.findAgentCrossRun(r, actor, ref)
 	}
 	if err != nil || a.SessionId != "" || !d.rt.adapters.HasCapability(a.Kind, "session-lookup") {
 		return
 	}
-	if self != nil && a.Id != self.ParentId && a.ParentId != self.Id || !need(a) {
+	if self != nil && a.Id != self.ParentId && a.ParentId != self.Id &&
+		!(actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && actor.RunId != "" && a.Role != v1.AgentRole_AGENT_ROLE_ROOT) {
+		return
+	}
+	if !need(a) {
 		return
 	}
 	ad, err := d.rt.adapters.Get(a.Kind)

@@ -85,9 +85,10 @@ type hookGroup struct {
 }
 
 // Settings is the `--settings` JSON a launch gets: its hooks, each running the hook command with the event's
-// name appended. Claude Code adds them to the user's and the repo's own hooks. With denyPublish its PreToolUse
-// hook also checks every shell command against the publish rules (EvaluatePreToolUse), and a denial from a hook
-// holds in every permission mode.
+// name appended, and (when hookArgv names `--state <dir>`) a `statusLine` command that records Claude's
+// `rate_limits` and chains to the user's own global `statusLine` if configured. Claude Code adds hooks to the
+// user's and the repo's own hooks. With denyPublish its PreToolUse hook also checks every shell command
+// against the publish rules (EvaluatePreToolUse), and a denial from a hook holds in every permission mode.
 func Settings(hookArgv []string, denyPublish bool) (string, error) {
 	hooks := map[string][]hookGroup{}
 	for _, ev := range hookEvents {
@@ -98,8 +99,26 @@ func Settings(hookArgv []string, denyPublish bool) (string, error) {
 		cmd := adapter.ShellQuote(append(argv, ev.name)...)
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
-	b, err := json.Marshal(map[string]any{"hooks": hooks})
+	doc := map[string]any{"hooks": hooks}
+	if len(hookArgv) > 0 {
+		if stateDir := flagValue(hookArgv, "--state"); stateDir != "" {
+			doc["statusLine"] = map[string]any{
+				"type":    "command",
+				"command": adapter.ShellQuote(hookArgv[0], "statusline", "--state", stateDir),
+			}
+		}
+	}
+	b, err := json.Marshal(doc)
 	return string(b), err
+}
+
+func flagValue(argv []string, flag string) string {
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == flag {
+			return argv[i+1]
+		}
+	}
+	return ""
 }
 
 // publishCommands are the shell commands a read-only agent may not run, as `--disallowedTools` prefix rules: the

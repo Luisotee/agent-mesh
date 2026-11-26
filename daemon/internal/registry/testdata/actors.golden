@@ -4,10 +4,12 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/EditPeer
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ImportPeers
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
+  /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
@@ -21,6 +23,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SetReserve
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StopAgent
@@ -30,6 +33,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
@@ -47,6 +51,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/SwitchAgent
 ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListPeers
@@ -58,6 +63,7 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/SubscribeEvents
 ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListPeers
@@ -73,6 +79,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/CreatePairing
   /agentmesh.v1.MeshService/EditPeer
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ImportPeers
   /agentmesh.v1.MeshService/ListAgents
@@ -91,6 +98,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RevokeDevice
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SetReserve
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StartRun
@@ -101,6 +109,7 @@ ACTOR_CLASS_DEVICE
   permission terminal.input
 ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks

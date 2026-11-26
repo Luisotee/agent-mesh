@@ -13,6 +13,8 @@
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
 //	/limit <text> UserPromptSubmit, then StopFailure (rate_limit, <text> as the message): a usage limit
+//	/ratelimits <json>
+//	              invokes settings.statusLine.command with rate_limits JSON on stdin
 //	/bash <cmd>   UserPromptSubmit, PreToolUse (Bash, <cmd>), then PostToolUse and Stop; "denied: <reason>" is
 //	              printed instead of the tool's, when a PreToolUse hook printed a permission denial
 //
@@ -42,6 +44,10 @@ type settings struct {
 			Command string `json:"command"`
 		} `json:"hooks"`
 	} `json:"hooks"`
+	StatusLine *struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	} `json:"statusLine"`
 }
 
 var (
@@ -106,6 +112,23 @@ func main() {
 			hook("UserPromptSubmit", map[string]any{"prompt": line})
 			hook("StopFailure", map[string]any{"error": "rate_limit", "last_assistant_message": strings.TrimPrefix(line, "/limit ")})
 			fmt.Print("limit\r\n")
+			prompt()
+			continue
+		case strings.HasPrefix(line, "/ratelimits "):
+			if conf.StatusLine != nil && conf.StatusLine.Command != "" {
+				raw := strings.TrimSpace(strings.TrimPrefix(line, "/ratelimits "))
+				if !strings.Contains(raw, `"rate_limits"`) {
+					raw = fmt.Sprintf(`{"session_id":%q,"rate_limits":%s}`, session, raw)
+				}
+				cmd := exec.Command("sh", "-c", conf.StatusLine.Command)
+				cmd.Stdin = strings.NewReader(raw)
+				out, err := cmd.Output()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "fakeclaude: statusline: %v\r\n", err)
+				} else if len(out) > 0 {
+					fmt.Printf("%s\r\n", strings.TrimSpace(string(out)))
+				}
+			}
 			prompt()
 			continue
 		case strings.HasPrefix(line, "/bash "):

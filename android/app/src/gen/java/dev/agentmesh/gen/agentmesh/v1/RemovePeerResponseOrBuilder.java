@@ -21,4 +21,24 @@ public interface RemovePeerResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWorktreeBytes();
+
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @return The deletedClone.
+   */
+  java.lang.String getDeletedClone();
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @return The bytes for deletedClone.
+   */
+  com.google.protobuf.ByteString
+      getDeletedCloneBytes();
 }

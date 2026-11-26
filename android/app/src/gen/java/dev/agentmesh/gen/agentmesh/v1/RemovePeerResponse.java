@@ -16,6 +16,7 @@ public  final class RemovePeerResponse extends
     RemovePeerResponseOrBuilder {
   private RemovePeerResponse() {
     worktree_ = "";
+    deletedClone_ = "";
   }
   public static final int WORKTREE_FIELD_NUMBER = 1;
   private java.lang.String worktree_;
@@ -61,6 +62,73 @@ public  final class RemovePeerResponse extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     worktree_ = value.toStringUtf8();
+
+  }
+
+  public static final int DELETED_CLONE_FIELD_NUMBER = 2;
+  private java.lang.String deletedClone_;
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @return The deletedClone.
+   */
+  @java.lang.Override
+  public java.lang.String getDeletedClone() {
+    return deletedClone_;
+  }
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @return The bytes for deletedClone.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getDeletedCloneBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(deletedClone_);
+  }
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @param value The deletedClone to set.
+   */
+  private void setDeletedClone(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    deletedClone_ = value;
+  }
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   */
+  private void clearDeletedClone() {
+
+    deletedClone_ = getDefaultInstance().getDeletedClone();
+  }
+  /**
+   * <pre>
+   * The clone that was deleted (`delete_clone`), else empty.
+   * </pre>
+   *
+   * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+   * @param value The bytes for deletedClone to set.
+   */
+  private void setDeletedCloneBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    deletedClone_ = value.toStringUtf8();
 
   }
 
@@ -210,6 +278,75 @@ public  final class RemovePeerResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The clone that was deleted (`delete_clone`), else empty.
+     * </pre>
+     *
+     * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+     * @return The deletedClone.
+     */
+    @java.lang.Override
+    public java.lang.String getDeletedClone() {
+      return instance.getDeletedClone();
+    }
+    /**
+     * <pre>
+     * The clone that was deleted (`delete_clone`), else empty.
+     * </pre>
+     *
+     * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+     * @return The bytes for deletedClone.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getDeletedCloneBytes() {
+      return instance.getDeletedCloneBytes();
+    }
+    /**
+     * <pre>
+     * The clone that was deleted (`delete_clone`), else empty.
+     * </pre>
+     *
+     * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+     * @param value The deletedClone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeletedClone(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setDeletedClone(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The clone that was deleted (`delete_clone`), else empty.
+     * </pre>
+     *
+     * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDeletedClone() {
+      copyOnWrite();
+      instance.clearDeletedClone();
+      return this;
+    }
+    /**
+     * <pre>
+     * The clone that was deleted (`delete_clone`), else empty.
+     * </pre>
+     *
+     * <code>string deleted_clone = 2 [json_name = "deletedClone"];</code>
+     * @param value The bytes for deletedClone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeletedCloneBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setDeletedCloneBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RemovePeerResponse)
   }
   @java.lang.Override
@@ -227,9 +364,11 @@ public  final class RemovePeerResponse extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "worktree_",
+            "deletedClone_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

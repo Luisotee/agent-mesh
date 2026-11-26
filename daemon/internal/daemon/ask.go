@@ -24,13 +24,6 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
-// quotaReserveGuard is the hook point of the quota reserve (stop starting work on a vendor once its quota is
-// nearly used): every agent an ask starts or brings back asks it first. It allows everything until the
-// reserve lands (the parallel lifecycle work exports `ReserveGuard`, which replaces this body).
-func (d *Daemon) quotaReserveGuard(ctx context.Context, runID, kind, model, effort, what string) error {
-	return nil
-}
-
 // Ask asks a question or has a pull request reviewed, by a fresh read-only agent or an existing one; with
 // `reviewers` it is a round, collected (collect.go).
 func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
@@ -156,7 +149,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 		if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
 			return nil, err
 		}
-		if err := d.quotaReserveGuard(ctx, actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top); err != nil {
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top); err != nil {
 			return nil, err
 		}
 	}
@@ -208,7 +201,7 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	case body == "":
 		return nil, invalid("no question given (--body)")
 	}
-	if err := d.quotaReserveGuard(ctx, a.RunId, a.Kind, a.Model, a.Effort, "asking "+a.Name); err != nil {
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), a.RunId, a.Kind, a.Model, a.Effort, "asking "+a.Name); err != nil {
 		return nil, err
 	}
 	res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: m.Meta, To: a.Id,
@@ -262,7 +255,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	last := m.Since
 	task := reviewTask(reviewSpec{pr: pr, kind: kind, level: level, body: body, last: last,
 		narrow: narrowSince(ctx, top, last, pr.Head)})
-	if err := d.quotaReserveGuard(ctx, actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
 		return nil, err
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: subMeta(m.Meta, "spawn"), Repo: top, Slug: slug,
@@ -513,7 +506,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	}
 	if reuse != nil {
 		member.AgentId, member.Name = reuse.Id, reuse.Name
-		if err := d.quotaReserveGuard(ctx, actor.RunId, reuse.Kind, reuse.Model, reuse.Effort, "asking "+reuse.Name); err != nil {
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, reuse.Kind, reuse.Model, reuse.Effort, "asking "+reuse.Name); err != nil {
 			return fail(reuse.Name, err.Error())
 		}
 		spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: reviewedAt, reused: true,
@@ -554,7 +547,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		return fail(j.kind, err.Error())
 	}
 	member.Name = filepath.Base(j.top) + "-" + slug
-	if err := d.quotaReserveGuard(ctx, actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
 		return fail(member.Name, err.Error())
 	}
 	spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow}

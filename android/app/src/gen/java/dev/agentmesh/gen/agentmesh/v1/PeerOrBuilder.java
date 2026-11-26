@@ -270,4 +270,14 @@ public interface PeerOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunningAgentBytes();
+
+  /**
+   * <pre>
+   * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+   * </pre>
+   *
+   * <code>bool cloned = 17 [json_name = "cloned"];</code>
+   * @return The cloned.
+   */
+  boolean getCloned();
 }

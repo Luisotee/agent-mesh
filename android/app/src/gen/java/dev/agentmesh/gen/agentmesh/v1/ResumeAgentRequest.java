@@ -21,6 +21,7 @@ public  final class ResumeAgentRequest extends
     model_ = "";
     effort_ = "";
     why_ = "";
+    runId_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -407,6 +408,73 @@ public  final class ResumeAgentRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     why_ = value.toStringUtf8();
+
+  }
+
+  public static final int RUN_ID_FIELD_NUMBER = 9;
+  private java.lang.String runId_;
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @return The runId.
+   */
+  @java.lang.Override
+  public java.lang.String getRunId() {
+    return runId_;
+  }
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @return The bytes for runId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRunIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(runId_);
+  }
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @param value The runId to set.
+   */
+  private void setRunId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    runId_ = value;
+  }
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   */
+  private void clearRunId() {
+
+    runId_ = getDefaultInstance().getRunId();
+  }
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @param value The bytes for runId to set.
+   */
+  private void setRunIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    runId_ = value.toStringUtf8();
 
   }
 
@@ -908,6 +976,75 @@ public  final class ResumeAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+     * </pre>
+     *
+     * <code>string run_id = 9 [json_name = "runId"];</code>
+     * @return The runId.
+     */
+    @java.lang.Override
+    public java.lang.String getRunId() {
+      return instance.getRunId();
+    }
+    /**
+     * <pre>
+     * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+     * </pre>
+     *
+     * <code>string run_id = 9 [json_name = "runId"];</code>
+     * @return The bytes for runId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getRunIdBytes() {
+      return instance.getRunIdBytes();
+    }
+    /**
+     * <pre>
+     * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+     * </pre>
+     *
+     * <code>string run_id = 9 [json_name = "runId"];</code>
+     * @param value The runId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRunId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRunId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+     * </pre>
+     *
+     * <code>string run_id = 9 [json_name = "runId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRunId() {
+      copyOnWrite();
+      instance.clearRunId();
+      return this;
+    }
+    /**
+     * <pre>
+     * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+     * </pre>
+     *
+     * <code>string run_id = 9 [json_name = "runId"];</code>
+     * @param value The bytes for runId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRunIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRunIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ResumeAgentRequest)
   }
   @java.lang.Override
@@ -933,10 +1070,11 @@ public  final class ResumeAgentRequest extends
             "model_",
             "effort_",
             "why_",
+            "runId_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\u0208\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

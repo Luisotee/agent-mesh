@@ -78,9 +78,9 @@ public interface MeshServiceClientInterface {
   public suspend fun readInbox(request: ReadInboxRequest, headers: Headers = emptyMap()): ResponseMessage<ReadInboxResponse>
 
   /**
-   *  The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
-   *  page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
-   *  page's `after_id`.
+   *  The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
+   *  mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
+   *  the next page's `after_id`.
    */
   public suspend fun listMessages(request: ListMessagesRequest, headers: Headers = emptyMap()): ResponseMessage<ListMessagesResponse>
 
@@ -139,6 +139,16 @@ public interface MeshServiceClientInterface {
    *  Revoke a paired device's token and close its active streams. Only the host's own device may call this.
    */
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
+
+  /**
+   *  Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
+   */
+  public suspend fun getUsage(request: GetUsageRequest, headers: Headers = emptyMap()): ResponseMessage<GetUsageResponse>
+
+  /**
+   *  Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
+   */
+  public suspend fun setReserve(request: SetReserveRequest, headers: Headers = emptyMap()): ResponseMessage<SetReserveResponse>
 
   /**
    *  Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked

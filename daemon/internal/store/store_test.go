@@ -536,3 +536,57 @@ func TestPairingsAndDevicesRoundTrip(t *testing.T) {
 		t.Errorf("includeRevoked = %+v", all)
 	}
 }
+
+func TestVersionFourDatabaseGainsModelLimitsTableAndRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meshd.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateWith(db, path, clock, ms[:4]); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := OpenAt(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if matches, _ := filepath.Glob(path + ".bak-v4-*"); len(matches) != 1 {
+		t.Errorf("backups %v", matches)
+	}
+	ctx := context.Background()
+	until := fixed.Add(30 * time.Minute)
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		if err := tx.PutModelLimit("claude", "sonnet", until); err != nil {
+			return err
+		}
+		// Earlier until does not shrink a later hold; later until extends it.
+		if err := tx.PutModelLimit("claude", "sonnet", fixed.Add(10*time.Minute)); err != nil {
+			return err
+		}
+		return tx.PutModelLimit("agy", "*", fixed.Add(time.Hour))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := s.Read(ctx)
+	if got, known, err := r.ModelHold("claude", "sonnet", fixed); err != nil || !known || !got.Equal(until) {
+		t.Fatalf("ModelHold active = %v, %v, %v; want %v", got, known, err, until)
+	}
+	// Past expiration, until is zero but known stays true.
+	if got, known, err := r.ModelHold("claude", "sonnet", until.Add(time.Second)); err != nil || !known || !got.IsZero() {
+		t.Fatalf("ModelHold expired = %v, %v, %v", got, known, err)
+	}
+	// Kind-wide "*" hold applies to every model of that kind.
+	if got, known, err := r.ModelHold("agy", "gemini-4-neon-high", fixed); err != nil || !known || !got.Equal(fixed.Add(time.Hour)) {
+		t.Fatalf("ModelHold * = %v, %v, %v", got, known, err)
+	}
+	if all, err := r.ModelLimits(""); err != nil || len(all) != 2 {
+		t.Fatalf("ModelLimits = %+v, %v", all, err)
+	}
+}

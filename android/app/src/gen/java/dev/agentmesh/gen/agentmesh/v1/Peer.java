@@ -967,6 +967,44 @@ public  final class Peer extends
 
   }
 
+  public static final int CLONED_FIELD_NUMBER = 17;
+  private boolean cloned_;
+  /**
+   * <pre>
+   * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+   * </pre>
+   *
+   * <code>bool cloned = 17 [json_name = "cloned"];</code>
+   * @return The cloned.
+   */
+  @java.lang.Override
+  public boolean getCloned() {
+    return cloned_;
+  }
+  /**
+   * <pre>
+   * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+   * </pre>
+   *
+   * <code>bool cloned = 17 [json_name = "cloned"];</code>
+   * @param value The cloned to set.
+   */
+  private void setCloned(boolean value) {
+    
+    cloned_ = value;
+  }
+  /**
+   * <pre>
+   * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+   * </pre>
+   *
+   * <code>bool cloned = 17 [json_name = "cloned"];</code>
+   */
+  private void clearCloned() {
+
+    cloned_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Peer parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2027,6 +2065,46 @@ public  final class Peer extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+     * </pre>
+     *
+     * <code>bool cloned = 17 [json_name = "cloned"];</code>
+     * @return The cloned.
+     */
+    @java.lang.Override
+    public boolean getCloned() {
+      return instance.getCloned();
+    }
+    /**
+     * <pre>
+     * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+     * </pre>
+     *
+     * <code>bool cloned = 17 [json_name = "cloned"];</code>
+     * @param value The cloned to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCloned(boolean value) {
+      copyOnWrite();
+      instance.setCloned(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+     * </pre>
+     *
+     * <code>bool cloned = 17 [json_name = "cloned"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCloned() {
+      copyOnWrite();
+      instance.clearCloned();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Peer)
   }
   @java.lang.Override
@@ -2060,12 +2138,13 @@ public  final class Peer extends
             "lastAnswers_",
             "runningRun_",
             "runningAgent_",
+            "cloned_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u1009\u0000\u0007\u0208\b\u0208\t\u0208" +
               "\n\u1009\u0001\u000b\u1009\u0002\f\u0208\r\u0208\u000e\u0208\u000f\u0208\u0010\u0208" +
-              "";
+              "\u0011\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
