@@ -2,7 +2,7 @@
 // to $FAKEAGY_ARGV_LOG, checks `--settings` trustedWorkspaces, fires NO hooks at PTY startup, fires
 // SessionStart only on the first prompt of a fresh conversation (never on `--conversation` resume), runs
 // `.agents/hooks.json` with fail-closed `PreToolUse` semantics, and acts out turns from lines typed into its
-// terminal ($FAKEAGY_DRAW_FOR, a duration, keeps drawing that long at start-up):
+// terminal ($FAKEAGY_START_DELAY pauses before first output; $FAKEAGY_DRAW_FOR keeps drawing that long at start-up):
 //
 //	any text      SessionStart (first fresh turn only), PreInvocation, PreToolUse (read_file), PostToolUse, PostInvocation, Stop
 //	/edit         PreInvocation, PreToolUse (write_file on blocked.txt; creates file only if allowed), PostInvocation, Stop
@@ -24,7 +24,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -107,10 +109,13 @@ func main() {
 		}
 	}
 
+	if d, err := time.ParseDuration(os.Getenv("FAKEAGY_START_DELAY")); err == nil && d > 0 {
+		time.Sleep(d)
+	}
 	fmt.Printf("fake agy %s (%s)\r\n", convID, model)
 	if d, err := time.ParseDuration(os.Getenv("FAKEAGY_DRAW_FOR")); err == nil {
 		// A TUI still drawing at start-up: the daemon must not mark it idle until it is quiet.
-		for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 			fmt.Print(".")
 		}
 	}
@@ -258,12 +263,18 @@ func execEvent(event string, extra map[string]any, failClosed bool) bool {
 		case "Stop":
 			cmds = spec.Stop
 		case "PreToolUse":
+			toolName := extractToolName(extra)
 			for _, g := range spec.PreToolUse {
-				cmds = append(cmds, g.Hooks...)
+				if matcherMatches(g.Matcher, toolName) {
+					cmds = append(cmds, g.Hooks...)
+				}
 			}
 		case "PostToolUse":
+			toolName := extractToolName(extra)
 			for _, g := range spec.PostToolUse {
-				cmds = append(cmds, g.Hooks...)
+				if matcherMatches(g.Matcher, toolName) {
+					cmds = append(cmds, g.Hooks...)
+				}
 			}
 		}
 		for _, h := range cmds {
@@ -273,6 +284,13 @@ func execEvent(event string, extra map[string]any, failClosed bool) bool {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), to)
 			cmd := exec.CommandContext(ctx, "sh", "-c", h.Command)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			cmd.Cancel = func() error {
+				if cmd.Process != nil {
+					return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				}
+				return nil
+			}
 			cmd.Dir = agentsDir
 			cmd.Stdin = bytes.NewReader(payload)
 			var stdout bytes.Buffer
@@ -297,6 +315,25 @@ func execEvent(event string, extra map[string]any, failClosed bool) bool {
 		}
 	}
 	return true
+}
+
+func extractToolName(extra map[string]any) string {
+	if tc, ok := extra["toolCall"].(map[string]any); ok {
+		name, _ := tc["name"].(string)
+		return name
+	}
+	return ""
+}
+
+func matcherMatches(matcher, toolName string) bool {
+	if matcher == "" || matcher == "*" {
+		return true
+	}
+	re, err := regexp.Compile("^(?:" + matcher + ")$")
+	if err != nil {
+		return false
+	}
+	return re.MatchString(toolName)
 }
 
 func newUUID() string {

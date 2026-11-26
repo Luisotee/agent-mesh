@@ -440,6 +440,21 @@ func TestLeftoverProcessesAndSweepable(t *testing.T) {
 	if _, ok := daemon.SweepableForTest(wtRoot, &v1.Agent{Role: v1.AgentRole_AGENT_ROLE_WORKER, Worktree: top, Repo: repoDir}, []string{rootWt}); !ok {
 		t.Errorf("valid worker worktree should be sweepable")
 	}
+
+	// ownAgent matches a fresh agy (no --conversation flag) and its resumed session, but not another conversation.
+	agyAgent := &v1.Agent{Kind: "agy", SessionId: "conv-1"}
+	if !daemon.OwnAgentForTest(mk(1, 0, "agy --model gemini-4-neon-high", top, 0), agyAgent) {
+		t.Errorf("fresh agy without --conversation should match")
+	}
+	if !daemon.OwnAgentForTest(mk(1, 0, "agy --conversation conv-1 --model gemini-4-neon-high", top, 0), agyAgent) {
+		t.Errorf("resumed agy with matching --conversation should match")
+	}
+	if daemon.OwnAgentForTest(mk(1, 0, "agy --conversation conv-other --model gemini-4-neon-high", top, 0), agyAgent) {
+		t.Errorf("agy with another --conversation must not match")
+	}
+	if daemon.OwnAgentForTest(mk(1, 0, "claude --session-id other", top, 0), agyAgent) {
+		t.Errorf("claude of another session must not match agy agent")
+	}
 }
 
 func TestRetireAndStopRunSweepLeftoverProcesses(t *testing.T) {
@@ -643,9 +658,163 @@ func TestMemoryGuardEarlyCheckRefreshCancelAndAdoptSeed(t *testing.T) {
 	if w.d.Reserved("a-never-reserved") {
 		t.Errorf("refresh should not create a reservation")
 	}
+	// Seed("a-near-expiry", ...) check:
 	w.d.Seed("a-near-expiry", time.Now().Add(-daemon.ReserveFor+2*time.Second))
 	w.d.Refresh("a-near-expiry")
 	if !w.d.Reserved("a-near-expiry") {
 		t.Errorf("refresh lost existing reservation")
 	}
+}
+
+func TestRound1ReviewFixes(t *testing.T) {
+	// 1. confineAgent ignores caller ctx cancellation (WithoutCancel).
+	fs := newFakeSys()
+	sys := fs.ops()
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Sys = sys
+		c.SweepAgentPoll = time.Millisecond
+		c.SweepKillPoll = time.Millisecond
+	})
+	ctx := context.Background()
+	w.set(t, "worker_memory_high", 1024)
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	daemon.ConfineAgentForTest(w.d, cctx, 40, 100, "cancelled-ctx")
+	fs.mu.Lock()
+	if len(fs.pins) == 0 || len(fs.scopes) != 1 {
+		t.Errorf("confineAgent with cancelled ctx failed: pins=%d scopes=%d", len(fs.pins), len(fs.scopes))
+	}
+	fs.mu.Unlock()
+
+	// 2. adoptCPUHolder checks ProcAlive and does not double-count a holder already held.
+	fs.resetCalls()
+	fs.mu.Lock()
+	fs.machineCPUs = []int{0, 1, 2, 3, 4, 5}
+	fs.affinities[701] = []int{0, 1}
+	fs.affinities[702] = []int{0, 1}
+	fs.affinities[703] = []int{2, 3}
+	fs.alive[pidKey{pid: 702, start: 200}] = true
+	fs.alive[pidKey{pid: 703, start: 300}] = true
+	// 701 is dead/reused (alive[701] == false).
+	fs.mu.Unlock()
+	w.set(t, "worker_cpus", 34) // 2 of 6 cores
+	w.set(t, "worker_memory_high", 0)
+	worker := &v1.Agent{Role: v1.AgentRole_AGENT_ROLE_WORKER}
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 701, 100) // dead: ignored
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 702, 200) // live [0,1]
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 702, 200) // duplicate: not double-counted
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 703, 300) // live [2,3]
+	// Also note PID 40 from step 1 was not alive so pickWindow drops it.
+	// If 702 had been double-counted, [0,1] load=2 and [2,3] load=1; since it wasn't, [0,1],[2,3] load=1 and [4,5] load=0 -> picks [4,5]!
+	// Then put another live holder on [4,5], so all 3 windows have load=1, and verify [0,1] is NOT behind [2,3] (if 702 was double-counted, [2,3] would beat [0,1]).
+	fs.mu.Lock()
+	fs.affinities[704] = []int{4, 5}
+	fs.alive[pidKey{pid: 704, start: 400}] = true
+	fs.mu.Unlock()
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 704, 400)
+	// Add a second holder on [2,3] and [4,5] so [0,1] is strictly least-held only if 702 wasn't double-counted.
+	fs.mu.Lock()
+	fs.affinities[705] = []int{2, 3}
+	fs.affinities[706] = []int{4, 5}
+	fs.alive[pidKey{pid: 705, start: 500}] = true
+	fs.alive[pidKey{pid: 706, start: 600}] = true
+	fs.mu.Unlock()
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 705, 500)
+	daemon.AdoptCPUHolderForTest(w.d, ctx, worker, 706, 600)
+	fs.resetCalls()
+	daemon.ConfineAgentForTest(w.d, ctx, 707, 700, "pick")
+	fs.mu.Lock()
+	if len(fs.pins) == 0 || !slices.Equal(fs.pins[0].cpus, []int{0, 1}) {
+		t.Errorf("expected [0 1] to be least-held (702 not double-counted), got %v", fs.pins)
+	}
+	fs.mu.Unlock()
+
+	// 3. sweepWorktrees waits for a fresh agy launch (no --conversation flag) before sweeping its child.
+	run := startRun(t, w.device.Mesh, "agy-sweep")
+	repo := gitRepo(t)
+	wt := filepath.Join(w.state, "worktrees", run.Id, "shop-api-agy")
+	os.MkdirAll(wt, 0o755)
+	_ = repo
+	agyW := &v1.Agent{Id: "a-agy", RunId: run.Id, Name: "shop-api-agy", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+		Kind: "agy", SessionId: "conv-fresh", Worktree: wt, Repo: repo, State: v1.AgentState_AGENT_STATE_RETIRED}
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error { return tx.PutAgent(agyW) }); err != nil {
+		t.Fatal(err)
+	}
+	initP := proc.Info{PID: 1278, PPID: 1274, Argv: []string{"/init"}, Cwd: "/"}
+	freshAgy := proc.Info{PID: 8000, PPID: 1278, Argv: []string{"agy", "--model", "gemini-4-neon-high"}, Cwd: wt, StartTicks: 80}
+	orphan := proc.Info{PID: 8001, PPID: 1278, Argv: []string{"node", "dev.js"}, Cwd: wt, StartTicks: 81}
+	fs.resetCalls()
+	fs.mu.Lock()
+	fs.tables = [][]proc.Info{{initP, freshAgy, orphan}, {initP, orphan}}
+	fs.mu.Unlock()
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: agyW.Id})); err != nil {
+		t.Fatal(err)
+	}
+	fs.mu.Lock()
+	if fs.tableReads != 2 || !slices.Equal(fs.signals, []sigCall{{pid: 8001, start: 81, sig: syscall.SIGTERM}}) {
+		t.Errorf("fresh agy sweep: reads=%d signals=%+v", fs.tableReads, fs.signals)
+	}
+	fs.mu.Unlock()
+
+	// 4. adopt at boot runs finishRetire's sweep asynchronously without blocking daemon startup.
+	w2State := filepath.Join(t.TempDir(), "state2")
+	w2Home := t.TempDir()
+	fs2 := newFakeSys()
+	sys2 := fs2.ops()
+	origTable := sys2.ProcTable
+	h := startWithAgents(t, w2State, w2Home, func(c *daemon.AgentConfig) { c.Sys = sys2 })
+	t.Cleanup(func() { stopTermHost(t, w2State) })
+	run2 := startRun(t, h.device.Mesh, "")
+	vict := h.spawn(run2.Id, gitRepo(t), "boot-retire", "")
+	h.waitState(vict.Id, v1.AgentState_AGENT_STATE_IDLE)
+	h.stop()
+	// Mark retired in DB while its terminal still runs on mesh-term (simulating crash mid-retire).
+	st, err := store.Open(statedir.Paths{Dir: w2State}.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Write(ctx, nil, "", func(tx *store.Tx) error {
+		ag, err := tx.GetAgent(vict.Id)
+		if err != nil {
+			return err
+		}
+		ag.State = v1.AgentState_AGENT_STATE_RETIRED
+		return tx.PutAgent(ag)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	sweepStarted := make(chan struct{})
+	releaseSweep := make(chan struct{})
+	var bootOnce sync.Once
+	sys2.ProcTable = func() ([]proc.Info, error) {
+		bootOnce.Do(func() {
+			close(sweepStarted)
+			<-releaseSweep
+		})
+		return origTable()
+	}
+	fs2.mu.Lock()
+	fs2.table = []proc.Info{initP, {PID: 9001, PPID: 1278, Argv: []string{"node", "leftover.js"}, Cwd: vict.Worktree, StartTicks: 91}}
+	fs2.mu.Unlock()
+	h2 := startWithAgents(t, w2State, w2Home, func(c *daemon.AgentConfig) {
+		c.Sys = sys2
+		c.SweepAgentPoll = time.Millisecond
+		c.SweepKillPoll = time.Millisecond
+	})
+	// Startup completed (meshd.json written) even though sweep hasn't been released yet.
+	select {
+	case <-sweepStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("boot sweep did not start")
+	}
+	if got := h2.agent(vict.Id); got.TerminalId != "" {
+		t.Errorf("retired terminal not stopped synchronously at adopt: %q", got.TerminalId)
+	}
+	close(releaseSweep)
+	waitFor(t, "async boot sweep signalled orphan", func() bool {
+		fs2.mu.Lock()
+		defer fs2.mu.Unlock()
+		return slices.Equal(fs2.signals, []sigCall{{pid: 9001, start: 91, sig: syscall.SIGTERM}})
+	})
 }

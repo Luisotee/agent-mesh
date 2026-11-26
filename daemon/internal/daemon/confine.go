@@ -186,18 +186,27 @@ func (c *cpuTracker) drop(pid int, startTicks uint64) {
 	c.held = kept
 }
 
-func (c *cpuTracker) seed(pid int, startTicks uint64, cpus []int) {
+func (c *cpuTracker) seed(sys *SystemOps, pid int, startTicks uint64, cpus []int) {
 	if pid <= 0 || len(cpus) == 0 {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	live := make([]cpuHolder, 0, len(c.held)+1)
+	already := false
 	for _, h := range c.held {
-		if h.pid == pid && h.startTicks == startTicks {
-			return
+		if sys != nil && !sys.ProcAlive(h.pid, h.startTicks) {
+			continue
 		}
+		if h.pid == pid && h.startTicks == startTicks {
+			already = true
+		}
+		live = append(live, h)
 	}
-	c.held = append(c.held, cpuHolder{pid: pid, startTicks: startTicks, cpus: append([]int(nil), cpus...)})
+	if !already {
+		live = append(live, cpuHolder{pid: pid, startTicks: startTicks, cpus: append([]int(nil), cpus...)})
+	}
+	c.held = live
 }
 
 // pinCPUs sets every thread of pids to cpus over up to pinPasses passes (catching threads spawned during the
@@ -277,6 +286,7 @@ func (d *Daemon) confineAgent(ctx context.Context, pid int, startTicks uint64, n
 	if pid <= 0 {
 		return
 	}
+	ctx = context.WithoutCancel(ctx)
 	r := d.store.Read(ctx)
 	cpuVal, err := d.Setting(r, "worker_cpus")
 	if err != nil {
@@ -313,10 +323,14 @@ func (d *Daemon) confineAgent(ctx context.Context, pid int, startTicks uint64, n
 	}
 }
 
-// adoptCPUHolder records an adopted live non-root terminal's CPU affinity in the tracker if it appears pinned
-// to a subset of the machine's cores, so launches after a daemon restart avoid cores already held.
+// adoptCPUHolder records an adopted live non-root terminal's CPU affinity in the tracker if the process is
+// still live (matching startTicks) and pinned to a subset of the machine's cores, so launches after a daemon
+// restart avoid cores already held without double-counting or keeping dead holders.
 func (d *Daemon) adoptCPUHolder(ctx context.Context, a *v1.Agent, pid int, startTicks uint64) {
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT || pid <= 0 {
+		return
+	}
+	if !d.rt.sys.ProcAlive(pid, startTicks) {
 		return
 	}
 	v, err := d.Setting(d.store.Read(ctx), "worker_cpus")
@@ -335,5 +349,8 @@ func (d *Daemon) adoptCPUHolder(ctx context.Context, a *v1.Agent, pid int, start
 	if err != nil || len(held) == 0 || len(held) >= len(machine) {
 		return
 	}
-	d.rt.cpus.seed(pid, startTicks, held)
+	if !d.rt.sys.ProcAlive(pid, startTicks) {
+		return
+	}
+	d.rt.cpus.seed(d.rt.sys, pid, startTicks, held)
 }

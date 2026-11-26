@@ -41,15 +41,22 @@ var (
 	}
 )
 
-func isAgentBinary(argv []string) bool {
+func agentBinaryName(argv []string) string {
 	if len(argv) == 0 {
-		return false
+		return ""
 	}
 	first := filepath.Base(argv[0])
 	if interpreters[first] && len(argv) > 1 {
 		first = filepath.Base(argv[1])
 	}
-	return agentBinaries[first]
+	if agentBinaries[first] {
+		return first
+	}
+	return ""
+}
+
+func isAgentBinary(argv []string) bool {
+	return agentBinaryName(argv) != ""
 }
 
 func resolvePath(p string) string {
@@ -131,6 +138,16 @@ func ownAgent(p proc.Info, a *v1.Agent) bool {
 		if strings.Contains(arg, a.SessionId) {
 			return true
 		}
+	}
+	// agy's initial launch carries no --conversation flag (its conversation id comes from hooks instead), so
+	// an agy process without --conversation in the worker's worktree may still be its own CLI.
+	if a.Kind == "agy" && agentBinaryName(p.Argv) == "agy" {
+		for _, arg := range p.Argv[1:] {
+			if arg == "--conversation" || strings.HasPrefix(arg, "--conversation=") {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
@@ -269,6 +286,9 @@ func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
 		return
 	}
 	for try := 0; try < sweepAgentTries; try++ {
+		if ctx.Err() != nil {
+			return
+		}
 		ownRunning := false
 		for _, t := range targets {
 			for _, p := range table {
@@ -285,12 +305,18 @@ func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
 			break
 		}
 		sys.Sleep(agentPoll)
+		if ctx.Err() != nil {
+			return
+		}
 		if next, err := sys.ProcTable(); err == nil {
 			table = next
 		}
 	}
 
 	for _, t := range targets {
+		if ctx.Err() != nil {
+			return
+		}
 		procs := leftoverProcesses(t.top, table)
 		if len(procs) == 0 {
 			continue
@@ -299,6 +325,9 @@ func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
 			_ = sys.SignalProc(p.PID, p.StartTicks, syscall.SIGTERM)
 		}
 		for try := 0; try < sweepKillTries; try++ {
+			if ctx.Err() != nil {
+				return
+			}
 			anyAlive := false
 			for _, p := range procs {
 				if sys.ProcAlive(p.PID, p.StartTicks) {

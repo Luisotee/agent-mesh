@@ -116,13 +116,14 @@ type runtime struct {
 	hello    *termv1.HelloResponse
 	sys      *SystemOps
 
-	mu         sync.Mutex
-	lastOutput map[string]time.Time // terminal id → newest output mark
-	tickets    map[string]ticket
-	delivering map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
-	launching  map[string]bool        // reopen id → its new process died while a newer reopen replaced it
-	guard      guard
-	cpus       cpuTracker
+	mu          sync.Mutex
+	lastOutput  map[string]time.Time // terminal id → newest output mark
+	firstOutput map[string]time.Time // terminal id → first output time (for adapters without startup-hook)
+	tickets     map[string]ticket
+	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	guard       guard
+	cpus        cpuTracker
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -148,7 +149,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{},
+	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}}, nil
 }
 
@@ -206,6 +207,7 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var adoptSweeps []*v1.Agent
 	for _, a := range agents {
 		if claimed[a.TerminalId] {
 			continue
@@ -213,10 +215,12 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		claimed[a.TerminalId] = true
 		t, ok := byID[a.TerminalId]
 		if a.State == v1.AgentState_AGENT_STATE_RETIRED && ok && !t.Exited {
-			// A crash between marking it retired and stopping its process: finish the stop.
-			if err := d.finishRetire(ctx, a.Id); err != nil {
+			// A crash between marking it retired and stopping its process: finish the stop, and sweep leftovers
+			// off the startup path so a slow process exit doesn't hold up daemon boot.
+			if err := d.stopRetiredProcess(ctx, a.Id); err != nil {
 				return err
 			}
+			adoptSweeps = append(adoptSweeps, a)
 			continue
 		}
 		if a.State == v1.AgentState_AGENT_STATE_EXITED || a.State == v1.AgentState_AGENT_STATE_RETIRED {
@@ -260,6 +264,13 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		if !claimed[t.Id] {
 			d.log.Warn("terminal no agent claims; left running", "terminal", t.Id, "pid", t.Pid, "labels", t.Labels)
 		}
+	}
+	if len(adoptSweeps) > 0 {
+		d.bgWG.Add(1)
+		go func() {
+			defer d.bgWG.Done()
+			d.sweepWorktrees(ctx, adoptSweeps)
+		}()
 	}
 	return nil
 }
@@ -351,6 +362,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
+	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
@@ -432,8 +444,12 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 						d.log.Error("recording an exit", "terminal", f.Exited.Id, "err", err)
 					}
 				case *termv1.WatchTerminalsResponse_Output:
+					t := f.Output.Time.AsTime()
 					d.rt.mu.Lock()
-					d.rt.lastOutput[f.Output.Id] = f.Output.Time.AsTime()
+					d.rt.lastOutput[f.Output.Id] = t
+					if _, seen := d.rt.firstOutput[f.Output.Id]; !seen {
+						d.rt.firstOutput[f.Output.Id] = t
+					}
 					d.rt.mu.Unlock()
 				}
 			}

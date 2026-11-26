@@ -12,7 +12,8 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
-// settleCap is how many ReadySettle periods after its start a terminal that never goes quiet is marked idle anyway.
+// settleCap is how many ReadySettle periods after its first output a terminal that never goes quiet is marked
+// idle anyway.
 const settleCap = 30
 
 // settleStartingAgents marks STARTING agents idle once their terminal has drawn initial output and settled,
@@ -51,13 +52,16 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 			continue
 		}
 		// Idle once its output has been quiet for settle: a TUI still drawing may drop what is typed into it. The
-		// cap, counted from the terminal's start, is only a backstop for one that never stops redrawing (a clock,
-		// a spinner) and would otherwise never get its first doorbell.
-		started := tm.LastOutput.AsTime()
-		if tm.StartedAt != nil {
-			started = tm.StartedAt.AsTime()
+		// cap, counted from the terminal's first output, is only a backstop for one that never stops redrawing
+		// (a clock, a spinner) and would otherwise never get its first doorbell.
+		d.rt.mu.Lock()
+		first, seen := d.rt.firstOutput[tm.Id]
+		if !seen {
+			first = tm.LastOutput.AsTime()
+			d.rt.firstOutput[tm.Id] = first
 		}
-		if now.Sub(tm.LastOutput.AsTime()) < settle && now.Sub(started) < settleCap*settle {
+		d.rt.mu.Unlock()
+		if now.Sub(tm.LastOutput.AsTime()) < settle && now.Sub(first) < settleCap*settle {
 			continue
 		}
 		var becameIdle bool
@@ -79,6 +83,11 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 			becameIdle = cur.State == v1.AgentState_AGENT_STATE_IDLE
 			return nil
 		})
+		if err == nil {
+			d.rt.mu.Lock()
+			delete(d.rt.firstOutput, tm.Id)
+			d.rt.mu.Unlock()
+		}
 		if err == nil && becameIdle {
 			d.deliverSoon(a.Id)
 		}

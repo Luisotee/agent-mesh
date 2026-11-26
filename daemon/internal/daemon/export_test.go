@@ -57,3 +57,13 @@ func LeftoverProcessesForTest(top string, table []proc.Info) []proc.Info {
 func SweepableForTest(worktreesRoot string, a *v1.Agent, rootCwds []string) (string, bool) {
 	return sweepable(worktreesRoot, a, rootCwds)
 }
+
+// OwnAgentForTest exposes ownAgent for tests.
+func OwnAgentForTest(p proc.Info, a *v1.Agent) bool {
+	return ownAgent(p, a)
+}
+
+// AdoptCPUHolderForTest exposes adoptCPUHolder for tests.
+func AdoptCPUHolderForTest(d *Daemon, ctx context.Context, a *v1.Agent, pid int, startTicks uint64) {
+	d.adoptCPUHolder(ctx, a, pid, startTicks)
+}

@@ -86,10 +86,11 @@ func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
 
 // finishRetire stops a retired agent's process and sweeps any leftover processes it left in its worktree.
 func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
+	ctx = context.WithoutCancel(ctx)
 	if err := d.stopRetiredProcess(ctx, agentID); err != nil {
 		return err
 	}
-	if a, err := d.store.Read(context.WithoutCancel(ctx)).GetAgent(agentID); err == nil {
+	if a, err := d.store.Read(ctx).GetAgent(agentID); err == nil {
 		d.sweepWorktrees(ctx, []*v1.Agent{a})
 	}
 	return nil
@@ -389,7 +390,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 			sweepAgents = append(sweepAgents, a)
 		}
 	}
-	d.sweepWorktrees(ctx, sweepAgents)
+	d.sweepWorktrees(context.WithoutCancel(ctx), sweepAgents)
 	// A replayed call has no agents: its stored response already says what happened (without the worktrees, which
 	// are only reported by the call that removed them).
 	for _, a := range agents {
