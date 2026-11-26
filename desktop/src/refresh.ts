@@ -2,7 +2,7 @@ import { equals } from '@bufbuild/protobuf'
 import type { MeshClient } from './actions'
 import { listPullRequests, listWaiting } from './actions'
 import { realTimers, type Timers } from './connection'
-import { AgentSchema, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
+import { AgentSchema, MessageType, RunStatus, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
 import { setPullRequests, setWaiting, type HostStore } from './store'
 
 /**
@@ -87,15 +87,23 @@ export function hostRefresher(
   async function loadPullRequests(): Promise<void> {
     const st = store.getState()
     if (prsLoading || st.conn.kind !== 'ready' || !st.synced) return
+    // The host answers per run (a device names it): one call for each run still open, side by side.
+    const runIds = Object.values(st.runs).filter((r) => r.status !== RunStatus.CLOSED).map((r) => r.id)
     prsLoading = true
     try {
-      const res = await listPullRequests(client as MeshClient)
-      if (!stopped) store.setState(setPullRequests(res.agents))
-      prsComplained = false
-    } catch (e) {
-      // The buckets then lack "ready to review": say it once (a host without `gh` or an older daemon would say it every minute).
-      if (!prsComplained) log(`couldn't read the pull requests: ${e instanceof Error ? e.message : String(e)}`)
-      prsComplained = true
+      const results = await Promise.allSettled(runIds.map((id) => listPullRequests(client as MeshClient, id)))
+      if (stopped) return
+      const agents = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.agents : []))
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      // A run that failed keeps what was known of its agents; the others are replaced.
+      const failedRuns = new Set(results.flatMap((r, i) => (r.status === 'rejected' ? [runIds[i]!] : [])))
+      const kept = Object.values(store.getState().pullRequests).filter((p) => failedRuns.has(store.getState().agents[p.agentId]?.runId ?? ''))
+      store.setState(setPullRequests([...agents, ...kept]))
+      if (failed) {
+        // Said once (a host without `gh` or an older daemon would say it every minute); the buckets then lack "ready to review".
+        if (!prsComplained) log(`couldn't read the pull requests: ${failed.reason instanceof Error ? failed.reason.message : String(failed.reason)}`)
+        prsComplained = true
+      } else prsComplained = false
     } finally {
       prsLoading = false
     }

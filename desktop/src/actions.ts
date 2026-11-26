@@ -70,8 +70,8 @@ export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c
 /** What waits on the user across the host's open runs: plans and questions nobody answered, agents at a prompt. */
 export const listWaiting = (c: MeshClient) => c.listWaiting({})
 
-/** Each change worker's pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). */
-export const listPullRequests = (c: MeshClient, refresh = false) => c.listPullRequests({ refresh })
+/** One run's change workers' pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). A device must name the run. */
+export const listPullRequests = (c: MeshClient, runId: string, refresh = false) => c.listPullRequests({ runId, refresh })
 
 /** Quota per vendor with the reserve line (the host reads it from the vendor, and caches it). */
 export const getUsage = (c: MeshClient, refresh = false) => c.getUsage({ refresh })

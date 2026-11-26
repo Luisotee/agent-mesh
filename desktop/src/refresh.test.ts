@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ListAgentsResponseSchema, ListWaitingResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ListPullRequestsResponseSchema, AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
-import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, type Event } from './gen/agentmesh/v1/types_pb'
+import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import { hostRefresher } from './refresh'
 import { createHostStore } from './store'
 
@@ -202,22 +202,31 @@ describe('agents that went quiet', () => {
 })
 
 describe('the pull requests', () => {
-  it('are read at connect and every minute, and a failure is said once', async () => {
+  const run = (id: string, status = RunStatus.OPEN) => create(RunSchema, { id, status })
+  const rows = (runId: string, agentId: string, n: number) =>
+    create(ListPullRequestsResponseSchema, { agents: [create(AgentPullRequestsSchema, { agentId, pullRequests: [create(PullRequestSchema, { agentId, number: n, url: `u${n}`, state: 'open' })] })] })
+
+  it('are read for each open run at connect and every minute (a device names the run), and a failure is said once', async () => {
     const { store, client, log, r } = setup()
+    store.setState({ runs: { r1: run('r1'), r2: run('r2'), old: run('old', RunStatus.CLOSED) }, agents: { w1: agent('w1', AgentState.IDLE), w2: { ...agent('w2', AgentState.IDLE), runId: 'r2' } } })
     client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
-    client.listPullRequests.mockResolvedValueOnce(create(ListPullRequestsResponseSchema, { agents: [create(AgentPullRequestsSchema, { agentId: 'w', pullRequests: [create(PullRequestSchema, { agentId: 'w', number: 7, url: 'u', state: 'open' })] })] }))
+    client.listPullRequests.mockImplementation(async (req: { runId: string }) => rows(req.runId, req.runId === 'r1' ? 'w1' : 'w2', req.runId === 'r1' ? 7 : 8))
     r.start()
     r.synced()
     await vi.advanceTimersByTimeAsync(0)
-    expect(store.getState().pullRequests.w?.pullRequests[0]?.number).toBe(7)
+    expect(client.listPullRequests.mock.calls.map((c) => c[0])).toEqual([{ runId: 'r1', refresh: false }, { runId: 'r2', refresh: false }])
+    expect(Object.keys(store.getState().pullRequests).sort()).toEqual(['w1', 'w2'])
 
-    client.listPullRequests.mockRejectedValue(new Error('gh missing'))
+    // r2 fails: what is known of its agent stays, r1's is replaced, and the failure is logged once.
+    client.listPullRequests.mockImplementation(async (req: { runId: string }) => {
+      if (req.runId === 'r2') throw new Error('gh missing')
+      return rows('r1', 'w1', 9)
+    })
     await vi.advanceTimersByTimeAsync(60_000)
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(client.listPullRequests).toHaveBeenCalledTimes(3)
+    expect(store.getState().pullRequests.w1?.pullRequests[0]?.number).toBe(9)
+    expect(store.getState().pullRequests.w2?.pullRequests[0]?.number).toBe(8)
     expect(log.mock.calls.filter(([l]) => /pull requests/.test(l as string))).toHaveLength(1)
-    // What was known stays.
-    expect(store.getState().pullRequests.w).toBeDefined()
     r.stop()
   })
 })

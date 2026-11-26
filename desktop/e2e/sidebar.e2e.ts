@@ -35,6 +35,10 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   const { agents } = await host.client().listAgents({})
   await host.client(host.agentToken(agents[0]!.id)).spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
 
+  // What the app asks for to tell "ready to review": a device must name the run, and the host answers a row per change worker.
+  const prs = await host.client().listPullRequests({ runId: run!.id })
+  expect(prs.agents.map((a) => a.agentName)).toContain('repo-fix')
+
   const nav = page.getByRole('navigation', { name: 'Runs' })
   await nav.getByRole('button', { name: /repo-fix/ }).waitFor()
   const group = nav.getByRole('group', { name: 'Group the agents by' })
