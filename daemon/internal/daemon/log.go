@@ -448,6 +448,9 @@ func enumShort(s, prefix string) string {
 
 // arrow is `old → new`, or just `new` when nothing changed or there was no old.
 func arrow(from, to string) string {
+	if to == "" {
+		to = "none"
+	}
 	if from == "" || from == to {
 		return to
 	}

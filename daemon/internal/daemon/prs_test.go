@@ -457,6 +457,13 @@ func TestASlowGitHubKeepsTheBriefsLocalEvidenceAndMarksCachedPRsOld(t *testing.T
 	if text := brief(); !strings.Contains(text, "PR #12 open (GitHub not read: last state seen)") {
 		t.Errorf("GitHub too slow, a PR cached:\n%s", text)
 	}
+	// The row itself says it is old (what alerts and apps read), not only the brief's text.
+	if rows := w.prs("", false); len(rows[0].PullRequests) != 1 || !rows[0].PullRequests[0].Stale || !rows[0].ReadFailed {
+		t.Errorf("after the timeout: %v, want the PR marked stale", rows)
+	}
+	if got := daemon.EvidenceText(&v1.WorkEvidence{Commits: 1, HasCommits: true}, []*v1.PullRequest{{Number: 12, State: "open"}}, false); !strings.Contains(got, "PR #12 open (as last read)") {
+		t.Errorf("evidence with PRs unread: %q", got)
+	}
 }
 
 // A PR whose head is on the checkout's HEAD but not on the worker's branch is not the worker's once its worktree
@@ -542,6 +549,8 @@ func TestMeshLogShowsAPRChange(t *testing.T) {
 	w.prs("", false)
 	w.setList(ghPR(12, "MERGED", w.branchTip, false, run("COMPLETED", "FAILURE")))
 	w.prs("", true)
+	w.setList(ghPR(12, "MERGED", w.branchTip, false))
+	w.prs("", true)
 	stream, err := w.device.Mesh.StreamLog(context.Background(), connect.NewRequest(&v1.StreamLogRequest{RunId: w.run.Id}))
 	if err != nil {
 		t.Fatal(err)
@@ -552,8 +561,9 @@ func TestMeshLogShowsAPRChange(t *testing.T) {
 			details = append(details, e.Who+" "+e.Detail)
 		}
 	}
-	if len(details) != 2 || !strings.Contains(details[0], "#12 open, checks pending") ||
-		!strings.Contains(details[1], "#12 open → merged, checks pending → failing") {
+	if len(details) != 3 || !strings.Contains(details[0], "#12 open, checks pending") ||
+		!strings.Contains(details[1], "#12 open → merged, checks pending → failing") ||
+		!strings.Contains(details[2], "#12 merged, checks failing → none") {
 		t.Errorf("log entries: %q", details)
 	}
 }

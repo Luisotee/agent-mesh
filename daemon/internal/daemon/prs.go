@@ -225,9 +225,9 @@ func reportPRs(msgs []*v1.Message, a *v1.Agent) []string {
 	return nil
 }
 
-// refreshPRs reads an agent's PRs from GitHub when they are due (or `force`) and records what changed. It
-// never fails the caller: a read that fails keeps the last state, marks it stale and is tried again after prRetryTTL.
-func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
+// refreshPRs reads an agent's PRs from GitHub (calls on ghCtx, which may be cut short; the database on ctx) when they
+// are due (or `force`) and records what changed. It never fails the caller: a read that fails keeps the last state, marks it stale and is tried again after prRetryTTL.
+func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool) {
 	if !ownsPRs(a) {
 		return
 	}
@@ -248,7 +248,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 	var found []*v1.PullRequest
 	seen := map[string]bool{}
 	var ferr error
-	branch, err := d.branchPRs(ctx, a)
+	branch, err := d.branchPRs(ghCtx, a)
 	if err != nil {
 		ferr = err
 	}
@@ -260,7 +260,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 		if seen[prKey(u)] {
 			continue
 		}
-		p, err := d.viewPR(ctx, a, u)
+		p, err := d.viewPR(ghCtx, a, u)
 		if err != nil {
 			ferr = err
 			continue
@@ -270,6 +270,12 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 	}
 	if ctx.Err() != nil {
 		return
+	}
+	// GitHub cut short (the brief's wait) while the caller is alive: the rows already recorded are marked stale,
+	// and no row is invented for a link that was not read.
+	timedOut := ghCtx.Err() != nil
+	if timedOut && ferr == nil {
+		ferr = ghCtx.Err()
 	}
 	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		old, err := tx.AgentPRs(a.Id)
@@ -311,7 +317,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 				}
 			}
 		}
-		if ferr != nil { // a link in a report whose read failed: shown as unknown until it can be read
+		if ferr != nil && !timedOut { // a link in a report whose read failed: shown as unknown until it can be read
 			for _, u := range reportPRs(msgs, a) {
 				if _, known := prev[prKey(u)]; known || seen[prKey(u)] {
 					continue
@@ -335,7 +341,7 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 }
 
 // refreshAll refreshes every change worker's PRs, prFetchers at a time.
-func (d *Daemon) refreshAll(ctx context.Context, agents []*v1.Agent, force bool) {
+func (d *Daemon) refreshAll(ctx, ghCtx context.Context, agents []*v1.Agent, force bool) {
 	sem := make(chan struct{}, prFetchers)
 	var wg sync.WaitGroup
 	for _, a := range agents {
@@ -347,7 +353,7 @@ func (d *Daemon) refreshAll(ctx context.Context, agents []*v1.Agent, force bool)
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			d.refreshPRs(ctx, a, force)
+			d.refreshPRs(ctx, ghCtx, a, force)
 		}()
 	}
 	wg.Wait()
@@ -408,7 +414,7 @@ func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) stri
 			}
 			if p.State == "open" {
 				t := "PR #" + strconv.Itoa(int(p.Number)) + " open"
-				if p.Stale {
+				if p.Stale || !prsRead {
 					t += " (as last read)"
 				}
 				open = append(open, t)
@@ -438,7 +444,7 @@ func (d *Daemon) workText(ctx context.Context, a *v1.Agent) string {
 	if !ownsPRs(a) {
 		return ""
 	}
-	d.refreshPRs(ctx, a, false)
+	d.refreshPRs(ctx, ctx, a, false)
 	prs, _ := d.store.Read(ctx).AgentPRs(a.Id)
 	if t := evidenceText(workEvidence(ctx, a), prs, d.prs.read(a.Id)); t != "" {
 		return "Its work: " + t + "."
@@ -470,7 +476,7 @@ func reviewingPRs(r store.Reader, runID string) map[string][]string {
 // pullRequests builds the answer of ListPullRequests for some agents: their recorded PRs (refreshed first), the
 // reviewers still on each, and the work evidence (local git, on ctx: ghCtx bounds only the calls to GitHub) of a worker whose newest report is a done with no PR.
 func (d *Daemon) pullRequests(ctx, ghCtx context.Context, r store.Reader, runID string, agents []*v1.Agent, force bool) ([]*v1.AgentPullRequests, error) {
-	d.refreshAll(ghCtx, agents, force)
+	d.refreshAll(ctx, ghCtx, agents, force)
 	reviewing := reviewingPRs(r, runID)
 	var out []*v1.AgentPullRequests
 	for _, a := range agents {
