@@ -80,7 +80,7 @@ func TestARetiredPeerAgentIsNotResumedWhileAnotherRunsHoldsItsConversation(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sent.Msg.Resumed != nil || !strings.Contains(sent.Msg.ResumeError, "one process per conversation") {
+	if sent.Msg.Resumed != nil || !strings.Contains(sent.Msg.ResumeError, "is already running in") {
 		t.Errorf("resumed %v (%q)", sent.Msg.Resumed, sent.Msg.ResumeError)
 	}
 	// An ask from run 1 is refused for the same reason, and no task is left in the retired agent's inbox.
