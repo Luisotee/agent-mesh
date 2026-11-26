@@ -27,6 +27,10 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 func main() {
+	// Read by startTailnet, and taken out of the environment first, before the login shell or any agent meshd
+	// starts could see it, whether or not --tailscale is on.
+	tsKeyEnv := strings.TrimSpace(os.Getenv("AGENT_MESH_TAILSCALE_AUTH_KEY"))
+	_ = os.Unsetenv("AGENT_MESH_TAILSCALE_AUTH_KEY")
 	self, _ := os.Executable()
 	here := filepath.Dir(self)
 	state := flag.String("state", os.Getenv(client.StateEnv), "state dir (or $"+client.StateEnv+"); required")
@@ -37,7 +41,7 @@ func main() {
 	relayTokenFile := flag.String("relay-token-file", os.Getenv("AGENT_MESH_RELAY_TOKEN_FILE"), "file holding the relay shared secret (mode 0600, or $AGENT_MESH_RELAY_TOKEN)")
 	tsOn := flag.Bool("tailscale", envBool("AGENT_MESH_TAILSCALE"), "join a tailnet (Tailscale, or Headscale with --tailscale-control-url) and serve the TLS API there (or $AGENT_MESH_TAILSCALE=1)")
 	tsHost := flag.String("tailscale-hostname", os.Getenv("AGENT_MESH_TAILSCALE_HOSTNAME"), "the node's name on the tailnet (default mesh-<host name>)")
-	tsPort := flag.Uint("tailscale-port", envUint("AGENT_MESH_TAILSCALE_PORT", 443), "the tailnet port the TLS API is served on (or $AGENT_MESH_TAILSCALE_PORT)")
+	tsPort := flag.Uint("tailscale-port", 443, "the tailnet port the TLS API is served on (or $AGENT_MESH_TAILSCALE_PORT)")
 	tsControl := flag.String("tailscale-control-url", os.Getenv("AGENT_MESH_TAILSCALE_CONTROL_URL"), "the control server, such as a Headscale URL (default Tailscale's)")
 	tsKeyFile := flag.String("tailscale-auth-key-file", os.Getenv("AGENT_MESH_TAILSCALE_AUTH_KEY_FILE"), "file holding a Tailscale auth key (mode 0600, or $AGENT_MESH_TAILSCALE_AUTH_KEY): logs the node in without a browser")
 	hostName := flag.String("host-name", os.Getenv("AGENT_MESH_HOST_NAME"), "readable host name advertised over relay and pairing (default hostname)")
@@ -134,11 +138,19 @@ func main() {
 			os.Exit(2)
 		}
 	}
-	// Read by startTailnet, and never left for the agents meshd starts, whether or not --tailscale is on.
-	tsKeyEnv := strings.TrimSpace(os.Getenv("AGENT_MESH_TAILSCALE_AUTH_KEY"))
-	_ = os.Unsetenv("AGENT_MESH_TAILSCALE_AUTH_KEY")
 	var tn daemon.Tailnet
 	if *tsOn {
+		// The port's env twin counts only with --tailscale on, and below the flag.
+		portGiven := false
+		flag.Visit(func(f *flag.Flag) { portGiven = portGiven || f.Name == "tailscale-port" })
+		if v := strings.TrimSpace(os.Getenv("AGENT_MESH_TAILSCALE_PORT")); v != "" && !portGiven {
+			n, err := strconv.ParseUint(v, 10, 32)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "meshd: $AGENT_MESH_TAILSCALE_PORT=%q: not a number\n", v)
+				os.Exit(2)
+			}
+			*tsPort = uint(n)
+		}
 		node, err := startTailnet(*state, *hostName, *tsHost, *tsPort, *tsControl, *tsKeyFile, tsKeyEnv, log)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "meshd:", err)
@@ -173,19 +185,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
-}
-
-func envUint(key string, def uint) uint {
-	v := strings.TrimSpace(os.Getenv(key))
-	if v == "" {
-		return def
-	}
-	n, err := strconv.ParseUint(v, 10, 32)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "meshd: $%s=%q: not a number\n", key, v)
-		os.Exit(2)
-	}
-	return uint(n)
 }
 
 func envBool(key string) bool {
