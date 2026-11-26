@@ -167,6 +167,18 @@ export class Local {
     private readonly settle = { tries: 12, everyMs: 1_000 },
   ) {}
 
+  /** Whether a saved host is the daemon a scan looks at: the default state dir, or on Windows a loopback pairing (the distro's). */
+  isHere(h: StoredHost): boolean {
+    if (h.kind === 'state-dir') return path.resolve(h.path) === path.resolve(this.stateDir())
+    if (h.kind === 'paired') return this.deps.platform === 'win32' && !!h.route.direct && /^(127\.0\.0\.1|localhost|::1)$/.test(h.route.direct.host.replace(/^\[|\]$/g, ''))
+    return false
+  }
+
+  /** What the renderer is told of a host. */
+  info(h: StoredHost): HostInfo {
+    return { ...toInfo(h), here: this.isHere(h) }
+  }
+
   /** Single-flight: a second call while one runs gets its answer (a strict-mode effect, a double click). */
   detect(): Promise<LocalCandidate[]> {
     this.inflight ??= this.scan().finally(() => (this.inflight = undefined))
@@ -310,7 +322,7 @@ export class Local {
     if (!found) throw new Error('that daemon is no longer there: look again')
     if (found.state !== 'ready') throw new Error(found.detail)
     if (id === 'native') {
-      return toInfo(await this.hosts.add({ name: this.deps.hostname, kind: 'state-dir', path: this.stateDir() }))
+      return this.info(await this.hosts.add({ name: this.deps.hostname, kind: 'state-dir', path: this.stateDir() }))
     }
     const distro = id.slice('wsl:'.length)
     const w = await this.probe(distro)
@@ -326,7 +338,7 @@ export class Local {
       // Handled below.
     }
     if (!link) throw new Error(`${distro} answered, but not with a pairing link`)
-    return toInfo(await this.hosts.add({ name: '', kind: 'pair', link, deviceName: `Desktop (${this.deps.hostname})` }))
+    return this.info(await this.hosts.add({ name: '', kind: 'pair', link, deviceName: `Desktop (${this.deps.hostname})` }))
   }
 
   /** Runs one of the two fixes on a candidate, waits for the daemon to settle, and scans again. */

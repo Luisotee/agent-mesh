@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { ConnectionLogDialog } from './connection-log'
 import { LocalSetup } from './local-setup'
 
-/** Whether a host is this machine's daemon: a state dir, or a paired host at a loopback address. */
-export const isLocalHost = (h: HostRuntime['info']) => h.kind === 'state-dir' || (h.kind === 'paired' && /^(127\.0\.0\.1|localhost|\[?::1\]?):/.test(h.target))
+/** Whether a host is the daemon "Check this machine" looks at, as main says (`here`): not any state dir, which may be a test daemon. */
+export const isLocalHost = (h: HostRuntime['info']) => h.here === true
 
 /** "Check this machine": looks for the daemon here again and offers the fixes (start it, let Windows reach it). */
 function CheckMachine({ host }: { host: HostRuntime }) {

@@ -7,6 +7,7 @@ import type { DesktopApi, HostInfo, LocalCandidate } from '../shared/api'
 import { App } from './App'
 import { ConnectionBanner, isLocalHost } from './components/connection-banner'
 import { EmptyPane } from './components/empty-pane'
+import { LocalSetup } from './components/local-setup'
 import { RemoveHostDialog } from './components/host-dialogs'
 import { AppContext } from './context'
 import { StartSetupResponseSchema } from './gen/agentmesh/v1/mesh_pb'
@@ -120,8 +121,24 @@ describe('the first-run screen', () => {
     const found = fakeApi()
     const m2 = createAppModel(found as unknown as DesktopApi)
     await m2.load()
-    await m2.connectLocal('native')
+    await m2.connectLocal('native', true)
     await waitFor(() => expect(startSetupCalled(found)).toBe(true))
+  })
+
+  it('does not start the setup agent for a daemon the add dialog found (a host that may have weeks of runs)', async () => {
+    const api = fakeApi({ detect: [cand({ id: 'native' })] })
+    const model = createAppModel(api as unknown as DesktopApi)
+    await model.load()
+    render(
+      <AppContext.Provider value={model}>
+        <LocalSetup />
+      </AppContext.Provider>,
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect' }))
+    await waitFor(() => expect(api.local.connect).toHaveBeenCalledWith('native'))
+    await waitFor(() => expect(model.store.getState().hosts).toHaveLength(1))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(startSetupCalled(api)).toBe(false)
   })
 
   it('has nothing to detect when the host list is fixed by the environment', async () => {
@@ -158,7 +175,8 @@ describe('the setup assistant', () => {
   it('says a daemon that is older than the app needs updating, and says any other reason as the host gave it', async () => {
     const old = hostWith({ startSetup: async () => Promise.reject(new ConnectError('not found', Code.Unimplemented)) })
     await old.model.openSetup('h1')
-    expect(old.model.store.getState().setupError).toMatch(/older than the app.*install\.sh/)
+    expect(old.model.store.getState().setupError).toMatchObject({ hostId: 'h1' })
+    expect(old.model.store.getState().setupError?.message).toMatch(/older than the app.*install\.sh/)
     expect(setupMessage(new ConnectError('no agent CLI is installed', Code.FailedPrecondition))).toBe('no agent CLI is installed')
   })
 
@@ -174,6 +192,19 @@ describe('the setup assistant', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Set up with the assistant' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('no agent CLI is installed')
     expect(startSetup).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a failure only on the host it happened on', async () => {
+    const { host, model } = hostWith({ startSetup: async () => Promise.reject(new ConnectError('no agent CLI is installed', Code.FailedPrecondition)) })
+    await model.openSetup('h1')
+    const other = { ...host, info: { ...info, id: 'h2', name: 'desk' }, store: createHostStore() } as unknown as HostRuntime
+    render(
+      <AppContext.Provider value={model}>
+        <EmptyPane host={other} />
+      </AppContext.Provider>,
+    )
+    expect(screen.getByText(/Nothing is running on desk yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('says only to pick an agent when the host already has some', () => {
@@ -208,11 +239,10 @@ describe('removing a host and the banner', () => {
     expect(model.store.getState().hosts).toEqual([])
   })
 
-  it('knows this machine\'s hosts: a state dir, or a paired host at a loopback address', () => {
-    expect(isLocalHost({ id: 'a', name: 'a', kind: 'state-dir', target: '/s' })).toBe(true)
-    expect(isLocalHost({ id: 'a', name: 'a', kind: 'paired', target: '127.0.0.1:9443' })).toBe(true)
-    expect(isLocalHost({ id: 'a', name: 'a', kind: 'paired', target: '192.168.1.5:9443' })).toBe(false)
-    expect(isLocalHost({ id: 'a', name: 'a', kind: 'paired', target: 'via the relay at r.example.com' })).toBe(false)
+  it('takes main\'s word for which host is this machine\'s daemon: a state dir of a test daemon is not', () => {
+    expect(isLocalHost({ id: 'a', name: 'a', kind: 'state-dir', target: '/s', here: true })).toBe(true)
+    expect(isLocalHost({ id: 'a', name: 'a', kind: 'state-dir', target: '/tmp/test-daemon' })).toBe(false)
+    expect(isLocalHost({ id: 'a', name: 'a', kind: 'paired', target: '127.0.0.1:9443', here: false })).toBe(false)
   })
 
   it('offers "Check this machine" on an unreachable local host and not on a remote one', async () => {
@@ -222,10 +252,18 @@ describe('removing a host and the banner', () => {
       return { info: i, store, client: {}, connection: { retryNow: vi.fn(), stop: vi.fn() }, stop: vi.fn() } as unknown as HostRuntime
     }
     const model = createAppModel(fakeApi() as unknown as DesktopApi)
-    const local = render(<AppContext.Provider value={model}><ConnectionBanner host={make(info)} /></AppContext.Provider>)
+    const local = render(<AppContext.Provider value={model}><ConnectionBanner host={make({ ...info, here: true })} /></AppContext.Provider>)
     expect(screen.getByRole('button', { name: 'Check this machine' })).toBeInTheDocument()
     local.unmount()
     render(<AppContext.Provider value={model}><ConnectionBanner host={make({ ...info, kind: 'paired', target: '10.0.0.2:9443' })} /></AppContext.Provider>)
+    expect(screen.queryByRole('button', { name: 'Check this machine' })).toBeNull()
+  })
+
+  it('does not offer it on a state-dir host main did not say is this machine\'s', () => {
+    const store = createHostStore()
+    store.setState({ conn: { kind: 'reconnecting', error: 'refused', retryAt: Date.now() + 5000 } as never })
+    const host = { info, store, client: {}, connection: { retryNow: vi.fn(), stop: vi.fn() }, stop: vi.fn() } as unknown as HostRuntime
+    render(<AppContext.Provider value={createAppModel(fakeApi() as unknown as DesktopApi)}><ConnectionBanner host={host} /></AppContext.Provider>)
     expect(screen.queryByRole('button', { name: 'Check this machine' })).toBeNull()
   })
 })

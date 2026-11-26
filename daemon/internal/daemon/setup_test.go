@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // shareWithSetup makes a share folder that holds the setup agent's instructions.
@@ -217,4 +219,86 @@ func TestStartSetupFinishesAHalfMadeScratchRepo(t *testing.T) {
 		t.Fatalf("the scratch repo still has no commit: %v %s", err, out)
 	} // Let the agent finish starting, so the daemon isn't still writing into the state dir when the test's cleanup runs.
 	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// With no kind named, StartSetup picks the first CLI that can run, not the first with an adapter: claude and agy
+// always have one.
+func TestStartSetupPicksACLIThatIsInstalled(t *testing.T) {
+	share := shareWithSetup(t)
+	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) {
+		c.Share = share
+		c.Binaries = map[string]string{"agy": filepath.Join(bins, "agy")} // no claude, and LookPath finds nothing
+	})
+	got := startSetup(t, h)
+	if got.Agent.Kind != "agy" {
+		t.Fatalf("setup agent kind = %q, want agy (the only CLI installed)", got.Agent.Kind)
+	}
+	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+func TestStartSetupWithNoCLIInstalledSaysSo(t *testing.T) {
+	share := shareWithSetup(t)
+	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) {
+		c.Share = share
+		c.Binaries = map[string]string{}
+	})
+	_, err := h.device.Mesh.StartSetup(context.Background(), connect.NewRequest(&v1.StartSetupRequest{Meta: meta("setup-none")}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "no agent CLI is installed") {
+		t.Fatalf("StartSetup with no CLI = %v", err)
+	}
+	if runs, err := h.device.Mesh.ListRuns(context.Background(), connect.NewRequest(&v1.ListRunsRequest{})); err != nil || len(runs.Msg.Runs) != 0 {
+		t.Fatalf("runs after the refusal = %v, %v", runs, err)
+	}
+}
+
+// A scratch folder with no .git of its own, inside a repo that has commits (a dotfiles repo around the state dir),
+// is not ready: the setup worktree must not be made in the enclosing repo.
+func TestStartSetupDoesNotUseAnEnclosingRepo(t *testing.T) {
+	share := shareWithSetup(t)
+	outer := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "outer"}} {
+		if out, err := exec.Command("git", append([]string{"-C", outer}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	state := filepath.Join(outer, "state")
+	scratch := filepath.Join(state, "setup")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	got := startSetup(t, h)
+	if _, err := os.Stat(filepath.Join(scratch, ".git")); err != nil {
+		t.Fatalf("the scratch folder was not made a repo of its own: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", outer, "branch", "--list", "mesh/*").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("branches made in the enclosing repo: %q %v", out, err)
+	}
+	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// The setup agent's reminder follows the root's rule: silent while its reset is typing.
+func TestTheSetupAgentsReminderIsSilentWhileItsResetTypes(t *testing.T) {
+	share := shareWithSetup(t)
+	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	ctx := context.Background()
+	got := startSetup(t, h)
+	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "compact"); !strings.Contains(text, "the setup agent of run "+got.Run.Id) {
+		t.Fatalf("reminder = %q", text)
+	}
+	err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(got.Agent.Id)
+		if err != nil {
+			return err
+		}
+		a.PendingReset = &v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now(), TypedAt: timestamppb.Now()}
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "clear"); text != "" {
+		t.Fatalf("a reminder while the reset types: %q", text)
+	}
 }

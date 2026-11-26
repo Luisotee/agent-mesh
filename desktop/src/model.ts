@@ -118,8 +118,8 @@ export interface AppState extends WorkspaceState {
   paletteOpen: boolean
   /** The app started with no host and hasn't yet looked for one on this machine: the first-run screen connects by itself, once. */
   firstRun: boolean
-  /** Why the setup agent couldn't be opened (shown where it would be). */
-  setupError?: string
+  /** Why the setup agent couldn't be opened, and on which host (shown in that host's empty pane only). */
+  setupError?: { hostId: string; message: string }
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
 }
@@ -131,8 +131,8 @@ export interface AppModel {
   api: DesktopApi
   load(): Promise<void>
   addHost(h: NewHost): Promise<void>
-  /** Connects to the daemon found on this machine (`api.local`) and saves it as a host. */
-  connectLocal(id: string): Promise<void>
+  /** Connects to the daemon found on this machine (`api.local`) and saves it as a host; `setup`: opens the setup chat on it. */
+  connectLocal(id: string, setup?: boolean): Promise<void>
   /** Opens the chat with the setup agent of a host, starting it if it isn't running. */
   openSetup(hostId: string): Promise<void>
   removeHost(id: string): Promise<void>
@@ -206,8 +206,9 @@ export function createAppModel(api: DesktopApi): AppModel {
     set((s) => ({ hosts: [...s.hosts, rt], hostId: info.id, agentId: undefined, firstRun: false }))
     recount()
     configure()
-    // A daemon found on this machine is a new install: the first thing the user sees is the assistant. A host added by
-    // hand may be one with weeks of runs: starting an agent there is the user's call (the empty pane offers it).
+    // The first run's connection is a new install: the first thing the user sees is the assistant. A host added any
+    // other way (by hand, or through the add dialog's "Look for a daemon") may have weeks of runs: starting an agent
+    // there is the user's call (the empty pane offers it).
     if (openSetup) void model.openSetup(info.id)
   }
   let loading: Promise<void> | undefined
@@ -231,8 +232,8 @@ export function createAppModel(api: DesktopApi): AppModel {
     async addHost(h) {
       await adopt(await api.hosts.add(h))
     },
-    async connectLocal(id) {
-      await adopt(await api.local.connect(id), true)
+    async connectLocal(id, setup = false) {
+      await adopt(await api.local.connect(id), setup)
     },
     async openSetup(hostId) {
       const host = store.getState().hosts.find((h) => h.info.id === hostId)
@@ -242,10 +243,10 @@ export function createAppModel(api: DesktopApi): AppModel {
         if (!agent) throw new Error('the host started no agent')
         // Put them in the host's state now, so the tab doesn't say "not on this host" until the event arrives.
         host.store.setState((st) => ({ agents: { ...st.agents, [agent.id]: agent }, runs: run ? { ...st.runs, [run.id]: run } : st.runs }))
-        set({ setupError: undefined })
+        set((st) => ({ setupError: st.setupError?.hostId === hostId ? undefined : st.setupError }))
         set((st) => ({ ...activate(st, hostId, agent.id, 'chat'), hostId, settingsOpen: false, pairOpen: false }))
       } catch (e) {
-        set({ setupError: setupMessage(e) })
+        set({ setupError: { hostId, message: setupMessage(e) } })
       }
     },
     async removeHost(id) {

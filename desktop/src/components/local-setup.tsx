@@ -30,7 +30,7 @@ const clean = (e: unknown) => (e instanceof Error ? e.message.replace(/^Error in
 /**
  * Looks for a daemon on this machine (a socket here, or a WSL distro on Windows) and connects to the one it finds, with
  * nothing pasted. Where it finds a problem it says which and offers the fix the app can run; what the user has to run
- * themselves is shown to copy. `auto`: on the app's first run, a single ready daemon is connected without a click.
+ * themselves is shown to copy. `auto` (the first-run screen): on the app's first run a single ready daemon is connected without a click, and what is connected opens the setup chat; without it (the add dialog) the host is only added.
  * `onReady`: for a host that is already saved (its banner's "Check this machine"): a ready daemon is retried, not added again.
  */
 export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: boolean; onConnected?: () => void; onReady?: () => void }) {
@@ -52,7 +52,7 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
       setBusy(id)
       setError('')
       try {
-        await app.connectLocal(id)
+        await app.connectLocal(id, auto)
         done.current?.()
       } catch (e) {
         connected.current = false
@@ -60,7 +60,7 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
         setBusy('')
       }
     },
-    [app],
+    [app, auto],
   )
 
   const scan = useCallback(

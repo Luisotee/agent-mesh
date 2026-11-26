@@ -122,6 +122,27 @@ describe('Local, on Linux', () => {
   })
 })
 
+describe('which saved host is this machine\'s daemon', () => {
+  const stored = (o: object) => ({ id: 'x', name: 'x', ...o }) as never
+  const direct = (host: string) => ({ hostId: 'h', fingerprint: FP, direct: { host, port: 9443 } })
+
+  it('on Linux is the state dir a scan looks at, not any state dir', () => {
+    const f = fake('linux')
+    const local = new Local(newHosts(), f.deps)
+    const dir = defaultStateDir(f.deps.env, f.deps.home)
+    expect(local.info(stored({ kind: 'state-dir', path: dir }))).toMatchObject({ here: true, target: dir })
+    expect(local.info(stored({ kind: 'state-dir', path: path.join(tmp(), 'test-daemon') })).here).toBe(false)
+    expect(local.info(stored({ kind: 'paired', deviceId: 'd', token: 't', route: direct('127.0.0.1') })).here).toBe(false)
+  })
+
+  it('on Windows is a pairing at the distro\'s loopback address', () => {
+    const local = new Local(newHosts(), fake('win32').deps)
+    expect(local.isHere(stored({ kind: 'paired', deviceId: 'd', token: 't', route: direct('127.0.0.1') }))).toBe(true)
+    expect(local.isHere(stored({ kind: 'paired', deviceId: 'd', token: 't', route: direct('192.168.1.5') }))).toBe(false)
+    expect(local.isHere(stored({ kind: 'paired', deviceId: 'd', token: 't', route: { hostId: 'h', fingerprint: FP, relay: { host: 'r.example.com' } } }))).toBe(false)
+  })
+})
+
 describe('Local, on Windows', () => {
   it('says so when WSL is not there, or has no distro', async () => {
     const none = fake('win32')

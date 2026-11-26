@@ -11,7 +11,7 @@ export function EmptyPane({ host }: { host: HostRuntime }) {
   const app = useApp()
   const empty = useHostState(host, (s) => Object.keys(s.agents).length === 0)
   const mayPair = useHostState(host, () => canPair(host.store))
-  const setupError = useAppState((s) => s.setupError)
+  const setupError = useAppState((s) => (s.setupError?.hostId === host.info.id ? s.setupError.message : undefined))
   const [busy, setBusy] = useState(false)
   async function setup() {
     setBusy(true)

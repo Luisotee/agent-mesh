@@ -144,3 +144,8 @@ func OnPushLeave(f func()) { onPushLeave = f }
 
 // TailnetURL is the URL a pairing link carries for a tailnet node with these addresses.
 func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addresses, port) }
+
+// ReminderText is what a session of agent a that started again (source: compact, clear or resume) is told.
+func (d *Daemon) ReminderText(ctx context.Context, a *v1.Agent, source string) string {
+	return d.reminderText(ctx, a, source)
+}

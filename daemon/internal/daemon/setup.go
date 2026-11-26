@@ -66,7 +66,11 @@ func (d *Daemon) StartSetup(ctx context.Context, req *connect.Request[v1.StartSe
 	kind := req.Msg.Kind
 	if kind == "" {
 		for _, k := range setupKinds {
-			if d.installed(k) {
+			// A binary that runs, not just an adapter: installed() trusts claude and agy without looking.
+			if _, err := d.rt.adapters.Get(k); err != nil {
+				continue
+			}
+			if _, ok := d.cliBinary(k); ok {
 				kind = k
 				break
 			}
@@ -152,9 +156,13 @@ func (d *Daemon) setupRun(ctx context.Context, meta *v1.RequestMeta) (*v1.Run, e
 // machinery needs a repo, and the agent has no project of its own.
 func (d *Daemon) setupRepo(ctx context.Context) (string, error) {
 	dir := filepath.Join(d.paths.Dir, "setup")
-	// Ready only with a commit to branch from: a first try that was cut off after `git init` is finished, not trusted.
-	if _, err := git(ctx, dir, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err == nil {
-		return dir, nil
+	// Ready only with a commit to branch from, in a repo of its own: a first try that was cut off after `git init` is
+	// finished, not trusted, and a folder with no .git is not ready because an enclosing repo (a dotfiles repo
+	// around the state dir) has a HEAD.
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if _, err := git(ctx, dir, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err == nil {
+			return dir, nil
+		}
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err

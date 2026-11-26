@@ -9,6 +9,8 @@ export interface HostInfo {
   kind: 'state-dir' | 'tcp' | 'paired'
   /** The state dir, a host:port, or where a paired host is reached. */
   target: string
+  /** Main's word that this is the daemon `api.local` scans for (this machine's own), not just one at a loopback address. */
+  here?: boolean
 }
 
 export type NewHost =

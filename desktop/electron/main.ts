@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, LocalFix, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
-import { Hosts, toInfo } from './hosts.js'
+import { Hosts } from './hosts.js'
 import { LinkInbox, PROTOCOL, linkIn, openedLink } from './links.js'
 import { Local } from './local.js'
 import { redeemPairing } from './pair.js'
@@ -60,8 +60,8 @@ function wire(): void {
   ipcMain.on('hosts:fixed', (e) => {
     e.returnValue = hosts.fixed
   })
-  ipcMain.handle('hosts:list', () => hosts.all().map(toInfo))
-  ipcMain.handle('hosts:add', async (_e, n: NewHost) => toInfo(await hosts.add(n)))
+  ipcMain.handle('hosts:list', () => hosts.all().map((h) => local.info(h)))
+  ipcMain.handle('hosts:add', async (_e, n: NewHost) => local.info(await hosts.add(n)))
   ipcMain.handle('hosts:remove', (_e, id: string) => hosts.remove(id))
   ipcMain.handle('local:detect', () => (hosts.fixed ? [] : local.detect()))
   ipcMain.handle('local:connect', async (_e, id: unknown) => {

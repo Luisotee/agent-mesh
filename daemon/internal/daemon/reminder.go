@@ -95,6 +95,9 @@ func workerPhase(a *v1.Agent, report *v1.Message, task string) string {
 func (d *Daemon) reminderText(ctx context.Context, a *v1.Agent, source string) string {
 	r := d.store.Read(ctx)
 	dir := d.paths.RunDir(a.RunId)
+	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && a.PendingReset != nil && a.PendingReset.TypedAt != nil {
+		return ""
+	}
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && d.isSetupRun(r, a.RunId) {
 		line := fmt.Sprintf("agent-mesh reminder (%s): you are %s, the setup agent of run %s (no parent to report to). Your earlier context may be gone.", source, a.Name, a.RunId)
 		if share := d.rt.cfg.Share; filepath.IsAbs(share) {
@@ -103,9 +106,6 @@ func (d *Daemon) reminderText(ctx context.Context, a *v1.Agent, source string) s
 		return line
 	}
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
-		if a.PendingReset != nil && a.PendingReset.TypedAt != nil {
-			return ""
-		}
 		return fmt.Sprintf("agent-mesh reminder (%s): you are %s, the root of run %s (no parent to report to). Your earlier context may be gone: "+
 			"run `mesh brief` now and act by the root card it prints, not from memory. Run dir: %s.", source, a.Name, a.RunId, dir)
 	}
