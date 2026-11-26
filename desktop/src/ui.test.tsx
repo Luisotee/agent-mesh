@@ -11,6 +11,7 @@ import { ChatView } from './components/chat-view'
 import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
 import { Panes } from './components/panes'
+import { SidePanel } from './components/side-panel'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
@@ -28,6 +29,8 @@ import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } f
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
 import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
+import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
+import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 
@@ -47,7 +50,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
     messageLoad: { r1: 'loaded' },
   })
-  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})) }
+  const client = { startRun: vi.fn(async () => ({})), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})), getCost: vi.fn(async (_req: unknown) => create(GetCostResponseSchema)), getUsage: vi.fn(async (_req: unknown) => create(GetUsageResponseSchema)) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection, loadMessages: vi.fn() } as unknown as HostRuntime
   const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
@@ -585,6 +588,68 @@ describe('Splits', () => {
     // From the dock.
     await userEvent.click(screen.getByRole('button', { name: 'Pin app-lead as a split' }))
     expect(model.store.getState().side.map((p) => p.agentId)).toEqual(['lead'])
+  })
+})
+
+describe('SidePanel', () => {
+  const costResp = create(GetCostResponseSchema, { usd: 7.5, agents: [create(AgentCostSchema, { name: 'app-fix', usd: 2 }), create(AgentCostSchema, { name: 'app-lead', usd: 5.5 })] })
+  const usageResp = create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: 'weekly window', used: 95 })], atReserve: ['weekly window'] }) })
+
+  function panelFixture() {
+    const f = fixture()
+    Object.assign(f.client, { getCost: vi.fn(async () => costResp), getUsage: vi.fn(async () => usageResp) })
+    f.host.store.setState((s) => ({
+      waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w1', message: create(MessageSchema, { id: 'm1', type: MessageType.PLAN, runId: 'r1', toId: 'lead' }) })],
+      pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [create(PullRequestSchema, { agentId: 'w1', number: 12, url: 'https://github.com/o/r/pull/12', state: 'open', checks: 'failing' })] }) },
+      agents: { ...s.agents },
+    }))
+    return f
+  }
+
+  it('shows a lead\'s whole run: total and per-agent cost, what waits, its PRs and quota', async () => {
+    const { host, client, wrap } = panelFixture()
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    expect(await screen.findByTestId('cost-total')).toHaveTextContent('$7.50')
+    expect(client.getCost).toHaveBeenCalledWith({ agents: true, runId: 'r1', since: '' })
+    const per = screen.getByRole('list', { name: 'Cost per agent' })
+    expect(within(per).getAllByRole('listitem').map((l) => l.textContent)).toEqual(['app-lead$5.50', 'app-fix$2.00'])
+    const waiting = screen.getByRole('region', { name: 'Waiting on you' })
+    expect(waiting).toHaveTextContent('app-fix sent a plan')
+    const prs = screen.getByRole('region', { name: 'Pull requests' })
+    expect(prs).toHaveTextContent('#12')
+    expect(prs).toHaveTextContent('checks failing')
+    expect(prs).toHaveTextContent('app-fix')
+    const bar = await screen.findByRole('progressbar', { name: 'Claude weekly window' })
+    expect(bar).toHaveAttribute('aria-valuenow', '95')
+  })
+
+  it('shows another agent\'s place, model, share of the cost and its own PRs, and a click on a waiting row opens it', async () => {
+    const { host, wrap, model } = panelFixture()
+    const open = vi.fn()
+    ;(window as unknown as { desktop: unknown }).desktop = { openExternal: open }
+    render(wrap(<SidePanel host={host} agentId="w1" />))
+    const where = screen.getByRole('region', { name: 'Where' })
+    expect(where).toHaveTextContent('app')
+    expect(where).toHaveTextContent('home')
+    expect(await screen.findByTestId('cost-total')).toHaveTextContent('$2.00')
+    expect(screen.getByRole('region', { name: 'Cost' })).toHaveTextContent('of $7.50 for the run')
+    // No waiting list for a worker; its PR opens in the browser.
+    expect(screen.queryByRole('region', { name: 'Waiting on you' })).toBeNull()
+    await userEvent.click(within(screen.getByRole('region', { name: 'Pull requests' })).getByRole('button', { name: /#12/ }))
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/12')
+    await userEvent.click(screen.getByRole('button', { name: 'Hide the side panel' }))
+    expect(model.store.getState().panelOpen).toBe(false)
+    delete (window as unknown as { desktop?: unknown }).desktop
+  })
+
+  it('says so when the cost can\'t be read, and when no agent is open', async () => {
+    const { host, client, wrap } = panelFixture()
+    client.getCost.mockRejectedValue(new Error('no cost data'))
+    const { unmount } = render(wrap(<SidePanel host={host} agentId="lead" />))
+    expect(await screen.findByText(/Couldn't read the cost: no cost data/)).toBeInTheDocument()
+    unmount()
+    render(wrap(<SidePanel host={host} />))
+    expect(screen.getByText(/Open an agent to see/)).toBeInTheDocument()
   })
 })
 

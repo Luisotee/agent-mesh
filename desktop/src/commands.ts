@@ -98,6 +98,7 @@ export function buildCommands(app: AppModel): Command[] {
   view('tab_close', 'Close the open tab', !!s.agentId)
   const waiting = waitingTargets(app)
   view('waiting_next', 'Go to the next thing waiting on me', waiting.length > 0)
+  out.push({ id: 'side-panel', title: s.panelOpen ? 'Hide the side panel' : 'Show the side panel', group: 'View', detail: 'cost pull requests quota', run: () => app.setPanel(!s.panelOpen) })
   if (s.side.length > 0) {
     out.push({ id: 'split-dir', title: s.splitDir === 'row' ? 'Stack the panes' : 'Put the panes side by side', group: 'View', detail: 'split layout', run: () => app.setSplitDir(s.splitDir === 'row' ? 'column' : 'row') })
     out.push({ id: 'split-close', title: 'Close the splits', group: 'View', detail: 'panes beside', run: () => s.side.forEach((p) => app.unsplit(p)) })

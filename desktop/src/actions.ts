@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -72,6 +72,12 @@ export const listWaiting = (c: MeshClient) => c.listWaiting({})
 
 /** Each change worker's pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). */
 export const listPullRequests = (c: MeshClient, refresh = false) => c.listPullRequests({ refresh })
+
+/** Quota per vendor with the reserve line (the host reads it from the vendor, and caches it). */
+export const getUsage = (c: MeshClient, refresh = false) => c.getUsage({ refresh })
+
+/** What a run (or a window of time) cost, with the table per agent when `agents` is set. */
+export const getCost = (c: MeshClient, scope: { runId: string } | { since: string }, agents = false) => c.getCost({ agents, runId: '', since: '', ...scope })
 
 export const listSettings = (c: MeshClient, prefix = '') => c.listSettings({ prefix })
 

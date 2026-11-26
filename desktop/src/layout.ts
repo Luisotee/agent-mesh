@@ -17,6 +17,7 @@ export interface Layout {
   splitDir: SplitDir
   sidebarGroup: SidebarGroup
   dockOpen: boolean
+  panelOpen: boolean
 }
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
@@ -61,6 +62,7 @@ export function parseLayout(text: string | null | undefined): Layout | undefined
     splitDir: raw.splitDir === 'column' ? 'column' : 'row',
     sidebarGroup: GROUPS.includes(raw.sidebarGroup as string) ? (raw.sidebarGroup as SidebarGroup) : 'run',
     dockOpen: raw.dockOpen !== false,
+    panelOpen: raw.panelOpen !== false,
   }
 }
 
@@ -74,6 +76,7 @@ export interface LayoutSource {
   splitDir: SplitDir
   sidebarGroup: SidebarGroup
   dockOpen: boolean
+  panelOpen: boolean
 }
 
 export function layoutOf(s: LayoutSource): Layout {
@@ -88,6 +91,7 @@ export function layoutOf(s: LayoutSource): Layout {
     splitDir: s.splitDir,
     sidebarGroup: s.sidebarGroup,
     dockOpen: s.dockOpen,
+    panelOpen: s.panelOpen,
   }
 }
 
@@ -106,6 +110,7 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     splitDir: l.splitDir,
     sidebarGroup: l.sidebarGroup,
     dockOpen: l.dockOpen,
+    panelOpen: l.panelOpen,
   }
 }
 

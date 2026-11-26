@@ -118,6 +118,8 @@ export interface AppState extends WorkspaceState {
   paletteOpen: boolean
   /** How the sidebar groups the agents. */
   sidebarGroup: SidebarGroup
+  /** The side panel beside the open agent is shown. */
+  panelOpen: boolean
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
 }
@@ -156,12 +158,13 @@ export interface AppModel {
   openSettings(open: boolean, query?: string): void
   openPalette(open: boolean): void
   setSidebarGroup(g: SidebarGroup): void
+  setPanel(open: boolean): void
   openPairing(open: boolean): void
 }
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, sidebarGroup: 'run', settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -199,7 +202,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   }
   let restored = false
   store.subscribe((s, prev) => {
-    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.dockOpen !== prev.dockOpen)) save()
+    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.panelOpen !== prev.panelOpen || s.dockOpen !== prev.dockOpen)) save()
   })
   const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
@@ -275,6 +278,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
     setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
+    setPanel: (panelOpen) => set({ panelOpen }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false }),
     setTab: (tab) => set({ tab }),
     closeTab: (ref) => set((s) => closeTab(s, ref)),

@@ -50,6 +50,17 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   expect(await idle.innerText()).toContain('repo · group run')
   await page.screenshot({ path: path.join(shots, 'sidebar-status.png') })
 
+  // The side panel shows the open lead's run: its cost (nothing spent by a fake CLI), its place and the host's quota.
+  await nav.getByRole('button', { name: 'Runs', exact: true }).click()
+  await nav.getByRole('button', { name: /repo-lead/ }).click()
+  const side = page.getByRole('complementary', { name: 'Side panel' })
+  await side.getByRole('region', { name: 'Run' }).waitFor()
+  await expect.poll(() => side.getByTestId('cost-total').innerText(), { timeout: 20_000 }).toBe('$0.00')
+  expect(await side.getByRole('region', { name: 'Pull requests' }).innerText()).toContain('None yet')
+  await page.screenshot({ path: path.join(shots, 'side-panel.png') })
+  await page.getByRole('button', { name: 'Hide the side panel' }).click()
+  await side.waitFor({ state: 'detached' })
+
   // Back to runs: the tree again.
   await group.getByRole('button', { name: 'Runs' }).click()
   await nav.getByRole('region', { name: 'group run' }).waitFor()

@@ -1,4 +1,4 @@
-import { QrCode, Search, Settings } from 'lucide-react'
+import { PanelRight, QrCode, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
@@ -9,6 +9,7 @@ import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
 import { Panes } from '@/components/panes'
+import { SidePanel } from '@/components/side-panel'
 import { TabBar } from '@/components/tab-bar'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
@@ -63,11 +64,19 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
             <MainPane host={host} />
             <Dock />
           </main>
+          <PanelSlot host={host} />
           <CommandPalette />
         </>
       )}
     </div>
   )
+}
+
+/** The side panel beside the open agent, when it is shown. */
+function PanelSlot({ host }: { host: HostRuntime }) {
+  const open = useAppState((s) => s.panelOpen)
+  const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
+  return open ? <SidePanel host={host} agentId={agentId} /> : null
 }
 
 function Welcome({ opened, onDone }: { opened?: OpenedLink; onDone: () => void }) {
@@ -127,6 +136,7 @@ function HostHeader({ host }: { host: HostRuntime }) {
   const conn = useHostState(host, (s) => s.conn)
   const open = useAppState((s) => s.settingsOpen)
   const pairOpen = useAppState((s) => s.pairOpen)
+  const panelOpen = useAppState((s) => s.panelOpen)
   // Only the host's own device may pair devices, so only there is the screen offered.
   const mayPair = useHostState(host, () => canPair(host.store))
   return (
@@ -145,6 +155,9 @@ function HostHeader({ host }: { host: HostRuntime }) {
           <QrCode />
         </Button>
       )}
+      <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} title="Cost, pull requests and quota of the open agent's run" onClick={() => app.setPanel(!panelOpen)}>
+        <PanelRight />
+      </Button>
       <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
         <Settings />
       </Button>
