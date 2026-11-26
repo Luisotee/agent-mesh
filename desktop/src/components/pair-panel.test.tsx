@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../../shared/api'
 import { AppContext } from '@/context'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
-import { CreatePairingResponseSchema, ListDevicesResponseSchema } from '@/gen/agentmesh/v1/mesh_pb'
+import { CreatePairingResponseSchema, ListDevicesResponseSchema, TailnetStatusResponseSchema } from '@/gen/agentmesh/v1/mesh_pb'
 import { DeviceSchema, EventSchema } from '@/gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from '@/model'
 import { applyFrame, createHostStore } from '@/store'
@@ -17,13 +17,16 @@ import { qrPath } from './qr-code'
 const device = (id: string, name: string, cls = ActorClass.DEVICE) => create(DeviceSchema, { id, name, class: cls, createdAt: timestampFromMs(1_700_000_000_000) })
 const URI = `agentmesh://pair?v=1&h=h_1&fp=sha256:${'ab'.repeat(32)}&t=amp_one&d=${encodeURIComponent('https://10.0.0.2:9443')}`
 
-function fixture(caps: string[] = ['tls'], actorId = 'device-local') {
+const tailnet = (init: Parameters<typeof create<typeof TailnetStatusResponseSchema>>[1] = {}) => create(TailnetStatusResponseSchema, init)
+
+function fixture(caps: string[] = ['tls'], actorId = 'device-local', status = tailnet()) {
   const store = createHostStore()
   store.setState({ conn: { kind: 'ready', hello: { actor: { id: actorId, name: 'local' }, capabilities: caps, version: 'v' } as never }, daemon: { capabilities: caps } as never, synced: true })
   const client = {
     listDevices: vi.fn(async () => create(ListDevicesResponseSchema, { devices: [device('device-local', 'local'), device('d1', 'Pixel 9')] })),
     createPairing: vi.fn(async (_req: unknown) => create(CreatePairingResponseSchema, { uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) })),
     revokeDevice: vi.fn(async (_req: unknown) => ({})),
+    tailnetStatus: vi.fn(async (_req: unknown) => status),
   }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client } as unknown as HostRuntime
   const model = createAppModel({ hosts: { list: async () => [], fixed: false }, shell: { setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi)
@@ -227,5 +230,64 @@ describe('the QR code', () => {
       }
     }
     expect(jsQR(px, side, side)?.data).toBe(URI)
+  })
+})
+
+describe('the Tailscale section of the pair screen', () => {
+  it('says the node is off when meshd runs without --tailscale, and does not ask again', async () => {
+    const { host, client, wrap } = fixture()
+    render(wrap(<PairPanel host={host} />))
+    const sec = await screen.findByRole('region', { name: 'Tailscale' })
+    expect(sec).toHaveTextContent('--tailscale')
+    expect(within(sec).queryByTestId('tailnet-state')).toBeNull()
+    expect(client.tailnetStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the login link and its QR code while the node needs a login, and opens the link in the browser', async () => {
+    const openExternal = vi.fn()
+    ;(window as unknown as { desktop: unknown }).desktop = { openExternal }
+    const { host, wrap } = fixture(['tls'], 'device-local', tailnet({ enabled: true, state: 'NeedsLogin', authUrl: 'https://login.tailscale.com/a/abc', hostname: 'mesh-home' }))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByTestId('tailnet-state')).toHaveTextContent('Needs login')
+    expect(screen.getByRole('img', { name: 'Tailscale login QR code' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Log in to Tailscale/ }))
+    expect(openExternal).toHaveBeenCalledWith('https://login.tailscale.com/a/abc')
+    // No address to offer yet.
+    expect(screen.queryByRole('button', { name: /in the pairing link/ })).toBeNull()
+  })
+
+  it('never offers a login URL that is not https', async () => {
+    const { host, wrap } = fixture(['tls'], 'device-local', tailnet({ enabled: true, state: 'NeedsLogin', authUrl: 'javascript:alert(1)' }))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByTestId('tailnet-state')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Log in to Tailscale/ })).toBeNull()
+    expect(screen.queryByRole('img', { name: 'Tailscale login QR code' })).toBeNull()
+  })
+
+  it('lists the addresses of a running node and puts the chosen one into the pairing link form', async () => {
+    const { host, client, wrap } = fixture(
+      ['tls'],
+      'device-local',
+      tailnet({ enabled: true, state: 'Running', hostname: 'mesh-home', dnsName: 'mesh-home.tail1234.ts.net.', addresses: ['100.64.0.7', 'fd7a::7'], directUrl: 'https://100.64.0.7:8443', problems: ['health: no DERP'] }),
+    )
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByTestId('tailnet-state')).toHaveTextContent('Connected')
+    expect(screen.getByText('100.64.0.7, fd7a::7')).toBeInTheDocument()
+    expect(screen.getByText('mesh-home.tail1234.ts.net')).toBeInTheDocument()
+    expect(screen.getByRole('alert', { name: 'Tailscale problems' })).toHaveTextContent('no DERP')
+    await userEvent.click(screen.getByRole('button', { name: 'Use https://mesh-home.tail1234.ts.net:8443 in the pairing link' }))
+    expect(screen.getByLabelText('Address the device reaches this host at')).toHaveValue('https://mesh-home.tail1234.ts.net:8443')
+    await userEvent.click(screen.getByRole('button', { name: 'Use https://100.64.0.7:8443 in the pairing link' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    await waitFor(() => expect(client.createPairing).toHaveBeenCalledTimes(1))
+    expect(client.createPairing.mock.calls[0]![0]).toMatchObject({ directUrl: 'https://100.64.0.7:8443' })
+  })
+
+  it('shows why the host refused, without a panel of fake data', async () => {
+    const { host, client, wrap } = fixture()
+    client.tailnetStatus.mockRejectedValue(new Error('[permission_denied] only the host\'s own device may manage paired devices'))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByText(/only the host's own device/)).toBeInTheDocument()
+    expect(screen.queryByTestId('tailnet-state')).toBeNull()
   })
 })

@@ -12,6 +12,7 @@ import type { Device } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { setDevices } from '@/store'
 import { QrCode } from './qr-code'
+import { TailnetPanel } from './tailnet-panel'
 
 const NONE: string[] = []
 
@@ -111,6 +112,8 @@ export function PairPanel({ host }: { host: HostRuntime }) {
         </p>
       </header>
 
+      <TailnetPanel host={host} onUse={setDirectUrl} />
+
       {!made && (
         <form onSubmit={create} className="flex max-w-md flex-col gap-3">
           <Field label="Name of the device" hint="Optional; the device may give its own name.">
@@ -127,7 +130,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
             label="Address the device reaches this host at"
             hint={
               caps.includes('tls')
-                ? 'https://host:port of this host\'s --listen address, if another device reaches it directly (the host\'s own listen address when empty). A relay needs no address.'
+                ? 'https://host:port of this host\'s --listen address, or its tailnet address above, if another device reaches it directly (the host\'s own tailnet or listen address when empty). A relay needs no address.'
                 : 'This host does not listen for other machines (no --listen). With a relay set up the device needs no address.'
             }
           >

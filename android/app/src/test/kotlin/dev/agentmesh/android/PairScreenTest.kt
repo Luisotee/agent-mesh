@@ -62,7 +62,7 @@ class PairScreenTest {
         show(initial = link)
         compose.onNodeWithTag("summary").assertIsDisplayed()
         compose.onNode(hasText("Through your relay: relay.example.com:8443")).assertIsDisplayed()
-        compose.onNode(hasText("Direct: https://100.64.0.1:9443")).assertIsDisplayed()
+        compose.onNode(hasText("Over your tailnet: https://100.64.0.1:9443 (needs the Tailscale app on this phone)")).assertIsDisplayed()
         compose.onNode(hasText("work station", substring = true)).assertIsDisplayed()
         compose.onNodeWithTag("pair").assertIsEnabled()
         assertTrue("nothing was sent before the tap", PairTestApp.calls.isEmpty())

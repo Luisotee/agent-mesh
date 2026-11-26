@@ -29,6 +29,22 @@ sealed interface Route {
     }
 }
 
+/**
+ * True when [url] names a tailnet node: an IPv4 in Tailscale's 100.64.0.0/10, an IPv6 in its fd7a:115c:a1e0::/48, or a
+ * MagicDNS name (`*.ts.net`). A host reached this way is an ordinary pinned [Route.Direct] (the pairing link's `d` is
+ * the node's tailnet address), but only with the Tailscale app running on the phone: the label says so. A literal
+ * address is read, never resolved.
+ */
+fun isTailnetUrl(url: String): Boolean {
+    val host = runCatching { java.net.URI(url.trim()).host }.getOrNull()?.lowercase()?.removePrefix("[")?.removeSuffix("]") ?: return false
+    if (host.endsWith(".ts.net")) return true
+    if (host.startsWith("fd7a:115c:a1e0:")) return true
+    val parts = host.split('.')
+    if (parts.size != 4) return false
+    val n = parts.map { p -> p.takeIf { it.length in 1..3 && it.all(Char::isDigit) }?.toInt()?.takeIf { it in 0..255 } ?: return false }
+    return n[0] == 100 && n[1] in 64..127
+}
+
 /** Fingerprints are compared as lowercase hex without separators, however they were written (`AB:CD`, `abcd`). */
 object Fingerprint {
     /** Also takes the daemon's own spelling, `sha256:<hex>`. */
