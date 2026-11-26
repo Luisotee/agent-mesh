@@ -76,7 +76,7 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 		// Fresh refs, so a branch or a PR's head the user picks is there to start from (a failed fetch is not an error: the
 		// refs last fetched are listed). A read-only device updates nothing: it gets the refs last fetched, and no
 		// pull requests (they come from GitHub).
-		fetch = actor.Class != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
+		fetch = actor.GetClass() != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
 		if fetch {
 			fctx, stop := context.WithTimeout(ctx, 15*time.Second)
 			_, _ = git(fctx, top, "fetch", "--quiet", "origin")
