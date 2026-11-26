@@ -1075,3 +1075,57 @@ func (r Reader) NumberAsks(n int32) ([]*v1.Ask, error) {
 	return scanAll(r, `SELECT data FROM asks WHERE pr_number = ? ORDER BY created_at, id`, []any{n},
 		func() *v1.Ask { return &v1.Ask{} })
 }
+
+// ── peers ──
+
+// PutPeer inserts or replaces a peer.
+func (t *Tx) PutPeer(p *v1.Peer) error {
+	b, err := proto.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO peers (name, group_name, data) VALUES (?, ?, ?)
+		ON CONFLICT (name) DO UPDATE SET group_name = excluded.group_name, data = excluded.data`, p.Name, p.Group, b)
+	return err
+}
+
+// DeletePeer removes a peer.
+func (t *Tx) DeletePeer(name string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM peers WHERE name = ?`, name)
+	return err
+}
+
+// GetPeer returns one peer by name.
+func (r Reader) GetPeer(name string) (*v1.Peer, error) {
+	return scanOne(r, `SELECT data FROM peers WHERE name = ?`, []any{name}, &v1.Peer{})
+}
+
+// ListPeers returns every peer (or a group's), by group and name.
+func (r Reader) ListPeers(group string) ([]*v1.Peer, error) {
+	if group != "" {
+		return scanAll(r, `SELECT data FROM peers WHERE group_name = ? ORDER BY name`, []any{group},
+			func() *v1.Peer { return &v1.Peer{} })
+	}
+	return scanAll(r, `SELECT data FROM peers ORDER BY group_name, name`, nil, func() *v1.Peer { return &v1.Peer{} })
+}
+
+// PutPeerGroup inserts or replaces a peer group.
+func (t *Tx) PutPeerGroup(g *v1.PeerGroup) error {
+	b, err := proto.Marshal(g)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO peer_groups (name, data) VALUES (?, ?)
+		ON CONFLICT (name) DO UPDATE SET data = excluded.data`, g.Name, b)
+	return err
+}
+
+// GetPeerGroup returns one group by name.
+func (r Reader) GetPeerGroup(name string) (*v1.PeerGroup, error) {
+	return scanOne(r, `SELECT data FROM peer_groups WHERE name = ?`, []any{name}, &v1.PeerGroup{})
+}
+
+// ListPeerGroups returns every group by name.
+func (r Reader) ListPeerGroups() ([]*v1.PeerGroup, error) {
+	return scanAll(r, `SELECT data FROM peer_groups ORDER BY name`, nil, func() *v1.PeerGroup { return &v1.PeerGroup{} })
+}

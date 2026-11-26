@@ -240,4 +240,46 @@ public interface AskRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSlugBytes();
+
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @return The peers.
+   */
+  java.lang.String getPeers();
+  /**
+   * <pre>
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   * </pre>
+   *
+   * <code>string peers = 14 [json_name = "peers"];</code>
+   * @return The bytes for peers.
+   */
+  com.google.protobuf.ByteString
+      getPeersBytes();
+
+  /**
+   * <pre>
+   * Ask the peers as they are: don't fetch their upstream or move their checkout.
+   * </pre>
+   *
+   * <code>bool no_refresh = 15 [json_name = "noRefresh"];</code>
+   * @return The noRefresh.
+   */
+  boolean getNoRefresh();
+
+  /**
+   * <pre>
+   * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+   * </pre>
+   *
+   * <code>int32 timeout = 16 [json_name = "timeout"];</code>
+   * @return The timeout.
+   */
+  int getTimeout();
 }

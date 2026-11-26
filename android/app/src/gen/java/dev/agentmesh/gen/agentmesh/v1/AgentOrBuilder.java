@@ -453,4 +453,15 @@ public interface AgentOrBuilder extends
    */
   com.google.protobuf.ByteString
       getResumedFromAgentIdBytes();
+
+  /**
+   * <pre>
+   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+   * peer's conversation, and is never given a change task or have its worktree removed.
+   * </pre>
+   *
+   * <code>bool peer = 30 [json_name = "peer"];</code>
+   * @return The peer.
+   */
+  boolean getPeer();
 }

@@ -164,7 +164,23 @@ Then:
    - **After the last round's fix,** check the fix commits yourself (`git diff <reviewed head>..<new head>`), and the PR is done: no re-review, unless the user asks. If findings you agree with are still open after the last round, give them to the user with your opinion on each rather than starting another round, and don't turn them into a follow-up PR.
 3. **Turning the answer into a change** in that repo: start a `--role worker` there (`mesh spawn`) and put the asker's findings in its task. Or, to keep its context, send the asker or reviewer itself a task that isn't a read-only one: it becomes a worker in the same conversation. A planned task has it plan under the deny list it already has, and your approval (`mesh approve --tier <execution tier>`) reopens it without; a `Direct task (no plan)` reopens it without at once, or resumes a retired one without. Any task that doesn't start with `Question (read-only)` or `Review (read-only)` counts as a change, so start a follow-up question's text with that prefix (or send it as `--type question`). The one exception: an asker or reviewer a *worker* started never becomes a worker (a worker never gets a change worker): to it every task is a read-only follow-up.
 
-**Not on the daemon yet** (see `TODO.md`): standing peers (`mesh peers`, `ask --peers`: when `find-peers` and `harvest-peers` come back they will need them), `mesh cost`, `mesh conflicts`. Do these by hand as above.
+**Not on the daemon yet** (see `TODO.md`): `mesh cost`, `mesh conflicts`. Do these by hand as above.
+
+## Standing peer askers
+
+A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read), **unbriefed**: their old conversations stay bin/mesh's, so the first round on the daemon is a first brief (`TODO.md`: PR 6 carries them across).
+
+```bash
+mesh ask --peers <name>,<group>,… --tier <tier> --body @"$(mesh dir)/tasks/q.md" [--timeout 3600] [--no-refresh]   # or --peers all
+mesh ask --peers <name> --tier mid --body "…"                                                                  # one peer, one question
+```
+
+- **One message, one file:** like a review round, the peers are asked at once and you end your turn; when the last has answered (or the timeout passed: `ask.timeout`, 30 minutes by default, `--timeout` seconds instead) you get **one** `info` `[mesh answers <id>]` with who answered and the path of `reports/peers-<stamp>.md`, which holds the question and every answer. Read the file, not N inboxes.
+- **Their conversation carries over:** each run that asks a peer gets an agent of its own, named as the peer, that resumes the peer's conversation in the peer's own worktree (`<state>/worktrees/peers/<name>`, never removed by `mesh stop-run`). A peer you have not briefed needs a first brief and a stronger `--tier`; later questions are follow-ups on what it remembers.
+- **What changed upstream** is in the task before your question: the daemon fetches the peer's project, moves its checkout to the new head when it is clean and lists the new commits. `--no-refresh` skips that.
+- **A peer that is not asked** says why in the message. One whose agent is running in another run is not asked from this one (one process per conversation): wait for that run's answer or retire the agent there. One still answering an earlier question of this run is asked again after its `done`.
+- **Peers only answer.** A task that isn't a question never makes a peer a worker. A bug a peer finds is checked against our code first (`harvest-peers`) and then fixed as ordinary work by a worker.
+
 
 ## Follow-ups
 

@@ -33,6 +33,7 @@ public  final class Ask extends
     members_ = emptyProtobufList();
     answersPath_ = "";
     verdicts_ = emptyProtobufList();
+    context_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1280,6 +1281,73 @@ public  final class Ask extends
   private void clearStarting() {
 
     starting_ = false;
+  }
+
+  public static final int CONTEXT_FIELD_NUMBER = 24;
+  private java.lang.String context_;
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @return The context.
+   */
+  @java.lang.Override
+  public java.lang.String getContext() {
+    return context_;
+  }
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @return The bytes for context.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getContextBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(context_);
+  }
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @param value The context to set.
+   */
+  private void setContext(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    context_ = value;
+  }
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   */
+  private void clearContext() {
+
+    context_ = getDefaultInstance().getContext();
+  }
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @param value The bytes for context to set.
+   */
+  private void setContextBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    context_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Ask parseFrom(
@@ -2690,6 +2758,75 @@ public  final class Ask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the answers file says before the question: the peers' groups' `about`.
+     * </pre>
+     *
+     * <code>string context = 24 [json_name = "context"];</code>
+     * @return The context.
+     */
+    @java.lang.Override
+    public java.lang.String getContext() {
+      return instance.getContext();
+    }
+    /**
+     * <pre>
+     * What the answers file says before the question: the peers' groups' `about`.
+     * </pre>
+     *
+     * <code>string context = 24 [json_name = "context"];</code>
+     * @return The bytes for context.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getContextBytes() {
+      return instance.getContextBytes();
+    }
+    /**
+     * <pre>
+     * What the answers file says before the question: the peers' groups' `about`.
+     * </pre>
+     *
+     * <code>string context = 24 [json_name = "context"];</code>
+     * @param value The context to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContext(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setContext(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the answers file says before the question: the peers' groups' `about`.
+     * </pre>
+     *
+     * <code>string context = 24 [json_name = "context"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearContext() {
+      copyOnWrite();
+      instance.clearContext();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the answers file says before the question: the peers' groups' `about`.
+     * </pre>
+     *
+     * <code>string context = 24 [json_name = "context"];</code>
+     * @param value The bytes for context to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContextBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setContextBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Ask)
   }
   @java.lang.Override
@@ -2732,12 +2869,14 @@ public  final class Ask extends
             "createdAt_",
             "finishedAt_",
             "starting_",
+            "context_",
           };
           java.lang.String info =
-              "\u0000\u0017\u0000\u0001\u0001\u0017\u0017\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0018\u0000\u0001\u0001\u0018\u0018\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\f\u0006\f\u0007\u0208\b\u0004\t\u0208\n\u0208\u000b" +
               "\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u001b\u0010\u0007\u0011\u0208\u0012\u0004" +
-              "\u0013\u001b\u0014\u1009\u0000\u0015\u1009\u0001\u0016\u1009\u0002\u0017\u0007";
+              "\u0013\u001b\u0014\u1009\u0000\u0015\u1009\u0001\u0016\u1009\u0002\u0017\u0007\u0018" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

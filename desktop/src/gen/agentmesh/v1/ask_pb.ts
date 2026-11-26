@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/ask.proto.
  */
 export const file_agentmesh_v1_ask: GenFile = /*@__PURE__*/
-  fileDesc("ChZhZ2VudG1lc2gvdjEvYXNrLnByb3RvEgxhZ2VudG1lc2gudjEiygEKCUFza01lbWJlchIQCghhZ2VudF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSCwoDaG93GAQgASgJEi0KBnN0YXR1cxgFIAEoDjIdLmFnZW50bWVzaC52MS5Bc2tNZW1iZXJTdGF0dXMSDAoEbGluZRgGIAEoCRIMCgR0ZXh0GAcgASgJEgwKBHR5cGUYCCABKAkSDQoFbW9kZWwYCSABKAkSDAoEdGllchgKIAEoCRIMCgRoZWFkGAsgASgJIrABCgdWZXJkaWN0EhAKCHJldmlld2VyGAEgASgJEgwKBGtpbmQYAiABKAkSDQoFbW9kZWwYAyABKAkSDAoEdGllchgEIAEoCRINCgVhZ3JlZRgFIAEoBRINCgVvdGhlchgGIAEoBRIQCghkaXNhZ3JlZRgHIAEoBRIQCghibG9ja2luZxgIIAEoBRImCgJhdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAitwQKA0FzaxIKCgJpZBgBIAEoCRIOCgZydW5faWQYAiABKAkSEQoJY2FsbGVyX2lkGAMgASgJEhMKC2NhbGxlcl9uYW1lGAQgASgJEiMKBGtpbmQYBSABKA4yFS5hZ2VudG1lc2gudjEuQXNrS2luZBInCgZzdGF0dXMYBiABKA4yFy5hZ2VudG1lc2gudjEuQXNrU3RhdHVzEgoKAnByGAcgASgJEhEKCXByX251bWJlchgIIAEoBRIMCgRyZXBvGAkgASgJEgwKBGhlYWQYCiABKAkSDQoFc2luY2UYCyABKAkSDAoEc2l6ZRgMIAEoCRIMCgR0aWVyGA0gASgJEgwKBGJvZHkYDiABKAkSKAoHbWVtYmVycxgPIAMoCzIXLmFnZW50bWVzaC52MS5Bc2tNZW1iZXISEQoJY29sbGVjdGVkGBAgASgIEhQKDGFuc3dlcnNfcGF0aBgRIAEoCRINCgVyb3VuZBgSIAEoBRInCgh2ZXJkaWN0cxgTIAMoCzIVLmFnZW50bWVzaC52MS5WZXJkaWN0EiwKCGRlYWRsaW5lGBQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjcmVhdGVkX2F0GBUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgWIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIc3RhcnRpbmcYFyABKAgi6QEKCkFza1JlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIMCgRyZXBvGAMgASgJEgwKBGJvZHkYBCABKAkSDgoGcmV2aWV3GAUgASgJEgwKBHNpemUYBiABKAkSDAoEdGllchgHIAEoCRIMCgRraW5kGAggASgJEg0KBW1vZGVsGAkgASgJEg4KBmVmZm9ydBgKIAEoCRIRCglyZXZpZXdlcnMYCyABKAkSDQoFc2luY2UYDCABKAkSDAoEc2x1ZxgNIAEoCSKXAQoLQXNrUmVzcG9uc2USHgoDYXNrGAEgASgLMhEuYWdlbnRtZXNoLnYxLkFzaxIjCgZhZ2VudHMYAiADKAsyEy5hZ2VudG1lc2gudjEuQWdlbnQSDQoFbm90ZXMYAyADKAkSDAoEaGludBgEIAEoCRImCgdtZXNzYWdlGAUgASgLMhUuYWdlbnRtZXNoLnYxLk1lc3NhZ2UinwEKFFJlY29yZFZlcmRpY3RSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESCgoCcHIYAiABKAkSEAoIcmV2aWV3ZXIYAyABKAkSDQoFYWdyZWUYBCABKAUSDQoFb3RoZXIYBSABKAUSEAoIZGlzYWdyZWUYBiABKAUSEAoIYmxvY2tpbmcYByABKAUiXwoVUmVjb3JkVmVyZGljdFJlc3BvbnNlEh4KA2FzaxgBIAEoCzIRLmFnZW50bWVzaC52MS5Bc2sSJgoHdmVyZGljdBgCIAEoCzIVLmFnZW50bWVzaC52MS5WZXJkaWN0IkAKD0xpc3RBc2tzUmVxdWVzdBIOCgZydW5faWQYASABKAkSCgoCcHIYAiABKAkSEQoJb3Blbl9vbmx5GAMgASgIIjMKEExpc3RBc2tzUmVzcG9uc2USHwoEYXNrcxgBIAMoCzIRLmFnZW50bWVzaC52MS5Bc2sqTwoHQXNrS2luZBIYChRBU0tfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFTS19LSU5EX1FVRVNUSU9OEAESEwoPQVNLX0tJTkRfUkVWSUVXEAIqVQoJQXNrU3RhdHVzEhoKFkFTS19TVEFUVVNfVU5TUEVDSUZJRUQQABITCg9BU0tfU1RBVFVTX09QRU4QARIXChNBU0tfU1RBVFVTX0ZJTklTSEVEEAIqswEKD0Fza01lbWJlclN0YXR1cxIhCh1BU0tfTUVNQkVSX1NUQVRVU19VTlNQRUNJRklFRBAAEh0KGUFTS19NRU1CRVJfU1RBVFVTX1BFTkRJTkcQARIeChpBU0tfTUVNQkVSX1NUQVRVU19BTlNXRVJFRBACEh0KGUFTS19NRU1CRVJfU1RBVFVTX1NFVFRMRUQQAxIfChtBU0tfTUVNQkVSX1NUQVRVU19OT1RfQVNLRUQQBGIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChZhZ2VudG1lc2gvdjEvYXNrLnByb3RvEgxhZ2VudG1lc2gudjEiggIKCUFza01lbWJlchIQCghhZ2VudF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSCwoDaG93GAQgASgJEi0KBnN0YXR1cxgFIAEoDjIdLmFnZW50bWVzaC52MS5Bc2tNZW1iZXJTdGF0dXMSDAoEbGluZRgGIAEoCRIMCgR0ZXh0GAcgASgJEgwKBHR5cGUYCCABKAkSDQoFbW9kZWwYCSABKAkSDAoEdGllchgKIAEoCRIMCgRoZWFkGAsgASgJEhEKCXBlZXJfcmVwbxgMIAEoCRIUCgx1cHN0cmVhbV9uZXcYDSABKAUSDQoFYWJvdXQYDiABKAkisAEKB1ZlcmRpY3QSEAoIcmV2aWV3ZXIYASABKAkSDAoEa2luZBgCIAEoCRINCgVtb2RlbBgDIAEoCRIMCgR0aWVyGAQgASgJEg0KBWFncmVlGAUgASgFEg0KBW90aGVyGAYgASgFEhAKCGRpc2FncmVlGAcgASgFEhAKCGJsb2NraW5nGAggASgFEiYKAmF0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLIBAoDQXNrEgoKAmlkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIRCgljYWxsZXJfaWQYAyABKAkSEwoLY2FsbGVyX25hbWUYBCABKAkSIwoEa2luZBgFIAEoDjIVLmFnZW50bWVzaC52MS5Bc2tLaW5kEicKBnN0YXR1cxgGIAEoDjIXLmFnZW50bWVzaC52MS5Bc2tTdGF0dXMSCgoCcHIYByABKAkSEQoJcHJfbnVtYmVyGAggASgFEgwKBHJlcG8YCSABKAkSDAoEaGVhZBgKIAEoCRINCgVzaW5jZRgLIAEoCRIMCgRzaXplGAwgASgJEgwKBHRpZXIYDSABKAkSDAoEYm9keRgOIAEoCRIoCgdtZW1iZXJzGA8gAygLMhcuYWdlbnRtZXNoLnYxLkFza01lbWJlchIRCgljb2xsZWN0ZWQYECABKAgSFAoMYW5zd2Vyc19wYXRoGBEgASgJEg0KBXJvdW5kGBIgASgFEicKCHZlcmRpY3RzGBMgAygLMhUuYWdlbnRtZXNoLnYxLlZlcmRpY3QSLAoIZGVhZGxpbmUYFCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GBYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghzdGFydGluZxgXIAEoCBIPCgdjb250ZXh0GBggASgJIp0CCgpBc2tSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkSDAoEcmVwbxgDIAEoCRIMCgRib2R5GAQgASgJEg4KBnJldmlldxgFIAEoCRIMCgRzaXplGAYgASgJEgwKBHRpZXIYByABKAkSDAoEa2luZBgIIAEoCRINCgVtb2RlbBgJIAEoCRIOCgZlZmZvcnQYCiABKAkSEQoJcmV2aWV3ZXJzGAsgASgJEg0KBXNpbmNlGAwgASgJEgwKBHNsdWcYDSABKAkSDQoFcGVlcnMYDiABKAkSEgoKbm9fcmVmcmVzaBgPIAEoCBIPCgd0aW1lb3V0GBAgASgFIpcBCgtBc2tSZXNwb25zZRIeCgNhc2sYASABKAsyES5hZ2VudG1lc2gudjEuQXNrEiMKBmFnZW50cxgCIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudBINCgVub3RlcxgDIAMoCRIMCgRoaW50GAQgASgJEiYKB21lc3NhZ2UYBSABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSKfAQoUUmVjb3JkVmVyZGljdFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIKCgJwchgCIAEoCRIQCghyZXZpZXdlchgDIAEoCRINCgVhZ3JlZRgEIAEoBRINCgVvdGhlchgFIAEoBRIQCghkaXNhZ3JlZRgGIAEoBRIQCghibG9ja2luZxgHIAEoBSJfChVSZWNvcmRWZXJkaWN0UmVzcG9uc2USHgoDYXNrGAEgASgLMhEuYWdlbnRtZXNoLnYxLkFzaxImCgd2ZXJkaWN0GAIgASgLMhUuYWdlbnRtZXNoLnYxLlZlcmRpY3QiQAoPTGlzdEFza3NSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIKCgJwchgCIAEoCRIRCglvcGVuX29ubHkYAyABKAgiMwoQTGlzdEFza3NSZXNwb25zZRIfCgRhc2tzGAEgAygLMhEuYWdlbnRtZXNoLnYxLkFzayI7CgxQZWVyVXBzdHJlYW0SDgoGcmVtb3RlGAEgASgJEg4KBmJyYW5jaBgCIAEoCRILCgN1cmwYAyABKAki/gIKBFBlZXISDAoEbmFtZRgBIAEoCRIMCgRyZXBvGAIgASgJEg0KBWdyb3VwGAMgASgJEgwKBGtpbmQYBCABKAkSDQoFYWJvdXQYBSABKAkSLAoIdXBzdHJlYW0YBiABKAsyGi5hZ2VudG1lc2gudjEuUGVlclVwc3RyZWFtEhAKCHdvcmt0cmVlGAcgASgJEgwKBHNlZW4YCCABKAkSEgoKc2Vzc2lvbl9pZBgJIAEoCRIpCgVhZGRlZBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKQoFYXNrZWQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCGxhc3RfcnVuGAwgASgJEhIKCmxhc3RfYWdlbnQYDSABKAkSFAoMbGFzdF9hbnN3ZXJzGA4gASgJEhMKC3J1bm5pbmdfcnVuGA8gASgJEhUKDXJ1bm5pbmdfYWdlbnQYECABKAkSDgoGY2xvbmVkGBEgASgIIigKCVBlZXJHcm91cBIMCgRuYW1lGAEgASgJEg0KBWFib3V0GAIgASgJIiEKEExpc3RQZWVyc1JlcXVlc3QSDQoFZ3JvdXAYASABKAkiXwoRTGlzdFBlZXJzUmVzcG9uc2USIQoFcGVlcnMYASADKAsyEi5hZ2VudG1lc2gudjEuUGVlchInCgZncm91cHMYAiADKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwIoMBCg5BZGRQZWVyUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg4KBnNvdXJjZRgCIAEoCRINCgVncm91cBgDIAEoCRINCgVhYm91dBgEIAEoCRIMCgRuYW1lGAUgASgJEgwKBGtpbmQYBiABKAkiMwoPQWRkUGVlclJlc3BvbnNlEiAKBHBlZXIYASABKAsyEi5hZ2VudG1lc2gudjEuUGVlciJZCg9FZGl0UGVlclJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIOCgZ0YXJnZXQYAiABKAkSDQoFYWJvdXQYAyABKAkiXAoQRWRpdFBlZXJSZXNwb25zZRIgCgRwZWVyGAEgASgLMhIuYWdlbnRtZXNoLnYxLlBlZXISJgoFZ3JvdXAYAiABKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwImAKEVJlbW92ZVBlZXJSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEbmFtZRgCIAEoCRIUCgxkZWxldGVfY2xvbmUYAyABKAgiPQoSUmVtb3ZlUGVlclJlc3BvbnNlEhAKCHdvcmt0cmVlGAEgASgJEhUKDWRlbGV0ZWRfY2xvbmUYAiABKAkiSwoSSW1wb3J0UGVlcnNSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEZnJvbRgCIAEoCSI4ChNJbXBvcnRQZWVyc1Jlc3BvbnNlEhAKCGltcG9ydGVkGAEgAygJEg8KB3NraXBwZWQYAiADKAkqYwoHQXNrS2luZBIYChRBU0tfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFTS19LSU5EX1FVRVNUSU9OEAESEwoPQVNLX0tJTkRfUkVWSUVXEAISEgoOQVNLX0tJTkRfUEVFUlMQAypVCglBc2tTdGF0dXMSGgoWQVNLX1NUQVRVU19VTlNQRUNJRklFRBAAEhMKD0FTS19TVEFUVVNfT1BFThABEhcKE0FTS19TVEFUVVNfRklOSVNIRUQQAiqzAQoPQXNrTWVtYmVyU3RhdHVzEiEKHUFTS19NRU1CRVJfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHQoZQVNLX01FTUJFUl9TVEFUVVNfUEVORElORxABEh4KGkFTS19NRU1CRVJfU1RBVFVTX0FOU1dFUkVEEAISHQoZQVNLX01FTUJFUl9TVEFUVVNfU0VUVExFRBADEh8KG0FTS19NRU1CRVJfU1RBVFVTX05PVF9BU0tFRBAEYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * AskMember is one agent an ask is waiting on.
@@ -84,11 +84,28 @@ export type AskMember = Message<"agentmesh.v1.AskMember"> & {
   tier: string;
 
   /**
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    *
    * @generated from field: string head = 11;
    */
   head: string;
+
+  /**
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   *
+   * @generated from field: string peer_repo = 12;
+   */
+  peerRepo: string;
+
+  /**
+   * @generated from field: int32 upstream_new = 13;
+   */
+  upstreamNew: number;
+
+  /**
+   * @generated from field: string about = 14;
+   */
+  about: string;
 };
 
 /**
@@ -301,6 +318,13 @@ export type Ask = Message<"agentmesh.v1.Ask"> & {
    * @generated from field: bool starting = 23;
    */
   starting: boolean;
+
+  /**
+   * What the answers file says before the question: the peers' groups' `about`.
+   *
+   * @generated from field: string context = 24;
+   */
+  context: string;
 };
 
 /**
@@ -398,6 +422,28 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
    * @generated from field: string slug = 13;
    */
   slug: string;
+
+  /**
+   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
+   * and `body`; collected into one answers file.
+   *
+   * @generated from field: string peers = 14;
+   */
+  peers: string;
+
+  /**
+   * Ask the peers as they are: don't fetch their upstream or move their checkout.
+   *
+   * @generated from field: bool no_refresh = 15;
+   */
+  noRefresh: boolean;
+
+  /**
+   * Seconds a collected ask waits for its members, instead of `ask.timeout`.
+   *
+   * @generated from field: int32 timeout = 16;
+   */
+  timeout: number;
 };
 
 /**
@@ -576,6 +622,435 @@ export const ListAsksResponseSchema: GenMessage<ListAsksResponse> = /*@__PURE__*
   messageDesc(file_agentmesh_v1_ask, 8);
 
 /**
+ * PeerUpstream is where a peer's project lives on the network.
+ *
+ * @generated from message agentmesh.v1.PeerUpstream
+ */
+export type PeerUpstream = Message<"agentmesh.v1.PeerUpstream"> & {
+  /**
+   * @generated from field: string remote = 1;
+   */
+  remote: string;
+
+  /**
+   * @generated from field: string branch = 2;
+   */
+  branch: string;
+
+  /**
+   * @generated from field: string url = 3;
+   */
+  url: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.PeerUpstream.
+ * Use `create(PeerUpstreamSchema)` to create a new message.
+ */
+export const PeerUpstreamSchema: GenMessage<PeerUpstream> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 9);
+
+/**
+ * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
+ * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+ *
+ * @generated from message agentmesh.v1.Peer
+ */
+export type Peer = Message<"agentmesh.v1.Peer"> & {
+  /**
+   * `<repo>-research` (the repo part cut to 20 characters), unique on the host.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * The clone.
+   *
+   * @generated from field: string repo = 2;
+   */
+  repo: string;
+
+  /**
+   * @generated from field: string group = 3;
+   */
+  group: string;
+
+  /**
+   * The CLI it runs on.
+   *
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+
+  /**
+   * What it is and what to ask it, at most 400 characters.
+   *
+   * @generated from field: string about = 5;
+   */
+  about: string;
+
+  /**
+   * @generated from field: agentmesh.v1.PeerUpstream upstream = 6;
+   */
+  upstream?: PeerUpstream | undefined;
+
+  /**
+   * Its own detached worktree of the clone, where its agent works; never removed by StopRun.
+   *
+   * @generated from field: string worktree = 7;
+   */
+  worktree: string;
+
+  /**
+   * The commit it last looked at.
+   *
+   * @generated from field: string seen = 8;
+   */
+  seen: string;
+
+  /**
+   * Its conversation, once it has been asked; empty means never briefed.
+   *
+   * @generated from field: string session_id = 9;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp added = 10;
+   */
+  added?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp asked = 11;
+   */
+  asked?: Timestamp | undefined;
+
+  /**
+   * The run and agent that last asked it, and the answers file of the last `ask --peers` it answered.
+   *
+   * @generated from field: string last_run = 12;
+   */
+  lastRun: string;
+
+  /**
+   * @generated from field: string last_agent = 13;
+   */
+  lastAgent: string;
+
+  /**
+   * @generated from field: string last_answers = 14;
+   */
+  lastAnswers: string;
+
+  /**
+   * The run and agent that hold its conversation running now; empty when none does.
+   *
+   * @generated from field: string running_run = 15;
+   */
+  runningRun: string;
+
+  /**
+   * @generated from field: string running_agent = 16;
+   */
+  runningAgent: string;
+
+  /**
+   * The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+   *
+   * @generated from field: bool cloned = 17;
+   */
+  cloned: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.Peer.
+ * Use `create(PeerSchema)` to create a new message.
+ */
+export const PeerSchema: GenMessage<Peer> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 10);
+
+/**
+ * @generated from message agentmesh.v1.PeerGroup
+ */
+export type PeerGroup = Message<"agentmesh.v1.PeerGroup"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string about = 2;
+   */
+  about: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.PeerGroup.
+ * Use `create(PeerGroupSchema)` to create a new message.
+ */
+export const PeerGroupSchema: GenMessage<PeerGroup> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 11);
+
+/**
+ * @generated from message agentmesh.v1.ListPeersRequest
+ */
+export type ListPeersRequest = Message<"agentmesh.v1.ListPeersRequest"> & {
+  /**
+   * Only the peers of this group.
+   *
+   * @generated from field: string group = 1;
+   */
+  group: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListPeersRequest.
+ * Use `create(ListPeersRequestSchema)` to create a new message.
+ */
+export const ListPeersRequestSchema: GenMessage<ListPeersRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 12);
+
+/**
+ * @generated from message agentmesh.v1.ListPeersResponse
+ */
+export type ListPeersResponse = Message<"agentmesh.v1.ListPeersResponse"> & {
+  /**
+   * @generated from field: repeated agentmesh.v1.Peer peers = 1;
+   */
+  peers: Peer[];
+
+  /**
+   * @generated from field: repeated agentmesh.v1.PeerGroup groups = 2;
+   */
+  groups: PeerGroup[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListPeersResponse.
+ * Use `create(ListPeersResponseSchema)` to create a new message.
+ */
+export const ListPeersResponseSchema: GenMessage<ListPeersResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 13);
+
+/**
+ * @generated from message agentmesh.v1.AddPeerRequest
+ */
+export type AddPeerRequest = Message<"agentmesh.v1.AddPeerRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * A git URL (cloned into `peers.dir`/<group>/<repo>) or the path of a clone that exists.
+   *
+   * @generated from field: string source = 2;
+   */
+  source: string;
+
+  /**
+   * @generated from field: string group = 3;
+   */
+  group: string;
+
+  /**
+   * @generated from field: string about = 4;
+   */
+  about: string;
+
+  /**
+   * Default `<repo>-research`.
+   *
+   * @generated from field: string name = 5;
+   */
+  name: string;
+
+  /**
+   * The CLI its asker runs on (default claude).
+   *
+   * @generated from field: string kind = 6;
+   */
+  kind: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AddPeerRequest.
+ * Use `create(AddPeerRequestSchema)` to create a new message.
+ */
+export const AddPeerRequestSchema: GenMessage<AddPeerRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 14);
+
+/**
+ * @generated from message agentmesh.v1.AddPeerResponse
+ */
+export type AddPeerResponse = Message<"agentmesh.v1.AddPeerResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Peer peer = 1;
+   */
+  peer?: Peer | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.AddPeerResponse.
+ * Use `create(AddPeerResponseSchema)` to create a new message.
+ */
+export const AddPeerResponseSchema: GenMessage<AddPeerResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 15);
+
+/**
+ * @generated from message agentmesh.v1.EditPeerRequest
+ */
+export type EditPeerRequest = Message<"agentmesh.v1.EditPeerRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * A peer's name or a group's: the `about` of that one is replaced.
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * @generated from field: string about = 3;
+   */
+  about: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.EditPeerRequest.
+ * Use `create(EditPeerRequestSchema)` to create a new message.
+ */
+export const EditPeerRequestSchema: GenMessage<EditPeerRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 16);
+
+/**
+ * @generated from message agentmesh.v1.EditPeerResponse
+ */
+export type EditPeerResponse = Message<"agentmesh.v1.EditPeerResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.Peer peer = 1;
+   */
+  peer?: Peer | undefined;
+
+  /**
+   * @generated from field: agentmesh.v1.PeerGroup group = 2;
+   */
+  group?: PeerGroup | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.EditPeerResponse.
+ * Use `create(EditPeerResponseSchema)` to create a new message.
+ */
+export const EditPeerResponseSchema: GenMessage<EditPeerResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 17);
+
+/**
+ * @generated from message agentmesh.v1.RemovePeerRequest
+ */
+export type RemovePeerRequest = Message<"agentmesh.v1.RemovePeerRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Also delete the clone, when the daemon cloned it.
+   *
+   * @generated from field: bool delete_clone = 3;
+   */
+  deleteClone: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.RemovePeerRequest.
+ * Use `create(RemovePeerRequestSchema)` to create a new message.
+ */
+export const RemovePeerRequestSchema: GenMessage<RemovePeerRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 18);
+
+/**
+ * @generated from message agentmesh.v1.RemovePeerResponse
+ */
+export type RemovePeerResponse = Message<"agentmesh.v1.RemovePeerResponse"> & {
+  /**
+   * @generated from field: string worktree = 1;
+   */
+  worktree: string;
+
+  /**
+   * The clone that was deleted (`delete_clone`), else empty.
+   *
+   * @generated from field: string deleted_clone = 2;
+   */
+  deletedClone: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RemovePeerResponse.
+ * Use `create(RemovePeerResponseSchema)` to create a new message.
+ */
+export const RemovePeerResponseSchema: GenMessage<RemovePeerResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 19);
+
+/**
+ * @generated from message agentmesh.v1.ImportPeersRequest
+ */
+export type ImportPeersRequest = Message<"agentmesh.v1.ImportPeersRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
+   *
+   * @generated from field: string from = 2;
+   */
+  from: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ImportPeersRequest.
+ * Use `create(ImportPeersRequestSchema)` to create a new message.
+ */
+export const ImportPeersRequestSchema: GenMessage<ImportPeersRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 20);
+
+/**
+ * @generated from message agentmesh.v1.ImportPeersResponse
+ */
+export type ImportPeersResponse = Message<"agentmesh.v1.ImportPeersResponse"> & {
+  /**
+   * @generated from field: repeated string imported = 1;
+   */
+  imported: string[];
+
+  /**
+   * Peers and groups left alone, with why.
+   *
+   * @generated from field: repeated string skipped = 2;
+   */
+  skipped: string[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ImportPeersResponse.
+ * Use `create(ImportPeersResponseSchema)` to create a new message.
+ */
+export const ImportPeersResponseSchema: GenMessage<ImportPeersResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_ask, 21);
+
+/**
  * @generated from enum agentmesh.v1.AskKind
  */
 export enum AskKind {
@@ -597,6 +1072,13 @@ export enum AskKind {
    * @generated from enum value: ASK_KIND_REVIEW = 2;
    */
   REVIEW = 2,
+
+  /**
+   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   *
+   * @generated from enum value: ASK_KIND_PEERS = 3;
+   */
+  PEERS = 3,
 }
 
 /**

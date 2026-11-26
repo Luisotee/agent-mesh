@@ -102,6 +102,16 @@ const (
 	MeshServiceRecordVerdictProcedure = "/agentmesh.v1.MeshService/RecordVerdict"
 	// MeshServiceListAsksProcedure is the fully-qualified name of the MeshService's ListAsks RPC.
 	MeshServiceListAsksProcedure = "/agentmesh.v1.MeshService/ListAsks"
+	// MeshServiceListPeersProcedure is the fully-qualified name of the MeshService's ListPeers RPC.
+	MeshServiceListPeersProcedure = "/agentmesh.v1.MeshService/ListPeers"
+	// MeshServiceAddPeerProcedure is the fully-qualified name of the MeshService's AddPeer RPC.
+	MeshServiceAddPeerProcedure = "/agentmesh.v1.MeshService/AddPeer"
+	// MeshServiceEditPeerProcedure is the fully-qualified name of the MeshService's EditPeer RPC.
+	MeshServiceEditPeerProcedure = "/agentmesh.v1.MeshService/EditPeer"
+	// MeshServiceRemovePeerProcedure is the fully-qualified name of the MeshService's RemovePeer RPC.
+	MeshServiceRemovePeerProcedure = "/agentmesh.v1.MeshService/RemovePeer"
+	// MeshServiceImportPeersProcedure is the fully-qualified name of the MeshService's ImportPeers RPC.
+	MeshServiceImportPeersProcedure = "/agentmesh.v1.MeshService/ImportPeers"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -177,6 +187,16 @@ type MeshServiceClient interface {
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
+	// The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+	ListPeers(context.Context, *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error)
+	// Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
+	AddPeer(context.Context, *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error)
+	// Change what a peer, or a group of peers, is said to be for.
+	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
+	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
+	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
+	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
+	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -370,6 +390,36 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ListAsks")),
 			connect.WithClientOptions(opts...),
 		),
+		listPeers: connect.NewClient[v1.ListPeersRequest, v1.ListPeersResponse](
+			httpClient,
+			baseURL+MeshServiceListPeersProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListPeers")),
+			connect.WithClientOptions(opts...),
+		),
+		addPeer: connect.NewClient[v1.AddPeerRequest, v1.AddPeerResponse](
+			httpClient,
+			baseURL+MeshServiceAddPeerProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("AddPeer")),
+			connect.WithClientOptions(opts...),
+		),
+		editPeer: connect.NewClient[v1.EditPeerRequest, v1.EditPeerResponse](
+			httpClient,
+			baseURL+MeshServiceEditPeerProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("EditPeer")),
+			connect.WithClientOptions(opts...),
+		),
+		removePeer: connect.NewClient[v1.RemovePeerRequest, v1.RemovePeerResponse](
+			httpClient,
+			baseURL+MeshServiceRemovePeerProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RemovePeer")),
+			connect.WithClientOptions(opts...),
+		),
+		importPeers: connect.NewClient[v1.ImportPeersRequest, v1.ImportPeersResponse](
+			httpClient,
+			baseURL+MeshServiceImportPeersProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ImportPeers")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -405,6 +455,11 @@ type meshServiceClient struct {
 	ask             *connect.Client[v1.AskRequest, v1.AskResponse]
 	recordVerdict   *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
 	listAsks        *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
+	listPeers       *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
+	addPeer         *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
+	editPeer        *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
+	removePeer      *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
+	importPeers     *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -557,6 +612,31 @@ func (c *meshServiceClient) ListAsks(ctx context.Context, req *connect.Request[v
 	return c.listAsks.CallUnary(ctx, req)
 }
 
+// ListPeers calls agentmesh.v1.MeshService.ListPeers.
+func (c *meshServiceClient) ListPeers(ctx context.Context, req *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error) {
+	return c.listPeers.CallUnary(ctx, req)
+}
+
+// AddPeer calls agentmesh.v1.MeshService.AddPeer.
+func (c *meshServiceClient) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error) {
+	return c.addPeer.CallUnary(ctx, req)
+}
+
+// EditPeer calls agentmesh.v1.MeshService.EditPeer.
+func (c *meshServiceClient) EditPeer(ctx context.Context, req *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error) {
+	return c.editPeer.CallUnary(ctx, req)
+}
+
+// RemovePeer calls agentmesh.v1.MeshService.RemovePeer.
+func (c *meshServiceClient) RemovePeer(ctx context.Context, req *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error) {
+	return c.removePeer.CallUnary(ctx, req)
+}
+
+// ImportPeers calls agentmesh.v1.MeshService.ImportPeers.
+func (c *meshServiceClient) ImportPeers(ctx context.Context, req *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error) {
+	return c.importPeers.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -630,6 +710,16 @@ type MeshServiceHandler interface {
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
+	// The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+	ListPeers(context.Context, *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error)
+	// Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
+	AddPeer(context.Context, *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error)
+	// Change what a peer, or a group of peers, is said to be for.
+	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
+	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
+	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
+	// Register the peers of bin/mesh's peers.json (read only), without their conversations.
+	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -819,6 +909,36 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ListAsks")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListPeersHandler := connect.NewUnaryHandler(
+		MeshServiceListPeersProcedure,
+		svc.ListPeers,
+		connect.WithSchema(meshServiceMethods.ByName("ListPeers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceAddPeerHandler := connect.NewUnaryHandler(
+		MeshServiceAddPeerProcedure,
+		svc.AddPeer,
+		connect.WithSchema(meshServiceMethods.ByName("AddPeer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceEditPeerHandler := connect.NewUnaryHandler(
+		MeshServiceEditPeerProcedure,
+		svc.EditPeer,
+		connect.WithSchema(meshServiceMethods.ByName("EditPeer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRemovePeerHandler := connect.NewUnaryHandler(
+		MeshServiceRemovePeerProcedure,
+		svc.RemovePeer,
+		connect.WithSchema(meshServiceMethods.ByName("RemovePeer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceImportPeersHandler := connect.NewUnaryHandler(
+		MeshServiceImportPeersProcedure,
+		svc.ImportPeers,
+		connect.WithSchema(meshServiceMethods.ByName("ImportPeers")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -881,6 +1001,16 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceRecordVerdictHandler.ServeHTTP(w, r)
 		case MeshServiceListAsksProcedure:
 			meshServiceListAsksHandler.ServeHTTP(w, r)
+		case MeshServiceListPeersProcedure:
+			meshServiceListPeersHandler.ServeHTTP(w, r)
+		case MeshServiceAddPeerProcedure:
+			meshServiceAddPeerHandler.ServeHTTP(w, r)
+		case MeshServiceEditPeerProcedure:
+			meshServiceEditPeerHandler.ServeHTTP(w, r)
+		case MeshServiceRemovePeerProcedure:
+			meshServiceRemovePeerHandler.ServeHTTP(w, r)
+		case MeshServiceImportPeersProcedure:
+			meshServiceImportPeersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1008,4 +1138,24 @@ func (UnimplementedMeshServiceHandler) RecordVerdict(context.Context, *connect.R
 
 func (UnimplementedMeshServiceHandler) ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListAsks is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListPeers(context.Context, *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPeers is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) AddPeer(context.Context, *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AddPeer is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.EditPeer is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RemovePeer is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ImportPeers is not implemented"))
 }

@@ -29,6 +29,8 @@ public  final class AskMember extends
     model_ = "";
     tier_ = "";
     head_ = "";
+    peerRepo_ = "";
+    about_ = "";
   }
   public static final int AGENT_ID_FIELD_NUMBER = 1;
   private java.lang.String agentId_;
@@ -605,7 +607,7 @@ public  final class AskMember extends
   private java.lang.String head_;
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -617,7 +619,7 @@ public  final class AskMember extends
   }
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -630,7 +632,7 @@ public  final class AskMember extends
   }
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -644,7 +646,7 @@ public  final class AskMember extends
   }
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -655,7 +657,7 @@ public  final class AskMember extends
   }
   /**
    * <pre>
-   * The commit this agent reviewed at (a review).
+   * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
    * </pre>
    *
    * <code>string head = 11 [json_name = "head"];</code>
@@ -665,6 +667,146 @@ public  final class AskMember extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     head_ = value.toStringUtf8();
+
+  }
+
+  public static final int PEER_REPO_FIELD_NUMBER = 12;
+  private java.lang.String peerRepo_;
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @return The peerRepo.
+   */
+  @java.lang.Override
+  public java.lang.String getPeerRepo() {
+    return peerRepo_;
+  }
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @return The bytes for peerRepo.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPeerRepoBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(peerRepo_);
+  }
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @param value The peerRepo to set.
+   */
+  private void setPeerRepo(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    peerRepo_ = value;
+  }
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   */
+  private void clearPeerRepo() {
+
+    peerRepo_ = getDefaultInstance().getPeerRepo();
+  }
+  /**
+   * <pre>
+   * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+   * </pre>
+   *
+   * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+   * @param value The bytes for peerRepo to set.
+   */
+  private void setPeerRepoBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    peerRepo_ = value.toStringUtf8();
+
+  }
+
+  public static final int UPSTREAM_NEW_FIELD_NUMBER = 13;
+  private int upstreamNew_;
+  /**
+   * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+   * @return The upstreamNew.
+   */
+  @java.lang.Override
+  public int getUpstreamNew() {
+    return upstreamNew_;
+  }
+  /**
+   * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+   * @param value The upstreamNew to set.
+   */
+  private void setUpstreamNew(int value) {
+    
+    upstreamNew_ = value;
+  }
+  /**
+   * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+   */
+  private void clearUpstreamNew() {
+
+    upstreamNew_ = 0;
+  }
+
+  public static final int ABOUT_FIELD_NUMBER = 14;
+  private java.lang.String about_;
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @return The about.
+   */
+  @java.lang.Override
+  public java.lang.String getAbout() {
+    return about_;
+  }
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(about_);
+  }
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @param value The about to set.
+   */
+  private void setAbout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    about_ = value;
+  }
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   */
+  private void clearAbout() {
+
+    about_ = getDefaultInstance().getAbout();
+  }
+  /**
+   * <code>string about = 14 [json_name = "about"];</code>
+   * @param value The bytes for about to set.
+   */
+  private void setAboutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    about_ = value.toStringUtf8();
 
   }
 
@@ -1364,7 +1506,7 @@ public  final class AskMember extends
 
     /**
      * <pre>
-     * The commit this agent reviewed at (a review).
+     * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
      * </pre>
      *
      * <code>string head = 11 [json_name = "head"];</code>
@@ -1376,7 +1518,7 @@ public  final class AskMember extends
     }
     /**
      * <pre>
-     * The commit this agent reviewed at (a review).
+     * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
      * </pre>
      *
      * <code>string head = 11 [json_name = "head"];</code>
@@ -1389,7 +1531,7 @@ public  final class AskMember extends
     }
     /**
      * <pre>
-     * The commit this agent reviewed at (a review).
+     * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
      * </pre>
      *
      * <code>string head = 11 [json_name = "head"];</code>
@@ -1404,7 +1546,7 @@ public  final class AskMember extends
     }
     /**
      * <pre>
-     * The commit this agent reviewed at (a review).
+     * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
      * </pre>
      *
      * <code>string head = 11 [json_name = "head"];</code>
@@ -1417,7 +1559,7 @@ public  final class AskMember extends
     }
     /**
      * <pre>
-     * The commit this agent reviewed at (a review).
+     * The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
      * </pre>
      *
      * <code>string head = 11 [json_name = "head"];</code>
@@ -1428,6 +1570,152 @@ public  final class AskMember extends
         com.google.protobuf.ByteString value) {
       copyOnWrite();
       instance.setHeadBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+     * </pre>
+     *
+     * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+     * @return The peerRepo.
+     */
+    @java.lang.Override
+    public java.lang.String getPeerRepo() {
+      return instance.getPeerRepo();
+    }
+    /**
+     * <pre>
+     * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+     * </pre>
+     *
+     * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+     * @return The bytes for peerRepo.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPeerRepoBytes() {
+      return instance.getPeerRepoBytes();
+    }
+    /**
+     * <pre>
+     * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+     * </pre>
+     *
+     * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+     * @param value The peerRepo to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPeerRepo(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPeerRepo(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+     * </pre>
+     *
+     * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPeerRepo() {
+      copyOnWrite();
+      instance.clearPeerRepo();
+      return this;
+    }
+    /**
+     * <pre>
+     * A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
+     * </pre>
+     *
+     * <code>string peer_repo = 12 [json_name = "peerRepo"];</code>
+     * @param value The bytes for peerRepo to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPeerRepoBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPeerRepoBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+     * @return The upstreamNew.
+     */
+    @java.lang.Override
+    public int getUpstreamNew() {
+      return instance.getUpstreamNew();
+    }
+    /**
+     * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+     * @param value The upstreamNew to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUpstreamNew(int value) {
+      copyOnWrite();
+      instance.setUpstreamNew(value);
+      return this;
+    }
+    /**
+     * <code>int32 upstream_new = 13 [json_name = "upstreamNew"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUpstreamNew() {
+      copyOnWrite();
+      instance.clearUpstreamNew();
+      return this;
+    }
+
+    /**
+     * <code>string about = 14 [json_name = "about"];</code>
+     * @return The about.
+     */
+    @java.lang.Override
+    public java.lang.String getAbout() {
+      return instance.getAbout();
+    }
+    /**
+     * <code>string about = 14 [json_name = "about"];</code>
+     * @return The bytes for about.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutBytes() {
+      return instance.getAboutBytes();
+    }
+    /**
+     * <code>string about = 14 [json_name = "about"];</code>
+     * @param value The about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAbout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAbout(value);
+      return this;
+    }
+    /**
+     * <code>string about = 14 [json_name = "about"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAbout() {
+      copyOnWrite();
+      instance.clearAbout();
+      return this;
+    }
+    /**
+     * <code>string about = 14 [json_name = "about"];</code>
+     * @param value The bytes for about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutBytes(value);
       return this;
     }
 
@@ -1458,11 +1746,14 @@ public  final class AskMember extends
             "model_",
             "tier_",
             "head_",
+            "peerRepo_",
+            "upstreamNew_",
+            "about_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0208";
+              "\u000b\u0208\f\u0208\r\u0004\u000e\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

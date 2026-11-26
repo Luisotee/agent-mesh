@@ -73,7 +73,15 @@ func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
 	a.FinishedAt = timestamppb.New(tx.Now())
 	// A file that can't be written must not fail the member's report this runs in: the answers stay in the ask
 	// (`mesh asks`) and the message says so.
-	fileErr := writeAnswers(a)
+	var fileErr error
+	if a.Kind == v1.AskKind_ASK_KIND_PEERS {
+		fileErr = writePeerAnswers(a)
+		if err := recordPeerAnswers(tx, a); err != nil {
+			return nil, err
+		}
+	} else {
+		fileErr = writeAnswers(a)
+	}
 	if fileErr != nil {
 		d.log.Warn("writing an ask's answers", "ask", a.Id, "err", fileErr)
 		a.AnswersPath = ""
@@ -88,7 +96,12 @@ func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
 		}
 		return nil, err
 	}
-	text := d.summary(tx.Reader, a)
+	var text string
+	if a.Kind == v1.AskKind_ASK_KIND_PEERS {
+		text = peerSummary(a)
+	} else {
+		text = d.summary(tx.Reader, a)
+	}
 	if fileErr != nil {
 		text += "\n(the answers file could not be written: " + fileErr.Error() + "; read the answers with `mesh asks`)"
 	}

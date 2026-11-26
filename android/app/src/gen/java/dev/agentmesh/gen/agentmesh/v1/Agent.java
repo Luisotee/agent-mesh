@@ -1624,6 +1624,47 @@ public  final class Agent extends
 
   }
 
+  public static final int PEER_FIELD_NUMBER = 30;
+  private boolean peer_;
+  /**
+   * <pre>
+   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+   * peer's conversation, and is never given a change task or have its worktree removed.
+   * </pre>
+   *
+   * <code>bool peer = 30 [json_name = "peer"];</code>
+   * @return The peer.
+   */
+  @java.lang.Override
+  public boolean getPeer() {
+    return peer_;
+  }
+  /**
+   * <pre>
+   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+   * peer's conversation, and is never given a change task or have its worktree removed.
+   * </pre>
+   *
+   * <code>bool peer = 30 [json_name = "peer"];</code>
+   * @param value The peer to set.
+   */
+  private void setPeer(boolean value) {
+    
+    peer_ = value;
+  }
+  /**
+   * <pre>
+   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+   * peer's conversation, and is never given a change task or have its worktree removed.
+   * </pre>
+   *
+   * <code>bool peer = 30 [json_name = "peer"];</code>
+   */
+  private void clearPeer() {
+
+    peer_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -3374,6 +3415,49 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+     * peer's conversation, and is never given a change task or have its worktree removed.
+     * </pre>
+     *
+     * <code>bool peer = 30 [json_name = "peer"];</code>
+     * @return The peer.
+     */
+    @java.lang.Override
+    public boolean getPeer() {
+      return instance.getPeer();
+    }
+    /**
+     * <pre>
+     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+     * peer's conversation, and is never given a change task or have its worktree removed.
+     * </pre>
+     *
+     * <code>bool peer = 30 [json_name = "peer"];</code>
+     * @param value The peer to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPeer(boolean value) {
+      copyOnWrite();
+      instance.setPeer(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
+     * peer's conversation, and is never given a change task or have its worktree removed.
+     * </pre>
+     *
+     * <code>bool peer = 30 [json_name = "peer"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPeer() {
+      copyOnWrite();
+      instance.clearPeer();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3420,13 +3504,14 @@ public  final class Agent extends
             "baseCommit_",
             "resumedFromRunId_",
             "resumedFromAgentId_",
+            "peer_",
           };
           java.lang.String info =
-              "\u0000\u001d\u0000\u0001\u0001\u001d\u001d\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001e\u0000\u0001\u0001\u001e\u001e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
               "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208";
+              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

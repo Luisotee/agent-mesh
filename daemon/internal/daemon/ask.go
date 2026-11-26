@@ -49,6 +49,8 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 		return nil, invalid("since %q: a commit id (hex, 7 to 40 characters)", m.Since)
 	}
 	switch {
+	case m.Peers != "":
+		return d.askPeers(ctx, actor, m, body)
 	case m.Agent != "":
 		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" || m.Kind != "" || m.Tier != "" || m.Model != "" || m.Effort != "" {
 			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers, slug, kind, tier, model and effort are for a fresh one")
@@ -72,6 +74,21 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 		return d.reviewRound(ctx, actor, m, body)
 	}
 	return d.reviewOne(ctx, actor, m, body)
+}
+
+// askTimeout is how long a collected ask waits: the request's seconds, else `ask.timeout`.
+func (d *Daemon) askTimeout(r store.Reader, seconds int32) (time.Duration, error) {
+	if seconds < 0 {
+		return 0, invalid("timeout can't be negative")
+	}
+	if seconds > 0 {
+		return time.Duration(seconds) * time.Second, nil
+	}
+	v, err := d.Setting(r, "ask.timeout")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(v.(float64) * float64(time.Second)), nil
 }
 
 // subMeta is a mutation id for one step of an ask (a spawn, a task), derived from the ask's own, so a retry of
@@ -327,7 +344,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 			return nil, err
 		}
 	}
-	timeout, err := d.Setting(r, "ask.timeout")
+	timeout, err := d.askTimeout(r, m.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +353,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		Kind: v1.AskKind_ASK_KIND_REVIEW, Status: v1.AskStatus_ASK_STATUS_OPEN, Pr: pr.URL, PrNumber: pr.Number, Repo: top,
 		Head: pr.Head, Since: since, Size: m.Size, Tier: m.Tier, Body: body, Collected: true, Round: int32(len(prior) + 1),
 		AnswersPath: d.answersPath(actor.RunId, pr.Number, now), CreatedAt: timestamppb.New(now),
-		Deadline: timestamppb.New(now.Add(time.Duration(timeout.(float64) * float64(time.Second))))}
+		Deadline: timestamppb.New(now.Add(timeout))}
 	out := &v1.AskResponse{Ask: ask, Notes: notes}
 	narrow := narrowSince(ctx, top, since, pr.Head)
 	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
@@ -344,19 +361,34 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if last != nil && last.Head == pr.Head {
 		reuseFrom = nil
 	}
-	// The ask exists before its members do, so a report that comes while the others are still starting is
-	// collected; it can't finish until all are started (starting). Its id comes from the request's mutation id: a
-	// retry after an interruption finds the ask it left, keeps the members already started (their own spawns
-	// replay too) and starts the rest.
+	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, func(i int) (*v1.AskMember, *v1.Agent, string) {
+		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
+			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
+	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) })
+}
+
+// collectRound starts the members of a collected ask one after another and returns once they have started
+// (the answers come later, collect.go). The ask is stored before its first member starts and can't finish until
+// the last has (starting), so an answer that comes while the others are still starting is collected. keys name
+// the members (a reviewer's kind, a peer's name) and start(i) brings member i in: a member that can't be
+// reached is one with a line saying why, not an error. A mutation id of the request covers the whole ask: its
+// id comes from it, so a retry after an interruption finds the ask it left, keeps the members already started
+// (their own spawns replay too) and starts the rest; the final write records the mutation.
+func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string,
+	start func(i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
 	have := map[string]*v1.AskMember{}
-	if prev, err := r.GetAsk(ask.Id); err == nil {
+	if prev, err := d.store.Read(ctx).GetAsk(ask.Id); err == nil {
 		if prev.Status != v1.AskStatus_ASK_STATUS_OPEN || !prev.Starting {
 			return nil, d.noReviewer(prev)
 		}
 		ask = prev
 		out.Ask = prev
 		for _, mem := range prev.Members {
-			have[mem.Kind] = mem
+			if prev.Kind == v1.AskKind_ASK_KIND_PEERS {
+				have[mem.Name] = mem
+			} else {
+				have[mem.Kind] = mem
+			}
 		}
 	} else if errors.Is(err, store.ErrNotFound) {
 		ask.Starting = true
@@ -367,8 +399,8 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		return nil, err
 	}
 	started := 0
-	for _, kind := range kinds {
-		if mem := have[kind]; mem != nil {
+	for i, key := range keys {
+		if mem := have[key]; mem != nil {
 			if mem.AgentId != "" {
 				if cur, err := d.getAgent(d.store.Read(ctx), mem.AgentId); err == nil {
 					out.Agents = append(out.Agents, d.view(cur))
@@ -377,8 +409,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 			}
 			continue
 		}
-		member, agent, note := d.startReviewer(ctx, actor, reviewJob{kind: kind, pr: pr, top: top, level: level, effort: effort,
-			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
+		member, agent, note := start(i)
 		if note != "" {
 			out.Notes = append(out.Notes, note)
 		}
@@ -409,7 +440,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		return nil, d.noReviewer(cur)
 	}
 	var ring *v1.Message
-	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
+	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
 		cur, err := tx.GetAsk(ask.Id)
 		if err != nil {
 			return err
@@ -418,7 +449,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		out.Ask = cur
 		// Members that answered or settled while the others started finish it now.
 		ring, err = d.finishIfDone(tx, cur)
-		out.Hint = d.roundsHint(tx.Reader, cur, false)
+		out.Hint = hint(tx.Reader, cur)
 		return err
 	}); err != nil {
 		return nil, err
@@ -429,13 +460,17 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	return connect.NewResponse(out), nil
 }
 
-// noReviewer is the refusal of a round none of whose reviewers could be started.
+// noReviewer is the refusal of a round none of whose members could be started.
 func (d *Daemon) noReviewer(a *v1.Ask) error {
 	var why []string
 	for _, mem := range a.Members {
 		why = append(why, mem.Name+": "+mem.Line)
 	}
-	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no reviewer could be started (%s)", strings.Join(why, "; ")))
+	what := "no reviewer could be started"
+	if a.Kind == v1.AskKind_ASK_KIND_PEERS {
+		what = "nobody could be asked"
+	}
+	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s (%s)", what, strings.Join(why, "; ")))
 }
 
 // reviewJob is what starting or re-asking one reviewer of a round needs.

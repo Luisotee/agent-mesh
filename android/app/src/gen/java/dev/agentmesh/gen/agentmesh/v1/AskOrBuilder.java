@@ -323,4 +323,24 @@ public interface AskOrBuilder extends
    * @return The starting.
    */
   boolean getStarting();
+
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @return The context.
+   */
+  java.lang.String getContext();
+  /**
+   * <pre>
+   * What the answers file says before the question: the peers' groups' `about`.
+   * </pre>
+   *
+   * <code>string context = 24 [json_name = "context"];</code>
+   * @return The bytes for context.
+   */
+  com.google.protobuf.ByteString
+      getContextBytes();
 }
