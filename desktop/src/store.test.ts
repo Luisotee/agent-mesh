@@ -81,8 +81,8 @@ describe('applyFrame', () => {
     const s = run([
       snapshot(),
       ev(6, { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: m } }),
-      ev(7, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'm1' } }),
-      ev(8, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'unknown' } }),
+      ev(7, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'm1', via: '', tries: 0 } }),
+      ev(8, { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'unknown', via: '', tries: 0 } }),
     ])
     expect(Object.keys(s.messages)).toEqual(['m1'])
     expect(s.messages.m1?.deliveredAt).toBeTruthy()

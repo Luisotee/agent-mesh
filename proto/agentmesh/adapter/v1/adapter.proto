@@ -15,6 +15,13 @@ service CliAdapterService {
   rpc LookupSession(LookupSessionRequest) returns (LookupSessionResponse);
   // DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
   rpc DescribeModel(DescribeModelRequest) returns (DescribeModelResponse);
+  // ReadInputBox reads what the agent's input box holds from a terminal repaint, so a doorbell is never typed into a
+  // human's draft and a typed one is known to have been submitted. An adapter without it reads as "unclear": the
+  // daemon types as if the box were empty.
+  rpc ReadInputBox(ReadInputBoxRequest) returns (ReadInputBoxResponse);
+  // DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
+  // capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
+  rpc DeliverNative(DeliverNativeRequest) returns (DeliverNativeResponse);
 }
 
 message DescribeRequest {}
@@ -113,6 +120,53 @@ message LookupSessionRequest {
 
 message LookupSessionResponse {
   string session_id = 1;
+}
+
+message ReadInputBoxRequest {
+  // A repaint as the terminal host sends it to a client with no screen (`Screen.Data`).
+  bytes screen = 1;
+  // The ref token of the doorbell to count above the box; empty counts none.
+  string token = 2;
+}
+
+enum InputBox {
+  INPUT_BOX_UNSPECIFIED = 0;
+  // Nothing typed (ghost text such as a placeholder is not typed text).
+  INPUT_BOX_EMPTY = 1;
+  // Text is typed: ReadInputBoxResponse.text.
+  INPUT_BOX_TYPED = 2;
+  // No input box on the screen: a dialog, an alternate screen, a CLI still starting.
+  INPUT_BOX_NONE = 3;
+  // A box was found that can't be read.
+  INPUT_BOX_UNCLEAR = 4;
+}
+
+message ReadInputBoxResponse {
+  InputBox box = 1;
+  // What is typed, whitespace squeezed (INPUT_BOX_TYPED).
+  string text = 2;
+  // Copies of the token above the input box (whitespace removed, so no wrap splits it).
+  int32 token_above = 3;
+}
+
+message DeliverNativeRequest {
+  string agent_id = 1;
+  // The terminal's process and when it started (clock ticks since boot), which the CLI's own record of itself must
+  // match: a process that reused the pid is not the agent.
+  int64 pid = 2;
+  uint64 pid_start_ticks = 3;
+  string cwd = 4;
+  // The agent's environment: where the CLI keeps its records (its config folder).
+  map<string, string> env = 5;
+  // The doorbell, as it would be typed.
+  string text = 6;
+}
+
+message DeliverNativeResponse {
+  bool delivered = 1;
+  // Why not, for the log and the apps: no record of the process, no socket, a setting that holds messages, a failed
+  // write.
+  string reason = 2;
 }
 
 message DescribeModelRequest {

@@ -134,18 +134,22 @@ type runtime struct {
 	hello    *termv1.HelloResponse
 	sys      *SystemOps
 
-	mu          sync.Mutex
-	lastOutput  map[string]time.Time // terminal id → newest output mark
-	firstOutput map[string]time.Time // terminal id → first output time (for adapters without startup-hook)
-	tickets     map[string]ticket
-	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
-	worktrees   map[string]*sync.Mutex // worktree path → its git lock (independent of agentLock so ResumeAgent never deadlocks with reopen)
-	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
-	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
-	guard       guard
-	cpus        cpuTracker
-	usage       usageState      // usage cache / rate_limits (usage.go)
-	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
+	mu            sync.Mutex
+	lastOutput    map[string]time.Time // terminal id → newest output mark
+	firstOutput   map[string]time.Time // terminal id → first output time (for adapters without startup-hook)
+	tickets       map[string]ticket
+	delivering    map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	worktrees     map[string]*sync.Mutex // worktree path → its git lock (independent of agentLock so ResumeAgent never deadlocks with reopen)
+	launching     map[string]bool        // reopen id → its new process died while a newer reopen replaced it
+	introduced    map[string]bool        // terminal id → its first doorbell has named the protocol
+	rings         map[string]*ring       // agent id → its doorbell in flight (delivery.go)
+	held          map[string]*held       // agent id → its doorbell kept back by a human's draft
+	nativeOff     map[string]bool        // terminal id → a frame written to its inbox socket wasn't taken: type from now on
+	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
+	guard         guard
+	cpus          cpuTracker
+	usage         usageState      // usage cache / rate_limits (usage.go)
+	openCode      openCodeRuntime // OpenCode polling and model cache (opencode.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -172,7 +176,8 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		return nil, err
 	}
 	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
-		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{}}, nil
+		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{},
+		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]bool{}, deliverQueued: map[string]bool{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.
@@ -389,6 +394,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	d.rt.mu.Lock()
 	delete(d.rt.lastOutput, terminalID)
 	delete(d.rt.introduced, terminalID)
+	delete(d.rt.nativeOff, terminalID)
 	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	d.clearOpenCodeTerminal(terminalID)
@@ -666,7 +672,8 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 	if err != nil {
 		return nil, err
 	}
-	if takesDoorbell(out.State) {
+	// A doorbell in flight is checked against this very activity, not at the next tick.
+	if takesDoorbell(out.State) || d.hasRing(actor.Id) {
 		d.deliverSoon(actor.Id)
 	}
 	return out, nil
@@ -1181,210 +1188,6 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
 		return nil, err
 	}
 	return alert, tx.RevokeTokens(a.Id)
-}
-
-// ── doorbells ──
-
-// deliverSoon rings an agent's doorbell for its undelivered messages, once it is at its prompt (atPrompt).
-func (d *Daemon) deliverSoon(agentID string) {
-	if d.rt.term == nil {
-		return
-	}
-	go func() {
-		if err := d.deliver(context.Background(), agentID); err != nil {
-			d.log.Warn("doorbell", "agent", agentID, "err", err)
-		}
-	}()
-}
-
-// agentLock is held by whatever types into an agent's terminal or replaces it: a doorbell, a reopen, a stop.
-func (d *Daemon) agentLock(agentID string) *sync.Mutex {
-	d.rt.mu.Lock()
-	defer d.rt.mu.Unlock()
-	mu := d.rt.delivering[agentID]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		d.rt.delivering[agentID] = mu
-	}
-	return mu
-}
-
-func (d *Daemon) worktreeLock(worktree string) *sync.Mutex {
-	d.rt.mu.Lock()
-	defer d.rt.mu.Unlock()
-	if d.rt.worktrees == nil {
-		d.rt.worktrees = map[string]*sync.Mutex{}
-	}
-	mu := d.rt.worktrees[worktree]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		d.rt.worktrees[worktree] = mu
-	}
-	return mu
-}
-
-// deliver brings an agent up to date: a pending reopen first (the messages it was asked with are for the new
-// process), else a doorbell for its undelivered messages once it is at its prompt (atPrompt).
-func (d *Daemon) deliver(ctx context.Context, agentID string) error {
-	mu := d.agentLock(agentID)
-	mu.Lock()
-	defer mu.Unlock()
-
-	r := d.store.Read(ctx)
-	a, err := r.GetAgent(agentID)
-	if err != nil {
-		return err
-	}
-	if a.PendingReopen != nil {
-		return d.reopen(ctx, a)
-	}
-	if !takesDoorbell(a.State) || a.TerminalId == "" {
-		return nil
-	}
-	msgs, err := r.Undelivered(agentID)
-	if err != nil || len(msgs) == 0 {
-		return err
-	}
-	// Never type into what a user is typing: while a client that can type has typed lately, the doorbell waits
-	// (retryDoorbells rings it once they pause).
-	if typing, err := d.userTyping(ctx, a.TerminalId); err != nil || typing {
-		return err
-	}
-	line := Doorbell(msgs)
-	d.rt.mu.Lock()
-	first := !d.rt.introduced[a.TerminalId]
-	d.rt.mu.Unlock()
-	if first {
-		line += d.protocolPointer(a)
-	}
-	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
-		return err
-	}
-	d.rt.mu.Lock()
-	d.rt.introduced[a.TerminalId] = true
-	d.rt.mu.Unlock()
-	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
-		for _, m := range msgs {
-			// Only the delivery time is written, on the row as it is now: the agent may have read the message
-			// since the snapshot above, and a stale copy would make it unread again.
-			if err := tx.MarkDelivered(m.Id); err != nil {
-				return err
-			}
-			if _, err := tx.AppendEvent(&v1.Event{RunId: m.RunId, AgentId: m.ToId, Payload: &v1.Event_MessageDelivered{
-				MessageDelivered: &v1.MessageDelivered{MessageId: m.Id}}}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// protocolPointer is what the first doorbell of a process adds: where the protocol is, as an absolute path (the
-// agent's CLI doesn't expand variables in what is typed to it). A root's names its card, which names the rest. Nothing
-// when the daemon has no share folder.
-func (d *Daemon) protocolPointer(a *v1.Agent) string {
-	share := d.rt.cfg.Share
-	if !filepath.IsAbs(share) {
-		return ""
-	}
-	protocol := filepath.Join(share, "protocol")
-	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
-		return " (first one here: read " + filepath.Join(protocol, "ROOT_CARD.md") + " and follow it)"
-	}
-	return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, and follow it)"
-}
-
-// userTyping reports whether a client that can type is attached to a terminal and typed within TypingQuiet.
-func (d *Daemon) userTyping(ctx context.Context, terminalID string) (bool, error) {
-	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
-	if err != nil {
-		return false, err
-	}
-	for _, t := range res.Msg.Terminals {
-		if t.Id == terminalID {
-			last := t.LastClientInput.AsTime()
-			return t.InputClients > 0 && t.LastClientInput != nil && d.now().Sub(last) < d.rt.cfg.TypingQuiet, nil
-		}
-	}
-	return false, nil
-}
-
-// retryDoorbells rings again for messages whose doorbell couldn't ring (the agent was busy, a user was
-// typing, a trigger was missed), and tries the reopens still pending.
-func (d *Daemon) retryDoorbells(ctx context.Context) {
-	if d.rt.term == nil {
-		return
-	}
-	ids, err := d.store.Read(ctx).AgentsWithUndelivered()
-	if err != nil {
-		return
-	}
-	pending, err := d.store.Read(ctx).AgentsWithPendingReopen()
-	if err != nil {
-		return
-	}
-	seen := map[string]bool{}
-	for _, a := range pending {
-		seen[a.Id] = true
-		d.deliverSoon(a.Id)
-	}
-	for _, id := range ids {
-		if !seen[id] {
-			d.deliverSoon(id)
-		}
-	}
-}
-
-// typeLine types a line into a terminal, then Enter after a pause, so the TUI doesn't read it as a paste.
-func (d *Daemon) typeLine(ctx context.Context, terminalID, line string) error {
-	if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
-		Data: []byte(line)})); err != nil {
-		return err
-	}
-	time.Sleep(d.rt.cfg.DeliveryDelay)
-	// The text is in the input box. If Enter did not get through (the host was unreachable or didn't answer in
-	// time: the write didn't happen), try again, and when it still can't be sent take the text back out (Ctrl-U)
-	// so the retry doesn't type the line a second time. Any other error leaves it unknown whether the Enter went
-	// in: stop, and send nothing more.
-	var err error
-	for try := 0; try < 3; try++ {
-		if _, err = d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
-			Data: []byte("\r")})); err == nil {
-			return nil
-		}
-		if !writeDidNotHappen(err) {
-			return err
-		}
-		time.Sleep(d.rt.cfg.DeliveryDelay)
-	}
-	d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminalID,
-		Data: []byte("\x15")}))
-	return err
-}
-
-// writeDidNotHappen reports whether a failed terminal write certainly did not reach the terminal.
-func writeDidNotHappen(err error) bool {
-	switch connect.CodeOf(err) {
-	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeCanceled:
-		return true
-	}
-	return false
-}
-
-// Doorbell is the one line typed into an agent's terminal for its new messages; the messages themselves are
-// read with `mesh inbox`.
-func Doorbell(msgs []*v1.Message) string {
-	kind := func(m *v1.Message) string {
-		return strings.ToLower(strings.TrimPrefix(m.Type.String(), "MESSAGE_TYPE_")) + " from " + m.From.GetName()
-	}
-	if len(msgs) == 1 {
-		return "📬 [mesh] " + kind(msgs[0]) + ": run `mesh inbox`"
-	}
-	parts := make([]string, len(msgs))
-	for i, m := range msgs {
-		parts[i] = kind(m)
-	}
-	return fmt.Sprintf("📬 [mesh] %d messages (%s): run `mesh inbox`", len(msgs), strings.Join(parts, ", "))
 }
 
 // ── terminal streams through the daemon ──

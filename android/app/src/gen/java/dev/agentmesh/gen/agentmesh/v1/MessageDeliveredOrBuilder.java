@@ -21,4 +21,38 @@ public interface MessageDeliveredOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMessageIdBytes();
+
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @return The via.
+   */
+  java.lang.String getVia();
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @return The bytes for via.
+   */
+  com.google.protobuf.ByteString
+      getViaBytes();
+
+  /**
+   * <pre>
+   * How many times the doorbell was typed or written before one counted.
+   * </pre>
+   *
+   * <code>int32 tries = 3 [json_name = "tries"];</code>
+   * @return The tries.
+   */
+  int getTries();
 }

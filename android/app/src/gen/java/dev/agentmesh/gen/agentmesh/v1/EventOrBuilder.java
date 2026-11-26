@@ -311,5 +311,27 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged getAgentRoleChanged();
 
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 29 [json_name = "doorbellFailed"];</code>
+   * @return Whether the doorbellFailed field is set.
+   */
+  boolean hasDoorbellFailed();
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 29 [json_name = "doorbellFailed"];</code>
+   * @return The doorbellFailed.
+   */
+  dev.agentmesh.gen.agentmesh.v1.DoorbellFailed getDoorbellFailed();
+
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 30 [json_name = "doorbellHeld"];</code>
+   * @return Whether the doorbellHeld field is set.
+   */
+  boolean hasDoorbellHeld();
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 30 [json_name = "doorbellHeld"];</code>
+   * @return The doorbellHeld.
+   */
+  dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

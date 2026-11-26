@@ -48,6 +48,12 @@ const (
 	// CliAdapterServiceDescribeModelProcedure is the fully-qualified name of the CliAdapterService's
 	// DescribeModel RPC.
 	CliAdapterServiceDescribeModelProcedure = "/agentmesh.adapter.v1.CliAdapterService/DescribeModel"
+	// CliAdapterServiceReadInputBoxProcedure is the fully-qualified name of the CliAdapterService's
+	// ReadInputBox RPC.
+	CliAdapterServiceReadInputBoxProcedure = "/agentmesh.adapter.v1.CliAdapterService/ReadInputBox"
+	// CliAdapterServiceDeliverNativeProcedure is the fully-qualified name of the CliAdapterService's
+	// DeliverNative RPC.
+	CliAdapterServiceDeliverNativeProcedure = "/agentmesh.adapter.v1.CliAdapterService/DeliverNative"
 )
 
 // CliAdapterServiceClient is a client for the agentmesh.adapter.v1.CliAdapterService service.
@@ -58,6 +64,13 @@ type CliAdapterServiceClient interface {
 	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
 	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
 	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
+	// ReadInputBox reads what the agent's input box holds from a terminal repaint, so a doorbell is never typed into a
+	// human's draft and a typed one is known to have been submitted. An adapter without it reads as "unclear": the
+	// daemon types as if the box were empty.
+	ReadInputBox(context.Context, *connect.Request[v1.ReadInputBoxRequest]) (*connect.Response[v1.ReadInputBoxResponse], error)
+	// DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
+	// capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
+	DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error)
 }
 
 // NewCliAdapterServiceClient constructs a client for the agentmesh.adapter.v1.CliAdapterService
@@ -101,6 +114,18 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
 			connect.WithClientOptions(opts...),
 		),
+		readInputBox: connect.NewClient[v1.ReadInputBoxRequest, v1.ReadInputBoxResponse](
+			httpClient,
+			baseURL+CliAdapterServiceReadInputBoxProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("ReadInputBox")),
+			connect.WithClientOptions(opts...),
+		),
+		deliverNative: connect.NewClient[v1.DeliverNativeRequest, v1.DeliverNativeResponse](
+			httpClient,
+			baseURL+CliAdapterServiceDeliverNativeProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("DeliverNative")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -111,6 +136,8 @@ type cliAdapterServiceClient struct {
 	decodeHook    *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
 	lookupSession *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
 	describeModel *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
+	readInputBox  *connect.Client[v1.ReadInputBoxRequest, v1.ReadInputBoxResponse]
+	deliverNative *connect.Client[v1.DeliverNativeRequest, v1.DeliverNativeResponse]
 }
 
 // Describe calls agentmesh.adapter.v1.CliAdapterService.Describe.
@@ -138,6 +165,16 @@ func (c *cliAdapterServiceClient) DescribeModel(ctx context.Context, req *connec
 	return c.describeModel.CallUnary(ctx, req)
 }
 
+// ReadInputBox calls agentmesh.adapter.v1.CliAdapterService.ReadInputBox.
+func (c *cliAdapterServiceClient) ReadInputBox(ctx context.Context, req *connect.Request[v1.ReadInputBoxRequest]) (*connect.Response[v1.ReadInputBoxResponse], error) {
+	return c.readInputBox.CallUnary(ctx, req)
+}
+
+// DeliverNative calls agentmesh.adapter.v1.CliAdapterService.DeliverNative.
+func (c *cliAdapterServiceClient) DeliverNative(ctx context.Context, req *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error) {
+	return c.deliverNative.CallUnary(ctx, req)
+}
+
 // CliAdapterServiceHandler is an implementation of the agentmesh.adapter.v1.CliAdapterService
 // service.
 type CliAdapterServiceHandler interface {
@@ -147,6 +184,13 @@ type CliAdapterServiceHandler interface {
 	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
 	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
 	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
+	// ReadInputBox reads what the agent's input box holds from a terminal repaint, so a doorbell is never typed into a
+	// human's draft and a typed one is known to have been submitted. An adapter without it reads as "unclear": the
+	// daemon types as if the box were empty.
+	ReadInputBox(context.Context, *connect.Request[v1.ReadInputBoxRequest]) (*connect.Response[v1.ReadInputBoxResponse], error)
+	// DeliverNative hands a doorbell to the CLI without typing into its terminal (an adapter with the `inbox-socket`
+	// capability), where the CLI takes it. `delivered` false is not an error: the daemon types the doorbell instead.
+	DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error)
 }
 
 // NewCliAdapterServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -186,6 +230,18 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceReadInputBoxHandler := connect.NewUnaryHandler(
+		CliAdapterServiceReadInputBoxProcedure,
+		svc.ReadInputBox,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("ReadInputBox")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cliAdapterServiceDeliverNativeHandler := connect.NewUnaryHandler(
+		CliAdapterServiceDeliverNativeProcedure,
+		svc.DeliverNative,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("DeliverNative")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.adapter.v1.CliAdapterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CliAdapterServiceDescribeProcedure:
@@ -198,6 +254,10 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServiceLookupSessionHandler.ServeHTTP(w, r)
 		case CliAdapterServiceDescribeModelProcedure:
 			cliAdapterServiceDescribeModelHandler.ServeHTTP(w, r)
+		case CliAdapterServiceReadInputBoxProcedure:
+			cliAdapterServiceReadInputBoxHandler.ServeHTTP(w, r)
+		case CliAdapterServiceDeliverNativeProcedure:
+			cliAdapterServiceDeliverNativeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -225,4 +285,12 @@ func (UnimplementedCliAdapterServiceHandler) LookupSession(context.Context, *con
 
 func (UnimplementedCliAdapterServiceHandler) DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DescribeModel is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) ReadInputBox(context.Context, *connect.Request[v1.ReadInputBoxRequest]) (*connect.Response[v1.ReadInputBoxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.ReadInputBox is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) DeliverNative(context.Context, *connect.Request[v1.DeliverNativeRequest]) (*connect.Response[v1.DeliverNativeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DeliverNative is not implemented"))
 }

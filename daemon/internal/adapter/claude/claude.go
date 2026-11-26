@@ -20,6 +20,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 	"github.com/Luisotee/agent-mesh/daemon/internal/shellmatch"
 )
 
@@ -55,6 +56,8 @@ type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
 	// NewSessionID picks a launch's conversation id; tests may fix it.
 	NewSessionID func() string
+	// ManagedDir is where managed policy is read from (default ManagedDir); tests point it at a folder of their own.
+	ManagedDir string
 }
 
 // New returns the adapter.
@@ -65,7 +68,7 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // Describe says what the adapter is.
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "Claude Code",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook"}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook", CapInboxSocket}}), nil
 }
 
 // LookupSession returns empty: Claude picks its session id up front in PlanLaunch.
@@ -104,7 +107,9 @@ func settingsWith(hookArgv []string, denyPublish bool, extra map[string]any) (st
 		cmd := adapter.ShellQuote(append(argv, ev.name)...)
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
-	doc := map[string]any{"hooks": hooks}
+	// Every launch takes cross-session messages unprompted (the daemon writes its doorbells into the inbox socket),
+	// which beats the user's own value; only managed policy or a tightening repo overrides it (inboundSetting).
+	doc := map[string]any{"hooks": hooks, "crossSessionInbound": InboundAccept}
 	for k, v := range extra {
 		doc[k] = v
 	}
@@ -481,4 +486,9 @@ func DenyJSON(reason string) []byte {
 	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse",
 		"permissionDecision": "deny", "permissionDecisionReason": reason}})
 	return append(b, '\n')
+}
+
+// ReadInputBox reads the input box from a repaint: Claude's rules box, its `Try …` placeholder dim.
+func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
+	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.Claude)), nil
 }

@@ -72,10 +72,11 @@ func TestAgentsGetTheShareFolderTheSkillsAndTheProtocolInTheirFirstDoorbell(t *t
 	}
 	waitFor(t, "the second doorbell", func() bool { return !w.deliveredAt(t, worker.Id, res.Msg.Message.Id).IsZero() })
 	time.Sleep(300 * time.Millisecond)
-	second := "infofrom" + flat(lead.Name) + ":run`meshinbox`" // the screen keeps the first doorbell above it
-	if screen := flat(w.screen(t, worker)); !strings.Contains(screen, second) {
+	// The screen keeps the first doorbell above it; the second's ref token is its own.
+	second := regexp.MustCompile("infofrom" + regexp.QuoteMeta(flat(lead.Name)) + "\\(ref[0-9a-f]{6}\\):run`meshinbox`")
+	if screen := flat(w.screen(t, worker)); !second.MatchString(screen) {
 		t.Fatalf("the second doorbell isn't on the screen:\n%s", screen)
-	} else if strings.Contains(screen, second+"(first") {
+	} else if strings.Contains(screen, second.FindString(screen)+"(first") {
 		t.Errorf("the second doorbell names the protocol again:\n%s", screen)
 	}
 	// A root is pointed at its card, and at the protocol.
