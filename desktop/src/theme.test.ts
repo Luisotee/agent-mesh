@@ -41,6 +41,13 @@ describe('themes', () => {
     expect(t).toMatchObject({ background: '#101010', foreground: '#eeeeee', cursor: '#eeeeee', selectionBackground: '#333333', red: '#ff0000', blue: '#ff00ff', brightBlack: '#666666', brightRed: '#ff3333' })
   })
 
+  it('draws ANSI black and white on the light themes in colours of their own (not the background and the text)', () => {
+    for (const t of themes.filter((t) => !t.dark)) {
+      expect(t.terminal.black, `${t.name} black`).not.toBe(t.terminal.background)
+      expect(t.terminal.white, `${t.name} white`).not.toBe(t.terminal.foreground)
+    }
+  })
+
   it('falls back to Dracula for a name it lacks', () => {
     expect(themeByName('Solarized').name).toBe('Dracula')
     expect(themeByName(undefined).name).toBe('Dracula')

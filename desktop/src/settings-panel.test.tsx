@@ -93,6 +93,18 @@ describe('SettingsPanel', () => {
     expect(sentValue(client)).toMatchObject({ value: ['/w/web/', '/w/gone', '/w/gone/'] }) // the spelling is gone, nothing added
   })
 
+  it('builds a second quick toggle on the list as last written, before the host\'s change arrives', async () => {
+    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], [], { isSet: false })])
+    store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/w/a' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/b' }) } })
+    render(ui)
+    const section = screen.getByRole('region', { name: 'Free models by repo' })
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: b' })) // the list in the store is still empty
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(2))
+    expect(sentValue(client, 1)).toMatchObject({ value: ['/w/a', '/w/b'] })
+  })
+
   it('takes a repo off the list, and shows the host\'s refusal', async () => {
     const { ui, client } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/a', '/w/b'], { isSet: true })])
     client.setSetting.mockRejectedValueOnce(new Error('[invalid_argument] nope'))

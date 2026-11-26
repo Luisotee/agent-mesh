@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // A repo listed in `repos.no_free_models` never gets a zero-cost OpenCode model (freemodels.go): a spawn on a tier
@@ -300,5 +302,166 @@ func TestFreeModelsOffDoesNotReuseAFreeOpenCodeReviewer(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(round2.Notes, "\n"), "repos.no_free_models") {
 		t.Errorf("round 2 should say why: %v", round2.Notes)
+	}
+	w.waitState(first.Id, v1.AgentState_AGENT_STATE_RETIRED) // not left running beside its replacement
+}
+
+// A worker's own worktree is the repo of its main checkout: a repo is listed by the main checkout's folder, and a
+// spawn or an ask `--repo .` from a linked worktree is held to the same setting.
+func TestFreeModelsOffCoversALinkedWorktree(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	wt := filepath.Join(t.TempDir(), "linked")
+	runGit(t, repo, "worktree", "add", "-b", "side", wt)
+	w.set(t, "repos.no_free_models", []any{repo})
+	_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: w.run.Id, Repo: wt, Slug: "from-wt", Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "light",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
+		t.Errorf("a spawn from a linked worktree of the listed repo: want a refusal naming repos.no_free_models, got %v", err)
+	}
+}
+
+// A message that resumes a stopped OpenCode agent reads the model costs first, whatever its type: after a restart
+// (a cold cache) an answer to a stopped agent on a paid model in a listed repo still resumes it.
+func TestFreeModelsOffResumesAPaidAgentAfterARestartOnAnAnswer(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	repo := gitRepo(t)
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "paid-oc", Kind: opencode.Kind, Model: "openai/gpt-5.2",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.opencodeTurn(t, w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE), "hello")
+	w.set(t, "repos.no_free_models", []any{repo})
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	w.stop()
+	w.agentsHarness = w.restart(t) // nothing has read OpenCode's model list yet
+	sent, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_ANSWER, Body: "yes, go on"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Msg.ResumeError != "" || sent.Msg.Resumed == nil {
+		t.Errorf("an answer to a stopped agent on a paid model: resumed %v, reason %q", sent.Msg.Resumed, sent.Msg.ResumeError)
+	}
+}
+
+// A refused resume writes nothing: a stopped planner on a free model, its repo listed since, gets a direct task and
+// stays in its plan phase with no phase event; a running planner's deny list is not lifted onto the free model either.
+func TestFreeModelsOffRefusalsLeaveAPlannerAsItWas(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	phaseEvents := func() int {
+		return w.count(t, w.run.Id, func(ev *v1.Event) bool { return ev.GetAgentPhaseChanged() != nil })
+	}
+	spawn := func(slug string) *v1.Agent {
+		res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			RunId: w.run.Id, Repo: repo, Slug: slug, Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "mid", Plan: true, Task: "plan it",
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+		waitFor(t, slug+"'s conversation id", func() bool { a = w.agent(a.Id); return a.SessionId != "" })
+		return a
+	}
+	running, stopped := spawn("run-plan"), spawn("stop-plan")
+	if _, err := w.asRoot.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: stopped.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(stopped.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	w.set(t, "repos.no_free_models", []any{repo})
+	before := phaseEvents()
+
+	sent, err := w.asRoot.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: stopped.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task: build it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Msg.Resumed != nil || !strings.Contains(sent.Msg.ResumeError, "repos.no_free_models") {
+		t.Errorf("a direct task to the stopped planner: resumed %v, reason %q", sent.Msg.Resumed, sent.Msg.ResumeError)
+	}
+	_, err = w.asRoot.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: running.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task: build it"}))
+	if err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
+		t.Errorf("a direct task to the running planner: want a refusal naming repos.no_free_models, got %v", err)
+	}
+	if got := phaseEvents(); got != before {
+		t.Errorf("a refusal wrote %d phase event(s)", got-before)
+	}
+	for _, a := range []*v1.Agent{running, stopped} {
+		if cur := w.agent(a.Id); cur.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !cur.DenyEdits {
+			t.Errorf("%s left its plan phase: %v, deny edits %v", cur.Name, cur.Phase, cur.DenyEdits)
+		}
+	}
+}
+
+// A switch of effort alone keeps the model, so it is held to the setting as a resume on that model is.
+func TestFreeModelsOffRefusesAnEffortOnlySwitchOnAFreeModel(t *testing.T) {
+	w := startReopen(t, fastPass)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	repo := gitRepo(t)
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: repo, Slug: "oc-eff", Kind: opencode.Kind, Tier: "mid"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.opencodeTurn(t, w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE), "hello")
+	w.set(t, "repos.no_free_models", []any{repo})
+	_, err = w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{Agent: a.Id, Effort: "high"}))
+	if err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
+		t.Errorf("an effort-only switch on %s: want a refusal naming repos.no_free_models, got %v", a.Model, err)
+	}
+}
+
+// An OpenCode agent at its limit whose repo was listed while it waited is not reopened on its free model when the hold
+// ends; its parent is told once what to do.
+func TestFreeModelsOffTellsTheParentWhenALimitedAgentIsNotReopened(t *testing.T) {
+	w := startReviews(t, fastPass)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	w.set(t, "limits.auto", "continue")
+	w.set(t, "limits.hold", 2) // seconds
+	res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: w.run.Id, Repo: repo, Slug: "oc-lim", Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.opencodeTurn(t, w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE), "hello")
+	w.typeInto(a, "/limit-free\r")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_LIMITED)
+	w.set(t, "repos.no_free_models", []any{repo})
+	// The recorded hold goes (as when its reset has passed): the pass holds it limits.hold (2 s) and then it is over.
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error { return tx.DeleteModelLimit(opencode.Kind, a.Model) }); err != nil {
+		t.Fatal(err)
+	}
+	notes := func() int {
+		msgs, err := w.d.Store().Read(ctx).RunMessages(w.run.Id, "", -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, m := range msgs {
+			if m.ToId == w.lead.Id && strings.Contains(m.Body, "repos.no_free_models") {
+				n++
+			}
+		}
+		return n
+	}
+	waitFor(t, "the parent's note", func() bool { return notes() > 0 })
+	time.Sleep(600 * time.Millisecond) // more passes: still one note
+	if n := notes(); n != 1 {
+		t.Errorf("the parent was told %d times, want once", n)
+	}
+	if cur := w.agent(a.Id); cur.State != v1.AgentState_AGENT_STATE_LIMITED || cur.PendingReopen != nil {
+		t.Errorf("the agent is %v (reopen %v), want still limited", cur.State, cur.PendingReopen)
 	}
 }

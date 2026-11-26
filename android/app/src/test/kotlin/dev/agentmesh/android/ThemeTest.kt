@@ -40,6 +40,14 @@ class ThemeTest {
         }
     }
 
+    @Test fun `light themes draw ANSI black and white in colours of their own`() {
+        for (s in specs.filter { !it.dark }) {
+            val t = Themes.resolve(s).terminal
+            assertNotEquals("${s.name} black is the background", t.background, t.ansi[0])
+            assertNotEquals("${s.name} white is the text", t.foreground, t.ansi[7])
+        }
+    }
+
     @Test fun `Dracula keeps the desktop's colours`() {
         val t = Themes.resolve(Themes.parse(File(dir, "dracula.json").readText()))
         assertEquals(Color(0xFF282A36), t.scheme.background)

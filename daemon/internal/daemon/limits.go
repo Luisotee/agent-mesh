@@ -233,8 +233,17 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 			model = next
 		case held.IsZero():
 			// Back on the model it had: not when that is a free one and its repo has since been set against them
-			// (freemodels.go). It stays stopped at its limit, for its parent or the user to switch or resume.
-			if d.checkKept(tx.Reader, a, model) != nil {
+			// (freemodels.go). It stays at its limit, and its parent is told once why, and what to do.
+			if kerr := d.checkKept(tx.Reader, a, model); kerr != nil {
+				since := time.Time{}
+				if a.LastActivity != nil {
+					since = a.LastActivity.AsTime()
+				}
+				text := fmt.Sprintf("%s's usage limit on %s is over, but it is not reopened (%s). Switch it to a paid model "+
+					"(`mesh switch --agent %s --model <model>`), or take its repo off `repos.no_free_models`.", a.Name, model, errMessage(kerr), a.Name)
+				if told, err = d.alertParentTx(tx, a, "kept", text, since); err != nil {
+					return err
+				}
 				return nil
 			}
 			why = "limit reset"
@@ -258,11 +267,14 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		moved = true
 		return tx.PutAgent(a)
 	})
-	if err != nil || !moved {
+	if err != nil {
 		return err
 	}
 	if told != nil && d.notify != nil {
 		d.notify(told.ToId)
+	}
+	if !moved {
+		return nil
 	}
 	d.deliverSoon(agentID)
 	return nil

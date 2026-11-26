@@ -77,6 +77,12 @@ describe('sameRepo', () => {
     expect(sameRepo('~/projects/shop/', '/Users/u/projects/shop')).toBe(true)
     expect(sameRepo('~/projects/shop', '/root/projects/shop')).toBe(true)
   })
+  it('matches a ~ spelling on either side, and keeps "/" a slash', () => {
+    expect(sameRepo('/home/u/projects/shop', '~/projects/shop')).toBe(true)
+    expect(sameRepo('~/projects/shop', '~/projects/shop/')).toBe(true)
+    expect(sameRepo('///', '/')).toBe(true)
+    expect(sameRepo('///', '/home/u')).toBe(false)
+  })
   it('keeps different folders apart', () => {
     expect(sameRepo('~/projects/shop', '/home/u/projects/shop-api')).toBe(false)
     expect(sameRepo('~/projects/shop', '/srv/x/projects/shop')).toBe(false)

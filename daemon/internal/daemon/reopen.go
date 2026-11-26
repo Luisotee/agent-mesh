@@ -280,6 +280,13 @@ func (d *Daemon) directTask(tx *store.Tx, a *v1.Agent) error {
 	if a.Phase == v1.AgentPhase_AGENT_PHASE_UNSPECIFIED && !lift {
 		return nil
 	}
+	// Lifting a running planner's deny list reopens it on the model it has: not onto a free one its repo now refuses
+	// (a stopped one is checked when it is resumed). Before anything is written.
+	if lift && (a.PendingReopen != nil || !stopped(a)) {
+		if err := d.checkKept(tx.Reader, a, model); err != nil {
+			return err
+		}
+	}
 	if err := endPlanPhase(tx, a, "direct task"); err != nil {
 		return err
 	}
@@ -632,6 +639,10 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			}
 		default:
 			effort = m.Effort
+			// The same model, so a free one its repo now refuses stays refused.
+			if err := d.checkKept(tx.Reader, a, model); err != nil {
+				return err
+			}
 		}
 		if model == was && effort == wasEffort {
 			return failedPrecondition("%s already runs on %s at %s effort", a.Name, model, effort)
@@ -1144,6 +1155,14 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
 	model, effort, deny := target(a)
 	var err error
+	// A resume that names no tier or model keeps the model the agent had (a task, or an effort, on it): checked first,
+	// before the phase changes below write anything, so a refusal leaves the agent exactly as it was. A tier or a
+	// model named is checked where it is picked (pickFor).
+	if !spec.plan && spec.tier == "" && spec.model == "" {
+		if err := d.checkKept(tx.Reader, a, model); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case spec.plan:
 		// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
@@ -1203,10 +1222,6 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		}
 	case spec.effort != "":
 		effort = spec.effort
-	}
-	// What it did not pick anew (a task, or an effort, on the model it had) still runs on that model.
-	if err := d.checkKept(tx.Reader, a, model); err != nil {
-		return nil, err
 	}
 	rv, err := requestReopen(tx, a, model, effort, deny, "resumed", spec.why)
 	if err != nil {

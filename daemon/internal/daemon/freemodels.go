@@ -1,8 +1,11 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -33,16 +36,38 @@ func (d *Daemon) freeModelsOff(r store.Reader, top string) string {
 		return ""
 	}
 	list, _ := v.([]any)
-	for _, e := range list {
-		s, _ := e.(string)
-		if s == "" {
-			continue
+	find := func(dir string) string {
+		for _, e := range list {
+			s, _ := e.(string)
+			if s != "" && sameDir(dir, expandHome(s)) {
+				return s
+			}
 		}
-		if sameDir(top, expandHome(s)) {
-			return s
-		}
+		return ""
+	}
+	if len(list) == 0 {
+		return ""
+	}
+	if s := find(top); s != "" {
+		return s
+	}
+	// A linked worktree (a mesh worker's own) is the repo of its main checkout, which is what the setting lists.
+	if main := mainCheckout(top); main != "" && main != top {
+		return find(main)
 	}
 	return ""
+}
+
+// mainCheckout is the folder of the main checkout of the repo `dir` is a linked worktree of: the parent of its
+// common git dir. "" when dir is not in a repo, or its common dir is not a `.git` folder (a bare repo).
+func mainCheckout(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	common, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil || filepath.Base(common) != ".git" {
+		return ""
+	}
+	return filepath.Dir(common)
 }
 
 // freeOffFor is freeModelsOff for an agent about to run on a model: only OpenCode has free models.
@@ -162,6 +187,15 @@ func (d *Daemon) checkKept(r store.Reader, a *v1.Agent, model string) error {
 		return failedPrecondition("%s runs on %s: %s", a.Name, orDefaultModel(model), ce.Message())
 	}
 	return err
+}
+
+// errMessage is an error's message without its code.
+func errMessage(err error) string {
+	var ce *connect.Error
+	if errors.As(err, &ce) {
+		return ce.Message()
+	}
+	return err.Error()
 }
 
 func orDefaultModel(m string) string {

@@ -1,7 +1,7 @@
 import { toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { RotateCcw } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { resetSetting, setSetting } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -70,6 +70,10 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
 }
 
 const FREE_KEY = 'repos.no_free_models'
+/** How long a written list is built on while the host's change event has not arrived (then the host's list is). */
+const WRITE_GRACE_MS = 5000
+
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i])
 
 /**
  * Which repos' code may go to OpenCode's free models (some of their providers keep prompts or train on them). The
@@ -83,6 +87,13 @@ function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Sett
   }, [setting.value])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // The list as last written: the host's change event reaches `listed` a moment after the write answers, and a toggle
+  // in between must build on what was written, not on the older list (which would undo the first toggle).
+  const written = useRef<{ list: string[]; at: number } | undefined>(undefined)
+  useEffect(() => {
+    const w = written.current
+    if (w && sameList(w.list, listed)) written.current = undefined
+  }, [listed])
   // Each repo once, then the listed folders no repo here is: a `~` or trailing-slash spelling is the repo it names.
   const all = [...repos]
   for (const l of listed) if (!all.some((r) => sameRepo(l, r))) all.push(cleanPath(l))
@@ -90,8 +101,12 @@ function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Sett
     if (busy) return
     setBusy(true)
     setError('')
+    const w = written.current
+    const base = w && Date.now() - w.at < WRITE_GRACE_MS ? w.list : listed
+    const next = mayUse ? base.filter((l) => !sameRepo(l, repo)) : [...base, repo]
     try {
-      await setSetting(host.client, FREE_KEY, (mayUse ? listed.filter((l) => !sameRepo(l, repo)) : [...listed, repo]) as never)
+      await setSetting(host.client, FREE_KEY, next as never)
+      written.current = { list: next, at: Date.now() }
     } catch (e) {
       setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
     } finally {
