@@ -187,7 +187,7 @@ func TestImportingPeersReadsBinMeshsFileWithoutWritingItAndSkipsWhatItCant(t *te
 			"paseo-research": map[string]any{"repo": clone, "group": "orchestrators", "kind": "claude", "about": "a daemon per host", "seen": seen, "cwd": "/old/worktree",
 				"upstream": map[string]any{"remote": "origin", "branch": "main", "url": up.dir}, "run": "r1", "as": "paseo-research"},
 			"gone-research":  map[string]any{"repo": "/nowhere/gone", "group": "orchestrators", "about": "x"},
-			"codex-research": map[string]any{"repo": clone, "group": "g", "kind": "copilot", "about": "y"},
+			"codex-research": map[string]any{"repo": clone, "group": "g", "kind": "codex", "about": "y"},
 		},
 		"groups": map[string]any{"orchestrators": map[string]any{"about": "agent orchestration tools"}},
 	}, "", "  ")

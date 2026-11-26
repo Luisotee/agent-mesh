@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for out, pkg := range map[string]string{"mesh-term": "./cmd/mesh-term", "mesh": "./cmd/mesh",
-		"claude": "./internal/testutil/fakeclaude", "agy": "./internal/testutil/fakeagy", "opencode": "./internal/testutil/fakeopencode"} {
+		"claude": "./internal/testutil/fakeclaude", "agy": "./internal/testutil/fakeagy", "opencode": "./internal/testutil/fakeopencode", "copilot": "./internal/testutil/fakecopilot"} {
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, out), pkg)
 		cmd.Dir = "../.."
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")

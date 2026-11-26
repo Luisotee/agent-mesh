@@ -973,6 +973,12 @@ func (t *Tx) PutModelLimit(kind, model string, until time.Time) error {
 	return err
 }
 
+// DeleteModelLimit removes the hold recorded for (kind, model): the CLI answered again, so the limit is over.
+func (t *Tx) DeleteModelLimit(kind, model string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM model_limits WHERE kind = ? AND model = ?`, kind, model)
+	return err
+}
+
 // ModelHold returns the latest active hold end (zero if none is after `now`) for (kind, model) counting a
 // kind-wide "*" hold, and whether any hold record (active or expired) exists for either key.
 func (r Reader) ModelHold(kind, model string, now time.Time) (until time.Time, known bool, err error) {

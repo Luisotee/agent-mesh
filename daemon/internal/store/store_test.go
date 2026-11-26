@@ -589,4 +589,19 @@ func TestVersionFourDatabaseGainsModelLimitsTableAndRoundTrips(t *testing.T) {
 	if all, err := r.ModelLimits(""); err != nil || len(all) != 2 {
 		t.Fatalf("ModelLimits = %+v, %v", all, err)
 	}
+	// A hold the CLI answered past is deleted: only that (kind, model), and deleting a missing one is no error.
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		if err := tx.DeleteModelLimit("agy", "*"); err != nil {
+			return err
+		}
+		return tx.DeleteModelLimit("agy", "*")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, known, err := s.Read(ctx).ModelHold("agy", "gemini-4-neon-high", fixed); err != nil || known || !got.IsZero() {
+		t.Fatalf("ModelHold after delete = %v, %v, %v", got, known, err)
+	}
+	if got, _, _ := s.Read(ctx).ModelHold("claude", "sonnet", fixed); !got.Equal(until) {
+		t.Fatalf("another kind's hold changed: %v", got)
+	}
 }

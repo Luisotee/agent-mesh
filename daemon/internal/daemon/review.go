@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
@@ -184,11 +185,35 @@ func (d *Daemon) installed(kind string) bool {
 	if _, err := d.rt.adapters.Get(kind); err != nil {
 		return false
 	}
-	if kind == opencode.Kind {
-		_, ok := d.opencodeBinary()
+	if kind == opencode.Kind || kind == copilot.Kind {
+		_, ok := d.cliBinary(kind)
 		return ok
 	}
 	return true
+}
+
+// kindAvailable is whether a kind with limits of its own can take a review slot now: OpenCode by its tier's models,
+// Copilot by the kind-wide hold a 402 or a policy refusal leaves. Other kinds are always available.
+func (d *Daemon) kindAvailable(r store.Reader, kind, tier string) (bool, string) {
+	switch kind {
+	case opencode.Kind:
+		return d.openCodeAvailable(r, tier)
+	case copilot.Kind:
+		return d.copilotAvailable(r)
+	}
+	return true, ""
+}
+
+// copilotAvailable is whether Copilot is installed and not out of quota (or refused by policy): its holds are
+// kind-wide (`*`), set by a 402 for a day or a 403 for an hour, until it next answers (copilot.go).
+func (d *Daemon) copilotAvailable(r store.Reader) (bool, string) {
+	if !d.installed(copilot.Kind) {
+		return false, ""
+	}
+	if held, _, err := r.ModelHold(copilot.Kind, holdAll, d.now()); err == nil && !held.IsZero() {
+		return false, fmt.Sprintf("copilot is at its limit until %s", held.UTC().Format(time.RFC3339))
+	}
+	return true, ""
 }
 
 func (d *Daemon) openCodeAvailable(r store.Reader, tier string) (bool, string) {
@@ -287,8 +312,8 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 					missing = append(missing, k)
 					continue
 				}
-				if k == opencode.Kind {
-					if ok, why := d.openCodeAvailable(r, tier); !ok {
+				if k == opencode.Kind || k == copilot.Kind {
+					if ok, why := d.kindAvailable(r, k, tier); !ok {
 						if why != "" {
 							held = append(held, why)
 						}
@@ -319,8 +344,8 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			if !d.installed(k) {
 				continue
 			}
-			if k == opencode.Kind {
-				if ok, why := d.openCodeAvailable(r, tier); !ok {
+			if k == opencode.Kind || k == copilot.Kind {
+				if ok, why := d.kindAvailable(r, k, tier); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -336,8 +361,8 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			case k == "":
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
-			case k == opencode.Kind:
-				if ok, why := d.openCodeAvailable(r, tier); !ok {
+			case k == opencode.Kind || k == copilot.Kind:
+				if ok, why := d.kindAvailable(r, k, tier); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}
@@ -363,8 +388,8 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 				notes = append(notes, fmt.Sprintf("%s reviewed it once and is not asked again (review.re_review.skip)", k))
 			case !d.installed(k):
 				notes = append(notes, fmt.Sprintf("%s is not installed here: not asked", k))
-			case k == opencode.Kind:
-				if ok, why := d.openCodeAvailable(r, tier); !ok {
+			case k == opencode.Kind || k == copilot.Kind:
+				if ok, why := d.kindAvailable(r, k, tier); !ok {
 					if why != "" {
 						notes = append(notes, why+": not asked")
 					}

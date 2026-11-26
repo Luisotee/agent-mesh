@@ -9,6 +9,7 @@ import (
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -62,6 +63,10 @@ func (d *Daemon) settleStartingAgents(ctx context.Context) {
 		}
 		d.rt.mu.Unlock()
 		if now.Sub(tm.LastOutput.AsTime()) < settle && now.Sub(first) < settleCap*settle {
+			continue
+		}
+		// A folder-trust dialog is no prompt: answer it, and wait until it is gone.
+		if a.Kind == copilot.Kind && d.copilotTrustGate(ctx, a) {
 			continue
 		}
 		var becameIdle bool

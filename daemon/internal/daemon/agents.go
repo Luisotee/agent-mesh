@@ -27,6 +27,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
@@ -146,6 +147,7 @@ type runtime struct {
 	cpus        cpuTracker
 	usage       usageState      // usage cache / rate_limits (usage.go)
 	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
+	copilot     copilotRuntime  // Copilot polling (copilot.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -165,7 +167,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 		cfg.ReadySettle = 1 * time.Second
 	}
 	if cfg.Adapters == nil {
-		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New(), opencode.New()}
+		cfg.Adapters = []adapter.Adapter{claude.New(), agy.New(), opencode.New(), copilot.New()}
 	}
 	reg, err := adapter.NewRegistry(context.Background(), cfg.Adapters...)
 	if err != nil {
@@ -392,6 +394,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	delete(d.rt.firstOutput, terminalID)
 	d.rt.mu.Unlock()
 	d.clearOpenCodeTerminal(terminalID)
+	d.clearCopilotTerminal(terminalID)
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		err = nil // the reopen acknowledged it first
@@ -415,7 +418,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning, pollingOpenCode atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -428,6 +431,12 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				go func() {
 					defer pollingOpenCode.Store(false)
 					d.pollOpenCode(ctx)
+				}()
+			}
+			if pollingCopilot.CompareAndSwap(false, true) {
+				go func() {
+					defer pollingCopilot.Store(false)
+					d.pollCopilot(ctx)
 				}()
 			}
 			d.retryDoorbells(ctx)
@@ -730,6 +739,13 @@ func (d *Daemon) agentEnv(a *v1.Agent, token string) map[string]string {
 	}
 	if a.Kind == opencode.Kind && !strings.HasPrefix(a.Model, "opencode/") {
 		for _, k := range opencodeInheritedEnv {
+			if v, ok := os.LookupEnv(k); ok {
+				env[k] = v
+			}
+		}
+	}
+	if a.Kind == copilot.Kind {
+		for _, k := range copilotInheritedEnv {
 			if v, ok := os.LookupEnv(k); ok {
 				env[k] = v
 			}
