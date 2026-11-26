@@ -229,3 +229,49 @@ func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerNeverChangesRole(t *t
 		t.Errorf("the worker's role %v", got.Role)
 	}
 }
+
+// An asker started on a named model is pinned to it; a planned change task gives it a plan phase to approve into
+// a tier, so it is no longer pinned: a plan it sends after that approval enters the phase again.
+func TestAPinnedAskerGivenAPlannedChangeIsNoLongerPinnedAndAFollowUpPlanPlans(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "named",
+		Role: v1.AgentRole_AGENT_ROLE_ASKER, Model: "opus", Task: "Question (read-only): where is the thing?"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if !a.Pinned {
+		t.Fatalf("started unpinned: %v", a)
+	}
+	sendTask(t, asLead, a.Id, "Change the thing: plan it first.")
+	got := w.agent(a.Id)
+	if got.Pinned || got.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING {
+		t.Fatalf("after the planned change %v", got)
+	}
+	asA := w.as(w.token(t, a.Id))
+	readInbox(t, asA)
+	sendPlan := func(c agentmeshv1connect.MeshServiceClient) {
+		t.Helper()
+		if _, err := c.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
+			Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "the plan"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sendPlan(asA)
+	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: a.Id, Tier: "mid"})); err != nil {
+		t.Fatal(err)
+	}
+	after := w.waitReopened(t, a.Id, got.TerminalId)
+	if after.Phase != v1.AgentPhase_AGENT_PHASE_EXECUTING {
+		t.Fatalf("after the approval %v", after)
+	}
+	asB := w.as(w.token(t, a.Id)) // the reopen gave it a new token
+	readInbox(t, asB)
+	sendPlan(asB)
+	if again := w.agent(a.Id); again.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING {
+		t.Errorf("a follow-up plan left the phase %v", again.Phase)
+	}
+}

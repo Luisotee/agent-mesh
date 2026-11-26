@@ -766,7 +766,22 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			mu.Lock()
 			defer mu.Unlock()
 		}
-		prep, perr := d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
+		// An asker or reviewer that this task makes a worker (takeChange, or the cross-run follow-up below) is
+		// prepared as one: its worktree recreated if StopRun removed it, moved off a finished PR's branch.
+		probe := a0
+		if targetRunID != a0.RunId {
+			probe = proto.Clone(a0).(*v1.Agent) // the follow-up's parent is whoever resumes it
+			probe.ParentId = ""
+			if IsAgent(actor.Class) {
+				probe.ParentId = actor.Id
+			}
+		}
+		asWorker := a0
+		if task != "" && d.becomesWorker(r1, probe, task) {
+			asWorker = proto.Clone(a0).(*v1.Agent)
+			asWorker.Role = v1.AgentRole_AGENT_ROLE_WORKER
+		}
+		prep, perr := d.prepareWorktreeForTask(ctx, asWorker, targetRunID, task != "")
 		if perr != nil {
 			return failedPrecondition("preparing worktree for %s: %v", a0.Name, perr)
 		}
