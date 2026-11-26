@@ -417,7 +417,8 @@ message SpawnAgentRequest {
   string model = 7;
   // Overrides the tier's effort (or, with a named model, defaults to high).
   string effort = 8;
-  // The branch or commit to start the worktree from; empty means the repo's HEAD.
+  // The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+  // last fetched), else the repo's HEAD.
   string base = 9;
   // The first message, sent as a task once the agent is ready.
   string task = 10;

@@ -7,11 +7,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
@@ -203,7 +206,7 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 // A request field named like one of the CLI's own flags would make the command unbuildable: say which.
 func TestNoRequestFieldCollidesWithTheCLIsOwnFlags(t *testing.T) {
 	reg, _ := registry.Mesh()
-	own := map[string]bool{"state": true, "json": true, "mutation-id": true, "expires-in": true}
+	own := map[string]bool{"state": true, "json": true, "mutation-id": true, "expires-in": true, "format": true}
 	for _, a := range reg.Actions() {
 		fields := a.Method.Input().Fields()
 		for i := 0; i < fields.Len(); i++ {
@@ -443,5 +446,57 @@ func TestGlobalHelpIsTheHelpCommand(t *testing.T) {
 func TestAnEmptyPositionalIsStillThePositional(t *testing.T) {
 	if _, err := Request(action(t, "send"), []string{"", "extra", "--type", "done"}); err == nil {
 		t.Error(`send "" extra was accepted`)
+	}
+}
+
+// Every flag says what it is for, in the schema's own words: spawn's --base is not just "text".
+func TestHelpDescribesEachFlagFromTheSchemasComments(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"help", "spawn"}, env, nil); code != ExitOK {
+		t.Fatalf("%d %s", code, errb.String())
+	}
+	for _, want := range []string{"The branch or commit to start the worktree from", "Path to the git repository.",
+		"The task has a plan phase", "A text flag's value starting with @"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("help spawn lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "text; @file reads a file") {
+		t.Errorf("the @ rule is said once, not under every flag:\n%s", out.String())
+	}
+}
+
+func TestInboxAndSettingsHaveATextForm(t *testing.T) {
+	ts := timestamppb.New(time.Date(2026, 11, 26, 4, 12, 19, 0, time.UTC))
+	var out bytes.Buffer
+	renderInbox(&v1.ReadInboxResponse{Messages: []*v1.Message{
+		{Id: "m1", Type: v1.MessageType_MESSAGE_TYPE_TASK, From: &v1.Actor{Name: "lead"}, CreatedAt: ts, Body: "do it\n"},
+		{Id: "m2", Type: v1.MessageType_MESSAGE_TYPE_INFO, From: &v1.Actor{Name: "lead"}, CreatedAt: ts, Body: "fyi"},
+	}}, &out)
+	want := "── task from lead at 2026-11-26T04:12:19Z (m1) ──\ndo it\n\n── info from lead at 2026-11-26T04:12:19Z (m2) ──\nfyi\n"
+	if out.String() != want {
+		t.Errorf("inbox:\n%s\nwant\n%s", out.String(), want)
+	}
+	out.Reset()
+	renderInbox(&v1.ReadInboxResponse{}, &out)
+	if out.String() != "no messages\n" {
+		t.Errorf("empty inbox: %q", out.String())
+	}
+	out.Reset()
+	renderSettings(&v1.ListSettingsResponse{Settings: []*v1.Setting{
+		{Key: "caps.agents", Value: structpb.NewNumberValue(8), Default: structpb.NewNumberValue(8)},
+		{Key: "tiers.claude.mid.model", Value: structpb.NewStringValue("sonnet"), Default: structpb.NewStringValue("opus"), IsSet: true},
+	}}, &out)
+	if want := "caps.agents = 8\ntiers.claude.mid.model = \"sonnet\"   (set; default \"opus\")\n"; out.String() != want {
+		t.Errorf("settings: %q", out.String())
+	}
+	// The same through the generic path: a dynamic response and the command's name.
+	res := dynamicpb.NewMessage(action(t, "inbox").Method.Output())
+	if err := renderText("inbox", res, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(out.String(), "no messages\n") || !hasText("inbox") || hasText("spawn") {
+		t.Errorf("renderText: %q", out.String())
 	}
 }

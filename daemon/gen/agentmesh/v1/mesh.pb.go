@@ -438,7 +438,8 @@ type SpawnAgentRequest struct {
 	Model string `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
 	// Overrides the tier's effort (or, with a named model, defaults to high).
 	Effort string `protobuf:"bytes,8,opt,name=effort,proto3" json:"effort,omitempty"`
-	// The branch or commit to start the worktree from; empty means the repo's HEAD.
+	// The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+	// last fetched), else the repo's HEAD.
 	Base string `protobuf:"bytes,9,opt,name=base,proto3" json:"base,omitempty"`
 	// The first message, sent as a task once the agent is ready.
 	Task string `protobuf:"bytes,10,opt,name=task,proto3" json:"task,omitempty"`

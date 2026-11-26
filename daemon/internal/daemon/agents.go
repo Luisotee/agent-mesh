@@ -661,6 +661,19 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// defaultBase is where a worktree starts when the spawn names no base: the remote's default branch (`origin/main`,
+// as the repo's own origin/HEAD says), not whatever branch the user's checkout happens to be on, so a worker
+// never branches off a feature branch by accident. A repo with no origin/HEAD starts from its HEAD. It is the
+// local copy of the remote branch, as `bin/mesh` takes it: fetch first when it should be newer.
+func defaultBase(ctx context.Context, top string) string {
+	if ref, err := git(ctx, top, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil && ref != "" && ref != "origin/HEAD" {
+		if _, err := git(ctx, top, "rev-parse", "--verify", "-q", ref+"^{commit}"); err == nil {
+			return ref
+		}
+	}
+	return "HEAD"
+}
+
 func (d *Daemon) worktrees() string {
 	if d.rt.cfg.Worktrees != "" {
 		return d.rt.cfg.Worktrees
@@ -814,7 +827,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	base := m.Base
 	if base == "" {
-		base = "HEAD"
+		base = defaultBase(ctx, top)
 	}
 	if strings.HasPrefix(base, "-") {
 		return nil, invalid("base %q looks like an option", base)

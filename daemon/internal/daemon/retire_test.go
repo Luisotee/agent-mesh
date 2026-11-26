@@ -664,3 +664,40 @@ func TestAFailedResumeGivesItsMemoryReservationBack(t *testing.T) {
 		t.Errorf("a spawn after three failed resumes: %v", err)
 	}
 }
+
+// A spawn with no base starts from the remote's default branch, not from the branch the user's checkout is on.
+func TestASpawnWithNoBaseStartsFromTheRemotesDefaultBranch(t *testing.T) {
+	w := startReopen(t)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+
+	// No origin: the repo's HEAD, as before.
+	plain := gitRepo(t)
+	gitIn(t, plain, "switch", "-q", "-c", "feature")
+	gitIn(t, plain, "commit", "-q", "--allow-empty", "-m", "feature work")
+	a := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Repo: plain})
+	if got, want := gitIn(t, a.Worktree, "rev-parse", "HEAD"), gitIn(t, plain, "rev-parse", "HEAD"); got != want {
+		t.Errorf("without an origin the base is HEAD %s, got %s", want, got)
+	}
+
+	// With origin/HEAD on main and the checkout on a feature branch: main.
+	repo := gitRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitIn(t, repo, "init", "-q", "--bare", remote)
+	gitIn(t, repo, "remote", "add", "origin", remote)
+	gitIn(t, repo, "push", "-q", "origin", "main")
+	gitIn(t, repo, "fetch", "-q", "origin")
+	gitIn(t, repo, "remote", "set-head", "origin", "main")
+	mainSHA := gitIn(t, repo, "rev-parse", "main")
+	gitIn(t, repo, "switch", "-q", "-c", "feature")
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "feature work")
+	b := w.spawnUnder(t, asLead, "remote", &v1.SpawnAgentRequest{Repo: repo})
+	if got := gitIn(t, b.Worktree, "rev-parse", "HEAD"); got != mainSHA {
+		t.Errorf("the base is origin/main %s, got %s (the checkout's feature branch)", mainSHA, got)
+	}
+	// An explicit base still wins.
+	c := w.spawnUnder(t, asLead, "named", &v1.SpawnAgentRequest{Repo: repo, Base: "feature"})
+	if got, want := gitIn(t, c.Worktree, "rev-parse", "HEAD"), gitIn(t, repo, "rev-parse", "feature"); got != want {
+		t.Errorf("--base feature: %s, want %s", got, want)
+	}
+}

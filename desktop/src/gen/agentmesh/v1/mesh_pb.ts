@@ -237,7 +237,8 @@ export type SpawnAgentRequest = Message<"agentmesh.v1.SpawnAgentRequest"> & {
   effort: string;
 
   /**
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    *
    * @generated from field: string base = 9;
    */

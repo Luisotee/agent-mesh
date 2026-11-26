@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -161,7 +162,11 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
 	}
-	if err := call(context.Background(), conn, a, req, env.Stdout); err != nil {
+	if cmd.format != "" && cmd.format != "text" && cmd.format != "json" {
+		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", a.CLI, cmd.format)
+		return ExitUsage
+	}
+	if err := call(context.Background(), conn, a, req, env.Stdout, cmd.format == "text"); err != nil {
 		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
 		return ExitError
 	}
@@ -214,6 +219,7 @@ type command struct {
 	env    Env
 	state  string
 	whole  string
+	format string // text or json, for a command with a text form
 	// The field flags, in the order given: applied after --json, so they override it wherever they stand. A list
 	// field's first flag replaces the list --json gave; the next ones add to it.
 	pending   []func()
@@ -259,6 +265,9 @@ func newCommand(a *registry.Action, env Env, state string) *command {
 	c.flags.Usage = func() {}
 	c.flags.StringVar(&c.state, "state", state, "the daemon's state dir (or $"+client.StateEnv+")")
 	c.flags.StringVar(&c.whole, "json", "", "the whole request as JSON; the other flags override its fields (a repeated field's first flag replaces its list)")
+	if hasText(a.CLI) {
+		c.flags.StringVar(&c.format, "format", "text", "text (short, for reading) or json (the whole response)")
+	}
 	fields := a.Method.Input().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Get(i)
@@ -267,7 +276,7 @@ func newCommand(a *registry.Action, env Env, state string) *command {
 			c.flags.DurationVar(&c.expiresIn, "expires-in", 0, "refuse the write if it reaches the daemon later than this")
 			continue
 		}
-		c.flags.Var(fieldFlag{c: c, f: f}, FlagName(f), describe(f))
+		c.flags.Var(fieldFlag{c: c, f: f}, FlagName(f), flagHelp(f))
 	}
 	return c
 }
@@ -279,9 +288,22 @@ func (c *command) usage(w io.Writer) {
 		arg = " [<" + string(f.Name()) + ">]"
 	}
 	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", c.action.CLI, arg, c.action.Summary)
+	fmt.Fprintln(w, "  A text flag's value starting with @ reads a file (@- stdin); @@ starts it with a literal @.")
 	c.flags.SetOutput(w)
 	c.flags.PrintDefaults()
 	c.flags.SetOutput(io.Discard)
+}
+
+// flagHelp is a flag's help: the schema's comment on the field, then what value it takes.
+func flagHelp(f protoreflect.FieldDescriptor) string {
+	if doc := v1.FieldDocs[string(f.FullName())]; doc != "" {
+		// Text and switches need no word on the value: usage says once what a text flag's @ does.
+		if k := f.Kind(); !f.IsList() && (k == protoreflect.StringKind || k == protoreflect.BytesKind || k == protoreflect.BoolKind) {
+			return doc
+		}
+		return doc + " (" + describe(f) + ")"
+	}
+	return describe(f)
 }
 
 func describe(f protoreflect.FieldDescriptor) string {
@@ -505,9 +527,9 @@ var (
 	compact = protojson.MarshalOptions{}
 )
 
-// call runs the action. A unary response is printed as indented JSON; a stream prints one JSON object per
+// call runs the action. A unary response is printed as indented JSON (or in its short text form, when text is set); a stream prints one JSON object per
 // line as it arrives, until the daemon ends it.
-func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out io.Writer) error {
+func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out io.Writer, text bool) error {
 	c := connect.NewClient[dynamicpb.Message, dynamicpb.Message](conn.HTTP, client.BaseURL+a.Procedure,
 		connect.WithSchema(a.Method), connect.WithResponseInitializer(initDynamic),
 		connect.WithInterceptors(auth.ClientToken(conn.Token)))
@@ -529,6 +551,9 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 	res, err := c.CallUnary(ctx, connect.NewRequest(req))
 	if err != nil {
 		return err
+	}
+	if text {
+		return renderText(a.CLI, res.Msg, out)
 	}
 	b, err := pretty.Marshal(res.Msg)
 	if err != nil {

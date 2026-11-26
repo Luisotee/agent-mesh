@@ -26,12 +26,14 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/cleanenv"
 )
 
 // bins holds mesh-term, mesh and the fake claude, built once for the package's tests.
 var bins string
 
 func TestMain(m *testing.M) {
+	cleanenv.Agent()
 	dir, err := os.MkdirTemp("", "meshd-bins-")
 	if err != nil {
 		panic(err)
