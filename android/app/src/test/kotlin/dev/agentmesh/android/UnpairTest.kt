@@ -47,6 +47,9 @@ class UnpairTest {
         assertEquals(UnpairResult.Failed("down"), unpairFromHost(api))
         api.failRevokeSelf = ApiException(Code.UNIMPLEMENTED, "unknown method")
         assertEquals(UnpairResult.Failed("unknown method"), unpairFromHost(api))
+        // A refusal of the call itself doesn't show the token is dead.
+        api.failRevokeSelf = ApiException(Code.PERMISSION_DENIED, "not allowed")
+        assertEquals(UnpairResult.Failed("not allowed"), unpairFromHost(api))
     }
 
     private fun show(canUnpair: Boolean, unpair: suspend () -> UnpairResult, removed: () -> Unit, dismissed: () -> Unit = {}) =

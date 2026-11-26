@@ -1,3 +1,4 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { ExternalLink, Network } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { tailnetStatus } from '@/actions'
@@ -23,11 +24,13 @@ const SLOW_MS = 30_000
 export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse: (address: string) => void }) {
   const [status, setStatus] = useState<TailnetStatusResponse>()
   const [error, setError] = useState('')
+  // A host older than this app doesn't have the action: say nothing instead of an error on every visit.
+  const [unsupported, setUnsupported] = useState(false)
 
   const running = status ? tailnetRunning(status) : false
   const off = status !== undefined && !status.enabled
   useEffect(() => {
-    if (off) return
+    if (off || unsupported) return
     let live = true
     const load = () =>
       tailnetStatus(host.client).then(
@@ -37,7 +40,9 @@ export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse: (addre
           setError('')
         },
         (e: unknown) => {
-          if (live) setError(say(e))
+          if (!live) return
+          if (e instanceof ConnectError && e.code === Code.Unimplemented) setUnsupported(true)
+          else setError(say(e))
         },
       )
     void load()
@@ -46,8 +51,9 @@ export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse: (addre
       live = false
       clearInterval(t)
     }
-  }, [host, running, off])
+  }, [host, running, off, unsupported])
 
+  if (unsupported) return null
   if (!status) {
     return error ? (
       <p role="alert" className="max-w-2xl text-xs text-destructive">Tailscale: {error}</p>

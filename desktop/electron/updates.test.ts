@@ -30,6 +30,18 @@ describe('startUpdates', () => {
     expect(f.updater.checkForUpdatesAndNotify).toHaveBeenCalledTimes(3)
   })
 
+  it('does not start a check while the last one is still running', async () => {
+    vi.useFakeTimers()
+    let release!: () => void
+    const updater: Updater = { checkForUpdatesAndNotify: vi.fn(() => new Promise<void>((r) => { release = r })) }
+    startUpdates({ packaged: true, isolated: false, load: async () => updater, log: vi.fn(), everyMs: 1000 })
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(updater.checkForUpdatesAndNotify).toHaveBeenCalledTimes(1)
+    release()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(updater.checkForUpdatesAndNotify).toHaveBeenCalledTimes(2)
+  })
+
   it('logs a failed check and keeps going', async () => {
     vi.useFakeTimers()
     const f = fake(new Error('offline'))

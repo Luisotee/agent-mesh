@@ -99,7 +99,8 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
 @Composable
 fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () -> UnpairResult, onRemove: () -> Unit, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var alsoUnpair by remember { mutableStateOf(canUnpair) }
+    // Ticked by default: it only counts while the host is connected, so a connection that comes up with the dialog open is covered.
+    var alsoUnpair by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(

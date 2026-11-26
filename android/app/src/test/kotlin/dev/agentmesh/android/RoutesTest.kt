@@ -110,6 +110,11 @@ class RoutesTest {
         assertFalse(PinnedTrust(hex) === null)
     }
 
+    @Test fun `a tailnet route is labelled as one in the host list`() {
+        assertEquals("tailnet https://100.64.0.1:9443", dev.agentmesh.android.ui.routeLabel(Route.Direct("https://100.64.0.1:9443")))
+        assertEquals("https://192.168.1.5:9443", dev.agentmesh.android.ui.routeLabel(Route.Direct("https://192.168.1.5:9443")))
+    }
+
     @Test fun `tailnet addresses are told from other direct routes`() {
         for (u in listOf("https://100.64.0.1:9443", "https://100.127.255.254", "https://mesh-home.tail1234.ts.net", "https://MESH.TS.NET:8443", "https://[fd7a:115c:a1e0::7]:443")) assertTrue(u, isTailnetUrl(u))
         for (u in listOf("https://100.63.255.255", "https://100.128.0.1", "https://100.64.0.256", "https://192.168.1.5:9443", "https://example.com", "https://ts.net.evil.com", "not a url", "")) assertFalse(u, isTailnetUrl(u))

@@ -13,12 +13,18 @@ export const CHECK_EVERY_MS = 6 * 60 * 60 * 1000
 export function startUpdates(o: { packaged: boolean; isolated: boolean; load: () => Promise<Updater>; log: (m: string) => void; everyMs?: number }): () => void {
   if (!o.packaged || o.isolated) return () => {}
   let stopped = false
+  let checking = false
   const check = async () => {
+    // A slow check or download is not started over by the next tick.
+    if (checking) return
+    checking = true
     try {
       const updater = await o.load()
       if (!stopped) await updater.checkForUpdatesAndNotify()
     } catch (e) {
       o.log(`update check failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      checking = false
     }
   }
   void check()

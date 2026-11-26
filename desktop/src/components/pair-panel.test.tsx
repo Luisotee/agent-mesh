@@ -1,5 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
+import { Code, ConnectError } from '@connectrpc/connect'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import jsQR from 'jsqr'
 import userEvent from '@testing-library/user-event'
@@ -340,6 +341,16 @@ describe('the Tailscale section of the pair screen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
     await waitFor(() => expect(client.createPairing).toHaveBeenCalledTimes(1))
     expect(client.createPairing.mock.calls[0]![0]).toMatchObject({ directUrl: 'https://100.64.0.7:8443' })
+  })
+
+  it('says nothing on a host that is too old to have the action', async () => {
+    const { host, client, wrap } = fixture()
+    client.tailnetStatus.mockRejectedValue(new ConnectError('unknown method', Code.Unimplemented))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByRole('button', { name: 'Create pairing link' })).toBeInTheDocument()
+    await waitFor(() => expect(client.tailnetStatus).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('region', { name: 'Tailscale' })).toBeNull()
+    expect(screen.queryByText(/Tailscale:/)).toBeNull()
   })
 
   it('shows why the host refused, without a panel of fake data', async () => {
