@@ -5,16 +5,21 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 )
 
 // Kind is the adapter's kind.
@@ -41,7 +46,7 @@ var SessionVars = []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_
 // hookEvents are the hooks every launch registers, with their matcher ("*" for tool events).
 var hookEvents = []struct{ name, matcher string }{
 	{"SessionStart", ""}, {"UserPromptSubmit", ""}, {"PreToolUse", "*"}, {"PostToolUse", "*"},
-	{"Notification", ""}, {"Stop", ""}, {"SubagentStop", ""}, {"PreCompact", ""}, {"SessionEnd", ""},
+	{"Notification", ""}, {"Stop", ""}, {"StopFailure", ""}, {"SubagentStop", ""}, {"PreCompact", ""}, {"SessionEnd", ""},
 }
 
 // Adapter is the Claude Code adapter.
@@ -79,21 +84,31 @@ type hookGroup struct {
 }
 
 // Settings is the `--settings` JSON a launch gets: its hooks, each running the hook command with the event's
-// name appended. Claude Code adds them to the user's and the repo's own hooks.
-func Settings(hookArgv []string) (string, error) {
+// name appended. Claude Code adds them to the user's and the repo's own hooks. With denyPublish its PreToolUse
+// hook also checks every shell command against the publish rules (EvaluatePreToolUse), and a denial from a hook
+// holds in every permission mode.
+func Settings(hookArgv []string, denyPublish bool) (string, error) {
 	hooks := map[string][]hookGroup{}
 	for _, ev := range hookEvents {
-		cmd := adapter.ShellQuote(append(append([]string{}, hookArgv...), ev.name)...)
+		argv := append([]string{}, hookArgv...)
+		if denyPublish && ev.name == "PreToolUse" {
+			argv = append(argv, "--deny-publish")
+		}
+		cmd := adapter.ShellQuote(append(argv, ev.name)...)
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
 	b, err := json.Marshal(map[string]any{"hooks": hooks})
 	return string(b), err
 }
 
-// publishCommands are the shell commands a read-only agent may not run: what publishes to a remote or a PR.
-// The same list as bin/mesh's PUBLISH_COMMANDS.
+// publishCommands are the shell commands a read-only agent may not run, as `--disallowedTools` prefix rules: the
+// backstop to the PreToolUse check (EvaluatePreToolUse), which reads a command line the way a careful person
+// would (`git -C . push`, `gh pr --repo o/r merge`, `bash -c "git push"`, gh api writes), where a prefix rule
+// misses all of them, and which a hook that fails to run lets through. The same writes as bin/mesh's
+// PUBLISH_COMMANDS, and more.
 var publishCommands = []string{"git push", "gh pr review", "gh pr comment", "gh pr merge", "gh pr edit", "gh pr close",
-	"gh issue comment"}
+	"gh pr create", "gh pr ready", "gh pr reopen", "gh issue comment", "gh issue create", "gh issue close",
+	"gh issue edit", "gh release create", "gh repo delete"}
 
 // ReadOnly reports whether a role may not change code: an asker or a reviewer.
 func ReadOnly(role agentmeshv1.AgentRole) bool { return adapter.ReadOnly(role) }
@@ -134,9 +149,14 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if bin == "" {
 		bin = "claude"
 	}
-	settings, err := Settings(m.HookArgv)
+	deny := ReadOnly(m.Role) || m.DenyEdits
+	settings, err := Settings(m.HookArgv, deny)
 	if err != nil {
 		return nil, err
+	}
+	// A folder Claude hasn't seen shows a trust dialog before any hook fires: trust the worktree first.
+	if err := Pretrust(m.Env, m.Cwd); err != nil {
+		return nil, fmt.Errorf("trusting %s for Claude Code: %w", m.Cwd, err)
 	}
 	// A reopen resumes the agent's own conversation (same id, its context kept); a first launch picks the id now.
 	sid := m.ResumeSessionId
@@ -151,7 +171,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if m.Effort != "" {
 		argv = append(argv, "--effort", m.Effort)
 	}
-	if ReadOnly(m.Role) || m.DenyEdits {
+	if deny {
 		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
 	}
 	argv = append(argv, "--settings", settings)
@@ -177,6 +197,13 @@ type payload struct {
 	NotificationType string `json:"notification_type"`
 	Message          string `json:"message"`
 	ToolName         string `json:"tool_name"`
+	ToolInput        struct {
+		Command string `json:"command"`
+	} `json:"tool_input"`
+	// StopFailure: the turn ended on an API error (`rate_limit`, `billing_error`, `authentication_failed`, …).
+	Error       string `json:"error"`
+	ErrorDetail string `json:"error_details"`
+	LastMessage string `json:"last_assistant_message"`
 }
 
 // DecodeHook turns a hook's payload into neutral events. A hook from another conversation is dropped, except
@@ -215,6 +242,17 @@ func (a *Adapter) DecodeHook(_ context.Context, req *connect.Request[adapterv1.D
 		}
 	case "Stop":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnEnded{TurnEnded: &adapterv1.TurnEnded{}}})
+	case "StopFailure":
+		fired := time.Now()
+		if m.FiredAt != nil {
+			fired = m.FiredAt.AsTime()
+		}
+		if limit, ok := limitOf(p, fired); ok {
+			emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_RateLimited{RateLimited: limit}})
+		} else {
+			emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnFailed{TurnFailed: &adapterv1.TurnFailed{
+				Error: failureText(p)}}})
+		}
 	case "PreCompact":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Compacting{Compacting: &adapterv1.Compacting{}}})
 	case "SessionEnd":
@@ -247,4 +285,141 @@ func orDefault(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// ── limits ──
+
+// limitRE reads the message of a usage limit ("You've hit your session limit · resets 3pm (America/Sao_Paulo)",
+// "You're out of extra usage · resets …", "You've hit your monthly spend limit"): its prefixes are Claude Code's
+// RATE_LIMIT_ERROR_PREFIXES for the rejected case, and the words after "your" name the limit. A capacity 429
+// ("API Error: Request rejected (429) …") is a `rate_limit` error too, but is no usage limit: it names none of these.
+var limitRE = regexp.MustCompile(`(?i)(?:you've hit your ([^·\n]*?limit)|(you're out of extra usage))`)
+
+// modelLimitRE are the limits of one model family ("Opus limit", "Sonnet limit"); the others (session, weekly,
+// usage, monthly spend, extra usage) are the account's, which every model of a chain shares.
+var modelLimitRE = regexp.MustCompile(`(?i)\b(?:opus|sonnet|haiku)\b`)
+
+// limitOf reads a StopFailure as a usage limit.
+func limitOf(p payload, fired time.Time) (*adapterv1.RateLimited, bool) {
+	if p.Error != "" && p.Error != "rate_limit" && p.Error != "billing_error" {
+		return nil, false
+	}
+	for _, text := range []string{p.LastMessage, p.ErrorDetail} {
+		m := limitRE.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		out := &adapterv1.RateLimited{Message: firstLine(text), AllModels: !modelLimitRE.MatchString(m[1])}
+		if at, ok := parseReset(text, fired); ok {
+			out.ResetAt = timestamppb.New(at)
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// failureText is what a StopFailure that isn't a usage limit says: its message, else its details, else its error.
+func failureText(p payload) string {
+	for _, s := range []string{p.LastMessage, p.ErrorDetail, p.Error} {
+		if t := firstLine(s); t != "" {
+			return t
+		}
+	}
+	return "error"
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// resetRE reads the time of a "resets …" tail as Claude Code writes it (utils/format.ts formatResetTime): `3pm`
+// or `3:30pm` within a day, `Nov 27, 3pm` past one (the year too when it isn't this one: `Nov 27, 2027, 3pm`),
+// then the zone in parentheses.
+var resetRE = regexp.MustCompile(`(?i)\bresets\s+(?:([a-z]{3})\s+(\d{1,2}),\s+(?:(\d{4}),\s+)?)?(\d{1,2})(?::(\d{2}))?\s*([ap])m\b(?:\s*\(([^)]+)\))?`)
+
+// parseReset is when the limit a message names is over. A time of day with no date is the next one after fired
+// (Claude says a bare time only within 24 hours). With no zone, or one this host doesn't know, the host's local
+// zone reads it.
+func parseReset(text string, fired time.Time) (time.Time, bool) {
+	m := resetRE.FindStringSubmatch(text)
+	if m == nil {
+		return time.Time{}, false
+	}
+	loc := time.Local
+	if m[7] != "" {
+		if l, err := time.LoadLocation(strings.TrimSpace(m[7])); err == nil {
+			loc = l
+		}
+	}
+	var hour, min, day, year int
+	fmt.Sscanf(m[4], "%d", &hour)
+	fmt.Sscanf(m[5], "%d", &min)
+	if hour < 1 || hour > 12 || min > 59 {
+		return time.Time{}, false
+	}
+	hour %= 12
+	if strings.EqualFold(m[6], "p") {
+		hour += 12
+	}
+	now := fired.In(loc)
+	if m[1] == "" {
+		at := time.Date(now.Year(), now.Month(), now.Day(), hour, min, 0, 0, loc)
+		if !at.After(now) {
+			at = at.AddDate(0, 0, 1)
+		}
+		return at, true
+	}
+	month, ok := months[strings.ToLower(m[1])]
+	if !ok {
+		return time.Time{}, false
+	}
+	fmt.Sscanf(m[2], "%d", &day)
+	if m[3] != "" {
+		fmt.Sscanf(m[3], "%d", &year)
+	} else {
+		year = now.Year()
+	}
+	at := time.Date(year, month, day, hour, min, 0, 0, loc)
+	if m[3] == "" && at.Before(now) {
+		at = at.AddDate(1, 0, 0) // a date with no year that has passed this year is next year's
+	}
+	return at, true
+}
+
+var months = map[string]time.Month{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8,
+	"sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+// ── PreToolUse publish check ──
+
+// EvaluatePreToolUse checks a Claude PreToolUse payload against the publish rules, and says whether the tool
+// call is denied and why. Only the Bash tool's command is read, by agy's matcher (the same list of gh reads, the
+// same unwrapping of `env`, `sh -c` and the like). With denyPublish set, a payload that can't be read is denied:
+// the rule fails closed. It guards against an agent's mistake, not a determined one (a script it writes, a git
+// alias): the role's prompt says what it may do.
+func EvaluatePreToolUse(raw []byte, denyPublish bool) (bool, string) {
+	if !denyPublish {
+		return false, ""
+	}
+	var p payload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return true, "read-only/planning agent: the tool call could not be checked (" + err.Error() + ")"
+	}
+	if p.ToolName != "Bash" {
+		return false, ""
+	}
+	if pub := agy.MatchPublishCommand(p.ToolInput.Command); pub != "" {
+		return true, fmt.Sprintf("read-only/planning agent may not run %q", pub)
+	}
+	return false, ""
+}
+
+// DenyJSON is what a Claude PreToolUse hook prints to deny a tool call.
+func DenyJSON(reason string) []byte {
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse",
+		"permissionDecision": "deny", "permissionDecisionReason": reason}})
+	return append(b, '\n')
 }

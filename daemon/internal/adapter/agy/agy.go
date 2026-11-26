@@ -426,11 +426,39 @@ var editTools = map[string]bool{
 	"delete_file":                true,
 }
 
-// publishVerbs are the gh subcommands a read-only or planning agent may not run, by group: the same writes as
-// the Claude adapter's publishCommands. `git push` and gh api writes are matched apart (matchPublishTokens).
-var publishVerbs = map[string][]string{
-	"pr":    {"review", "comment", "merge", "edit", "close"},
-	"issue": {"comment"},
+// ghReads are the gh commands a read-only or planning agent may run, by group and verb: reads of the remote
+// and local inspection. `*` is any verb of the group, and a group with only `*` and no verb is the command
+// itself (`gh status`). Everything else is a publish (a create, comment, review, merge, close, edit, delete, a
+// workflow run, a secret set, an extension, an alias), so a gh command added later is denied until listed here.
+// `git push` and gh api writes are matched apart (matchPublishTokens, matchGh). The Claude adapter's PreToolUse
+// check uses the same list (MatchPublishCommand).
+var ghReads = map[string]map[string]bool{
+	"pr":          {"list": true, "view": true, "diff": true, "checks": true, "status": true},
+	"issue":       {"list": true, "view": true, "status": true},
+	"release":     {"list": true, "view": true, "download": true},
+	"repo":        {"view": true, "list": true, "clone": true, "gitignore": true, "license": true},
+	"run":         {"list": true, "view": true, "watch": true, "download": true},
+	"workflow":    {"list": true, "view": true},
+	"gist":        {"list": true, "view": true, "clone": true},
+	"label":       {"list": true},
+	"cache":       {"list": true},
+	"secret":      {"list": true},
+	"variable":    {"list": true, "get": true},
+	"ruleset":     {"list": true, "view": true, "check": true},
+	"project":     {"list": true, "view": true, "field-list": true, "item-list": true},
+	"org":         {"list": true},
+	"codespace":   {"list": true, "view": true},
+	"ssh-key":     {"list": true},
+	"gpg-key":     {"list": true},
+	"auth":        {"status": true},
+	"config":      {"get": true, "list": true},
+	"attestation": {"verify": true, "download": true, "inspect": true},
+	"search":      {"*": true},
+	"status":      {"*": true},
+	"browse":      {"*": true},
+	"help":        {"*": true},
+	"version":     {"*": true},
+	"completion":  {"*": true},
 }
 
 type preToolPayload struct {
@@ -558,6 +586,10 @@ const maxShellDepth = 4
 // and `eval` strings) and its command checked. It guards against an agent's honest mistake, not a determined one
 // (a script it writes, a git alias): the role's prompt says what it may do.
 func matchPublishCommand(cmdline string) string { return matchPublishDepth(cmdline, 0) }
+
+// MatchPublishCommand is matchPublishCommand for the Claude adapter's PreToolUse check: one matcher, one list of
+// gh reads, for both CLIs.
+func MatchPublishCommand(cmdline string) string { return matchPublishCommand(cmdline) }
 
 func matchPublishDepth(cmdline string, depth int) string {
 	if depth > maxShellDepth {
@@ -766,14 +798,14 @@ func matchGh(args []string) string {
 		}
 		return ""
 	}
-	if len(pos) >= 2 {
-		for _, verb := range publishVerbs[pos[0]] {
-			if pos[1] == verb {
-				return "gh " + pos[0] + " " + verb
-			}
-		}
+	reads, known := ghReads[pos[0]]
+	switch {
+	case !known:
+		return "gh " + pos[0]
+	case len(pos) == 1 || reads["*"] || reads[pos[1]]:
+		return "" // a read, or the group's own help
 	}
-	return ""
+	return "gh " + pos[0] + " " + pos[1]
 }
 
 func shellWords(s string) []string {

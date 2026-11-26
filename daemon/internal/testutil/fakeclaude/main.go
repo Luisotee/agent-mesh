@@ -11,6 +11,12 @@
 //	              Stop
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
+//	/limit <text> UserPromptSubmit, then StopFailure (rate_limit, <text> as the message): a usage limit
+//	/bash <cmd>   UserPromptSubmit, PreToolUse (Bash, <cmd>), then PostToolUse and Stop; "denied: <reason>" is
+//	              printed instead of the tool's, when a PreToolUse hook printed a permission denial
+//
+// With $FAKECLAUDE_TRUST_DIALOG set it draws the folder-trust dialog and fires no hook until a line is typed,
+// unless $HOME/.claude.json trusts the folder or a parent (`projects[<path>].hasTrustDialogAccepted`).
 //
 // With $FAKECLAUDE_PLACEHOLDER set it draws Claude Code's empty-box placeholder after its prompt, as the real one
 // does at a fresh pane: text that looks like a draft to anything reading the screen.
@@ -23,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -76,11 +83,43 @@ func main() {
 		}
 	}
 	fmt.Printf("fake claude %s\r\n", session)
+	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
+		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
+			"❯ 1. No, exit\r\n  2. Yes, I trust this folder\r\n")
+		bufio.NewReader(os.Stdin).ReadString('\n')
+	}
 	hook("SessionStart", map[string]any{"source": source})
 	prompt()
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
 		line := strings.TrimSpace(strings.NewReplacer("\x1b[200~", "", "\x1b[201~", "").Replace(in.Text()))
+		switch {
+		case strings.HasPrefix(line, "/limit "):
+			hook("UserPromptSubmit", map[string]any{"prompt": line})
+			hook("StopFailure", map[string]any{"error": "rate_limit", "last_assistant_message": strings.TrimPrefix(line, "/limit ")})
+			fmt.Print("limit\r\n")
+			prompt()
+			continue
+		case strings.HasPrefix(line, "/bash "):
+			hook("UserPromptSubmit", map[string]any{"prompt": line})
+			out := hook("PreToolUse", map[string]any{"tool_name": "Bash",
+				"tool_input": map[string]any{"command": strings.TrimPrefix(line, "/bash ")}})
+			var d struct {
+				H struct {
+					Decision string `json:"permissionDecision"`
+					Reason   string `json:"permissionDecisionReason"`
+				} `json:"hookSpecificOutput"`
+			}
+			if json.Unmarshal(out, &d) == nil && d.H.Decision == "deny" {
+				fmt.Printf("denied: %s\r\n", d.H.Reason)
+			} else {
+				fmt.Print("ran\r\n")
+				hook("PostToolUse", map[string]any{"tool_name": "Bash"})
+			}
+			hook("Stop", map[string]any{"stop_hook_active": false})
+			prompt()
+			continue
+		}
 		switch line {
 		case "":
 		case "/exit":
@@ -129,8 +168,34 @@ func prompt() {
 	}
 }
 
-// hook runs every command registered for an event, with its JSON on stdin, as Claude Code does.
-func hook(event string, fields map[string]any) {
+// trusted reports whether $HOME/.claude.json trusts the working folder or a parent of it.
+func trusted() bool {
+	b, err := os.ReadFile(os.Getenv("HOME") + "/.claude.json")
+	if err != nil {
+		return false
+	}
+	var c struct {
+		Projects map[string]struct {
+			Trusted bool `json:"hasTrustDialogAccepted"`
+		} `json:"projects"`
+	}
+	if json.Unmarshal(b, &c) != nil {
+		return false
+	}
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		if c.Projects[dir].Trusted {
+			return true
+		}
+		if filepath.Dir(dir) == dir {
+			return false
+		}
+	}
+}
+
+// hook runs every command registered for an event, with its JSON on stdin, as Claude Code does, and returns what
+// they printed.
+func hook(event string, fields map[string]any) []byte {
+	var printed bytes.Buffer
 	body := map[string]any{"session_id": session, "hook_event_name": event, "cwd": cwd,
 		"transcript_path": "/dev/null"}
 	for k, v := range fields {
@@ -141,10 +206,12 @@ func hook(event string, fields map[string]any) {
 		for _, h := range group.Hooks {
 			cmd := exec.Command("sh", "-c", h.Command)
 			cmd.Stdin = bytes.NewReader(payload)
-			cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+			cmd.Stdout, cmd.Stderr = &printed, os.Stderr
 			if err := cmd.Run(); err != nil {
 				fmt.Fprintf(os.Stderr, "fakeclaude: hook %s: %v\r\n", event, err)
 			}
 		}
 	}
+	os.Stderr.Write(printed.Bytes())
+	return printed.Bytes()
 }

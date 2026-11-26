@@ -43,7 +43,12 @@ func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) 
 			}
 		}
 		// Variadic: another flag follows the list.
-		if !strings.Contains(argv, "Bash(gh issue comment:*)\x00--settings") {
+		for _, want := range []string{"Bash(gh pr create:*)", "Bash(gh issue close:*)", "Bash(gh release create:*)", "Bash(gh repo delete:*)"} {
+			if !strings.Contains(argv, want) {
+				t.Errorf("%v: no %q in %q", role, want, argv)
+			}
+		}
+		if last := "Bash(" + publishCommands[len(publishCommands)-1] + ":*)"; !strings.Contains(argv, last+"\x00--settings") {
 			t.Errorf("%v: the deny list is not followed by a flag: %q", role, argv)
 		}
 	}

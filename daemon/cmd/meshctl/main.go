@@ -22,7 +22,7 @@ func main() {
 }
 
 // runHook always exits 0: a hook that fails must not disturb the agent's CLI. Failures go to the state dir's
-// hook.log. With $AGENT_MESH_HOOK_CAPTURE set it also saves each payload there. For agy PreToolUse with
+// hook.log. With $AGENT_MESH_HOOK_CAPTURE set it also saves each payload there. For a PreToolUse with
 // deny flags, a denial JSON is printed to stdout; otherwise nothing is printed. --check-only checks those flags
 // and reports nothing (a session that isn't the agent's).
 func runHook(args []string) int {

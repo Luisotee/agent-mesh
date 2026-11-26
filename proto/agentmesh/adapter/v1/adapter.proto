@@ -177,6 +177,11 @@ message DecodeError {
 message RateLimited {
   string message = 1;
   string reset_in = 2;
+  // When the limit is over, if the CLI said (Claude's "resets 3pm (America/Sao_Paulo)").
+  google.protobuf.Timestamp reset_at = 3;
+  // The limit is on the whole account (a session or weekly limit), so every model of a chain shares it: no
+  // other model of the chain is free. False for a limit on one model (agy's, Claude's Opus or Sonnet limit).
+  bool all_models = 4;
 }
 
 // The turn ended in a non-limit error.
