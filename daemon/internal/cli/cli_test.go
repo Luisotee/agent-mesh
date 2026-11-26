@@ -184,7 +184,7 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 		t.Errorf("help for an unknown command: %d", code)
 	}
 	ran := false
-	if code := Main([]string{"--state", "/x", "hook", "a"}, env, map[string]func([]string) int{"hook": func(a []string) int {
+	if code := Main([]string{"--state", "/x", "hook", "a"}, env, map[string]func(Env, []string) int{"hook": func(_ Env, a []string) int {
 		ran = len(a) == 1
 		return 0
 	}}); code != 0 || !ran {
@@ -194,7 +194,7 @@ func TestUnknownCommandAndMissingState(t *testing.T) {
 		t.Errorf("--state after the command: %d %q", code, errb.String())
 	}
 	out.Reset()
-	if code := Main([]string{"help"}, env, map[string]func([]string) int{"hook": nil}); code != ExitOK ||
+	if code := Main([]string{"help"}, env, map[string]func(Env, []string) int{"hook": nil}); code != ExitOK ||
 		!strings.Contains(out.String(), "spawn") || !strings.Contains(out.String(), "hook") {
 		t.Errorf("help: %d %q", code, out.String())
 	}
@@ -392,5 +392,32 @@ func TestDirTakesOnlyARunID(t *testing.T) {
 	}
 	if code := Dir(env, []string{"--state", "/s", "--run", "../../x"}); code != ExitUsage {
 		t.Errorf("a path as a run id: %d", code)
+	}
+}
+
+// The global --state reaches the hand-written commands, before or after the command's name.
+func TestGlobalStateReachesWhoamiAndDir(t *testing.T) {
+	for _, args := range [][]string{{"--state", "/s", "dir", "--run", "r1x"}, {"dir", "--state", "/s", "--run", "r1x"}} {
+		var out, errb bytes.Buffer
+		env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+		hand := map[string]func(Env, []string) int{"dir": Dir}
+		if code := Main(args, env, hand); code != ExitOK || strings.TrimSpace(out.String()) != "/s/runs/r1x" {
+			t.Errorf("%v: %d %q %q", args, code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Dir(env, []string{"--help"}); code != ExitOK {
+		t.Errorf("dir --help: %d", code)
+	}
+	if code := Whoami(env, []string{"-h"}); code != ExitOK {
+		t.Errorf("whoami -h: %d", code)
+	}
+}
+
+// An empty bare argument still counts as the one: a second is an error, not a replacement.
+func TestAnEmptyPositionalIsStillThePositional(t *testing.T) {
+	if _, err := Request(action(t, "send"), []string{"", "extra", "--type", "done"}); err == nil {
+		t.Error(`send "" extra was accepted`)
 	}
 }

@@ -48,6 +48,10 @@ func main() {
 	flag.Var(&bins, "cli", "kind=path of an agent CLI, e.g. claude=/usr/local/bin/claude (repeatable)")
 	flag.Var(&envs, "agent-env", "KEY=VALUE added to every agent's environment (repeatable)")
 	flag.Parse()
+	// Agents run in worktrees: a relative path to the CLI would not lead anywhere there, nor name its folder.
+	if abs, err := filepath.Abs(*mesh); err == nil {
+		*mesh = abs
+	}
 	if *state == "" {
 		fmt.Fprintln(os.Stderr, "meshd: give --state or $"+client.StateEnv)
 		os.Exit(2)

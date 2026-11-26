@@ -79,8 +79,8 @@ const (
 )
 
 // Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
-// dispatched before the registry is even loaded: a hook must work, and exit 0, whatever else fails.
-func Main(args []string, env Env, hand map[string]func([]string) int) int {
+// dispatched before the registry is even loaded (each gets the environment, with a global --state as $AGENT_MESH_STATE): a hook must work, and exit 0, whatever else fails.
+func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	global := flag.NewFlagSet("mesh", flag.ContinueOnError)
 	global.SetOutput(env.Stderr)
 	state := global.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
@@ -95,7 +95,17 @@ func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	rest := global.Args()
 	if len(rest) > 0 {
 		if h, ok := hand[rest[0]]; ok {
-			return h(rest[1:])
+			// The hand-written command sees the global --state as it would $AGENT_MESH_STATE (its own --state wins).
+			henv := env
+			if *state != "" {
+				henv.Getenv = func(k string) string {
+					if k == client.StateEnv {
+						return *state
+					}
+					return env.Getenv(k)
+				}
+			}
+			return h(henv, rest[1:])
 		}
 	}
 	reg, err := registry.Mesh()
@@ -174,7 +184,7 @@ func find(reg *registry.Registry, name string) *registry.Action {
 	return nil
 }
 
-func usage(w io.Writer, reg *registry.Registry, hand map[string]func([]string) int) {
+func usage(w io.Writer, reg *registry.Registry, hand map[string]func(Env, []string) int) {
 	fmt.Fprintln(w, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]   (mesh help <command> for its flags)")
 	fmt.Fprintln(w, "\ncommands:")
 	for _, a := range reg.Actions() {
@@ -408,6 +418,7 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 	// stands among the flags: `mesh send parent --type done`, `mesh approve --tier mid <agent>`.
 	pos := positionalField(c.action.Method.Input())
 	var word string
+	haveWord := false
 	for {
 		if err := c.flags.Parse(args); err != nil {
 			return nil, err
@@ -415,12 +426,12 @@ func (c *command) parse(args []string) (*dynamicpb.Message, error) {
 		if c.flags.NArg() == 0 {
 			break
 		}
-		if pos == nil || word != "" {
+		if pos == nil || haveWord {
 			return nil, fmt.Errorf("unexpected argument %q: every field is a flag (mesh help %s)", c.flags.Arg(0), c.action.CLI)
 		}
-		word, args = c.flags.Arg(0), c.flags.Args()[1:]
+		word, haveWord, args = c.flags.Arg(0), true, c.flags.Args()[1:]
 	}
-	if word != "" {
+	if haveWord {
 		if c.given[pos.Number()] {
 			return nil, fmt.Errorf("%s is given twice, as an argument and as --%s", pos.Name(), FlagName(pos))
 		}

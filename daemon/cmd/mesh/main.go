@@ -1,6 +1,6 @@
 // Command mesh is agent-mesh's CLI for agents and users (`meshctl` until the switchover began). Its commands
 // are the action registry's, derived from the schemas at run time (internal/cli); only `hook` (what a CLI's
-// hooks run) and `version` are written by hand.
+// hooks run), `version`, `whoami` and `dir` are written by hand.
 package main
 
 import (
@@ -16,11 +16,11 @@ const Version = "0.1.0-dev"
 
 func main() {
 	env := cli.OSEnv()
-	os.Exit(cli.Main(os.Args[1:], env, map[string]func([]string) int{
-		"hook":    runHook,
-		"whoami":  func(a []string) int { return cli.Whoami(env, a) },
-		"dir":     func(a []string) int { return cli.Dir(env, a) },
-		"version": func([]string) int { fmt.Println("mesh", Version); return 0 },
+	os.Exit(cli.Main(os.Args[1:], env, map[string]func(cli.Env, []string) int{
+		"hook":    func(_ cli.Env, a []string) int { return runHook(a) },
+		"whoami":  cli.Whoami,
+		"dir":     cli.Dir,
+		"version": func(cli.Env, []string) int { fmt.Println("mesh", Version); return 0 },
 	}))
 }
 

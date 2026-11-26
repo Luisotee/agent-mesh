@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,6 +24,9 @@ func Whoami(env Env, args []string) int {
 	fs.SetOutput(env.Stderr)
 	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitOK
+		}
 		return ExitUsage
 	}
 	if fs.NArg() > 0 {
@@ -76,6 +80,9 @@ func Dir(env Env, args []string) int {
 	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	run := fs.String("run", "", "the run (default: your own)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitOK
+		}
 		return ExitUsage
 	}
 	if fs.NArg() > 0 {
